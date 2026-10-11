@@ -1,34 +1,65 @@
 # The windows of the README and the post, {p}-<name>.png each (p: L light,
 # D dark; light.txt and dark.txt set it and the theme). The launcher keeps
-# its scope from one opening to the next, Tab going 全部 → 文件 → 文件夹 → 内容,
-# and starts at 全部 when WinShun starts: this file starts and ends at 全部.
-# End before each shot, so that the query isn't selected.
-open ndbg
-sleep 800
-# 全部 → 文件
-tap 09
-sleep 500
-tap 23
-sleep 700
-matte {p}-search
-tap 1B
+# its scope from one opening to the next and starts at 全部 when WinShun
+# starts: this file starts and ends at 全部. Scopes are changed with
+# Shift+Tab (全部 → 内容 → 文件夹 → 文件), since Tab on a folder row goes
+# into the folder. End before each shot, so that the query isn't selected;
+# the agent drops leading spaces, so a space is typed with `tap 20`.
+
+# The clipboard history over Notepad (Win+Alt+V, Alt+P for the preview);
+# it doesn't take the focus, so the matte is of WinShun's window.
+notepad work\clipseed.txt
+clickfg 400 170
 sleep 600
-open 第三季度销售额
-sleep 800
-# 文件 → 文件夹 → 内容 (the content search takes a moment)
-tap 09
-sleep 300
-tap 09
+down 5B
+down 12
+tap 56
+up 12
+up 5B
+sleep 900
+chord 12 50
 sleep 1500
-tap 23
-sleep 500
-matte {p}-content
+matte {p}-clipboard winshun
+clickfg 400 170
+sleep 300
+
+# Favorites: nothing typed, 全部.
+open x
+sleep 300
+tap 08
+sleep 1200
+matte {p}-fav
 tap 1B
 sleep 600
+
+# Plugins (the bundled tools): calculator, units, colour.
+open =
+sleep 300
+tap 23
+tap 20
+type 1260*1.09
+sleep 1500
+matte {p}-plug1
+tap 1B
+sleep 600
+open 12
+sleep 300
+tap 23
+tap 20
+type inch to cm
+sleep 1500
+matte {p}-plug2
+tap 1B
+sleep 600
+open #ff7a45
+sleep 300
+tap 23
+sleep 1500
+matte {p}-plug3
+tap 1B
+sleep 600
+
 open guanliqi
-sleep 800
-# 内容 → 全部
-tap 09
 sleep 1000
 tap 23
 sleep 500
@@ -43,22 +74,42 @@ matte {p}-places
 tap 1B
 sleep 600
 
-# The clipboard history over Notepad (Win+Alt+V, Alt+P for the preview);
-# it doesn't take the focus, so the matte is of WinShun's window.
-notepad work\clipseed.txt
-clickfg 400 170
-sleep 600
-down 5B
-down 12
-tap 56
-up 12
-up 5B
-sleep 900
-chord 12 50
+# 全部 → 文件
+open ndbg
+sleep 800
+chord 10 09
+sleep 400
+chord 10 09
+sleep 400
+chord 10 09
+sleep 800
+tap 23
 sleep 700
-matte {p}-clipboard winshun
-clickfg 400 170
+matte {p}-search
+tap 1B
+sleep 600
+
+# 文件 → 全部 → 内容 (the content search takes a moment)
+open x
 sleep 300
+type 第三季度销售额
+sleep 600
+chord 10 09
+sleep 400
+chord 10 09
+sleep 1500
+tap 23
+sleep 500
+matte {p}-content
+# 内容 → 文件夹 → 文件 → 全部
+chord 10 09
+sleep 300
+chord 10 09
+sleep 300
+chord 10 09
+sleep 300
+tap 1B
+sleep 600
 
 # Settings, closed with Alt+F4.
 settings

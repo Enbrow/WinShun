@@ -1,10 +1,24 @@
-# Every shot: WinShun on the demo profile, the clipboard history filled in,
-# the light shots and the dark ones, then everything as it was.
+# Every shot: WinShun on the demo profile (its clipboard history comes with
+# it), the light shots and the dark ones, then everything as it was.
 # Run elevated: tools\screenshots\agent.ps1 scenes\all.txt
 profile start
 # the demo folder indexed (8 s are enough once the profile has its index)
 sleep 15000
-run scenes\clipboard.txt
+# WinShun put what was on the clipboard at its start on top of the demo
+# history: Delete takes it away (the notice of it goes after a few seconds)
+notepad work\clipseed.txt
+clickfg 400 170
+sleep 600
+down 5B
+down 12
+tap 56
+up 12
+up 5B
+sleep 900
+tap 2E
+sleep 6000
+clickfg 400 170
+sleep 300
 run scenes\light.txt
 run scenes\taskbar.txt
 run scenes\dark.txt

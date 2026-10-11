@@ -59,9 +59,12 @@ from art import BADGES, NAMES, PRESETS
 HERE = pathlib.Path(__file__).resolve().parent
 WORK = HERE / "work"
 
-# The README's pictures: shot name (L-<name>.png, D-<name>.png), light on
-# "dawn" and dark on "aurora", as the scene's wallpapers were.
-README = ("search", "content", "apps", "places", "dialog", "clipboard", "settings")
+# The README's pictures: image name and shots (L-<shot>.png, D-<shot>.png,
+# several joined with "+"), light on "dawn" and dark on "aurora", as the
+# scene's wallpapers were.
+README = (("search", "search"), ("content", "content"), ("apps", "apps"), ("places", "places"),
+          ("dialog", "dialog"), ("clipboard", "clipboard"), ("settings", "settings"),
+          ("favorites", "fav"), ("plugins", "plug1+plug2+plug3"))
 
 # The pages of a post after the cover: file, shot (several joined with "+":
 # short windows one under another), title, subtitle.
@@ -71,8 +74,8 @@ PAGES = (
     ("03-newest", "X-newest", "找[最新的那一版]", "Ctrl+S 按修改时间排，最新的或最早的在前"),
     ("04-apps", "L-apps", "应用和设置，[拼音直达]", "guanliqi → 任务管理器、设备管理器……"),
     ("05-web", "X-web1+X-web3+X-web4", "网站里搜，[一步到位]", "关键词加空格再打字，直接在那个网站上搜"),
-    ("06-favorites", "X-fav", "常去的地方，[收藏起来]", "不打字就排在最前；起个关键词，cw 回车就进“财务”"),
-    ("07-plugins", "X-plug1+X-plug2+X-plug3", "算、换、查，[打完就有]", "计算、单位换算、颜色……装插件还能更多"),
+    ("06-favorites", "L-fav", "常去的地方，[收藏起来]", "不打字就排在最前；起个关键词，cw 回车就进“财务”"),
+    ("07-plugins", "L-plug1+L-plug2+L-plug3", "算、换、查，[打完就有]", "计算、单位换算、颜色……装插件还能更多"),
     ("08-dialog", "L-dialog", "打开、保存时[直接搜]", "对话框下面多一个搜索框，不用一层层点文件夹"),
     ("09-clipboard", "L-clipboard", "剪贴板历史，[随叫随到]", "代替 Win+V · 拼音搜索 · 图片预览"),
     ("11-ai", "X-ai2", "让 AI [帮你找文件]", "Claude、Cursor、VS Code 一键连上，只读、按你的权限"),
@@ -98,9 +101,10 @@ def jobs(sets, shots, out):
     found = []
     if "readme" in sets:
         images = HERE.parent.parent / "docs/images"
-        for name in README:
-            found.append(("compose", (shot(f"L-{name}"), "readme", "dawn", None, None), images / f"{name}-light.png"))
-            found.append(("compose", (shot(f"D-{name}"), "readme", "aurora", None, None), images / f"{name}-dark.png"))
+        themed = lambda p, name: "+".join(f"{p}-{part}" for part in name.split("+"))
+        for image, name in README:
+            found.append(("compose", (shot(themed("L", name)), "readme", "dawn", None, None), images / f"{image}-light.png"))
+            found.append(("compose", (shot(themed("D", name)), "readme", "aurora", None, None), images / f"{image}-dark.png"))
     for kind, preset, folder in (("pages", "xhs", "pages"), ("square", "square", "pages-square")):
         if kind in sets:
             for file, name, title, subtitle in PAGES:
