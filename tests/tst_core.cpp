@@ -2858,6 +2858,25 @@ private slots:
         QCOMPARE(ties.hits.size(), std::size_t {2});
         QCOMPARE(ties.hits[0].score, ties.hits[1].score);
         QCOMPARE(ties.hits[0].id, b);
+
+        // Content matches: the better first, or by time with a time not
+        // known (1970 too) last both ways, the better match on a tie.
+        const auto row = [](std::uint32_t modified, int relevance) {
+            SearchResult r;
+            r.modified = modified;
+            r.relevance = relevance;
+            return r;
+        };
+        const SearchResult older = row(T + 100, 9), newer = row(T + 200, 1), undatedRow = row(1, 50);
+        const SearchResult twin = row(T + 200, 5);
+        QVERIFY(rankedBefore(older, newer, RankBy::Match));
+        QVERIFY(rankedBefore(newer, older, RankBy::Newest));
+        QVERIFY(rankedBefore(older, newer, RankBy::Oldest));
+        QVERIFY(rankedBefore(older, undatedRow, RankBy::Oldest));
+        QVERIFY(rankedBefore(older, undatedRow, RankBy::Newest));
+        QVERIFY(!rankedBefore(undatedRow, older, RankBy::Oldest));
+        QVERIFY(rankedBefore(twin, newer, RankBy::Newest));
+        QVERIFY(!rankedBefore(newer, twin, RankBy::Oldest));
     }
 
     void newestFiles()

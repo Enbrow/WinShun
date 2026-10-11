@@ -220,6 +220,13 @@ private:
 namespace {
 
 constexpr int kRecentOnEmptyQuery = 5; // listed with nothing typed (the history keeps more, for ranking)
+// ...or, as asked, the files written last: a list to scroll through
+// (Request::limit of them). From one folder and one tree of folders, a few
+// more than in a short list, so that a clone or an unpacked archive still
+// leaves room for the rest; the same however many are asked, so that a
+// longer list starts as the shorter one did.
+constexpr std::size_t kModifiedPerFolder = 10;
+constexpr std::size_t kModifiedPerTree = 30;
 constexpr int kRecentPromoted = 3;
 // Places in 全部: the best few. Windows lists over a thousand, and words like
 // 设置 or 显示 are in hundreds of their names.
@@ -615,6 +622,20 @@ void promoteFavorites(SearchResults& results, qint64& total, const SearchEngine:
 
 } // namespace
 
+bool rankedBefore(const SearchResult& a, const SearchResult& b, RankBy by) noexcept
+{
+    if (by != RankBy::Match) {
+        const FileTime ta = knownTime(a.modified);
+        const FileTime tb = knownTime(b.modified);
+        if (ta != tb) {
+            if (ta == 0 || tb == 0)
+                return tb == 0;
+            return by == RankBy::Newest ? ta > tb : ta < tb;
+        }
+    }
+    return a.relevance > b.relevance;
+}
+
 SearchEngine::SearchEngine(IndexService* index, AppCatalog* apps, SystemCatalog* places, QObject* parent)
     : QObject(parent)
     , m_index(index)
@@ -699,8 +720,10 @@ void SearchEngine::runNameSearch(const Job& job)
         // The files written last (in 文件夹, the folders they are in), newest first.
         // A day ahead at most: later is a clock gone wrong, not new work.
         const auto now = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
-        const NewestOptions options {.limit = kRecentOnEmptyQuery,
+        const NewestOptions options {.limit = static_cast<std::size_t>(request.limit),
             .folders = foldersOnly,
+            .perFolder = kModifiedPerFolder,
+            .perTree = kModifiedPerTree,
             .notAfter = static_cast<FileTime>(std::clamp<std::int64_t>(now + 86'400, 0, 0xFFFF'FFFF))};
         const auto index = m_index->index();
         const auto lock = index->readLock();
@@ -755,7 +778,7 @@ void SearchEngine::runNameSearch(const Job& job)
     } else {
         const NameMatcher matcher(query);
         const auto index = m_index->index();
-        const RankBy rankBy = request.scope == Scope::All ? RankBy::Match : request.rankBy;
+        const RankBy rankBy = request.rankBy;
         // A path typed or pasted ("C:\Users\me\Tencent Files\x"): what that
         // folder holds and is so named, from the disk as Explorer lists it,
         // then what lies deeper in it and is so named, from the index.
@@ -975,6 +998,7 @@ void SearchEngine::runContentSearch(const Job& job)
     timer.start();
     const Request& request = job.request;
     const QStringList terms = contentTerms(request.text);
+    const bool byTime = request.rankBy != RankBy::Match;
     emit resultsReady(job.id, {}, 0, 0);
     if (terms.isEmpty()) {
         emit contentProgress(job.id, 0, 0, true);
@@ -988,11 +1012,14 @@ void SearchEngine::runContentSearch(const Job& job)
     // knows without opening them: those it says match are read first (for
     // the line and snippet), then the ones it does not know, your own files
     // before the rest. Those are read whole and handed to the content index
-    // (ContentIndexer::Intake): the next search knows them.
+    // (ContentIndexer::Intake): the next search knows them. Ranked by time,
+    // the newest (or oldest) first within those two, so that the matches
+    // kept when there are too many are the ones listed first.
     struct Candidate {
         EntryId id;
         std::uint8_t order; // lower first
         bool indexed; // the content index knows it
+        FileTime modified; // knownTime: 0 when not known
     };
     const ContentFilter filter {ExtensionFilter(request.contentDocuments
                                                     ? request.contentExtensions + documentExtensions()
@@ -1060,7 +1087,8 @@ void SearchEngine::runContentSearch(const Job& job)
                     priority = 2;
                 else if (inProfile(id))
                     priority = 0;
-                found[c].push_back({id, static_cast<std::uint8_t>(likely ? priority : 4 + priority), indexed});
+                found[c].push_back({id, static_cast<std::uint8_t>(likely ? priority : 4 + priority), indexed,
+                    byTime ? knownTime(index->modified(id)) : FileTime {0}});
             }
         });
         if (isStale(job.id))
@@ -1074,8 +1102,22 @@ void SearchEngine::runContentSearch(const Job& job)
             ruledOut += ruledOutOf[c];
         }
     }
-    std::stable_sort(candidates.begin(), candidates.end(),
-        [](const Candidate& a, const Candidate& b) { return a.order < b.order; });
+    if (byTime) {
+        const bool newest = request.rankBy == RankBy::Newest;
+        std::stable_sort(candidates.begin(), candidates.end(), [newest](const Candidate& a, const Candidate& b) {
+            if ((a.order < 4) != (b.order < 4))
+                return a.order < 4;
+            if (a.modified != b.modified) {
+                if (a.modified == 0 || b.modified == 0)
+                    return b.modified == 0;
+                return newest ? a.modified > b.modified : a.modified < b.modified;
+            }
+            return a.order < b.order;
+        });
+    } else {
+        std::stable_sort(candidates.begin(), candidates.end(),
+            [](const Candidate& a, const Candidate& b) { return a.order < b.order; });
+    }
 
     const ContentScanner scanner(terms);
     const std::int64_t now = QDateTime::currentSecsSinceEpoch();
@@ -1101,8 +1143,9 @@ void SearchEngine::runContentSearch(const Job& job)
         }
         if (stale())
             return;
-        // Best first (the launcher places them among the rows it has).
-        std::ranges::stable_sort(out, std::ranges::greater {}, &SearchResult::relevance);
+        // In the list's order (the launcher places them among the rows it has).
+        std::ranges::stable_sort(
+            out, [&](const SearchResult& a, const SearchResult& b) { return rankedBefore(a, b, request.rankBy); });
         if (!out.isEmpty())
             emit contentResults(job.id, out);
         emit contentProgress(job.id, scanned.load(), total, finished);

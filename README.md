@@ -46,9 +46,9 @@
 - **支持拼音和首字母**：`bg`、`baogao`、`baog` 都能找到“报告”，`ndbg` 找到“年度报告”；多音字按常用读音（“银行”用 `yh` 或 `yinhang`）。
 - **搜整台电脑**：所有本地磁盘；U 盘和移动硬盘可以在设置里打开。
 - **也搜内网的共享文件夹**：公司或家里 NAS、别的电脑共享出来的文件夹，在设置里加上就和本机文件一起搜，一样快；服务器关机时收录过的照样能搜到，标着“离线”。需要密码的点“登录…”，用的是 Windows 自己的凭据管理器。
-- **排序懂你**：自己的文件排在前面，系统目录、程序目录、`node_modules`、`.git` 排在后面；最近打开过的排得更前。不输入时列出最近打开的 5 项，底栏一点（或 `Ctrl+S`）换成最近修改的 5 个文件：编译输出、缓存、日志、下载到一半的这些程序自己写的文件不算，只列你在做的。名字和输入的完全一样的（输入 `readme` 时的 `README.md` 和 readme 文件夹）排在最前；文件和文件夹分开排，默认文件在前，设置里可以改成文件夹在前；匹配得一样好的，最近修改的在前。
+- **排序懂你**：自己的文件排在前面，系统目录、程序目录、`node_modules`、`.git` 排在后面；最近打开过的排得更前。不输入时列出最近打开的 5 项，底栏一点（或 `Ctrl+S`）换成最近修改的文件（往下滚动接着列出）：编译输出、缓存、日志、下载到一半的这些程序自己写的文件不算，只列你在做的。名字和输入的完全一样的（输入 `readme` 时的 `README.md` 和 readme 文件夹）排在最前；文件和文件夹分开排，默认文件在前，设置里可以改成文件夹在前；匹配得一样好的，最近修改的在前。
 - **只找文件夹**：选中 **文件** 范围时旁边出现 **文件夹**，点它（或接着按 `Tab`）就只列文件夹。
-- **修改日期**：每个文件和文件夹的名字右边写着上次修改的时间（今天 14:32、昨天、周三、10月3日……），鼠标停在上面看完整日期。默认最匹配的在前；在 **文件** 和 **文件夹** 里，底栏可以改成按修改时间排，最新的在前或最早的在前（`Ctrl+S` 轮换），找最新的那一版、或者最早的原稿都方便。选过的会记住。
+- **修改日期**：每个文件和文件夹的名字右边写着上次修改的时间（今天 14:32、昨天、周三、10月3日……），鼠标停在上面看完整日期。默认最匹配的在前；底栏左边可以改成按修改时间排，最新的在前或最早的在前（`Ctrl+S` 轮换），文件内容匹配也一起排（**全部** 里应用、设置和网址仍在最前），找最新的那一版、或者最早的原稿都方便。选过的会记住。
 - **数字键直接打开**：按住 `Ctrl` 片刻，每行右边标出序号，按 `Ctrl+1`～`Ctrl+9` 打开看得见的第几行，不用先选。设置里可以改成 `Alt+1`～`Alt+9` 或关掉。别的程序把这些键设成了全局快捷键（截图工具常用 `Ctrl+1`）也没关系：搜索框在前面时归 Win顺，其他时候照旧归那个程序，设置里会写出被占用的是哪几个。
 - **拖出去就能用**：按住搜到的文件或文件夹拖出去，放进微信、QQ 的聊天框、邮件、资源管理器的文件夹或任何能收文件的程序，和从资源管理器里拖一样；`Ctrl` 点选几项一起拖。拖进文件夹是复制，不会把原文件移走。
 - **索引实时更新**：文件改名、新建、删除马上就能搜到。插上新磁盘自动收录，拔掉的自动移除；“安全删除硬件”时 Win顺 会先放开这块磁盘，不会提示“设备正在使用”。
@@ -207,7 +207,7 @@
 | `Ctrl+Shift+C` | 复制完整路径 |
 | `Ctrl+1`～`Ctrl+9` | 打开看得见的第几行；按住 `Ctrl` 片刻显示序号（在对话框旁的搜索框里是转到那一行；设置里可以改成 `Alt`） |
 | `Tab` / `Shift+Tab` | 切换搜索范围（全部 / 文件 / 文件夹 / 内容） |
-| `Ctrl+S` | 不输入时：最近打开的 ⇄ 最近修改的；在“文件”里：最匹配 → 最新在前 → 最早在前 |
+| `Ctrl+S` | 不输入时：最近打开的 ⇄ 最近修改的；输入后：最匹配 → 最新在前 → 最早在前 |
 | 菜单键 / `Shift+F10` / 右键 | 更多操作 |
 | `Esc` | 关闭（选中了多项时先取消选择） |
 | `Ctrl+G`（在“打开”“另存为”对话框里） | 转到文件管理器（资源管理器、Total Commander、Directory Opus）正在显示的文件夹 |
@@ -343,7 +343,7 @@ The interface comes in **English and Simplified Chinese**. It follows the Window
 - **Shared folders on your network too**: add a folder shared by a NAS or another computer in Settings, and it is searched with your own files, just as fast. While the server is off, what was read from it can still be found, marked offline. One that needs a password takes a click on **Sign in…**, kept in Windows' own Credential Manager.
 - **Sensible ranking**: your own files first; system and program folders, `node_modules` and `.git` last. Recently opened items rank higher and are listed when the box is empty. Names that are just what you typed (`README.md` and a readme folder for `readme`) come first; files and folders are listed apart, files first unless Settings say folders first; of equal matches, the one changed last comes first.
 - **Folders only**: with **文件 (Files)** chosen, **文件夹 (Folders)** shows beside it; click it (or press `Tab` again) to list folders alone.
-- **Date modified**: each file and folder says when it was last changed (Today 2:32 PM, Yesterday, Wed, Oct 3…), right of its name; point at it for the full date. Best match comes first; in Files and Folders the switch at the bottom sorts by date modified instead, newest or oldest first (`Ctrl+S` steps through), handy for the latest version of something or the first draft. Your choice is remembered. With nothing typed, the list shows what you opened lately, or (switch at the bottom, `Ctrl+S`) the files you changed lately, leaving out what programs write on their own: build output, caches, logs, unfinished downloads.
+- **Date modified**: each file and folder says when it was last changed (Today 2:32 PM, Yesterday, Wed, Oct 3…), right of its name; point at it for the full date. Best match comes first; the switch at the bottom left sorts by date modified instead, newest or oldest first (`Ctrl+S` steps through), content matches included (in All, apps, settings and web shortcuts stay on top), handy for the latest version of something or the first draft. Your choice is remembered. With nothing typed, the list shows what you opened lately, or (switch at the bottom, `Ctrl+S`) the files you changed lately (scroll down for more), leaving out what programs write on their own: build output, caches, logs, unfinished downloads.
 - **Number keys**: hold `Ctrl` for a moment and the rows show their numbers; `Ctrl+1`…`Ctrl+9` opens the nth row in view. Settings can make it `Alt+1`…`Alt+9`, or turn it off. Other programs holding these as global hotkeys (screenshot tools like `Ctrl+1`) are no trouble: while the search box is in front they are WinShun's, at other times that program's, and Settings name the ones taken.
 - **Drag them out**: hold a file or folder in the results and drag it into a chat (WeChat, QQ), a mail, a folder in File Explorer or any program that takes files, as from Explorer; `Ctrl`-click a few to drag them together. Dropped on a folder they are copied, never moved away.
 - **Always up to date**: renamed, new and deleted files show up immediately. New drives are added when plugged in and removed when unplugged; “Safely Remove Hardware” works, because WinShun lets go of the drive first.

@@ -20,7 +20,7 @@ enum class Scope : int { All = 0, Files = 1, Content = 2, Folders = 3 };
 // own best matches, so the second is not crowded out by the first.
 enum class KindOrder : std::uint8_t { FilesFirst, FoldersFirst };
 
-// How name matches rank: by how well they match (a tie goes to the one
+// How files and folders rank, found by name or content: by how well they match (a tie goes to the one
 // written last), or by when they were last written, newest or oldest first.
 // Not known when (0): last either way.
 enum class RankBy : std::uint8_t { Match, Newest, Oldest };

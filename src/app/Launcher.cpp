@@ -21,7 +21,6 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QLocale>
-#include <QSpan>
 #include <QPointer>
 #include <QScreen>
 #include <QSet>
@@ -56,35 +55,34 @@ constexpr int kContentThreads = 16;
 
 constexpr qsizetype kShownExtensions = 3; // named in the search box and the status line
 
-QString number(qint64 n)
-{
-    return QLocale().toString(n);
-}
+// Rows asked for at a time: names, content matches, files written lately.
+// Scrolled to the end, a page more (loadMore), up to kMaxPages.
+constexpr int kPage = 256;
+constexpr int kMaxPages = 16;
 
-// A count rounded to what a glance takes in: 323 万, 3.2M. `unit`: whether
-// it ends in one (no space before the noun then, in Chinese).
-QString roughNumber(qint64 n, bool* unit)
+// Ranked by time: where a content match goes among `count` rows (`at(i)`
+// reads one). Among the files, name and content matches alike, in their
+// order; not among apps, places, web shortcuts, plugins' rows or folders,
+// and never above `floor`. With no file at or below it: before the folders
+// at the end (files first), else at the end.
+template <typename At>
+int timePlace(int count, At at, const SearchResult& r, int floor, RankBy by, KindOrder kindOrder)
 {
-    *unit = false;
-    const QLocale locale;
-    struct Unit {
-        qint64 size;
-        QStringView name;
-    };
-    static constexpr Unit chinese[] {{100'000'000, u" 亿"}, {10'000, u" 万"}};
-    static constexpr Unit english[] {{1'000'000'000, u"B"}, {1'000'000, u"M"}, {1'000, u"K"}};
-    for (const Unit& u : locale.language() == QLocale::Chinese ? QSpan<const Unit>(chinese) : QSpan<const Unit>(english)) {
-        if (n < u.size)
+    int lastFile = -1;
+    for (int row = floor; row < count; ++row) {
+        const SearchResult& x = at(row);
+        if (x.isApp() || x.isDir)
             continue;
-        const double value = double(n) / u.size;
-        QString text = locale.toString(value, 'f', value < 100 ? 1 : 0);
-        const QString zero = locale.decimalPoint() + locale.zeroDigit();
-        if (text.endsWith(zero))
-            text.chop(zero.size());
-        *unit = true;
-        return text + u.name;
+        if (rankedBefore(r, x, by))
+            return row;
+        lastFile = row;
     }
-    return number(n);
+    if (lastFile >= 0)
+        return lastFile + 1;
+    int row = count;
+    while (kindOrder == KindOrder::FilesFirst && row > floor && at(row - 1).isDir)
+        --row;
+    return row;
 }
 
 // Whether the server of a network path answers (share::reachable: a few
@@ -280,6 +278,27 @@ bool Launcher::busy() const
         || (m_contentRunning && !m_quiet);
 }
 
+qreal Launcher::progress() const
+{
+    // While the index is still being built, that is the work going on.
+    if (!m_contentRunning || m_quiet || m_contentTotal <= 0 || m_index->state() != IndexService::State::Ready)
+        return -1;
+    return std::clamp(qreal(m_contentScanned) / m_contentTotal, 0.0, 1.0);
+}
+
+bool Launcher::moreAvailable() const
+{
+    return (m_moreNames || m_moreContent) && m_pages < kMaxPages && m_haveResults && !m_replacePending && !m_keyword;
+}
+
+void Launcher::loadMore()
+{
+    if (!moreAvailable() || searching() || !m_window || !m_window->isVisible())
+        return;
+    ++m_pages;
+    search(true);
+}
+
 // The first few content extensions, ".txt / .md / .log": the full default
 // list would overflow the search box.
 QString Launcher::shownExtensions() const
@@ -389,8 +408,24 @@ void Launcher::setSort(Sort sort)
         return;
     m_sort = sort;
     emit sortChanged();
-    if (m_window && m_window->isVisible() && (m_scope == Files || m_scope == Folders) && !m_query.trimmed().isEmpty())
-        search(); // hidden: handleShown() searches
+    if (!m_window || !m_window->isVisible() || m_query.trimmed().isEmpty() || m_keyword)
+        return; // hidden: handleShown() searches
+    // 内容, every match on screen: put in the other order, not searched again
+    // (that would read the files once more).
+    if (m_scope == Content && m_shownScope == Content && m_haveResults && !m_replacePending && m_scanComplete
+        && !m_contentRunning && m_contentScanned >= m_contentTotal && m_shownText == m_query.trimmed()) {
+        SearchResults rows;
+        rows.reserve(m_results.count());
+        for (int row = 0; row < m_results.count(); ++row)
+            rows.append(*m_results.at(row));
+        const RankBy by = rankBy();
+        std::ranges::stable_sort(rows, [by](const SearchResult& a, const SearchResult& b) { return rankedBefore(a, b, by); });
+        m_replacePending = true; // new rows: the first is selected
+        showRows(std::move(rows), {});
+        refreshStatus();
+        return;
+    }
+    search();
 }
 
 void Launcher::setStartList(StartList list)
@@ -405,7 +440,7 @@ void Launcher::setStartList(StartList list)
 
 RankBy Launcher::rankBy() const
 {
-    return m_scope == Files || m_scope == Folders ? static_cast<RankBy>(m_sort) : RankBy::Match;
+    return static_cast<RankBy>(m_sort);
 }
 
 bool Launcher::showsStartList() const
@@ -418,10 +453,8 @@ void Launcher::switchOrder()
     // The footer's switch shows what it is now; the status keeps its figures.
     if (showsStartList())
         setStartList(m_startList == RecentlyOpened ? RecentlyModified : RecentlyOpened);
-    else if (m_scope == Files || m_scope == Folders)
+    else if (!m_keyword) // a command's list is in the plugin's order
         setSort(static_cast<Sort>((m_sort + 1) % 3));
-    else // 全部 and 内容 rank by match
-        flash(tr("在“文件”里可以按修改时间排序"));
 }
 
 void Launcher::setComposing(bool composing)
@@ -547,13 +580,16 @@ void Launcher::handleHidden()
     m_pluginPending.clear();
     m_pluginWait.stop();
     m_pluginSlow = false;
+    // Opened again, a page, as quick as ever; more as it is scrolled again.
+    m_pages = 1;
+    m_loadingMore = false;
 }
 
 // Nothing is cleared up front: the rows on screen stay until results replace
 // them. Searching what is already shown again (the window reopens, the index
 // changes) is a refresh: the rows are updated in place, and content matches
 // from the last scan stay until the new scan has had a chance to find them.
-void Launcher::search()
+void Launcher::search(bool more)
 {
     m_flash.clear();
     m_contentDebounce.stop();
@@ -569,6 +605,14 @@ void Launcher::search()
         && rankBy() == m_shownRankBy && m_kindOrder == m_shownKindOrder && keywordKey == m_shownKeyword
         && (!text.isEmpty() || m_startList == m_shownStartList);
     m_replacePending = !m_refresh;
+    // A page more of what is listed, or (anything else asking again) the
+    // pages there are; a new list starts with one.
+    m_loadingMore = more && m_refresh;
+    if (!m_refresh) {
+        m_pages = 1;
+        m_moreNames = false;
+        m_moreContent = false;
+    }
     // The plugins are asked first: a keyword makes the list theirs, and
     // then neither names nor contents are searched (nothing waits for them
     // either way: the window shows with whatever it has). As typed: the
@@ -579,7 +623,7 @@ void Launcher::search()
     // Quietly, unless the rows came from a content scan that was cut short
     // (window hidden mid-scan): that one still shows as the search it is.
     const bool scans = m_scope == Content || m_withContent;
-    m_quiet = m_refresh && (!scans || m_scanComplete);
+    m_quiet = m_refresh && (!scans || m_scanComplete) && !m_loadingMore;
     if (!m_refresh)
         m_scanComplete = false;
     if (!m_quiet) { // a quiet refresh keeps showing the last scan's figures
@@ -607,8 +651,12 @@ void Launcher::search()
             m_haveResults = false;
             emit resultsReplaced();
         } else if (m_refresh) {
-            for (int row = 0; row < m_results.count(); ++row)
-                m_unconfirmed.insert(m_results.at(row)->path);
+            // Asked again, the rows not found again go; for a page more,
+            // what is listed stays (the new scan finds those first).
+            if (!m_loadingMore) {
+                for (int row = 0; row < m_results.count(); ++row)
+                    m_unconfirmed.insert(m_results.at(row)->path);
+            }
             startContentSearch(); // at once: nobody is typing
         } else {
             m_contentDebounce.start();
@@ -623,6 +671,7 @@ void Launcher::search()
     request.kindOrder = m_kindOrder;
     request.rankBy = rankBy();
     request.startList = static_cast<ws::StartList>(m_startList);
+    request.limit = kPage * m_pages;
     if (m_recordHistory)
         request.history = m_history->items();
     request.web = m_web;
@@ -700,6 +749,8 @@ void Launcher::startContentSearch()
     SearchEngine::Request request;
     request.text = m_scope == Content ? m_query.trimmed() : contentNeedle();
     request.scope = ws::Scope::Content;
+    request.rankBy = rankBy();
+    request.maxContentResults = kPage * m_pages;
     request.contentExtensions = m_contentExtensions;
     request.contentSizeLimits = m_contentSizeLimits;
     request.contentDocuments = m_contentDocuments;
@@ -728,18 +779,49 @@ void Launcher::onResults(quint64 id, const SearchResults& results, qint64 total,
         return; // the (empty) start of a content scan: rows come with contentResults
     }
 
+    // More to list than came: names beyond the page, or the files written
+    // lately filling it (the favorites before them not counted).
+    if (m_query.trimmed().isEmpty()) {
+        m_moreNames = m_startList == RecentlyModified
+            && std::ranges::count_if(results, [](const SearchResult& r) { return !r.favorite; }) >= kPage * m_pages;
+    } else {
+        m_moreNames = total > results.size();
+    }
+    if (m_loadingMore) {
+        // A page more: what is not listed yet goes after the rows, in its
+        // order; nothing listed moves (it is where its user is looking).
+        SearchResults fresh;
+        for (const SearchResult& r : results) {
+            if (!r.isPlugin() && m_results.indexOf(r.path) < 0)
+                fresh.append(r);
+        }
+        m_results.append(fresh);
+        if (m_withContent)
+            startContentSearch(); // its page more too
+        else
+            m_loadingMore = false;
+        refreshStatus();
+        return;
+    }
+
     SearchResults rows = results;
     if (m_refresh && m_withContent) {
         // Keep last scan's content matches below the names until the new
         // scan finds them again (or finishes without them), rather than
         // dropping them only to add them back a moment later.
+        // By time, each among the files where it belongs.
         QSet<QString> names;
         for (const SearchResult& r : rows)
             names.insert(r.path);
+        const RankBy by = rankBy();
         for (int row = 0; row < m_results.count(); ++row) {
             const SearchResult* r = m_results.at(row);
             if (r->line > 0 && !names.contains(r->path)) {
-                rows.append(*r);
+                const int at = by == RankBy::Match
+                    ? static_cast<int>(rows.size())
+                    : timePlace(static_cast<int>(rows.size()), [&](int i) -> const SearchResult& { return rows.at(i); },
+                          *r, 0, by, m_kindOrder);
+                rows.insert(at, *r);
                 m_unconfirmed.insert(r->path);
             }
         }
@@ -792,20 +874,31 @@ void Launcher::onContentResults(quint64 id, const SearchResults& results)
     }
     if (m_scope != Content)
         m_contentHits += static_cast<int>(fresh.size());
+    if (m_loadingMore) { // a page more: after the rows, as they come (loadMore)
+        m_results.append(fresh);
+        return;
+    }
     // Each among the content rows by how well it matches (they come best
-    // first, a tie after those already there). Never above the row the
-    // keyboard is on, nor the rows above it: they stay where they are seen;
-    // on the first row, a better match takes its place.
+    // first, a tie after those already there); by time, among the files
+    // (timePlace). Never above the row the keyboard is on, nor the rows
+    // above it: they stay where they are seen; on the first row, a better
+    // match takes its place.
     const int current = m_currentRow;
     const int floor = current > 0 ? current + 1 : 0;
+    const RankBy by = rankBy();
     bool aboveFirst = false;
     for (const SearchResult& r : fresh) {
         int row = m_results.count();
-        while (row > floor) {
-            const SearchResult* before = m_results.at(row - 1);
-            if (before->line == 0 || before->relevance >= r.relevance)
-                break; // a name match (they come first), or as good
-            --row;
+        if (by != RankBy::Match) {
+            row = timePlace(
+                row, [&](int i) -> const SearchResult& { return *m_results.at(i); }, r, floor, by, m_kindOrder);
+        } else {
+            while (row > floor) {
+                const SearchResult* before = m_results.at(row - 1);
+                if (before->line == 0 || before->relevance >= r.relevance)
+                    break; // a name match (they come first), or as good
+                --row;
+            }
         }
         aboveFirst |= row == 0 && current == 0;
         m_results.insert(row, r);
@@ -825,6 +918,9 @@ void Launcher::onContentProgress(quint64 id, int scanned, int total, bool finish
     m_contentTotal = total;
     if (finished) {
         m_scanComplete = true;
+        m_loadingMore = false;
+        // Stopped at its limit before every file was read: more to list.
+        m_moreContent = scanned < total;
         if (m_replacePending)
             showRows({}, {}); // 内容, new query: nothing found
         if (!m_unconfirmed.isEmpty()) { // kept from the last scan, but gone now
@@ -839,10 +935,11 @@ void Launcher::onContentProgress(quint64 id, int scanned, int total, bool finish
 
 void Launcher::refreshStatus()
 {
+    // Only what is worth reading: the left of the footer is the order's
+    // switch, and how far a content scan is shows on the divider above
+    // (progress()). Not the figures of a search that went as it should.
     const auto state = m_index->state();
     const int items = static_cast<int>(m_index->itemCount());
-    // Waiting for a pause in typing counts too: "0 个结果 · 9 毫秒" would read as final.
-    const bool contentPending = !m_quiet && (m_contentRunning || m_contentDebounce.isActive());
     QString s;
     if (m_query.trimmed().isEmpty() || (!m_haveResults && !m_contentRunning)) {
         switch (state) {
@@ -855,55 +952,25 @@ void Launcher::refreshStatus()
             if (const QString drives = readingDrives(*m_index); !drives.isEmpty())
                 s += tr(" · 正在读 %1").arg(drives); // a hard disk takes a while: which one it is
             break;
-        case IndexService::State::Ready: {
-            bool unit = false;
-            const QString count = roughNumber(items, &unit);
-            s = unit ? tr("已索引 %1项", nullptr, items).arg(count) : tr("已索引 %1 项", nullptr, items).arg(count);
-            if (const QString drives = readingDrives(*m_index); !drives.isEmpty())
-                s += tr(" · 后台同步 %1").arg(drives);
-            else if (m_index->isRefreshing())
-                s += tr(" · 后台同步中");
+        case IndexService::State::Ready:
             break;
         }
-        }
     } else if (m_scope == Content) {
-        if (contentPending)
-            s = m_contentTotal > 0 ? tr("正在搜索内容… %2 / %3 · %1")
-                                         .arg(contentFilesLabel(), number(m_contentScanned), number(m_contentTotal))
-                                   : tr("正在搜索 %1内容…").arg(contentFilesLabel());
-        else if (m_contentScanned < m_contentTotal && m_results.count() > 0)
-            s = tr("已显示前 %Ln 个包含该文字的文件（共 %1 个 %2）", nullptr, m_results.count())
-                    .arg(number(m_contentTotal), contentFilesLabel());
-        else
-            s = tr("%Ln 个文件包含该文字 · 共查找 %1 个 %2", nullptr, m_results.count())
-                    .arg(number(m_contentTotal), contentFilesLabel());
+        // Nothing to say: the divider shows the scan, and more matches than
+        // listed come as the list is scrolled (loadMore).
     } else if (m_keyword) {
-        // The command's list: nothing of the wait for the first 150 ms (the
-        // last figures stay), then who is being waited for; its failure for
-        // a few seconds.
+        // The command's list: nothing of the wait for the first 150 ms, then
+        // who is being waited for; its failure for a few seconds.
         if (!m_pluginError.isEmpty())
             s = m_pluginError;
-        else if (!m_pluginPending.isEmpty())
-            s = m_pluginSlow ? pluginWaiting() : m_status;
-        else {
-            const qint64 ms = m_pluginElapsedUs / 1000;
-            s = tr("%Ln 个结果 · %1 毫秒", nullptr, m_results.count()).arg(ms < 1 ? u"<1"_s : number(ms));
-        }
+        else if (!m_pluginPending.isEmpty() && m_pluginSlow)
+            s = pluginWaiting();
     } else {
-        const qint64 ms = m_elapsedUs / 1000;
-        const int results = static_cast<int>(m_totalMatches + m_contentHits) + (m_merge ? m_merge->pluginRows() : 0);
+        QStringList parts;
         if (m_searchSlow && m_replacePending)
-            s = tr("正在搜索…"); // the figures would be the last query's
-        else if (contentPending)
-            s = m_contentTotal > 0 ? tr("%Ln 个结果 · 正在搜索内容… %1 / %2", nullptr, results)
-                                         .arg(number(m_contentScanned), number(m_contentTotal))
-                                   : tr("%Ln 个结果 · 正在搜索内容…", nullptr, results);
-        else if (m_contentHits > 0)
-            s = tr("%Ln 个结果 · 其中 %1 个是文件内容匹配", nullptr, results).arg(number(m_contentHits));
-        else
-            s = tr("%Ln 个结果 · %1 毫秒", nullptr, results).arg(ms < 1 ? u"<1"_s : number(ms));
+            parts.append(tr("正在搜索…")); // the rows on screen are the last query's
         if (state == IndexService::State::Building)
-            s += tr(" · 索引尚未建完");
+            parts.append(tr("索引尚未建完"));
         // Plugins pushing into the list: who is still being waited for
         // (once it takes a while), who gave up.
         if (!m_pluginPending.isEmpty() && m_pluginSlow) {
@@ -911,10 +978,11 @@ void Launcher::refreshStatus()
             for (const QString& id : m_pluginPending)
                 names.append(pluginName(id));
             names.sort();
-            s += tr(" · 正在等 %1…").arg(names.join(tr("、")));
+            parts.append(tr("正在等 %1…").arg(names.join(tr("、"))));
         }
         if (!m_pluginError.isEmpty())
-            s += u" · "_s + m_pluginError;
+            parts.append(m_pluginError);
+        s = parts.join(u" · "_s);
     }
     if (const int selected = m_results.selectedCount(); selected > 0)
         s = tr("已选择 %Ln 项", nullptr, selected);

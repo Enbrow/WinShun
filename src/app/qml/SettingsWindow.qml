@@ -1761,7 +1761,7 @@ Window {
                 SettingRow {
                     title: qsTr("排序")
                     keywords: qsTr("排序;修改时间;修改日期;最新;最早;升序;降序;sort;date").split(";")
-                    description: qsTr("“文件”里的结果怎么排；底栏也能切换（Ctrl+S）")
+                    description: qsTr("文件和内容匹配怎么排（“全部”里应用和设置仍在前面）；底栏左边也能切换（Ctrl+S）")
 
                     ScopeTabs {
                         labels: [qsTr("最匹配"), qsTr("最新在前"), qsTr("最早在前")]
@@ -1773,7 +1773,7 @@ Window {
                 SettingRow {
                     title: qsTr("不输入时显示")
                     keywords: qsTr("最近;最近打开;最近修改;最近使用;历史;recent").split(";")
-                    description: qsTr("打开搜索框还没输入时列出的 5 项；底栏也能切换（Ctrl+S）")
+                    description: qsTr("打开搜索框还没输入时列出什么：最近打开的 5 项，或最近修改的文件（往下滚动接着列出）；底栏也能切换（Ctrl+S）")
 
                     ScopeTabs {
                         labels: [qsTr("最近打开"), qsTr("最近修改")]

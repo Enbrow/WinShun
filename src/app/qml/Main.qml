@@ -594,6 +594,20 @@ Window {
                 reuseItems: true
                 onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
 
+                // Scrolled, or moved with the keys, to the end: a page more if
+                // there is one (Launcher.loadMore), added after the rows. Asked
+                // again once a search ends, in case it brought nothing new.
+                function loadMoreAtEnd() {
+                    if (atYEnd && count > 0 && window.launcher.moreAvailable && !window.launcher.searching)
+                        window.launcher.loadMore()
+                }
+                // Later, not from within the launcher's own signal (a search inside a search).
+                onAtYEndChanged: Qt.callLater(loadMoreAtEnd)
+                Connections {
+                    target: window.launcher
+                    function onStatusChanged() { Qt.callLater(list.loadMoreAtEnd) }
+                }
+
                 delegate: ResultRow {
                     id: resultRow
                     width: list.width

@@ -3326,6 +3326,25 @@ int main(int argc, char* argv[])
             best = std::min(best, static_cast<double>(t.nsecsElapsed()) / 1e6);
         }
         std::printf("\nnewest 5 files: %.1f ms (best of 10)\n", best);
+        // The list to scroll: a page of 256, 4 and 16 of them (the launcher's
+        // kPage, kMaxPages; SearchEngine's caps per folder and tree).
+        for (const std::size_t limit : {std::size_t {256}, std::size_t {1024}, std::size_t {4096}}) {
+            best = 1e9;
+            std::size_t listed = 0;
+            std::uint64_t hash = 14695981039346656037ull; // of the ids in order: the same list or not
+            for (int run = 0; run < 10; ++run) {
+                t.start();
+                const ws::NewestOutput out
+                    = ws::newestFiles(*index, {.limit = limit, .perFolder = 10, .perTree = 30}, pool, {});
+                best = std::min(best, static_cast<double>(t.nsecsElapsed()) / 1e6);
+                listed = out.hits.size();
+                hash = 14695981039346656037ull;
+                for (const ws::NameHit& hit : out.hits)
+                    hash = (hash ^ hit.id) * 1099511628211ull;
+            }
+            std::printf("newest %zu files: %zu listed (%016llx), %.1f ms (best of 10)\n", limit, listed,
+                static_cast<unsigned long long>(hash), best);
+        }
         return 0;
     }
     if (args.removeAll(u"--stats"_s) > 0) {

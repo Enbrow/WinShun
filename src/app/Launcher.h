@@ -48,6 +48,13 @@ class Launcher : public QObject {
     Q_PROPERTY(ws::ResultModel* results READ results CONSTANT FINAL)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusChanged FINAL)
     Q_PROPERTY(bool busy READ busy NOTIFY statusChanged FINAL)
+    // Scrolled to the end, there is more to list (loadMore()): names beyond
+    // those listed, a content scan stopped at its limit, more files written
+    // lately.
+    Q_PROPERTY(bool moreAvailable READ moreAvailable NOTIFY statusChanged FINAL)
+    // How far the content scan is, 0–1 (the footer's divider fills); -1 while
+    // that is not known (busy: the divider shows work going on).
+    Q_PROPERTY(qreal progress READ progress NOTIFY statusChanged FINAL)
     Q_PROPERTY(bool searching READ searching NOTIFY statusChanged FINAL)
     Q_PROPERTY(bool stale READ stale NOTIFY statusChanged FINAL)
     Q_PROPERTY(QString placeholder READ placeholder NOTIFY scopeChanged FINAL)
@@ -61,8 +68,9 @@ class Launcher : public QObject {
     // typed: for each {name, icon}. Read again each time it is shown; none
     // while history is not kept.
     Q_PROPERTY(QVariantList frequentApps READ frequentApps NOTIFY frequentAppsChanged FINAL)
-    // 文件 and 文件夹: best match first, or by when last written (the
-    // footer's switch, Ctrl+S).
+    // Files and folders, and content matches: best match first, or by when
+    // last written (the footer's switch, Ctrl+S). 全部 keeps its apps,
+    // places and web shortcuts first.
     Q_PROPERTY(Sort sort READ sort WRITE setSort NOTIFY sortChanged FINAL)
     // With nothing typed: what was opened last, or the files written last
     // (the footer's switch there, Ctrl+S).
@@ -165,6 +173,12 @@ public:
     ResultModel* results() { return &m_results; }
     QString statusText() const { return m_flash.isEmpty() ? m_status : m_flash; }
     bool busy() const;
+    qreal progress() const;
+    bool moreAvailable() const;
+    // The list scrolled to its end: the same search again for a page more,
+    // what it finds that is not listed yet added after the rows (none of
+    // them moves).
+    Q_INVOKABLE void loadMore();
     // More results for the query are on the way. Not while quietly
     // refreshing results that were already complete.
     bool searching() const
@@ -199,8 +213,8 @@ public:
     void setSort(Sort sort);
     StartList startList() const { return m_startList; }
     void setStartList(StartList list);
-    // Ctrl+S: with nothing typed, the other start list; in 文件 and 文件夹,
-    // the next order (best match, newest, oldest). Elsewhere says where it can.
+    // Ctrl+S: with nothing typed, the other start list; else the next order
+    // (best match, newest, oldest).
     Q_INVOKABLE void switchOrder();
     bool showModified() const { return m_showModified; }
     QString numberKeys() const { return m_numberKeys; }
@@ -303,7 +317,7 @@ private:
         QString icon; // an image URL
     };
 
-    void search();
+    void search(bool more = false); // more: a page more (loadMore)
     // The command whose keyword opens the text ("kill note"), if any: what
     // keyword mode shows for it. No side effects (search() asks before it
     // decides whether the rows are new ones).
@@ -395,6 +409,11 @@ private:
     int m_contentScanned = 0;
     int m_contentTotal = 0;
     int m_contentHits = 0; // 全部: content rows added below the name matches
+    // Pages of rows asked for (kPage each): back to 1 for a new list.
+    int m_pages = 1;
+    bool m_loadingMore = false; // the current search is loadMore()'s: its new rows go at the end
+    bool m_moreNames = false; // the last name search (or files written last) filled its page
+    bool m_moreContent = false; // the last content scan stopped at its limit
     int m_currentRow = -1;
     QVariantMap m_keyHints; // see keyHints
 

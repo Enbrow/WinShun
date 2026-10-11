@@ -30,6 +30,10 @@ class SystemCatalog;
 // Name searches also go through the installed apps, the places in Windows
 // (`apps` and `places` may be null) and the web shortcuts.
 // Signals are emitted from the worker thread (queued to the receivers).
+// Whether content match `a` goes before `b`: the better match, or by when
+// last written (a time not known last either way, the better match on a tie).
+bool rankedBefore(const SearchResult& a, const SearchResult& b, RankBy by) noexcept;
+
 class SearchEngine : public QObject {
     Q_OBJECT
 
@@ -38,8 +42,13 @@ public:
         QString text;
         Scope scope = Scope::All;
         KindOrder kindOrder = KindOrder::FilesFirst; // 全部, 文件
-        RankBy rankBy = RankBy::Match; // 文件, 文件夹 (全部 always by match)
+        // Files and folders, and content matches (全部: its apps, places and
+        // web shortcuts stay first, by match).
+        RankBy rankBy = RankBy::Match;
         StartList startList = StartList::Opened; // nothing typed: what was opened, or written, last
+        // Names; with nothing typed, the files written last. Asked again with
+        // a higher one (the launcher, as its user scrolls down), the list
+        // starts as the shorter one did, more after it; so do content matches.
         int limit = 100;
         QStringList history; // newest first
         QStringList contentExtensions; // e.g. {"txt"}

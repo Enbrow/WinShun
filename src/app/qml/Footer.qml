@@ -3,11 +3,12 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import WinShun
 
-// Status on the left, keyboard hints on the right, and at the very right a
-// button that clears the recent items (while there are some to clear).
-// Before the hints, how the list is chosen (Ctrl+S goes to the next): with
-// nothing typed, what was opened last or the files written last; in 文件 and
-// 文件夹, best match first or by when last written, newest or oldest first.
+// On the left, how the list is chosen (Ctrl+S goes to the next): with nothing
+// typed, what was opened last or the files written last; else best match
+// first or by when last written, newest or oldest first. Beside it a word
+// when there is something to say ("已复制路径"); keyboard hints on the
+// right, and at the very right a button that clears the recent items (while
+// there are some to clear). The divider above shows work going on.
 // Dragging it moves the window.
 Item {
     id: footer
@@ -17,8 +18,8 @@ Item {
 
     implicitHeight: 42
 
-    // The activity dot appears only once the work has lasted a moment, so
-    // brief work does not make it (and the text beside it) blink.
+    // The divider shows work only once it has lasted a moment, so brief
+    // work does not make it blink.
     property bool showBusy: false
     readonly property bool busy: launcher.busy
     onBusyChanged: {
@@ -39,45 +40,93 @@ Item {
         onTriggered: footer.showBusy = footer.busy
     }
 
-    Rectangle {
-        width: parent.width
-        height: 1
-        color: Theme.divider
-    }
+    // The divider, and while work goes on (indexing, reading files for their
+    // contents) the bar along it: filled as far as a content scan has come,
+    // or a light running along it while how far is not known. Done, it fills
+    // up and fades.
+    Item {
+        id: progressLine
 
-    Row {
-        id: status
-        anchors.left: parent.left
-        anchors.leftMargin: 18
-        anchors.right: order.visible ? order.left : hints.left
-        anchors.rightMargin: 12
-        anchors.verticalCenter: parent.verticalCenter
-        spacing: 8
+        readonly property bool running: footer.showBusy
+        readonly property real fraction: footer.launcher.progress
+        property bool determinate: false
+        property real shown: 0 // of the width, filled
 
-        Rectangle { // activity dot while indexing or scanning file contents
-            visible: footer.showBusy
-            anchors.verticalCenter: parent.verticalCenter
-            width: 6
-            height: 6
-            radius: 3
-            color: Theme.accent
-
-            SequentialAnimation on opacity {
-                running: footer.showBusy && footer.Window.active
-                loops: Animation.Infinite
-                NumberAnimation { to: 0.25; duration: 600 }
-                NumberAnimation { to: 1; duration: 600 }
+        function update() {
+            if (running && footer.launcher.busy) {
+                determinate = fraction >= 0
+                if (determinate)
+                    shown = fraction
+            } else if (determinate) {
+                shown = 1
             }
         }
+        onRunningChanged: update()
+        onFractionChanged: update()
 
-        Text {
-            width: status.width - (footer.showBusy ? 14 : 0)
-            text: footer.launcher.statusText
-            textFormat: Text.PlainText // may name a file
-            color: Theme.subtext
-            font.pixelSize: Theme.fontBody
-            elide: Text.ElideRight
+        width: parent.width
+        height: 1
+        clip: true
+
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.divider
         }
+
+        Item {
+            id: bar
+            anchors.fill: parent
+            opacity: progressLine.running ? 1 : 0
+            Behavior on opacity {
+                NumberAnimation { duration: progressLine.running ? 150 : 500; easing.type: Easing.OutCubic }
+            }
+
+            Rectangle {
+                visible: progressLine.determinate
+                width: Math.round(parent.width * progressLine.shown)
+                height: parent.height
+                color: Theme.accent
+                Behavior on width {
+                    enabled: bar.opacity > 0.99 // appearing: at once, not back from the last scan's end
+                    NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
+                }
+            }
+
+            Rectangle {
+                id: sweep
+                visible: !progressLine.determinate
+                width: Math.round(parent.width * 0.3)
+                height: parent.height
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0; color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0) }
+                    GradientStop { position: 0.5; color: Theme.accent }
+                    GradientStop { position: 1; color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0) }
+                }
+
+                NumberAnimation on x {
+                    from: -sweep.width
+                    to: progressLine.width
+                    duration: 1400
+                    loops: Animation.Infinite
+                    running: sweep.visible && bar.opacity > 0 && footer.Window.active
+                }
+            }
+        }
+    }
+
+    Text {
+        id: status
+        anchors.left: order.visible ? order.right : parent.left
+        anchors.leftMargin: order.visible ? 14 : 18
+        anchors.right: hints.left
+        anchors.rightMargin: 12
+        anchors.verticalCenter: parent.verticalCenter
+        text: footer.launcher.statusText
+        textFormat: Text.PlainText // may name a file
+        color: Theme.subtext
+        font.pixelSize: Theme.fontBody
+        elide: Text.ElideRight
     }
 
     // A few choices side by side, the current one raised (as ScopeTabs, smaller).
@@ -158,15 +207,15 @@ Item {
         }
     }
 
-    // Nothing typed: which start list. Else, in 文件 and 文件夹: the order.
+    // Nothing typed: which start list. Else the order; not for a plugin
+    // command's list, which is in the plugin's.
     readonly property bool atStart: launcher.query.trim().length === 0 && launcher.scope !== Launcher.Content
-    readonly property bool sortable: launcher.scope === Launcher.Files || launcher.scope === Launcher.Folders
 
     Choices {
         id: order
-        visible: footer.atStart || footer.sortable
-        anchors.right: hints.left
-        anchors.rightMargin: 14
+        visible: footer.launcher.pluginKeyword.length === 0
+        anchors.left: parent.left
+        anchors.leftMargin: 16
         anchors.verticalCenter: parent.verticalCenter
         glyph: footer.atStart ? "\uE81C" : "\uE8CB" // History, Sort
         labels: footer.atStart ? [qsTr("最近打开"), qsTr("最近修改")]
@@ -198,18 +247,17 @@ Item {
         readonly property var keyHints: footer.launcher.keyHints
 
         // Hints give way to the status from the left, Enter's first (everyone
-        // knows it), then Ctrl+Enter's; Tab's stays. Enter's always goes with
-        // the switch in: the status keeps room for "123,456 个结果 · 158 毫秒"
-        // (188 px; 135 were left, 89 in English). Worked out from the full
-        // widths, not the laid-out ones, which depend on it.
-        readonly property real statusNeeds: Math.ceil(statusMetrics.advanceWidth) + (footer.showBusy ? 14 : 0)
+        // knows it), then Ctrl+Enter's; Tab's stays. Mostly there is none,
+        // and all show. Worked out from the full widths, not the laid-out
+        // ones, which depend on it.
+        readonly property real statusNeeds: Math.ceil(statusMetrics.advanceWidth)
         readonly property real statusRoom: (clearHistory.visible ? footer.width - 6 - clearHistory.width - 10 : footer.width - 16)
-                                           - (order.visible ? order.width + 14 : 0) - 12 - 18
+                                           - (order.visible ? 16 + order.width + 14 : 18) - 12
         function roomWith(shown) { // the status's, with these hints shown
             const widths = shown.map(h => h.fullWidth).filter(w => w > 0)
             return statusRoom - widths.reduce((a, b) => a + b, 0) - hints.spacing * Math.max(0, widths.length - 1)
         }
-        readonly property int given: !order.visible && statusNeeds <= roomWith([enterHint, secondHint, tabHint]) ? 0
+        readonly property int given: statusNeeds <= roomWith([enterHint, secondHint, tabHint]) ? 0
                                      : statusNeeds <= roomWith([secondHint, tabHint]) ? 1 : 2
 
         TextMetrics {
