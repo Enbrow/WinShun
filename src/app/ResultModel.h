@@ -5,6 +5,7 @@
 #include <QAbstractListModel>
 #include <QColor>
 #include <QDateTime>
+#include <QFont>
 #include <QSet>
 #include <QStringList>
 #include <QtQml/qqmlregistration.h>
@@ -57,6 +58,10 @@ public:
         FavoriteRole, // one of its user's favorites
         FavoriteKeywordRole, // ... its keyword; empty: none
         MissingRole, // a favorite no longer there
+        // Where the terms the name lacks are in its folder (found there, "弯管机" in
+        // F:\模型\3轴弯管机模型): start, length, start, length...; none for a content match.
+        FolderMatchesRole,
+        NameMatchesRole, // the same for the terms in a file's or folder's name; none for an app
     };
 
     explicit ResultModel(QObject* parent = nullptr);
@@ -69,6 +74,11 @@ public:
     const SearchResult* at(int row) const;
     int indexOf(const QString& path) const; // -1 if no row has that path
     Q_INVOKABLE QString pathAt(int row) const; // empty if out of range
+    // `text` with `matches` (FolderMatchesRole) highlighted, shortened in the
+    // middle to `width` in `font` as Text.ElideMiddle would, but around them:
+    // they stay in sight, with the start and the end of the text.
+    Q_INVOKABLE static QString elidedHtml(
+        const QString& text, const QVariantList& matches, qreal width, const QFont& font, const QColor& color);
 
     void assign(SearchResults items, QStringList highlights); // changes only the rows that differ
     void update(int row, const SearchResult& item);

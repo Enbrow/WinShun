@@ -28,7 +28,9 @@ Item {
     required property int index
     required property string name
     required property string nameHtml
+    required property var nameMatches // where the terms are in the name: start, length, ...
     required property string folder
+    required property var folderMatches // where in it the terms the name lacks are: start, length, ...
     required property string path
     required property bool isDir
     required property string icon
@@ -59,6 +61,7 @@ Item {
     readonly property bool current: ListView.isCurrentItem
     // With rows selected, the background marks them; the current row keeps only its accent pill.
     readonly property int selectedCount: ListView.view ? ListView.view.model.selectedCount : 0
+    readonly property var results: ListView.view ? ListView.view.model : null // the ResultModel
     readonly property bool showActions: (current || area.containsMouse) && hint === 0
     // Room kept on the right for the buttons, the keycap, the badge or the label.
     readonly property real trailingSpace: (showActions ? actions.width + actions.anchors.rightMargin
@@ -158,7 +161,10 @@ Item {
             Text {
                 id: title
                 width: Math.min(implicitWidth, parent.width)
-                text: row.nameHtml
+                // A long name is shortened around its matches, not past them.
+                text: row.results && row.nameMatches.length > 0
+                      ? row.results.elidedHtml(row.name, row.nameMatches, parent.width, font, row.results.highlightColor)
+                      : row.nameHtml
                 textFormat: Text.StyledText
                 elide: Text.ElideRight
                 color: Theme.text
@@ -180,10 +186,15 @@ Item {
         }
 
         Text {
+            // A term found in a folder rather than the name stands out there,
+            // and stays in sight when the path is shortened.
+            readonly property bool marked: !row.contentMode && row.folderMatches.length > 0 && row.results !== null
             width: parent.width
-            text: row.contentMode ? row.snippetHtml : row.folder
-            textFormat: row.contentMode ? Text.StyledText : Text.PlainText
-            elide: row.contentMode ? Text.ElideRight : Text.ElideMiddle
+            text: row.contentMode ? row.snippetHtml
+                : marked ? row.results.elidedHtml(row.folder, row.folderMatches, width, font, row.results.highlightColor)
+                : row.folder
+            textFormat: row.contentMode || marked ? Text.StyledText : Text.PlainText
+            elide: row.contentMode || marked ? Text.ElideRight : Text.ElideMiddle
             maximumLineCount: 1
             color: Theme.subtext
             font.pixelSize: Theme.fontBody

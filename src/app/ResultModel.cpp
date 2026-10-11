@@ -9,6 +9,7 @@
 #include "Wtf8.h"
 #include "platform/SiteIcons.h"
 
+#include <QFontMetricsF>
 #include <QGuiApplication>
 #include <QLocale>
 #include <QStyleHints>
@@ -49,6 +50,63 @@ QString parentFolder(const QString& path)
     if (folder.endsWith(u':'))
         folder += u'\\';
     return folder;
+}
+
+// Where the terms are in a name: as they are, or read as pinyin ("bg" for
+// 报告: the characters it matched).
+QList<std::pair<qsizetype, qsizetype>> nameMatches(const QString& name, const QStringList& terms)
+{
+    QList<std::pair<qsizetype, qsizetype>> ranges;
+    for (const QString& term : terms) {
+        const qsizetype i = name.indexOf(term, 0, Qt::CaseInsensitive);
+        if (i >= 0) {
+            ranges.append({i, term.size()});
+            continue;
+        }
+        const pinyin::Matcher matcher(term.toLower().toStdString());
+        if (const auto span = matcher.findUtf16(wtf8::view(name)))
+            ranges.append({static_cast<qsizetype>(span->start), static_cast<qsizetype>(span->length)});
+    }
+    return ranges;
+}
+
+// Whether a name has a term (see nameMatches).
+bool nameHas(const QString& name, const QString& term)
+{
+    return name.contains(term, Qt::CaseInsensitive)
+        || pinyin::Matcher(term.toLower().toStdString()).findUtf16(wtf8::view(name)).has_value();
+}
+
+// Where the terms a name lacks are in its folder, found there ("弯管机" in
+// F:\模型\3轴弯管机模型): as they are, or as pinyin in a folder's name.
+QList<std::pair<qsizetype, qsizetype>> folderMatches(
+    const QString& name, const QString& folder, const QStringList& terms)
+{
+    QList<std::pair<qsizetype, qsizetype>> ranges;
+    for (const QString& term : terms) {
+        if (nameHas(name, term))
+            continue;
+        bool found = false;
+        for (qsizetype i = folder.indexOf(term, 0, Qt::CaseInsensitive); i >= 0;
+            i = folder.indexOf(term, i + term.size(), Qt::CaseInsensitive)) {
+            ranges.append({i, term.size()});
+            found = true;
+        }
+        const pinyin::Matcher matcher(term.toLower().toStdString());
+        if (found || !matcher.valid())
+            continue;
+        const std::u16string_view all = wtf8::view(folder);
+        for (qsizetype from = 0; from < folder.size();) {
+            qsizetype to = folder.indexOf(u'\\', from);
+            if (to < 0)
+                to = folder.size();
+            if (const auto span = matcher.findUtf16(all.substr(from, to - from)))
+                ranges.append({from + static_cast<qsizetype>(span->start), static_cast<qsizetype>(span->length)});
+            from = to + 1;
+        }
+    }
+    std::sort(ranges.begin(), ranges.end());
+    return ranges;
 }
 
 // A web search's row reads 在 GitHub 中搜索“WinShun”; `words`: where they are in it.
@@ -140,19 +198,15 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
             const QString title = webSearchTitle(*r, &words);
             return highlighted(title, {words}, m_highlightColor);
         }
-        QList<std::pair<qsizetype, qsizetype>> ranges;
-        for (const QString& term : m_highlights) {
-            const qsizetype i = r->name.indexOf(term, 0, Qt::CaseInsensitive);
-            if (i >= 0) {
-                ranges.append({i, term.size()});
-                continue;
-            }
-            // Found by pinyin ("bg" for 报告): highlight the characters it matched.
-            const pinyin::Matcher matcher(term.toLower().toStdString());
-            if (const auto span = matcher.findUtf16(wtf8::view(r->name)))
-                ranges.append({static_cast<qsizetype>(span->start), static_cast<qsizetype>(span->length)});
-        }
-        return highlighted(r->name, ranges, m_highlightColor);
+        return highlighted(r->name, nameMatches(r->name, m_highlights), m_highlightColor);
+    }
+    case NameMatchesRole: {
+        QVariantList out;
+        if (r->isApp()) // short names; a web search's title is its own
+            return out;
+        for (const auto& [start, length] : nameMatches(r->name, m_highlights))
+            out << start << length;
+        return out;
     }
     case FolderRole:
         return r->isApp() ? appOrigin(*r) : parentFolder(r->path);
@@ -216,6 +270,14 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
         return r->favoriteKeyword;
     case MissingRole:
         return r->missing;
+    case FolderMatchesRole: {
+        QVariantList out;
+        if (r->isApp() || r->line > 0) // a content match has every term in the file
+            return out;
+        for (const auto& [start, length] : folderMatches(r->name, parentFolder(r->path), m_highlights))
+            out << start << length;
+        return out;
+    }
     default:
         return {};
     }
@@ -250,6 +312,8 @@ QHash<int, QByteArray> ResultModel::roleNames() const
         {FavoriteRole, "favorite"},
         {FavoriteKeywordRole, "favoriteKeyword"},
         {MissingRole, "missing"},
+        {FolderMatchesRole, "folderMatches"},
+        {NameMatchesRole, "nameMatches"},
     };
 }
 
@@ -257,6 +321,111 @@ QString ResultModel::pathAt(int row) const
 {
     const SearchResult* r = at(row);
     return r ? r->path : QString();
+}
+
+QString ResultModel::elidedHtml(
+    const QString& text, const QVariantList& matches, qreal width, const QFont& font, const QColor& color)
+{
+    QList<std::pair<qsizetype, qsizetype>> ranges;
+    for (qsizetype i = 0; i + 1 < matches.size(); i += 2) {
+        const qsizetype start = matches[i].toLongLong();
+        const qsizetype length = matches[i + 1].toLongLong();
+        if (start >= 0 && length > 0 && start + length <= text.size())
+            ranges.append({start, length});
+    }
+    std::sort(ranges.begin(), ranges.end());
+    if (ranges.isEmpty())
+        return text.toHtmlEscaped();
+
+    // Each character's advance, the highlighted ones bold; a surrogate pair's on its first half.
+    QFont bold = font;
+    bold.setBold(true);
+    const QFontMetricsF plain(font);
+    const QFontMetricsF strong(bold);
+    std::vector<qreal> before(static_cast<std::size_t>(text.size()) + 1); // of the text up to each place
+    for (qsizetype i = 0, r = 0; i < text.size(); ++i) {
+        while (r < ranges.size() && ranges[r].first + ranges[r].second <= i)
+            ++r;
+        const bool strongHere = r < ranges.size() && ranges[r].first <= i;
+        qreal advance = 0;
+        if (text[i].isHighSurrogate() && i + 1 < text.size())
+            advance = (strongHere ? strong : plain).horizontalAdvance(text.mid(i, 2));
+        else if (!text[i].isLowSurrogate())
+            advance = (strongHere ? strong : plain).horizontalAdvance(text[i]);
+        before[i + 1] = before[i] + advance;
+    }
+    const auto widthOf = [&](qsizetype from, qsizetype to) { return before[to] - before[from]; };
+    const qreal room = width - 2; // what the advances leave out (kerning, rounding)
+    const qsizetype coreFrom = ranges.front().first;
+    qsizetype coreTo = 0;
+    for (const auto& [start, length] : ranges)
+        coreTo = std::max(coreTo, start + length);
+    const qreal spare = room - widthOf(coreFrom, coreTo);
+    if (widthOf(0, text.size()) <= room || spare <= 0)
+        return highlighted(text, ranges, color); // fits, or the Text elides it
+
+    // Each side of them shortened in its middle: the start of the text and
+    // what is just before them; just after them and the end.
+    const qreal ellipsis = plain.horizontalAdvance(u"…"_s);
+    const qreal leftWidth = widthOf(0, coreFrom);
+    const qreal rightWidth = widthOf(coreTo, text.size());
+    qreal leftRoom = spare / 2;
+    qreal rightRoom = spare / 2;
+    if (leftWidth < leftRoom) {
+        rightRoom += leftRoom - leftWidth;
+        leftRoom = leftWidth;
+    } else if (rightWidth < rightRoom) {
+        leftRoom += rightRoom - rightWidth;
+        rightRoom = rightWidth;
+    }
+    // Cut where a folder's name or the extension starts, if one is near:
+    // "E:\…\弯管机资料\…\pdf", "很长的…弯管机说明….pdf".
+    const qsizetype dot = text.lastIndexOf(u'.');
+    const qsizetype extension = dot > text.lastIndexOf(u'\\') ? dot : -1;
+    const auto starts = [&](qsizetype i) { return text[i] == u'\\' || i == extension; };
+    const auto shortened = [&](qsizetype from, qsizetype to, qreal fit) {
+        if (widthOf(from, to) <= fit)
+            return text.mid(from, to - from);
+        const qreal left = fit - ellipsis;
+        // The end: about half, from the start of a folder's name or the
+        // extension a little before it, or else just after it.
+        qsizetype tail = to;
+        while (tail > from && widthOf(tail - 1, to) <= left / 2)
+            --tail;
+        qsizetype back = tail;
+        while (back > from && !starts(back) && widthOf(back - 1, to) <= left * 2 / 3)
+            --back;
+        if (back < tail && starts(back)) {
+            tail = back;
+        } else {
+            qsizetype on = tail;
+            while (on < to && !starts(on))
+                ++on;
+            if (on < to)
+                tail = on;
+        }
+        // The start: the rest, to the end of a folder's name in it.
+        qsizetype head = from;
+        while (head < tail && widthOf(from, head + 1) + widthOf(tail, to) <= left)
+            ++head;
+        if (head < tail) {
+            qsizetype cut = head;
+            while (cut > from && text[cut - 1] != u'\\')
+                --cut;
+            if (cut > from)
+                head = cut;
+        }
+        if (head > from && text[head - 1].isHighSurrogate())
+            --head;
+        if (tail < to && text[tail].isLowSurrogate())
+            ++tail;
+        return text.mid(from, head - from) + u"…"_s + text.mid(tail, to - tail);
+    };
+    const QString left = shortened(0, coreFrom, leftRoom);
+    const QString shown = left + text.mid(coreFrom, coreTo - coreFrom) + shortened(coreTo, text.size(), rightRoom);
+    for (auto& range : ranges)
+        range.first += left.size() - coreFrom;
+    return highlighted(shown, ranges, color);
 }
 
 void ResultModel::assign(SearchResults items, QStringList highlights)
