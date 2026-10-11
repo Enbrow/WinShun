@@ -4,10 +4,6 @@
 <context>
     <name>AiAccessSection</name>
     <message>
-        <source>让 AI 使用 Win顺</source>
-        <translation>Let AI assistants use WinShun</translation>
-    </message>
-    <message>
         <source>Claude、Cursor、VS Code 等 AI 助手通过 MCP（Model Context Protocol）连接 Win顺，就能搜文件名、文件里的文字和最近改过的文件：和你在搜索框里一样快，拼音也行。默认只读，不改动任何文件。</source>
         <translation>AI assistants such as Claude, Cursor and VS Code connect to WinShun through MCP (Model Context Protocol) and can then search file names, the text inside files and the files changed lately, as fast as you do from the search box, pinyin included. Read-only by default: nothing is changed.</translation>
     </message>
@@ -75,56 +71,12 @@
         <source>再多一个工具（plugin_插件_命令_run）做 Enter 做的事：结束进程、打开、复制这类会改动东西的操作；AI 客户端每次会先问你</source>
         <translation>One more tool (plugin_&lt;plugin&gt;_&lt;command&gt;_run) does what Enter does: ending a process, opening, copying and other things that change something; the AI client asks you first each time</translation>
     </message>
-    <message>
-        <source>不让 AI 看到的文件夹</source>
-        <translation>Folders AI never sees</translation>
-    </message>
-    <message>
-        <source>排除;隐私;隐藏;黑名单;exclude;AI</source>
-        <translation>exclude;privacy;hide;blacklist;AI</translation>
-    </message>
-    <message>
-        <source>这些文件夹里的东西不出现在 AI 的搜索结果里，也不能打开；“搜索范围”里不搜索的文件夹 AI 本来就看不到</source>
-        <translation>Nothing in these folders shows in AI&apos;s results, nor can it be opened; folders left out under Search scope are invisible to AI anyway</translation>
-    </message>
-    <message>
-        <source>添加文件夹…</source>
-        <translation>Add folder…</translation>
-    </message>
-    <message>
-        <source>AI 能看到索引里的所有文件夹</source>
-        <translation>AI sees every indexed folder</translation>
-    </message>
-    <message>
-        <source>移除</source>
-        <translation>Remove</translation>
-    </message>
-    <message>
-        <source>调用记录</source>
-        <translation>Call log</translation>
-    </message>
-    <message>
-        <source>日志;记录;log;AI</source>
-        <translation>log;history;AI</translation>
-    </message>
-    <message>
-        <source>AI 每次调用都记在 mcp.log 里：时间、客户端、工具和参数、结果数量；不记录剪贴板里的文字</source>
-        <translation>Every call AI makes goes into mcp.log: time, client, tool and arguments, how many results; never the clipboard&apos;s text</translation>
-    </message>
-    <message>
-        <source>打开</source>
-        <translation>Open</translation>
-    </message>
 </context>
 <context>
     <name>AiClientsSection</name>
     <message>
-        <source>连接到 AI 客户端</source>
-        <translation>Connect to AI clients</translation>
-    </message>
-    <message>
-        <source>点“连接”就写进那个客户端的配置（原文件先备份成 .bak），上面的“允许 AI 连接”也会一起打开。装了的客户端才列出来。</source>
-        <translation>“Connect” writes WinShun into that client&apos;s configuration (the file is backed up as .bak first) and turns on “Allow AI assistants to connect” above. Only installed clients are listed.</translation>
+        <source>点“连接”就写进那个客户端的配置（原文件先备份成 .bak）。装了的客户端才列出来。</source>
+        <translation>“Connect” writes WinShun into that client&apos;s configuration (the file is backed up as .bak first). Only installed clients are listed.</translation>
     </message>
     <message>
         <source>没找到 WinShunMcp.exe，重新安装 Win顺 就有了。</source>
@@ -181,6 +133,49 @@
     <message>
         <source>知道了</source>
         <translation>Got it</translation>
+    </message>
+</context>
+<context>
+    <name>AiPrivacySection</name>
+    <message>
+        <source>不让 AI 看到的文件夹</source>
+        <translation>Folders AI never sees</translation>
+    </message>
+    <message>
+        <source>排除;隐私;隐藏;黑名单;exclude;AI</source>
+        <translation>exclude;privacy;hide;blacklist;AI</translation>
+    </message>
+    <message>
+        <source>这些文件夹里的东西不出现在 AI 的搜索结果里，也不能打开；“搜索范围”里不搜索的文件夹 AI 本来就看不到</source>
+        <translation>Nothing in these folders shows in AI&apos;s results, nor can it be opened; folders left out under Search scope are invisible to AI anyway</translation>
+    </message>
+    <message>
+        <source>添加文件夹</source>
+        <translation>Add folder</translation>
+    </message>
+    <message>
+        <source>AI 能看到索引里的所有文件夹</source>
+        <translation>AI sees every indexed folder</translation>
+    </message>
+    <message>
+        <source>移除</source>
+        <translation>Remove</translation>
+    </message>
+    <message>
+        <source>调用记录</source>
+        <translation>Call log</translation>
+    </message>
+    <message>
+        <source>日志;记录;log;AI</source>
+        <translation>log;history;AI</translation>
+    </message>
+    <message>
+        <source>AI 每次调用都记在 mcp.log 里：时间、客户端、工具和参数、结果数量；不记录剪贴板里的文字</source>
+        <translation>Every call AI makes goes into mcp.log: time, client, tool and arguments, how many results; never the clipboard&apos;s text</translation>
+    </message>
+    <message>
+        <source>打开</source>
+        <translation>Open</translation>
     </message>
 </context>
 <context>
@@ -455,20 +450,24 @@
         <translation>No favorites yet</translation>
     </message>
     <message>
-        <source>导入…</source>
-        <translation>Import…</translation>
+        <source>导入</source>
+        <translation>Import</translation>
     </message>
     <message>
-        <source>导出…</source>
-        <translation>Export…</translation>
+        <source>导出</source>
+        <translation>Export</translation>
     </message>
     <message>
-        <source>添加文件夹…</source>
-        <translation>Add folder…</translation>
+        <source>添加文件夹</source>
+        <translation>Add folder</translation>
     </message>
     <message>
-        <source>添加文件…</source>
-        <translation>Add file…</translation>
+        <source>添加文件</source>
+        <translation>Add file</translation>
+    </message>
+    <message>
+        <source>重新选择</source>
+        <translation>Choose again</translation>
     </message>
     <message>
         <source>在搜索结果上右键“加入收藏夹”，或点“添加文件夹…”，或把文件、文件夹拖到这里</source>
@@ -477,10 +476,6 @@
     <message>
         <source>已不存在 · %1</source>
         <translation>Gone · %1</translation>
-    </message>
-    <message>
-        <source>重新选择…</source>
-        <translation>Pick again…</translation>
     </message>
     <message>
         <source>打开</source>
@@ -813,27 +808,12 @@
         <translation>Bundled</translation>
     </message>
     <message>
-        <source>关键字 · %1</source>
-        <translation>Keyword · %1</translation>
-    </message>
-    <message>
         <source>无</source>
         <translation>None</translation>
     </message>
     <message>
-        <source>恢复默认</source>
-        <translation>Reset</translation>
-    </message>
-    <message>
         <source>给 AI 用</source>
         <translation>For AI</translation>
-    </message>
-    <message numerus="yes">
-        <source>权限 · %n 项</source>
-        <translation>
-            <numerusform>Permissions · %n</numerusform>
-            <numerusform>Permissions · %n</numerusform>
-        </translation>
     </message>
     <message>
         <source>仅声明</source>
@@ -848,8 +828,20 @@
         <translation>Not set</translation>
     </message>
     <message>
-        <source>选择…</source>
-        <translation>Choose…</translation>
+        <source>关键字</source>
+        <translation>Keywords</translation>
+    </message>
+    <message>
+        <source>默认</source>
+        <translation>Default</translation>
+    </message>
+    <message>
+        <source>权限</source>
+        <translation>Permissions</translation>
+    </message>
+    <message>
+        <source>选择</source>
+        <translation>Choose</translation>
     </message>
     <message>
         <source>说明</source>
@@ -878,22 +870,6 @@
 </context>
 <context>
     <name>PluginDevSection</name>
-    <message>
-        <source>高级</source>
-        <translation>Advanced</translation>
-    </message>
-    <message>
-        <source>开发者模式</source>
-        <translation>Developer mode</translation>
-    </message>
-    <message>
-        <source>开发;调试;日志;协议;模板;developer;debug;log</source>
-        <translation>developer;debug;log;protocol;template</translation>
-    </message>
-    <message>
-        <source>记下每一条发给插件和插件回来的消息；改了脚本自动重新加载常驻插件</source>
-        <translation>Records every message to and from the plugins; resident plugins reload when their scripts change</translation>
-    </message>
     <message>
         <source>全部</source>
         <translation>All</translation>
@@ -934,10 +910,6 @@
         <translation>%1 ms</translation>
     </message>
     <message>
-        <source>新建插件…</source>
-        <translation>New plugin…</translation>
-    </message>
-    <message>
         <source>模板;新建;创建;PowerShell;Python;零代码;template;new</source>
         <translation>template;new;create;PowerShell;Python;zero-code</translation>
     </message>
@@ -948,6 +920,14 @@
     <message>
         <source>PowerShell 常驻</source>
         <translation>PowerShell (resident)</translation>
+    </message>
+    <message>
+        <source>每一条发给插件和插件回来的消息都记在这里；改了脚本，常驻插件会自动重新加载。</source>
+        <translation>Every message to and from the plugins is recorded here; resident plugins reload when their scripts change.</translation>
+    </message>
+    <message>
+        <source>新建插件</source>
+        <translation>New plugin</translation>
     </message>
     <message>
         <source>按模板在插件文件夹里建一个，SDK 文件一起放进去：PowerShell、Python、C++ 的常驻插件，Python 的一次性插件，或只有 plugin.json 的零代码</source>
@@ -972,18 +952,6 @@
     <message>
         <source>创建</source>
         <translation>Create</translation>
-    </message>
-    <message>
-        <source>插件文件夹</source>
-        <translation>Plugins folder</translation>
-    </message>
-    <message>
-        <source>位置;路径;文件夹;folder;path</source>
-        <translation>folder;path;location</translation>
-    </message>
-    <message>
-        <source>打开</source>
-        <translation>Open</translation>
     </message>
 </context>
 <context>
@@ -1103,14 +1071,6 @@
 <context>
     <name>PluginsSection</name>
     <message>
-        <source>插件</source>
-        <translation>Plugins</translation>
-    </message>
-    <message>
-        <source>插件给搜索框加关键字命令、把结果混进列表。它们永远以你的普通权限运行，不是管理员；装上后默认关着，打开开关时会先列出它要的权限。</source>
-        <translation>Plugins add keyword commands to the search box and mix their results into the list. They always run with your normal rights, never as administrator; a plugin starts out off, and turning it on first shows the permissions it asks for.</translation>
-    </message>
-    <message>
         <source>插件看不到你在资源管理器里登录的网络位置</source>
         <translation>Plugins cannot see the network places you signed in to in File Explorer</translation>
     </message>
@@ -1126,6 +1086,10 @@
         <source>插件;扩展;关键字;命令;安装;plugin;extension</source>
         <translation>plugin;extension;keyword;command;install</translation>
     </message>
+    <message>
+        <source>给 AI 用</source>
+        <translation>For AI</translation>
+    </message>
     <message numerus="yes">
         <source>%n 个；文件夹或 .zip / .wsplugin 拖到这里也能安装</source>
         <translation>
@@ -1138,20 +1102,36 @@
         <translation>No plugins yet: click “Add plugin…”, or drop a plugin folder or a .zip / .wsplugin here</translation>
     </message>
     <message>
-        <source>添加插件…</source>
-        <translation>Add plugin…</translation>
+        <source>添加插件</source>
+        <translation>Add plugin</translation>
     </message>
     <message>
-        <source>插件文件夹…</source>
-        <translation>Plugin folder…</translation>
+        <source>插件文件夹</source>
+        <translation>Plugins folder</translation>
     </message>
     <message>
-        <source>压缩包（.zip / .wsplugin）…</source>
-        <translation>Archive (.zip / .wsplugin)…</translation>
+        <source>压缩包（.zip / .wsplugin）</source>
+        <translation>Archive (.zip / .wsplugin)</translation>
     </message>
     <message>
-        <source>打开文件夹</source>
-        <translation>Open folder</translation>
+        <source>位置;路径;文件夹;folder;path</source>
+        <translation>folder;path;location</translation>
+    </message>
+    <message>
+        <source>打开</source>
+        <translation>Open</translation>
+    </message>
+    <message>
+        <source>开发者模式</source>
+        <translation>Developer mode</translation>
+    </message>
+    <message>
+        <source>开发;调试;日志;协议;模板;developer;debug;log</source>
+        <translation>developer;debug;log;protocol;template</translation>
+    </message>
+    <message>
+        <source>记下每一条发给插件和插件回来的消息，改了脚本自动重新加载；打开后多一个“开发者”标签</source>
+        <translation>Records every message to and from the plugins and reloads scripts when they change; adds a “Developer” tab</translation>
     </message>
     <message>
         <source>松开就安装</source>
@@ -1162,12 +1142,20 @@
         <translation>Last result</translation>
     </message>
     <message>
+        <source>插件给搜索框加关键字命令，结果混进列表。它们只用你的普通权限；新装的默认关着，打开时会先列出它要的权限。</source>
+        <translation>Plugins add keyword commands to the search box and mix their results into the list. They run with your normal rights only; a new plugin starts out off, and turning it on first shows the permissions it asks for.</translation>
+    </message>
+    <message>
         <source>知道了</source>
         <translation>OK</translation>
     </message>
 </context>
 <context>
     <name>ResultRow</name>
+    <message>
+        <source>在终端中打开</source>
+        <translation>Open in Terminal</translation>
+    </message>
     <message>
         <source>最近</source>
         <translation>Recent</translation>
@@ -1369,6 +1357,26 @@
     <message>
         <source>网络共享</source>
         <translation>Network shares</translation>
+    </message>
+    <message>
+        <source>权限</source>
+        <translation>Permissions</translation>
+    </message>
+    <message>
+        <source>连接客户端</source>
+        <translation>Clients</translation>
+    </message>
+    <message>
+        <source>隐私与记录</source>
+        <translation>Privacy &amp; log</translation>
+    </message>
+    <message>
+        <source>已安装</source>
+        <translation>Installed</translation>
+    </message>
+    <message>
+        <source>开发者</source>
+        <translation>Developer</translation>
     </message>
     <message>
         <source>设置</source>
@@ -1647,10 +1655,6 @@
         <translation>Excluded folders</translation>
     </message>
     <message>
-        <source>添加文件夹…</source>
-        <translation>Add folder…</translation>
-    </message>
-    <message>
         <source>没有排除任何文件夹</source>
         <translation>No folders excluded</translation>
     </message>
@@ -1701,6 +1705,14 @@
     <message>
         <source>建立内容索引</source>
         <translation>Build a content index</translation>
+    </message>
+    <message>
+        <source>导入</source>
+        <translation>Import</translation>
+    </message>
+    <message>
+        <source>导出</source>
+        <translation>Export</translation>
     </message>
     <message>
         <source>记录剪贴板历史</source>
@@ -1787,6 +1799,10 @@
         <translation>exclude;ignore;hide;blocklist</translation>
     </message>
     <message>
+        <source>添加文件夹</source>
+        <translation>Add folder</translation>
+    </message>
+    <message>
         <source>排除;忽略;文件夹名;exclude</source>
         <translation>exclude;ignore;folder name</translation>
     </message>
@@ -1801,6 +1817,10 @@
     <message>
         <source>%1共享名，或映射的 Z:</source>
         <translation>%1share, or a mapped Z:</translation>
+    </message>
+    <message>
+        <source>登录</source>
+        <translation>Sign in</translation>
     </message>
     <message>
         <source>文件和文件夹的顺序</source>
@@ -1958,10 +1978,6 @@
         <translation>Folders %1 shares; click one to add it:</translation>
     </message>
     <message>
-        <source>登录…</source>
-        <translation>Sign in…</translation>
-    </message>
-    <message>
         <source>这台电脑访问过的：</source>
         <translation>Opened on this computer before:</translation>
     </message>
@@ -1974,8 +1990,8 @@
         <translation>sort;order;date modified;modified;newest;oldest;ascending;descending;date</translation>
     </message>
     <message>
-        <source>“文件”里的结果怎么排；底栏也能切换（Ctrl+S）</source>
-        <translation>How results in Files are ordered; also at the bottom of the search box (Ctrl+S)</translation>
+        <source>文件和内容匹配怎么排（“全部”里应用和设置仍在前面）；底栏左边也能切换（Ctrl+S）</source>
+        <translation>How files and content matches are ordered (in All, apps and settings stay on top); also at the bottom left of the search box (Ctrl+S)</translation>
     </message>
     <message>
         <source>最匹配</source>
@@ -1998,8 +2014,8 @@
         <translation>recent;recently opened;recently modified;history;start</translation>
     </message>
     <message>
-        <source>打开搜索框还没输入时列出的 5 项；底栏也能切换（Ctrl+S）</source>
-        <translation>The 5 items listed before you type; also at the bottom of the search box (Ctrl+S)</translation>
+        <source>打开搜索框还没输入时列出什么：最近打开的 5 项，或最近修改的文件（往下滚动接着列出）；底栏也能切换（Ctrl+S）</source>
+        <translation>What is listed before you type: the 5 items opened last, or the files changed lately (scroll down for more); also at the bottom of the search box (Ctrl+S)</translation>
     </message>
     <message>
         <source>最近打开</source>
@@ -2016,14 +2032,6 @@
     <message>
         <source>关掉后搜索框里不再有“内容”，“全部”只按名字找；Win顺 不读取文件里的文字，内容索引也会清空</source>
         <translation>Off: no “Content” in the search box and “All” finds names only; WinShun reads no file’s text, and the content index is cleared</translation>
-    </message>
-    <message>
-        <source>导入…</source>
-        <translation>Import…</translation>
-    </message>
-    <message>
-        <source>导出…</source>
-        <translation>Export…</translation>
     </message>
     <message>
         <source>输入程序文件名，例如 KeePass.exe</source>
@@ -2114,6 +2122,10 @@
         <translation>Search these text file types</translation>
     </message>
     <message>
+        <source>更改</source>
+        <translation>Change</translation>
+    </message>
+    <message>
         <source>数据文件夹</source>
         <translation>Data folder</translation>
     </message>
@@ -2188,10 +2200,6 @@
     <message>
         <source>移动索引;磁盘空间;C盘;D盘;index</source>
         <translation>move index;disk space;drive C;drive D;index</translation>
-    </message>
-    <message>
-        <source>更改…</source>
-        <translation>Change…</translation>
     </message>
     <message>
         <source>正在移动… %1%，期间可以照常搜索</source>
@@ -2502,8 +2510,8 @@
 <context>
     <name>ShareCard</name>
     <message>
-        <source>登录…</source>
-        <translation>Sign in…</translation>
+        <source>登录</source>
+        <translation>Sign in</translation>
     </message>
     <message>
         <source>按现在的内容更新</source>
@@ -2627,8 +2635,8 @@
         <translation>Icon</translation>
     </message>
     <message>
-        <source>选择图片…</source>
-        <translation>Choose picture…</translation>
+        <source>选择图片</source>
+        <translation>Choose image</translation>
     </message>
     <message>
         <source>用网站的图标</source>
@@ -3524,6 +3532,10 @@
 <context>
     <name>ws::Launcher</name>
     <message>
+        <source>在终端中打开</source>
+        <translation>Open in Terminal</translation>
+    </message>
+    <message>
         <source>%1 等文件</source>
         <translation>%1 files and more</translation>
     </message>
@@ -3558,20 +3570,6 @@
             <numerusform>Building the index… %Ln items so far</numerusform>
         </translation>
     </message>
-    <message numerus="yes">
-        <source>已索引 %1 项</source>
-        <translation>
-            <numerusform>%1 item indexed</numerusform>
-            <numerusform>%1 items indexed</numerusform>
-        </translation>
-    </message>
-    <message numerus="yes">
-        <source>已索引 %1项</source>
-        <translation>
-            <numerusform>%1 item indexed</numerusform>
-            <numerusform>%1 items indexed</numerusform>
-        </translation>
-    </message>
     <message>
         <source>、</source>
         <translation>, </translation>
@@ -3593,64 +3591,6 @@
         <translation> · Reading %1</translation>
     </message>
     <message>
-        <source> · 后台同步 %1</source>
-        <translation> · Syncing %1 in the background</translation>
-    </message>
-    <message>
-        <source> · 后台同步中</source>
-        <translation> · Syncing in the background</translation>
-    </message>
-    <message>
-        <source>正在搜索内容… %2 / %3 · %1</source>
-        <translation>Searching… %2 / %3 (%1)</translation>
-    </message>
-    <message>
-        <source>正在搜索 %1内容…</source>
-        <translation>Searching %1…</translation>
-    </message>
-    <message numerus="yes">
-        <source>已显示前 %Ln 个包含该文字的文件（共 %1 个 %2）</source>
-        <translation>
-            <numerusform>First file with this text (of %1 %2)</numerusform>
-            <numerusform>First %Ln files with this text (of %1 %2)</numerusform>
-        </translation>
-    </message>
-    <message numerus="yes">
-        <source>%Ln 个文件包含该文字 · 共查找 %1 个 %2</source>
-        <translation>
-            <numerusform>%Ln file with this text, of %1 %2</numerusform>
-            <numerusform>%Ln files with this text, of %1 %2</numerusform>
-        </translation>
-    </message>
-    <message numerus="yes">
-        <source>%Ln 个结果 · 正在搜索内容… %1 / %2</source>
-        <translation>
-            <numerusform>%Ln result · scanning %1 / %2</numerusform>
-            <numerusform>%Ln results · scanning %1 / %2</numerusform>
-        </translation>
-    </message>
-    <message numerus="yes">
-        <source>%Ln 个结果 · 正在搜索内容…</source>
-        <translation>
-            <numerusform>%Ln result · scanning contents…</numerusform>
-            <numerusform>%Ln results · scanning contents…</numerusform>
-        </translation>
-    </message>
-    <message numerus="yes">
-        <source>%Ln 个结果 · 其中 %1 个是文件内容匹配</source>
-        <translation>
-            <numerusform>%Ln result · %1 in contents</numerusform>
-            <numerusform>%Ln results · %1 in contents</numerusform>
-        </translation>
-    </message>
-    <message numerus="yes">
-        <source>%Ln 个结果 · %1 毫秒</source>
-        <translation>
-            <numerusform>%Ln result · %1 ms</numerusform>
-            <numerusform>%Ln results · %1 ms</numerusform>
-        </translation>
-    </message>
-    <message>
         <source>正在搜索…</source>
         <translation>Searching…</translation>
     </message>
@@ -3667,16 +3607,8 @@
         <translation>Tab completes it; Enter goes straight in</translation>
     </message>
     <message>
-        <source>在“文件”里可以按修改时间排序</source>
-        <translation>Files can be sorted by date modified</translation>
-    </message>
-    <message>
-        <source> · 索引尚未建完</source>
-        <translation> · Index still being built</translation>
-    </message>
-    <message>
-        <source> · 正在等 %1…</source>
-        <translation> · Waiting for %1…</translation>
+        <source>索引尚未建完</source>
+        <translation>Index still being built</translation>
     </message>
     <message>
         <source>切换范围</source>
