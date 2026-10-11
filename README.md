@@ -36,7 +36,7 @@
 
 **Win顺 是什么？** 一个 Windows 上的快速搜索启动器。连按两下 Ctrl，屏幕上弹出搜索框，边打字边出结果：按文件名或拼音找文件和文件夹，打开已安装的应用和 Windows 设置，也能找文本文件里的文字。不用装 Everything，也不用写任何配置。
 
-它直接读 NTFS 的主文件表建索引，三百多万个文件几秒就能建好，之后文件的增删改名都实时跟上。它常驻在任务栏右下角的托盘里，除了到 GitHub 检查新版本以外不联网，不需要账号，完全免费。界面有简体中文和英文两种，默认跟随 Windows 的显示语言，也可以在设置里随时切换。
+它直接读 NTFS 的主文件表建索引，三百多万个文件几秒就能建好，之后文件的增删改名都实时跟上。它常驻在任务栏右下角的托盘里，除了到 GitHub 检查新版本、第一次显示某个网页搜索时取一次那个网站的图标以外不联网，不需要账号，完全免费。界面有简体中文和英文两种，默认跟随 Windows 的显示语言，也可以在设置里随时切换。
 
 ### 功能
 
@@ -45,7 +45,7 @@
 - **连按两下 Ctrl** 打开搜索框，再按一次或按 Esc 关闭。三百多万个文件里搜一次，一般只要几毫秒。
 - **支持拼音和首字母**：`bg`、`baogao`、`baog` 都能找到“报告”，`ndbg` 找到“年度报告”；多音字按常用读音（“银行”用 `yh` 或 `yinhang`）。
 - **搜整台电脑**：所有本地磁盘；U 盘和移动硬盘可以在设置里打开。
-- **也搜内网的共享文件夹**：公司或家里 NAS、别的电脑共享出来的文件夹，在设置里加上就和本机文件一起搜，一样快；服务器关机时收录过的照样能搜到，标着“离线”。需要密码的点“登录…”，用的是 Windows 自己的凭据管理器。
+- **也搜内网的共享文件夹**：公司或家里 NAS、别的电脑共享出来的文件夹，在设置里加上就和本机文件一起搜，一样快；服务器关机时收录过的照样能搜到，标着“离线”。需要密码的点“登录”，用的是 Windows 自己的凭据管理器。
 - **排序懂你**：自己的文件排在前面，系统目录、程序目录、`node_modules`、`.git` 排在后面；最近打开过的排得更前。不输入时列出最近打开的 5 项，底栏一点（或 `Ctrl+S`）换成最近修改的文件（往下滚动接着列出）：编译输出、缓存、日志、下载到一半的这些程序自己写的文件不算，只列你在做的。名字和输入的完全一样的（输入 `readme` 时的 `README.md` 和 readme 文件夹）排在最前；文件和文件夹分开排，默认文件在前，设置里可以改成文件夹在前；匹配得一样好的，最近修改的在前。
 - **只找文件夹**：选中 **文件** 范围时旁边出现 **文件夹**，点它（或接着按 `Tab`）就只列文件夹。
 - **修改日期**：每个文件和文件夹的名字右边写着上次修改的时间（今天 14:32、昨天、周三、10月3日……），鼠标停在上面看完整日期。默认最匹配的在前；底栏左边可以改成按修改时间排，最新的在前或最早的在前（`Ctrl+S` 轮换），文件内容匹配也一起排（**全部** 里应用、设置和网址仍在最前），找最新的那一版、或者最早的原稿都方便。选过的会记住。
@@ -56,7 +56,7 @@
 
 | 写法 | 含义 |
 |---|---|
-| `报告 2024` | 每个词都要找到（空格分隔，顺序不限，不区分大小写）：最好都在文件名里；也可以有的在它所在的文件夹名里，只要至少一个在文件名里（`src app` 找到 `src\app`，`合同 ext:pdf` 找到“合同”文件夹里的 PDF），这样的排在后面 |
+| `报告 2024` | 每个词都要找到（空格分隔，顺序不限，不区分大小写）：最好都在文件名里；也可以有的在它所在的文件夹名里，只要至少一个在文件名里（`src app` 找到 `src\app`，`合同 ext:pdf` 找到“合同”文件夹里的 PDF），这样的排在后面；在文件夹名里找到的词，在下面那行路径里标出来 |
 | `ndbg`、`niandubaogao` | 拼音：每个汉字用读音或读音开头的几个字母，可以混用（如 `ndbaog`）；字母和数字照常匹配（`v2bg` 找“v2报告”） |
 | `"年度 报告"` | 引号内作为一个整体，包括空格 |
 | `!草稿` | 排除文件名含“草稿”的 |
@@ -70,7 +70,7 @@
 #### 📄 文字内容搜索
 
 - 切到 **内容** 范围，找文件里的文字，结果里直接显示命中的那一行和行号；文档显示在第几页、第几张幻灯片，或哪个表的第几行。
-- **多个词**：`报告 2025` 找同时含有这两个词的文件，词不必挨着、也不必在同一行；显示的是含词最多的那一行，每个词都标出来。`"年度 报告"` 用引号括起来就照原样找整个短语。像代码的一行（含 `=` `;` `(` `)` 之类）照原样整行找。
+- **多个词**：`报告 2025` 找同时含有这两个词的文件，词不必挨着、也不必在同一行；显示含词最多的那一行，没在这一行的词从它出现的地方摘几个字接在后面（中间用 … 隔开），每个词都标出来。`"年度 报告"` 用引号括起来就照原样找整个短语。像代码的一行（含 `=` `;` `(` `)` 之类）照原样整行找。
 - **按相关度排**：几个词在同一行、是完整的词（`fix` 不算 `prefix` 里的）、文件名里也有、在你自己的文件夹、最近改过的排在前面；压缩成一行的代码和数据文件排在后面。结果边读边出，你正在看、正要选的那一行不会被后来的挤走。
 - **也搜文档**：Word、Excel、PowerPoint（新旧格式都行：docx/doc、xlsx/xls、pptx/ppt）、PDF 和 WPS 文件。文档由一个单独的、权限受限的进程读取（没有管理员权限、低完整性级别），坏文件最多让它自己退出；读出的文字存进内容索引，搜索时不用再读一遍。扫描件和图片里的文字读不到。
 - 纯文本默认搜 txt、md、log、csv、ini、json、xml、html 和常见源代码，可以在设置里增删扩展名。
@@ -127,6 +127,13 @@
 - 在 设置 → 收藏夹 里拖动排序、改名、设关键词，把文件或文件夹拖进来就能添加，还可以导出、导入到另一台电脑。删掉或挪走了的收藏标着“已不存在”，可以重新选择或移除。
 - “打开”“另存为”对话框旁的搜索框用的是同一份收藏。
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/favorites-dark.png">
+    <img src="docs/images/favorites-light.png" width="820" alt="Win顺 收藏夹：什么都不输入时，收藏的文件夹和文件排在最前，右边标着“收藏”和关键词">
+  </picture>
+</p>
+
 #### 📂 “打开”“另存为”对话框：搜一下就到
 
 - 别的程序弹出“打开”“另存为”对话框时（网页上传文件、另存为、选择文件夹都算），旁边会贴着一个 Win顺 搜索框：输入文件夹或文件的名字（拼音也行），回车，对话框直接转过去。选的是文件，就转到它所在的文件夹并填好文件名，再按一次回车就能打开或上传；“打开”对话框里按 `Ctrl+Enter` 一步打开。对话框选了文件类型（比如只收图片的上传框）时，这类文件排在前面。WPS Office 自己的“打开”“另存为”对话框也认。
@@ -181,17 +188,24 @@
 #### 🤖 让 AI 助手用 Win顺 搜索（MCP）
 
 - Win顺 是一个 MCP（Model Context Protocol）服务器：Claude Desktop、Claude Code、Cursor、VS Code 等 AI 助手连上以后，就能用 Win顺 搜文件名（拼音也行）、搜文件里的文字、列最近改过的文件、看文件夹里有什么——和你在搜索框里一样快。问它“上周改过的那份合同在哪”“哪个文件里写了第三季度销售额”，它直接去找。
-- 在 设置 → **AI 助手** 里点一下“连接”，就写进那个客户端的配置（装了的客户端才列出来）并打开“允许 AI 连接”，重启客户端就能用；其他支持 MCP 的客户端把 `WinShunMcp.exe` 加为 stdio 类型的服务器即可。
-- 默认只读：AI 看到的是索引里的文件名、修改时间和命中的那一行，不会改动任何文件；而且只看得到你平时不提权时看得到的文件——Win顺 虽然以管理员身份运行，每个结果都按 AI 客户端自己的权限检查过。要让它能打开文件、或者读剪贴板历史，在设置里分别打开；“不让 AI 看到的文件夹”里的东西不会出现在它的结果里。每次调用都记在 `mcp.log` 里，设置页能打开。
+- 在 设置 → **AI 助手** 里打开“允许 AI 连接”，再到 **连接客户端** 标签里点一下“连接”，就写进那个客户端的配置（原文件先备份一份；装了的客户端才列出来），重启客户端就能用；其他支持 MCP 的客户端把 `WinShunMcp.exe` 加为 stdio 类型的服务器即可，页面上有“复制路径”和“复制 JSON”。
+- 默认只读：AI 看到的是索引里的文件名、修改时间和命中的那一行，不会改动任何文件；而且只看得到你平时不提权时看得到的文件——Win顺 虽然以管理员身份运行，每个结果都按 AI 客户端自己的权限检查过。要让它能打开文件、或者读剪贴板历史，在 **权限** 标签里分别打开；**隐私与记录** 标签里可以加“不让 AI 看到的文件夹”，里面的东西不会出现在它的结果里；每次调用都记在 `mcp.log` 里，“调用记录”旁一点就打开。
 - Win顺 没运行时 AI 会得到一条说明，启动 Win顺 就接着能用，不用重启客户端。
 
 #### 🧩 插件
 
 - 插件给搜索框加关键字命令、把结果混进列表：`kill 名字` 列出进程 Enter 结束，`bm 词` 搜浏览器书签，`= 1+2*3`、`12 inch to cm`、`#ff8800`、`ts 1700000000` 直接出结果（计算、换算、颜色、时间戳、UUID、Base64、哈希都在随包的“小工具”里），`tr 句子` 用你自己的 API 翻译。随包的几个在设置 → **插件** 里打开就能用（默认关着）。
-- **三种写法，一份协议**：只写一个 `plugin.json` 的零代码（关键字开网址、开程序、跳文件夹、保存的搜索、固定清单）；任何语言的一次性脚本（查询从环境变量进，打印 JSON 或纯文本行出）；常驻进程（stdio 上一行一条 JSON-RPC，每次几毫秒）。Python、PowerShell、C++ 各有一个单文件的 SDK，设置里的“新建插件…”连模板一起生成。
+- **三种写法，一份协议**：只写一个 `plugin.json` 的零代码（关键字开网址、开程序、跳文件夹、保存的搜索、固定清单）；任何语言的一次性脚本（查询从环境变量进，打印 JSON 或纯文本行出）；常驻进程（stdio 上一行一条 JSON-RPC，每次几毫秒）。Python、PowerShell、C++ 各有一个单文件的 SDK；在插件页打开“开发者模式”，多出来的 **开发者** 标签里点“新建插件”，按模板连 SDK 一起生成。
 - **安全**：插件永远以你的普通权限运行（Win顺 自己是管理员，插件不是），有内存上限，Win顺 退出时一起结束；要起子进程、读剪贴板的得在清单里声明，打开开关时逐条列出，Windows 能强制的打勾、不能的（联网、读哪些文件）标明“仅声明”。崩了自动重启，连崩就停用，主程序不受影响。
 - **和 AI 一起用**：标明可给 AI 用的插件，在 AI 助手页打开“AI 可以使用插件”后每个命令就是一个 MCP 工具（只能查询；“结束进程”这类动作要另外打开）。
 - 安装：把插件文件夹或 `.zip` / `.wsplugin` 拖到设置的插件页上，或放进 `%LOCALAPPDATA%\WinShun\plugins\`。怎么写见 [docs/plugins.md](docs/plugins.md)。
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/plugins-dark.png">
+    <img src="docs/images/plugins-light.png" width="720" alt="Win顺 插件：= 1260*1.09 算出 1373.4，12 inch to cm 换算成 30.48 cm，#ff7a45 显示成色块">
+  </picture>
+</p>
 
 #### ⌨️ 全键盘操作
 
@@ -217,7 +231,7 @@
 | `Win+S`（在设置里打开后） | 在任务栏上方打开 / 关闭搜索框，代替 Windows 搜索 |
 | `Win+V`（在设置里打开后） | 剪贴板历史：点一条或 `Enter` 粘贴，`Alt+P` 预览，`Shift+Enter` 粘贴为纯文本，`Tab` 切换分类，`Ctrl+P` 固定，`Alt+1`～`Alt+9` 粘贴第几条（设置里可以改成 `Ctrl`）；在 Win顺 自己的输入框里按，粘贴到这个框 |
 
-鼠标也能用：选中或悬停的结果右边有几个按钮：打开所在位置、在终端中打开（cmd，到它所在的文件夹）、复制、复制路径和删除（点两次才删，移到回收站）。选中了多项时，打开、复制、删除等操作都对全部选中项生效。
+鼠标也能用：选中或悬停的结果右边有几个按钮：打开所在位置、在终端中打开（cmd，到它所在的文件夹）、复制、复制路径和删除（点两次才删，移到回收站）；应用多一个“以管理员身份运行”。选中了多项时，打开、复制、删除等操作都对全部选中项生效。
 
 #### 🎨 像 Windows 11 自带的一样
 
@@ -232,14 +246,15 @@
 
 - **打开 Win顺**：双击 Ctrl 开关、玩游戏时或全屏时不响应、不响应双击 Ctrl 的程序、另设一个组合键、用哪个文件管理器打开文件夹、对话框里的 `Ctrl+G` 和搜索框、搜索框的位置、对话框自动转过去、不显示搜索框的程序、开机自动启动、是否记住打开过的项目、清除最近使用记录；代替任务栏上的 Windows 搜索：在任务栏上放 Win顺 的搜索框（或固定 Win顺 按钮）、打开任务栏设置隐藏 Windows 的搜索（推荐）、用 `Win+S` 打开、在开始菜单里打字也用 Win顺。
 - **外观**：主题（跟随系统 / 浅色 / 深色）、透明效果（关 / 开；默认内存超过 16 GB 时开）、界面语言（跟随系统 / 简体中文 / English），切换即时生效。
-- **搜索范围**：不搜索的文件夹、任何位置都跳过的文件夹名称（如 `node_modules`）、是否包括 U 盘和移动硬盘、也搜哪些网络共享文件夹。
+- **搜索范围**：不搜索的文件夹、任何位置都跳过的文件夹名称（如 `node_modules`）、是否包括 U 盘和移动硬盘、启动时检查文件变化、也搜哪些网络共享文件夹。
+- **结果列表**：文件和文件夹的顺序（文件在前 / 文件夹在前）、排序（最匹配 / 最新在前 / 最早在前）、不输入时显示（最近打开 / 最近修改）、是否显示修改日期、用数字键直接打开（`Ctrl+1`～`9` / `Alt+1`～`9` / 关闭）。
 - **文件内容搜索**：总开关（关掉后不读取任何文件内容、不建内容索引，搜索框里也没有“内容”），是否搜索文档（Word、Excel、PowerPoint、PDF、WPS）、要搜索的纯文本类型、各类文件的大小上限、是否也搜系统和程序文件夹、是否建立内容索引。
 - **网页搜索**：每个网页的关键词、名称、网址、主页和图标（添加、编辑、移除、打开试一下），导入、导出。
 - **收藏夹**：收藏的文件夹、文件、应用和系统设置：拖动排序、改名称、设关键词、添加（选或拖进来）、移除、导入导出；已不存在的可以重新选择。
-- **剪贴板**：是否记录剪贴板历史、用 `Win+V` 打开（代替 Windows 自带的）、另设一个组合键、是否记录图片、保留多少条和多久、不记录的程序、清除剪贴板历史。
-- **高级**：检查更新、是否自动检查更新、界面绘制方式（省内存 / 显卡加速；默认内存 8 GB 及以上用显卡加速）、恢复默认设置。
-- **AI 助手**：是否允许 AI 连接（MCP）、允许打开文件和文件夹、允许读剪贴板历史、AI 可以使用插件、允许 AI 执行插件动作、不让 AI 看到的文件夹、调用记录；一键连接到 Claude Desktop、Claude Code、Cursor、VS Code，或复制配置给其他客户端。
-- **插件**：每个插件一张卡片（开关、关键字、权限、它自己的设置项、给 AI 用），添加插件（文件夹或 .zip / .wsplugin，拖进来也行）、卸载；高级里有开发者模式（消息记录、改了脚本自动重载）和“新建插件…”。
+- **剪贴板**：是否记录剪贴板历史、是否记录图片、不记录的程序、用 `Win+V` 打开（代替 Windows 自带的）、另设一个组合键、用数字键直接粘贴（`Alt+1`～`9` / `Ctrl+1`～`9` / 关闭）、保留多少条和多久、清除剪贴板历史。
+- **高级**：检查更新、是否自动检查更新、界面绘制方式（省内存 / 显卡加速；默认内存 8 GB 及以上用显卡加速）、索引位置（可以移到其他内置硬盘）、数据文件夹、恢复默认设置。
+- **AI 助手**：分 **权限**、**连接客户端**、**隐私与记录** 三个标签（后两个在打开“允许 AI 连接”后出现）。权限：是否允许 AI 连接（MCP）、允许 AI 打开文件和文件夹、允许 AI 读取剪贴板历史、AI 可以使用插件、允许 AI 执行插件动作；连接客户端：一键连接到 Claude Desktop、Claude Code、Cursor、VS Code，或复制配置给其他客户端；隐私与记录：不让 AI 看到的文件夹、调用记录。
+- **插件**：**已安装** 标签里每个插件一张卡片（折着时能看到名字、说明、关键字和开关，点一下展开：改关键字、给 AI 用、权限、它自己的设置项；卡片上的“…”菜单里有说明、打开文件夹、重新加载、查看日志、卸载，随包的只能关不能卸），添加插件（文件夹或 .zip / .wsplugin，拖进来也行）、插件文件夹、开发者模式；打开开发者模式后多一个 **开发者** 标签：新建插件（按模板生成，SDK 一起放进去）、消息记录（每一条发给插件和插件回来的消息；改了脚本自动重新加载）。
 
 找某一项不用一页页翻：在左上角的搜索框里打字（或按 `Ctrl+F`），右边只留下相关的设置，开关和按钮直接就能用。拼音、首字母也行（`kjj` 找到“快捷键”），常见的别的说法也认（“剪切板”“自启”“云母”）；`↑` `↓` 选，`Enter` 跳到它所在的页面。Win顺 里没有这一项时，列出可能要找的 Windows 设置（比如搜“蓝牙”）。
 
@@ -294,7 +309,7 @@ Listary 和 PowerToys 的“查找鼠标”默认也用双击 Ctrl，同时开�
 文件名索引每 100 万个文件约 30 MB。整个程序在任务管理器里一般是 120～140 MB。
 
 **索引文件能不放在 C 盘吗？**
-能。在设置 → 高级 → 索引位置点“更改…”，选其他内置硬盘上的文件夹（U 盘、移动硬盘不行），Win顺 会在后台把索引搬过去，期间照常搜索，不用重启。选空文件夹就直接放在里面，否则会在里面建一个 `WinShun` 文件夹。
+能。在设置 → 高级 → 索引位置点“更改”，选其他内置硬盘上的文件夹（U 盘、移动硬盘不行），Win顺 会在后台把索引搬过去，期间照常搜索，不用重启。选空文件夹就直接放在里面，否则会在里面建一个 `WinShun` 文件夹。
 
 **收费吗？会上传我的数据吗？**
 完全免费，源代码公开。Win顺 检查新版本时访问 GitHub 的公开接口，不发送任何个人信息（设置 → 高级里可以关掉）；网页搜索的某个网站第一次显示时，从那个网站取一次它的图标（和浏览器取图标一样），其余时候不联网；索引和最近使用记录只保存在你自己的电脑上（`%LOCALAPPDATA%\WinShun`）。最近使用记录可以在设置 → 打开 Win顺 → 启动与历史里清除或关掉，也可以在搜索框里右键单独移除某一项。
@@ -340,24 +355,26 @@ The interface comes in **English and Simplified Chinese**. It follows the Window
 - **Press Ctrl twice** to open the search bar; press again or Esc to close. A search over three million files usually takes a few milliseconds.
 - **Pinyin search** for Chinese names: `bg`, `baogao` and `baog` all find 报告 (“report”); `ndbg` finds 年度报告.
 - **Your whole PC**: all local drives; USB and external drives can be turned on in Settings.
-- **Shared folders on your network too**: add a folder shared by a NAS or another computer in Settings, and it is searched with your own files, just as fast. While the server is off, what was read from it can still be found, marked offline. One that needs a password takes a click on **Sign in…**, kept in Windows' own Credential Manager.
+- **Shared folders on your network too**: add a folder shared by a NAS or another computer in Settings, and it is searched with your own files, just as fast. While the server is off, what was read from it can still be found, marked offline. One that needs a password takes a click on **Sign in**, kept in Windows' own Credential Manager.
 - **Sensible ranking**: your own files first; system and program folders, `node_modules` and `.git` last. Recently opened items rank higher and are listed when the box is empty. Names that are just what you typed (`README.md` and a readme folder for `readme`) come first; files and folders are listed apart, files first unless Settings say folders first; of equal matches, the one changed last comes first.
 - **Folders only**: with **文件 (Files)** chosen, **文件夹 (Folders)** shows beside it; click it (or press `Tab` again) to list folders alone.
 - **Date modified**: each file and folder says when it was last changed (Today 2:32 PM, Yesterday, Wed, Oct 3…), right of its name; point at it for the full date. Best match comes first; the switch at the bottom left sorts by date modified instead, newest or oldest first (`Ctrl+S` steps through), content matches included (in All, apps, settings and web shortcuts stay on top), handy for the latest version of something or the first draft. Your choice is remembered. With nothing typed, the list shows what you opened lately, or (switch at the bottom, `Ctrl+S`) the files you changed lately (scroll down for more), leaving out what programs write on their own: build output, caches, logs, unfinished downloads.
 - **Number keys**: hold `Ctrl` for a moment and the rows show their numbers; `Ctrl+1`…`Ctrl+9` opens the nth row in view. Settings can make it `Alt+1`…`Alt+9`, or turn it off. Other programs holding these as global hotkeys (screenshot tools like `Ctrl+1`) are no trouble: while the search box is in front they are WinShun's, at other times that program's, and Settings name the ones taken.
 - **Drag them out**: hold a file or folder in the results and drag it into a chat (WeChat, QQ), a mail, a folder in File Explorer or any program that takes files, as from Explorer; `Ctrl`-click a few to drag them together. Dropped on a folder they are copied, never moved away.
 - **Always up to date**: renamed, new and deleted files show up immediately. New drives are added when plugged in and removed when unplugged; “Safely Remove Hardware” works, because WinShun lets go of the drive first.
-- **Query syntax**: words separated by spaces must all match, in the name or (ranked lower, with at least one in the name) in the folders it is in: `src app` finds `src\app`; `"exact phrase"`; `!word` excludes; `!node_modules\` excludes everything in such folders; wildcards `*` and `?`; `ext:pdf,docx`; `folder\name` limits matches to folders whose name contains `folder`; a path from some folder along the way (`tools/out/covers/`) puts the place it names first, so Enter goes there; a full path (`D:\My Files\name`, spaces and all, pasted as is) lists what that folder holds first, then deeper matches, and with a trailing `\` everything in it.
+- **Query syntax**: words separated by spaces must all match, in the name or (ranked lower, with at least one in the name) in the folders it is in: `src app` finds `src\app`, and a word found in a folder's name is highlighted in the path line; `"exact phrase"`; `!word` excludes; `!node_modules\` excludes everything in such folders; wildcards `*` and `?`; `ext:pdf,docx`; `folder\name` limits matches to folders whose name contains `folder`; a path from some folder along the way (`tools/out/covers/`) puts the place it names first, so Enter goes there; a full path (`D:\My Files\name`, spaces and all, pasted as is) lists what that folder holds first, then deeper matches, and with a trailing `\` everything in it.
 
 #### 📄 Text content search
 
 - Switch to the **内容 (Contents)** scope to find text inside files, with the matching line and line number in the results; for documents, the page, the slide, or the sheet and row.
+- **Several words**: `报告 2025` finds the files that hold both words, not necessarily next to each other or on the same line. The row shows the line with the most of them, then a few words from where each missing one first appears, joined by “ … ”, every term highlighted. `"年度 报告"` in quotes is looked for as that phrase; a line of code (with `=` `;` `(` `)` and the like) is looked for as typed.
+- **Ranked by relevance**: words on one line, whole words (`fix` does not count inside `prefix`), the word in the file name too, your own folders and recently changed files come first; code and data squeezed into one line come last. Results arrive as they are read, and the row you are looking at or about to pick is never pushed away by later ones.
 - **Documents too**: Word, Excel and PowerPoint (old and new formats: docx/doc, xlsx/xls, pptx/ppt), PDF and WPS files. They are read by a separate process with restricted rights (no administrator rights, low integrity), so a damaged file can at most make that process quit; the text read out is kept in the content index, so searches don't read the documents again. Text in scans and pictures can't be read.
 - Plain-text formats searched by default: txt, md, log, csv, ini, json, xml, html and common source code; you can add or remove extensions.
 - **Detects the encoding**: UTF-8 (with or without BOM), UTF-16 and local code pages such as GBK.
 - Size limits by kind: text and logs 64 MB, source code 8 MB, data and web pages 16 MB (larger ones are mostly bundled scripts and exported data), documents 512 MB (mostly pictures; at most 16 MB of text is read out of each); all can be changed.
 - **Content index**: for Chinese text, or three or more letters, digits, spaces and punctuation in a row (a whole line of code, say), an index rules out files that cannot contain it, so only a few files are opened. Files a search reads go into the index too, so searching again does not read them again.
-- In the **全部 (All)** scope, content matches follow the file name matches once you stop typing; a line of code is found as typed (quotes, `*` and `!` included).
+- In the **全部 (All)** scope, content matches follow the file name matches once you stop typing; a line of code is found as typed (quotes, `*` and `!` included). System and program folders, `node_modules` and the like are skipped by default.
 
 #### 🚀 App launcher
 
@@ -374,7 +391,7 @@ The interface comes in **English and Simplified Chinese**. It follows the Window
 
 #### 🌐 Web search
 
-- Give the pages you visit often a keyword; type it and press Enter to open the page, or follow it with words to search that site: `baidu 天气`, `zhihu 显卡`. Ten sites much used in China come with it: `baidu` Baidu, `biying` Bing, `bilibili` Bilibili, `zhihu` Zhihu, `weibo` Weibo, `douyin` Douyin, `xhs` Xiaohongshu, `taobao` Taobao, `jingdong` JD, `fanyi` Baidu Translate. Add, change or remove your own in Settings → Web search.
+- Give the pages you visit often a keyword; type it and press Enter to open the page, or follow it with words to search that site: `baidu 天气`, `zhihu 显卡`. Ten sites much used in China come with it: `baidu` Baidu, `biying` Bing, `bilibili` Bilibili, `zhihu` Zhihu, `weibo` Weibo, `douyin` Douyin, `xhs` Xiaohongshu, `taobao` Taobao, `jingdong` JD, `fanyi` Baidu Translate. Add, change or remove your own in Settings → Web search; each site can take a PNG icon of your choice, and the whole list exports to one file to import on another PC, icons included.
 - For your own, put `%s` in the address where the words go: with the keyword `gh` and `https://github.com/search?q=%s`, typing `gh WinShun` searches GitHub for WinShun. The easiest way to get such an address: search the site for `%s`, then paste the whole address from the browser’s address bar.
 - Each site shows its own icon (the one left of the address in a browser), fetched the first time it is shown and kept on your PC; one that would not show on the dark theme sits on a light plate.
 - Typing its name finds it too (pinyin as well: `jd` finds 京东), tagged “网页 (Web)” among the apps. It opens in your default browser; what you search for is not kept in the recent items.
@@ -394,51 +411,71 @@ The interface comes in **English and Simplified Chinese**. It follows the Window
 - You can also type a path (`D:\`, `D:\Projects\`; in quotes or with `%USERPROFILE%` too): the list shows what that folder holds, and part of a name (pinyin too) narrows it; `Tab` goes into the selected folder, `Shift+Tab` up one, Enter goes there.
 - To have dialogs go there by themselves, turn on “File dialogs go to the file manager's folder by themselves” in the settings (off by default): a dialog that comes up goes to the folder your file manager shows, and if you go to another folder there while the dialog is open, it follows when you switch back (just looking changes nothing). The bar then offers “Back to …”, the place the program had remembered.
 - The “More” button at the right end of the bar adds the dialog's current folder to your favorites, hides the bar this time, or keeps it away from a program for good (undone in the settings).
+- The bar sits under the dialog. When the bar and its list do not fit there, it goes to the right or the left; when they fit nowhere, the dialog is made a little shorter as it appears (and moved up when that is not enough), so the list never covers the dialog. The settings can also fix it below, left or right, and the dialog is shrunk or moved when that side is short of room. Windows remembers the dialog's size per program, so it comes up at a fitting size next time; a dialog you drag or resize yourself while it is open is left alone.
 - The file name you typed stays, and so does the keyboard focus. The bar never takes the focus from the dialog, follows it around and hides when you switch away; `Ctrl+G` is taken only while such a dialog is in front. Both can be turned off in the settings; if Listary runs too, both answer, so turn off one of them.
 - If you use Total Commander or Directory Opus, pick it under Settings → Open WinShun → “File manager for opening folders”: folders and file locations you open from WinShun then open there (Total Commander in a new tab with the cursor on the file; Directory Opus in the tab that already shows the folder, if any, with the file selected). Only the ones installed are listed.
 
 #### 📋 Clipboard history (can replace Win+V)
 
 - What you copy — text, pictures, files — is kept to come back to. Turn on “Open with Win+V” in Settings → **Clipboard** and `Win+V` opens WinShun's clipboard instead of Windows' own; or set another shortcut, or open it from the tray menu.
-- `Enter` pastes the entry into the window you were in, `Shift+Enter` as plain text. Text from Word or a web page keeps its formatting; copied files paste into Explorer as files.
+- A click on an entry (or `Enter` on the selected one) pastes it into the window you were in, `Shift+Enter` as plain text. Text from Word or a web page keeps its formatting; copied files paste into Explorer as files.
+- It opens where you are typing: right under the line with the text cursor, its left edge at the cursor, never over that line; when there is no room below, above it. When no text cursor can be found (the focus is not in a text field), it opens at the mouse pointer. Dragging it elsewhere holds for that once; next time it opens by the cursor again.
 - Like Windows' own, it does not take the focus: the program you were in stays in front, and what closes without the focus stays open — VS Code's Quick Open (`Ctrl+P`), a browser's address bar suggestions — and takes the paste. The keyboard still works the clipboard (type to search, arrows, `Enter`, `Esc`); a click elsewhere or another window closes it. Search takes the letters as typed (pinyin), not through the input method; naming a group gives it the focus, for the input method.
-- Type to filter, pinyin included; `@name` keeps to what came from one program. The current entry is shown in full beside the list — the whole text, the picture or the file list — with where and when it was copied.
+- In WinShun's own text boxes (the search bar, the bar by dialogs, the boxes in Settings), `Win+V` pastes the chosen entry into that box at the cursor, several lines made one, a file as its path; `Esc` pastes nothing and goes back to the box, with what you typed and selected intact. The clipboard opens right under that box (above it when there is no room) and the box stays put with its selection in view; the launcher's list folds away first, and a click on the search bar brings it back.
+- Type to filter, pinyin included (`hy` finds 会议); `@name` keeps to what came from one program (`@wx`: WeChat). The eye button on a row (or `Alt+P`) opens a preview beside the list — the whole text, the picture or the file list, and where and when it was copied; click it again or press `Esc` to close it.
 - `Tab` switches between All / Text / Links / Pictures / Files. Colour values (`#3B82F6`, `rgba(…)`, `hsl(…)`, with or without alpha) show as swatches, a translucent one half opaque and half over a checkerboard, with their HEX / RGB / HSL notations beside the list (a translucent one also as `#AARRGGBB`, alpha first, as Qt, Android and XAML write it), a click copying one; copied pictures, videos, PDFs and the like show their thumbnails.
 - `Ctrl+P` pins an entry; right-click → Move to a new group makes groups such as “Replies” or “Snippets”. Pinned and grouped entries are kept for good; the rest by default for the latest 200 (100 with 16 GB of memory or less) and 30 days; the settings allow 50 to 300.
 - Pick several with `Ctrl`+click or `Shift+↑` / `Shift+↓`: each shows its number, and `Enter` pastes them as one, in that order, joined by a new line, space, comma, tab or nothing (click the footer to change it). Picks stay while you search for the next one. Files only make one list of files.
 - **Pin** it with the pin at its top right: it then stays on top and open after pasting, clicks elsewhere and switching programs, and never takes the focus, so a click on an entry pastes into whatever program you are typing in, one entry after another. To pick with the keyboard, press the hotkey again or click its search box; `Esc` gives the keyboard back. Click the pin again to unpin: it closes like a menu again.
-- Hold `Alt` to see the numbers: `Alt+1`…`Alt+9` paste the first nine entries. `Delete` removes one and `Ctrl+Z` brings it back (a removed group too).
+- Hold `Alt` to see the numbers: `Alt+1`…`Alt+9` paste the first nine entries (Settings can make it `Ctrl`). `Delete` removes one and `Ctrl+Z` brings it back (a removed group too).
 - Passwords from password managers are not kept (they mark them the same way for Windows' own clipboard history); programs can be excluded in the settings, and the tray menu pauses the history. It stays on your PC (`%LOCALAPPDATA%\WinShun\clipboard`).
 - On by default if Windows' own clipboard history is on. Taking `Win+V` over takes one restart of File Explorer (a button in the settings, or the next sign-in); turned off again, or with WinShun uninstalled, `Win+V` goes back to Windows. For emoji, use `Win+.`.
 
 #### 🔎 Instead of Windows search on the taskbar
 
-- Settings → Open WinShun → “Instead of Windows search on the taskbar” walks you through four steps, each ticked off once done. The first, “Pin”, has Windows ask whether to pin **WinShun Search** to the taskbar: say yes. A click on it then opens the search box right above it, another click closes it — where Windows' own search opens, with WinShun's index, pinyin and settings pages behind it.
+- Settings → Open WinShun → Taskbar is a card of four steps: do them in order, and each is ticked off once done. The first, on Windows 11, is “Put WinShun's search box on the taskbar”: a WinShun search box appears next to the taskbar icons. Click it and type; the results slide out from behind the taskbar and list above it, the Chinese input method's candidates sit on the box, and what it searches is WinShun's index, pinyin and settings pages included. Hold the icon at its left end to drag it to another free spot on the taskbar (left or right of the icons, or the far left of the screen); it moves along with the icons as programs open and close. When space is short it shrinks to the word “Search” or to its icon alone, like Windows' own search; a click then opens WinShun, another closes it.
+- Windows 10 has no such box, so the first step is “Pin” instead: Windows asks whether to pin **WinShun Search** to the taskbar, say yes. A click on it then opens WinShun right above it, another click closes it.
+- Hiding Windows' own search in the taskbar settings is recommended, but both can stay. Windows lets no other program hide it for you; a button in the settings opens that page, where “Search” can be set to “Hide”.
 - Opened from the taskbar with nothing typed, it shows your six most used apps in a row (`↑` to get there, `←` `→`, `Enter`) over the recent items.
 - Turn on “Typing in the Start menu searches with WinShun”: press `Win` and just type, and WinShun opens above the taskbar with what you typed; press Left `Alt` once first for Windows' own search.
 - Turn on “Open with Win+S” and `Win+S` opens WinShun above the taskbar too, while `Win+Shift+S` still takes screenshots (WinShun starts the Snipping Tool for it). Like `Win+V`, taking `Win+S` over takes one restart of File Explorer; turned off again, or with WinShun uninstalled, it goes back to Windows search.
-- Windows lets no other program hide its own search button: a button in the settings opens the taskbar settings, where “Search” can be set to “Hide”.
 
 #### 🤖 Let AI assistants search with WinShun (MCP)
 
 - WinShun is an MCP (Model Context Protocol) server: once Claude Desktop, Claude Code, Cursor, VS Code or another MCP client is connected, the assistant can search file names (pinyin included), the text inside files and documents, the files changed lately, and what a folder holds, as fast as you do from the search box. Ask it where last week's contract went or which file mentions the third-quarter sales, and it looks.
-- Settings → **AI 助手 (AI assistants)** lists the clients installed on your PC: one click writes WinShun into that client's configuration and turns the connection on; restart the client and it is there. Any other MCP client takes `WinShunMcp.exe` as a stdio server.
-- Read-only by default: the assistant sees names, dates and the matching lines, and changes nothing. It also sees only what you can see without elevation: WinShun runs as administrator, but every result is checked against the AI client's own rights. Opening files and reading the clipboard history each have a switch of their own; folders listed under “Folders AI never sees” stay out of its results. Every call is logged to `mcp.log`, which the settings page opens.
+- Under Settings → **AI 助手 (AI assistants)**, turn on “Allow AI assistants to connect”; the **Clients** tab then lists the clients installed on your PC, and one click on “Connect” writes WinShun into that client's configuration (the file is backed up first); restart the client and it is there. Any other MCP client takes `WinShunMcp.exe` as a stdio server; the page gives its path and a JSON snippet to copy.
+- Read-only by default: the assistant sees names, dates and the matching lines, and changes nothing. It also sees only what you can see without elevation: WinShun runs as administrator, but every result is checked against the AI client's own rights. Opening files and reading the clipboard history each have a switch of their own on the **Permissions** tab; folders listed under “Folders AI never sees” on the **Privacy & log** tab stay out of its results. Every call is logged to `mcp.log`, opened from “Call log” there.
 - While WinShun is not running, the assistant is told so; start WinShun and the tools work again without restarting the client.
 
 #### 🧩 Plugins
 
 - Plugins add keyword commands to the search box and mix their rows into the list: `kill name` lists processes and Enter ends one, `bm words` searches your browser bookmarks, `= 1+2*3`, `12 inch to cm`, `#ff8800` and `ts 1700000000` answer right in the list (the bundled “Tools” plugin: calculator, units, colours, timestamps, UUIDs, Base64, hashes), `tr sentence` translates with your own API key. The bundled ones are off until you turn them on under Settings → **插件 (Plugins)**.
-- **Three ways, one protocol**: zero-code (a `plugin.json` alone: a keyword that opens a URL or a program, jumps to a folder, runs a saved search or lists fixed items); a once script in any language (the query comes in environment variables, JSON or plain text lines go out); a resident process (JSON-RPC lines on stdio, milliseconds per query). Small SDKs for Python, PowerShell and C++; “New plugin…” in the settings writes a template with one.
+- **Three ways, one protocol**: zero-code (a `plugin.json` alone: a keyword that opens a URL or a program, jumps to a folder, runs a saved search or lists fixed items); a once script in any language (the query comes in environment variables, JSON or plain text lines go out); a resident process (JSON-RPC lines on stdio, milliseconds per query). Small SDKs for Python, PowerShell and C++; turn on “Developer mode” on the Plugins page, and “New plugin” on the **Developer** tab that appears writes a template with one.
 - **Safety**: plugins always run with your normal rights (WinShun is administrator; they are not), under a memory limit, and end with WinShun. Child processes and the clipboard must be declared and are listed when you turn a plugin on; what Windows enforces is ticked, what it cannot (going online, which files are read) is marked as declared only. A crashing plugin restarts, a repeatedly crashing one is turned off; the launcher never waits for one.
 - **With AI**: plugins that offer themselves become MCP tools once “Allow AI to use plugins” is on under AI assistants (queries only; actions such as ending a process need their own switch).
 - Install by dropping a folder or a `.zip` / `.wsplugin` onto the plugins page, or by putting it under `%LOCALAPPDATA%\WinShun\plugins\`. How to write one: [docs/plugins.en.md](docs/plugins.en.md).
 
 #### ⌨️ Keyboard first
 
-`Enter` opens, `Ctrl+Enter` shows the item in its folder, `Ctrl+Shift+Enter` runs as administrator, `Ctrl+C` copies the file, `Ctrl+Shift+C` copies its path, `Ctrl+1`…`Ctrl+9` opens the nth row in view (hold `Ctrl` to see the numbers; in the bar by file dialogs it goes to that row), `Tab` / `Shift+Tab` switch scopes, `Ctrl+S` switches the order (or, with nothing typed, opened ⇄ modified), the menu key or right-click shows more actions, `Esc` closes. The selected row also has buttons to show in folder, open in Terminal (cmd, in its folder), copy, copy path and delete (to the Recycle Bin, after a second click). Select several results with `Shift+↑` / `Shift+↓`, `Ctrl`+click or `Shift`+click: opening, copying and deleting then act on all of them, and `Esc` first clears the selection.
+`Enter` opens, `Ctrl+Enter` shows the item in its folder, `Ctrl+Shift+Enter` runs as administrator, `Ctrl+C` copies the file, `Ctrl+Shift+C` copies its path, `Ctrl+1`…`Ctrl+9` opens the nth row in view (hold `Ctrl` to see the numbers; in the bar by file dialogs it goes to that row), `Tab` / `Shift+Tab` switch scopes, `Ctrl+S` switches the order (or, with nothing typed, opened ⇄ modified), the menu key or right-click shows more actions, `Esc` closes. The selected row also has buttons to show in folder, open in Terminal (cmd, in its folder), copy, copy path and delete (to the Recycle Bin, after a second click); an app gets a Run as administrator button. Select several results with `Shift+↑` / `Shift+↓`, `Ctrl`+click or `Shift`+click: opening, copying and deleting then act on all of them, and `Esc` first clears the selection.
 
-In the settings window, type into the box above the categories (or press `Ctrl+F`) and only the settings that fit stay on the right, their switches and buttons working as usual; `↑` / `↓` pick one, `Enter` goes to its page. When WinShun has no such setting, the Windows settings it may be are listed (try "Bluetooth").
+#### ⚙️ Settings
+
+Right-click the tray icon → **Settings…**; changes are saved and take effect at once.
+
+- **Open WinShun**: tabs Shortcuts (Ctrl twice, ignoring it while gaming, over full-screen programs or in listed programs, another shortcut), Taskbar (the four steps above), Dialogs (file manager for opening folders, `Ctrl+G`, the search bar by file dialogs and where it goes, dialogs going there by themselves, programs without the bar) and Startup and history (start with Windows, remember what you open, clear recent items).
+- **Appearance**: theme (System / Light / Dark), transparency effects (on by default with more than 16 GB of memory), language (System / 简体中文 / English); each takes effect at once.
+- **Search scope**: excluded folders, skipped folder names (`node_modules` and the like), USB and external drives, checking for changes at startup, shared network folders.
+- **Result list**: files or folders first, sort (Best match / Newest first / Oldest first), what to show with nothing typed (Recently opened / Recently modified), the date modified, number keys (`Ctrl+1`…`9` / `Alt+1`…`9` / off).
+- **File contents**: the master switch (off, the Content scope goes, nothing is read and the content index is cleared), documents, text file types, size limits, system and program folders, the content index.
+- **Web search**: keyword, name, address, home page and icon of each site (add, edit, remove, open), import and export.
+- **Favorites**: drag to reorder, rename, keywords, add (pick or drop), remove, import and export; gone ones can be chosen again.
+- **Clipboard**: keep a history, keep pictures, programs not to keep from; open with `Win+V`, another shortcut, paste with number keys (`Alt+1`…`9` / `Ctrl+1`…`9` / off); keep at most / keep for, clear the history.
+- **Advanced**: updates (check now, check automatically), rendering (Save memory / GPU; GPU by default with 8 GB or more), index location (movable to another built-in drive), data folder, restore defaults.
+- **AI assistants**: Permissions (allow AI assistants to connect, open files and folders, read the clipboard history, use plugins, run plugin actions), Clients (Claude Desktop, Claude Code, Cursor, VS Code, or the configuration to copy for others) and Privacy & log (folders AI never sees, the call log); the last two tabs appear once connecting is allowed.
+- **Plugins**: Installed (a card per plugin: folded, its name, keywords and switch; a click unfolds the keywords to change, For AI, permissions and its own settings; its “…” menu offers readme, open folder, reload, view log and uninstall, bundled ones can only be turned off), add plugin (a folder or a .zip / .wsplugin, or drop it on the page), plugins folder, developer mode; with developer mode on, the Developer tab: new plugin, message log.
+
+No need to page through: type into the box above the categories (or press `Ctrl+F`) and only the settings that fit stay on the right, their switches and buttons working as usual; `↑` / `↓` pick one, `Enter` goes to its page. When WinShun has no such setting, the Windows settings it may be are listed (try "Bluetooth").
 
 #### 🎨 Feels like part of Windows 11
 
@@ -483,7 +520,7 @@ Not by default. While the program in front has exclusive full screen, or has hid
 About 30 MB of index per million files; the whole app usually shows 120–140 MB in Task Manager.
 
 **Can the index files live somewhere other than drive C?**
-Yes. In Settings → Advanced → Index location, click **Change…** and pick a folder on another built-in drive (not a USB stick or an external drive). WinShun moves the index in the background while you keep searching, no restart needed. An empty folder is used as it is; otherwise a `WinShun` folder is made inside it.
+Yes. In Settings → Advanced → Index location, click **Change** and pick a folder on another built-in drive (not a USB stick or an external drive). WinShun moves the index in the background while you keep searching, no restart needed. An empty folder is used as it is; otherwise a `WinShun` folder is made inside it.
 
 **Is it free? Does it collect data?**
 Free and open source. WinShun asks GitHub's public API about new versions, sending nothing personal (you can turn that off in Settings → Advanced); the first time a web shortcut's site is shown, it fetches that site's icon from it, as a browser does; otherwise it stays offline; the index and history stay on your PC (`%LOCALAPPDATA%\WinShun`). Clear or turn off the history in Settings → Open WinShun, or right-click an item in the search window to remove just that one.
