@@ -41,8 +41,9 @@ How it all goes together: README.md next to this.
            The window on every background side by side, to choose one.
   render   [readme|pages|square|covers ...] [--shots DIR] [--out DIR]
            Every image again from the shots (work/shots): the README's
-           pictures into docs/images, the pages and covers of a post into
-           work/out. All of them when none is named.
+           pictures (the square pages, as JPEGs) into docs/images, the
+           pages and covers of a post into work/out. All of them when none
+           is named.
 
 Usage: python tools/screenshots/shots.py <command> ...   (requires Pillow and numpy)
 """
@@ -59,12 +60,10 @@ from art import BADGES, NAMES, PRESETS
 HERE = pathlib.Path(__file__).resolve().parent
 WORK = HERE / "work"
 
-# The README's pictures: image name and shots (L-<shot>.png, D-<shot>.png,
-# several joined with "+"), light on "dawn" and dark on "aurora", as the
-# scene's wallpapers were.
-README = (("search", "search"), ("content", "content"), ("apps", "apps"), ("places", "places"),
-          ("dialog", "dialog"), ("clipboard", "clipboard"), ("settings", "settings"),
-          ("favorites", "fav"), ("plugins", "plug1+plug2+plug3"))
+# The README's pictures: the post's square pages (all but the last) and its
+# square cover, as JPEGs README_WIDTH wide, named as the pages are without
+# their numbers (docs/images/search.jpg ...).
+README_WIDTH = 1080
 
 # The pages of a post after the cover: file, shot (several joined with "+":
 # short windows one under another), title, subtitle[, background: "silk"
@@ -108,10 +107,12 @@ def jobs(sets, shots, out):
     found = []
     if "readme" in sets:
         images = HERE.parent.parent / "docs/images"
-        themed = lambda p, name: "+".join(f"{p}-{part}" for part in name.split("+"))
-        for image, name in README:
-            found.append(("compose", (shot(themed("L", name)), "readme", "dawn", None, None), images / f"{image}-light.png"))
-            found.append(("compose", (shot(themed("D", name)), "readme", "aurora", None, None), images / f"{image}-dark.png"))
+        named = lambda file: images / f"{file.split('-', 1)[1]}.jpg"
+        for file, name, title, subtitle, *bg in PAGES:
+            found.append(("compose", (shot(name), "square", (bg or ["letters"])[0], title, subtitle), named(file)))
+        file, launcher, screen, title, subtitle = TASKBAR_PAGE
+        found.append(("taskbar", (shot(launcher), shot(screen), title, subtitle, "square"), named(file)))
+        found.append(("cover", (shot("L-search"), "square", "letters"), images / "cover.jpg"))
     for kind, preset, folder in (("pages", "xhs", "pages"), ("square", "square", "pages-square")):
         if kind in sets:
             for file, name, title, subtitle, *bg in PAGES:
@@ -144,7 +145,12 @@ def make(kind, args):
 def run(job):
     kind, args, out = job
     out.parent.mkdir(parents=True, exist_ok=True)
-    make(kind, args).save(out, optimize=True)
+    image = make(kind, args)
+    if out.suffix == ".jpg":  # the README's: smaller
+        image = image.convert("RGB").resize((README_WIDTH, round(image.height * README_WIDTH / image.width)), Image.LANCZOS)
+        image.save(out, quality=86, optimize=True, progressive=True)
+    else:
+        image.save(out, optimize=True)
     return out
 
 

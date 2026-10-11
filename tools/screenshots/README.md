@@ -1,6 +1,6 @@
 # 截图工具
 
-README 里的图（`docs/images/*-light.png`、`*-dark.png`）和发帖用的图（小红书 3:4、1:1、X、GitHub 社交预览）都由这里生成：用演示数据启动 Win顺，用真实键鼠输入把窗口摆好，黑白两次背板抠出带真实透明度的窗口，再合成到生成的背景上。图里不会出现自己电脑上的文件。
+README 里的图（`docs/images/*.jpg`：帖子的方形页面和方形封面，1080 宽的 JPEG）和发帖用的图（小红书 3:4、1:1、X、GitHub 社交预览）都由这里生成：用演示数据启动 Win顺，用真实键鼠输入把窗口摆好，黑白两次背板抠出带真实透明度的窗口，再合成到生成的背景上。图里不会出现自己电脑上的文件。
 
 ## 目录
 
@@ -23,7 +23,7 @@ README 里的图（`docs/images/*-light.png`、`*-dark.png`）和发帖用的图
 
 ```
 python tools/screenshots/shots.py render            # 全部
-python tools/screenshots/shots.py render readme     # 只 README 的 18 张（写进 docs/images）
+python tools/screenshots/shots.py render readme     # 只 README 的 17 张（写进 docs/images）
 python tools/screenshots/shots.py render pages square covers   # 帖子用图，写进 work/out
 ```
 
