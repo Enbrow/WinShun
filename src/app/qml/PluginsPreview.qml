@@ -80,8 +80,8 @@ Window {
 
     Component.onCompleted: {
         if (!preview.aiPage) {
-            pluginsSection.openPermissions(1) // one card with its permissions unfolded
-            pluginsSection.openPermissions(4) // ... and the strict-sandbox one: its first line wraps
+            pluginsSection.expandAt(1) // one card unfolded, its permissions with it
+            pluginsSection.expandAt(4) // ... and the strict-sandbox one: its first permission wraps
         }
         if (preview.dialogShown && !preview.aiPage) {
             dialog.ask("permissions", {

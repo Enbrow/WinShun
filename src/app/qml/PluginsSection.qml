@@ -2,23 +2,36 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import WinShun
 
-// Settings → 插件: the plugins installed, each a card (PluginCard), and
-// how to add one: a folder or an archive picked, or dropped on the page.
-// What the view-model says of the last install or removal shows under
-// the cards.
+// Settings → 插件 › 已安装: the plugins installed, each a card (PluginCard),
+// folded to three lines until asked for more; how to add one (a folder or
+// an archive picked, or dropped on the page), where they are, and the
+// switch of developer mode, whose rows are on the 开发者 tab
+// (PluginDevSection, which `lockedElsewhere` comes from). What the
+// view-model says of the last install or removal shows over the cards.
 SettingsSection {
     id: pluginsSection
 
     required property PluginSettings plugins
+    // Rows on the 开发者 tab shown only in developer mode (PluginDevSection.lockedRows).
+    property var lockedElsewhere: []
 
-    title: qsTr("插件")
-    note: qsTr("插件给搜索框加关键字命令、把结果混进列表。它们永远以你的普通权限运行，不是管理员；装上后默认关着，打开开关时会先列出它要的权限。")
-
-    // Unfolds the permissions of the card at `index` (the offscreen preview).
-    function openPermissions(index) {
+    // The cards unfolded, by plugin id: here, not in the cards, for the list
+    // is reset (the cards made again) when a plugin comes or goes. For as
+    // long as the window lives; not saved. Assigned whole, for the bindings.
+    property var expandedIds: []
+    function setExpanded(pluginId, on) {
+        const ids = expandedIds.filter(id => id !== pluginId)
+        if (on)
+            ids.push(pluginId)
+        expandedIds = ids
+    }
+    // Unfolds a plugin's card (SettingsWindow.showPluginPage).
+    function expand(pluginId) { setExpanded(pluginId, true) }
+    // Unfolds the card at `index` (the offscreen previews).
+    function expandAt(index) {
         const card = cardsRepeater.itemAt(index)
         if (card)
-            card.permissionsOpen = true
+            setExpanded(card.pluginId, true)
     }
 
     // The card of a plugin, or null (SettingsWindow.showPluginPage).
@@ -43,6 +56,19 @@ SettingsSection {
         onTriggered: pluginsSection.revealed = ""
     }
 
+    // Counts the cards' changes (a keyword changed, a plugin added), for
+    // what the search reads of them to be read again.
+    property int listRevision: 0
+    Connections {
+        target: pluginsSection.plugins.list
+        function onModelReset() { pluginsSection.listRevision++ }
+        function onRowsInserted() { pluginsSection.listRevision++ }
+        function onRowsRemoved() { pluginsSection.listRevision++ }
+        function onDataChanged() { pluginsSection.listRevision++ }
+    }
+
+    note: qsTr("插件给搜索框加关键字命令，结果混进列表。它们只用你的普通权限；新装的默认关着，打开时会先列出它要的权限。")
+
     SettingRow { // the plugins cannot see what Explorer signed in to (Runner::TokenSource::Restricted)
         title: qsTr("插件看不到你在资源管理器里登录的网络位置")
         keywords: qsTr("网络;共享;NAS;登录;令牌;plugin;network").split(";")
@@ -57,16 +83,48 @@ SettingsSection {
         }
     }
 
+    SettingRow { // over the cards: in sight of 添加插件 and of a file dropped
+        title: qsTr("刚才的结果")
+        description: pluginsSection.plugins.message
+        shown: pluginsSection.plugins.message.length > 0
+
+        FlatButton {
+            text: qsTr("知道了")
+            flat: true
+            onClicked: pluginsSection.plugins.clearMessage()
+        }
+    }
+
     SettingRow {
         id: listRow
 
         title: qsTr("已安装的插件")
         keywords: qsTr("插件;扩展;关键字;命令;安装;plugin;extension").split(";")
-        values: { // the names, read again as the list changes (count tells)
-            const names = []
-            for (let i = 0; i < pluginsSection.plugins.count; ++i)
-                names.push(pluginsSection.plugins.list.data(pluginsSection.plugins.list.index(i, 0), Qt.UserRole + 2))
-            return names
+        // What the cards hold, to be found by: the names, the commands and
+        // their keywords, the titles of the plugins' settings, 给 AI 用.
+        // Read from the model's roles (PluginListModel::Role: NameRole is
+        // UserRole + 2, KeywordsRole + 15, SettingsRole + 17, AiExposeRole + 20).
+        values: {
+            pluginsSection.listRevision // read again as the cards change
+            const list = pluginsSection.plugins.list
+            const found = []
+            const add = (value) => {
+                if (value && value.length > 0 && found.indexOf(value) < 0)
+                    found.push(value)
+            }
+            for (let i = 0; i < pluginsSection.plugins.count; ++i) {
+                const index = list.index(i, 0)
+                add(list.data(index, Qt.UserRole + 2))
+                for (const k of list.data(index, Qt.UserRole + 15) ?? []) {
+                    add(k.title)
+                    add(k.keyword)
+                }
+                for (const s of list.data(index, Qt.UserRole + 17) ?? [])
+                    add(s.title)
+                if (list.data(index, Qt.UserRole + 20))
+                    add(qsTr("给 AI 用"))
+            }
+            return found
         }
         description: pluginsSection.plugins.count > 0
                      ? qsTr("%n 个；文件夹或 .zip / .wsplugin 拖到这里也能安装", "", pluginsSection.plugins.count)
@@ -74,96 +132,24 @@ SettingsSection {
 
         FlatButton {
             id: addButton
-            text: qsTr("添加插件…")
+            text: qsTr("添加插件")
             glyph: "" // Add
             onClicked: addMenu.open = !addMenu.open
 
-            Rectangle { // 文件夹… / 压缩包…
+            DropMenu { // 文件夹… / 压缩包…
                 id: addMenu
-
-                property bool open: false
-
-                visible: open
-                z: 2
-                x: parent.width - width
-                y: parent.height + 4
-                width: 200
-                height: addColumn.implicitHeight + 8
-                radius: 6
-                color: Theme.menuBackground
-                border.width: 1
-                border.color: Theme.windowEdge
-
-                Column {
-                    id: addColumn
-                    x: 4
-                    y: 4
-                    width: parent.width - 8
-
-                    Repeater {
-                        model: [
-                            { text: qsTr("插件文件夹…"), glyph: "", archive: false }, // Folder
-                            { text: qsTr("压缩包（.zip / .wsplugin）…"), glyph: "", archive: true } // ZipFolder
-                        ]
-
-                        delegate: Rectangle {
-                            id: addEntry
-
-                            required property var modelData
-
-                            width: parent.width
-                            height: 34
-                            radius: 4
-                            color: addArea.containsMouse ? Theme.menuHover : "transparent"
-
-                            Glyph {
-                                x: 10
-                                anchors.verticalCenter: parent.verticalCenter
-                                glyph: addEntry.modelData.glyph
-                                size: 14
-                                color: Theme.text
-                            }
-                            Text {
-                                x: 36
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: addEntry.modelData.text
-                                color: Theme.text
-                                font.pixelSize: Theme.fontCaption
-                            }
-                            MouseArea {
-                                id: addArea
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                onClicked: {
-                                    addMenu.open = false
-                                    if (addEntry.modelData.archive)
-                                        pluginsSection.plugins.installFromArchive()
-                                    else
-                                        pluginsSection.plugins.installFromFolder()
-                                }
-                            }
-                        }
-                    }
+                anchor: addButton
+                entries: [
+                    { text: qsTr("插件文件夹"), glyph: "" }, // Folder
+                    { text: qsTr("压缩包（.zip / .wsplugin）"), glyph: "" } // ZipFolder
+                ]
+                onActivated: (index) => {
+                    if (index === 1)
+                        pluginsSection.plugins.installFromArchive()
+                    else
+                        pluginsSection.plugins.installFromFolder()
                 }
             }
-            MouseArea { // a click anywhere else closes the menu
-                visible: addMenu.open
-                x: -10000
-                y: -10000
-                width: 20000
-                height: 20000
-                z: 1
-                acceptedButtons: Qt.AllButtons
-                onPressed: (mouse) => {
-                    addMenu.open = false
-                    mouse.accepted = false
-                }
-            }
-        }
-        FlatButton {
-            text: qsTr("打开文件夹")
-            glyph: "" // FolderOpen
-            onClicked: pluginsSection.plugins.openUserDir()
         }
 
         body: Item {
@@ -182,9 +168,21 @@ SettingsSection {
                     model: pluginsSection.plugins.list
 
                     delegate: PluginCard {
+                        id: pluginCard
+
+                        // The search found something inside it, not only its name: unfolded while it searches.
+                        readonly property bool foundInside: listRow.searching
+                            && (keywords.some(k => listRow.valueFound(k.title) || listRow.valueFound(k.keyword))
+                                || settings.some(s => listRow.valueFound(s.title))
+                                || (aiExpose && listRow.valueFound(qsTr("给 AI 用"))))
+
                         width: cards.width
                         plugins: pluginsSection.plugins
-                        marked: listRow.valueFound(name) || (pluginsSection.revealed.length > 0 && pluginId === pluginsSection.revealed)
+                        animated: !pluginsSection.plugins.preview
+                        expanded: pluginsSection.expandedIds.indexOf(pluginId) >= 0 || foundInside
+                        marked: listRow.valueFound(name) || foundInside
+                                || (pluginsSection.revealed.length > 0 && pluginId === pluginsSection.revealed)
+                        onExpandRequested: (on) => pluginsSection.setExpanded(pluginId, on)
                     }
                 }
             }
@@ -198,7 +196,7 @@ SettingsSection {
                 radius: 4
                 color: Theme.selection
                 border.width: 1
-                border.color: Theme.accent
+                border.color: Theme.cardBorder
 
                 Text {
                     anchors.centerIn: parent
@@ -223,14 +221,26 @@ SettingsSection {
     }
 
     SettingRow {
-        title: qsTr("刚才的结果")
-        description: pluginsSection.plugins.message
-        shown: pluginsSection.plugins.message.length > 0
+        title: qsTr("插件文件夹")
+        keywords: qsTr("位置;路径;文件夹;folder;path").split(";")
+        description: pluginsSection.plugins.userDir
 
         FlatButton {
-            text: qsTr("知道了")
-            flat: true
-            onClicked: pluginsSection.plugins.clearMessage()
+            text: qsTr("打开")
+            glyph: "" // FolderOpen
+            onClicked: pluginsSection.plugins.openUserDir()
+        }
+    }
+
+    SettingRow {
+        title: qsTr("开发者模式")
+        keywords: qsTr("开发;调试;日志;协议;模板;developer;debug;log").split(";")
+        description: qsTr("记下每一条发给插件和插件回来的消息，改了脚本自动重新加载；打开后多一个“开发者”标签")
+        unlocks: [...pluginsSection.lockedElsewhere]
+
+        ToggleSwitch {
+            checked: pluginsSection.plugins.developerMode
+            onToggled: (on) => pluginsSection.plugins.developerMode = on
         }
     }
 }

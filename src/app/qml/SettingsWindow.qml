@@ -57,8 +57,8 @@ Window {
         [],
         [qsTr("记录"), qsTr("快捷键", "settings tab"), qsTr("保留")],
         [],
-        [],
-        [],
+        window.editor.mcp ? [qsTr("权限"), qsTr("连接客户端"), qsTr("隐私与记录")] : [], // the others: nothing while off
+        window.editor.plugins.developerMode ? [qsTr("已安装"), qsTr("开发者")] : [], // 开发者: in developer mode only
         []
     ]
     readonly property int gleaningPage: 11
@@ -66,11 +66,13 @@ Window {
     readonly property int favoritesPage: 6 // 收藏夹 (FavoritesSection)
     readonly property int clipboardPage: 7
     readonly property int advancedPage: 8 // where the updates are
-    readonly property int aiPage: 9 // AI 助手: the MCP server (AiAccessSection, AiClientsSection)
-    readonly property int pluginsPage: 10 // 插件 (PluginsSection, PluginDevSection)
+    readonly property int aiPage: 9 // AI 助手: the MCP server (AiAccessSection, AiClientsSection, AiPrivacySection)
+    readonly property int pluginsPage: 10 // 插件: 已安装 (PluginsSection), 开发者 (PluginDevSection)
     property int currentPage: 0
     property int currentTab: 0
     property var lastTabs: [] // by page: the tab it was left on, to come back to
+    // A tab gone from the page on show (its switch turned off): the last one left.
+    onPageTabsChanged: currentTab = Math.min(currentTab, Math.max(0, (pageTabs[currentPage]?.length ?? 0) - 1))
     // On the 拾穗计划 page the whole window, sidebar included, is a warm scene.
     // Not while searching: the results are on the usual page.
     readonly property bool warm: currentPage === gleaningPage && !searching
@@ -293,10 +295,11 @@ Window {
     // The 插件 page, scrolled to the plugin's card, which is marked for a
     // moment (a plugin's row opening "winshun:settings": Launcher.pluginSettingsRequested).
     function showPluginPage(pluginId) {
-        showPage(pluginsPage)
+        showPage(pluginsPage, 0) // the cards' tab, whichever was left on
         const card = pluginsSection.cardOf(pluginId)
         if (!card)
             return
+        pluginsSection.expand(pluginId) // its settings are what was asked for
         layoutNow()
         revealRow(card)
         pluginsSection.reveal(pluginId)
@@ -387,7 +390,7 @@ Window {
     Binding { // the plugin cards read their processes' memory only while on show
         target: window.editor.plugins
         property: "active"
-        value: window.visible && !window.searching && window.currentPage === window.pluginsPage
+        value: window.visible && !window.searching && window.currentPage === window.pluginsPage && window.currentTab === 0
     }
 
     TitleBar {
@@ -2034,8 +2037,8 @@ Window {
                     FlatButton {
                         text: qsTr("添加")
                         glyph: "\uE710" // Add
-                        enabled: webSection.editing !== -1
-                        onClicked: webSection.editing = -1
+                        // Opens the form, and closes it again: what a button opened, it closes.
+                        onClicked: webSection.editing = webSection.editing === -1 ? -2 : -1
                     }
 
                     body: [Text {
@@ -2687,10 +2690,20 @@ Window {
                 page: window.aiPage
                 width: parent.width
                 editor: window.editor
+                lockedElsewhere: aiPrivacySection.lockedRows
             }
 
             AiClientsSection {
                 page: window.aiPage
+                tab: 1
+                width: parent.width
+                editor: window.editor
+            }
+
+            AiPrivacySection {
+                id: aiPrivacySection
+                page: window.aiPage
+                tab: 2
                 width: parent.width
                 editor: window.editor
             }
@@ -2700,10 +2713,13 @@ Window {
                 page: window.pluginsPage
                 width: parent.width
                 plugins: window.editor.plugins
+                lockedElsewhere: pluginDevSection.lockedRows
             }
 
             PluginDevSection {
+                id: pluginDevSection
                 page: window.pluginsPage
+                tab: 1
                 width: parent.width
                 plugins: window.editor.plugins
             }

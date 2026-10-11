@@ -2,10 +2,11 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import WinShun
 
-// Settings → 插件 → 高级: developer mode (the plugin design, §5.5): the
-// log of what goes to and from the plugins (the last 500 lines, by
-// plugin, each unfolding to the whole message), scripts reloaded as they
-// change, and a new plugin from a template.
+// Settings → 插件 › 开发者, in developer mode (the plugin design, §5.5; its
+// switch is on the 已安装 tab, PluginsSection, which `lockedRows` are given
+// to): a new plugin from a template, and the log of what goes to and from
+// the plugins (the last 500 lines, by plugin, each unfolding to the whole
+// message). Scripts are reloaded as they change.
 SettingsSection {
     id: devSection
 
@@ -13,20 +14,66 @@ SettingsSection {
 
     readonly property var templateKinds: ["powershell", "python", "python-resident", "cpp", "zero"]
 
-    title: qsTr("高级")
+    // Shown only in developer mode: for the switch's search hint.
+    readonly property var lockedRows: [newRow, logRow]
+
+    note: qsTr("每一条发给插件和插件回来的消息都记在这里；改了脚本，常驻插件会自动重新加载。")
 
     SettingRow {
-        id: devRow
+        id: newRow
 
-        title: qsTr("开发者模式")
-        keywords: qsTr("开发;调试;日志;协议;模板;developer;debug;log").split(";")
-        description: qsTr("记下每一条发给插件和插件回来的消息；改了脚本自动重新加载常驻插件")
-        unlocks: [logRow, newRow]
+        property string problem
 
-        ToggleSwitch {
-            checked: devSection.plugins.developerMode
-            onToggled: (on) => devSection.plugins.developerMode = on
-        }
+        title: qsTr("新建插件")
+        keywords: qsTr("模板;新建;创建;PowerShell;Python;零代码;template;new").split(";")
+        description: qsTr("按模板在插件文件夹里建一个，SDK 文件一起放进去：PowerShell、Python、C++ 的常驻插件，Python 的一次性插件，或只有 plugin.json 的零代码")
+        shown: devSection.plugins.developerMode
+
+        body: [
+            ScopeTabs { // the language and kind, on a line of its own: five of them do not fit beside the name
+                id: kindTabs
+                labels: [qsTr("PowerShell 常驻"), qsTr("Python 一次性"), qsTr("Python 常驻"), qsTr("C++ 常驻"), qsTr("零代码")]
+                current: 0
+                onActivated: (index) => current = index
+            },
+            Row {
+                spacing: 8
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: devSection.plugins.templateAuthor + "."
+                    color: Theme.subtext
+                    font.pixelSize: Theme.fontBody
+                }
+                InputBox {
+                    id: nameBox
+                    width: 180
+                    implicitHeight: 32
+                    placeholder: qsTr("名字，如 hello")
+                    onAccepted: createButton.clicked()
+                }
+                FlatButton {
+                    id: createButton
+                    implicitHeight: 32
+                    text: qsTr("创建")
+                    highlighted: true
+                    enabled: nameBox.text.trim().length > 0
+                    onClicked: {
+                        newRow.problem = devSection.plugins.createFromTemplate(devSection.templateKinds[kindTabs.current], nameBox.text)
+                        if (newRow.problem.length === 0)
+                            nameBox.clear()
+                    }
+                }
+            },
+            Text {
+                visible: newRow.problem.length > 0
+                width: parent.width
+                text: newRow.problem
+                color: Theme.danger
+                font.pixelSize: Theme.fontCaption
+                wrapMode: Text.Wrap
+            }
+        ]
     }
 
     SettingRow {
@@ -183,74 +230,5 @@ SettingsSection {
                 }
             }
         ]
-    }
-
-    SettingRow {
-        id: newRow
-
-        property string problem
-
-        title: qsTr("新建插件…")
-        keywords: qsTr("模板;新建;创建;PowerShell;Python;零代码;template;new").split(";")
-        description: qsTr("按模板在插件文件夹里建一个，SDK 文件一起放进去：PowerShell、Python、C++ 的常驻插件，Python 的一次性插件，或只有 plugin.json 的零代码")
-        shown: devSection.plugins.developerMode
-
-        body: [
-            ScopeTabs { // the language and kind, on a line of its own: five of them do not fit beside the name
-                id: kindTabs
-                labels: [qsTr("PowerShell 常驻"), qsTr("Python 一次性"), qsTr("Python 常驻"), qsTr("C++ 常驻"), qsTr("零代码")]
-                current: 0
-                onActivated: (index) => current = index
-            },
-            Row {
-                spacing: 8
-
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: devSection.plugins.templateAuthor + "."
-                    color: Theme.subtext
-                    font.pixelSize: Theme.fontBody
-                }
-                InputBox {
-                    id: nameBox
-                    width: 180
-                    implicitHeight: 32
-                    placeholder: qsTr("名字，如 hello")
-                    onAccepted: createButton.clicked()
-                }
-                FlatButton {
-                    id: createButton
-                    implicitHeight: 32
-                    text: qsTr("创建")
-                    highlighted: true
-                    enabled: nameBox.text.trim().length > 0
-                    onClicked: {
-                        newRow.problem = devSection.plugins.createFromTemplate(devSection.templateKinds[kindTabs.current], nameBox.text)
-                        if (newRow.problem.length === 0)
-                            nameBox.clear()
-                    }
-                }
-            },
-            Text {
-                visible: newRow.problem.length > 0
-                width: parent.width
-                text: newRow.problem
-                color: Theme.danger
-                font.pixelSize: Theme.fontCaption
-                wrapMode: Text.Wrap
-            }
-        ]
-    }
-
-    SettingRow {
-        title: qsTr("插件文件夹")
-        keywords: qsTr("位置;路径;文件夹;folder;path").split(";")
-        description: devSection.plugins.userDir
-
-        FlatButton {
-            text: qsTr("打开")
-            glyph: "" // FolderOpen
-            onClicked: devSection.plugins.openUserDir()
-        }
     }
 }

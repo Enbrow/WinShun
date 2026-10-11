@@ -2,7 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import WinShun
 
-// Settings → AI 助手: the AI clients found on this PC, each connected to
+// Settings → AI 助手 › 连接客户端: the AI clients found on this PC, each connected to
 // Win顺 with one click (McpClients writes WinShunMcp.exe into its
 // configuration), and the configuration to paste into any other.
 SettingsSection {
@@ -12,8 +12,7 @@ SettingsSection {
 
     readonly property bool relayFound: editor.mcpRelayPath.length > 0
 
-    title: qsTr("连接到 AI 客户端")
-    note: relayFound ? qsTr("点“连接”就写进那个客户端的配置（原文件先备份成 .bak），上面的“允许 AI 连接”也会一起打开。装了的客户端才列出来。")
+    note: relayFound ? qsTr("点“连接”就写进那个客户端的配置（原文件先备份成 .bak）。装了的客户端才列出来。")
                      : qsTr("没找到 WinShunMcp.exe，重新安装 Win顺 就有了。")
 
     Repeater {

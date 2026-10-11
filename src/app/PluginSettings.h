@@ -161,6 +161,8 @@ class PluginSettings : public QObject {
     // A card's hotkey recorder has the keyboard (SettingsWindow suspends the global hotkeys).
     Q_PROPERTY(bool recordingHotkey READ recordingHotkey WRITE setRecordingHotkey NOTIFY recordingHotkeyChanged FINAL)
     Q_PROPERTY(QString templateAuthor READ templateAuthor CONSTANT FINAL) // "<author>." of a new plugin's id
+    // The made-up plugins of the offscreen preview (loadPreview): no frames, so no animations.
+    Q_PROPERTY(bool preview READ preview NOTIFY listChanged FINAL)
 
 public:
     explicit PluginSettings(SettingsEditor* editor, QObject* parent = nullptr);
@@ -184,6 +186,7 @@ public:
     QString message() const { return m_message; }
     QString userDir() const { return m_userDir; }
     bool active() const { return m_active; }
+    bool preview() const { return m_preview != nullptr; }
     void setActive(bool on);
     bool recordingHotkey() const { return m_recordingHotkey; }
     void setRecordingHotkey(bool on);

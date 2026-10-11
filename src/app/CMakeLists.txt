@@ -58,6 +58,7 @@ set(qml_files
     qml/DialogBarWindow.qml
     qml/DialogBarRow.qml
     qml/HoverTip.qml
+    qml/DropMenu.qml
     qml/Footer.qml
     qml/KeyHint.qml
     qml/Glyph.qml
@@ -88,8 +89,10 @@ set(qml_files
     qml/GleaningPage.qml
     qml/AiAccessSection.qml
     qml/AiClientsSection.qml
+    qml/AiPrivacySection.qml
     qml/PluginsSection.qml
     qml/PluginCard.qml
+    qml/Tag.qml
     qml/PluginDevSection.qml
     qml/PluginDialog.qml
     qml/PluginsPreview.qml

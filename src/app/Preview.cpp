@@ -18,6 +18,7 @@
 #include <QFontMetricsF>
 #include <QGuiApplication>
 #include <QImage>
+#include <QMouseEvent>
 #include <QLibraryInfo>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
@@ -203,6 +204,46 @@ int runPlugins(const QStringList& args)
     settle(window);
     say(u"showing %1x%2"_s.arg(window->width()).arg(window->height()));
     pump(500); // the bindings settle (sizes, the asynchronous icons)
+    // A menu open (DropMenu): 添加插件's ("add"), or the "…" of the first card
+    // ("card"), whose entries run over the cards below it. Each lives on the
+    // window's content item (the cards' are not QObject children of the
+    // window: a Repeater's delegates have no QObject parent).
+    if (const QString menu = valueAfter(args, u"--menu"); !menu.isEmpty()) {
+        QObject* chosen = nullptr;
+        for (QQuickItem* o : window->contentItem()->childItems()) {
+            if (!QString::fromLatin1(o->metaObject()->className()).startsWith(u"DropMenu"))
+                continue;
+            // 添加插件's drops from a button with that text; a card's from a "…".
+            const auto* anchor = o->property("anchor").value<QObject*>();
+            const bool add = anchor && !anchor->property("text").toString().isEmpty();
+            if (!chosen && (menu == u"add" ? add : !add))
+                chosen = o;
+        }
+        if (!chosen) {
+            say(u"no menu %1"_s.arg(menu));
+            return finish(window, false);
+        }
+        // Opened by clicks on its button, as a user does: open, closed again
+        // (what a button opened, a second click closes), open for the picture.
+        auto* anchor = qobject_cast<QQuickItem*>(chosen->property("anchor").value<QObject*>());
+        const QPointF at = anchor->mapToScene(QPointF(anchor->width() / 2, anchor->height() / 2));
+        const auto click = [&] {
+            QMouseEvent press(QEvent::MouseButtonPress, at, window->mapToGlobal(at), Qt::LeftButton, Qt::LeftButton, {});
+            QCoreApplication::sendEvent(window, &press);
+            QMouseEvent release(QEvent::MouseButtonRelease, at, window->mapToGlobal(at), Qt::LeftButton, {}, {});
+            QCoreApplication::sendEvent(window, &release);
+            pump(100);
+            return chosen->property("open").toBool();
+        };
+        const bool first = click();
+        const bool second = click();
+        const bool third = click();
+        say(u"clicks on the button: %1, %2, %3"_s.arg(first ? u"open"_s : u"closed"_s,
+                                                       second ? u"open"_s : u"closed"_s,
+                                                       third ? u"open"_s : u"closed"_s));
+        if (!first || second || !third)
+            return finish(window, false);
+    }
     say(u"grabbing"_s);
     if (args.contains(u"--tree"_s))
         writeTree(window, out + u".tree.txt"_s);
@@ -367,6 +408,10 @@ int runSettings(const QStringList& args)
         for (int tab = 0; tab < count; ++tab) {
             const QString title = pages[page].toMap().value(u"title"_s).toString() + (pageTabs.isEmpty() ? QString() : u" / "_s + pageTabs[tab].toString());
             QMetaObject::invokeMethod(window, "showPage", Q_ARG(QVariant, QVariant(page)), Q_ARG(QVariant, QVariant(tab)));
+            if (page == pluginsPage && tab == 0) { // the cards come folded: one unfolded too (翻译: settings, permissions)
+                if (QObject* section = named(window, "pluginsSection"))
+                    QMetaObject::invokeMethod(section, "expandAt", Q_ARG(QVariant, QVariant(1)));
+            }
             window->setHeight(baseHeight);
             settle(window, 3);
             int height = baseHeight;
@@ -411,6 +456,8 @@ int runSettings(const QStringList& args)
     };
     const Probe probes[] = {
         {u"插件"_s, pluginsPage, 0},
+        {u"消息记录"_s, pluginsPage, 1}, // the 开发者 tab (developer mode is on in the preview)
+        {u"API 密钥"_s, pluginsPage, 0}, // a plugin's own setting: its card unfolds (search-API 密钥.png)
         {u"AI"_s, aiPage, 0},
         {u"收藏"_s, favoritesPage, 0},
         {u"网络共享"_s, 2, 3},
