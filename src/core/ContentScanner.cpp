@@ -238,58 +238,200 @@ int contentRelevance(const ContentMatch& match, const QStringList& terms, QStrin
     return score;
 }
 
-// The snippet starts a little before a term in the line: the first one from
-// which the most of them fit, and shows every term that is in it.
-ContentMatch ContentScanner::matchIn(const QString& line, int lineNumber) const
+namespace {
+
+// How wide a character shows, in halves of an ideograph: CJK and full-width ones are 2.
+int widthOf(QChar c)
 {
-    constexpr qsizetype kBefore = 36;
-    constexpr qsizetype kMaxChars = 160;
+    const char16_t u = c.unicode();
+    return (u >= 0x1100 && u <= 0x115F) || (u >= 0x2E80 && u <= 0xA4CF) || (u >= 0xAC00 && u <= 0xD7A3)
+            || (u >= 0xF900 && u <= 0xFAFF) || (u >= 0xFE30 && u <= 0xFE4F) || (u >= 0xFF00 && u <= 0xFF60)
+            || (u >= 0xFFE0 && u <= 0xFFE6)
+        ? 2
+        : 1;
+}
+
+} // namespace
+
+// The snippet shows every term, within the width a result's second line has:
+// the line shown from a little before its terms, and the terms it lacks after
+// it, each with a few words from where it first is (`others`): "弯管机用户手
+// 册…进行优化，如 … 折弯角度设定…". Terms on one line too far apart to fit
+// are pieces of their own too.
+ContentMatch ContentScanner::matchIn(const QString& line, int lineNumber, const std::vector<QString>& others) const
+{
+    constexpr int kWidth = 56; // what a result shows, in halves of an ideograph (28 of them)
+    constexpr int kLeadMax = 24; // at most before the first term of a piece
+    constexpr int kGap = 4; // " … " between pieces
+    constexpr std::size_t kMaxPieces = 4;
+    constexpr qsizetype kMaxChars = 160; // the last piece runs on, and the row elides it
+    const auto bit = [](std::size_t t) { return std::uint32_t {1} << t; };
+
     struct Hit {
         qsizetype at;
-        qsizetype length;
+        qsizetype end;
         std::size_t term;
     };
-    std::vector<Hit> hits;
-    for (std::size_t t = 0; t < m_terms.size(); ++t) {
-        const QString& text = m_terms[t].text;
-        for (qsizetype i = line.indexOf(text, 0, Qt::CaseInsensitive); i >= 0;
-            i = line.indexOf(text, i + text.size(), Qt::CaseInsensitive))
-            hits.push_back({i, text.size(), t});
-    }
-    std::ranges::sort(hits, {}, &Hit::at);
-    qsizetype idx = 0;
-    qsizetype idxLength = 0;
-    int most = 0;
-    for (std::size_t a = 0; a < hits.size(); ++a) {
-        std::uint32_t fit = 0;
-        for (std::size_t b = a; b < hits.size() && hits[b].at + hits[b].length <= hits[a].at + kMaxChars - kBefore; ++b)
-            fit |= std::uint32_t {1} << hits[b].term;
-        if (const int count = std::popcount(fit); count > most) {
-            most = count;
-            idx = hits[a].at;
-            idxLength = hits[a].length;
+    struct Source {
+        const QString* text;
+        std::vector<Hit> hits;
+        std::vector<int> widths; // of the text before each place
+        int width(qsizetype from, qsizetype to) const { return widths[to] - widths[from]; }
+    };
+    std::vector<Source> sources;
+    const auto addSource = [&](const QString& text) {
+        Source& s = sources.emplace_back();
+        s.text = &text;
+        for (std::size_t t = 0; t < m_terms.size(); ++t) {
+            const QString& term = m_terms[t].text;
+            for (qsizetype i = text.indexOf(term, 0, Qt::CaseInsensitive); i >= 0;
+                i = text.indexOf(term, i + term.size(), Qt::CaseInsensitive))
+                s.hits.push_back({i, i + term.size(), t});
         }
+        std::ranges::sort(s.hits, {}, &Hit::at);
+        s.widths.resize(static_cast<std::size_t>(text.size()) + 1);
+        for (qsizetype i = 0; i < text.size(); ++i)
+            s.widths[i + 1] = s.widths[i] + widthOf(text[i]);
+    };
+    addSource(line);
+    for (const QString& other : others)
+        addSource(other);
+    std::vector<int> termWidths;
+    for (const Term& t : m_terms) {
+        int w = 0;
+        for (QChar c : t.text)
+            w += widthOf(c);
+        termWidths.push_back(w);
     }
 
-    qsizetype lead = 0;
-    while (lead < idx && line[lead].isSpace())
-        ++lead;
-    qsizetype start = std::max(lead, idx - kBefore);
-    if (start > 0 && start < idx && line[start].isLowSurrogate())
-        ++start;
-    qsizetype end = std::min(line.size(), std::max(start + kMaxChars, idx + idxLength));
-    while (end > idx + idxLength && line[end - 1].isSpace())
-        --end;
-    const QString prefix = start > lead ? u"…"_s : QString();
-    const QString suffix = end < line.size() ? u"…"_s : QString();
+    // The pieces: each time the run of a text's terms that shows the most of
+    // those not shown yet, leaving room for the rest; the line shown first.
+    struct Piece {
+        std::size_t source = 0;
+        qsizetype from = 0; // its terms, from the first to the end of the last
+        qsizetype to = 0;
+    };
+    std::vector<Piece> pieces;
+    std::uint32_t unshown = 0;
+    for (const Source& s : sources) {
+        for (const Hit& h : s.hits)
+            unshown |= bit(h.term);
+    }
+    int used = 0;
+    while (unshown != 0 && pieces.size() < kMaxPieces) {
+        int most = 0;
+        Piece pick;
+        std::uint32_t pickTerms = 0;
+        for (std::size_t si = 0; si < sources.size(); ++si) {
+            const Source& s = sources[si];
+            for (std::size_t a = 0; a < s.hits.size(); ++a) {
+                if (!(unshown & bit(s.hits[a].term)))
+                    continue;
+                std::uint32_t fit = 0;
+                qsizetype end = 0;
+                for (std::size_t b = a; b < s.hits.size(); ++b) {
+                    end = std::max(end, s.hits[b].end);
+                    fit |= bit(s.hits[b].term);
+                    const int span = s.width(s.hits[a].at, end);
+                    if (b > a && span > kWidth)
+                        break;
+                    int room = kWidth - used - (pieces.empty() ? 0 : kGap);
+                    for (std::size_t t = 0; t < m_terms.size(); ++t) {
+                        if (unshown & ~fit & bit(t))
+                            room -= termWidths[t] + kGap;
+                    }
+                    if (b > a && span > room)
+                        continue;
+                    if (const int count = std::popcount(fit & unshown); count > most) {
+                        most = count;
+                        pick = {si, s.hits[a].at, end};
+                        pickTerms = fit;
+                    }
+                }
+            }
+        }
+        if (most == 0)
+            break;
+        used += sources[pick.source].width(pick.from, pick.to) + (pieces.empty() ? 0 : kGap);
+        pieces.push_back(pick);
+        unshown &= ~pickTerms;
+    }
+    if (pieces.empty())
+        pieces.push_back({});
+    std::ranges::sort(pieces, [](const Piece& a, const Piece& b) {
+        return a.source != b.source ? a.source < b.source : a.from < b.from;
+    });
+
+    // Around each, an equal share of the width left before its terms, and
+    // after them but for the last, which runs on (the row elides it). One
+    // piece alone has half of it before.
+    const auto count = static_cast<int>(pieces.size());
+    int spans = kGap * (count - 1);
+    for (const Piece& p : pieces)
+        spans += sources[p.source].width(p.from, p.to);
+    const int spare = std::max(kWidth - spans, 0);
+    const int share = count == 1 ? spare / 2 : spare / (2 * count - 1);
+    struct Shown {
+        std::size_t source;
+        qsizetype start;
+        qsizetype end;
+        qsizetype lead; // where the text starts, past spaces
+    };
+    std::vector<Shown> shown;
+    for (int i = 0; i < count; ++i) {
+        const Piece& p = pieces[i];
+        const Source& s = sources[p.source];
+        const QString& text = *s.text;
+        const int before = std::min(kLeadMax, share);
+        qsizetype lead = 0;
+        while (lead < p.from && text[lead].isSpace())
+            ++lead;
+        qsizetype start = p.from;
+        if (s.width(lead, p.from) <= before) {
+            start = lead;
+        } else {
+            while (start > lead && s.width(start - 1, p.from) <= before)
+                --start;
+            if (start < p.from && text[start].isLowSurrogate())
+                ++start;
+        }
+        qsizetype end = p.to;
+        if (i == count - 1) {
+            end = std::min(text.size(), std::max(start + kMaxChars, p.to));
+        } else {
+            const int after = 2 * share - s.width(start, p.from); // what it left before too
+            while (end < text.size() && s.width(p.to, end + 1) <= after)
+                ++end;
+        }
+        if (end > p.to && end < text.size() && text[end].isLowSurrogate())
+            --end;
+        while (end > p.to && text[end - 1].isSpace())
+            --end;
+        if (!shown.empty() && shown.back().source == p.source && start <= shown.back().end)
+            shown.back().end = std::max(shown.back().end, end); // one run after all
+        else
+            shown.push_back({p.source, start, end, lead});
+    }
 
     ContentMatch match;
     match.line = lineNumber;
-    match.snippet = prefix + line.mid(start, end - start) + suffix;
-    for (const Term& t : m_terms) {
-        for (qsizetype i = line.indexOf(t.text, start, Qt::CaseInsensitive); i >= 0 && i + t.text.size() <= end;
-            i = line.indexOf(t.text, i + t.text.size(), Qt::CaseInsensitive))
-            match.matches.append({prefix.size() + i - start, t.text.size()});
+    for (std::size_t i = 0; i < shown.size(); ++i) {
+        const Shown& piece = shown[i];
+        const QString& text = *sources[piece.source].text;
+        if (i > 0)
+            match.snippet += u" … "_s;
+        else if (piece.start > piece.lead)
+            match.snippet += u"…"_s;
+        const qsizetype offset = match.snippet.size();
+        match.snippet += QStringView(text).mid(piece.start, piece.end - piece.start);
+        for (const Term& t : m_terms) {
+            for (qsizetype at = text.indexOf(t.text, piece.start, Qt::CaseInsensitive);
+                at >= 0 && at + t.text.size() <= piece.end;
+                at = text.indexOf(t.text, at + t.text.size(), Qt::CaseInsensitive))
+                match.matches.append({offset + at - piece.start, t.text.size()});
+        }
+        if (i + 1 == shown.size() && piece.end < text.size())
+            match.snippet += u"…"_s;
     }
     std::ranges::sort(match.matches);
     const std::uint32_t terms = termsIn(line);
@@ -436,6 +578,12 @@ std::optional<ContentMatch> ContentScanner::scan(
         int starts = 0; // how many of those start a word
         bool longLine = false;
     } best;
+    struct First {
+        QString line;
+        int number = 0;
+        std::uint32_t terms = 0; // first seen on it
+    };
+    std::vector<First> firsts; // for the terms the line shown lacks
 
     std::uint64_t linesBeforeWindow = 0;
     std::size_t windowFloor = bom; // first byte that belongs to the text
@@ -500,6 +648,8 @@ std::optional<ContentMatch> ContentScanner::scan(
             if (!(has & (std::uint32_t {1} << t)))
                 return false; // byte-level false positive (e.g. a GBK trail byte)
             next = to;
+            if (const std::uint32_t fresh = has & ~seen)
+                firsts.push_back({line, lineNumberAt(pos), fresh});
             seen |= has;
             // The most terms, then the most at the start of a word, then the first.
             if (const int count = std::popcount(has); count >= best.terms) {
@@ -537,7 +687,14 @@ std::optional<ContentMatch> ContentScanner::scan(
                     --looks;
                 }
             }
-            ContentMatch match = matchIn(best.line, best.number);
+            const std::uint32_t lacking = all & ~termsIn(best.line);
+            std::ranges::sort(firsts, {}, &First::number);
+            std::vector<QString> others;
+            for (First& first : firsts) {
+                if (first.terms & lacking)
+                    others.push_back(std::move(first.line));
+            }
+            ContentMatch match = matchIn(best.line, best.number, others);
             match.longLine = best.longLine;
             return match;
         }

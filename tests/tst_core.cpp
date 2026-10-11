@@ -3447,11 +3447,12 @@ private slots:
             }
         }
 
-        // On different lines: the first one's line.
+        // On different lines: the first one's line, and where the other is after it.
         const auto apart = ContentScanner(QStringList {u"beta"_s, u"alpha"_s}).scan(reader("alpha\nbeta\n"), 4096, {});
         QVERIFY(apart);
         QCOMPARE(apart->line, 1);
-        QCOMPARE(apart->matches.size(), 1);
+        QCOMPARE(apart->snippet, u"alpha … beta"_s);
+        QCOMPARE(apart->matches, (QList<std::pair<qsizetype, qsizetype>> {{0, 5}, {8, 4}}));
         QVERIFY(!ContentScanner(QStringList {u"alpha"_s, u"gamma"_s}).scan(reader("alpha\nbeta\n"), 4096, {}));
         QVERIFY(!ContentScanner(u"alpha beta"_s).scan(reader("alpha\nbeta\n"), 4096, {})); // a phrase: just so
         // GBK: every term must be one the code page can write.
@@ -3495,6 +3496,45 @@ private slots:
         QVERIFY(both);
         QCOMPARE(both->matches.size(), 2);
         QVERIFY(both->snippet.contains(u"alpha and beta"_s));
+
+        // Every term shows within the width of a result (28 ideographs): the
+        // ones the line lacks after it, with words around them.
+        const auto shows = [](const ContentMatch& m, const QStringList& terms) {
+            int width = 0;
+            for (qsizetype i = 0; i < m.snippet.size(); ++i) {
+                const bool wide = m.snippet[i].unicode() >= 0x2E80;
+                for (const auto& [at, length] : m.matches) {
+                    if (at == i && width + (wide ? 2 : 1) * length > 60)
+                        return false;
+                }
+                width += wide ? 2 : 1;
+            }
+            for (const QString& t : terms) {
+                if (std::ranges::none_of(m.matches, [&](const auto& r) {
+                        return m.snippet.mid(r.first, r.second).compare(t, Qt::CaseInsensitive) == 0;
+                    }))
+                    return false;
+            }
+            return true;
+        };
+        const QStringList three {u"弯管机"_s, u"角度"_s, u"优化"_s};
+        const QString manual = u"目录\n弯管机用户手册由于软件会不断进行优化，如说明书与实际界面有差异，请以实际界面为准。\n"_s
+            + u"第二章\n设定折弯角度时，先回零点。\n"_s;
+        const auto pieced = ContentScanner(three).scan(reader(manual.toUtf8()), 4096, {});
+        QVERIFY(pieced);
+        QCOMPARE(pieced->line, 2);
+        QVERIFY2(pieced->snippet.startsWith(u"弯管机用户手册"_s), qPrintable(pieced->snippet));
+        QVERIFY2(pieced->snippet.contains(u" … "_s), qPrintable(pieced->snippet));
+        QVERIFY2(shows(*pieced, three), qPrintable(pieced->snippet));
+        // Far apart on one line: two pieces of it.
+        const QString wide = u"弯管机"_s + u"很长的一段话。"_s.repeated(20) + u"角度和优化"_s + u"后面的话。"_s.repeated(5);
+        const auto split = ContentScanner(three).scan(reader(wide.toUtf8()), 4096, {});
+        QVERIFY(split);
+        QVERIFY2(shows(*split, three), qPrintable(split->snippet));
+        // All together: one piece, as before.
+        const auto oneLine = ContentScanner(three).scan(reader(u"弯管机角度优化说明\n"_s.toUtf8()), 4096, {});
+        QVERIFY(oneLine);
+        QCOMPARE(oneLine->snippet, u"弯管机角度优化说明"_s);
 
         const QStringList terms {u"todo"_s, u"fix"_s};
         const auto rank = [&](const ContentMatch& match, QStringView name = u"a.txt", int priority = 1,

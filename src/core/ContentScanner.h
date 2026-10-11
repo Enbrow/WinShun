@@ -52,7 +52,8 @@ int contentRelevance(const ContentMatch& match, const QStringList& terms, QStrin
 
 // Finds whether a text file contains every one of some terms ("报告 2025",
 // each a word or a phrase), anywhere in it, and the line to show for it: the
-// first with the most of them.
+// first with the most of them, its snippet pieced together with where the
+// others are, so every term shows.
 //
 // Files are streamed in chunks (memory stays flat regardless of file size).
 // The encoding is detected per file: BOM (UTF-8 / UTF-16 LE / UTF-16 BE),
@@ -103,7 +104,8 @@ private:
     std::uint32_t termsIn(const QString& line) const;
     // Of those, the ones there at the start of a word.
     std::uint32_t wordStartsIn(const QString& line, std::uint32_t terms) const;
-    ContentMatch matchIn(const QString& line, int lineNumber) const;
+    // `others`: where the terms the line lacks first are.
+    ContentMatch matchIn(const QString& line, int lineNumber, const std::vector<QString>& others) const;
 
     std::vector<Term> m_terms;
     unsigned m_codePage = 0;
