@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Settings.h"
+#include "Unc.h"
 
 #include <QObject>
 #include <QPointer>
@@ -9,9 +10,12 @@
 #include <QtQml/qqmlregistration.h>
 
 #include <memory>
+#include <vector>
 
 namespace ws {
 
+class FavoritesSettings;
+class PluginSettings;
 class ShortcutCapture;
 class SystemCatalog;
 
@@ -46,6 +50,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool rescanOnStartup READ rescanOnStartup WRITE setRescanOnStartup NOTIFY changed FINAL)
     Q_PROPERTY(QStringList excludedPaths READ excludedPaths NOTIFY changed FINAL) // expanded, for display
     Q_PROPERTY(QStringList excludedNames READ excludedNames NOTIFY changed FINAL)
+    Q_PROPERTY(bool contentSearch READ contentSearch WRITE setContentSearch NOTIFY changed FINAL)
     Q_PROPERTY(QStringList contentExtensions READ contentExtensions NOTIFY changed FINAL)
     // Size limits in MB by kind of file (ContentSizeLimits::Kind: text, code, data),
     // and the listed extensions of each kind (".c .cpp .h").
@@ -58,7 +63,8 @@ class SettingsEditor : public QObject {
     // 结果列表
     Q_PROPERTY(bool foldersFirst READ foldersFirst WRITE setFoldersFirst NOTIFY changed FINAL)
     Q_PROPERTY(bool showModified READ showModified WRITE setShowModified NOTIFY changed FINAL)
-    Q_PROPERTY(bool sortByModified READ sortByModified WRITE setSortByModified NOTIFY changed FINAL)
+    Q_PROPERTY(QString sort READ sort WRITE setSort NOTIFY changed FINAL) // match | newest | oldest
+    Q_PROPERTY(QString startList READ startList WRITE setStartList NOTIFY changed FINAL) // opened | modified
     Q_PROPERTY(QString numberKeys READ numberKeys WRITE setNumberKeys NOTIFY changed FINAL) // ctrl | alt | off
     // Which of the chosen number keys are other programs' hotkeys, or Win顺's
     // own shortcuts, said for the user; empty when none (refreshNumberKeys).
@@ -94,8 +100,18 @@ class SettingsEditor : public QObject {
     // user pins the button and hides Windows' search outside Win顺.
     Q_PROPERTY(bool taskbarButtonPinned READ taskbarButtonPinned NOTIFY taskbarStateChanged FINAL)
     Q_PROPERTY(bool windowsSearchShown READ windowsSearchShown NOTIFY taskbarStateChanged FINAL)
-    // 网页搜索: for each, {keyword, name, url, home, searches, shownUrl, shownHome}
+    // 网页搜索: for each, {keyword, name, url, home, searches, shownUrl, shownHome, homeUrl}
     Q_PROPERTY(QVariantList webShortcuts READ webShortcuts NOTIFY changed FINAL)
+    // Counts the sites' icons that arrived: a binding on webIconUrl() reads it
+    // to be asked again (without the list made anew, and a form open in it lost).
+    Q_PROPERTY(int siteIconsArrived READ siteIconsArrived NOTIFY siteIconArrived FINAL)
+    // 网络共享: for each, {path, name, tone (ok | busy | idle | warn | error),
+    // status (where it stands, said for the user), signIn (it needs a user
+    // name and password), suspect (a pass found much less: accept it?), busy
+    // (being read)}. As the app reports (setShareStatuses).
+    Q_PROPERTY(QVariantList shares READ shares NOTIFY sharesChanged FINAL)
+    // Shares the user opened in File Explorer or mapped, not added yet: [{path, drive}]
+    Q_PROPERTY(QVariantList knownShares READ knownShares NOTIFY sharesChanged FINAL)
     Q_PROPERTY(QString renderer READ renderer WRITE setRenderer NOTIFY changed FINAL)
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY changed FINAL)
     Q_PROPERTY(QString language READ language WRITE setLanguage NOTIFY changed FINAL)
@@ -111,6 +127,25 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(int indexMoveProgress READ indexMoveProgress NOTIFY indexFolderChanged FINAL) // -1: not moving
     Q_PROPERTY(QString indexFolderProblem READ indexFolderProblem NOTIFY indexFolderChanged FINAL)
     Q_PROPERTY(QString indexFolderNote READ indexFolderNote NOTIFY indexFolderChanged FINAL)
+    // AI 助手 (the MCP server, src/mcp): the switches, the folders AI never
+    // sees, who is connected (set by the app), the clients found on this PC
+    // and how the last connection made went (McpClients).
+    Q_PROPERTY(bool mcp READ mcp WRITE setMcp NOTIFY changed FINAL)
+    Q_PROPERTY(bool mcpAllowOpen READ mcpAllowOpen WRITE setMcpAllowOpen NOTIFY changed FINAL)
+    Q_PROPERTY(bool mcpClipboard READ mcpClipboard WRITE setMcpClipboard NOTIFY changed FINAL)
+    Q_PROPERTY(bool mcpPlugins READ mcpPlugins WRITE setMcpPlugins NOTIFY changed FINAL) // the plugins' commands as tools
+    Q_PROPERTY(bool mcpPluginActions READ mcpPluginActions WRITE setMcpPluginActions NOTIFY changed FINAL) // and their actions
+    Q_PROPERTY(QStringList mcpExcludedPaths READ mcpExcludedPaths NOTIFY changed FINAL) // expanded, for display
+    Q_PROPERTY(QString mcpStatus READ mcpStatus NOTIFY mcpStatusChanged FINAL)
+    Q_PROPERTY(QVariantList mcpClients READ mcpClients NOTIFY mcpClientsChanged FINAL)
+    Q_PROPERTY(QString mcpRelayPath READ mcpRelayPath NOTIFY mcpClientsChanged FINAL) // empty: WinShunMcp.exe is missing
+    Q_PROPERTY(QString mcpMessage READ mcpMessage NOTIFY mcpMessageChanged FINAL)
+    // 插件: the page's own view-model (PluginSettings), which edits the
+    // [Plugin.<id>] sections here.
+    Q_PROPERTY(ws::PluginSettings* plugins READ plugins CONSTANT FINAL)
+    // 收藏夹: the page's own view-model (FavoritesSettings), on the app's
+    // favorites (not in the INI: 恢复默认设置 leaves them).
+    Q_PROPERTY(ws::FavoritesSettings* favorites READ favorites CONSTANT FINAL)
 
 public:
     SettingsEditor(const Settings& settings, const QString& runningRenderer, QObject* parent = nullptr);
@@ -154,6 +189,8 @@ public:
     void setRescanOnStartup(bool on);
     QStringList excludedPaths() const;
     QStringList excludedNames() const { return m_settings.excludedNames; }
+    bool contentSearch() const { return m_settings.contentSearch; }
+    void setContentSearch(bool on);
     QStringList contentExtensions() const { return m_settings.contentExtensions; }
     QList<int> contentMaxSizeMB() const { return {m_settings.contentMaxSizeMB.begin(), m_settings.contentMaxSizeMB.end()}; }
     Q_INVOKABLE void setContentMaxSizeMB(int kind, int mb);
@@ -226,8 +263,10 @@ public:
     void setFoldersFirst(bool on);
     bool showModified() const { return m_settings.showModified; }
     void setShowModified(bool on);
-    bool sortByModified() const { return m_settings.sortByModified; }
-    void setSortByModified(bool on);
+    QString sort() const { return m_settings.sort; }
+    void setSort(const QString& sort);
+    QString startList() const { return m_settings.startList; }
+    void setStartList(const QString& list);
     QString numberKeys() const { return m_settings.numberKeys; }
     void setNumberKeys(const QString& keys);
     QString numberKeysNote() const { return m_numberKeysNote; }
@@ -260,6 +299,23 @@ public:
 
     QVariantList webShortcuts() const;
 
+    QVariantList shares() const;
+    QVariantList knownShares() const;
+    void setShareStatuses(std::vector<ShareIndexer::Status> statuses); // set by the app
+    // "\\host", "\\host\": a server, whose shares can be listed; its name, else empty.
+    Q_INVOKABLE QString serverOf(const QString& text) const;
+    // Adds a share typed or chosen ("\\host\share[\folder]", or a mapped "Z:\...").
+    // Returns why it cannot be, or an empty string once it is.
+    Q_INVOKABLE QString addShare(const QString& text);
+    Q_INVOKABLE void removeShare(int index);
+    Q_INVOKABLE void verifyShare(int index);
+    Q_INVOKABLE void signInToShare(int index);
+    Q_INVOKABLE void acceptShareMissing(int index);
+    // The shares of a server, in the background: serverSharesListed().
+    Q_INVOKABLE void listServerShares(const QString& server);
+    Q_INVOKABLE void signInToServer(const QString& server); // to list its shares
+    void setSignedIn(const QString& path, const QString& problem); // set by the app: how signing in went
+
     void setSettings(const Settings& settings); // the file was changed outside this editor
     void setWindow(QWindow* window) { m_window = window; }
     void setPlaces(SystemCatalog* places) { m_places = places; }
@@ -283,10 +339,21 @@ public:
     Q_INVOKABLE void removeDoubleCtrlExcludedApp(int index);
     // Adds a web shortcut (`index` -1) or changes the one at `index`. Returns
     // why it cannot be saved, or an empty string once it is.
-    Q_INVOKABLE QString saveWebShortcut(
-        int index, const QString& keyword, const QString& name, const QString& url, const QString& home);
+    // `icon`: a picture chosen with pickWebIcon, empty for the site's own.
+    Q_INVOKABLE QString saveWebShortcut(int index, const QString& keyword, const QString& name, const QString& url,
+        const QString& home, const QString& icon = {});
     Q_INVOKABLE void removeWebShortcut(int index);
     Q_INVOKABLE void openWebShortcut(int index); // its site, to try it
+    // Asks for a PNG or ICO to show for a shortcut and keeps it: {icon: its
+    // name} to save with it, {error: why not}, or {} when cancelled.
+    Q_INVOKABLE QVariantMap pickWebIcon();
+    // Asks for a file and adds the shortcuts in it (a keyword already here is
+    // replaced), or writes them all to one: what came of it, to show.
+    Q_INVOKABLE QString importWebShortcuts();
+    Q_INVOKABLE QString exportWebShortcuts();
+    // The icon of a shortcut's site (FileIconProvider::webIconUrl), by its home page.
+    Q_INVOKABLE QString webIconUrl(const QString& homeUrl, bool dark) const;
+    int siteIconsArrived() const { return m_siteIconsArrived; }
     Q_INVOKABLE void clearClipboard() { emit clipboardClearRequested(); } // what is in no group
     Q_INVOKABLE void restartExplorer() { emit explorerRestartRequested(); }
     Q_INVOKABLE void restoreDefaults();
@@ -301,6 +368,37 @@ public:
     // 拾穗计划 page
     Q_INVOKABLE void openUrl(const QString& url);
     Q_INVOKABLE void copyText(const QString& text);
+
+    // AI 助手 page
+    bool mcp() const { return m_settings.mcp; }
+    void setMcp(bool on);
+    bool mcpAllowOpen() const { return m_settings.mcpAllowOpen; }
+    void setMcpAllowOpen(bool on);
+    bool mcpClipboard() const { return m_settings.mcpClipboard; }
+    void setMcpClipboard(bool on);
+    bool mcpPlugins() const { return m_settings.mcpPlugins; }
+    void setMcpPlugins(bool on);
+    bool mcpPluginActions() const { return m_settings.mcpPluginActions; }
+    void setMcpPluginActions(bool on);
+    QStringList mcpExcludedPaths() const;
+    Q_INVOKABLE void addMcpExcludedFolder(); // asks for the folder
+    Q_INVOKABLE void removeMcpExcludedPath(int index);
+    QString mcpStatus() const { return m_mcpStatus; }
+    void setMcpStatus(const QString& status); // set by the app: who is connected
+    QVariantList mcpClients() const { return m_mcpClients; }
+    QString mcpRelayPath() const { return m_mcpRelayPath; }
+    Q_INVOKABLE void refreshMcpClients(); // looks again (as the window comes to the front)
+    Q_INVOKABLE void connectMcpClient(const QString& id); // writes Win顺 into its configuration; mcpMessage says how it went
+    Q_INVOKABLE void copyMcpSnippet(const QString& id); // its configuration (or command) to the clipboard; "": the generic JSON
+    QString mcpMessage() const { return m_mcpMessage; }
+    Q_INVOKABLE void clearMcpMessage() { setMcpMessage({}); }
+    Q_INVOKABLE void openMcpLog(); // mcp.log, or the data folder while there is none
+
+    // 插件 page
+    PluginSettings* plugins() const { return m_plugins; }
+
+    // 收藏夹 page
+    FavoritesSettings* favorites() const { return m_favorites; }
 
 signals:
     void historyCountChanged();
@@ -322,10 +420,24 @@ signals:
     void explorerRestartRequested(); // Win+V changes hands when Explorer starts again
     void edited(const ws::Settings& settings);
     void restartRequested();
+    void sharesChanged();
+    void siteIconArrived();
+    // `problem` is empty when the server answered; `signIn` when it wants a user name first.
+    void serverSharesListed(const QString& server, const QStringList& shares, const QString& problem, bool signIn);
+    void shareVerifyRequested(const QString& path);
+    void shareAcceptRequested(const QString& path);
+    void signInRequested(const QString& path); // a share, or "\\host"
+    void signedIn(const QString& path, const QString& problem); // empty problem: connected
+    void mcpStatusChanged();
+    void mcpClientsChanged();
+    void mcpMessageChanged();
 
 private:
+    friend class PluginSettings; // edits m_settings' plugin sections and commits
+    friend class FavoritesSettings; // reads the web shortcuts' keywords and the window
     void commit();
     void setIndexFolder(const QString& folder);
+    void setMcpMessage(const QString& message);
 
     Settings m_settings;
     QString m_runningRenderer; // resolved: never "auto"
@@ -333,6 +445,7 @@ private:
     QString m_numberKeysNote;
     QString m_clipboardNumberKeysNote;
     int m_historyCount = 0;
+    int m_siteIconsArrived = 0;
     QString m_contentIndexStatus;
     IndexFolderState m_indexFolderState;
     QStringList m_fileManagers {QStringLiteral("explorer")};
@@ -346,10 +459,19 @@ private:
     QString m_clipboardHotkeyError;
     int m_clipboardCount = 0;
     QPointer<QWindow> m_window;
+    QString m_pickedWebIcon; // chosen in a form not saved yet: kept from pruning
+    std::vector<ShareIndexer::Status> m_shareStatuses;
+    std::vector<unc::Known> m_knownShares; // read once, with the window
     SystemCatalog* m_places = nullptr; // the app's; outlives the window
     std::unique_ptr<ShortcutCapture> m_capture; // while recording a hotkey
     struct TaskbarWatch; // the taskbar's pinned programs and Windows' search box setting
     std::unique_ptr<TaskbarWatch> m_taskbarWatch;
+    QString m_mcpStatus;
+    QVariantList m_mcpClients;
+    QString m_mcpRelayPath;
+    QString m_mcpMessage;
+    PluginSettings* m_plugins = nullptr; // a child
+    FavoritesSettings* m_favorites = nullptr; // a child
 };
 
 } // namespace ws

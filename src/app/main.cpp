@@ -1,5 +1,6 @@
 #include "App.h"
 #include "Migration.h"
+#include "Preview.h"
 #include "Settings.h"
 #include "platform/MessageWindow.h"
 #include "platform/Shell.h"
@@ -8,6 +9,7 @@
 #include <QCommandLineParser>
 #include <QDateTime>
 #include <QDebug>
+#include <QDir>
 #include <QFile>
 #include <QFont>
 #include <QFontDatabase>
@@ -51,6 +53,47 @@ void logToFile(QtMsgType type, const QMessageLogContext& context, const QString&
         g_defaultHandler(type, context, message); // the debugger's output, as before
 }
 
+// UI font: Alibaba PuHuiTi 3.0 (Regular + Bold) from fonts\ next to the
+// exe. It covers Latin and CJK, so no fallback is needed for normal text.
+// Without the files, the system UI font (Microsoft YaHei UI) is kept;
+// never "Segoe UI Variable", whose CJK fallback costs ~35 MB of memory.
+//
+// Given by file name, FreeType (the engine of the GPU renderer) opens the
+// file through the C runtime, which cannot take a path outside the ANSI
+// code page (F:\电脑便捷工具\…, D:\软件\WinShun): the font silently stayed
+// unloaded and the window came up in Microsoft YaHei UI. Such a path is
+// read here and handed over as data (the ~8 MB of each file stay in
+// memory then; by name the face is read from disk as needed).
+void applyUiFont()
+{
+    QString uiFamily;
+    const QString fontDir = QCoreApplication::applicationDirPath() + u"/fonts/"_s;
+    bool ascii = true;
+    for (const QChar c : fontDir)
+        ascii = ascii && c.unicode() < 128;
+    for (const QString& file : {u"AlibabaPuHuiTi-3-55-Regular.ttf"_s, u"AlibabaPuHuiTi-3-85-Bold.ttf"_s}) {
+        int id = -1;
+        if (ascii) {
+            id = QFontDatabase::addApplicationFont(fontDir + file);
+        } else {
+            QFile data(fontDir + file);
+            if (data.open(QIODevice::ReadOnly))
+                id = QFontDatabase::addApplicationFontFromData(data.readAll());
+        }
+        const QStringList families = QFontDatabase::applicationFontFamilies(id);
+        if (uiFamily.isEmpty() && !families.isEmpty())
+            uiFamily = families.first(); // both files share one family, Bold is its bold style
+    }
+    if (uiFamily.isEmpty()) {
+        qWarning("UI font: nothing loaded from %s, using the system font", qUtf8Printable(QDir::toNativeSeparators(fontDir)));
+        return;
+    }
+    QFont font(uiFamily);
+    // Vertical only: full hinting also moves glyphs sideways ("you ng").
+    font.setHintingPreference(QFont::PreferVerticalHinting);
+    QGuiApplication::setFont(font);
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -59,14 +102,21 @@ int main(int argc, char* argv[])
     ::SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
     // --profile <folder> (see Settings::useProfile), before anything reads
     // the settings, so before Qt has the arguments: wide, as argv is ANSI.
+    // --preview-plugins (Preview.h) wants its environment set here too.
     int wideCount = 0;
+    QStringList wideArgs;
     if (LPWSTR* wide = ::CommandLineToArgvW(::GetCommandLineW(), &wideCount)) {
+        for (int i = 1; i < wideCount; ++i)
+            wideArgs.push_back(QString::fromWCharArray(wide[i]));
         for (int i = 1; i + 1 < wideCount; ++i) {
             if (std::wstring_view(wide[i]) == L"--profile")
                 ws::Settings::useProfile(QString::fromWCharArray(wide[i + 1]));
         }
         ::LocalFree(wide);
     }
+    const bool preview = ws::preview::wanted(wideArgs);
+    if (preview)
+        ws::preview::prepare(wideArgs);
     if (ws::Settings::profile().isEmpty())
         ws::migrateFromQuickFind(); // before anything reads the settings
 
@@ -81,6 +131,19 @@ int main(int argc, char* argv[])
     if (setPlatform)
         qputenv("QT_QPA_PLATFORM", ws::Settings::resolveRenderer(ws::Settings::storedRenderer()) == u"software"
                                        ? "windows:fontengine=gdi" : "windows:fontengine=freetype");
+    if (preview) {
+        // A picture of a settings page, and nothing else: before the single
+        // instance below, which would hand the arguments to the running copy.
+        ws::preview::note(u"making the application"_s);
+        QCoreApplication::setOrganizationName(u"WinShun"_s);
+        QCoreApplication::setApplicationName(u"WinShun"_s);
+        QCoreApplication::setApplicationVersion(QStringLiteral(WINSHUN_VERSION)); // the version the window shows
+        QGuiApplication previewApp(argc, argv);
+        QGuiApplication::setApplicationDisplayName(u"Win顺"_s);
+        ws::preview::note(u"loading the font"_s);
+        applyUiFont();
+        return ws::preview::run(wideArgs);
+    }
 
     // Qt keeps a thread waiting for every vertical blank of the screen (240
     // times a second at 240 Hz) as long as a D3D11 window exists, hidden or
@@ -151,23 +214,7 @@ int main(int argc, char* argv[])
         return 0; // nothing running
     g_defaultHandler = qInstallMessageHandler(logToFile); // the running copy only
 
-    // UI font: Alibaba PuHuiTi 3.0 (Regular + Bold) from fonts\ next to the
-    // exe. It covers Latin and CJK, so no fallback is needed for normal text.
-    // Without the files, the system UI font (Microsoft YaHei UI) is kept;
-    // never "Segoe UI Variable", whose CJK fallback costs ~35 MB of memory.
-    QString uiFamily;
-    const QString fontDir = QCoreApplication::applicationDirPath() + u"/fonts/"_s;
-    for (const QString& file : {u"AlibabaPuHuiTi-3-55-Regular.ttf"_s, u"AlibabaPuHuiTi-3-85-Bold.ttf"_s}) {
-        const QStringList families = QFontDatabase::applicationFontFamilies(QFontDatabase::addApplicationFont(fontDir + file));
-        if (uiFamily.isEmpty() && !families.isEmpty())
-            uiFamily = families.first(); // both files share one family, Bold is its bold style
-    }
-    if (!uiFamily.isEmpty()) {
-        QFont font(uiFamily);
-        // Vertical only: full hinting also moves glyphs sideways ("you ng").
-        font.setHintingPreference(QFont::PreferVerticalHinting);
-        QGuiApplication::setFont(font);
-    }
+    applyUiFont(); // the UI font (see above)
 
     int code = 1;
     std::optional<QStringList> restart;

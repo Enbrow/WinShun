@@ -45,7 +45,6 @@ constexpr int kMinDialogWidth = 640; // made narrower down to this, then moved a
 constexpr int kPanelHeight = DialogBar::kBarHeight + DialogBar::kListChrome + DialogBar::kMaxRows * DialogBar::kRowHeight;
 constexpr int kMaxExplorer = 5; // suggestions of each kind
 constexpr int kMaxRecent = 10;
-constexpr int kMaxPins = 20;
 constexpr int kMaxListed = 200; // of a folder whose path is typed
 
 // The tag of a folder open in a file manager. The others by their own names.
@@ -292,15 +291,23 @@ QString programOf(HWND hwnd)
 
 } // namespace
 
-DialogBar::DialogBar(SearchEngine* engine, History* history, const QString& pinsFile, Mover mover, QObject* parent)
+DialogBar::DialogBar(SearchEngine* engine, History* history, Favorites* favorites, Mover mover, QObject* parent)
     : QObject(parent)
     , m_engine(engine)
     , m_history(history)
-    , m_pins(pinsFile, kMaxPins)
+    , m_favorites(favorites)
     , m_mover(std::move(mover))
 {
-    m_pins.load();
-    m_pinned = m_pins.items(); // until the first look tells which are still there
+    if (m_favorites) {
+        connect(m_favorites, &Favorites::changed, this, [this] {
+            if (!m_window || !m_window->isVisible())
+                return;
+            if (m_query.trimmed().isEmpty())
+                lookAround(); // which are there, then the list
+            else
+                relist(); // the favorites first
+        });
+    }
     connect(m_engine, &SearchEngine::resultsReady, this,
         [this](quint64 id, const SearchResults& results, qint64, qint64) { onResults(id, results); });
     m_listHold.setSingleShot(true);
@@ -472,6 +479,10 @@ void DialogBar::follow()
         return;
     }
     makeRoom();
+    if (m_restoring == m_dialog && ::IsZoomed(m_dialog) && m_moveTimeout.isActive()) {
+        hideWindow(); // till it is restored
+        return;
+    }
     if (m_movingTo) { // the bar shows where it goes once the dialog is there
         const std::optional<Placing> at = placingOf(m_dialog);
         if (at && !::EqualRect(&at->frame, &*m_movingTo)) {
@@ -489,17 +500,34 @@ void DialogBar::follow()
 // screen (Place), it gets smaller there, its far edge staying: shorter for
 // below, down to kMinDialogHeight; narrower for a side, down to
 // kMinDialogWidth. Then it moves for the rest. Windows keeps a dialog's size
-// for each program, so the next one comes up fitting. Maximised, it stays;
-// and so does what the user does with it after.
+// for each program, so the next one comes up fitting. Maximised, it stays,
+// unless it has no button to restore it with: Windows keeps that for the
+// program too (once one was snapped to the top of the screen, say), and each
+// of its dialogs comes up so, no edge to be dragged and the bar over its
+// title. Restored first, then made room by. What the user does with it after
+// stays.
 void DialogBar::makeRoom()
 {
     std::erase_if(m_roomMade, [](HWND dialog) { return !::IsWindow(dialog); });
     if (std::ranges::find(m_roomMade, m_dialog) != m_roomMade.end())
         return;
+    if (::IsZoomed(m_dialog)) {
+        if (m_restoring == m_dialog && m_moveTimeout.isActive())
+            return; // on its way
+        if (m_restoring == m_dialog || (::GetWindowLongPtrW(m_dialog, GWL_STYLE) & WS_MAXIMIZEBOX)) {
+            m_roomMade.push_back(m_dialog); // the user's to restore, or it would not be
+            return;
+        }
+        // Its size as restored is not known before: the bar shows once it is.
+        m_restoring = m_dialog;
+        m_moveTimeout.start();
+        ::ShowWindowAsync(m_dialog, SW_SHOWNOACTIVATE);
+        return;
+    }
     m_roomMade.push_back(m_dialog);
     const std::optional<Placing> at = placingOf(m_dialog);
     RECT window {};
-    if (!at || ::IsZoomed(m_dialog) || !::GetWindowRect(m_dialog, &window))
+    if (!at || !::GetWindowRect(m_dialog, &window))
         return;
     if (m_place == Place::Auto
         && (fitsBy(*at, Place::Below) || fitsBy(*at, Place::Right) || fitsBy(*at, Place::Left)))
@@ -646,6 +674,8 @@ void DialogBar::search()
     request.kindOrder = m_kind == filedialog::Kind::Save ? KindOrder::FoldersFirst : KindOrder::FilesFirst;
     if (m_recordHistory)
         request.history = m_history->items();
+    if (m_favorites)
+        request.favorites = m_favorites->items();
     m_requestId = m_engine->submit(std::move(request));
 }
 
@@ -663,22 +693,20 @@ void DialogBar::onResults(quint64 id, const SearchResults& results)
         return; // the launcher's, or superseded
     SearchResults rows;
     for (const SearchResult& r : results) {
-        if (!r.isApp() && (r.isDir || !foldersOnly()))
+        if (!r.isApp() && !r.missing && (r.isDir || !foldersOnly()))
             rows.append(r);
     }
     // Files of the type the Open dialog shows first; where to save (a Save
-    // dialog): folders first, files after (to save over); the pinned folders
-    // before all.
+    // dialog): folders first, files after (to save over); the favorites
+    // before all (the engine puts the first few first; here all of them).
     if (!m_extensions.isEmpty())
         std::ranges::stable_partition(rows, [this](const SearchResult& r) { return r.isDir || ofFileType(r); });
     if (m_kind == filedialog::Kind::Save)
         std::ranges::stable_partition(rows, &SearchResult::isDir);
-    const QStringList& pins = m_pins.items();
-    const auto pinned = [&](const SearchResult& r) { return r.isDir && pins.contains(r.path, Qt::CaseInsensitive); };
-    std::ranges::stable_partition(rows, pinned);
+    std::ranges::stable_partition(rows, &SearchResult::favorite);
     QStringList tags;
     for (const SearchResult& r : std::as_const(rows))
-        tags.append(pinned(r) ? tr("固定") : QString());
+        tags.append(r.favorite ? tr("收藏") : QString());
     setRows(std::move(rows), std::move(tags), parseQuery(m_query).highlights);
 }
 
@@ -743,13 +771,13 @@ void DialogBar::showSuggestions(bool refresh)
     SearchResults rows;
     QStringList tags;
     QStringList seen;
-    const auto add = [&](const QString& path, bool isDir, const QString& tag, bool recent = false) {
+    const auto add = [&](const QString& path, bool isDir, const QString& tag, bool recent = false, const QString& name = {}) {
         if (seen.contains(path, Qt::CaseInsensitive))
             return;
         seen.append(path);
         SearchResult row;
         row.path = path;
-        row.name = nameOf(path);
+        row.name = name.isEmpty() ? nameOf(path) : name;
         row.isDir = isDir;
         row.recent = recent;
         rows.append(row);
@@ -759,8 +787,10 @@ void DialogBar::showSuggestions(bool refresh)
         add(m_explorer[i], true, managerName(m_explorerKinds.value(i)));
     if (!m_clipboard.isEmpty())
         add(m_clipboard, m_clipboardIsDir, tr("剪贴板"));
-    for (const QString& folder : std::as_const(m_pinned))
-        add(folder, true, tr("固定"));
+    for (const SearchResult& f : std::as_const(m_favoritesThere)) {
+        if (!foldersOnly() || f.isDir)
+            add(f.path, f.isDir, tr("收藏"), false, f.name); // as its user named it
+    }
     for (const QString& folder : std::as_const(m_recent))
         add(folder, true, tr("最近"), true);
     setRows(std::move(rows), std::move(tags), {}, refresh);
@@ -773,7 +803,7 @@ void DialogBar::lookAround()
         QStringList explorer;
         QList<filemanager::Kind> explorerKinds;
         QStringList recent;
-        QStringList pinned;
+        SearchResults favorites;
         QString clipboard;
         bool clipboardIsDir = false;
         QStringList extensions;
@@ -782,9 +812,9 @@ void DialogBar::lookAround()
     const bool foldersOnly = this->foldersOnly();
     const bool recordHistory = m_recordHistory;
     QStringList history = m_recordHistory ? m_history->items() : QStringList();
-    QStringList pins = m_pins.items();
+    FavoriteList favorites = m_favorites ? m_favorites->items() : FavoriteList();
     m_worker.post([this, lookup, dialog, foldersOnly, recordHistory, history = std::move(history),
-                      pins = std::move(pins)] {
+                      favorites = std::move(favorites)] {
         if (lookup != m_lookups)
             return; // another is on its way
         Found found;
@@ -805,9 +835,21 @@ void DialogBar::lookAround()
             }
             found.recent = interleaved(windowsRecentFolders(kMaxRecent, drives), ours, kMaxRecent);
         }
-        for (const QString& pin : pins) { // one on a network drive or share is kept unasked
-            if (!drives.contain(pin) || folderOf(pin, drives) == pin)
-                found.pinned.append(pin);
+        for (const Favorite& f : favorites) { // one on a network drive or share is kept unasked
+            if (!f.isFileOrFolder() || (foldersOnly && f.kind != Favorite::Kind::Folder))
+                continue;
+            const bool isDir = f.kind == Favorite::Kind::Folder;
+            if (drives.contain(f.path)) {
+                const DWORD attributes = attributesOf(f.path);
+                if (attributes == INVALID_FILE_ATTRIBUTES || bool(attributes & FILE_ATTRIBUTE_DIRECTORY) != isDir)
+                    continue;
+            }
+            SearchResult r;
+            r.path = f.path;
+            r.name = f.name;
+            r.isDir = isDir;
+            r.favorite = true;
+            found.favorites.append(r);
         }
         const QString path = clipboardPath();
         const DWORD attributes = drives.contain(path) ? attributesOf(path) : INVALID_FILE_ATTRIBUTES;
@@ -825,7 +867,7 @@ void DialogBar::lookAround()
             m_explorer = found.explorer;
             m_explorerKinds = found.explorerKinds;
             m_recent = found.recent;
-            m_pinned = found.pinned;
+            m_favoritesThere = found.favorites;
             m_clipboard = found.clipboard;
             m_clipboardIsDir = found.clipboardIsDir;
             if (dialog == m_dialog)
@@ -870,26 +912,20 @@ void DialogBar::goTo(QString path, bool isFile, bool open)
     m_mover(dialog, QDir::toNativeSeparators(path).toStdWString(), isFile, open);
 }
 
-QString DialogBar::pinTarget(int row) const
+// The list follows (Favorites::changed): the favorites first.
+void DialogBar::setFavorite(const QString& path, bool isDir, bool on)
 {
-    const SearchResult* r = m_results.at(row);
-    if (!r || r->isApp())
-        return {};
-    return r->isDir ? r->path : parentOf(r->path);
-}
-
-void DialogBar::setPinned(const QString& folder, bool pinned)
-{
-    if (folder.isEmpty())
+    if (path.isEmpty() || !m_favorites)
         return;
-    m_pinned.removeIf([&](const QString& p) { return p.compare(folder, Qt::CaseInsensitive) == 0; });
-    if (pinned) {
-        m_pins.record(folder, QDateTime::currentMSecsSinceEpoch());
-        m_pinned.prepend(folder);
-    } else {
-        m_pins.remove(folder);
+    if (!on) {
+        m_favorites->remove(path);
+        return;
     }
-    relist(); // the pinned ones first
+    Favorite f;
+    f.kind = isDir ? Favorite::Kind::Folder : Favorite::Kind::File;
+    f.path = QDir::toNativeSeparators(path);
+    f.name = nameOf(f.path);
+    m_favorites->add(f);
 }
 
 void DialogBar::enter(int row)
@@ -925,15 +961,15 @@ QVariantList DialogBar::menuItems(int row) const
         };
     };
     const QVariantMap separator {{u"separator"_s, true}};
-    const auto isPinned = [this](const QString& folder) { return m_pins.items().contains(folder, Qt::CaseInsensitive); };
+    const auto isPinned = [this](const QString& path) { return m_favorites && m_favorites->contains(path); };
     QVariantList items;
 
     if (row < 0) { // the bar's own
         const QString current = m_dialog ? QString::fromStdWString(filedialog::currentFolder(m_dialog)) : QString();
         if (!current.isEmpty()) {
             const bool pinned = isPinned(current);
-            items.append(pinned ? entry(UnpinCurrent, tr("取消固定“%1”").arg(nameOf(current)), {}, u"\uE77A"_s)
-                                : entry(PinCurrent, tr("固定“%1”").arg(nameOf(current)), {}, u"\uE718"_s));
+            items.append(pinned ? entry(UnpinCurrent, tr("从收藏夹移除“%1”").arg(nameOf(current)), {}, u"\uE8D9"_s)
+                                : entry(PinCurrent, tr("收藏“%1”").arg(nameOf(current)), {}, u"\uE734"_s));
             items.append(separator);
         }
         items.append(entry(HideHere, tr("这次不显示"), {}, u"\uE711"_s)); // Cancel
@@ -953,14 +989,13 @@ QVariantList DialogBar::menuItems(int row) const
     if (r->isDir && r->path.compare(m_browsed, Qt::CaseInsensitive) != 0)
         items.append(entry(Enter, tr("在列表中展开"), u"Tab"_s, QChar(0xE76C))); // ChevronRight
     items.append(entry(CopyPath, tr("复制路径"), u"Ctrl+Shift+C"_s, QChar(0xE8C8))); // Copy
-    const QString folder = pinTarget(row);
-    if (!folder.isEmpty()) {
-        items.append(separator);
-        if (isPinned(folder))
-            items.append(entry(Unpin, tr("取消固定"), {}, u"\uE77A"_s));
-        else
-            items.append(entry(Pin, r->isDir ? tr("固定到列表") : tr("固定所在的文件夹"), {}, u"\uE718"_s));
-    }
+    items.append(separator);
+    if (isPinned(r->path))
+        items.append(entry(Unpin, tr("从收藏夹移除"), {}, u"\uE8D9"_s)); // Unfavorite
+    else
+        items.append(entry(Pin, tr("加入收藏夹"), {}, u"\uE734"_s)); // FavoriteStar
+    if (const QString folder = r->isDir ? QString() : parentOf(r->path); !folder.isEmpty() && !isPinned(folder))
+        items.append(entry(PinFolder, tr("收藏所在的文件夹"), {}, u"\uE8B7"_s)); // Folder
     return items;
 }
 
@@ -982,12 +1017,17 @@ void DialogBar::trigger(int row, int action)
         break;
     case Pin:
     case Unpin:
-        setPinned(pinTarget(row), action == Pin);
+        if (const SearchResult* r = m_results.at(row); r && !r->isApp())
+            setFavorite(r->path, r->isDir, action == Pin);
+        break;
+    case PinFolder:
+        if (const SearchResult* r = m_results.at(row); r && !r->isApp() && !r->isDir)
+            setFavorite(parentOf(r->path), true, true);
         break;
     case PinCurrent:
     case UnpinCurrent:
         if (m_dialog)
-            setPinned(QString::fromStdWString(filedialog::currentFolder(m_dialog)), action == PinCurrent);
+            setFavorite(QString::fromStdWString(filedialog::currentFolder(m_dialog)), true, action == PinCurrent);
         break;
     case HideHere:
         m_hiddenUnder = m_dialog;

@@ -3,6 +3,9 @@
 #include "Query.h"
 #include "Wtf8.h"
 
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QStringList>
 #include <QUrl>
@@ -54,9 +57,47 @@ QString WebShortcut::searchUrl(const QString& words) const
     return QString(url).replace(u"%s"_s, QString::fromLatin1(QUrl::toPercentEncoding(words)));
 }
 
+QString WebShortcut::iconRef() const
+{
+    return icon.isEmpty() ? homeUrl() : u"custom:"_s + icon;
+}
+
 WebShortcuts defaultWebShortcuts()
 {
-    return {WebShortcut {u"winshun"_s, u"WinShun"_s, u"https://github.com/LingCore/WinShun"_s, {}}};
+    // Each with its home page: what the keyword alone opens, and where the
+    // site's icon comes from (the search's own host is often another one).
+    // Keywords are whole words: one of two letters typed alone ("bd") would
+    // put a site above the files looked for; the name finds it by pinyin
+    // anyway ("bd" for 百度, "jd" for 京东). None is one of the winshun.web
+    // plugin's (bd, gh, yt, wiki, bing, bili), whose keyword mode would win.
+    return {
+        {u"baidu"_s, u"百度"_s, u"https://www.baidu.com/s?wd=%s"_s, u"https://www.baidu.com/"_s},
+        {u"biying"_s, u"必应"_s, u"https://www.bing.com/search?q=%s"_s, u"https://www.bing.com/"_s},
+        {u"bilibili"_s, u"哔哩哔哩"_s, u"https://search.bilibili.com/all?keyword=%s"_s, u"https://www.bilibili.com/"_s},
+        {u"zhihu"_s, u"知乎"_s, u"https://www.zhihu.com/search?type=content&q=%s"_s, u"https://www.zhihu.com/"_s},
+        {u"weibo"_s, u"微博"_s, u"https://s.weibo.com/weibo?q=%s"_s, u"https://weibo.com/"_s},
+        {u"douyin"_s, u"抖音"_s, u"https://www.douyin.com/search/%s"_s, u"https://www.douyin.com/"_s},
+        {u"xhs"_s, u"小红书"_s, u"https://www.xiaohongshu.com/search_result?keyword=%s"_s, u"https://www.xiaohongshu.com/"_s},
+        {u"taobao"_s, u"淘宝"_s, u"https://s.taobao.com/search?q=%s"_s, u"https://www.taobao.com/"_s},
+        {u"jingdong"_s, u"京东"_s, u"https://search.jd.com/Search?keyword=%s&enc=utf-8"_s, u"https://www.jd.com/"_s},
+        {u"fanyi"_s, u"百度翻译"_s, u"https://fanyi.baidu.com/mtpe-individual/multimodal?query=%s"_s, u"https://fanyi.baidu.com/"_s},
+        {u"winshun"_s, u"WinShun"_s, u"https://github.com/LingCore/WinShun"_s, {}},
+    };
+}
+
+WebShortcuts withNewDefaults(WebShortcuts shortcuts, const WebShortcuts& defaults)
+{
+    const WebShortcuts before = shortcuts;
+    for (const WebShortcut& d : defaults) {
+        const QString site = siteIconKey(d.homeUrl());
+        const bool taken = std::any_of(before.begin(), before.end(), [&](const WebShortcut& s) {
+            return s.keyword.compare(d.keyword, Qt::CaseInsensitive) == 0
+                || (!site.isEmpty() && siteIconKey(s.homeUrl()) == site);
+        });
+        if (!taken)
+            shortcuts.append(d);
+    }
+    return shortcuts;
 }
 
 QString webPath(const QString& keyword, const QString& words)
@@ -150,6 +191,186 @@ QString displayWebUrl(const QString& url)
         }
     }
     return shown;
+}
+
+bool isValidCustomIconName(QStringView name) noexcept
+{
+    if (name.size() != 20 || !name.endsWith(u".png"))
+        return false;
+    return std::all_of(name.begin(), name.begin() + 16,
+        [](QChar c) { return (c >= u'0' && c <= u'9') || (c >= u'a' && c <= u'f'); });
+}
+
+namespace {
+
+constexpr auto kFileFormat = "winshun-web-shortcuts";
+constexpr int kFileVersion = 1;
+constexpr qsizetype kMaxIconData = 1024 * 1024; // a site's icon is a few KB; a photo is no icon
+
+} // namespace
+
+QByteArray writeWebShortcutsFile(const WebShortcuts& shortcuts,
+    const std::function<QByteArray(const QString& icon)>& iconPng)
+{
+    QJsonArray list;
+    for (const WebShortcut& shortcut : shortcuts) {
+        QJsonObject entry {
+            {u"keyword"_s, shortcut.keyword},
+            {u"name"_s, shortcut.name},
+            {u"url"_s, shortcut.url},
+        };
+        if (!shortcut.home.isEmpty())
+            entry.insert(u"home"_s, shortcut.home);
+        if (!shortcut.icon.isEmpty()) {
+            if (const QByteArray png = iconPng(shortcut.icon); !png.isEmpty())
+                entry.insert(u"icon"_s, QString::fromLatin1("data:image/png;base64," + png.toBase64()));
+        }
+        list.append(entry);
+    }
+    const QJsonObject file {
+        {u"format"_s, QLatin1StringView(kFileFormat)},
+        {u"version"_s, kFileVersion},
+        {u"shortcuts"_s, list},
+    };
+    return QJsonDocument(file).toJson(QJsonDocument::Indented);
+}
+
+std::optional<WebShortcutFile> readWebShortcutsFile(QByteArrayView json, bool* newer)
+{
+    if (newer)
+        *newer = false;
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(json.toByteArray(), &parseError);
+    const QJsonObject file = document.object();
+    if (parseError.error != QJsonParseError::NoError || file.value(u"format"_s).toString() != QLatin1StringView(kFileFormat))
+        return std::nullopt;
+    if (file.value(u"version"_s).toInt() > kFileVersion) {
+        if (newer)
+            *newer = true;
+        return std::nullopt;
+    }
+    WebShortcutFile result;
+    for (const QJsonValue& value : file.value(u"shortcuts"_s).toArray()) {
+        const QJsonObject entry = value.toObject();
+        WebShortcutFileEntry read;
+        WebShortcut& shortcut = read.shortcut;
+        shortcut.keyword = entry.value(u"keyword"_s).toString().trimmed();
+        shortcut.name = entry.value(u"name"_s).toString().trimmed();
+        shortcut.url = normalizeWebUrl(entry.value(u"url"_s).toString());
+        shortcut.home = normalizeWebUrl(entry.value(u"home"_s).toString());
+        if (!isValidWebKeyword(shortcut.keyword) || shortcut.url.isEmpty()) {
+            ++result.skipped;
+            continue;
+        }
+        if (shortcut.name.isEmpty())
+            shortcut.name = shortcut.keyword;
+        // "data:image/png;base64,…": any picture's type, decoded (and checked) later.
+        const QString icon = entry.value(u"icon"_s).toString();
+        const qsizetype comma = icon.indexOf(u',');
+        if (icon.startsWith(u"data:image/", Qt::CaseInsensitive) && comma > 0
+            && icon.left(comma).endsWith(u";base64", Qt::CaseInsensitive) && icon.size() - comma < kMaxIconData * 4 / 3 + 4) {
+            read.iconData = QByteArray::fromBase64(icon.mid(comma + 1).toLatin1());
+        }
+        // The later of two with one keyword: it replaces the earlier in its place.
+        const auto same = std::find_if(result.entries.begin(), result.entries.end(), [&](const WebShortcutFileEntry& e) {
+            return e.shortcut.keyword.compare(shortcut.keyword, Qt::CaseInsensitive) == 0;
+        });
+        if (same != result.entries.end())
+            *same = read;
+        else
+            result.entries.append(read);
+    }
+    return result;
+}
+
+WebMerge mergeWebShortcuts(WebShortcuts& into, const WebShortcuts& from)
+{
+    WebMerge merge;
+    for (const WebShortcut& shortcut : from) {
+        const auto same = std::find_if(into.begin(), into.end(), [&](const WebShortcut& s) {
+            return s.keyword.compare(shortcut.keyword, Qt::CaseInsensitive) == 0;
+        });
+        if (same == into.end()) {
+            into.append(shortcut);
+            ++merge.added;
+        } else if (*same != shortcut) {
+            *same = shortcut;
+            ++merge.updated;
+        } else {
+            ++merge.unchanged;
+        }
+    }
+    return merge;
+}
+
+QString siteIconKey(const QString& homeUrl)
+{
+    const QUrl url(homeUrl, QUrl::TolerantMode);
+    if (!isHttp(url) || url.host().isEmpty())
+        return {};
+    return url.host().toLower();
+}
+
+SiteIconCandidates siteIconCandidates(QByteArrayView html, const QString& pageUrl)
+{
+    const QUrl page(pageUrl, QUrl::TolerantMode);
+    struct Candidate {
+        QString url;
+        int rank; // 0 sized icon, 1 other icon, 2 apple-touch-icon
+        int size; // declared, else a guess for ordering
+        qsizetype order;
+    };
+    std::vector<Candidate> found;
+    static const QRegularExpression linkTag(u"<link\\b[^>]*>"_s, QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression attribute(u"(?<![\\w-])(rel|href|sizes|type)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s\"'>]+))"_s,
+        QRegularExpression::CaseInsensitiveOption);
+    const QString text = QString::fromUtf8(html);
+    for (auto tags = linkTag.globalMatch(text); tags.hasNext();) {
+        const QString tag = tags.next().captured();
+        QString rel, href, sizes, type;
+        for (auto attrs = attribute.globalMatch(tag); attrs.hasNext();) {
+            const auto a = attrs.next();
+            const QString value = a.captured(2) + a.captured(3) + a.captured(4); // whichever quoting it had
+            const QString name = a.captured(1).toLower();
+            (name == u"rel" ? rel : name == u"href" ? href : name == u"sizes" ? sizes : type) = value.trimmed();
+        }
+        const QStringList rels = rel.toLower().split(u' ', Qt::SkipEmptyParts);
+        const bool touch = rels.contains(u"apple-touch-icon"_s) || rels.contains(u"apple-touch-icon-precomposed"_s);
+        if (!touch && !rels.contains(u"icon"_s))
+            continue; // mask-icon (one colour), fluid-icon, stylesheets
+        href.replace(u"&amp;"_s, u"&"_s);
+        const QUrl url = page.resolved(QUrl(href, QUrl::TolerantMode));
+        if (href.isEmpty() || !isHttp(url) || type.contains(u"svg", Qt::CaseInsensitive)
+            || url.path().endsWith(u".svg", Qt::CaseInsensitive))
+            continue;
+        int size = 0; // "16x16 32x32": the largest
+        for (const QString& s : sizes.split(u' ', Qt::SkipEmptyParts))
+            size = std::max(size, s.section(u'x', 0, 0, QString::SectionCaseInsensitiveSeps).toInt());
+        const int rank = touch ? 2 : size >= 64 ? 0 : 1;
+        found.push_back({url.toString(), rank, touch && size == 0 ? 180 : size, static_cast<qsizetype>(found.size())});
+    }
+    // Larger first among the sized and the touch icons; the other icons as
+    // the page has them (their sizes, when given, are 16 or 32).
+    std::stable_sort(found.begin(), found.end(), [](const Candidate& a, const Candidate& b) {
+        if (a.rank != b.rank)
+            return a.rank < b.rank;
+        return a.rank != 1 && a.size != b.size ? a.size > b.size : a.order < b.order;
+    });
+    SiteIconCandidates out;
+    for (const Candidate& c : found) {
+        if (c.rank < 2 && !out.icons.contains(c.url))
+            out.icons.append(c.url);
+    }
+    if (isHttp(page) && !page.host().isEmpty()) {
+        const QString favicon = page.resolved(QUrl(u"/favicon.ico"_s)).toString();
+        if (!out.icons.contains(favicon))
+            out.icons.append(favicon);
+    }
+    for (const Candidate& c : found) {
+        if (c.rank == 2 && !out.icons.contains(c.url) && !out.touchIcons.contains(c.url))
+            out.touchIcons.append(c.url);
+    }
+    return out;
 }
 
 } // namespace ws

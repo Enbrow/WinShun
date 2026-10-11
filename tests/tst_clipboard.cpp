@@ -2,6 +2,9 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -28,6 +31,25 @@ QStringList texts(const ClipStore& store, const std::vector<int>& rows)
     for (const int row : rows)
         list.append(store.clips()[static_cast<std::size_t>(row)].text);
     return list;
+}
+
+// A database file's size and its pages, for messages.
+QString fileState(const QString& file)
+{
+    QString state = QString::number(QFileInfo(file).size()) + u" bytes"_s;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(u"QSQLITE"_s, u"probe"_s);
+        db.setDatabaseName(file);
+        if (db.open()) {
+            QSqlQuery query(db);
+            for (const QString pragma : {u"auto_vacuum"_s, u"freelist_count"_s, u"page_count"_s}) {
+                if (query.exec(u"PRAGMA "_s + pragma) && query.next())
+                    state += u", "_s + pragma + u" "_s + query.value(0).toString();
+            }
+        }
+    }
+    QSqlDatabase::removeDatabase(u"probe"_s);
+    return state;
 }
 
 QStringList texts(const ClipStore& store)
@@ -217,6 +239,54 @@ private slots:
         QCOMPARE(store.groups().size(), std::size_t(1));
         QCOMPARE(store.clearHistory(), 1);
         QVERIFY(store.clips().empty());
+    }
+
+    void removedEntriesFreeTheDisk()
+    {
+        QTemporaryDir dir;
+        const QString file = dir.filePath(u"clipboard.db"_s);
+        const auto fill = [](ClipStore& store) {
+            std::vector<qint64> ids;
+            for (int i = 0; i < 20; ++i)
+                ids.push_back(store.add(text(QString(100'000, QChar(u'a' + i))), kStart + i));
+            return ids;
+        };
+        {
+            ClipStore store(dir.path());
+            QVERIFY(store.open(kStart));
+            store.remove(fill(store));
+            store.flush();
+        }
+        QVERIFY2(QFileInfo(file).size() < 256 * 1024, qPrintable(fileState(file)));
+
+        // A file made before it gave back its free pages: turned into one
+        // that does when opened.
+        QFile::remove(file);
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase(u"QSQLITE"_s, u"old"_s);
+            db.setDatabaseName(file);
+            QVERIFY(db.open());
+            QSqlQuery query(db);
+            QVERIFY(query.exec(u"CREATE TABLE junk (data BLOB)"_s));
+            QVERIFY(query.exec(u"INSERT INTO junk VALUES (zeroblob(4000000))"_s));
+            QVERIFY(query.exec(u"DROP TABLE junk"_s));
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(u"old"_s);
+        QVERIFY(QFileInfo(file).size() > 3'000'000);
+        {
+            ClipStore store(dir.path());
+            QVERIFY(store.open(kStart));
+            store.flush();
+        }
+        QVERIFY2(QFileInfo(file).size() < 256 * 1024, qPrintable(fileState(file)));
+        {
+            ClipStore store(dir.path());
+            QVERIFY(store.open(kStart));
+            store.remove(fill(store));
+            store.flush();
+        }
+        QVERIFY2(QFileInfo(file).size() < 256 * 1024, qPrintable(fileState(file)));
     }
 
     void picturesOfRemovedEntries()

@@ -19,6 +19,8 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
+#include <vector>
 
 class QQmlApplicationEngine;
 class QQuickItem;
@@ -32,12 +34,14 @@ class ClipStore;
 class Clipboard;
 class DialogBar;
 class DialogJump;
+class Favorites;
 class SystemCatalog;
 class History;
 class IndexService;
 class KeyListener;
 class Launcher;
 class MessageWindow;
+class NetworkNotifier;
 class NumberKeys;
 class Placement;
 class SearchEngine;
@@ -49,6 +53,17 @@ class WindowFrame;
 class WindowLogo;
 namespace win {
 class TextCaret;
+}
+namespace mcp {
+class McpServer;
+class ToolHost;
+struct Policy;
+struct Services;
+}
+namespace plugin {
+class AiBridge;
+class Host;
+class Tools;
 }
 
 // Wires the pieces together and owns their lifetimes: settings, index,
@@ -72,7 +87,8 @@ public:
     void toggleLauncher();
     void toggleClipboard(); // the clipboard window (Win+V)
     // With `spot`, over the taskbar, as Windows' own search (taskbar::);
-    // `inBox`: over Win顺's box there, its field drawn in the box.
+    // `inBox`: over Win顺's box there, its field drawn in the box when the
+    // box is wide enough for it.
     void showLauncher(const QString& query = {}, const std::optional<taskbar::Spot>& spot = {}, bool inBox = false);
     void hideLauncher();
     void showClipboard();
@@ -104,6 +120,13 @@ private:
     // Taking the focus after all: to type a group's name (with the input
     // method), to hand over to another program.
     void activateClipboard();
+    // Pinned (Clipboard::pinned): what would hide the window gives the keys
+    // back instead, to the program it pastes into if `giveFocus` and the
+    // window has the focus; engaging takes them again, routed from the
+    // program in front, which it then pastes into.
+    void releaseClipboard(bool giveFocus);
+    void engageClipboard();
+    void clipboardPinnedChanged();
     void uncloakClipboard(); // its first frame is up
     void prewarmClipboard();
     void finishClipPrewarm();
@@ -129,6 +152,7 @@ private:
     // Win顺's own search box on the taskbar ([Taskbar] SearchBox, taskbar::SearchBox).
     void applySearchBox();
     void setSearchBoxShown(bool shown); // it is on the taskbar, or not (no room)
+    void setSearchBoxWide(bool wide); // the whole box, or its label or icon alone (SearchBox::wide)
     void updateSearchBoxLook(); // placeholder, accent
     void searchBoxPressed(const taskbar::SearchBox::Press& press);
     void showLauncherInBox(); // the launcher over the box (or, without one shown, over the taskbar)
@@ -141,6 +165,8 @@ private:
     void setClipboardPaused(bool paused);
     void showClipboardSettings(); // the settings window on its 剪贴板 page
     void showWebSettings(); // ... on its 网页搜索 page (a web row's menu)
+    void showFavoriteSettings(const QString& path); // ... on its 收藏夹 page, at that favorite (a row's menu)
+    void showPluginSettings(const QString& pluginId); // ... on that plugin's card ("winshun:settings")
     void applyHotkey();
     void applyDialogs(); // Ctrl+G, the bar and going by themselves in file dialogs
     void excludeFromDialogBar(const QString& app); // "not in this program" from the bar's menu
@@ -159,6 +185,8 @@ private:
     void prewarmLauncher();
     void finishPrewarm();
     void refreshContentIndexStatus(); // shown in the settings window
+    void refreshShareStatuses(); // network shares: in the settings window, and told once read
+    void signInToServer(const QString& path, unsigned long error = 0, const QString& user = {});
     // 索引位置: the index files go where [Index] Folder says, moved in the
     // background; when that fails, the setting goes back to where they are.
     QString startIndexFolder(); // where the index starts out
@@ -167,9 +195,30 @@ private:
     void indexMoved(int error);
     void indexMoveFailed(const QString& attempted, const QString& problem); // `attempted`: the setting
     void refreshIndexFolder(bool measure = false); // shown in the settings window; `measure`: its size too
+    // AI 助手: the MCP server (src/mcp) on its pipe while [Mcp] Enabled, its
+    // tools gated and shaped by the settings (mcpPolicy); what is connected
+    // is shown in the settings window.
+    void applyMcp();
+    mcp::Policy mcpPolicy() const;
+    void refreshMcpStatus();
+    void writeMcpToolsCache(); // the tools, for the relay to list while Win顺 is not running
+    // The plugins' commands as the AI's tools (plugin::AiBridge): what the
+    // [Mcp] Plugins switches and the cards' "给 AI 用" say, applied from
+    // applyMcp and applyPlugins alike.
+    void applyAiBridge();
+    // 插件: the plugin host (src/plugin), told what the [Plugin.<id>]
+    // sections and [WebSearch] say; its plugins answer in the launcher.
+    void createPluginHost();
+    void applyPlugins();
+    void pluginsChanged(); // the catalog's entries: the icon provider's folders
+    // Win顺's tools for the plugins' winshun/tool (plugin::Tools): made
+    // with the first call, whatever the AI switch says.
+    plugin::Tools& pluginTools();
+    mcp::Services toolServices() const; // what the tool hosts (the AI's, the plugins') need from the app
 
     Settings m_settings;
     std::unique_ptr<History> m_history;
+    std::unique_ptr<Favorites> m_favorites; // the launcher's and the dialog bar's
     std::unique_ptr<IndexService> m_index;
     QString m_indexDir; // where the index files are, '/' separated
     QString m_indexFolder; // the [Index] Folder setting m_indexDir stands for
@@ -187,6 +236,14 @@ private:
     // shared with the launcher would drop the launcher's (and its rows would
     // wait for results that never come).
     std::unique_ptr<SearchEngine> m_dialogEngine;
+    // The MCP server's own engine, host and server (applyMcp); in this
+    // order, so the server goes first and the engine before the index.
+    std::unique_ptr<SearchEngine> m_mcpEngine;
+    std::unique_ptr<mcp::ToolHost> m_mcpHost;
+    std::unique_ptr<mcp::McpServer> m_mcpServer;
+    std::unique_ptr<plugin::AiBridge> m_aiBridge; // with the server: the plugins' commands among its tools
+    std::unique_ptr<plugin::Tools> m_pluginTools; // before the host, whose bridge calls it
+    std::unique_ptr<plugin::Host> m_pluginHost; // before the launcher, which asks it
     std::unique_ptr<Launcher> m_launcher;
     std::unique_ptr<ClipStore> m_clipStore; // the clipboard history
     std::unique_ptr<Clipboard> m_clipboard; // its window's view-model
@@ -208,6 +265,9 @@ private:
     std::unique_ptr<StartMenuTyping> m_startTyping; // while [Taskbar] StartMenuTyping is on
     std::unique_ptr<taskbar::SearchBox> m_searchBox; // while [Taskbar] SearchBox is on (Windows 11)
     bool m_searchBoxShown = false; // ... and it is on the taskbar
+    // The launcher is open over the box: typing in it when the box is wide
+    // (Launcher::inTaskbarBox), else with its own field, the box looking open.
+    bool m_launcherOverBox = false;
     // A press on the box takes the keyboard from the launcher over it (Windows
     // does that for whatever is clicked on the taskbar): it comes back with
     // the press (searchBoxPressed), else it goes once this runs out.
@@ -220,6 +280,8 @@ private:
     std::unique_ptr<Updater> m_updater;
     bool m_updateNotified = false; // the last tray notification announced a new version
     std::unique_ptr<VolumeNotifier> m_volumeNotifier; // after m_messages, whose window it uses
+    std::unique_ptr<NetworkNotifier> m_network; // after m_index, whose shares it tells
+    std::vector<std::wstring> m_sharesBuilding; // being read for the first time: told when done
     std::unique_ptr<KeyListener> m_keyListener; // double Ctrl
     QStringList m_doubleCtrlIgnoredLogged; // "program reason", logged once each: a game gets many
     std::unique_ptr<DialogJump> m_dialogJump; // file dialogs: Ctrl+G, the bar; after m_messages, which has the hotkey

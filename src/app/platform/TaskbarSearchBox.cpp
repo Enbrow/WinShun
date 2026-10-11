@@ -42,7 +42,7 @@ constexpr UINT_PTR kLiftTimer = 5; // the icon held down: lifted, to be dragged
 
 // Logical pixels, at the taskbar's scale.
 constexpr double kMaxWidth = 240;
-constexpr double kMinWidth = 140;
+constexpr double kTextWidth = 140; // narrower: its icon and a short label, or its icon alone, no typing in it
 constexpr double kGap = 8; // from the icons, the tray, the widgets
 constexpr double kPadding = 12; // inside, at either end
 constexpr double kIconSize = 16;
@@ -438,6 +438,7 @@ struct SearchBox::Impl {
     Text text;
     Spot initialSpot;
     std::optional<RECT> shownRect;
+    bool shownWide = false; // ... the whole box, not its label or icon alone
     std::optional<RECT> caretRect;
     std::atomic<HWND> helper {nullptr};
     std::atomic<HWND> box {nullptr};
@@ -471,6 +472,9 @@ struct SearchBox::Impl {
     Layout taskbarLayout; // the latest measured
     Spot spot;
 
+    // As wide as the room beside the icons allows: the whole box, which
+    // what is typed goes into; its icon and a short label; its icon alone.
+    enum class Form { Box, Label, Icon };
     // Where the box goes and where it is: its pill (the window has a margin
     // round it), on the screen, physical pixels.
     struct Target {
@@ -478,6 +482,15 @@ struct SearchBox::Impl {
         double w = 0;
         LONG y = 0;
         LONG h = 0;
+        Form form = Form::Box;
+    };
+    struct Shape {
+        Form form;
+        double width; // physical pixels
+    };
+    struct Side {
+        bool before; // left of the icons
+        Shape shape;
     };
     // The free stretches beside the icons, the gaps kept.
     struct Room {
@@ -537,7 +550,13 @@ struct SearchBox::Impl {
     bool iconPressed = false; // ... the press shows on the icon alone while active
     bool lifted = false; // being dragged
     POINT downAt {};
-    double grab = 0; // the pointer's x in the pill
+    double grab = 0; // the pointer's x in the pill, a fraction of its width
+    Form form = Form::Box; // as drawn: its target's once it goes there
+    Form drawnForm = Form::Box; // in the last frame
+    double labelWidth = 0; // the label form's, physical pixels (labelForm)
+    std::wstring labelMeasured;
+    UINT labelDpi = 0;
+    bool wideShown = false; // as told (wideChanged)
 
     ComPtr<ID2D1Factory> d2d;
     ComPtr<IDWriteFactory> dwrite;
@@ -677,7 +696,8 @@ struct SearchBox::Impl {
     bool animating() const
     {
         return hoverT.running || activeT.running || glowT.running || shownT.running || placeholderT.running
-            || liftT.running || pressS.moving || iconS.moving || move == Move::Glide || move == Move::Spring;
+            || liftT.running || pressS.moving || iconS.moving || move == Move::Glide || move == Move::Spring
+            || (move == Move::Drag && springW.moving);
     }
 
     void tick()
@@ -702,6 +722,10 @@ struct SearchBox::Impl {
             pillW = springW.value;
             if (!springX.moving && !springW.moving)
                 move = Move::Still;
+        } else if (move == Move::Drag) { // growing or shrinking about the pointer
+            springW.step(ms);
+            pillX += (pillW - springW.value) * grab;
+            pillW = springW.value;
         }
         if (hiding && !shownT.running) {
             finishHiding();
@@ -844,6 +868,14 @@ struct SearchBox::Impl {
             ::SetWindowPos(window, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 
+    // Again in the room last measured.
+    void refit()
+    {
+        Room room;
+        if (box.load() && taskbarLayout.measured && measureRoom(room) == Fit::Fits)
+            setTarget(targetIn(room, spot));
+    }
+
     Fit measureRoom(Room& room)
     {
         RECT bar {};
@@ -896,20 +928,67 @@ struct SearchBox::Impl {
     // The default side: before the icons when they are centred (by Start).
     bool defaultBefore(const Room& room) const { return room.haveIcons && iconsCentred(); }
 
-    // Where `where` puts the box in `room`: its side, or the other where
-    // that one is too narrow.
-    std::optional<Target> targetIn(const Room& room, const Spot& where) const
+    // The widest form a stretch `room` wide takes, and its width: the box up
+    // to kMaxWidth, else the label form as wide as its label needs, else the
+    // icon in a circle as high as the box.
+    std::optional<Shape> shapeFor(double room, LONG h)
     {
         const double s = scale();
-        bool before = where.side == Spot::Side::Auto ? defaultBefore(room) : where.side == Spot::Side::Before;
-        const double minWidth = std::lround(kMinWidth * s);
-        if (room.width(before) < minWidth)
-            before = !before;
-        if (room.width(before) < minWidth)
+        if (room >= std::lround(kTextWidth * s))
+            return Shape {Form::Box, std::floor(std::min(room, static_cast<double>(std::lround(kMaxWidth * s))))};
+        if (const double label = labelForm(); label > 0 && room >= label)
+            return Shape {Form::Label, label};
+        if (room >= h)
+            return Shape {Form::Icon, static_cast<double>(h)};
+        return std::nullopt;
+    }
+
+    // The label form's width: the icon and the short label, padded.
+    double labelForm()
+    {
+        ensureFormat();
+        if (labelDpi == dpi && labelMeasured == drawnLook.label)
+            return labelWidth;
+        labelDpi = dpi;
+        labelMeasured = drawnLook.label;
+        labelWidth = 0;
+        ComPtr<IDWriteTextLayout> layout;
+        DWRITE_TEXT_METRICS metrics {};
+        if (format && !labelMeasured.empty()
+            && SUCCEEDED(dwrite->CreateTextLayout(labelMeasured.c_str(), static_cast<UINT32>(labelMeasured.size()),
+                format.Get(), 100000.0f, 100.0f, &layout))
+            && SUCCEEDED(layout->GetMetrics(&metrics))) {
+            const double s = scale();
+            labelWidth = std::ceil(std::round(kPadding * s) + std::round(kIconSize * s) + std::round(kIconGap * s)
+                + metrics.widthIncludingTrailingWhitespace + std::round(kPadding * s));
+        }
+        return labelWidth;
+    }
+
+    // The side the box goes on, wanting `before`, and its form there: the
+    // other side only where nothing of it fits on that one.
+    std::optional<Side> sideFor(const Room& room, bool before)
+    {
+        for (const bool side : {before, !before}) {
+            if (const std::optional<Shape> shape = shapeFor(room.width(side), room.h))
+                return Side {side, *shape};
+        }
+        return std::nullopt;
+    }
+
+    // Where `where` puts the box in `room`: its side, as wide as that side
+    // allows, or the other where nothing of it fits there.
+    std::optional<Target> targetIn(const Room& room, const Spot& where)
+    {
+        const double s = scale();
+        const std::optional<Side> side
+            = sideFor(room, where.side == Spot::Side::Auto ? defaultBefore(room) : where.side == Spot::Side::Before);
+        if (!side)
             return std::nullopt;
+        const bool before = side->before;
+        const double width = side->shape.width;
         const double from = before ? room.beforeFrom : room.afterFrom;
         const double to = before ? room.beforeTo : room.afterTo;
-        const double width = std::floor(std::min(to - from, static_cast<double>(std::lround(kMaxWidth * s))));
         const double offset = std::lround(where.offset * s);
         double x = 0;
         if (before)
@@ -921,20 +1000,25 @@ struct SearchBox::Impl {
         t.w = width;
         t.y = room.y;
         t.h = room.h;
+        t.form = side->shape.form;
         return t;
     }
 
-    // Where a box dropped at x, `width` wide, is meant to be.
-    Spot spotAt(const Room& room, double x, double width) const
+    // Where a box dropped at x, `width` wide, is meant to be: the side its
+    // middle is on, centred where it was let go as wide as it gets there.
+    Spot spotAt(const Room& room, double x, double width)
     {
         const double s = scale();
-        bool before = room.haveIcons && x + width / 2 < room.iconsMiddle;
-        if (room.width(before) < std::lround(kMinWidth * s))
-            before = !before;
+        const double middle = x + width / 2;
+        bool before = room.haveIcons && middle < room.iconsMiddle;
+        if (const std::optional<Side> side = sideFor(room, before)) {
+            before = side->before;
+            width = side->shape.width;
+        }
         const double from = before ? room.beforeFrom : room.afterFrom;
         const double to = before ? room.beforeTo : room.afterTo;
         width = std::min(width, to - from);
-        x = std::clamp(x, from, std::max(from, to - width));
+        x = std::clamp(middle - width / 2, from, std::max(from, to - width));
         const double fromIcons = before ? to - (x + width) : x - from;
         const double fromFar = before ? x - from : to - (x + width);
         const double snap = kSnap * s;
@@ -962,6 +1046,7 @@ struct SearchBox::Impl {
         if (!placed) {
             pillX = next->x;
             pillW = next->w;
+            form = next->form;
             move = Move::Still;
             appear();
         } else {
@@ -997,12 +1082,14 @@ struct SearchBox::Impl {
         if (move == Move::Glide && nearby(toX, toW)) { // on its way there already
             toX = t.x;
             toW = t.w;
+            form = t.form;
             cancelHold();
             return;
         }
         if (move == Move::Spring && nearby(springX.target, springW.target)) {
             springX.target = t.x;
             springW.target = t.w;
+            form = t.form;
             cancelHold();
             return;
         }
@@ -1050,6 +1137,7 @@ struct SearchBox::Impl {
         move = Move::Still;
         pillX = t.x;
         pillW = t.w;
+        form = t.form;
         if (!animating()) {
             place();
             render();
@@ -1063,6 +1151,7 @@ struct SearchBox::Impl {
         fromW = pillW;
         toX = t.x;
         toW = t.w;
+        form = t.form;
         glide.snap(0);
         glide.go(1, nowMs(), ms, curve);
         move = Move::Glide;
@@ -1080,6 +1169,7 @@ struct SearchBox::Impl {
         springX.rest = springW.rest = 0.3;
         springX.to(t.x, 18, 0.82);
         springW.to(t.w, 18, 0.82);
+        form = t.form;
         move = Move::Spring;
     }
 
@@ -1130,7 +1220,9 @@ struct SearchBox::Impl {
         if (!on) {
             std::lock_guard lock(mutex);
             shownRect.reset();
+            shownWide = false;
             caretRect.reset();
+            wideShown = false;
         }
         if (shown == on)
             return;
@@ -1143,8 +1235,16 @@ struct SearchBox::Impl {
         if (!target || !shown)
             return;
         const RECT r {std::lround(target->x), target->y, std::lround(target->x + target->w), target->y + target->h};
-        std::lock_guard lock(mutex);
-        shownRect = r;
+        const bool wide = target->form == Form::Box;
+        {
+            std::lock_guard lock(mutex);
+            shownRect = r;
+            shownWide = wide;
+        }
+        if (wide != wideShown) {
+            wideShown = wide;
+            call(callbacks.wideChanged, wide);
+        }
     }
 
     // The window round the pill where it is now.
@@ -1169,18 +1269,22 @@ struct SearchBox::Impl {
     {
         const double now = nowMs();
         Text next;
+        bool relabelled = false;
         {
             std::lock_guard lock(mutex);
             if (look.name != drawnLook.name && box.load())
                 ::SetWindowTextW(box.load(), look.name.c_str());
-            if (look.placeholder != drawnLook.placeholder && placed && animations) {
+            if (look.placeholder != drawnLook.placeholder && placed && animations && form == Form::Box) {
                 oldPlaceholder = drawnLook.placeholder; // fades out as the new one fades in
                 placeholderT.snap(0);
                 placeholderT.go(1, now, 200, kFastIn);
             }
+            relabelled = look.label != drawnLook.label;
             drawnLook = look;
             next = text;
         }
+        if (relabelled)
+            refit(); // the label form's width
         if (next.active != drawnText.active) {
             scroll = 0;
             if (animations) {
@@ -1242,6 +1346,8 @@ struct SearchBox::Impl {
 
     bool onIcon(int x) const
     {
+        if (form != Form::Box)
+            return true; // no text to press in: all of it
         const double s = scale();
         return localX(x) < static_cast<float>((kPadding + kIconSize + kIconGap / 2) * s);
     }
@@ -1249,7 +1355,7 @@ struct SearchBox::Impl {
     // Where in the field's text the box is pressed at (x, y) (its window's pixels).
     std::optional<int> positionAt(int x, int y) const
     {
-        if (!drawnText.active)
+        if (!drawnText.active || form != Form::Box)
             return std::nullopt;
         if (!textLayout)
             return 0;
@@ -1272,6 +1378,7 @@ struct SearchBox::Impl {
         Press press;
         if (target)
             press.anchor = {std::lround(target->x + target->w / 2), target->y};
+        press.wide = target && target->form == Form::Box;
         press.at = at;
         press.word = word;
         call(callbacks.pressed, press);
@@ -1286,7 +1393,9 @@ struct SearchBox::Impl {
         lifted = true;
         move = Move::Drag;
         cancelHold();
-        grab = downAt.x - pillX;
+        grab = pillW > 0 ? std::clamp((downAt.x - pillX) / pillW, 0.0, 1.0) : 0.5;
+        springW.snap(pillW);
+        springW.rest = 0.3;
         if (animations)
             liftT.go(1, nowMs(), 167, kFastIn);
         else
@@ -1296,14 +1405,26 @@ struct SearchBox::Impl {
         render();
     }
 
+    // Along the taskbar with the pointer, over the icons too, as wide as it
+    // would be dropped on the side the pointer is on: what the user gets
+    // shows before letting go.
     void drag(POINT pointer)
     {
         Room room;
         if (measureRoom(room) != Fit::Fits)
             return;
+        const double middle = pointer.x + (0.5 - grab) * pillW; // the side it is dropped on (spotAt)
+        if (const std::optional<Side> side = sideFor(room, room.haveIcons && middle < room.iconsMiddle)) {
+            form = side->shape.form; // what it becomes, dropped here
+            if (!animations)
+                springW.snap(side->shape.width);
+            else if (springW.target != side->shape.width)
+                springW.to(side->shape.width, 26, 0.9);
+            pillW = springW.value;
+        }
         const double from = std::min(room.beforeFrom, room.afterFrom);
         const double to = std::max(room.beforeTo, room.afterTo);
-        pillX = std::clamp(pointer.x - grab, from, std::max(from, to - pillW));
+        pillX = std::clamp(pointer.x - grab * pillW, from, std::max(from, to - pillW));
         place();
         render();
     }
@@ -1362,6 +1483,21 @@ struct SearchBox::Impl {
         selection.a = 0.32f;
         return {gray(1, 0.6f), gray(1, 0.82f), gray(1, 0.42f), gray(1, 0.98f), gray(0, 0.08f), gray(0xB4 / 255.0f, 1),
             gray(0, 0.9f), gray(0, 0.6f), selection, gray(0, 0.9f)};
+    }
+
+    // The words in the box: the placeholder (or what to search, while typing
+    // there); a short label where it is narrow; none round the icon alone.
+    std::wstring labelOf(Form f) const
+    {
+        switch (f) {
+        case Form::Box:
+            return drawnLook.placeholder;
+        case Form::Label:
+            return drawnLook.label;
+        case Form::Icon:
+            break;
+        }
+        return {};
     }
 
     void releaseSurface()
@@ -1475,6 +1611,15 @@ struct SearchBox::Impl {
         const float w = static_cast<float>(pillW);
         const float h = static_cast<float>(pillH);
         const Palette p = palette();
+        if (form != drawnForm) { // its words change with it
+            if (animations) {
+                oldPlaceholder = labelOf(drawnForm);
+                placeholderT.snap(0);
+                placeholderT.go(1, nowMs(), 200, kFastIn);
+            }
+            drawnForm = form;
+        }
+        const bool whole = form == Form::Box; // else no typing shows here, the launcher has its field
         const bool active = drawnText.active;
         const float activeAmount = activeT.value;
         const float idle = 1 - activeAmount;
@@ -1508,7 +1653,7 @@ struct SearchBox::Impl {
                 renderTarget->FillRoundedRectangle(rounded(i * 0.8f * s, 1.5f * s * lift), brush.Get());
             }
         }
-        if (glowT.running && !highContrast) { // a thin ring of the edge's grey, spreading as it fades
+        if (glowT.running && !highContrast && whole) { // a thin ring of the edge's grey, spreading as it fades
             const float t = glowT.value;
             const float strength = t < 0.15f ? t / 0.15f : 1 - kFastIn((t - 0.15f) / 0.85f);
             brush->SetColor(faded(p.edge, 0.6f * strength * activeAmount));
@@ -1520,13 +1665,14 @@ struct SearchBox::Impl {
         const float stroke = highContrast ? s * (1 + activeAmount) : s;
         D2D1_COLOR_F fill = mix(p.fill, p.hoverFill, std::max(hoverT.value, lift));
         fill = mix(fill, p.pressedFill, std::clamp(pill, 0.0f, 1.0f));
-        brush->SetColor(mix(fill, p.activeFill, activeAmount));
+        // Open while narrow: lit, as a taskbar button whose window is open.
+        brush->SetColor(mix(fill, whole ? p.activeFill : p.hoverFill, activeAmount));
         renderTarget->FillRoundedRectangle(rounded(-stroke / 2), brush.Get());
-        brush->SetColor(mix(p.border, p.edge, activeAmount));
+        brush->SetColor(mix(p.border, whole ? p.edge : p.border, activeAmount));
         renderTarget->DrawRoundedRectangle(rounded(-stroke / 2), brush.Get(), stroke);
 
         const float iconSize = std::round(static_cast<float>(kIconSize) * s);
-        const float iconX = std::round(static_cast<float>(kPadding) * s);
+        const float iconX = std::min(std::round(static_cast<float>(kPadding) * s), std::round((w - iconSize) / 2)); // narrow: centred
         if (icon) {
             const float y = std::round((h - iconSize) / 2);
             const float k = static_cast<float>(iconS.value) * (1 - 0.14f * std::max(0.0f, press));
@@ -1537,7 +1683,7 @@ struct SearchBox::Impl {
             renderTarget->SetTransform(base);
         }
         textLeft = iconX + iconSize + std::round(static_cast<float>(kIconGap) * s);
-        const float textRight = w - std::round(static_cast<float>(kPadding) * s);
+        const float textRight = std::max(textLeft, w - std::round(static_cast<float>(kPadding) * s));
         const float room = std::max(1.0f, textRight - textLeft);
         renderTarget->PushAxisAlignedClip(D2D1::RectF(textLeft, 0, textRight, h), D2D1_ANTIALIAS_MODE_ALIASED);
 
@@ -1545,7 +1691,7 @@ struct SearchBox::Impl {
         const float caretWidth = std::max(1.0f, std::round(s));
         const std::wstring& typed = drawnText.text;
         const std::wstring& composition = drawnText.composition;
-        if (format && (!active || (typed.empty() && composition.empty()))) {
+        if (format && (!whole || !active || (typed.empty() && composition.empty()))) {
             // The placeholder, cut short with "…" where it does not fit; a
             // new one comes in from the right as the old one goes left.
             const auto placeholder = [&](const std::wstring& value, float alpha, float dx) {
@@ -1567,8 +1713,8 @@ struct SearchBox::Impl {
             const float shift = 8 * s;
             if (in < 1)
                 placeholder(oldPlaceholder, 1 - in, -shift * in);
-            const ComPtr<IDWriteTextLayout> layout = placeholder(drawnLook.placeholder, in, shift * (1 - in));
-            if (active && layout) { // typing starts here, over the placeholder
+            const ComPtr<IDWriteTextLayout> layout = placeholder(labelOf(form), in, shift * (1 - in));
+            if (active && whole && layout) { // typing starts here, over the placeholder
                 float x = 0;
                 float y = 0;
                 DWRITE_HIT_TEST_METRICS line {};
@@ -1641,7 +1787,7 @@ struct SearchBox::Impl {
                 textLayout = layout;
             }
         }
-        if (caret && active && caretOn && typed.empty() && composition.empty()) {
+        if (caret && active && whole && caretOn && typed.empty() && composition.empty()) {
             brush->SetColor(faded(p.caret, activeAmount));
             renderTarget->FillRectangle(*caret, brush.Get());
         }
@@ -1757,7 +1903,7 @@ struct SearchBox::Impl {
             ::GetCursorPos(&pointer);
             ::ScreenToClient(window, &pointer);
             const wchar_t* shape = self->lifted ? IDC_SIZEALL
-                : self->drawnText.active && !self->onIcon(pointer.x) ? IDC_IBEAM
+                : self->drawnText.active && self->form == Form::Box && !self->onIcon(pointer.x) ? IDC_IBEAM
                                                                      : IDC_ARROW;
             ::SetCursor(::LoadCursorW(nullptr, shape));
             return TRUE;
@@ -1976,6 +2122,12 @@ std::optional<RECT> SearchBox::rect() const
 {
     std::lock_guard lock(m_impl->mutex);
     return m_impl->shownRect;
+}
+
+bool SearchBox::wide() const
+{
+    std::lock_guard lock(m_impl->mutex);
+    return m_impl->shownWide;
 }
 
 std::optional<RECT> SearchBox::caret() const

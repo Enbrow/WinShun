@@ -106,8 +106,7 @@ bool MftTree::read(
             // One lock per block of records to store their names.
             auto lock = index.writeLock();
             for (const Collected& c : block) {
-                const Name name {
-                    c.parent, index.storeName({names.data() + c.begin, c.length}), c.length, c.flags, c.modified};
+                const Name name {c.parent, index.storeName({names.data() + c.begin, c.length}), c.flags, c.modified};
                 if (c.extension)
                     extensionNames.emplace_back(c.record, name);
                 else if (c.flags & EntryFlag::Directory)
@@ -148,7 +147,7 @@ bool MftTree::list(const FileIndex& index, const Crawler& crawler, const Crawler
     std::u16string wide;
     const auto lock = index.readLock(); // the names live in the index
     for (auto it = firstFolder; it != lastFolder; ++it) {
-        const std::string_view name = index.nameAt(it->name.nameOffset, it->name.nameLength);
+        const std::string_view name = index.nameAt(it->name.nameOffset);
         wide.clear();
         wtf8::decodeAppend(wide, name);
         // Junctions and other links have no children in the MFT: descending is harmless.
@@ -156,7 +155,7 @@ bool MftTree::list(const FileIndex& index, const Crawler& crawler, const Crawler
     }
     for (auto it = firstFile; it != lastFile; ++it)
         crawler.addToListing(
-            out, dir, index.nameAt(it->nameOffset, it->nameLength), {}, it->flags, false, 0, it->modified);
+            out, dir, index.nameAt(it->nameOffset), {}, it->flags, false, 0, it->modified);
     return true;
 }
 

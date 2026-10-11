@@ -29,6 +29,17 @@ struct TypedPath {
 };
 TypedPath splitTyped(const QString& text);
 
+// A path typed from some folder along the way, not from a drive:
+// "tools/screenshots/" -> {{"tools", "screenshots"}, true},
+// "src\app\App.cpp" -> {{"src", "app", "App.cpp"}, false}. Empty `names`
+// for what is no such path: no separator, an absolute path (splitTyped),
+// what no name can be ("*.pdf", "!draft\", "a/ b", "..").
+struct RelativePath {
+    QStringList names;
+    bool folder = false; // ends in a separator: the last name is a folder's
+};
+RelativePath splitRelative(const QString& text);
+
 // What `typed.folder` holds that `typed.name` matches, as the search box
 // matches names (anywhere in the name, by pinyin too; everything when no
 // name is typed): folders first, then the best matches, then in Explorer's

@@ -51,6 +51,12 @@ public:
         SelectedRole,
         ModifiedRole, // when a file or folder was last written, briefly: "昨天 14:32"; empty when not known
         ModifiedFullRole, // the same in full, for its tip
+        OfflineRole, // on a network share that cannot be reached now
+        PluginRole, // a plugin's row (SearchResult::plugin)
+        SourceRole, // ... the plugin's name, for its badge; empty otherwise
+        FavoriteRole, // one of its user's favorites
+        FavoriteKeywordRole, // ... its keyword; empty: none
+        MissingRole, // a favorite no longer there
     };
 
     explicit ResultModel(QObject* parent = nullptr);
@@ -67,6 +73,7 @@ public:
     void assign(SearchResults items, QStringList highlights); // changes only the rows that differ
     void update(int row, const SearchResult& item);
     void append(const SearchResults& items);
+    void insert(int row, const SearchResult& item);
     bool remove(const QString& path); // false if no row has that path
     int removeAll(const QSet<QString>& paths); // number of rows removed
     void clear();

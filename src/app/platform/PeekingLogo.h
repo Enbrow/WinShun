@@ -36,8 +36,12 @@ public:
     // (the dialog, say), else the first where it stays in `work`; none, it
     // hides. Over the top or bottom it sits kInset in from `row`'s left end;
     // at a side, level with `row`'s middle (the box, in a window with a list).
+    // `host` and `row` are where the window rests; sliding in or out it is
+    // `shift` off that (the edge stays the one chosen there), `alpha` faded
+    // and, out from behind a taskbar, just `under` it in the z-order.
     void show(const RECT& host, const RECT& row, const RECT& work, const RECT* avoid, qreal scale,
-        std::initializer_list<Edge> edges = {Edge::Top, Edge::Left, Edge::Right, Edge::Bottom});
+        std::initializer_list<Edge> edges = {Edge::Top, Edge::Left, Edge::Right, Edge::Bottom}, POINT shift = {},
+        BYTE alpha = 255, HWND under = nullptr);
     void hide();
 
 private:
@@ -49,6 +53,7 @@ private:
     HGDIOBJ m_dcBitmap = nullptr; // the one the DC came with
     int m_size = 0; // of m_bitmap's logo, physical pixels
     Edge m_edge = Edge::Top; // m_bitmap's
+    HWND m_under = nullptr; // where it was put in the z-order (null: on top)
 };
 
 } // namespace ws::win

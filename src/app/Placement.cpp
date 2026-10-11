@@ -129,7 +129,10 @@ Placement::Placement(QString stateFile, QString group, QObject* parent)
 
     connect(&m_slide, &QVariantAnimation::valueChanged, this, [this](const QVariant& value) { stepSlide(value.toInt()); });
     connect(&m_slide, &QVariantAnimation::finished, this, [this] {
-        m_under = 0;
+        if (std::exchange(m_under, 0) && m_hwnd) // out from behind it: in front of all again
+            ::SetWindowPos(reinterpret_cast<HWND>(m_hwnd), HWND_TOPMOST, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        emit slideStepped(); // the logo over the taskbar again
         if (const std::function<void()> done = std::exchange(m_slideDone, {}))
             done();
     });
@@ -556,7 +559,7 @@ QPoint Placement::hiddenOffset(bool* cut) const
     QPoint full;
     switch (m_taskbar->edge) {
     case taskbar::Edge::Bottom:
-        full = {0, int(bar.top - window.top)};
+        full = {0, int(bar.top - window.top) + qRound(m_overTop * m_window->devicePixelRatio())};
         break;
     case taskbar::Edge::Top:
         full = {0, int(bar.bottom - window.bottom)};
@@ -749,7 +752,9 @@ void Placement::settleSlide()
     if (!sliding())
         return;
     m_slide.stop();
-    m_under = 0;
+    if (std::exchange(m_under, 0) && m_hwnd) // as at the end (see the constructor)
+        ::SetWindowPos(reinterpret_cast<HWND>(m_hwnd), HWND_TOPMOST, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     stepSlide(std::max({m_slideSpec.moveMs, m_slideSpec.fadeMs, m_slideSpec.shiftMs}));
     if (const std::function<void()> done = std::exchange(m_slideDone, {}))
         done();
@@ -759,8 +764,15 @@ void Placement::goBehindTaskbar()
 {
     const HWND bar = taskbarWindow(m_taskbar->native);
     m_under = reinterpret_cast<WId>(bar);
-    if (bar)
-        ::SetWindowPos(reinterpret_cast<HWND>(m_hwnd), bar, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    if (!bar)
+        return;
+    // Windows 11 keeps the taskbar topmost, yet the window in front (not
+    // topmost) is often above it in the z-order, only beside it on the
+    // screen: just under the taskbar was then under that window too, and the
+    // launcher slid in out of sight and stayed there. The taskbar first in
+    // front of all, as a click on it puts it.
+    ::SetWindowPos(bar, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    ::SetWindowPos(reinterpret_cast<HWND>(m_hwnd), bar, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
 void Placement::startSlide(Slide slide, std::function<void()> done)
@@ -801,11 +813,18 @@ void Placement::stepSlide(int elapsed)
         if (m_window && layered())
             m_window->setOpacity(opacity);
     }
-    const QPointF shift = s.shiftFrom + (s.shiftTo - s.shiftFrom) * progress(s.shiftMs, s.shiftCurve);
+    // On whole device pixels, as the window moves. Between them text and the
+    // unsmoothed icons round to the grid each their own way: as the shift
+    // died away under a pixel, the rows' icons moved up by one, row after
+    // row, and the search bar at its very end, the window still by then.
+    const qreal dpr = m_window ? m_window->devicePixelRatio() : 1.0;
+    const QPointF exact = s.shiftFrom + (s.shiftTo - s.shiftFrom) * progress(s.shiftMs, s.shiftCurve);
+    const QPointF shift(qRound(exact.x() * dpr) / dpr, qRound(exact.y() * dpr) / dpr);
     if (shift != m_contentShift) {
         m_contentShift = shift;
         emit contentShiftChanged();
     }
+    emit slideStepped();
 }
 
 void Placement::save() const

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ChangeWatcher.h"
 #include "FileIndex.h"
 
 #include <cstdint>
@@ -119,7 +120,19 @@ public:
     bool sync(FileIndex& index, std::vector<Root> roots, int threads, bool lowPriority, std::stop_token stop,
         const Lister& list = {}) const;
 
-    // Reads a folder from the disk, with each child's record number.
+    // The same, but what is gone from the disk is only collected in
+    // `deferRemovals`, not removed: a network share that drops out halfway
+    // (or comes back empty for a moment) must not cost the index its items.
+    // The caller removes them once it trusts the whole pass.
+    struct SyncStats {
+        std::size_t listed = 0; // folders read
+        std::size_t failed = 0; // folders that could not be read (left as they were)
+        std::size_t items = 0; // in the folders read
+    };
+    bool sync(FileIndex& index, std::vector<Root> roots, int threads, bool lowPriority, std::stop_token stop,
+        const Lister& list, std::vector<EntryId>* deferRemovals, SyncStats* stats) const;
+
+    // Reads a folder from the disk (or a share), with each child's record number.
     bool listDirectory(const Root& dir, DirListing& out) const;
 
     // Appends one child of `dir` to `out`, applying the rules to folders:
@@ -140,5 +153,19 @@ public:
 private:
     CrawlRules m_rules;
 };
+
+// A file or folder as it is on disk now.
+struct PathProbe {
+    unsigned long attributes = 0xFFFF'FFFF; // INVALID_FILE_ATTRIBUTES: not there
+    unsigned long reparseTag = 0;
+    FileTime modified = 0;
+};
+PathProbe probePath(const std::wstring& path);
+
+// Applies what a ChangeWatcher reported, a batch per write lock. New folders
+// are walked with `list` (the disk when empty). The caller keeps compaction
+// out meanwhile: new folders are walked by their entry ids.
+void applyChanges(FileIndex& index, const std::vector<FsChange>& changes, const Crawler& crawler, std::stop_token stop,
+    const Crawler::Lister& list = {});
 
 } // namespace ws

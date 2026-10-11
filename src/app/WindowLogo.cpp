@@ -1,7 +1,11 @@
 #include "WindowLogo.h"
 
+#include "Placement.h"
+
 #include <commctrl.h>
 #include <dwmapi.h>
+
+#include <algorithm>
 
 namespace ws {
 
@@ -43,6 +47,17 @@ WindowLogo::~WindowLogo()
         ::RemoveWindowSubclass(m_hwnd, &Hook::proc, 0);
 }
 
+void WindowLogo::follow(Placement* placement)
+{
+    m_placement = placement;
+    // Out from behind a taskbar at the bottom: all of it, the logo too.
+    placement->setOverTop(win::PeekingLogo::kSize - win::PeekingLogo::kSize / 4);
+    connect(placement, &Placement::slideStepped, this, [this] {
+        if (m_shown)
+            place(); // faded on, or back over the taskbar
+    });
+}
+
 void WindowLogo::reveal()
 {
     if (!m_window || !m_window->isVisible())
@@ -70,8 +85,16 @@ void WindowLogo::place()
     // The window's own DPI: right in the middle of moving to another screen,
     // where Qt's devicePixelRatio is not yet.
     const qreal scale = ::GetDpiForWindow(m_hwnd) / 96.0;
+    // Where the window rests: the edge is chosen there.
+    const QPoint offset = m_placement ? m_placement->slideOffset() : QPoint();
+    ::OffsetRect(&host, -offset.x(), -offset.y());
+    const qreal opacity = m_placement ? std::clamp(m_placement->slideOpacity(), 0.0, 1.0) : 1.0;
+    const auto under = reinterpret_cast<HWND>(m_placement ? m_placement->slideUnder() : 0);
     const RECT row {host.left, host.top, host.right, host.top + qRound(m_rowHeight * scale)};
-    m_logo.show(host, row, info.rcWork, m_avoid ? &*m_avoid : nullptr, scale);
+    using Edge = win::PeekingLogo::Edge;
+    m_logo.show(host, row, info.rcWork, m_avoid ? &*m_avoid : nullptr, scale,
+        {Edge::Top, Edge::Left, Edge::Right, Edge::Bottom}, {offset.x(), offset.y()}, BYTE(qRound(opacity * 255)),
+        under);
 }
 
 } // namespace ws

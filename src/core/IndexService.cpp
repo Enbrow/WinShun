@@ -4,6 +4,7 @@
 #include "Ntfs.h"
 #include "NtfsIndexer.h"
 #include "Snapshot.h"
+#include "Unc.h"
 #include "Win32Util.h"
 #include "Wtf8.h"
 
@@ -23,7 +24,6 @@ namespace ws {
 
 namespace {
 
-constexpr std::size_t kApplyBatch = 256; // changes applied per write lock
 // A journal read completes on every record written, even ones it filters
 // out: after each read, let records gather this long before the next one.
 constexpr auto kJournalPause = 500ms;
@@ -39,26 +39,6 @@ constexpr auto kSaveInterval = 30min;
 constexpr std::uint64_t kGarbageBytes = 32 << 20;
 constexpr auto kSaveCheck = 1min;
 constexpr auto kPrewarmAfterStart = 90s; // once logging on has settled
-
-struct Probe {
-    DWORD attributes = INVALID_FILE_ATTRIBUTES;
-    DWORD reparseTag = 0;
-    FileTime modified = 0;
-};
-
-Probe probe(const std::wstring& path)
-{
-    Probe p;
-    WIN32_FIND_DATAW fd;
-    const win32::UniqueFind find(
-        ::FindFirstFileExW(win32::longPath(path).c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, 0));
-    if (find.valid()) {
-        p.attributes = fd.dwFileAttributes;
-        p.reparseTag = fd.dwReserved0;
-        p.modified = fileTimeOf(win32::ticks(fd.ftLastWriteTime));
-    }
-    return p;
-}
 
 // A folder's NTFS record number, 0 when unknown.
 std::uint32_t folderRecord(const std::wstring& path)
@@ -119,13 +99,16 @@ bool sameVolume(const VolumeInfo& a, const VolumeInfo& b)
 }
 
 // Removes the roots of volumes whose entries cannot be kept: drives that are
-// gone, and drive letters that now hold another disk. Returns entries removed.
+// gone, and drive letters that now hold another disk. Shares are the
+// ShareIndexer's. Returns entries removed.
 std::size_t dropStaleRoots(FileIndex& index, const std::vector<VolumeInfo>& volumes, const std::vector<bool>& known)
 {
     std::size_t removed = 0;
     const std::vector<EntryId> roots = index.roots();
     for (const EntryId r : roots) {
         const std::string_view name = index.name(r);
+        if (name.starts_with("\\\\"))
+            continue;
         bool keep = false;
         for (std::size_t i = 0; i < volumes.size() && !keep; ++i)
             keep = known[i] && toUtf8(volumes[i].root) == name;
@@ -166,6 +149,21 @@ IndexService::IndexService(QString folder, Options options, QObject* parent)
     source.ready = [this] { return state() == State::Ready && !m_refreshing.load() && m_volumesKnown.load(); };
     m_contentIndexer = std::make_unique<ContentIndexer>(m_content, std::move(source), m_options.content);
 
+    // Shares go in once the local index is there: loaded, or read the first time.
+    ShareIndexer::Source shareSource;
+    shareSource.index = [this] { return m_index.load(); };
+    shareSource.ready = [this] { return state() == State::Ready && m_volumesKnown.load(); };
+    ShareIndexer::Callbacks shareCallbacks;
+    shareCallbacks.changed = [this] {
+        QMetaObject::invokeMethod(this, [this] { emit sharesChanged(); }, Qt::QueuedConnection);
+    };
+    shareCallbacks.dirty = [this] { m_dirty = true; };
+    shareCallbacks.reading = [this](const std::wstring& path, bool reading) {
+        setReading(path, reading);
+        notifyLater();
+    };
+    m_shares = std::make_unique<ShareIndexer>(std::move(shareSource), m_options.shares, std::move(shareCallbacks));
+
     m_saveTimer.setInterval(kSaveCheck);
     connect(&m_saveTimer, &QTimer::timeout, this, &IndexService::saveInBackground);
 
@@ -200,6 +198,7 @@ std::size_t IndexService::itemCount() const
 void IndexService::start()
 {
     launch(Pass::Startup);
+    m_shares->start();
     m_saveTimer.start();
     m_prewarmer = std::jthread([this](std::stop_token stop) { prewarmLoop(stop); });
     prewarmSoon(kPrewarmAfterStart);
@@ -207,8 +206,10 @@ void IndexService::start()
 
 void IndexService::rebuild()
 {
-    if (!m_stopped)
-        launch(Pass::Full);
+    if (m_stopped)
+        return;
+    launch(Pass::Full);
+    m_shares->verifyAll();
 }
 
 void IndexService::setOptions(Options options)
@@ -218,6 +219,10 @@ void IndexService::setOptions(Options options)
     if (!(options.content == m_options.content)) {
         m_options.content = options.content;
         m_contentIndexer->setOptions(std::move(options.content));
+    }
+    if (!(options.shares == m_options.shares)) {
+        m_options.shares = options.shares;
+        m_shares->setOptions(std::move(options.shares)); // the local disks carry on
     }
     const bool rulesChanged = !(options.rules == m_options.rules);
     const bool drivesChanged = options.includeRemovable != m_options.includeRemovable;
@@ -335,6 +340,7 @@ void IndexService::shutdown()
         m_prewarmer.join();
     }
     m_contentIndexer->stop();
+    m_shares->stop();
     stopWorker();
     m_watcher.reset();
     if (m_pendingSave.valid())
@@ -414,7 +420,9 @@ void IndexService::run(std::stop_token stop, Pass pass)
             contents->attachment = decltype(contents->attachment)();
             if (!m_contentIndexer->enabled())
                 m_content->clear(); // turned off: its files go once the snapshot is saved without it
-            if (dropStaleRoots(loaded, volumes, known) > 0)
+            const std::size_t dropped = dropStaleRoots(loaded, volumes, known)
+                + ShareIndexer::dropUnknownRoots(loaded, m_options.shares.shares);
+            if (dropped > 0)
                 loaded.compact(false, [&](const FileIndex::Renumber& renumber) { m_content->remap(renumber); });
             m_index.store(std::shared_ptr<FileIndex>(std::move(contents->index)));
             snapshotRules = std::move(contents->rules);
@@ -582,14 +590,16 @@ IndexService::RuleChange IndexService::applyRuleChanges(
     // Folders excluded no more, as they are on disk (looked at before locking).
     struct Freed {
         std::wstring path;
-        Probe probe;
+        PathProbe probe;
         std::uint32_t record = 0;
     };
     std::vector<Freed> freed;
     for (const std::wstring& path : freedPaths) {
-        if (crawler.isExcludedPath(path))
-            continue; // still left out by another rule
-        Freed f {path, probe(path)};
+        // Still left out by another rule; or on a share, which its own
+        // indexer walks again (a probe here could wait on an offline server).
+        if (crawler.isExcludedPath(path) || unc::isUnc(path))
+            continue;
+        Freed f {path, probePath(path)};
         if (f.probe.attributes == INVALID_FILE_ATTRIBUTES || !(f.probe.attributes & FILE_ATTRIBUTE_DIRECTORY))
             continue;
         f.record = folderRecord(path);
@@ -655,11 +665,11 @@ bool IndexService::syncWithDisk(std::stop_token stop, const std::vector<std::siz
     std::vector<EntryId> roots(volumes.size(), kNoEntry);
     {
         auto lock = index->writeLock();
-        // Drop drives that are gone; add new ones.
+        // Drop drives that are gone (shares are not drives); add new ones.
         const std::vector<EntryId> existingRoots = index->roots();
         for (const EntryId r : existingRoots) {
             const std::string_view name = index->name(r);
-            const bool keep = std::any_of(
+            const bool keep = name.starts_with("\\\\") || std::any_of(
                 volumes.begin(), volumes.end(), [&](const VolumeInfo& v) { return toUtf8(v.root) == name; });
             if (!keep)
                 index->remove(r);
@@ -730,7 +740,7 @@ bool IndexService::syncWithDisk(std::stop_token stop, const std::vector<std::siz
     }
     {
         std::lock_guard lock(m_journalMutex);
-        applyChanges(*index, m_journal, *crawler); // replay what changed on watched volumes during the walk
+        applyChanges(*index, m_journal, *crawler, m_shutdown.get_token()); // replay what changed on watched volumes during the walk
         m_journal = decltype(m_journal)(); // releases the capacity, unlike `= {}`
         m_journaling = false;
         for (const std::size_t i : which) {
@@ -972,103 +982,8 @@ void IndexService::onChanges(std::vector<FsChange>&& changes)
         }
         return;
     }
-    applyChanges(*m_index.load(), changes, *crawler);
+    applyChanges(*m_index.load(), changes, *crawler, m_shutdown.get_token());
     m_dirty = true;
-}
-
-void IndexService::applyChanges(FileIndex& index, const std::vector<FsChange>& changes, const Crawler& crawler)
-{
-    using Kind = FsChange::Kind;
-    std::size_t i = 0;
-    while (i < changes.size()) {
-        std::size_t end = std::min(changes.size(), i + kApplyBatch);
-        if (end < changes.size() && changes[end - 1].kind == Kind::RenamedFrom)
-            ++end; // keep rename pairs in one batch
-
-        // File system probes happen before taking the lock.
-        std::vector<Probe> probes(end - i);
-        for (std::size_t k = i; k < end; ++k) {
-            if (changes[k].kind == Kind::Added || changes[k].kind == Kind::RenamedTo)
-                probes[k - i] = probe(changes[k].path);
-        }
-
-        std::vector<Crawler::Root> newDirs;
-        {
-            auto lock = index.writeLock();
-
-            const auto removePath = [&](const std::wstring& path) {
-                const EntryId id = index.pathForUpdate(path);
-                if (id != kNoEntry && !(index.entry(id).flags & EntryFlag::Root))
-                    index.remove(id);
-            };
-
-            const auto addPath = [&](const std::wstring& path, const Probe& p) {
-                if (p.attributes == INVALID_FILE_ATTRIBUTES)
-                    return; // already gone again
-                for (const auto& dir : newDirs) {
-                    if (isUnder(path, dir.path))
-                        return; // the subtree walk below picks it up
-                }
-                const auto [parentPath, name] = splitPath(path);
-                const EntryId parent = index.pathForUpdate(parentPath);
-                if (parent == kNoEntry || name.empty())
-                    return;
-                const std::string utf8 = toUtf8(name);
-                if (index.childForUpdate(parent, utf8, false) != kNoEntry)
-                    return;
-                auto flags = static_cast<std::uint8_t>(
-                    Crawler::attributeFlags(p.attributes) | (index.entry(parent).flags & EntryFlag::Inherited));
-                if (flags & EntryFlag::Directory)
-                    flags |= crawler.dirPriorityFlags(path, name);
-                const EntryId id = index.add(parent, utf8, flags);
-                index.setModified(id, p.modified);
-                if (Crawler::shouldDescend(p.attributes, p.reparseTag))
-                    newDirs.push_back({id, path, static_cast<std::uint8_t>(flags & EntryFlag::Inherited)});
-            };
-
-            const auto movePath = [&](const std::wstring& from, const std::wstring& to) {
-                const EntryId id = index.pathForUpdate(from);
-                if (id == kNoEntry)
-                    return false;
-                const auto [parentPath, name] = splitPath(to);
-                const EntryId parent = index.pathForUpdate(parentPath);
-                if (parent == kNoEntry || name.empty())
-                    return false;
-                const std::string utf8 = toUtf8(name);
-                const EntryId existing = index.childForUpdate(parent, utf8, false);
-                if (existing != kNoEntry && existing != id)
-                    index.remove(existing); // replaced an existing item
-                return index.move(id, parent, utf8);
-            };
-
-            for (std::size_t k = i; k < end; ++k) {
-                const FsChange& c = changes[k];
-                switch (c.kind) {
-                case Kind::Removed:
-                    removePath(c.path);
-                    break;
-                case Kind::RenamedFrom:
-                    if (k + 1 < end && changes[k + 1].kind == Kind::RenamedTo
-                        && movePath(c.path, changes[k + 1].path)) {
-                        ++k;
-                        break;
-                    }
-                    removePath(c.path);
-                    break;
-                case Kind::Added:
-                case Kind::RenamedTo:
-                    addPath(c.path, probes[k - i]);
-                    break;
-                case Kind::Overflow:
-                    break;
-                }
-            }
-        }
-
-        if (!newDirs.empty())
-            crawler.sync(index, std::move(newDirs), 1, true, m_shutdown.get_token());
-        i = end;
-    }
 }
 
 void IndexService::saveSnapshot(bool wait)

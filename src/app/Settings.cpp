@@ -1,5 +1,6 @@
 #include "Settings.h"
 
+#include "Unc.h"
 #include "Win32Util.h"
 
 #include <QDir>
@@ -8,6 +9,8 @@
 #include <QStandardPaths>
 
 #include <windows.h>
+
+#include <algorithm>
 
 using namespace Qt::StringLiterals;
 
@@ -100,6 +103,30 @@ const QStringList kDefaultClipboardExcludedApps {
     u"Bitwarden.exe"_s,
 };
 
+// Folders on network shares that NAS boxes (Synology, QNAP) and Macs keep for
+// themselves: recycle bins, thumbnails, snapshots, Spotlight. Shares only:
+// [Index] ExcludedNames of earlier versions is in the file already, so its
+// defaults growing would reach nobody.
+const QStringList kDefaultNetworkExcludedNames {
+    u"#recycle"_s,
+    u"@eaDir"_s,
+    u"@Recycle"_s,
+    u".@__thumb"_s,
+    u"@Recently-Snapshot"_s,
+    u"#snapshot"_s,
+    u".snapshot"_s,
+    u".recycle"_s,
+    u"$RECYCLE.BIN"_s,
+    u"System Volume Information"_s,
+    u".TemporaryItems"_s,
+    u".Trashes"_s,
+    u".Spotlight-V100"_s,
+    u".fseventsd"_s,
+};
+
+// What a Mac leaves next to the files it writes to a share.
+const QStringList kDefaultNetworkExcludedFiles {u"._*"_s, u".DS_Store"_s};
+
 // Bumped when kDefaultContentExtensions grows, so lists that still hold an
 // older default pick up the new one.
 constexpr int kContentDefaultsVersion = 2;
@@ -150,8 +177,11 @@ void writeWebShortcuts(QSettings& s, const WebShortcuts& shortcuts)
         s.setValue(u"Name"_s, shortcuts[i].name);
         s.setValue(u"Url"_s, shortcuts[i].url);
         s.setValue(u"Home"_s, shortcuts[i].home);
+        if (!shortcuts[i].icon.isEmpty())
+            s.setValue(u"Icon"_s, shortcuts[i].icon);
     }
     s.endArray();
+    s.setValue(u"WebSearch/Defaults"_s, kWebDefaultsVersion); // the list as its user left it, new defaults seen
 }
 
 // The file may have been edited by hand: addresses are tidied as the settings
@@ -173,6 +203,8 @@ WebShortcuts readWebShortcuts(QSettings& s, const WebShortcuts& fallback)
         shortcut.name = s.value(u"Name"_s).toString().trimmed();
         shortcut.url = normalizeWebUrl(s.value(u"Url"_s).toString());
         shortcut.home = normalizeWebUrl(s.value(u"Home"_s).toString());
+        if (const QString icon = s.value(u"Icon"_s).toString(); isValidCustomIconName(icon))
+            shortcut.icon = icon; // a name of ours, never a path
         if (!isValidWebKeyword(shortcut.keyword) || shortcut.url.isEmpty())
             continue; // nothing to type, or nothing to open
         if (shortcut.name.isEmpty())
@@ -180,10 +212,127 @@ WebShortcuts readWebShortcuts(QSettings& s, const WebShortcuts& fallback)
         shortcuts.append(shortcut);
     }
     s.endArray();
+    // Written by an older Win顺: the defaults added since, once.
+    if (s.value(u"WebSearch/Defaults"_s, 1).toInt() < kWebDefaultsVersion) {
+        shortcuts = withNewDefaults(shortcuts, fallback);
+        writeWebShortcuts(s, shortcuts);
+    }
     return shortcuts;
 }
 
+void writeShares(QSettings& s, const QList<NetworkShare>& shares)
+{
+    s.remove(u"Shares"_s);
+    s.beginWriteArray(u"Shares"_s, static_cast<int>(shares.size()));
+    for (int i = 0; i < shares.size(); ++i) {
+        s.setArrayIndex(i);
+        s.setValue(u"Path"_s, shares[i].path);
+        s.setValue(u"Name"_s, shares[i].name);
+    }
+    s.endArray();
+}
+
+// Paths written by hand are tidied (unc::normalize; a mapped drive becomes
+// the share it maps); what is no share at all, or twice, is left out.
+QList<NetworkShare> readShares(QSettings& s)
+{
+    if (!s.contains(u"Shares/size"_s)) {
+        writeShares(s, {});
+        return {};
+    }
+    QList<NetworkShare> shares;
+    const int size = s.beginReadArray(u"Shares"_s);
+    for (int i = 0; i < size; ++i) {
+        s.setArrayIndex(i);
+        const QString path = Settings::sharePath(s.value(u"Path"_s).toString());
+        if (path.isEmpty()
+            || std::ranges::any_of(shares, [&](const NetworkShare& n) { return n.path.compare(path, Qt::CaseInsensitive) == 0; }))
+            continue;
+        shares.append({path, s.value(u"Name"_s).toString().trimmed()});
+    }
+    s.endArray();
+    return shares;
+}
+
+constexpr QStringView kPluginGroup = u"Plugin."; // [Plugin.<id>]
+
+// [Plugin.<id>] sections, as they are: nothing is written back that was
+// not there (no defaults), and nothing dropped that is.
+QList<PluginConfig> readPlugins(QSettings& s)
+{
+    QList<PluginConfig> plugins;
+    for (const QString& group : s.childGroups()) {
+        if (!group.startsWith(kPluginGroup) || group.size() <= kPluginGroup.size())
+            continue;
+        PluginConfig config;
+        config.id = group.mid(kPluginGroup.size());
+        s.beginGroup(group);
+        for (const QString& key : s.childKeys()) {
+            const QString value = s.value(key).toString();
+            if (key == u"Enabled")
+                config.enabled = s.value(key).toBool();
+            else if (key == u"Confirmed")
+                config.confirmed = s.value(key).toStringList();
+            else if (key == u"Ai")
+                config.ai = s.value(key).toBool();
+            else if (key.startsWith(u"Keyword."))
+                config.keywords.append({key.mid(8), value.trimmed()});
+            else if (key.startsWith(u"Setting."))
+                config.settings.append({key.mid(8), value});
+        }
+        s.endGroup();
+        plugins.append(std::move(config));
+    }
+    return plugins;
+}
+
+void writePlugins(QSettings& s, const QList<PluginConfig>& plugins)
+{
+    for (const QString& group : s.childGroups()) {
+        if (group.startsWith(kPluginGroup))
+            s.remove(group); // sections of plugins the list no longer has
+    }
+    for (const PluginConfig& config : plugins) {
+        s.beginGroup(kPluginGroup + config.id);
+        s.setValue(u"Enabled"_s, config.enabled);
+        if (!config.confirmed.isEmpty())
+            s.setValue(u"Confirmed"_s, config.confirmed);
+        if (!config.ai)
+            s.setValue(u"Ai"_s, false);
+        for (const auto& [command, keyword] : config.keywords)
+            s.setValue(u"Keyword."_s + command, keyword);
+        for (const auto& [key, value] : config.settings)
+            s.setValue(u"Setting."_s + key, value);
+        s.endGroup();
+    }
+}
+
 } // namespace
+
+const PluginConfig* Settings::plugin(QStringView id) const
+{
+    const auto it = std::find_if(plugins.cbegin(), plugins.cend(), [&](const PluginConfig& p) { return p.id == id; });
+    return it == plugins.cend() ? nullptr : &*it;
+}
+
+PluginConfig& Settings::pluginConfig(const QString& id)
+{
+    const auto it = std::find_if(plugins.begin(), plugins.end(), [&](const PluginConfig& p) { return p.id == id; });
+    if (it != plugins.end())
+        return *it;
+    PluginConfig config;
+    config.id = id;
+    plugins.append(std::move(config));
+    return plugins.last();
+}
+
+QString Settings::sharePath(const QString& text)
+{
+    std::wstring path = QDir::toNativeSeparators(text.trimmed()).toStdWString();
+    if (path.size() >= 2 && path[1] == L':')
+        path = unc::fromMappedDrive(path);
+    return QString::fromStdWString(unc::normalize(path));
+}
 
 QString Settings::filePath()
 {
@@ -268,6 +417,8 @@ Settings Settings::defaults()
     d.clipboard = windowsClipboardHistory(); // whoever kept Windows' clipboard history keeps ours
     d.clipboardExcludedApps = kDefaultClipboardExcludedApps;
     d.webShortcuts = defaultWebShortcuts();
+    d.networkExcludedNames = kDefaultNetworkExcludedNames;
+    d.networkExcludedFiles = kDefaultNetworkExcludedFiles;
     d.renderer = defaultRenderer();
     d.transparency = lowMemory() ? u"off"_s : u"on"_s;
     d.clipboardMaxItems = lowMemory() ? 100 : 200;
@@ -321,7 +472,15 @@ void Settings::load()
 
     foldersFirst = readOrDefault(s, u"Results/FoldersFirst"_s, d.foldersFirst);
     showModified = readOrDefault(s, u"Results/ShowModified"_s, d.showModified);
-    sortByModified = readOrDefault(s, u"Results/SortByModified"_s, d.sortByModified);
+    if (!s.contains(u"Results/Sort"_s) && s.value(u"Results/SortByModified"_s).toBool())
+        s.setValue(u"Results/Sort"_s, u"newest"_s); // 0.6.0's switch: newest first, or best match
+    s.remove(u"Results/SortByModified"_s);
+    sort = readOrDefault(s, u"Results/Sort"_s, d.sort).trimmed().toLower();
+    if (sort != u"newest" && sort != u"oldest")
+        sort = d.sort;
+    startList = readOrDefault(s, u"Results/StartList"_s, d.startList).trimmed().toLower();
+    if (startList != u"modified")
+        startList = d.startList;
     numberKeys = readOrDefault(s, u"Results/NumberKeys"_s, d.numberKeys).trimmed().toLower();
     if (numberKeys != u"alt" && numberKeys != u"off")
         numberKeys = d.numberKeys;
@@ -350,6 +509,7 @@ void Settings::load()
     rescanOnStartup = readOrDefault(s, u"Index/RescanOnStartup"_s, d.rescanOnStartup);
     indexFolder = readOrDefault(s, u"Index/Folder"_s, d.indexFolder).trimmed();
 
+    contentSearch = readOrDefault(s, u"Content/Enabled"_s, d.contentSearch);
     contentExtensions = readOrDefault(s, u"Content/Extensions"_s, d.contentExtensions);
     if (s.value(u"Content/DefaultsVersion"_s, 1).toInt() < kContentDefaultsVersion) {
         // Version 1 defaulted to just "txt". A list the user edited is left alone.
@@ -388,6 +548,24 @@ void Settings::load()
     taskbarSearchBox = readOrDefault(s, u"Taskbar/SearchBox"_s, d.taskbarSearchBox);
 
     webShortcuts = readWebShortcuts(s, d.webShortcuts);
+
+    shares = readShares(s);
+    networkVerifyHours = std::clamp(readOrDefault(s, u"Network/VerifyHours"_s, d.networkVerifyHours), 0, 24 * 7);
+    networkVerifyHoursUnwatched
+        = std::clamp(readOrDefault(s, u"Network/VerifyHoursUnwatched"_s, d.networkVerifyHoursUnwatched), 0, 24 * 7);
+    networkThreads = std::clamp(readOrDefault(s, u"Network/Threads"_s, d.networkThreads), 1, 64);
+    networkExcludedNames = readOrDefault(s, u"Network/ExcludedNames"_s, d.networkExcludedNames);
+    networkExcludedFiles = readOrDefault(s, u"Network/ExcludedFiles"_s, d.networkExcludedFiles);
+
+    mcp = readOrDefault(s, u"Mcp/Enabled"_s, d.mcp);
+    mcpAllowOpen = readOrDefault(s, u"Mcp/AllowOpen"_s, d.mcpAllowOpen);
+    mcpClipboard = readOrDefault(s, u"Mcp/Clipboard"_s, d.mcpClipboard);
+    mcpExcludedPaths = readOrDefault(s, u"Mcp/ExcludedPaths"_s, d.mcpExcludedPaths);
+    mcpPlugins = readOrDefault(s, u"Mcp/Plugins"_s, d.mcpPlugins);
+    mcpPluginActions = readOrDefault(s, u"Mcp/PluginActions"_s, d.mcpPluginActions);
+
+    pluginDeveloperMode = readOrDefault(s, u"Plugins/DeveloperMode"_s, d.pluginDeveloperMode);
+    plugins = readPlugins(s);
 }
 
 void Settings::save() const
@@ -408,7 +586,8 @@ void Settings::save() const
     s.setValue(u"Launcher/FileManager"_s, fileManager);
     s.setValue(u"Results/FoldersFirst"_s, foldersFirst);
     s.setValue(u"Results/ShowModified"_s, showModified);
-    s.setValue(u"Results/SortByModified"_s, sortByModified);
+    s.setValue(u"Results/Sort"_s, sort);
+    s.setValue(u"Results/StartList"_s, startList);
     s.setValue(u"Results/NumberKeys"_s, numberKeys);
     s.setValue(u"Appearance/Theme"_s, theme);
     s.setValue(u"Appearance/Language"_s, language);
@@ -419,6 +598,7 @@ void Settings::save() const
     s.setValue(u"Index/IncludeRemovableDrives"_s, includeRemovableDrives);
     s.setValue(u"Index/RescanOnStartup"_s, rescanOnStartup);
     s.setValue(u"Index/Folder"_s, indexFolder);
+    s.setValue(u"Content/Enabled"_s, contentSearch);
     s.setValue(u"Content/Extensions"_s, contentExtensions);
     for (std::size_t k = 0; k < ContentSizeLimits::kKinds; ++k)
         s.setValue(kContentSizeKeys[k], contentMaxSizeMB[k]);
@@ -437,6 +617,20 @@ void Settings::save() const
     s.setValue(u"Taskbar/StartMenuTyping"_s, taskbarStartTyping);
     s.setValue(u"Taskbar/SearchBox"_s, taskbarSearchBox);
     writeWebShortcuts(s, webShortcuts);
+    writeShares(s, shares);
+    s.setValue(u"Network/VerifyHours"_s, networkVerifyHours);
+    s.setValue(u"Network/VerifyHoursUnwatched"_s, networkVerifyHoursUnwatched);
+    s.setValue(u"Network/Threads"_s, networkThreads);
+    s.setValue(u"Network/ExcludedNames"_s, networkExcludedNames);
+    s.setValue(u"Network/ExcludedFiles"_s, networkExcludedFiles);
+    s.setValue(u"Mcp/Enabled"_s, mcp);
+    s.setValue(u"Mcp/AllowOpen"_s, mcpAllowOpen);
+    s.setValue(u"Mcp/Clipboard"_s, mcpClipboard);
+    s.setValue(u"Mcp/ExcludedPaths"_s, mcpExcludedPaths);
+    s.setValue(u"Mcp/Plugins"_s, mcpPlugins);
+    s.setValue(u"Mcp/PluginActions"_s, mcpPluginActions);
+    s.setValue(u"Plugins/DeveloperMode"_s, pluginDeveloperMode);
+    writePlugins(s, plugins);
 }
 
 ContentSizeLimits Settings::contentSizeLimits() const
@@ -470,6 +664,26 @@ CrawlRules Settings::crawlRules() const
     for (const QString& n : kLowPriorityNames)
         rules.lowPriorityNames.push_back(normalizeName(n));
     return rules;
+}
+
+ShareIndexer::Options Settings::shareOptions() const
+{
+    ShareIndexer::Options o;
+    for (const NetworkShare& n : shares)
+        o.shares.push_back({n.path.toStdWString(), n.name.toStdWString()});
+    o.rules = crawlRules();
+    for (const QString& n : networkExcludedNames) {
+        if (!n.trimmed().isEmpty())
+            o.rules.excludedNames.push_back(normalizeName(n));
+    }
+    for (const QString& n : networkExcludedFiles) {
+        if (!n.trimmed().isEmpty())
+            o.excludedFiles.push_back(n.trimmed().toStdWString());
+    }
+    o.verifyEvery = std::chrono::hours(networkVerifyHours);
+    o.verifyEveryUnwatched = std::chrono::hours(networkVerifyHoursUnwatched);
+    o.threads = networkThreads;
+    return o;
 }
 
 } // namespace ws

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Favorites.h"
 #include "History.h"
 #include "PathText.h"
 #include "ResultModel.h"
@@ -37,8 +38,9 @@ class SearchEngine;
 // typed (or pasted) lists what that folder holds, as a shell completes it:
 // Tab goes into the folder of a row, Shift+Tab up one. With nothing typed,
 // the list offers the folders open in file managers, a path on the clipboard (a
-// file copied in Explorer too), the folders pinned here, and the ones used
-// lately (what Windows lists as recent, then what was opened through Win顺).
+// file copied in Explorer too), the favorites (Favorites, the launcher's too:
+// folders, and files but in a folder picker), and the folders used lately
+// (what Windows lists as recent, then what was opened through Win顺).
 //
 // The view-model of DialogBarWindow.qml, and its window's placement: shown by
 // the dialog while that is in front (DialogJump tells), without taking the
@@ -46,7 +48,8 @@ class SearchEngine;
 // under the dialog, or on its left or right (Place); the list shows while the
 // bar has the focus, below it, or above where there is more room. As a dialog
 // first shows with no room on its side for both, it is made smaller (moved
-// where that is not enough): the list need not cover it. Its border is in
+// where that is not enough; restored first, if it is maximised with no button
+// to restore it): the list need not cover it. Its border is in
 // the accent colour and the logo peeks out from behind it (PeekingLogo): it
 // is Win顺's, not one of the dialog's own boxes.
 class DialogBar : public QObject {
@@ -55,7 +58,7 @@ class DialogBar : public QObject {
     QML_UNCREATABLE("Provided by the application")
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged FINAL)
     Q_PROPERTY(ws::ResultModel* results READ results CONSTANT FINAL)
-    // Where each row comes from ("资源管理器", "Total Commander", "固定"…);
+    // Where each row comes from ("资源管理器", "Total Commander", "收藏"…);
     // empty for plain matches.
     Q_PROPERTY(QStringList tags READ tags NOTIFY resultsReplaced FINAL)
     // The folder Ctrl+G goes to (its name); empty when no file manager shows
@@ -92,8 +95,9 @@ public:
         GoAndOpen, // a file in an Open dialog: there, and open it
         Enter, // a folder: its path in the box, to list what it holds (Tab)
         CopyPath,
-        Pin, // a folder (a file's folder) first in the list with nothing typed
-        Unpin,
+        Pin, // the row into the favorites (first in the list with nothing typed)
+        Unpin, // ... out of them
+        PinFolder, // a file's row: the folder it is in into the favorites
         PinCurrent, // the bar's menu: the folder the dialog shows
         UnpinCurrent,
         HideHere, // not under this dialog again
@@ -111,8 +115,8 @@ public:
     // Takes a dialog to a folder or a file (DialogJump::go).
     using Mover = std::function<void(HWND dialog, std::wstring path, bool isFile, bool open)>;
 
-    // `pinsFile`: where the pinned folders are kept.
-    DialogBar(SearchEngine* engine, History* history, const QString& pinsFile, Mover mover, QObject* parent = nullptr);
+    // `favorites`: its user's, kept by the app (it outlives the bar).
+    DialogBar(SearchEngine* engine, History* history, Favorites* favorites, Mover mover, QObject* parent = nullptr);
     ~DialogBar() override;
 
     void setWindow(QQuickWindow* window); // DialogBarWindow.qml, created by the app
@@ -211,12 +215,11 @@ private:
     bool ofFileType(const SearchResult& r) const; // one the Open dialog shows
     void goTo(QString path, bool isFile, bool open = false); // a copy: the rows change on the way
     bool hidden() const; // not under this dialog: HideHere, HideInApp
-    QString pinTarget(int row) const; // the folder Pin and Unpin are about
-    void setPinned(const QString& folder, bool pinned);
+    void setFavorite(const QString& path, bool isDir, bool on); // into the favorites, or out
 
     SearchEngine* m_engine;
     History* m_history;
-    History m_pins; // newest first
+    QPointer<Favorites> m_favorites;
     Mover m_mover;
     ResultModel m_results;
     QStringList m_tags;
@@ -230,7 +233,8 @@ private:
     HWND m_hiddenUnder = nullptr; // HideHere
     std::vector<HWND> m_roomMade; // the dialogs makeRoom() is done with
     std::optional<RECT> m_movingTo; // the frame makeRoom() asked the dialog for: no bar till it is there
-    QTimer m_moveTimeout; // should it not get there
+    HWND m_restoring = nullptr; // a maximised dialog makeRoom() restored: no bar till it is
+    QTimer m_moveTimeout; // should it not get there (or not be restored)
     Place m_place = Place::Auto;
     Place m_side = Place::Below; // where the bar is: not Auto
     HWND m_originDialog = nullptr;
@@ -249,7 +253,9 @@ private:
     QStringList m_explorer; // open in file managers, front first
     QList<filemanager::Kind> m_explorerKinds; // where each is open
     QStringList m_recent; // folders used lately, newest first
-    QStringList m_pinned; // the pins still there
+    // The favorite files and folders still there (on a network: unasked),
+    // in their order; the files left out in a folder picker.
+    SearchResults m_favoritesThere;
     QString m_clipboard; // a file or folder whose path was copied
     bool m_clipboardIsDir = false;
     QStringList m_extensions; // the Open dialog's file type: these first

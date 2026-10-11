@@ -16,16 +16,20 @@ namespace ws {
 
 SystemTheme::SystemTheme(QObject* parent)
     : QObject(parent)
+    , m_iconFont(iconFontName())
 {
-    // Windows 11 ships "Segoe Fluent Icons"; Windows 10 has "Segoe MDL2 Assets".
-    // Decided by OS version: enumerating all installed fonts is expensive.
-    m_iconFont = QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows11 ? u"Segoe Fluent Icons"_s
-                                                                                          : u"Segoe MDL2 Assets"_s;
-
     connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, &SystemTheme::changed);
     qApp->installEventFilter(this); // accent colour changes arrive as a palette change
     qApp->installNativeEventFilter(this); // transparency effects, high contrast: WM_SETTINGCHANGE
     s_instance = this;
+}
+
+QString SystemTheme::iconFontName()
+{
+    // Windows 11 ships "Segoe Fluent Icons"; Windows 10 has "Segoe MDL2 Assets".
+    // Decided by OS version: enumerating all installed fonts is expensive.
+    return QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows11 ? u"Segoe Fluent Icons"_s
+                                                                                    : u"Segoe MDL2 Assets"_s;
 }
 
 bool SystemTheme::backdropSystem() const

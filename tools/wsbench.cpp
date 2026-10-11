@@ -1,6 +1,9 @@
 // Loads the saved index and reports memory use and search timings.
 //
-//   wsbench [snapshot] [query ...]
+//   wsbench [snapshot] [--stats] [--check] [query ...]
+//                      --stats: how the entries and names are made up;
+//                      --check: compares each query's results with matching
+//                      every entry one by one (exit code: the queries that differ)
 //   wsbench --mft [--no-compare] [--depth N] [--no-skip] [D: ...]
 //                      (as administrator) reads every NTFS volume's MFT (or
 //                      those named), compares the result with a directory
@@ -63,13 +66,55 @@
 //                      --memory reads each whole file into memory first;
 //                      --sandbox reads them through WinShunExtract.exe instead
 //                      (--background: at the content indexer's priority)
+//   wsbench --share \host\share [--threads N] [--rounds N] [--buffer KB] [--short-names] [--watch S] [--indexer]
+//                      reads a network share as the app does: how long the
+//                      server takes to answer, its shares, then rounds of
+//                      reading it in full (the first builds, the rest verify);
+//                      --watch: then prints its live changes for S seconds;
+//                      --indexer: the ShareIndexer itself, its states as they
+//                      change, a pass per round
 //   wsbench --places [query ...]
 //                      reads the places (Settings, Control Panel, places.txt)
 //                      as the app does and lists them, or the best places for
 //                      each query; reports keyword blocks of places.txt that
 //                      match no place here
+//   wsbench --mcp-host [--pipe NAME] [--index FOLDER] [--plugins DIR]
+//                      serves Win顺's MCP tools (src/mcp) on a named pipe as
+//                      the app does, over a copy of the index files (made in
+//                      the temporary folder unless --index names a folder
+//                      with index.bin), for testing with real AI clients
+//                      (WinShunMcp.exe --pipe NAME) while the app runs; the
+//                      pipe's name defaults to the app's with ".bench" added.
+//                      With --plugins, the plugins of DIR (every one enabled,
+//                      actions allowed) are tools too, as the AI 助手 page's
+//                      switches would make them (plugin::AiBridge)
+//   wsbench --plugin FOLDER --query "TEXT" [--runs N] [--setting KEY=VALUE ...] [--action ID]
+//                      a plugin (src/plugin) as the app runs it: checks its
+//                      plugin.json, starts it through WinShunPluginHost.exe
+//                      (next to wsbench), prints the items of the first
+//                      query as JSON and the timings: the cold start (runner
+//                      and plugin, to the first answer), the first round trip
+//                      after it, and the median and p95 of N more (default 20;
+//                      a once plugin starts a process for each). --setting
+//                      gives the plugin a declared setting's value (what the
+//                      settings page would); --action runs that action on
+//                      the first item of the first answer and prints the
+//                      effects
+//   wsbench --launcher-sim [--plugins DIR] [--index FOLDER] [--key-ms N] ["TEXT" ...]
+//                      the launcher's list without the launcher: each TEXT
+//                      typed key by key (N ms apart, default 80) over a copy
+//                      of the index, with the plugins of DIR (default
+//                      tests\plugins next to the source; plugin_fake.exe is
+//                      copied in where a manifest wants it) answering as in
+//                      the app and merged as the app merges them
+//                      (plugin::Merge); prints the rows, where each came
+//                      from, and the time from the last key to the plugin's
+//                      rows. A text no plugin answers is run again without
+//                      plugins and the two lists compared
 //
 // Default snapshot: %LOCALAPPDATA%\WinShun\index.bin
+#include "AiBridge.h"
+#include "AppCatalog.h"
 #include "ContentIndex.h"
 #include "ContentIndexer.h"
 #include "ContentScanner.h"
@@ -77,27 +122,46 @@
 #include "DocExtractor.h"
 #include "Documents.h"
 #include "Extract.h"
+#include "Host.h"
 #include "IndexService.h"
+#include "Items.h"
+#include "Manifest.h"
+#include "McpServer.h"
+#include "McpTools.h"
+#include "Merge.h"
+#include "Pipe.h"
 #include "NameSearch.h"
 #include "Ntfs.h"
 #include "NtfsIndexer.h"
+#include "PathText.h"
 #include "Query.h"
 #include "SearchEngine.h"
 #include "Settings.h"
+#include "ShareIndexer.h"
+#include "ShareLister.h"
+#include "SiteIconImage.h"
+#include "SiteIcons.h"
 #include "Snapshot.h"
 #include "SystemCatalog.h"
 #include "TextUtil.h"
+#include "Unc.h"
+#include "WebShortcut.h"
 #include "Win32Util.h"
 #include "Wtf8.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
+#include <QDeadlineTimer>
 #include <QDir>
 #include <QDirIterator>
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QStandardPaths>
+#include <QSet>
 #include <QTemporaryDir>
 #include <QTimer>
 
@@ -1134,10 +1198,10 @@ int runContentBench(const ws::FileIndex& index, QStringList args)
         for (std::size_t i = 0; i < entries.size(); ++i) {
             const ws::Entry& e = entries[i];
             if ((e.flags & (ws::EntryFlag::Deleted | ws::EntryFlag::Directory | ws::EntryFlag::Offline))
-                || e.extLength == 0)
+                || index.extLength(e) == 0)
                 continue;
             const std::string_view name = index.name(e);
-            const std::string_view ext = name.substr(name.size() - e.extLength);
+            const std::string_view ext = name.substr(name.size() - index.extLength(e));
             const auto x = std::find_if(extensions.begin(), extensions.end(),
                 [&](const std::string& s) { return ws::text::equalsFolded(ext, s); });
             if (x == extensions.end())
@@ -1741,6 +1805,7 @@ int runContentSearchBench(const ws::FileIndex& index, std::span<const char> stat
     settings.load();
     const bool all = args.contains(u"--all"_s) || settings.contentInLowPriority;
     const bool readUnknown = args.contains(u"--unknown"_s);
+    const bool show = args.contains(u"--show"_s); // the first files found, with their lines
     const ws::ContentFilter filter {ws::ExtensionFilter(settings.contentExtensions), all};
     const ws::ContentSizeLimits limits = settings.contentSizeLimits();
     QStringList needles;
@@ -1766,7 +1831,8 @@ int runContentSearchBench(const ws::FileIndex& index, std::span<const char> stat
     const ws::EntryId profile = index.findPath(ws::win32::expandEnvironment(L"%USERPROFILE%"));
     for (const QString& needle : needles) {
         timer.restart();
-        const ws::ContentIndex::Lookup lookup = content.lookup(needle);
+        const QStringList terms = ws::contentTerms(needle); // as the app splits what was typed
+        const ws::ContentIndex::Lookup lookup = content.lookup(terms);
         const double lookupMs = msSince(timer);
         struct File {
             ws::EntryId id;
@@ -1776,6 +1842,15 @@ int runContentSearchBench(const ws::FileIndex& index, std::span<const char> stat
         std::vector<File> files;
         std::size_t ruledOut = 0;
         constexpr std::uint32_t kMatch = ws::ContentIndex::Lookup::kMatch;
+        QElapsedTimer walkTimer; // the candidate walk (SearchEngine does it in parallel)
+        walkTimer.start();
+        std::size_t accepted = 0;
+        for (std::size_t c = 0; c < index.chunkCount(); ++c) {
+            const auto entries = index.chunk(c);
+            for (std::size_t i = 0; i < entries.size(); ++i)
+                accepted += filter.accepts(index, entries[i]);
+        }
+        std::printf("  filter pass: %zu files accepted in %.2f ms (one thread)\n", accepted, msSince(walkTimer));
         std::size_t k = 0;
         for (std::size_t c = 0; c < index.chunkCount(); ++c) {
             const auto entries = index.chunk(c);
@@ -1836,21 +1911,27 @@ int runContentSearchBench(const ws::FileIndex& index, std::span<const char> stat
 
         // Read as 内容 does: 16 threads, in order, the likely ones first.
         const std::size_t end = readUnknown ? files.size() : likelyEnd;
-        const ws::ContentScanner scanner(needle);
+        const ws::ContentScanner scanner(terms);
         std::atomic<std::size_t> next {0};
         std::atomic<std::size_t> found {0};
         std::atomic<std::size_t> foundLikely {0};
         std::atomic<std::int64_t> firstUs {-1};
         std::atomic<std::int64_t> likelyDoneUs {0};
         std::atomic<std::size_t> likelyLeft {likelyEnd};
+        std::mutex shownMutex;
+        std::vector<std::pair<std::size_t, ws::ContentMatch>> shown;
         timer.restart();
         {
             std::vector<std::jthread> workers;
             for (int t = 0; t < 16; ++t) {
                 workers.emplace_back([&] {
                     for (std::size_t i = next.fetch_add(1); i < end; i = next.fetch_add(1)) {
-                        if (scanner.scanFile(paths[i], limits.of(paths[i]), {})) {
+                        if (const auto match = scanner.scanFile(paths[i], limits.of(paths[i]), {})) {
                             ++found;
+                            if (show) {
+                                std::lock_guard lock(shownMutex);
+                                shown.emplace_back(i, *match);
+                            }
                             foundLikely += i < likelyEnd ? 1 : 0;
                             std::int64_t none = -1;
                             firstUs.compare_exchange_strong(none, timer.nsecsElapsed() / 1000);
@@ -1864,6 +1945,29 @@ int runContentSearchBench(const ws::FileIndex& index, std::span<const char> stat
         std::printf("  read %zu files in %.0f ms: %zu contain it (%zu of the likely ones); first after %.0f ms, likely ones done after %.0f ms\n",
             end, msSince(timer), found.load(), foundLikely.load(), static_cast<double>(firstUs.load()) / 1000.0,
             static_cast<double>(likelyDoneUs.load()) / 1000.0);
+        // As the launcher lists them: by relevance, a tie in reading order.
+        const std::int64_t now = QDateTime::currentSecsSinceEpoch();
+        std::vector<std::pair<int, std::size_t>> ranked; // relevance, index into shown
+        for (std::size_t k = 0; k < shown.size(); ++k) {
+            const auto& [i, m] = shown[k];
+            const QString path = QString::fromStdWString(paths[i]);
+            const ws::FileTime modified = index.modified(files[i].id);
+            ranked.emplace_back(ws::contentRelevance(m, terms, QStringView(path).mid(path.lastIndexOf(u'\\') + 1),
+                                    files[i].order & 3, modified ? now - static_cast<std::int64_t>(modified) : -1),
+                k);
+        }
+        std::ranges::sort(ranked, [&](const auto& a, const auto& b) {
+            return a.first != b.first ? a.first > b.first : shown[a.second].first < shown[b.second].first;
+        });
+        for (std::size_t r = 0; r < ranked.size() && r < 10; ++r) {
+            const auto& [i, m] = shown[ranked[r].second];
+            QString marked = m.snippet; // the terms in [brackets]
+            for (auto it = m.matches.crbegin(); it != m.matches.crend(); ++it)
+                marked.insert(it->first + it->second, u']').insert(it->first, u'[');
+            std::printf("    %3d %d/%lld%s%s  %s:%d  %s\n", ranked[r].first, m.termsOnLine,
+                static_cast<long long>(terms.size()), m.wordStarts == 0 ? "" : " w", m.longLine ? " long" : "",
+                QString::fromStdWString(paths[i]).toUtf8().constData(), m.line, marked.left(120).toUtf8().constData());
+        }
     }
     return 0;
 }
@@ -2139,9 +2243,917 @@ int runPlaces(const QStringList& queries)
 
 } // namespace
 
+// ---- network shares (--share) ------------------------------------------------
+
+const char* problemName(ws::share::Problem p)
+{
+    using P = ws::share::Problem;
+    switch (p) {
+    case P::None: return "none";
+    case P::Offline: return "offline";
+    case P::Dropped: return "dropped";
+    case P::NotFound: return "not found";
+    case P::NeedsSignIn: return "needs sign-in";
+    case P::GuestBlocked: return "guest blocked";
+    case P::Signing: return "signing";
+    case P::Smb1Only: return "SMB1 only";
+    case P::Denied: return "denied";
+    case P::Other: return "other";
+    }
+    return "?";
+}
+
+const char* stateName(ws::ShareIndexer::State s)
+{
+    using S = ws::ShareIndexer::State;
+    switch (s) {
+    case S::Waiting: return "waiting";
+    case S::Building: return "building";
+    case S::Verifying: return "verifying";
+    case S::Online: return "online";
+    case S::Problem: return "problem";
+    case S::Suspect: return "suspect";
+    }
+    return "?";
+}
+
+// Reads a share as the ShareIndexer does: how fast, with what problems.
+int runShare(QStringList args)
+{
+    int threads = 16;
+    int rounds = 2;
+    int watchSeconds = 0;
+    ws::share::Lister::Options options;
+    options.excludedFiles = {L"._*", L".DS_Store"};
+    if (const qsizetype at = args.indexOf(u"--threads"_s); at >= 0 && at + 1 < args.size()) {
+        threads = args[at + 1].toInt();
+        args.remove(at, 2);
+    }
+    if (const qsizetype at = args.indexOf(u"--rounds"_s); at >= 0 && at + 1 < args.size()) {
+        rounds = args[at + 1].toInt();
+        args.remove(at, 2);
+    }
+    if (const qsizetype at = args.indexOf(u"--buffer"_s); at >= 0 && at + 1 < args.size()) {
+        options.bufferBytes = static_cast<std::size_t>(args[at + 1].toInt()) * 1024;
+        args.remove(at, 2);
+    }
+    if (const qsizetype at = args.indexOf(u"--watch"_s); at >= 0 && at + 1 < args.size()) {
+        watchSeconds = args[at + 1].toInt();
+        args.remove(at, 2);
+    }
+    options.shortNames = args.removeAll(u"--short-names"_s) > 0;
+    const bool lifecycle = args.removeAll(u"--indexer"_s) > 0;
+    if (args.isEmpty()) {
+        std::printf("wsbench --share \\\\host\\share [--threads N] [--rounds N] [--buffer KB] [--short-names] [--watch S] [--indexer]\n");
+        return 1;
+    }
+    const std::wstring path = ws::unc::normalize(args.first().toStdWString());
+    if (path.empty()) {
+        std::printf("not a share: %ls\n", qUtf16Printable(args.first()));
+        return 1;
+    }
+    const std::wstring host(ws::unc::host(path));
+
+    QElapsedTimer t;
+    t.start();
+    const ws::share::Answer answer = ws::share::probe(host, std::chrono::milliseconds(1500), true);
+    std::printf("probe %ls:445  %s  %.1f ms\n", host.c_str(),
+        answer == ws::share::Answer::Smb2       ? "reachable"
+            : answer == ws::share::Answer::Smb1Only ? "reachable, SMB1 only"
+                                                    : "NOT reachable",
+        msSince(t));
+    t.restart();
+    unsigned long shareError = 0;
+    const std::vector<std::wstring> shares = ws::share::listShares(host, &shareError);
+    std::printf("shares on %ls (%.1f ms, error %lu):", host.c_str(), msSince(t), shareError);
+    for (const std::wstring& s : shares)
+        std::printf(" %ls", s.c_str());
+    std::printf("\n");
+
+    if (lifecycle) {
+        // The whole thing: an index of its own, the share's thread, statuses as they change.
+        auto index = std::make_shared<ws::FileIndex>();
+        ws::ShareIndexer::Options o;
+        o.shares = {{path, {}}};
+        o.rules = ws::CrawlRules {{}, {L"#recycle", L"@eaDir", L"@Recycle", L"$RECYCLE.BIN", L"System Volume Information"}, {}, {}};
+        o.excludedFiles = options.excludedFiles;
+        o.threads = threads;
+        std::mutex printMutex;
+        ws::ShareIndexer::Callbacks callbacks;
+        callbacks.reading = [&](const std::wstring& p, bool reading) {
+            std::lock_guard lock(printMutex);
+            std::printf("%8.0f ms  %s %ls\n", msSince(t), reading ? "reading" : "done reading", p.c_str());
+        };
+        ws::ShareIndexer indexer({[&] { return index; }, [] { return true; }}, o, callbacks);
+        t.restart();
+        indexer.start();
+        ws::ShareIndexer::Status last;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(30);
+        int passes = 0;
+        while (std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            const auto st = indexer.statuses();
+            if (st.empty())
+                break;
+            if (!(st[0] == last)) {
+                last = st[0];
+                std::lock_guard lock(printMutex);
+                SYSTEMTIME now;
+                ::GetLocalTime(&now); // to line up with changes made elsewhere
+                std::printf("%8.0f ms  %02u:%02u:%02u.%03u  %-9s problem=%s error=%lu items=%zu verified=%u missing=%zu watching=%d\n",
+                    msSince(t), now.wHour, now.wMinute, now.wSecond, now.wMilliseconds, stateName(last.state), problemName(last.problem), last.error, last.items,
+                    last.lastVerified, last.missing, last.watching ? 1 : 0);
+                if (last.state == ws::ShareIndexer::State::Online && ++passes < rounds)
+                    indexer.verifyNow(path);
+            }
+            if (passes >= rounds && watchSeconds == 0)
+                break;
+            if (passes >= rounds && msSince(t) > 1000.0 * watchSeconds)
+                break;
+        }
+        indexer.stop();
+        const auto lock = index->readLock();
+        const ws::FileIndex::MemoryUse use = index->memoryUse();
+        std::printf("index: %zu live entries, %.1f MB (entries %.1f, times %.1f, names %.1f, folders %.1f, tables %.1f)\n",
+            index->liveCount(),
+            (use.entries + use.times + use.names + use.folderRecords + use.childTables + use.intern) / 1048576.0,
+            use.entries / 1048576.0, use.times / 1048576.0, use.names / 1048576.0, use.folderRecords / 1048576.0,
+            use.childTables / 1048576.0);
+        // The awkward names: the longest path, the deepest, those not in ASCII.
+        ws::EntryId longest = ws::kNoEntry, deepest = ws::kNoEntry;
+        std::size_t longestLength = 0;
+        int deepestDepth = 0, wide = 0;
+        for (ws::EntryId id = 0; id < index->slotCount(); ++id) {
+            if (index->entry(id).isDeleted())
+                continue;
+            const std::wstring p = index->wpath(id);
+            if (p.size() > longestLength)
+                longestLength = p.size(), longest = id;
+            if (const int d = index->depth(id); d > deepestDepth)
+                deepestDepth = d, deepest = id;
+            if (std::ranges::any_of(index->name(id), [](char c) { return static_cast<unsigned char>(c) >= 0x80; })
+                && wide++ < 8)
+                std::printf("  non-ASCII: %ls (found again: %s)\n", p.c_str(), index->findPath(p) == id ? "yes" : "NO");
+        }
+        if (longest != ws::kNoEntry)
+            std::printf("  longest (%zu chars): %ls\n", longestLength, index->wpath(longest).c_str());
+        if (deepest != ws::kNoEntry)
+            std::printf("  deepest (%d levels): %ls\n", deepestDepth, index->wpath(deepest).c_str());
+        return 0;
+    }
+
+    // Rounds of Crawler::sync with the share lister: the first builds, the
+    // others verify (removals deferred, as the indexer does).
+    const ws::Crawler crawler(ws::CrawlRules {{}, {L"#recycle", L"@eaDir", L"@Recycle", L"$RECYCLE.BIN", L"System Volume Information"}, {}, {}});
+    ws::FileIndex index;
+    ws::EntryId root = ws::kNoEntry;
+    {
+        auto lock = index.writeLock();
+        root = ws::ShareIndexer::ensureRoot(index, path);
+    }
+    for (int r = 0; r < rounds; ++r) {
+        std::stop_source stop;
+        ws::share::Lister lister(crawler, path, options, stop);
+        std::vector<ws::EntryId> gone;
+        ws::Crawler::SyncStats stats;
+        t.restart();
+        crawler.sync(index, {{root, path, ws::EntryFlag::Remote}}, threads, false, stop.get_token(),
+            [&](const ws::Crawler::Root& dir, ws::DirListing& out) { return lister(dir, out); }, &gone, &stats);
+        const double ms = msSince(t);
+        std::printf("round %d: %.0f ms  folders %zu (%.0f/s, %.2f ms each)  items %zu  failed %zu  denied %zu  gone %zu"
+                    "  problem %s (error %lu)%s\n",
+            r + 1, ms, stats.listed, stats.listed / (ms / 1000.0), ms / std::max<std::size_t>(1, stats.listed),
+            stats.items, stats.failed, lister.deniedFolders(), gone.size(), problemName(lister.problem()),
+            lister.firstError(), lister.stoppedPass() ? "  [pass stopped]" : "");
+    }
+    {
+        const auto lock = index.readLock();
+        std::printf("index: %zu live entries; findPath(root) %s\n", index.liveCount(),
+            index.findPath(path) == root ? "ok" : "MISSING");
+    }
+
+    if (watchSeconds > 0) {
+        std::printf("watching %ls for %d s...\n", path.c_str(), watchSeconds);
+        ws::ChangeWatcher watcher([](std::vector<ws::FsChange>&& changes) {
+            for (const ws::FsChange& c : changes)
+                std::printf("  change %d  %ls\n", static_cast<int>(c.kind), c.path.c_str());
+        });
+        watcher.setRoots({path});
+        std::printf("watching: %s\n", watcher.roots().empty() ? "NO (the server does not tell)" : "yes");
+        std::this_thread::sleep_for(std::chrono::seconds(watchSeconds));
+    }
+    return 0;
+}
+
+// ---- a plugin, as the app runs it (--plugin) --------------------------------
+
+// Checks FOLDER's plugin.json, runs `query` through the plugin Host (the
+// runner starts the plugin as it would in the app), prints the first
+// answer's items and the timings.
+int runPlugin(QStringList args)
+{
+    QString folder;
+    QString query;
+    int runs = 20;
+    if (const qsizetype at = args.indexOf(u"--plugin"_s); at >= 0 && at + 1 < args.size()) {
+        folder = args[at + 1];
+        args.remove(at, 2);
+    }
+    if (const qsizetype at = args.indexOf(u"--query"_s); at >= 0 && at + 1 < args.size()) {
+        query = args[at + 1];
+        args.remove(at, 2);
+    }
+    if (const qsizetype at = args.indexOf(u"--runs"_s); at >= 0 && at + 1 < args.size()) {
+        runs = std::max(0, args[at + 1].toInt());
+        args.remove(at, 2);
+    }
+    QJsonObject pluginSettings; // --setting key=value: as the settings page would hand them over
+    for (qsizetype at = args.indexOf(u"--setting"_s); at >= 0 && at + 1 < args.size(); at = args.indexOf(u"--setting"_s)) {
+        const QString pair = args[at + 1];
+        const qsizetype eq = pair.indexOf(u'=');
+        if (eq > 0) {
+            const QString value = pair.mid(eq + 1);
+            pluginSettings.insert(pair.left(eq), value == u"true" ? QJsonValue(true) : value == u"false" ? QJsonValue(false) : QJsonValue(value));
+        }
+        args.remove(at, 2);
+    }
+    QString actionId; // --action ID: run it on the first item of the first answer
+    if (const qsizetype at = args.indexOf(u"--action"_s); at >= 0 && at + 1 < args.size()) {
+        actionId = args[at + 1];
+        args.remove(at, 2);
+    }
+    if (folder.isEmpty() || query.isEmpty()) {
+        std::printf("usage: wsbench --plugin FOLDER --query \"TEXT\" [--runs N] [--setting KEY=VALUE ...] [--action ID]\n");
+        return 1;
+    }
+    const QFileInfo info(folder);
+    if (!info.isDir() || !QFileInfo::exists(info.filePath() + u"/plugin.json"_s)) {
+        std::printf("no plugin.json in %s\n", qUtf8Printable(QDir::toNativeSeparators(folder)));
+        return 1;
+    }
+    QString error;
+    const std::optional<ws::plugin::Manifest> manifest = ws::plugin::Manifest::load(info.filePath() + u"/plugin.json"_s, &error);
+    if (!manifest) {
+        std::printf("plugin.json: %s\n", qUtf8Printable(error));
+        return 1;
+    }
+    if (manifest->id != info.fileName()) {
+        std::printf("the folder is named %s but the manifest's id is %s: they must agree\n", qUtf8Printable(info.fileName()),
+            qUtf8Printable(manifest->id));
+        return 1;
+    }
+    std::printf("plugin %s %s (%s): %s, %lld command(s)\n", qUtf8Printable(manifest->id), qUtf8Printable(manifest->version),
+        qUtf8Printable(manifest->name.pick(u"zh"_s)),
+        !manifest->runtime ? "zero-code" : manifest->runtime->mode == ws::plugin::RunMode::Resident ? "resident" : "once",
+        static_cast<long long>(manifest->commands.size()));
+
+    QTemporaryDir temp;
+    ws::plugin::Host::Options options;
+    options.userPluginDir = temp.path() + u"/plugins"_s;
+    options.bundledPluginDir = info.absolutePath();
+    options.dataRoot = temp.path() + u"/data"_s;
+    options.runnerExe = QCoreApplication::applicationDirPath() + u"/WinShunPluginHost.exe"_s;
+    options.version = QStringLiteral(WINSHUN_VERSION "-bench");
+    ws::plugin::Host host(options);
+    host.setEnabled(manifest->id, true);
+    if (!pluginSettings.isEmpty())
+        host.setPluginSettings(manifest->id, pluginSettings);
+    QObject::connect(&host, &ws::plugin::Host::logged, [](const QString& line) { std::printf("  log: %s\n", qUtf8Printable(line)); });
+    QObject::connect(&host, &ws::plugin::Host::queryFailed, [](std::uint64_t id, const QString&, const QString& why) {
+        std::printf("  query %llu failed: %s\n", static_cast<unsigned long long>(id), qUtf8Printable(why));
+    });
+    if (host.catalog().match(query).empty()) {
+        QStringList keywords;
+        for (const ws::plugin::Command& c : manifest->commands)
+            keywords += host.catalog().keywordsOf(manifest->id, c.id);
+        std::printf("\"%s\" triggers no command of this plugin (keywords: %s)\n", qUtf8Printable(query), qUtf8Printable(keywords.join(u", "_s)));
+        return 1;
+    }
+
+    // One query at a time, each timed from query() to its final answer.
+    std::uint64_t nextId = 1;
+    ws::plugin::Items firstItems; // of the first answer, for --action
+    QString firstCommand;
+    const auto timed = [&](bool print) -> std::optional<double> {
+        const std::uint64_t id = nextId++;
+        std::optional<double> took;
+        QElapsedTimer timer;
+        timer.start();
+        bool done = false;
+        const QMetaObject::Connection results = QObject::connect(&host, &ws::plugin::Host::results,
+            [&](std::uint64_t queryId, const QString&, const QString& command, const ws::plugin::Items& items, bool partial, bool) {
+                if (queryId != id || partial)
+                    return;
+                took = msSince(timer);
+                done = true;
+                if (!print)
+                    return;
+                firstItems = items;
+                firstCommand = command;
+                QJsonArray array;
+                for (const ws::plugin::Item& item : items)
+                    array.push_back(ws::plugin::itemToJson(item));
+                std::printf("%s: %lld item(s)\n%s\n", qUtf8Printable(command), static_cast<long long>(items.size()),
+                    QJsonDocument(array).toJson(QJsonDocument::Indented).constData());
+            });
+        const QMetaObject::Connection failed = QObject::connect(&host, &ws::plugin::Host::queryFailed,
+            [&](std::uint64_t queryId, const QString&, const QString&) {
+                if (queryId == id)
+                    done = true;
+            });
+        host.query(query, ws::Scope::All, id);
+        const QDeadlineTimer deadline(15000);
+        while (!done && !deadline.hasExpired())
+            QCoreApplication::processEvents(QEventLoop::AllEvents | QEventLoop::WaitForMoreEvents, 50);
+        QObject::disconnect(results);
+        QObject::disconnect(failed);
+        if (!done)
+            std::printf("  query %llu: no answer in 15 s\n", static_cast<unsigned long long>(id));
+        return took;
+    };
+
+    const std::optional<double> cold = timed(true);
+    const std::optional<double> first = timed(false);
+    std::vector<double> rest;
+    for (int i = 0; i < runs; ++i) {
+        if (const std::optional<double> t = timed(false))
+            rest.push_back(*t);
+    }
+    std::sort(rest.begin(), rest.end());
+    const auto show = [](const std::optional<double>& ms) { return ms ? QString::number(*ms, 'f', 1) + u" ms"_s : u"failed"_s; };
+    std::printf("\ncold start (runner + plugin, to the first answer): %s\n", qUtf8Printable(show(cold)));
+    std::printf("first round trip after it:                        %s\n", qUtf8Printable(show(first)));
+    if (!rest.empty()) {
+        std::printf("steady state (%zu): median %.2f ms  p95 %.2f ms  min %.2f ms  max %.2f ms\n", rest.size(), rest[rest.size() / 2],
+            rest[std::min(rest.size() - 1, static_cast<std::size_t>(rest.size() * 95 / 100))], rest.front(), rest.back());
+    }
+    const ws::plugin::Host::State state = host.state(manifest->id);
+    std::printf("plugin state: %d, pid %lu%s\n", static_cast<int>(state.status), static_cast<unsigned long>(state.pid),
+        state.error.isEmpty() ? "" : qUtf8Printable(u" (%1)"_s.arg(state.error)));
+    if (state.pid != 0) {
+        // The process's token, read out (an elevated wsbench can open any):
+        // the integrity level the sandbox gave it, whether it is elevated,
+        // and whether it is in a job.
+        const HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, state.pid);
+        HANDLE token = nullptr;
+        if (process && ::OpenProcessToken(process, TOKEN_QUERY, &token)) {
+            DWORD rid = 0;
+            DWORD got = 0;
+            alignas(8) char buffer[64];
+            if (::GetTokenInformation(token, TokenIntegrityLevel, buffer, sizeof buffer, &got)) {
+                const auto* label = reinterpret_cast<TOKEN_MANDATORY_LABEL*>(buffer);
+                rid = *::GetSidSubAuthority(label->Label.Sid, *::GetSidSubAuthorityCount(label->Label.Sid) - 1);
+            }
+            TOKEN_ELEVATION elevation {};
+            ::GetTokenInformation(token, TokenElevation, &elevation, sizeof elevation, &got);
+            BOOL inJob = FALSE;
+            ::IsProcessInJob(process, nullptr, &inJob);
+            std::printf("plugin process: integrity %s (%lu), elevated %s, in a job %s\n",
+                rid >= 12288 ? "high" : rid >= 8192 ? "medium" : rid >= 4096 ? "LOW" : "untrusted", static_cast<unsigned long>(rid),
+                elevation.TokenIsElevated ? "YES" : "no", inJob ? "yes" : "no");
+            ::CloseHandle(token);
+        } else
+            std::printf("plugin process: cannot open its token (error %lu; run wsbench elevated to read it)\n", ::GetLastError());
+        if (process)
+            ::CloseHandle(process);
+    }
+    bool actionOk = true;
+    if (!actionId.isEmpty()) {
+        // The action on the first row, as Enter (or the row's menu) would send it.
+        if (firstItems.isEmpty()) {
+            std::printf("no item to run the action on\n");
+            actionOk = false;
+        } else {
+            bool done = false;
+            QElapsedTimer timer;
+            timer.start();
+            const QMetaObject::Connection finished = QObject::connect(&host, &ws::plugin::Host::actionDone,
+                [&](std::uint64_t, const ws::plugin::Effects& effects, bool ok, const QString& error) {
+                    done = true;
+                    actionOk = ok;
+                    std::printf("action %s on \"%s\": %s in %.1f ms\n", qUtf8Printable(actionId), qUtf8Printable(firstItems.first().title),
+                        ok ? "done" : qUtf8Printable(u"failed: "_s + error), msSince(timer));
+                    for (const ws::plugin::Effect& e : effects) {
+                        const char* kind = e.kind == ws::plugin::Effect::Kind::Hide ? "hide" : e.kind == ws::plugin::Effect::Kind::Keep ? "keep"
+                            : e.kind == ws::plugin::Effect::Kind::SetQuery                                                            ? "setQuery"
+                            : e.kind == ws::plugin::Effect::Kind::Notify                                                              ? "notify"
+                            : e.kind == ws::plugin::Effect::Kind::Copy                                                                ? "copy"
+                            : e.kind == ws::plugin::Effect::Kind::Open                                                                ? "open"
+                                                                                                                                      : "replace";
+                        std::printf("  effect %s %s%s\n", kind, qUtf8Printable(e.text), qUtf8Printable(e.open.target));
+                    }
+                });
+            const std::vector<ws::plugin::Match> matches = host.catalog().match(query);
+            host.action(1, manifest->id, firstCommand, actionId, firstItems.first(), matches.empty() ? query : matches.front().text);
+            const QDeadlineTimer deadline(15000);
+            while (!done && !deadline.hasExpired())
+                QCoreApplication::processEvents(QEventLoop::AllEvents | QEventLoop::WaitForMoreEvents, 50);
+            QObject::disconnect(finished);
+            if (!done) {
+                std::printf("action: no answer in 15 s\n");
+                actionOk = false;
+            }
+        }
+    }
+    host.shutdown();
+    return cold && actionOk ? 0 : 1;
+}
+
+// ---- the launcher's list, headless (--launcher-sim) ---------------------------
+
+namespace {
+
+// The list as plugin::Merge writes it (ResultModel in the app), with the
+// keyboard on the first row, as it is once rows are shown.
+struct SimList : ws::plugin::RowSink {
+    ws::SearchResults rows;
+    int count() const override { return static_cast<int>(rows.size()); }
+    const ws::SearchResult& row(int index) const override { return rows[index]; }
+    int currentRow() const override { return rows.isEmpty() ? -1 : 0; }
+    void assign(ws::SearchResults r) override { rows = std::move(r); }
+    void append(const ws::SearchResults& r) override { rows.append(r); }
+    void insert(int index, const ws::SearchResult& r) override { rows.insert(index, r); }
+    void update(int index, const ws::SearchResult& r) override { rows[index] = r; }
+    void remove(int index) override { rows.removeAt(index); }
+};
+
+QString rowSource(const ws::SearchResult& r)
+{
+    if (r.isPlugin())
+        return u"plugin:"_s + r.plugin->pluginId;
+    if (r.isWeb())
+        return u"web"_s;
+    if (r.isPlace())
+        return u"place"_s;
+    if (r.isApp())
+        return u"app"_s;
+    if (r.line > 0)
+        return u"content"_s;
+    return r.isDir ? u"folder"_s : u"file"_s;
+}
+
+QString rowLine(int index, const ws::SearchResult& r)
+{
+    QString marks;
+    if (r.recent)
+        marks += u" recent"_s;
+    if (r.exact)
+        marks += u" exact"_s;
+    const QString detail = r.isPlugin() ? r.plugin->subtitle : r.isApp() ? r.target : r.path;
+    return u"%1  %2  %3  [%4]%5  score %6"_s.arg(index, 2).arg(rowSource(r), -16).arg(r.name, detail).arg(marks).arg(r.score);
+}
+
+} // namespace
+
+// What Launcher::search does for each key, over a copy of the index and the
+// test plugins: the name search and the plugins asked together, their rows
+// merged as the launcher merges them. Prints the final list of each text.
+int runLauncherSim(QStringList args)
+{
+    QString pluginsDir = QDir::cleanPath(QCoreApplication::applicationDirPath() + u"/../../tests/plugins"_s);
+    QString indexFolder;
+    int keyMs = 80;
+    if (const qsizetype at = args.indexOf(u"--plugins"_s); at >= 0 && at + 1 < args.size()) {
+        pluginsDir = args[at + 1];
+        args.remove(at, 2);
+    }
+    if (const qsizetype at = args.indexOf(u"--index"_s); at >= 0 && at + 1 < args.size()) {
+        indexFolder = args[at + 1];
+        args.remove(at, 2);
+    }
+    if (const qsizetype at = args.indexOf(u"--key-ms"_s); at >= 0 && at + 1 < args.size()) {
+        keyMs = std::max(0, args[at + 1].toInt());
+        args.remove(at, 2);
+    }
+    ws::Settings settings;
+    settings.load();
+    // --web KEYWORD: a [WebSearch] entry for this run (the user's file is not
+    // touched), to see a plugin's keyword set aside for it.
+    for (qsizetype at = args.indexOf(u"--web"_s); at >= 0 && at + 1 < args.size(); at = args.indexOf(u"--web"_s)) {
+        ws::WebShortcut shortcut;
+        shortcut.keyword = args[at + 1];
+        shortcut.name = u"Web "_s + args[at + 1];
+        shortcut.url = u"https://example.com/search?q=%s"_s;
+        settings.webShortcuts.append(shortcut);
+        args.remove(at, 2);
+    }
+    QStringList texts = args;
+    if (texts.isEmpty())
+        texts = {u"kill note"_s, u"#ff8800"_s, u"report"_s, u"gh winshun"_s};
+    QTemporaryDir temp;
+    if (indexFolder.isEmpty()) {
+        // The app's files, copied: it goes on writing its own.
+        const QString from = QDir::fromNativeSeparators(settings.indexDir());
+        indexFolder = temp.path() + u"/index"_s;
+        QDir().mkpath(indexFolder + u"/content"_s);
+        if (!QFile::copy(from + u"/index.bin"_s, indexFolder + u"/index.bin"_s)) {
+            std::printf("no index at %s\n", qUtf8Printable(QDir::toNativeSeparators(from)));
+            return 1;
+        }
+        for (const QFileInfo& file : QDir(from + u"/content"_s).entryInfoList(QDir::Files))
+            QFile::copy(file.filePath(), indexFolder + u"/content/"_s + file.fileName());
+    }
+
+    // The plugins: copies of the test folders, each enabled, plugin_fake.exe
+    // put in where a manifest asks for it (the app's bundled folder is read
+    // in place; here nothing of the source tree is written to).
+    const QString userPlugins = temp.path() + u"/plugins"_s;
+    QDir().mkpath(userPlugins);
+    const QString fake = QCoreApplication::applicationDirPath() + u"/plugin_fake.exe"_s;
+    QStringList ids;
+    for (const QFileInfo& folder : QDir(pluginsDir).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)) {
+        if (!QFileInfo::exists(folder.filePath() + u"/plugin.json"_s))
+            continue;
+        const QString to = userPlugins + u'/' + folder.fileName();
+        QDir().mkpath(to);
+        for (const QFileInfo& file : QDir(folder.filePath()).entryInfoList(QDir::Files))
+            QFile::copy(file.filePath(), to + u'/' + file.fileName());
+        QString error;
+        const std::optional<ws::plugin::Manifest> manifest = ws::plugin::Manifest::load(to + u"/plugin.json"_s, &error);
+        if (!manifest) {
+            std::printf("%s: %s\n", qUtf8Printable(folder.fileName()), qUtf8Printable(error));
+            continue;
+        }
+        if (manifest->runtime && manifest->runtime->program == ws::plugin::Program::Exe
+            && manifest->runtime->programPath.compare(u"plugin_fake.exe"_s, Qt::CaseInsensitive) == 0
+            && !QFileInfo::exists(to + u"/plugin_fake.exe"_s))
+            QFile::copy(fake, to + u"/plugin_fake.exe"_s);
+        ids.append(manifest->id);
+    }
+    ws::plugin::Host::Options options;
+    options.userPluginDir = userPlugins;
+    options.dataRoot = temp.path() + u"/data"_s;
+    options.logPath = temp.path() + u"/plugins.log"_s;
+    options.runnerExe = QCoreApplication::applicationDirPath() + u"/WinShunPluginHost.exe"_s;
+    options.version = QStringLiteral(WINSHUN_VERSION "-bench");
+    ws::plugin::Host host(options);
+    for (const QString& id : ids)
+        host.setEnabled(id, true);
+    QList<std::pair<QString, QString>> web;
+    for (const ws::WebShortcut& w : settings.webShortcuts)
+        web.append({w.keyword, w.name});
+    host.setWebKeywords(web);
+    std::printf("plugins: %s\n", qUtf8Printable(ids.join(u", "_s)));
+    for (const ws::plugin::KeywordConflict& c : host.catalog().conflicts())
+        std::printf("  keyword %s of %s/%s is set aside: taken by %s\n", qUtf8Printable(c.keyword), qUtf8Printable(c.pluginId),
+            qUtf8Printable(c.commandId), qUtf8Printable(c.takenBy));
+    QObject::connect(&host, &ws::plugin::Host::logged, [](const QString& line) { std::printf("  log: %s\n", qUtf8Printable(line)); });
+    host.preload(); // as the app does ten seconds after starting
+
+    // The index and the catalogs, as the app has them.
+    ws::IndexService::Options indexOptions;
+    indexOptions.rules = settings.crawlRules();
+    indexOptions.rescanOnStartup = false;
+    indexOptions.content.enabled = false;
+    ws::IndexService service(indexFolder, indexOptions);
+    ws::AppCatalog apps;
+    ws::SystemCatalog places;
+    ws::SearchEngine engine(&service, &apps, &places);
+    service.start();
+    apps.refresh(true);
+    places.refresh(true);
+    QElapsedTimer ready;
+    ready.start();
+    bool appsIn = false;
+    bool placesIn = false;
+    QObject::connect(&apps, &ws::AppCatalog::changed, [&] { appsIn = true; });
+    QObject::connect(&places, &ws::SystemCatalog::changed, [&] { placesIn = true; });
+    while ((service.state() != ws::IndexService::State::Ready || !appsIn || !placesIn) && ready.elapsed() < 60'000)
+        QCoreApplication::processEvents(QEventLoop::AllEvents | QEventLoop::WaitForMoreEvents, 50);
+    std::printf("index %s (%zu items), apps %s, places %s, after %.0f ms\n\n",
+        service.state() == ws::IndexService::State::Ready ? "ready" : "NOT READY", service.itemCount(), appsIn ? "in" : "NOT IN",
+        placesIn ? "in" : "NOT IN", msSince(ready));
+
+    // One key: the launcher's search() for `text`, waited for.
+    SimList list;
+    ws::plugin::Merge merge(list, host.catalog());
+    std::uint64_t queryId = 0;
+    quint64 requestId = 0;
+    bool namesIn = false;
+    QSet<QString> pending;
+    double namesMs = -1;
+    double pluginFirstMs = -1;
+    double pluginDoneMs = -1;
+    QElapsedTimer key;
+    // The engine emits from its worker thread: with the host (this thread's)
+    // as context the slot is queued here, as the launcher's is.
+    QObject::connect(&engine, &ws::SearchEngine::resultsReady, &host,
+        [&](quint64 id, const ws::SearchResults& results, qint64, qint64) {
+            if (id != requestId)
+                return;
+            list.assign(results);
+            namesIn = true;
+            namesMs = msSince(key);
+            merge.namesShown(); // a plugin that answered first: its rows show now
+            if (pluginFirstMs < 0 && merge.pluginRows() > 0)
+                pluginFirstMs = msSince(key);
+        });
+    QObject::connect(&host, &ws::plugin::Host::queryTaken, [&](std::uint64_t id, const QString& plugin) {
+        if (id == queryId)
+            pending.insert(plugin);
+    });
+    QObject::connect(&host, &ws::plugin::Host::results,
+        [&](std::uint64_t id, const QString& plugin, const QString& command, const ws::plugin::Items& items, bool partial, bool replace) {
+            if (id != queryId)
+                return;
+            const int before = merge.pluginRows();
+            merge.results(id, plugin, command, items, partial, replace);
+            // Keyword mode: the answer replaced the rows (as many as before, maybe).
+            if (pluginFirstMs < 0 && (merge.keywordMode() || merge.pluginRows() > before))
+                pluginFirstMs = msSince(key);
+        });
+    const auto settled = [&](std::uint64_t id, const QString& plugin) {
+        if (id != queryId)
+            return;
+        pending.remove(plugin);
+        if (pending.isEmpty())
+            pluginDoneMs = msSince(key);
+    };
+    QObject::connect(&host, &ws::plugin::Host::queryFinished, settled);
+    QObject::connect(&host, &ws::plugin::Host::queryFailed, [&](std::uint64_t id, const QString& plugin, const QString& why) {
+        std::printf("  %s failed: %s\n", qUtf8Printable(plugin), qUtf8Printable(why));
+        settled(id, plugin);
+    });
+
+    const auto press = [&](const QString& text, bool withPlugins) {
+        const QString trimmed = text.trimmed();
+        key.start();
+        namesIn = false;
+        pending.clear();
+        namesMs = pluginFirstMs = pluginDoneMs = -1;
+        QString keywordPlugin;
+        QString keywordCommand;
+        // As typed, as the launcher asks: the space after a keyword is what
+        // opens its command (Catalog::match).
+        if (withPlugins && !trimmed.isEmpty()) {
+            for (const ws::plugin::Match& m : host.catalog().match(text)) {
+                if (m.kind == ws::plugin::Match::Kind::Keyword) {
+                    keywordPlugin = m.entry->id;
+                    keywordCommand = m.command->id;
+                    break;
+                }
+            }
+        }
+        merge.begin(++queryId, text, keywordPlugin, keywordCommand);
+        if (keywordPlugin.isEmpty()) {
+            ws::SearchEngine::Request request;
+            request.text = text;
+            request.scope = ws::Scope::All;
+            request.kindOrder = settings.foldersFirst ? ws::KindOrder::FoldersFirst : ws::KindOrder::FilesFirst;
+            request.web = settings.webShortcuts;
+            requestId = engine.submit(std::move(request));
+        } else {
+            engine.cancel();
+            requestId = 0;
+            namesIn = true;
+        }
+        if (withPlugins)
+            host.query(text, ws::Scope::All, queryId);
+        else
+            host.cancelAll();
+        return !keywordPlugin.isEmpty();
+    };
+    const auto waitSettled = [&](int ms) {
+        const QDeadlineTimer deadline(ms);
+        while ((!namesIn || !pending.isEmpty()) && !deadline.hasExpired())
+            QCoreApplication::processEvents(QEventLoop::AllEvents | QEventLoop::WaitForMoreEvents, 10);
+        return namesIn && pending.isEmpty();
+    };
+    const auto printList = [&] {
+        for (int i = 0; i < list.count(); ++i)
+            std::printf("  %s\n", qUtf8Printable(rowLine(i, list.rows[i])));
+        if (list.count() == 0)
+            std::printf("  (no rows)\n");
+    };
+
+    int failures = 0;
+    for (const QString& text : texts) {
+        std::printf("== \"%s\"\n", qUtf8Printable(text));
+        // Typed key by key: each key cancels the last query's plugins, as
+        // in the launcher; only the last key is waited for and shown.
+        bool keyword = false;
+        for (qsizetype n = 1; n <= text.size(); ++n) {
+            keyword = press(text.left(n), true);
+            if (n < text.size()) {
+                const QDeadlineTimer pause(keyMs);
+                while (!pause.hasExpired())
+                    QCoreApplication::processEvents(QEventLoop::AllEvents | QEventLoop::WaitForMoreEvents, 5);
+            }
+        }
+        const bool done = waitSettled(8000);
+        std::printf("%s; names %s ms, plugin rows after %s ms, plugins done after %s ms%s\n",
+            keyword ? "keyword mode (no name search)" : "push mode", namesMs < 0 ? "-" : qUtf8Printable(QString::number(namesMs, 'f', 1)),
+            pluginFirstMs < 0 ? "-" : qUtf8Printable(QString::number(pluginFirstMs, 'f', 1)),
+            pluginDoneMs < 0 ? "-" : qUtf8Printable(QString::number(pluginDoneMs, 'f', 1)), done ? "" : "  (NOT SETTLED in 8 s)");
+        printList();
+        if (!done)
+            ++failures;
+        if (keyword || merge.pluginRows() > 0 || !host.catalog().match(text).empty() || host.catalog().hint(text))
+            continue;
+        // No plugin answered: the list must be the one without plugins, row for row.
+        const ws::SearchResults withPlugins = list.rows;
+        press(text, false);
+        waitSettled(8000);
+        bool same = withPlugins.size() == list.rows.size();
+        for (qsizetype i = 0; same && i < withPlugins.size(); ++i)
+            same = withPlugins[i] == list.rows[i];
+        std::printf("without plugins: %lld rows, %s\n", static_cast<long long>(list.rows.size()), same ? "the same rows" : "DIFFERENT");
+        if (!same) {
+            ++failures;
+            printList();
+        }
+    }
+    host.shutdown();
+    service.shutdown();
+    return failures == 0 ? 0 : 1;
+}
+
+// ---- the MCP server, headless (--mcp-host) ----------------------------------
+
+// Win顺's MCP tools on a pipe, as the app serves them, over a copy of the
+// index: for trying real AI clients (and WinShunMcp.exe) while the app
+// itself runs. No shell and no clipboard here, so their tools are not
+// offered. Each call is printed.
+int runMcpHost(QStringList args)
+{
+    std::wstring pipeName = ws::pipe::defaultName() + L".bench";
+    if (const qsizetype at = args.indexOf(u"--pipe"_s); at >= 0 && at + 1 < args.size()) {
+        pipeName = args[at + 1].toStdWString();
+        args.remove(at, 2);
+    }
+    QString indexFolder;
+    if (const qsizetype at = args.indexOf(u"--index"_s); at >= 0 && at + 1 < args.size()) {
+        indexFolder = args[at + 1];
+        args.remove(at, 2);
+    }
+    QString pluginsDir;
+    if (const qsizetype at = args.indexOf(u"--plugins"_s); at >= 0 && at + 1 < args.size()) {
+        pluginsDir = QDir(args[at + 1]).absolutePath();
+        args.remove(at, 2);
+    }
+    ws::Settings settings;
+    settings.load();
+    QTemporaryDir temp;
+    if (indexFolder.isEmpty()) {
+        // The app's files, copied: it goes on writing its own, and this
+        // service saves its snapshot into the copy on exit.
+        const QString from = QDir::fromNativeSeparators(settings.indexDir());
+        indexFolder = temp.path();
+        QDir().mkpath(indexFolder + u"/content"_s);
+        QElapsedTimer copyTimer;
+        copyTimer.start();
+        if (!QFile::copy(from + u"/index.bin"_s, indexFolder + u"/index.bin"_s)) {
+            std::printf("no index at %s\n", qUtf8Printable(QDir::toNativeSeparators(from)));
+            return 1;
+        }
+        for (const QFileInfo& file : QDir(from + u"/content"_s).entryInfoList(QDir::Files))
+            QFile::copy(file.filePath(), indexFolder + u"/content/"_s + file.fileName());
+        std::printf("index copied from %s in %.0f ms\n", qUtf8Printable(QDir::toNativeSeparators(from)), msSince(copyTimer));
+    }
+
+    ws::IndexService::Options options;
+    options.rules = settings.crawlRules();
+    options.rescanOnStartup = false;
+    options.content.enabled = settings.contentIndex;
+    options.content.extensions = settings.contentExtensions;
+    options.content.documents = settings.contentDocuments;
+    options.content.sizeLimits = settings.contentSizeLimits();
+    ws::IndexService service(indexFolder, options);
+    ws::SearchEngine engine(&service);
+    ws::mcp::Services services;
+    services.index = &service;
+    services.engine = &engine;
+    services.version = QStringLiteral(WINSHUN_VERSION "-bench");
+    services.log = [](const QString& line) {
+        std::printf("%s\n", qUtf8Printable(line));
+        std::fflush(stdout);
+    };
+    ws::mcp::ToolHost host(std::move(services));
+    ws::mcp::Policy policy;
+    policy.contentExtensions = settings.contentExtensions;
+    policy.contentSizeLimits = settings.contentSizeLimits();
+    policy.contentDocuments = settings.contentDocuments;
+    policy.contentInLowPriority = settings.contentInLowPriority;
+    policy.kindOrder = settings.foldersFirst ? ws::KindOrder::FoldersFirst : ws::KindOrder::FilesFirst;
+    policy.excludedPaths = settings.mcpExcludedPaths;
+    host.setPolicy(policy);
+    // The plugins of --plugins as tools: every one enabled, read in place
+    // (as the app reads its bundled folder), their data in the temporary folder.
+    std::unique_ptr<ws::plugin::Host> plugins;
+    std::unique_ptr<ws::plugin::AiBridge> bridge;
+    if (!pluginsDir.isEmpty()) {
+        ws::plugin::Host::Options pluginOptions;
+        pluginOptions.userPluginDir = temp.path() + u"/plugins"_s;
+        pluginOptions.bundledPluginDir = pluginsDir;
+        pluginOptions.dataRoot = temp.path() + u"/data"_s;
+        pluginOptions.logPath = temp.path() + u"/plugins.log"_s;
+        pluginOptions.runnerExe = QCoreApplication::applicationDirPath() + u"/WinShunPluginHost.exe"_s;
+        pluginOptions.version = QStringLiteral(WINSHUN_VERSION "-bench");
+        plugins = std::make_unique<ws::plugin::Host>(pluginOptions);
+        QObject::connect(plugins.get(), &ws::plugin::Host::logged, [](const QString& line) { std::printf("  plugins: %s\n", qUtf8Printable(line)); });
+        QStringList ids;
+        for (const ws::plugin::Entry& e : plugins->catalog().entries()) {
+            if (e.manifest) {
+                plugins->setEnabled(e.id, true);
+                ids.push_back(e.id);
+            } else
+                std::printf("plugin %s: %s\n", qUtf8Printable(e.id), qUtf8Printable(e.error));
+        }
+        bridge = std::make_unique<ws::plugin::AiBridge>(plugins.get(), &host);
+        ws::plugin::AiBridge::Options bridgeOptions;
+        bridgeOptions.enabled = true;
+        bridgeOptions.actions = true;
+        bridge->setOptions(bridgeOptions);
+        std::printf("plugins: %s\n", qUtf8Printable(ids.join(u", "_s)));
+    }
+    ws::mcp::McpServer server(&host, QStringLiteral(WINSHUN_VERSION));
+    DWORD error = 0;
+    if (!server.listen(pipeName, &error)) {
+        std::printf("cannot serve on %ls (error %lu)\n", pipeName.c_str(), error);
+        return 1;
+    }
+    QObject::connect(&server, &ws::mcp::McpServer::sessionsChanged, [&] {
+        QStringList clients;
+        for (const ws::mcp::McpServer::SessionInfo& s : server.sessions())
+            clients.push_back(s.client.isEmpty() ? u"(connecting)"_s : u"%1 (%2 calls)"_s.arg(s.client).arg(s.calls));
+        std::printf("sessions: %s\n", clients.isEmpty() ? "none" : qUtf8Printable(clients.join(u", "_s)));
+        std::fflush(stdout);
+    });
+    QTimer status;
+    status.setInterval(1000);
+    bool wasReady = false;
+    QObject::connect(&status, &QTimer::timeout, [&] {
+        const bool ready = service.state() == ws::IndexService::State::Ready;
+        if (ready != wasReady) {
+            wasReady = ready;
+            std::printf("index %s: %zu items\n", ready ? "ready" : "not ready", service.itemCount());
+            std::fflush(stdout);
+        }
+    });
+    service.start();
+    status.start();
+    std::printf("serving MCP on \\\\.\\pipe\\%ls\n"
+                "connect a client with: WinShunMcp.exe --pipe %ls\n"
+                "tools: %s\nCtrl+C stops\n",
+        pipeName.c_str(), pipeName.c_str(), qUtf8Printable(host.toolNames().join(u", "_s)));
+    std::fflush(stdout);
+    QCoreApplication::exec();
+    server.stop();
+    bridge.reset();
+    if (plugins)
+        plugins->shutdown();
+    service.shutdown();
+    return 0;
+}
+
+// ---- sites' icons (--site-icon) -----------------------------------------------
+
+// Fetches each home page's icon as Win顺 does (siteicons::fetchNow): which
+// addresses were asked, which won. With --save <folder>: <site>.png as it
+// would be kept, and <site>-<px>[-dark].png as a row draws it at 32, 48 and
+// 64 px in the light and the dark theme.
+int runSiteIcon(QStringList args)
+{
+    QString folder;
+    if (const qsizetype at = args.indexOf(u"--save"_s); at >= 0 && at + 1 < args.size()) {
+        folder = args[at + 1];
+        args.remove(at, 2);
+        QDir().mkpath(folder);
+    }
+    if (args.isEmpty()) {
+        std::printf("wsbench --site-icon <home page>... [--save <folder>]\n");
+        return 1;
+    }
+    for (const QString& home : std::as_const(args)) {
+        QElapsedTimer t;
+        t.start();
+        const ws::siteicons::Fetched f = ws::siteicons::fetchNow(home);
+        const QString key = ws::siteIconKey(home);
+        std::printf("%ls  (%.0f ms)\n", qUtf16Printable(key), msSince(t));
+        for (const QString& line : f.tried)
+            std::printf("    %ls\n", qUtf16Printable(line));
+        if (f.image.isNull()) {
+            std::printf("    => none\n");
+            continue;
+        }
+        std::printf("    => %ls  %dx%d, kept %dx%d%s\n", qUtf16Printable(f.from), f.original.width(),
+            f.original.height(), f.image.width(), f.image.height(), ws::siteicon::isTile(f.image) ? ", a tile" : "");
+        if (!folder.isEmpty()) {
+            f.image.save(folder + u'/' + key + u".png"_s, "PNG");
+            for (int px : {32, 48, 64}) {
+                for (bool dark : {false, true})
+                    ws::siteicon::drawn(f.image, px, dark)
+                        .save(folder + u'/' + key + u'-' + QString::number(px) + (dark ? u"-dark"_s : u""_s) + u".png"_s, "PNG");
+            }
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char* argv[])
 {
     QCoreApplication app(argc, argv);
+    std::setlocale(LC_CTYPE, ".UTF-8"); // %ls of names in any language
     QStringList args = app.arguments().mid(1);
     if (const qsizetype at = args.indexOf(u"--out"_s); at >= 0 && at + 1 < args.size()) {
         // For runs started elevated, whose console cannot be redirected.
@@ -2149,6 +3161,10 @@ int main(int argc, char* argv[])
         _wfreopen_s(&reopened, reinterpret_cast<const wchar_t*>(args[at + 1].utf16()), L"w", stdout);
         std::setvbuf(stdout, nullptr, _IONBF, 0); // keep what was written if it crashes
         args.remove(at, 2);
+    }
+    if (args.contains(u"--site-icon"_s)) {
+        args.removeAll(u"--site-icon"_s);
+        return runSiteIcon(args);
     }
     if (args.contains(u"--mft-time"_s)) {
         args.removeAll(u"--mft-time"_s);
@@ -2166,10 +3182,24 @@ int main(int argc, char* argv[])
             args.removeAll(flag);
         return runMftCheck(compare, args, options); // the volumes named ("D:"), or all
     }
+    if (args.contains(u"--share"_s)) {
+        args.removeAll(u"--share"_s);
+        return runShare(args);
+    }
     if (args.contains(u"--places"_s)) {
         args.removeAll(u"--places"_s);
         return runPlaces(args);
     }
+    if (args.contains(u"--mcp-host"_s)) {
+        args.removeAll(u"--mcp-host"_s);
+        return runMcpHost(args);
+    }
+    if (args.contains(u"--launcher-sim"_s)) {
+        args.removeAll(u"--launcher-sim"_s);
+        return runLauncherSim(args);
+    }
+    if (args.contains(u"--plugin"_s))
+        return runPlugin(args);
     if (args.contains(u"--extract"_s)) {
         QStringList paths = args;
         if (const qsizetype at = paths.indexOf(u"--threads"_s); at >= 0)
@@ -2210,6 +3240,122 @@ int main(int argc, char* argv[])
         after - before, static_cast<double>(chunks * ws::FileIndex::kChunkSize * sizeof(ws::Entry)) / (1024.0 * 1024.0),
         chunks, (after - before) * 1024.0 * 1024.0 / static_cast<double>(index->liveCount()));
     printHeap("after load");
+    {
+        const ws::FileIndex::MemoryUse use = index->memoryUse();
+        const auto mb = [](std::size_t bytes) { return static_cast<double>(bytes) / (1024.0 * 1024.0); };
+        std::printf("index parts  entries %.1f, times %.1f, names %.1f (%.1f used), folder records %.1f, child tables %.1f, "
+                    "intern %.1f MB\n",
+            mb(use.entries), mb(use.times), mb(use.names), mb(use.nameBytes), mb(use.folderRecords), mb(use.childTables),
+            mb(use.intern));
+    }
+    if (args.removeAll(u"--newest"_s) > 0) {
+        // What the launcher lists with nothing typed and 最近修改 chosen: the
+        // first 30 so, and how long finding the 5 takes.
+        ws::WorkerPool pool(std::max(2u, std::thread::hardware_concurrency()));
+        const auto now = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
+        const auto show = [&](const char* title, bool folders, std::size_t limit) {
+            const ws::NewestOptions options {
+                .limit = limit, .folders = folders, .notAfter = static_cast<ws::FileTime>(now + 86'400)};
+            const ws::NewestOutput out = ws::newestFiles(*index, options, pool, {});
+            std::printf("\n%s:\n", title);
+            for (const ws::NameHit& hit : out.hits) {
+                const QDateTime when = QDateTime::fromSecsSinceEpoch(hit.modified);
+                std::printf("  %s  %s\n", when.toString(u"MM-dd HH:mm:ss"_s).toUtf8().constData(),
+                    index->path(hit.id).toUtf8().constData());
+            }
+        };
+        if (args.removeAll(u"--sim"_s) > 0) {
+            // Typical moments, added to the real index in memory (nothing on
+            // disk): what the 5 are after each, the ones before still there.
+            const auto t = [&](std::int64_t ago) { return static_cast<ws::FileTime>(now - ago); };
+            const auto add = [&](ws::EntryId parent, const std::string& name, bool dir, ws::FileTime when) {
+                const ws::EntryId id = index->add(parent, name, dir ? ws::EntryFlag::Directory : 0);
+                index->setModified(id, when);
+                return id;
+            };
+            const ws::EntryId docs = index->findPath(L"C:\\Users\\young\\Documents");
+            const ws::EntryId desktop = index->findPath(L"C:\\Users\\young\\Desktop");
+            const ws::EntryId drive = index->findPath(L"F:\\");
+            if (docs == ws::kNoEntry || desktop == ws::kNoEntry || drive == ws::kNoEntry) {
+                std::printf("folders for the simulation not found\n");
+                return 1;
+            }
+            const ws::EntryId sim = add(drive, "wsnewsim", true, t(5000));
+            show("as it is", false, 5);
+
+            add(docs, "报价单-v3.docx", false, t(600));
+            add(desktop, "截图 2026-10-10.png", false, t(500));
+            show("+ a document saved 10 min ago, a screenshot 8 min ago", false, 5);
+
+            // git clone: a working tree, every file written now (.git is a dot-folder).
+            const ws::EntryId repo = add(sim, "some-repo", true, t(120));
+            add(repo, ".git", true, t(120));
+            add(repo, "README.md", false, t(120));
+            add(repo, "CMakeLists.txt", false, t(120));
+            for (int d = 0; d < 12; ++d) {
+                const ws::EntryId dir = add(repo, "module" + std::to_string(d), true, t(120));
+                for (int f = 0; f < 40; ++f)
+                    add(dir, "file" + std::to_string(f) + ".cpp", false, t(120 - (d * 40 + f) / 100));
+            }
+            show("+ git clone of 480 files 2 min ago", false, 5);
+
+            // An archive unpacked by a tool that sets the times to now, deep.
+            const ws::EntryId pack = add(sim, "大包解压", true, t(60));
+            for (int a = 0; a < 10; ++a) {
+                const ws::EntryId l1 = add(pack, "资料" + std::to_string(a), true, t(60));
+                for (int b = 0; b < 10; ++b) {
+                    const ws::EntryId l2 = add(l1, "第" + std::to_string(b) + "章", true, t(60));
+                    for (int f = 0; f < 20; ++f)
+                        add(l2, "图" + std::to_string(f) + ".jpg", false, t(60 - (a * 200 + b * 20 + f) / 100));
+                }
+            }
+            show("+ 2000 pictures unpacked 1 min ago", false, 5);
+
+            add(docs, "报价单-v4.docx", false, t(10));
+            show("+ the document saved again 10 s ago", false, 5);
+            show("folders now", true, 5);
+            return 0;
+        }
+        show("newest files", false, 30);
+        show("newest folders", true, 30);
+        QElapsedTimer t;
+        double best = 1e9;
+        for (int run = 0; run < 10; ++run) {
+            t.start();
+            const ws::NewestOutput out = ws::newestFiles(*index, {.limit = 5}, pool, {});
+            best = std::min(best, static_cast<double>(t.nsecsElapsed()) / 1e6);
+        }
+        std::printf("\nnewest 5 files: %.1f ms (best of 10)\n", best);
+        return 0;
+    }
+    if (args.removeAll(u"--stats"_s) > 0) {
+        // What the entries are like: how many distinct names, folders, deep.
+        std::size_t dirs = 0, han = 0, low = 0, nameBytes = 0, maxDepth = 0, depthSum = 0;
+        std::vector<std::uint32_t> offsets;
+        offsets.reserve(index->slotCount());
+        for (std::size_t i = 0; i < index->slotCount(); ++i) {
+            const ws::Entry& e = index->entry(static_cast<ws::EntryId>(i));
+            if (e.isDeleted())
+                continue;
+            dirs += e.isDir();
+            han += (e.flags & ws::EntryFlag::Han) != 0;
+            low += (e.flags & ws::EntryFlag::LowPriority) != 0;
+            nameBytes += index->name(e).size();
+            offsets.push_back(e.nameOffset);
+            const auto d = static_cast<std::size_t>(index->depth(static_cast<ws::EntryId>(i)));
+            depthSum += d;
+            maxDepth = std::max(maxDepth, d);
+        }
+        std::sort(offsets.begin(), offsets.end());
+        const std::size_t distinct
+            = static_cast<std::size_t>(std::unique(offsets.begin(), offsets.end()) - offsets.begin());
+        const std::size_t live = index->liveCount();
+        std::printf("stats        %zu folders, %zu han, %zu low priority; names %.1f MB over all entries (%.1f B avg), "
+                    "%zu distinct offsets; depth avg %.1f max %zu\n",
+            dirs, han, low, static_cast<double>(nameBytes) / (1024.0 * 1024.0),
+            static_cast<double>(nameBytes) / static_cast<double>(live), distinct,
+            static_cast<double>(depthSum) / static_cast<double>(live), maxDepth);
+    }
 
     if (args.contains(u"--content"_s))
         return runContentBench(*index, args);
@@ -2287,6 +3433,8 @@ int main(int argc, char* argv[])
     }
 
     const bool showTop = args.removeAll(u"--top"_s) > 0; // list the first hits of each query
+    const bool check = args.removeAll(u"--check"_s) > 0; // compare with matching every entry
+    int failures = 0;
     ws::WorkerPool pool(ws::WorkerPool::defaultThreadCount());
     const auto lock = index->readLock();
     for (const QString& q : args) {
@@ -2300,8 +3448,36 @@ int main(int argc, char* argv[])
         }
         std::printf("%-16s %9zu matches  %6.1f ms   top: %s\n", qPrintable(q), out.totalMatches, best,
             out.hits.empty() ? "-" : qPrintable(index->path(out.hits.front().id)));
+        if (check) {
+            // Every entry through the matcher, as before names were tested first: the same matches?
+            std::size_t brute = 0;
+            ws::NameMatcher::Folders seen;
+            for (std::size_t i = 0; i < index->slotCount(); ++i) {
+                const ws::Entry& e = index->entry(static_cast<ws::EntryId>(i));
+                if (!(e.flags & (ws::EntryFlag::Deleted | ws::EntryFlag::Root)) && matcher.match(*index, e, seen) >= 0)
+                    ++brute;
+            }
+            std::printf("  check: %zu matches by every entry -> %s\n", brute, brute == out.totalMatches ? "same" : "DIFFERENT");
+            failures += brute != out.totalMatches;
+        }
         for (std::size_t i = 0; showTop && i < out.hits.size() && i < 10; ++i)
             std::printf("      %4d  %s\n", out.hits[i].score, index->path(out.hits[i].id).toUtf8().constData());
+        // A path from some folder along the way: where it leads (SearchEngine puts that first).
+        if (const ws::pathtext::RelativePath typed = ws::pathtext::splitRelative(q); !typed.names.isEmpty()) {
+            std::vector<std::string> names;
+            for (const QString& name : typed.names)
+                names.push_back(ws::wtf8::fromUtf16(ws::wtf8::view(name)));
+            double bestPath = 1e9;
+            std::vector<ws::EntryId> led;
+            for (int run = 0; run < 5; ++run) {
+                timer.restart();
+                led = ws::findRelativePath(*index, names, typed.folder, 200, pool, {});
+                bestPath = std::min(bestPath, static_cast<double>(timer.nsecsElapsed()) / 1e6);
+            }
+            std::printf("  leads to %zu place(s) in %.1f ms\n", led.size(), bestPath);
+            for (std::size_t i = 0; i < led.size() && i < 10; ++i)
+                std::printf("      %s\n", index->path(led[i]).toUtf8().constData());
+        }
     }
-    return 0;
+    return failures == 0 ? 0 : 1;
 }

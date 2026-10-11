@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QCache>
+#include <QHash>
 #include <QImage>
 #include <QMutex>
 #include <QQuickImageProvider>
@@ -31,11 +32,26 @@ public:
     // A place in Windows (SystemCatalog), by its icon: one in a module
     // ("%SystemRoot%\System32\netcenter.dll,-1"), or that of a file or shell path.
     static QString placeIconUrl(const QString& icon);
-    // A web address (WebShortcut): the icon of the program that opens it,
-    // the default browser for https. Nothing is fetched from the web.
-    static QString webIconUrl(const QString& url);
+    // A web shortcut by its home page: its site's own icon once it is kept
+    // (siteicons; asking for it starts fetching it), until then and for
+    // other schemes the icon of the program that opens it, the default
+    // browser for https. "custom:<name>" (WebShortcut::iconRef): the picture
+    // its user chose. `dark`: on a plate when it would not show (siteicon::drawn).
+    static QString webIconUrl(const QString& homeUrl, bool dark);
+    // A plugin row's icon (PluginRow::icon, the plugin design §4.5):
+    // "file:C:\…", "ext:pdf", "app:<AUMID>" go to the icons above;
+    // "glyph:U+E8E5" and "color:#ff8800" are drawn; "data:image/…;base64,…"
+    // is decoded (64 KB at most); anything else is a picture in the
+    // plugin's folder ("image://fileicon/plugin/<id>/<file>", with a
+    // ".dark" variant for the dark theme when it has one). A path that
+    // leaves the folder is not an icon.
+    static QString pluginIconUrl(const QString& pluginId, const QString& icon, bool dark);
+    // Where each plugin's folder is (plugin::Catalog), for "plugin/" icons.
+    static void setPluginFolders(QHash<QString, QString> folders);
 
 private:
+    QImage pluginImage(const QString& id, int px);
+
     QMutex m_mutex;
     QCache<QString, QImage> m_cache {256};
 };

@@ -104,6 +104,15 @@ public:
     void slideOut(std::function<void()> done);
     bool sliding() const { return m_slide.state() == QAbstractAnimation::Running; }
     QPointF contentShift() const { return m_contentShift; }
+    // For what goes with the window (WindowLogo), after each step of a slide
+    // (slideStepped): how far it is off its place (physical pixels), how
+    // faded, and the taskbar it is kept under meanwhile (else 0).
+    QPoint slideOffset() const { return m_offset; }
+    qreal slideOpacity() const { return m_opacity; }
+    WId slideUnder() const { return m_under; }
+    // Logical pixels something stands over the window's top edge (the logo):
+    // by a taskbar at the bottom, it comes out from behind it too.
+    void setOverTop(int height) { m_overTop = height; }
     static bool animationsOn(); // the system's "animation effects"
 
     // Glides back to the home spot and stays there from now on.
@@ -120,6 +129,7 @@ signals:
     void roomChanged();
     void anchorWidthChanged();
     void contentShiftChanged();
+    void slideStepped();
 
 private:
     struct Hook; // the window procedure subclass
@@ -189,6 +199,7 @@ private:
     QPoint m_offset; // off it, physical pixels
     qreal m_opacity = 1;
     QPointF m_contentShift;
+    int m_overTop = 0;
 };
 
 } // namespace ws

@@ -1,0 +1,15 @@
+{
+  "manifest": 1,
+  "id": "push.exe",
+  "name": {"zh": "颜色推送示例", "en": "Colour push sample"},
+  "version": "1.0.0",
+  "description": "测试用：plugin_fake.exe --serve 常驻、严格沙箱、提前启动；#rrggbb 触发正则，推一行色块进“全部”（把 build 里的 plugin_fake.exe 复制到这个文件夹；wsbench --launcher-sim 自己会复制）",
+  "runtime": {"mode": "resident", "program": "plugin_fake.exe", "args": ["--serve"], "sandbox": "strict", "start": "eager"},
+  "commands": [{
+    "id": "color",
+    "keyword": "cl",
+    "title": {"zh": "颜色", "en": "Colour"},
+    "icon": "glyph:U+E790",
+    "triggers": [{"regex": "^#([0-9a-fA-F]{6})$", "minLength": 7, "maxLength": 7}]
+  }]
+}

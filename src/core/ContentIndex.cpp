@@ -1909,12 +1909,19 @@ bool ContentIndex::knows(EntryId entry) const
     return d != kNoDoc && isCurrent(m_docState[d]);
 }
 
-ContentIndex::Lookup ContentIndex::lookup(QStringView phrase) const
+ContentIndex::Lookup ContentIndex::lookup(std::span<const QString> terms) const
 {
     Lookup out;
-    const std::vector<grams::Key> keys = grams::ofPhrase(phrase);
+    std::vector<grams::Key> keys;
+    bool decisive = true;
+    for (const QString& term : terms) {
+        std::ranges::copy(grams::ofPhrase(term), std::back_inserter(keys));
+        decisive = decisive && grams::decides(term);
+    }
+    std::ranges::sort(keys);
+    keys.erase(std::ranges::unique(keys).begin(), keys.end());
     out.usable = !keys.empty();
-    out.decisive = out.usable && grams::decides(phrase);
+    out.decisive = out.usable && decisive;
 
     std::shared_lock lock(m_mutex);
     // Rarest first: intersecting with it keeps the lists short.

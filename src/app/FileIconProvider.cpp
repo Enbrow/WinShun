@@ -1,11 +1,23 @@
 #include "FileIconProvider.h"
 
 #include "AppLogo.h"
+#include "Items.h"
+#include "Manifest.h"
+#include "SiteIconImage.h"
+#include "SystemTheme.h"
+#include "WebShortcut.h"
 #include "Win32Util.h"
+#include "platform/Shell.h"
+#include "platform/SiteIcons.h"
 
 #include <QColor>
+#include <QCryptographicHash>
+#include <QDir>
 #include <QFileInfo>
+#include <QFont>
+#include <QFontMetricsF>
 #include <QPainter>
+#include <QPainterPath>
 #include <QRegularExpression>
 #include <QUrl>
 
@@ -258,7 +270,145 @@ QImage packagedAppLogo(const QString& appId, int size, bool dark)
     return plated;
 }
 
+// ---- plugin icons (the plugin design, §4.5) ------------------------------------
+
+QMutex g_pluginMutex;
+QHash<QString, QString> g_pluginFolders; // plugin id -> its folder (native)
+QHash<QString, QByteArray> g_pluginData; // sha1 -> the bytes of a data: icon
+constexpr qsizetype kPluginDataKept = 64;
+
+// "U+E8E5" (or "E8E5") from an icon font, drawn in the subtext colour of the
+// theme, about three quarters of the box, as Glyph.qml shows them.
+QImage glyphIcon(const QString& code, int px, bool dark)
+{
+    bool ok = false;
+    const QString hex = code.startsWith(u"U+", Qt::CaseInsensitive) ? code.mid(2) : code;
+    const uint point = hex.toUInt(&ok, 16);
+    if (!ok || point == 0 || point > 0x10FFFF)
+        return {};
+    QImage image(px, px, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setRenderHint(QPainter::TextAntialiasing);
+    QFont font(SystemTheme::iconFontName());
+    font.setPixelSize(std::max(8, px * 3 / 4));
+    painter.setFont(font);
+    painter.setPen(dark ? QColor(0xA7, 0xA7, 0xA7) : QColor(0x66, 0x66, 0x66));
+    painter.drawText(QRect(0, 0, px, px), Qt::AlignCenter, QString::fromUcs4(reinterpret_cast<const char32_t*>(&point), 1));
+    painter.end();
+    return image;
+}
+
+// "#ff8800" (or any name QColor reads) as a rounded square with the
+// neutral 1 px edge every box has (Theme.windowEdge), a little inset so it
+// weighs like an app's icon.
+QImage colorIcon(const QString& text, int px, bool dark)
+{
+    const QColor color = QColor::fromString(text);
+    if (!color.isValid())
+        return {};
+    QImage image(px, px, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing);
+    const qreal border = std::max(1, px / 32); // one logical pixel
+    const qreal inset = px / 8.0;
+    const QRectF box(inset + border / 2, inset + border / 2, px - 2 * inset - border, px - 2 * inset - border);
+    painter.setPen(QPen(dark ? QColor(0x6A, 0x6A, 0x6A) : QColor(0xB4, 0xB4, 0xB4), border));
+    painter.setBrush(color);
+    painter.drawRoundedRect(box, px / 6.0, px / 6.0);
+    painter.end();
+    return image;
+}
+
 } // namespace
+
+QString FileIconProvider::pluginIconUrl(const QString& pluginId, const QString& icon, bool dark)
+{
+    const QString theme = dark ? u"/dark"_s : u"/light"_s;
+    const plugin::IconSpec spec = plugin::parseIcon(icon);
+    switch (spec.kind) {
+    case plugin::IconSpec::Kind::File:
+        return iconUrl(spec.value, false);
+    case plugin::IconSpec::Kind::Ext:
+        return u"image://fileicon/ext/"_s + encode(spec.value.toLower());
+    case plugin::IconSpec::Kind::App:
+        return appIconUrl(spec.value, true, dark); // a packaged logo if it has one, else the program's icon
+    case plugin::IconSpec::Kind::Glyph:
+        return u"image://fileicon/glyph/"_s + encode(spec.value) + theme;
+    case plugin::IconSpec::Kind::Color:
+        return u"image://fileicon/color/"_s + encode(spec.value) + theme;
+    case plugin::IconSpec::Kind::Data: {
+        // "data:image/png;base64,…": decoded once, kept by its hash (a URL
+        // holding the bytes themselves would be as long as the picture).
+        const qsizetype comma = spec.value.indexOf(u',');
+        if (comma < 0 || !spec.value.left(comma).endsWith(u";base64"_s, Qt::CaseInsensitive))
+            break;
+        const QByteArray bytes = QByteArray::fromBase64(spec.value.mid(comma + 1).toLatin1());
+        if (bytes.isEmpty() || bytes.size() > 64 * 1024)
+            break;
+        const QString hash = QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha1).toHex());
+        QMutexLocker lock(&g_pluginMutex);
+        if (g_pluginData.size() >= kPluginDataKept)
+            g_pluginData.clear();
+        g_pluginData.insert(hash, bytes);
+        return u"image://fileicon/pdata/"_s + hash;
+    }
+    case plugin::IconSpec::Kind::PluginFile:
+        return u"image://fileicon/plugin/"_s + encode(pluginId) + u'/' + encode(spec.value) + theme;
+    case plugin::IconSpec::Kind::None:
+        break;
+    }
+    return u"image://fileicon/glyph/"_s + encode(u"U+EA86"_s) + theme; // Puzzle
+}
+
+void FileIconProvider::setPluginFolders(QHash<QString, QString> folders)
+{
+    QMutexLocker lock(&g_pluginMutex);
+    g_pluginFolders = std::move(folders);
+}
+
+// "plugin/<id>/<file>/<dark|light>", "glyph/<code>/<theme>", "color/<text>/<theme>", "pdata/<hash>".
+QImage FileIconProvider::pluginImage(const QString& id, int px)
+{
+    const QStringList parts = id.split(u'/');
+    const bool dark = parts.last() == u"dark";
+    if (parts.value(0) == u"glyph" && parts.size() == 3)
+        return glyphIcon(decode(parts[1]), px, dark);
+    if (parts.value(0) == u"color" && parts.size() == 3)
+        return colorIcon(decode(parts[1]), px, dark);
+    if (parts.value(0) == u"pdata" && parts.size() == 2) {
+        QByteArray bytes;
+        {
+            QMutexLocker lock(&g_pluginMutex);
+            bytes = g_pluginData.value(parts[1]);
+        }
+        return fitTo(QImage::fromData(bytes).convertToFormat(QImage::Format_ARGB32_Premultiplied), px);
+    }
+    if (parts.value(0) != u"plugin" || parts.size() != 4)
+        return {};
+    QString folder;
+    {
+        QMutexLocker lock(&g_pluginMutex);
+        folder = g_pluginFolders.value(decode(parts[1]));
+    }
+    const QString file = decode(parts[2]);
+    if (folder.isEmpty() || !plugin::insideFolder(file))
+        return {};
+    const QString path = QDir(folder).filePath(QDir::fromNativeSeparators(file));
+    QString chosen = path;
+    if (dark) { // "icon.dark.png" beside "icon.png", when there is one
+        const QFileInfo info(path);
+        const QString variant = info.path() + u'/' + info.completeBaseName() + u".dark."_s + info.suffix();
+        if (QFileInfo::exists(variant))
+            chosen = variant;
+    }
+    QImage image(chosen);
+    if (image.isNull())
+        return {};
+    return fitTo(image.convertToFormat(QImage::Format_ARGB32_Premultiplied), px);
+}
 
 FileIconProvider::FileIconProvider()
     : QQuickImageProvider(QQuickImageProvider::Image, QQmlImageProviderBase::ForceAsynchronousImageLoading)
@@ -270,7 +420,9 @@ QString FileIconProvider::iconUrl(const QString& path, bool isDir)
     if (isDir)
         return u"image://fileicon/folder"_s;
     const QString suffix = QFileInfo(path).suffix().toLower();
-    if (hasOwnIcon(suffix))
+    // Not a network file's own icon: reading it from a server that went
+    // away would take half a minute. Its type's then, as for every file.
+    if (hasOwnIcon(suffix) && !path.startsWith(u"\\\\"))
         return u"image://fileicon/file/"_s + encode(path);
     return u"image://fileicon/ext/"_s + encode(suffix);
 }
@@ -293,10 +445,19 @@ QString FileIconProvider::placeIconUrl(const QString& icon)
     return u"image://fileicon/place/"_s + encode(icon);
 }
 
-QString FileIconProvider::webIconUrl(const QString& url)
+QString FileIconProvider::webIconUrl(const QString& homeUrl, bool dark)
 {
+    // A picture its user chose (WebShortcut::iconRef), named after its content:
+    // another picture is another address, never an old one cached.
+    if (homeUrl.startsWith(u"custom:"))
+        return u"image://fileicon/custom/"_s + encode(homeUrl.mid(7)) + (dark ? u"/dark"_s : u"/light"_s);
+    if (const QString site = siteIconKey(homeUrl); !site.isEmpty()) {
+        if (siteicons::has(site))
+            return u"image://fileicon/site/"_s + encode(site) + (dark ? u"/dark"_s : u"/light"_s);
+        siteicons::fetch({homeUrl}); // its rows get the new address once it is here
+    }
     // One icon per scheme: every https page shows the browser's.
-    QString scheme = QUrl(url, QUrl::TolerantMode).scheme();
+    QString scheme = QUrl(homeUrl, QUrl::TolerantMode).scheme();
     if (scheme.isEmpty())
         scheme = u"https"_s;
     return u"image://fileicon/web/"_s + encode(scheme);
@@ -351,11 +512,26 @@ QImage FileIconProvider::requestImage(const QString& id, QSize* size, const QSiz
             image = shellItemIcon(L"shell:::{26EE0668-A00A-44D7-9371-BEB064C98683}", px);
     } else if (id.startsWith(u"web/")) {
         image = schemeIcon(decode(QStringView(id).mid(4)), px);
+    } else if (id.startsWith(u"site/")) {
+        // "site/<key>/<dark|light>"
+        const QStringList parts = id.mid(5).split(u'/');
+        const QImage kept = siteicons::load(decode(parts.value(0)));
+        image = kept.isNull() ? schemeIcon(u"https"_s, px) : siteicon::drawn(kept, px, parts.value(1) == u"dark");
+    } else if (id.startsWith(u"custom/")) {
+        // "custom/<name>/<dark|light>"
+        const QStringList parts = id.mid(7).split(u'/');
+        const QImage kept = siteicons::loadCustom(decode(parts.value(0)));
+        image = kept.isNull() ? schemeIcon(u"https"_s, px) : siteicon::drawn(kept, px, parts.value(1) == u"dark");
+    } else if (id.startsWith(u"plugin/") || id.startsWith(u"glyph/") || id.startsWith(u"color/") || id.startsWith(u"pdata/")) {
+        image = pluginImage(id, px);
+        if (image.isNull()) // a picture that is not there, a colour that is none
+            image = glyphIcon(u"U+EA86"_s, px, id.endsWith(u"/dark"));
     }
     if (image.isNull())
         image = shellIcon(L"file", FILE_ATTRIBUTE_NORMAL, true, px);
 
     *size = image.size();
+    shell::prepareMenuHooks(); // the shell has loaded its icon handlers into the process by now
     QMutexLocker lock(&m_mutex);
     m_cache.insert(key, new QImage(image));
     return image;

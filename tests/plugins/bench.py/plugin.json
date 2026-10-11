@@ -1,0 +1,13 @@
+{
+  "manifest": 1,
+  "id": "bench.py",
+  "name": {"zh": "Python 一次性示例", "en": "Python once sample"},
+  "version": "1.0.0",
+  "description": "wsbench --plugin 用的 once Python 插件：每次查询起一个进程，从环境变量读查询，打印 JSON",
+  "runtime": {"mode": "once", "program": "python", "script": "main.py", "debounceMs": 0},
+  "commands": [{
+    "id": "echo",
+    "keyword": "py",
+    "title": {"zh": "回声", "en": "Echo"}
+  }]
+}

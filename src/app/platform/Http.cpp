@@ -20,7 +20,7 @@ using Handle = std::unique_ptr<void, InternetHandle>;
 
 } // namespace
 
-Response get(const QString& url, const QList<std::pair<QString, QString>>& headers, int timeoutMs)
+Response get(const QString& url, const QList<std::pair<QString, QString>>& headers, int timeoutMs, qsizetype maxBytes)
 {
     Response response;
     const auto fail = [&response] {
@@ -68,7 +68,16 @@ Response get(const QString& url, const QList<std::pair<QString, QString>>& heade
     if (!::WinHttpQueryHeaders(request.get(), WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
             WINHTTP_HEADER_NAME_BY_INDEX, &status, &size, WINHTTP_NO_HEADER_INDEX))
         return fail();
-    for (;;) {
+    DWORD urlBytes = 0;
+    ::WinHttpQueryOption(request.get(), WINHTTP_OPTION_URL, nullptr, &urlBytes);
+    if (urlBytes > 0) {
+        std::wstring finalUrl(urlBytes / sizeof(wchar_t), L'\0');
+        if (::WinHttpQueryOption(request.get(), WINHTTP_OPTION_URL, finalUrl.data(), &urlBytes))
+            response.finalUrl = QString::fromWCharArray(finalUrl.c_str());
+    }
+    if (response.finalUrl.isEmpty())
+        response.finalUrl = url;
+    while (maxBytes <= 0 || response.body.size() < maxBytes) {
         DWORD available = 0;
         if (!::WinHttpQueryDataAvailable(request.get(), &available))
             return fail();

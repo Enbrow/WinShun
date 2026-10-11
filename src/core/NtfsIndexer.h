@@ -37,7 +37,6 @@ private:
     struct Name {
         std::uint32_t parent; // record number of the folder
         std::uint32_t nameOffset; // in the index's name storage
-        std::uint16_t nameLength;
         std::uint8_t flags; // EntryFlag: Directory, Hidden, Offline
         FileTime modified;
     };

@@ -3,20 +3,28 @@
 #include "AppCatalog.h"
 #include "FileIconProvider.h"
 #include "History.h"
+#include "Host.h"
 #include "IndexService.h"
+#include "Merge.h"
+#include "PathText.h"
 #include "Query.h"
 #include "SearchEngine.h"
+#include "ShareLister.h"
 #include "SystemCatalog.h"
+#include "Unc.h"
+#include "platform/DragOut.h"
 #include "platform/Shell.h"
 #include "platform/WindowEffects.h"
 
 #include <QDateTime>
+#include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QLocale>
 #include <QSpan>
 #include <QPointer>
 #include <QScreen>
+#include <QSet>
 #include <QStyleHints>
 
 #include <windows.h>
@@ -33,6 +41,11 @@ namespace ws {
 static_assert(Launcher::All == static_cast<int>(ws::Scope::All) && Launcher::Files == static_cast<int>(ws::Scope::Files)
     && Launcher::Content == static_cast<int>(ws::Scope::Content)
     && Launcher::Folders == static_cast<int>(ws::Scope::Folders));
+static_assert(Launcher::BestMatch == static_cast<int>(RankBy::Match)
+    && Launcher::NewestFirst == static_cast<int>(RankBy::Newest)
+    && Launcher::OldestFirst == static_cast<int>(RankBy::Oldest));
+static_assert(Launcher::RecentlyOpened == static_cast<int>(ws::StartList::Opened)
+    && Launcher::RecentlyModified == static_cast<int>(ws::StartList::Modified));
 
 namespace {
 
@@ -74,6 +87,19 @@ QString roughNumber(qint64 n, bool* unit)
     return number(n);
 }
 
+// Whether the server of a network path answers (share::reachable: a few
+// milliseconds, at most 1.5 seconds); true for a local path. Asked first and
+// afresh, as asking Windows about a file on a server that went away (even
+// seconds ago) holds the launcher up for half a minute. `fresh` false takes
+// an answer of the last seconds: for many paths on one server.
+bool serverAnswers(const QString& path, bool fresh = true)
+{
+    if (!path.startsWith(u"\\\\"))
+        return true;
+    const std::wstring p = path.toStdWString();
+    return !unc::isUnc(p) || share::reachable(unc::host(p), std::chrono::milliseconds(1500), fresh);
+}
+
 // The drives being read from disk now, with how far: "D: 45%、E:".
 QString readingDrives(const IndexService& index)
 {
@@ -85,7 +111,49 @@ QString readingDrives(const IndexService& index)
     return drives.join(Launcher::tr("、"));
 }
 
+// The folder a file is in: "D:\工作文档", "C:\" for one at a drive's root;
+// empty for a path with no folder.
+QString folderOf(const QString& file)
+{
+    const QString path = QDir::toNativeSeparators(file);
+    const qsizetype slash = path.lastIndexOf(u'\\');
+    if (slash <= 0)
+        return {};
+    return slash == 2 && path[1] == u':' ? path.left(3) : path.left(slash);
+}
+
+// The interface's language, as the plugins' texts are picked (Text::pick).
+QString uiLocale()
+{
+    return QLocale().language() == QLocale::English ? u"en"_s : u"zh"_s;
+}
+
 } // namespace
+
+// The result model as plugin::Merge writes it: a plugin's whole list goes
+// through showRows (keyword mode); pushed rows go in and out one by one.
+class Launcher::ModelSink : public plugin::RowSink {
+public:
+    explicit ModelSink(Launcher& launcher)
+        : m_launcher(launcher)
+    {
+    }
+    int count() const override { return m_launcher.m_results.count(); }
+    const SearchResult& row(int index) const override { return *m_launcher.m_results.at(index); }
+    int currentRow() const override { return m_launcher.m_currentRow; }
+    void assign(SearchResults rows) override { m_launcher.showPluginRows(std::move(rows)); }
+    void append(const SearchResults& rows) override { m_launcher.m_results.append(rows); }
+    void insert(int index, const SearchResult& row) override { m_launcher.m_results.insert(index, row); }
+    void update(int index, const SearchResult& row) override { m_launcher.m_results.update(index, row); }
+    void remove(int index) override
+    {
+        if (const SearchResult* r = m_launcher.m_results.at(index))
+            m_launcher.m_results.remove(r->path);
+    }
+
+private:
+    Launcher& m_launcher;
+};
 
 Launcher::Launcher(IndexService* index, AppCatalog* apps, SystemCatalog* places, SearchEngine* engine, History* history,
     QObject* parent)
@@ -95,7 +163,21 @@ Launcher::Launcher(IndexService* index, AppCatalog* apps, SystemCatalog* places,
     , m_places(places)
     , m_engine(engine)
     , m_history(history)
+    , m_sink(std::make_unique<ModelSink>(*this))
 {
+    m_pluginWait.setSingleShot(true);
+    m_pluginWait.setInterval(150ms); // a plugin that answers within it shows nothing of the wait
+    connect(&m_pluginWait, &QTimer::timeout, this, [this] {
+        m_pluginSlow = true;
+        refreshStatus();
+    });
+    m_pluginErrorTimer.setSingleShot(true);
+    m_pluginErrorTimer.setInterval(3s);
+    connect(&m_pluginErrorTimer, &QTimer::timeout, this, [this] {
+        m_pluginError.clear();
+        refreshStatus();
+    });
+
     m_contentDebounce.setSingleShot(true);
     m_contentDebounce.setInterval(300ms); // content search reads files: wait for a pause in typing
     connect(&m_contentDebounce, &QTimer::timeout, this, &Launcher::startContentSearch);
@@ -143,6 +225,28 @@ Launcher::Launcher(IndexService* index, AppCatalog* apps, SystemCatalog* places,
     refreshStatus();
 }
 
+Launcher::~Launcher() = default;
+
+void Launcher::setPluginHost(plugin::Host* host)
+{
+    m_plugins = host;
+    m_merge.reset();
+    if (!host)
+        return;
+    m_merge = std::make_unique<plugin::Merge>(*m_sink, host->catalog());
+    m_merge->setLocale(uiLocale());
+    m_merge->setMoreText(tr("（%1 查看全部）"));
+    m_merge->setHintText(tr("按空格进入；Enter 或 Tab 也行"));
+    m_merge->setPrefixHintText(tr("按 Tab 补全；Enter 直接进入"));
+    connect(host, &plugin::Host::queryTaken, this, &Launcher::onPluginTaken);
+    connect(host, &plugin::Host::results, this, &Launcher::onPluginResults);
+    connect(host, &plugin::Host::queryFinished, this, &Launcher::onPluginFinished);
+    connect(host, &plugin::Host::queryFailed, this, &Launcher::onPluginFailed);
+    connect(host, &plugin::Host::progress, this, &Launcher::onPluginProgress);
+    connect(host, &plugin::Host::notice, this, [this](const QString&, const QString& text) { flash(text); });
+    connect(host, &plugin::Host::actionDone, this, &Launcher::onPluginActionDone);
+}
+
 void Launcher::setQuery(const QString& query)
 {
     if (query == m_query)
@@ -156,6 +260,8 @@ void Launcher::setQuery(const QString& query)
 
 void Launcher::setScope(Scope scope)
 {
+    if (scope == Content && !m_contentEnabled)
+        scope = All; // a plugin's row may still ask for it
     if (scope == m_scope)
         return;
     m_scope = scope;
@@ -205,13 +311,14 @@ QString Launcher::placeholder() const
         return m_contentExtensions.size() > kShownExtensions ? tr("搜索 %1 等文件中的文字").arg(shownExtensions())
                                                              : tr("搜索 %1 文件中的文字").arg(shownExtensions());
     default:
-        return tr("搜索应用、文件和文件内容");
+        return m_contentEnabled ? tr("搜索应用、文件和文件内容") : tr("搜索应用和文件");
     }
 }
 
 void Launcher::setContentOptions(
-    QStringList extensions, const ContentSizeLimits& sizeLimits, bool inLowPriority, bool documents)
+    bool enabled, QStringList extensions, const ContentSizeLimits& sizeLimits, bool inLowPriority, bool documents)
 {
+    const bool wasEnabled = std::exchange(m_contentEnabled, enabled);
     m_contentInLowPriority = inLowPriority;
     m_contentDocuments = documents;
     for (QString& ext : extensions) {
@@ -224,7 +331,13 @@ void Launcher::setContentOptions(
         extensions = {u"txt"_s};
     m_contentExtensions = extensions;
     m_contentSizeLimits = sizeLimits;
+    if (!enabled && m_scope == Content) {
+        setScope(All);
+        return;
+    }
     emit scopeChanged(); // placeholder text mentions the extensions
+    if (enabled != wasEnabled && m_scope == All && m_window && m_window->isVisible())
+        search(); // 全部: content matches below the names come or go
 }
 
 void Launcher::setWebShortcuts(const WebShortcuts& shortcuts)
@@ -234,6 +347,26 @@ void Launcher::setWebShortcuts(const WebShortcuts& shortcuts)
     m_web = shortcuts;
     if (m_window && m_window->isVisible() && m_scope == All && !m_query.trimmed().isEmpty())
         search();
+}
+
+void Launcher::setFavorites(Favorites* favorites)
+{
+    if (m_favorites)
+        disconnect(m_favorites, nullptr, this, nullptr);
+    m_favorites = favorites;
+    if (favorites) {
+        connect(favorites, &Favorites::changed, this, [this] {
+            emit favoritesChanged();
+            if (m_window && m_window->isVisible() && !m_keyword && m_scope != Content)
+                search(); // the rows refreshed in place: 收藏 comes or goes
+        });
+    }
+    emit favoritesChanged();
+}
+
+bool Launcher::hasFavorites() const
+{
+    return m_favorites && !m_favorites->items().isEmpty();
 }
 
 void Launcher::setResultOptions(KindOrder kindOrder, bool showModified, const QString& numberKeys)
@@ -250,14 +383,45 @@ void Launcher::setResultOptions(KindOrder kindOrder, bool showModified, const QS
         search();
 }
 
-void Launcher::setRankByTime(bool byTime)
+void Launcher::setSort(Sort sort)
 {
-    if (byTime == m_rankByTime)
+    if (sort == m_sort)
         return;
-    m_rankByTime = byTime;
-    emit rankByTimeChanged();
-    if (m_scope == Files || m_scope == Folders)
+    m_sort = sort;
+    emit sortChanged();
+    if (m_window && m_window->isVisible() && (m_scope == Files || m_scope == Folders) && !m_query.trimmed().isEmpty())
+        search(); // hidden: handleShown() searches
+}
+
+void Launcher::setStartList(StartList list)
+{
+    if (list == m_startList)
+        return;
+    m_startList = list;
+    emit startListChanged();
+    if (m_window && m_window->isVisible() && showsStartList())
         search();
+}
+
+RankBy Launcher::rankBy() const
+{
+    return m_scope == Files || m_scope == Folders ? static_cast<RankBy>(m_sort) : RankBy::Match;
+}
+
+bool Launcher::showsStartList() const
+{
+    return m_scope != Content && m_query.trimmed().isEmpty();
+}
+
+void Launcher::switchOrder()
+{
+    // The footer's switch shows what it is now; the status keeps its figures.
+    if (showsStartList())
+        setStartList(m_startList == RecentlyOpened ? RecentlyModified : RecentlyOpened);
+    else if (m_scope == Files || m_scope == Folders)
+        setSort(static_cast<Sort>((m_sort + 1) % 3));
+    else // 全部 and 内容 rank by match
+        flash(tr("在“文件”里可以按修改时间排序"));
 }
 
 void Launcher::setComposing(bool composing)
@@ -354,6 +518,12 @@ void Launcher::openFrequentApp(int index)
 void Launcher::retranslate()
 {
     m_results.retranslate();
+    if (m_merge) {
+        m_merge->setLocale(uiLocale());
+        m_merge->setMoreText(tr("（%1 查看全部）"));
+        m_merge->setHintText(tr("按空格进入；Enter 或 Tab 也行"));
+        m_merge->setPrefixHintText(tr("按 Tab 补全；Enter 直接进入"));
+    }
     emit scopeChanged(); // placeholder, contentFilesLabel
     refreshStatus();
 }
@@ -372,6 +542,11 @@ void Launcher::handleHidden()
         m_pending = false;
         m_contentRunning = false;
     }
+    if (m_plugins)
+        m_plugins->cancelAll(); // nobody is looking: whatever they were asked is moot
+    m_pluginPending.clear();
+    m_pluginWait.stop();
+    m_pluginSlow = false;
 }
 
 // Nothing is cleared up front: the rows on screen stay until results replace
@@ -385,12 +560,21 @@ void Launcher::search()
     m_slowSearch.stop();
     m_searchSlow = false;
     const QString text = m_query.trimmed();
-    const bool byTime = m_rankByTime && (m_scope == Files || m_scope == Folders);
-    // Sorted another way, the rows are new ones (the first is selected).
+    // Sorted another way, or the other start list, the rows are new ones
+    // (the first is selected). So is a plugin command's list in place of
+    // the names' (or back): "=" and "= " are the same text trimmed.
+    std::optional<KeywordMode> keyword = matchKeyword(m_query);
+    const QString keywordKey = keyword ? keyword->pluginId + u'/' + keyword->commandId : QString();
     m_refresh = m_haveResults && !m_replacePending && text == m_shownText && m_scope == m_shownScope
-        && byTime == m_shownByTime && m_kindOrder == m_shownKindOrder;
+        && rankBy() == m_shownRankBy && m_kindOrder == m_shownKindOrder && keywordKey == m_shownKeyword
+        && (!text.isEmpty() || m_startList == m_shownStartList);
     m_replacePending = !m_refresh;
-    m_withContent = m_scope == All && !contentNeedle().isEmpty();
+    // The plugins are asked first: a keyword makes the list theirs, and
+    // then neither names nor contents are searched (nothing waits for them
+    // either way: the window shows with whatever it has). As typed: the
+    // space after a keyword is what opens its command (Catalog::match).
+    startPluginQuery(m_query, std::move(keyword));
+    m_withContent = m_contentEnabled && m_scope == All && !contentNeedle().isEmpty();
     m_unconfirmed.clear();
     // Quietly, unless the rows came from a content scan that was cut short
     // (window hidden mid-scan): that one still shows as the search it is.
@@ -401,6 +585,15 @@ void Launcher::search()
     if (!m_quiet) { // a quiet refresh keeps showing the last scan's figures
         m_contentScanned = 0;
         m_contentTotal = 0;
+    }
+
+    if (m_keyword) { // the command's list: its answer replaces the rows (onPluginResults)
+        m_engine->cancel();
+        m_requestId = 0;
+        m_pending = false;
+        m_contentRunning = false;
+        refreshStatus();
+        return;
     }
 
     if (m_scope == Content) {
@@ -428,10 +621,13 @@ void Launcher::search()
     request.text = m_query;
     request.scope = static_cast<ws::Scope>(m_scope);
     request.kindOrder = m_kindOrder;
-    request.rankBy = byTime ? RankBy::Modified : RankBy::Match;
+    request.rankBy = rankBy();
+    request.startList = static_cast<ws::StartList>(m_startList);
     if (m_recordHistory)
         request.history = m_history->items();
     request.web = m_web;
+    if (m_favorites)
+        request.favorites = m_favorites->items();
     m_requestId = m_engine->submit(std::move(request)); // also stops a running content scan
     m_pending = true;
     m_contentRunning = false;
@@ -447,8 +643,10 @@ void Launcher::showRows(SearchResults rows, QStringList highlights)
     m_results.assign(std::move(rows), std::move(highlights));
     m_shownText = m_query.trimmed();
     m_shownScope = m_scope;
-    m_shownByTime = m_rankByTime && (m_scope == Files || m_scope == Folders);
+    m_shownRankBy = rankBy();
+    m_shownStartList = m_startList;
     m_shownKindOrder = m_kindOrder;
+    m_shownKeyword = m_keyword ? m_keyword->pluginId + u'/' + m_keyword->commandId : QString();
     m_haveResults = true;
     if (m_replacePending) {
         m_replacePending = false;
@@ -458,38 +656,43 @@ void Launcher::showRows(SearchResults rows, QStringList highlights)
         if (const auto held = std::exchange(m_held, std::nullopt))
             emit heldKey(held->first, held->second); // on the rows it was pressed for
     }
+    // Plugins that answered before the names: their rows go in now, among
+    // these (after the first row is current again, so they are placed by it).
+    if (m_merge && !m_merge->keywordMode()) {
+        m_merge->namesShown();
+        if (m_merge->takeBetterFirstRow())
+            emit betterFirstRow();
+    }
+}
+
+// Keyword mode: the command's answer is the list (ModelSink::assign).
+void Launcher::showPluginRows(SearchResults rows)
+{
+    showRows(std::move(rows), m_keyword ? ws::parseQuery(m_keyword->words).highlights : QStringList());
+    refreshStatus();
 }
 
 
-// 全部 looks for the typed text inside files too, as typed: a line of code
-// keeps its quotes, stars and exclamation marks (printf("%d", *p)). Quotes
-// around the whole of it only make it one phrase, as for names. Not for name
-// syntax (ext:, wildcards, !exclusions: "*.log", "report !draft"), unless the
-// text reads as code anyway ("if (!ok)", "char* p = s;"). Nor after a web
-// shortcut's keyword: that is a search on the web ("gh WinShun"), and
-// reading files for it only costs time.
+// 全部 looks for the typed text inside files too, as the 内容 scope does
+// (contentTerms: the words, "a phrase", or a line of code as it is). Not for
+// name syntax (ext:, wildcards, !exclusions: "*.log", "report !draft"),
+// unless the text reads as code anyway ("if (!ok)", "char* p = s;"). Nor
+// after a web shortcut's keyword: that is a search on the web ("gh
+// WinShun"), and reading files for it only costs time. Nor for a path
+// ("C:\Users\me\x"): that is a place to go to. Nor for a favorite's keyword.
 QString Launcher::contentNeedle() const
 {
     const QString text = m_query.trimmed();
     const ParsedQuery query = ws::parseQuery(text);
-    if (query.terms.empty() || typedKeyword(m_web, m_query))
+    if (query.terms.empty() || m_keyword || typedKeyword(m_web, m_query) || !pathtext::splitTyped(text).folder.isEmpty())
+        return {};
+    if (m_favorites && typedFavoriteKeyword(m_favorites->items(), text) >= 0)
         return {};
     const bool nameSyntax = !query.extensions.empty()
         || std::any_of(query.terms.cbegin(), query.terms.cend(), [](const QueryTerm& t) { return t.negated || t.wildcard; });
-    if (nameSyntax && !looksLikeCode(text))
+    if (nameSyntax && !ws::looksLikeCode(text))
         return {};
-    if (text.count(u'"') == 2 && text.size() > 2 && text.startsWith(u'"') && text.endsWith(u'"'))
-        return text.mid(1, text.size() - 2).trimmed();
-    if (text.count(u'"') == 1 && text.startsWith(u'"')) // the closing one not typed yet
-        return text.mid(1).trimmed();
     return text;
-}
-
-// Characters that name searches have no use for, but lines of code are full of.
-bool Launcher::looksLikeCode(QStringView text)
-{
-    static constexpr QStringView kSigns[] {u"=", u";", u"(", u")", u"{", u"}", u"<", u">", u"[", u"]", u"->", u"::", u"&&", u"||"};
-    return std::any_of(std::begin(kSigns), std::end(kSigns), [&](QStringView s) { return text.contains(s); });
 }
 
 void Launcher::startContentSearch()
@@ -541,6 +744,16 @@ void Launcher::onResults(quint64 id, const SearchResults& results, qint64 total,
             }
         }
     }
+    if (m_refresh) {
+        // Likewise the plugins' rows, where they are: their new answer
+        // rewrites them in place (plugin::Merge) instead of taking them
+        // out and putting them back.
+        for (int row = 0; row < m_results.count(); ++row) {
+            const SearchResult* r = m_results.at(row);
+            if (r->isPlugin())
+                rows.insert(std::min<qsizetype>(row, rows.size()), *r);
+        }
+    }
     m_contentHits = static_cast<int>(m_unconfirmed.size());
     m_totalMatches = total;
     if (!m_refresh)
@@ -579,7 +792,26 @@ void Launcher::onContentResults(quint64 id, const SearchResults& results)
     }
     if (m_scope != Content)
         m_contentHits += static_cast<int>(fresh.size());
-    m_results.append(fresh);
+    // Each among the content rows by how well it matches (they come best
+    // first, a tie after those already there). Never above the row the
+    // keyboard is on, nor the rows above it: they stay where they are seen;
+    // on the first row, a better match takes its place.
+    const int current = m_currentRow;
+    const int floor = current > 0 ? current + 1 : 0;
+    bool aboveFirst = false;
+    for (const SearchResult& r : fresh) {
+        int row = m_results.count();
+        while (row > floor) {
+            const SearchResult* before = m_results.at(row - 1);
+            if (before->line == 0 || before->relevance >= r.relevance)
+                break; // a name match (they come first), or as good
+            --row;
+        }
+        aboveFirst |= row == 0 && current == 0;
+        m_results.insert(row, r);
+    }
+    if (aboveFirst)
+        emit betterFirstRow();
 }
 
 void Launcher::onContentProgress(quint64 id, int scanned, int total, bool finished)
@@ -645,9 +877,21 @@ void Launcher::refreshStatus()
         else
             s = tr("%Ln 个文件包含该文字 · 共查找 %1 个 %2", nullptr, m_results.count())
                     .arg(number(m_contentTotal), contentFilesLabel());
+    } else if (m_keyword) {
+        // The command's list: nothing of the wait for the first 150 ms (the
+        // last figures stay), then who is being waited for; its failure for
+        // a few seconds.
+        if (!m_pluginError.isEmpty())
+            s = m_pluginError;
+        else if (!m_pluginPending.isEmpty())
+            s = m_pluginSlow ? pluginWaiting() : m_status;
+        else {
+            const qint64 ms = m_pluginElapsedUs / 1000;
+            s = tr("%Ln 个结果 · %1 毫秒", nullptr, m_results.count()).arg(ms < 1 ? u"<1"_s : number(ms));
+        }
     } else {
         const qint64 ms = m_elapsedUs / 1000;
-        const int results = static_cast<int>(m_totalMatches + m_contentHits);
+        const int results = static_cast<int>(m_totalMatches + m_contentHits) + (m_merge ? m_merge->pluginRows() : 0);
         if (m_searchSlow && m_replacePending)
             s = tr("正在搜索…"); // the figures would be the last query's
         else if (contentPending)
@@ -660,6 +904,17 @@ void Launcher::refreshStatus()
             s = tr("%Ln 个结果 · %1 毫秒", nullptr, results).arg(ms < 1 ? u"<1"_s : number(ms));
         if (state == IndexService::State::Building)
             s += tr(" · 索引尚未建完");
+        // Plugins pushing into the list: who is still being waited for
+        // (once it takes a while), who gave up.
+        if (!m_pluginPending.isEmpty() && m_pluginSlow) {
+            QStringList names;
+            for (const QString& id : m_pluginPending)
+                names.append(pluginName(id));
+            names.sort();
+            s += tr(" · 正在等 %1…").arg(names.join(tr("、")));
+        }
+        if (!m_pluginError.isEmpty())
+            s += u" · "_s + m_pluginError;
     }
     if (const int selected = m_results.selectedCount(); selected > 0)
         s = tr("已选择 %Ln 项", nullptr, selected);
@@ -669,6 +924,78 @@ void Launcher::refreshStatus()
     } else {
         emit statusChanged(); // busy/searching may have changed
     }
+    refreshKeyHints(); // the rows changed with whatever brought us here
+}
+
+void Launcher::setCurrentRow(int row)
+{
+    if (row == m_currentRow)
+        return;
+    m_currentRow = row;
+    emit currentRowChanged();
+    refreshKeyHints();
+}
+
+// What the keys do on the row the keyboard is on (keyHints), from the same
+// cases as menuItems(). Enter on a plugin's row is its first action by
+// name, else what its default does; the second key is its second action,
+// or 打开位置 for a row with a location; Tab completes the row that offers
+// it (the hint row of a keyword, completionRow), else switches the scope,
+// which means nothing in keyword mode.
+void Launcher::refreshKeyHints()
+{
+    QString enter;
+    QString secondKeys;
+    QString second;
+    QString tab = enterableFolder(m_currentRow) ? tr("进入文件夹")
+        : completionRow(m_currentRow)           ? tr("补全")
+        : m_keyword                             ? QString()
+                                                : tr("切换范围");
+    const SearchResult* r = m_results.at(m_currentRow);
+    if (!r) {
+        if (!m_keyword) {
+            enter = tr("打开");
+            secondKeys = u"Ctrl+Enter"_s;
+            second = tr("打开位置");
+        }
+    } else if (r->isPlugin()) {
+        const PluginRow& p = *r->plugin;
+        if (p.valid) {
+            if (!p.actions.isEmpty()) {
+                enter = p.actions[0].title;
+                if (p.actions.size() > 1) {
+                    secondKeys = p.actions[1].key.isEmpty() ? u"Ctrl+Enter"_s : p.actions[1].key;
+                    second = p.actions[1].title;
+                }
+            } else {
+                enter = p.openKind == PluginRow::OpenKind::Url ? (p.openTarget.compare(u"winshun:settings", Qt::CaseInsensitive) == 0 ? tr("打开设置") : tr("打开网址"))
+                    : p.openKind == PluginRow::OpenKind::Path ? tr("打开")
+                    : !p.searchQuery.isEmpty()                ? tr("搜索")
+                    : plugin::isHintRow(*r)                   ? tr("进入")
+                    : !p.setQuery.isEmpty()                   ? tr("填入搜索框")
+                                                              : tr("复制"); // the plugin's default action copies the row's text
+            }
+        }
+    } else if (r->isWeb()) {
+        enter = r->words.isEmpty() ? tr("打开网站") : tr("搜索");
+    } else if (r->isPlace()) {
+        enter = tr("打开");
+    } else if (r->isApp()) {
+        enter = tr("打开");
+        if (!r->target.isEmpty()) {
+            secondKeys = u"Ctrl+Enter"_s;
+            second = r->isPackagedApp() ? tr("打开安装文件夹") : tr("打开位置");
+        }
+    } else {
+        enter = r->isDir ? tr("打开文件夹") : tr("打开");
+        secondKeys = u"Ctrl+Enter"_s;
+        second = tr("打开位置");
+    }
+    const QVariantMap hints {{u"enter"_s, enter}, {u"secondKeys"_s, secondKeys}, {u"second"_s, second}, {u"tab"_s, tab}};
+    if (hints == m_keyHints)
+        return;
+    m_keyHints = hints;
+    emit keyHintsChanged();
 }
 
 void Launcher::flash(const QString& message)
@@ -681,9 +1008,9 @@ void Launcher::flash(const QString& message)
 void Launcher::cycleScope(int delta)
 {
     static constexpr Scope kOrder[] {All, Files, Folders, Content}; // as the tabs show them
-    constexpr int kScopes = static_cast<int>(std::size(kOrder));
+    const int scopes = static_cast<int>(std::size(kOrder)) - (m_contentEnabled ? 0 : 1); // Content last
     const int at = static_cast<int>(std::find(std::begin(kOrder), std::end(kOrder), m_scope) - std::begin(kOrder));
-    setScope(kOrder[((at + delta) % kScopes + kScopes) % kScopes]);
+    setScope(kOrder[((at + delta) % scopes + scopes) % scopes]);
 }
 
 void Launcher::dismiss()
@@ -708,6 +1035,31 @@ void Launcher::triggerSelection(int action)
         perform(items.first(), static_cast<Action>(action));
     else if (!items.isEmpty())
         performMany(items, static_cast<Action>(action));
+}
+
+void Launcher::dragOut(int row)
+{
+    const SearchResult* at = m_results.at(row);
+    if (!at)
+        return;
+    const SearchResults items = m_results.isSelected(row) && m_results.selectedCount() > 1 ? m_results.selection()
+                                                                                         : SearchResults {*at};
+    QStringList paths;
+    for (const SearchResult& r : items) {
+        // A share that does not answer would hold the shell up for long.
+        if (!r.isApp() && !r.offline && serverAnswers(r.path))
+            paths.append(r.path);
+    }
+    if (paths.isEmpty() || !m_window)
+        return;
+    const auto hwnd = reinterpret_cast<HWND>(m_window->winId());
+    dragout::drag(paths, hwnd);
+    // OLE's loop took the button's release: Qt still holds the press. Let it
+    // go where the pointer is now (over another program, mostly).
+    POINT p {};
+    ::GetCursorPos(&p);
+    ::ScreenToClient(hwnd, &p);
+    ::PostMessageW(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(static_cast<short>(p.x), static_cast<short>(p.y)));
 }
 
 void Launcher::toggleSelected(int row)
@@ -743,6 +1095,21 @@ void Launcher::perform(const SearchResult& result, Action action)
         emit webSettingsRequested();
         return;
     }
+    if (action == AddFavorite || action == RemoveFavorite || action == FavoriteFolder || action == EditFavorite) {
+        performFavorite(r, action);
+        return;
+    }
+    if (r.isPlugin()) {
+        performPlugin(r, action);
+        return;
+    }
+    if (action == Alternate)
+        action = Open; // Shift+Enter means something to a plugin's row only
+    // A favorite app uninstalled, a place gone with an update of Windows.
+    if (r.missing && r.isApp() && (action == Open || action == RunAsAdmin || action == Reveal || action == CopyItem)) {
+        flash(tr("“%1” 已不存在；右键可从收藏夹移除").arg(r.name));
+        return;
+    }
     if (r.isWeb()) {
         performWeb(r, action);
         return;
@@ -756,12 +1123,19 @@ void Launcher::perform(const SearchResult& result, Action action)
         return;
     }
     const bool needsFile = action == Open || action == Reveal || action == RunAsAdmin || action == Recycle;
+    if (needsFile && !serverAnswers(r.path)) {
+        flash(tr("连不上 %1：它离线了，或不在同一网络").arg(QString::fromStdWString(std::wstring(unc::host(r.path.toStdWString())))));
+        return;
+    }
+    if (needsFile && r.offline)
+        m_index->shares().networkChanged(); // it answers again: its share is back
     if (needsFile && !QFileInfo::exists(r.path)) {
         if (action == Recycle)
             m_results.remove(r.path);
         m_history->remove(r.path);
         emit historyChanged();
-        flash(tr("“%1” 已不存在").arg(r.name));
+        // A favorite stays: it may be back (a drive plugged in again), or be picked anew.
+        flash(r.favorite ? tr("“%1” 已不存在；右键可从收藏夹移除").arg(r.name) : tr("“%1” 已不存在").arg(r.name));
         return;
     }
     switch (action) {
@@ -803,7 +1177,11 @@ void Launcher::perform(const SearchResult& result, Action action)
         break;
     }
     case EditWebShortcuts:
-        break; // not for a file
+    case AddFavorite:
+    case RemoveFavorite:
+    case FavoriteFolder:
+    case EditFavorite:
+        break; // not for a file, or done above
     }
 }
 
@@ -854,6 +1232,10 @@ void Launcher::performApp(const SearchResult& app, Action action)
         break;
     case Recycle: // apps are uninstalled in Windows Settings
     case EditWebShortcuts:
+    case AddFavorite:
+    case RemoveFavorite:
+    case FavoriteFolder:
+    case EditFavorite:
         break;
     }
 }
@@ -887,6 +1269,10 @@ void Launcher::performPlace(const SearchResult& place, Action action)
         break;
     case Recycle:
     case EditWebShortcuts:
+    case AddFavorite:
+    case RemoveFavorite:
+    case FavoriteFolder:
+    case EditFavorite:
         break;
     }
 }
@@ -917,6 +1303,44 @@ void Launcher::performWeb(const SearchResult& web, Action action)
     case ForgetRecent:
     case Recycle:
     case EditWebShortcuts: // see perform()
+    case AddFavorite:
+    case RemoveFavorite:
+    case FavoriteFolder:
+    case EditFavorite:
+        break;
+    }
+}
+
+// The favorites: a row in or out, the folder a file is in, or the row's
+// favorite in the settings. The rows refresh on their own (setFavorites);
+// the footer says what was done after that (a search clears it).
+void Launcher::performFavorite(const SearchResult& result, Action action)
+{
+    if (!m_favorites)
+        return;
+    switch (action) {
+    case AddFavorite:
+        if (const std::optional<Favorite> f = favoriteOf(result))
+            flash(m_favorites->add(*f) ? tr("已加入收藏夹") : tr("已在收藏夹里"));
+        break;
+    case RemoveFavorite:
+        if (m_favorites->remove(result.path))
+            flash(tr("已从收藏夹移除"));
+        break;
+    case FavoriteFolder: {
+        Favorite f;
+        f.kind = Favorite::Kind::Folder;
+        f.path = result.isApp() || result.isDir ? QString() : folderOf(result.path);
+        if (f.path.isEmpty())
+            break;
+        f.name = f.path.size() == 3 ? f.path : f.path.mid(f.path.lastIndexOf(u'\\') + 1);
+        flash(m_favorites->add(f) ? tr("已把“%1”加入收藏夹").arg(f.name) : tr("“%1”已在收藏夹里").arg(f.name));
+        break;
+    }
+    case EditFavorite:
+        emit favoriteSettingsRequested(result.path);
+        break;
+    default:
         break;
     }
 }
@@ -925,13 +1349,47 @@ void Launcher::performWeb(const SearchResult& web, Action action)
 // (running a folder as administrator, recycling an app) are left out.
 void Launcher::performMany(const SearchResults& items, Action action)
 {
-    const auto exists = [](const QString& path) { return QFileInfo::exists(path); };
+    // Each server asked afresh once, then taken at its word.
+    QSet<QString> asked;
+    const auto exists = [&asked](const QString& path) {
+        const QString host = QString::fromStdWString(std::wstring(unc::host(path.toStdWString()))).toLower();
+        const bool fresh = !asked.contains(host);
+        asked.insert(host);
+        return serverAnswers(path, fresh) && QFileInfo::exists(path);
+    };
+    if (action == Alternate)
+        action = Open;
+    if (action == AddFavorite && m_favorites) {
+        FavoriteList favorites;
+        for (const SearchResult& r : items) {
+            if (const std::optional<Favorite> f = favoriteOf(r))
+                favorites.append(*f);
+        }
+        const int added = m_favorites->addAll(favorites);
+        flash(added > 0 ? tr("已加入收藏夹 %Ln 项", nullptr, added) : tr("选中的项目都已在收藏夹里"));
+        return;
+    }
+    if (action == RemoveFavorite && m_favorites) {
+        QStringList paths;
+        for (const SearchResult& r : items)
+            paths.append(r.path);
+        if (const int removed = m_favorites->removeAll(paths); removed > 0)
+            flash(tr("已从收藏夹移除 %Ln 项", nullptr, removed));
+        return;
+    }
     switch (action) {
     case Open:
     case RunAsAdmin: {
         const bool admin = action == RunAsAdmin;
         int started = 0;
         for (const SearchResult& r : items) {
+            if (r.isPlugin()) { // its own default action (which may close the window itself)
+                if (admin)
+                    continue;
+                performPlugin(r, Open);
+                ++started;
+                continue;
+            }
             if (r.isWeb()) {
                 if (admin)
                     continue;
@@ -1001,8 +1459,12 @@ void Launcher::performMany(const SearchResults& items, Action action)
     }
     case CopyPath: {
         QStringList paths;
-        for (const SearchResult& r : items)
-            paths.append(r.isApp() && !r.target.isEmpty() ? r.target : r.path);
+        for (const SearchResult& r : items) {
+            if (r.isPlugin())
+                paths.append(r.plugin->copy.isEmpty() ? r.name : r.plugin->copy);
+            else
+                paths.append(r.isApp() && !r.target.isEmpty() ? r.target : r.path);
+        }
         shell::copyText(paths.join(u'\n'));
         flash(tr("已复制 %Ln 个路径", nullptr, static_cast<int>(paths.size())));
         break;
@@ -1189,12 +1651,69 @@ QVariantList Launcher::menuItems(int row) const
             items.append(separator);
             items.append(entry(ForgetRecent, tr("从最近使用中移除"), QString(), u"\uE711"_s)); // Cancel
         }
+        if (m_favorites) {
+            int addable = 0;
+            int kept = 0;
+            for (const SearchResult& s : selection) {
+                if (favoriteOf(s))
+                    ++(m_favorites->contains(s.path) ? kept : addable);
+            }
+            if (addable > 0 || kept > 0)
+                items.append(separator);
+            if (addable > 0)
+                items.append(entry(AddFavorite, tr("加入收藏夹（%Ln 项）", nullptr, addable), QString(), u"\uE734"_s));
+            else if (kept > 0)
+                items.append(entry(RemoveFavorite, tr("从收藏夹移除（%Ln 项）", nullptr, kept), QString(), u"\uE8D9"_s));
+        }
         return items;
     }
 
     // Glyphs: Segoe Fluent Icons / MDL2 Assets, or the name of an icon
     // Glyph.qml draws.
     QVariantList items;
+    // The favorites' entries, after the copying ones: in or out (and edit),
+    // and for a file the folder it is in.
+    const auto favoriteItems = [&] {
+        if (!m_favorites || !favoriteOf(*r))
+            return;
+        items.append(separator);
+        if (m_favorites->contains(r->path)) {
+            items.append(entry(RemoveFavorite, tr("从收藏夹移除"), QString(), u"\uE8D9"_s)); // Unfavorite
+            items.append(entry(EditFavorite, tr("编辑收藏（名称、关键词）…"), QString(), u"\uE70F"_s)); // Edit
+        } else {
+            items.append(entry(AddFavorite, tr("加入收藏夹"), QString(), u"\uE734"_s)); // FavoriteStar
+        }
+        if (const QString folder = r->isApp() || r->isDir ? QString() : folderOf(r->path);
+            !folder.isEmpty() && !m_favorites->contains(folder)) {
+            items.append(entry(FavoriteFolder, tr("收藏所在的文件夹"), QString(), u"\uE8B7"_s)); // Folder
+        }
+    };
+    if (r->isPlugin()) {
+        // Its actions as the plugin named them (Enter, Ctrl+Enter, Shift+Enter
+        // in that order), else what its default does; then copying its text.
+        const PluginRow& p = *r->plugin;
+        static constexpr QStringView kKeys[] {u"Enter", u"Ctrl+Enter", u"Shift+Enter"};
+        if (p.valid) {
+            for (int i = 0; i < p.actions.size(); ++i) {
+                const QString key = !p.actions[i].key.isEmpty() ? p.actions[i].key
+                    : i < 3                                     ? kKeys[i].toString()
+                                                                : QString();
+                items.append(entry(static_cast<Action>(PluginAction + i), p.actions[i].title, key,
+                    i == 0 ? u"\uE8A7"_s : u"\uE768"_s));
+            }
+            if (p.actions.isEmpty()) {
+                const QString text = p.openKind == PluginRow::OpenKind::Url ? tr("打开网址")
+                    : !p.searchQuery.isEmpty()                              ? tr("搜索")
+                    : !p.setQuery.isEmpty()                                 ? tr("填入搜索框")
+                                                                            : tr("打开");
+                items.append(entry(Open, text, u"Enter"_s, u"\uE8A7"_s));
+            }
+            items.append(separator);
+        }
+        items.append(entry(CopyItem, tr("复制"), u"Ctrl+C"_s, u"\uE8C8"_s));
+        items.append(entry(CopyName, tr("复制名称"), QString(), u"\uE8AC"_s));
+        return items;
+    }
     if (r->isWeb()) {
         items.append(r->words.isEmpty() ? entry(Open, tr("打开网站"), u"Enter"_s, u"\uE774"_s) // Globe
                                         : entry(Open, tr("搜索"), u"Enter"_s, u"\uE721"_s)); // Search
@@ -1210,6 +1729,7 @@ QVariantList Launcher::menuItems(int row) const
         items.append(separator);
         items.append(entry(CopyPath, tr("复制打开命令"), u"Ctrl+Shift+C"_s, u"copyPath"_s));
         items.append(entry(CopyName, tr("复制名称"), QString(), u"\uE8AC"_s));
+        favoriteItems();
         if (r->recent) {
             items.append(separator);
             items.append(entry(ForgetRecent, tr("从最近使用中移除"), QString(), u"\uE711"_s));
@@ -1229,6 +1749,7 @@ QVariantList Launcher::menuItems(int row) const
         if (!r->target.isEmpty())
             items.append(entry(CopyPath, tr("复制完整路径"), u"Ctrl+Shift+C"_s, u"copyPath"_s));
         items.append(entry(CopyName, tr("复制名称"), QString(), u"\uE8AC"_s));
+        favoriteItems();
         if (r->recent) {
             items.append(separator);
             items.append(entry(ForgetRecent, tr("从最近使用中移除"), QString(), u"\uE711"_s));
@@ -1243,11 +1764,332 @@ QVariantList Launcher::menuItems(int row) const
     items.append(entry(CopyItem, tr("复制"), u"Ctrl+C"_s, u"\uE8C8"_s));
     items.append(entry(CopyPath, tr("复制完整路径"), u"Ctrl+Shift+C"_s, u"copyPath"_s));
     items.append(entry(CopyName, tr("复制名称"), QString(), u"\uE8AC"_s));
+    favoriteItems();
     if (r->recent) {
         items.append(separator);
         items.append(entry(ForgetRecent, tr("从最近使用中移除"), QString(), u"\uE711"_s));
     }
     return items;
+}
+
+// ---- plugins ------------------------------------------------------------------
+
+QString Launcher::pluginKeyword() const
+{
+    return m_keyword ? m_keyword->keyword : QString();
+}
+
+QString Launcher::pluginLabel() const
+{
+    return m_keyword ? m_keyword->label : QString();
+}
+
+QString Launcher::pluginIcon() const
+{
+    return m_keyword ? m_keyword->icon : QString();
+}
+
+// After the keyword, while nothing follows it: the user is about to type
+// the words, so the hint sits where they go.
+QString Launcher::pluginHint() const
+{
+    return m_keyword && m_keyword->words.isEmpty() && m_query.endsWith(u' ') ? m_keyword->hint : QString();
+}
+
+QString Launcher::pluginWaiting() const
+{
+    if (!m_keyword || m_pluginPending.isEmpty() || !m_pluginSlow)
+        return {};
+    return m_pluginProgress.isEmpty() ? tr("正在等 %1…").arg(m_keyword->label) : m_pluginProgress;
+}
+
+QString Launcher::pluginName(const QString& pluginId) const
+{
+    if (m_plugins) {
+        if (const plugin::Entry* e = m_plugins->catalog().find(pluginId); e && e->manifest)
+            return e->manifest->name.pick(uiLocale());
+    }
+    return pluginId;
+}
+
+bool Launcher::clearToKeyword()
+{
+    if (!m_keyword || m_keyword->words.isEmpty())
+        return false;
+    setQuery(m_keyword->keyword + u' ');
+    return true;
+}
+
+// The row with an autocomplete: `row` itself, else (outside keyword mode,
+// where the row's own is all Tab means) the hint row offering a keyword
+// that begins with what was typed, which sits among the rows, not under
+// the keyboard ("uu": Tab gives "uuid " from the app row above it).
+const SearchResult* Launcher::completionRow(int row) const
+{
+    const SearchResult* r = m_results.at(row);
+    if (r && r->isPlugin() && !r->plugin->autocomplete.isEmpty())
+        return r;
+    if (m_keyword)
+        return nullptr;
+    for (int i = 0; i < m_results.count(); ++i) {
+        const SearchResult* h = m_results.at(i);
+        if (plugin::isHintRow(*h) && !h->plugin->autocomplete.isEmpty())
+            return h;
+    }
+    return nullptr;
+}
+
+// A favorite folder's row: Tab lists what it holds, as typing its path does
+// ("D:\工作文档\"). Other folders' rows keep Tab for the scopes.
+const SearchResult* Launcher::enterableFolder(int row) const
+{
+    const SearchResult* r = m_results.at(row);
+    return r && !m_keyword && r->favorite && r->isDir && !r->isApp() && !r->offline && !r->missing ? r : nullptr;
+}
+
+bool Launcher::autocomplete(int row)
+{
+    if (const SearchResult* folder = enterableFolder(row)) {
+        setQuery(folder->path.endsWith(u'\\') ? folder->path : folder->path + u'\\');
+        return true;
+    }
+    const SearchResult* r = completionRow(row);
+    if (!r)
+        return false;
+    setQuery(r->plugin->autocomplete);
+    return true;
+}
+
+void Launcher::leaveKeyword()
+{
+    if (m_keyword)
+        setQuery({});
+}
+
+std::optional<Launcher::KeywordMode> Launcher::matchKeyword(const QString& text) const
+{
+    if (!m_plugins || !m_merge || m_scope != All || text.trimmed().isEmpty())
+        return std::nullopt;
+    for (const plugin::Match& m : m_plugins->catalog().match(text)) {
+        if (m.kind != plugin::Match::Kind::Keyword)
+            continue;
+        const bool dark = QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark;
+        const QString locale = uiLocale();
+        const QString icon = !m.command->icon.isEmpty() ? m.command->icon : m.entry->manifest->icon;
+        return KeywordMode {m.entry->id, m.command->id, m.keyword, m.text,
+            m.command->title.pick(locale).isEmpty() ? m.entry->manifest->name.pick(locale) : m.command->title.pick(locale),
+            m.command->hint.pick(locale), FileIconProvider::pluginIconUrl(m.entry->id, icon, dark)};
+    }
+    return std::nullopt;
+}
+
+// Part of search(): the plugins the text triggers are asked (and the
+// earlier query cancelled); a keyword's command takes the list (m_keyword).
+void Launcher::startPluginQuery(const QString& text, std::optional<KeywordMode> keyword)
+{
+    const bool was = m_keyword.has_value();
+    m_keyword.reset();
+    m_pluginPending.clear();
+    m_pluginWait.stop();
+    m_pluginSlow = false;
+    m_pluginProgress.clear();
+    if (!m_plugins || !m_merge) {
+        if (was)
+            emit pluginChanged();
+        return;
+    }
+    const auto scope = static_cast<ws::Scope>(m_scope);
+    const std::uint64_t id = ++m_pluginQueryId;
+    m_keyword = std::move(keyword);
+    m_merge->begin(id, text, m_keyword ? m_keyword->pluginId : QString(), m_keyword ? m_keyword->commandId : QString());
+    m_pluginTimer.start();
+    m_plugins->query(text, scope, id); // queryTaken() for each plugin asked; zero-code ones answer within
+    if (!m_pluginPending.isEmpty())
+        m_pluginWait.start();
+    if (was || m_keyword)
+        emit pluginChanged();
+}
+
+void Launcher::onPluginTaken(std::uint64_t queryId, const QString& pluginId)
+{
+    if (queryId == m_pluginQueryId)
+        m_pluginPending.insert(pluginId);
+}
+
+void Launcher::onPluginResults(std::uint64_t queryId, const QString& pluginId, const QString& commandId,
+    const QList<ws::plugin::Item>& items, bool partial, bool replace)
+{
+    if (queryId != m_pluginQueryId || !m_merge)
+        return;
+    m_merge->results(queryId, pluginId, commandId, items, partial, replace);
+    if (m_merge->takeBetterFirstRow())
+        emit betterFirstRow();
+    refreshStatus();
+}
+
+void Launcher::onPluginFinished(std::uint64_t queryId, const QString& pluginId)
+{
+    if (queryId == m_pluginQueryId)
+        pluginSettled(pluginId);
+}
+
+void Launcher::onPluginFailed(std::uint64_t queryId, const QString& pluginId, const QString& why)
+{
+    if (queryId != m_pluginQueryId)
+        return;
+    m_pluginError = tr("%1：%2").arg(pluginName(pluginId), why);
+    m_pluginErrorTimer.start();
+    // The keyword's command gave nothing: an empty list, not the last query's rows.
+    if (m_keyword && m_keyword->pluginId == pluginId && m_replacePending)
+        showPluginRows({});
+    pluginSettled(pluginId);
+}
+
+void Launcher::onPluginProgress(std::uint64_t queryId, const QString& pluginId, const QString& text)
+{
+    if (queryId != m_pluginQueryId || !m_keyword || m_keyword->pluginId != pluginId)
+        return;
+    m_pluginProgress = text;
+    refreshStatus();
+}
+
+void Launcher::pluginSettled(const QString& pluginId)
+{
+    m_pluginPending.remove(pluginId);
+    if (m_pluginPending.isEmpty()) {
+        m_pluginWait.stop();
+        m_pluginSlow = false;
+        m_pluginElapsedUs = m_pluginTimer.isValid() ? m_pluginTimer.nsecsElapsed() / 1000 : 0;
+    }
+    refreshStatus();
+}
+
+// A plugin row's action: Enter, Ctrl+Enter and Shift+Enter are the first
+// three of its actions (its own, else its command's); the menu names them
+// by number. The default one is done here when the row says how (open,
+// setQuery, search: no round trip, and no process needed); every other
+// goes to the plugin, whose effects come back (onPluginActionDone). Never
+// as administrator: a plugin's rows open with the user's rights, always.
+void Launcher::performPlugin(const SearchResult& result, Action action)
+{
+    const PluginRow& p = *result.plugin;
+    const QString copyText = p.copy.isEmpty() ? result.name : p.copy;
+    switch (action) {
+    case CopyItem:
+    case CopyPath:
+        shell::copyText(copyText);
+        flash(tr("已复制"));
+        return;
+    case CopyName:
+        shell::copyText(result.name);
+        flash(tr("已复制名称"));
+        return;
+    case RunAsAdmin:
+        flash(tr("插件的结果不以管理员身份运行"));
+        return;
+    case Recycle:
+    case ForgetRecent:
+    case EditWebShortcuts:
+        return;
+    default:
+        break;
+    }
+    const int index = action == Open ? 0 : action == Reveal ? 1 : action == Alternate ? 2 : action >= PluginAction ? action - PluginAction : -1;
+    if (index < 0 || !p.valid)
+        return;
+    if (index == 0) {
+        switch (p.openKind) {
+        case PluginRow::OpenKind::Path:
+            // A program with arguments or a working folder is started as
+            // such; anything else opens as the shell would open it.
+            if (p.openArgs.isEmpty() && p.openCwd.isEmpty())
+                shell::open(p.openTarget, false, reportFailure(result.name));
+            else if (!shell::startUnelevated(p.openTarget.toStdWString(), p.openArgs.toStdWString(), p.openCwd.toStdWString()).valid())
+                emit openFailed(result.name);
+            emit dismissRequested();
+            return;
+        case PluginRow::OpenKind::Url:
+            // "winshun:settings": Win顺's own settings at the plugin's card
+            // (a row saying what to set up); never handed to the shell.
+            if (p.openTarget.compare(u"winshun:settings", Qt::CaseInsensitive) == 0)
+                emit pluginSettingsRequested(p.pluginId);
+            else
+                shell::openUrl(p.openTarget);
+            emit dismissRequested();
+            return;
+        case PluginRow::OpenKind::None:
+            break;
+        }
+        if (!p.searchQuery.isEmpty()) {
+            const QString scope = p.searchScope.toLower();
+            setScope(scope == u"files" ? Files : scope == u"folders" ? Folders : scope == u"content" ? Content : All);
+            setQuery(p.searchQuery);
+            return;
+        }
+        if (!p.setQuery.isEmpty()) {
+            setQuery(p.setQuery);
+            return;
+        }
+    }
+    if (index >= p.actions.size() && !(index == 0 && p.actions.isEmpty()))
+        return; // no such action
+    if (!m_plugins)
+        return;
+    const QString actionId = index < p.actions.size() ? p.actions[index].id : u"default"_s;
+    const QString words = m_keyword ? m_keyword->words : m_query.trimmed();
+    m_plugins->action(++m_pluginRequest, p.pluginId, p.commandId, actionId, p.item, words);
+}
+
+void Launcher::onPluginActionDone(std::uint64_t requestId, const QList<ws::plugin::Effect>& effects, bool ok, const QString& error)
+{
+    (void)requestId;
+    if (!ok) {
+        flash(error.isEmpty() ? tr("插件没有完成这个操作") : error);
+        return;
+    }
+    applyEffects(effects);
+}
+
+// What a plugin asked for after an action, in its order: hide (the
+// default), keep, setQuery, notify, copy, open, replace (its items as the list).
+void Launcher::applyEffects(const QList<ws::plugin::Effect>& effects)
+{
+    bool hide = false;
+    for (const plugin::Effect& e : effects) {
+        switch (e.kind) {
+        case plugin::Effect::Kind::Hide:
+            hide = true;
+            break;
+        case plugin::Effect::Kind::Keep:
+            break;
+        case plugin::Effect::Kind::SetQuery:
+            setQuery(e.text);
+            break;
+        case plugin::Effect::Kind::Notify:
+            flash(e.text);
+            break;
+        case plugin::Effect::Kind::Copy:
+            shell::copyText(e.text);
+            break;
+        case plugin::Effect::Kind::Open:
+            if (e.open.kind == plugin::Open::Kind::Url && e.open.target.compare(u"winshun:settings", Qt::CaseInsensitive) == 0) {
+                if (m_keyword)
+                    emit pluginSettingsRequested(m_keyword->pluginId); // its own card (see performPlugin)
+            } else if (e.open.kind == plugin::Open::Kind::Url)
+                shell::openUrl(e.open.target);
+            else if (e.open.args.isEmpty() && e.open.cwd.isEmpty())
+                shell::open(e.open.target, false);
+            else
+                shell::startUnelevated(e.open.target.toStdWString(), e.open.args.toStdWString(), e.open.cwd.toStdWString());
+            break;
+        case plugin::Effect::Kind::Replace:
+            if (m_merge && m_keyword)
+                m_merge->replace(m_keyword->pluginId, m_keyword->commandId, e.items);
+            break;
+        }
+    }
+    if (hide)
+        emit dismissRequested();
 }
 
 QRectF Launcher::screenArea(QPointF globalPos) const

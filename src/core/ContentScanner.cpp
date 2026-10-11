@@ -8,6 +8,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <bit>
 #include <cstring>
 #include <vector>
 
@@ -53,6 +54,7 @@ namespace {
 
 constexpr std::size_t kChunkBytes = ContentScanner::kChunkBytes;
 constexpr std::size_t kContextBytes = 600; // decoded around a candidate match
+constexpr std::size_t kLongLineBytes = 8 * 1024; // a line longer is packed code or data (ContentMatch::longLine)
 
 unsigned systemLegacyCodePage()
 {
@@ -135,40 +137,165 @@ unsigned ContentScanner::legacyCodePage()
     return codePage;
 }
 
-ContentScanner::ContentScanner(const QString& needle, unsigned ansiCodePage)
-    : m_needle(needle)
-    , m_codePage(ansiCodePage != 0 ? ansiCodePage : legacyCodePage())
+ContentScanner::ContentScanner(const QStringList& terms, unsigned ansiCodePage)
+    : m_codePage(ansiCodePage != 0 ? ansiCodePage : legacyCodePage())
 {
-    if (m_needle.isEmpty())
-        return;
+    for (const QString& text : terms) {
+        if (text.isEmpty() || m_terms.size() == kMaxTerms)
+            continue;
+        if (std::ranges::any_of(m_terms, [&](const Term& t) { return t.text.compare(text, Qt::CaseInsensitive) == 0; }))
+            continue; // typed twice
+        Term& term = m_terms.emplace_back();
+        term.text = text;
+        term.utf8 = ByteFinder(text.toUtf8().toStdString());
 
-    m_utf8 = ByteFinder(m_needle.toUtf8().toStdString());
+        std::string le(static_cast<std::size_t>(text.size()) * 2, '\0');
+        std::string be(le.size(), '\0');
+        for (qsizetype i = 0; i < text.size(); ++i) {
+            const char16_t u = text[i].unicode();
+            le[2 * i] = static_cast<char>(u & 0xFF);
+            le[2 * i + 1] = static_cast<char>(u >> 8);
+            be[2 * i] = static_cast<char>(u >> 8);
+            be[2 * i + 1] = static_cast<char>(u & 0xFF);
+        }
+        term.utf16le = ByteFinder(std::move(le));
+        term.utf16be = ByteFinder(std::move(be));
 
-    std::string le(static_cast<std::size_t>(m_needle.size()) * 2, '\0');
-    std::string be(le.size(), '\0');
-    for (qsizetype i = 0; i < m_needle.size(); ++i) {
-        const char16_t u = m_needle[i].unicode();
-        le[2 * i] = static_cast<char>(u & 0xFF);
-        le[2 * i + 1] = static_cast<char>(u >> 8);
-        be[2 * i] = static_cast<char>(u >> 8);
-        be[2 * i + 1] = static_cast<char>(u & 0xFF);
-    }
-    m_utf16le = ByteFinder(std::move(le));
-    m_utf16be = ByteFinder(std::move(be));
-
-    const auto* wide = reinterpret_cast<const wchar_t*>(m_needle.utf16());
-    const int wideLen = static_cast<int>(m_needle.size());
-    BOOL usedDefault = FALSE;
-    const int n
-        = ::WideCharToMultiByte(m_codePage, WC_NO_BEST_FIT_CHARS, wide, wideLen, nullptr, 0, nullptr, &usedDefault);
-    if (n > 0 && !usedDefault) {
-        std::string ansi(static_cast<std::size_t>(n), '\0');
-        ::WideCharToMultiByte(m_codePage, WC_NO_BEST_FIT_CHARS, wide, wideLen, ansi.data(), n, nullptr, &usedDefault);
-        if (!usedDefault) {
-            m_ansi = ByteFinder(std::move(ansi));
-            m_ansiRepresentable = true;
+        const auto* wide = reinterpret_cast<const wchar_t*>(text.utf16());
+        const int wideLen = static_cast<int>(text.size());
+        BOOL usedDefault = FALSE;
+        const int n
+            = ::WideCharToMultiByte(m_codePage, WC_NO_BEST_FIT_CHARS, wide, wideLen, nullptr, 0, nullptr, &usedDefault);
+        if (n > 0 && !usedDefault) {
+            std::string ansi(static_cast<std::size_t>(n), '\0');
+            ::WideCharToMultiByte(m_codePage, WC_NO_BEST_FIT_CHARS, wide, wideLen, ansi.data(), n, nullptr, &usedDefault);
+            if (!usedDefault)
+                term.ansi.emplace(std::move(ansi));
         }
     }
+}
+
+std::uint32_t ContentScanner::termsIn(const QString& line) const
+{
+    std::uint32_t found = 0;
+    for (std::size_t i = 0; i < m_terms.size(); ++i) {
+        if (line.contains(m_terms[i].text, Qt::CaseInsensitive))
+            found |= std::uint32_t {1} << i;
+    }
+    return found;
+}
+
+std::uint32_t ContentScanner::wordStartsIn(const QString& line, std::uint32_t terms) const
+{
+    // A CJK character starts a word wherever it is; "Lock" does in "readLock".
+    const auto wordChar = [](QChar c) { return c.unicode() < 0x80 && (c.isLetterOrNumber() || c == u'_'); };
+    const auto startsWord = [&](qsizetype i) {
+        return i == 0 || !wordChar(line[i - 1]) || (line[i - 1].isLower() && line[i].isUpper());
+    };
+    std::uint32_t starts = 0;
+    for (std::size_t t = 0; t < m_terms.size(); ++t) {
+        const std::uint32_t bit = std::uint32_t {1} << t;
+        if (!(terms & bit))
+            continue;
+        const QString& text = m_terms[t].text;
+        if (!wordChar(text.front())) {
+            starts |= bit;
+            continue;
+        }
+        for (qsizetype i = line.indexOf(text, 0, Qt::CaseInsensitive); i >= 0;
+            i = line.indexOf(text, i + 1, Qt::CaseInsensitive)) {
+            if (startsWord(i)) {
+                starts |= bit;
+                break;
+            }
+        }
+    }
+    return starts;
+}
+
+int contentRelevance(const ContentMatch& match, const QStringList& terms, QStringView fileName, int priority,
+    std::int64_t ageSeconds)
+{
+    const auto n = static_cast<int>(terms.size());
+    if (n == 0)
+        return 0;
+    int score = 0;
+    // Together on one line far more than apart; a packed file is all one line.
+    if (n > 1 && !match.longLine)
+        score += match.termsOnLine >= n ? 40 : 15 * std::max(match.termsOnLine - 1, 0) / (n - 1);
+    score += 20 * std::popcount(match.wordStarts) / n;
+    int named = 0;
+    for (const QString& t : terms)
+        named += fileName.contains(t, Qt::CaseInsensitive) ? 1 : 0;
+    score += 30 * named / n;
+    constexpr int kPlace[] = {15, 0, -5, -10};
+    score += kPlace[std::clamp(priority, 0, 3)];
+    constexpr std::int64_t kDay = 24 * 60 * 60;
+    if (ageSeconds >= 0)
+        score += ageSeconds < 7 * kDay ? 12 : ageSeconds < 30 * kDay ? 8 : ageSeconds < 365 * kDay ? 4 : 0;
+    if (match.longLine)
+        score -= 35;
+    return score;
+}
+
+// The snippet starts a little before a term in the line: the first one from
+// which the most of them fit, and shows every term that is in it.
+ContentMatch ContentScanner::matchIn(const QString& line, int lineNumber) const
+{
+    constexpr qsizetype kBefore = 36;
+    constexpr qsizetype kMaxChars = 160;
+    struct Hit {
+        qsizetype at;
+        qsizetype length;
+        std::size_t term;
+    };
+    std::vector<Hit> hits;
+    for (std::size_t t = 0; t < m_terms.size(); ++t) {
+        const QString& text = m_terms[t].text;
+        for (qsizetype i = line.indexOf(text, 0, Qt::CaseInsensitive); i >= 0;
+            i = line.indexOf(text, i + text.size(), Qt::CaseInsensitive))
+            hits.push_back({i, text.size(), t});
+    }
+    std::ranges::sort(hits, {}, &Hit::at);
+    qsizetype idx = 0;
+    qsizetype idxLength = 0;
+    int most = 0;
+    for (std::size_t a = 0; a < hits.size(); ++a) {
+        std::uint32_t fit = 0;
+        for (std::size_t b = a; b < hits.size() && hits[b].at + hits[b].length <= hits[a].at + kMaxChars - kBefore; ++b)
+            fit |= std::uint32_t {1} << hits[b].term;
+        if (const int count = std::popcount(fit); count > most) {
+            most = count;
+            idx = hits[a].at;
+            idxLength = hits[a].length;
+        }
+    }
+
+    qsizetype lead = 0;
+    while (lead < idx && line[lead].isSpace())
+        ++lead;
+    qsizetype start = std::max(lead, idx - kBefore);
+    if (start > 0 && start < idx && line[start].isLowSurrogate())
+        ++start;
+    qsizetype end = std::min(line.size(), std::max(start + kMaxChars, idx + idxLength));
+    while (end > idx + idxLength && line[end - 1].isSpace())
+        --end;
+    const QString prefix = start > lead ? u"…"_s : QString();
+    const QString suffix = end < line.size() ? u"…"_s : QString();
+
+    ContentMatch match;
+    match.line = lineNumber;
+    match.snippet = prefix + line.mid(start, end - start) + suffix;
+    for (const Term& t : m_terms) {
+        for (qsizetype i = line.indexOf(t.text, start, Qt::CaseInsensitive); i >= 0 && i + t.text.size() <= end;
+            i = line.indexOf(t.text, i + t.text.size(), Qt::CaseInsensitive))
+            match.matches.append({prefix.size() + i - start, t.text.size()});
+    }
+    std::ranges::sort(match.matches);
+    const std::uint32_t terms = termsIn(line);
+    match.termsOnLine = std::popcount(terms);
+    match.wordStarts = wordStartsIn(line, terms);
+    return match;
 }
 
 bool ContentScanner::isUtf8(std::string_view b, bool allowTruncatedTail)
@@ -263,7 +390,9 @@ std::optional<ContentMatch> ContentScanner::scan(
     if (!isValid())
         return std::nullopt;
     chunkSize = std::max<std::size_t>(chunkSize, 16) & ~std::size_t {1}; // even: keeps UTF-16 aligned
-    const std::size_t longestNeedle = std::max({m_utf8.size(), m_utf16le.size(), m_ansi.size()});
+    std::size_t longestNeedle = 0;
+    for (const Term& t : m_terms)
+        longestNeedle = std::max({longestNeedle, t.utf8.size(), t.utf16le.size(), t.ansi ? t.ansi->size() : 0});
 
     thread_local std::vector<char> buffer;
     buffer.resize(chunkSize + longestNeedle + 2);
@@ -275,25 +404,38 @@ std::optional<ContentMatch> ContentScanner::scan(
 
     std::size_t bom = 0;
     const TextEncoding encoding = detect({data, windowLength}, &bom);
-    const ByteFinder* finder = nullptr;
-    switch (encoding) {
-    case TextEncoding::Utf8:
-        finder = &m_utf8;
-        break;
-    case TextEncoding::Utf16LE:
-        finder = &m_utf16le;
-        break;
-    case TextEncoding::Utf16BE:
-        finder = &m_utf16be;
-        break;
-    case TextEncoding::Ansi:
-        if (!m_ansiRepresentable)
-            return std::nullopt; // the phrase cannot occur in this code page
-        finder = &m_ansi;
-        break;
+    std::vector<const ByteFinder*> finders;
+    finders.reserve(m_terms.size());
+    for (const Term& t : m_terms) {
+        switch (encoding) {
+        case TextEncoding::Utf8:
+            finders.push_back(&t.utf8);
+            break;
+        case TextEncoding::Utf16LE:
+            finders.push_back(&t.utf16le);
+            break;
+        case TextEncoding::Utf16BE:
+            finders.push_back(&t.utf16be);
+            break;
+        case TextEncoding::Ansi:
+            if (!t.ansi)
+                return std::nullopt; // the term cannot occur in this code page
+            finders.push_back(&*t.ansi);
+            break;
+        }
     }
     const std::size_t unit = unitOf(encoding);
-    const std::size_t needleBytes = finder->size();
+    const std::size_t needleBytes = std::ranges::max(finders, {}, &ByteFinder::size)->size();
+    const std::uint32_t all = (std::uint64_t {1} << m_terms.size()) - 1;
+
+    std::uint32_t seen = 0; // the terms found so far
+    struct Best {
+        QString line;
+        int number = 0;
+        int terms = 0; // how many of them it has
+        int starts = 0; // how many of those start a word
+        bool longLine = false;
+    } best;
 
     std::uint64_t linesBeforeWindow = 0;
     std::size_t windowFloor = bom; // first byte that belongs to the text
@@ -301,10 +443,24 @@ std::optional<ContentMatch> ContentScanner::scan(
         if (cancelled && cancelled())
             return std::nullopt;
 
-        for (std::size_t pos = finder->find(data, windowLength, windowFloor); pos != text::npos;
-            pos = finder->find(data, windowLength, pos + 1)) {
+        // Newlines counted up to a place in the window, onward from the last one asked.
+        std::size_t countedTo = 0;
+        std::uint64_t countedLines = 0;
+        const auto lineNumberAt = [&](std::size_t pos) {
+            if (pos < countedTo)
+                countedTo = countedLines = 0;
+            countedLines += countNewlines(data + countedTo, pos - countedTo, encoding);
+            countedTo = pos;
+            return static_cast<int>(linesBeforeWindow + countedLines + 1);
+        };
+        // The line around a candidate of term `t` at `pos`: whether the term is
+        // really there, and if so which terms the line has. `next`: where to
+        // look on (past the line).
+        const auto look = [&](std::size_t t, std::size_t pos, std::size_t& next) {
+            const std::size_t bytes = finders[t]->size();
+            next = pos + 1;
             if (unit == 2 && (pos & 1))
-                continue; // straddles two UTF-16 code units
+                return false; // straddles two UTF-16 code units
 
             // Line bounds around the candidate, capped so huge lines stay cheap.
             std::size_t from = pos;
@@ -320,35 +476,69 @@ std::optional<ContentMatch> ContentScanner::scan(
                 while (from < pos && (static_cast<unsigned char>(data[from]) & 0xC0) == 0x80)
                     ++from;
             }
-            std::size_t to = pos + needleBytes;
-            while (
-                to + unit <= windowLength && to - pos < kContextBytes + needleBytes && !isNewline(data, to, encoding))
+            std::size_t to = pos + bytes;
+            while (to + unit <= windowLength && to - pos < kContextBytes + bytes && !isNewline(data, to, encoding))
                 to += unit;
 
-            const QString line = cleanLine(decode(data + from, to - from, encoding));
-            const qsizetype idx = line.indexOf(m_needle, 0, Qt::CaseInsensitive);
-            if (idx < 0)
-                continue; // byte-level false positive (e.g. a GBK trail byte)
+            // Cut short, it may still be a paragraph (600 bytes are 200
+            // Chinese characters): long only with no line break for 8 KB.
+            std::size_t lineFrom = from;
+            if (!atLineStart && pos - from >= kContextBytes) {
+                while (lineFrom > windowFloor && pos - lineFrom < kLongLineBytes
+                    && !isNewline(data, lineFrom - unit, encoding))
+                    lineFrom -= unit;
+            }
+            std::size_t lineTo = to;
+            if (to - pos >= kContextBytes + bytes) {
+                while (lineTo + unit <= windowLength && lineTo - pos < kLongLineBytes && !isNewline(data, lineTo, encoding))
+                    lineTo += unit;
+            }
+            const bool longLine = lineTo - lineFrom >= kLongLineBytes;
 
-            ContentMatch match;
-            match.line = static_cast<int>(linesBeforeWindow + countNewlines(data, pos, encoding) + 1);
+            QString line = cleanLine(decode(data + from, to - from, encoding));
+            const std::uint32_t has = termsIn(line);
+            if (!(has & (std::uint32_t {1} << t)))
+                return false; // byte-level false positive (e.g. a GBK trail byte)
+            next = to;
+            seen |= has;
+            // The most terms, then the most at the start of a word, then the first.
+            if (const int count = std::popcount(has); count >= best.terms) {
+                const int starts = std::popcount(wordStartsIn(line, has));
+                if (count > best.terms || starts > best.starts) {
+                    best = {std::move(line), lineNumberAt(pos), count, starts, longLine};
+                } else if (starts == best.starts) {
+                    if (const int number = lineNumberAt(pos); number < best.number)
+                        best = {std::move(line), number, count, starts, longLine};
+                }
+            }
+            return true;
+        };
 
-            qsizetype lead = 0;
-            while (lead < idx && line[lead].isSpace())
-                ++lead;
-            constexpr qsizetype kBefore = 36;
-            constexpr qsizetype kMaxChars = 160;
-            qsizetype start = std::max(lead, idx - kBefore);
-            if (start > 0 && start < idx && line[start].isLowSurrogate())
-                ++start;
-            qsizetype end = std::min(line.size(), std::max(start + kMaxChars, idx + m_needle.size()));
-            while (end > idx + m_needle.size() && line[end - 1].isSpace())
-                --end;
-            const QString prefix = start > lead ? u"…"_s : QString();
-            const QString suffix = end < line.size() ? u"…"_s : QString();
-            match.snippet = prefix + line.mid(start, end - start) + suffix;
-            match.matchStart = static_cast<int>(prefix.size() + idx - start);
-            match.matchLength = static_cast<int>(m_needle.size());
+        // Where each term not seen yet first is.
+        for (std::size_t t = 0; t < finders.size(); ++t) {
+            if (seen & (std::uint32_t {1} << t))
+                continue;
+            for (std::size_t pos = finders[t]->find(data, windowLength, windowFloor), next = 0; pos != text::npos;
+                pos = finders[t]->find(data, windowLength, next)) {
+                if (look(t, pos, next))
+                    break;
+            }
+        }
+        if (seen == all) {
+            // A match. A line here that has more of the terms, or more of
+            // them at the start of a word ("fix", not in "prefix"), shows it
+            // better; a few dozen looked at (packed code repeats them).
+            const auto better = [&] { return best.terms < std::ssize(finders) || best.starts < std::ssize(finders); };
+            int looks = 64;
+            for (std::size_t t = 0; t < finders.size() && better() && looks > 0; ++t) {
+                for (std::size_t pos = finders[t]->find(data, windowLength, windowFloor), next = 0;
+                    pos != text::npos && better() && looks > 0; pos = finders[t]->find(data, windowLength, next)) {
+                    look(t, pos, next);
+                    --looks;
+                }
+            }
+            ContentMatch match = matchIn(best.line, best.number);
+            match.longLine = best.longLine;
             return match;
         }
 

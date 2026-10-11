@@ -33,8 +33,9 @@ Window {
     width: listWidth + (page.previewOpen ? 1 + previewWidth : 0)
     height: page.implicitHeight
     // See-through to Mica, as the launcher; drawn as active also while the
-    // program it pastes into keeps the focus (WindowFrame::setNoActivate).
-    color: Theme.backdrop && SystemTheme.materials && (window.active || clipboard.keysRouted)
+    // program it pastes into keeps the focus (WindowFrame::setNoActivate),
+    // routed or pinned.
+    color: Theme.backdrop && SystemTheme.materials && (window.active || clipboard.keysRouted || clipboard.pinned)
            ? "transparent" : Theme.background
     flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
     title: qsTr("剪贴板") // Qt adds " - Win顺"

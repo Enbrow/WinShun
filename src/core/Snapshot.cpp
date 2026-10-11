@@ -625,7 +625,7 @@ std::optional<Contents> load(const QString& filePath)
 
     auto index = std::make_unique<FileIndex>();
     // Version 5 on: the names once each, stored as they come.
-    std::vector<std::pair<std::uint32_t, std::uint16_t>> names; // offset, length
+    std::vector<std::uint32_t> names; // where the index stores them
     if (version >= 5) {
         const auto nameCount = r.get<std::uint32_t>();
         if (!r.ok() || nameCount > (1u << 28))
@@ -643,7 +643,7 @@ std::optional<Contents> load(const QString& filePath)
                 if (!zero || zero == p || zero - p > 0xFFFF)
                     return std::nullopt;
                 const auto length = static_cast<std::uint16_t>(zero - p);
-                names.emplace_back(index->storeName({p, length}), length);
+                names.push_back(index->storeName({p, length}));
                 p = zero + 1;
             }
             if (p != end)
@@ -654,7 +654,7 @@ std::optional<Contents> load(const QString& filePath)
             const char* name = r.bytes(length);
             if (!r.ok() || length == 0)
                 return std::nullopt;
-            names.emplace_back(index->storeName({name, length}), length);
+            names.push_back(index->storeName({name, length}));
         }
     } else {
         index->setInterning(true); // the same name comes many times
@@ -663,19 +663,18 @@ std::optional<Contents> load(const QString& filePath)
     if (!r.ok())
         return std::nullopt;
     // Entry i, its parent `back` entries before it (0: a root).
-    const auto add = [&](std::uint32_t i, std::uint64_t back, std::uint8_t flags, std::uint32_t offset,
-                         std::uint16_t length) {
+    const auto add = [&](std::uint32_t i, std::uint64_t back, std::uint8_t flags, std::uint32_t offset) {
         if (back == 0) {
             if (!(flags & EntryFlag::Root))
                 return false;
-            index->addStored(kNoEntry, offset, length, flags);
+            index->addStored(kNoEntry, offset, flags);
             return true;
         }
         // Ids are assigned sequentially, so file order == entry id.
         const auto parent = static_cast<EntryId>(i - back);
         if (back > i || index->entry(parent).isDeleted() || !index->entry(parent).isDir())
             return false;
-        index->addStored(parent, offset, length, flags);
+        index->addStored(parent, offset, flags);
         return true;
     };
     if (version >= 6) {
@@ -709,7 +708,7 @@ std::optional<Contents> load(const QString& filePath)
                 const std::uint64_t number = code == 0 ? firstUnused++ : code - 1;
                 const auto id = start + static_cast<std::uint32_t>(k);
                 if (number >= names.size() || (code != 0 && number >= firstUnused)
-                    || !add(id, (*backs)[k], flags[k], names[number].first, names[number].second))
+                    || !add(id, (*backs)[k], flags[k], names[number]))
                     return std::nullopt;
                 if (times) {
                     const std::uint64_t z = (*times)[k];
@@ -725,25 +724,24 @@ std::optional<Contents> load(const QString& filePath)
         std::uint64_t back = 0;
         std::uint8_t flags = 0;
         std::uint32_t offset = 0;
-        std::uint16_t length = 0;
         if (version == 5) {
             back = r.leb();
             flags = r.get<std::uint8_t>();
             const std::uint64_t number = r.leb();
             if (!r.ok() || number >= names.size())
                 return std::nullopt;
-            std::tie(offset, length) = names[number];
+            offset = names[number];
         } else {
             const auto parent = r.get<EntryId>();
             back = parent == kNoEntry ? 0 : (parent < i ? i - parent : std::uint64_t {i} + 1);
             flags = r.get<std::uint8_t>();
-            length = r.get<std::uint16_t>();
+            const auto length = r.get<std::uint16_t>();
             const char* name = r.bytes(length);
             if (!r.ok() || length == 0)
                 return std::nullopt;
             offset = index->storeName({name, length});
         }
-        if (!r.ok() || !add(i, back, flags, offset, length))
+        if (!r.ok() || !add(i, back, flags, offset))
             return std::nullopt;
     }
 

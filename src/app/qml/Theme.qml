@@ -63,6 +63,8 @@ QtObject {
     readonly property color menuBackground: dark ? "#2C2C2C" : "#F9F9F9"
     readonly property color menuHover: dark ? "#3A3A3A" : "#ECECEC"
     readonly property color danger: dark ? "#FF99A4" : "#C42B1C"
+    readonly property color success: dark ? "#6CCB5F" : "#0F7B0F" // Windows 11's status colours
+    readonly property color caution: dark ? "#FCE100" : "#9D5D00"
     readonly property color closeHover: "#C42B1C" // title bar close button, as in Windows 11
     readonly property color closePressed: Qt.rgba(0.769, 0.169, 0.110, 0.9)
 

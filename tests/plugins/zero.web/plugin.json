@@ -1,0 +1,11 @@
+{
+  "manifest": 1,
+  "id": "zero.web",
+  "name": {"zh": "网页快捷方式示例", "en": "Web shortcuts sample"},
+  "version": "1.0.0",
+  "description": "测试用零代码插件：gh（和 [WebSearch] 自带的 gh 撞车，网页搜索的赢）、ddg",
+  "commands": [
+    {"id": "gh", "keyword": "gh", "title": "GitHub", "run": {"url": "https://github.com/search?q=%s", "home": "https://github.com/"}},
+    {"id": "ddg", "keyword": "ddg", "title": "DuckDuckGo", "run": {"url": "https://duckduckgo.com/?q=%s"}}
+  ]
+}

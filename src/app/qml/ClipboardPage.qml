@@ -284,6 +284,12 @@ Item {
             if (input.text !== page.clipboard.query)
                 input.text = page.clipboard.query
         }
+        // The keys back from the program in front (pinned, or unpinned):
+        // what is typed now replaces the last search, not adds to it.
+        function onKeysRoutedChanged() {
+            if (page.clipboard.keysRouted)
+                input.selectAll()
+        }
         function onContextMenuKeyPressed() { page.openContextMenu(list.currentIndex) }
         function onGroupNameRequested(row, group) {
             page.namingRow = row
@@ -310,6 +316,7 @@ Item {
             Component.onCompleted: {
                 page.frame.addDragArea(header)
                 page.frame.addControl(input)
+                page.frame.addControl(pinButton)
             }
 
             Glyph {
@@ -325,8 +332,8 @@ Item {
                 id: input
                 anchors.left: icon.right
                 anchors.leftMargin: 14
-                anchors.right: pausedTag.visible ? pausedTag.left : parent.right
-                anchors.rightMargin: 16
+                anchors.right: pausedTag.visible ? pausedTag.left : pinButton.visible ? pinButton.left : parent.right
+                anchors.rightMargin: pinButton.visible && !pausedTag.visible ? 8 : 16
                 anchors.verticalCenter: parent.verticalCenter
                 focus: true
                 // Typed into without the focus (keysRouted): the caret shows
@@ -356,13 +363,36 @@ Item {
                     elide: Text.ElideRight
                     visible: input.text.length === 0 && input.preeditText.length === 0
                 }
+
+                // Pinned, the keys with the program in front: a click asks
+                // for them (App routes them here, as the hotkey does).
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: page.clipboard.pinned && !page.clipboard.keysRouted && !page.Window.active
+                    cursorShape: Qt.IBeamCursor
+                    onClicked: page.clipboard.wantKeys()
+                }
+            }
+
+            // Pinned: stays up, on top, through pastes and clicks elsewhere
+            // (Clipboard.pinned). Not while pasting into a field of Win顺's.
+            RowAction {
+                id: pinButton
+                visible: !page.intoField
+                anchors.right: parent.right
+                anchors.rightMargin: 14
+                anchors.verticalCenter: parent.verticalCenter
+                glyph: page.clipboard.pinned ? "" : "" // PinnedFill, Pin
+                checked: page.clipboard.pinned
+                tip: page.clipboard.pinned ? qsTr("取消钉住") : qsTr("钉住：一直显示在最上面，粘贴后也不收起")
+                onClicked: page.clipboard.pinned = !page.clipboard.pinned
             }
 
             Rectangle { // paused from the tray menu
                 id: pausedTag
                 visible: page.clipboard.paused
-                anchors.right: parent.right
-                anchors.rightMargin: 16
+                anchors.right: pinButton.visible ? pinButton.left : parent.right
+                anchors.rightMargin: pinButton.visible ? 8 : 16
                 anchors.verticalCenter: parent.verticalCenter
                 width: pausedText.implicitWidth + 20
                 height: 26
@@ -636,8 +666,11 @@ Item {
                 readonly property bool roomy: page.selectedCount === 0 || page.previewOpen
                 // Out of the way of a message too long to share the line with
                 // them ("已删除 1 条，按 Ctrl+Z 撤销"), while it shows.
-                readonly property bool shown: page.selectedCount > 0
-                                              || statusLabel.implicitWidth <= footer.width - 18 - 12 - 16 - implicitWidth
+                // Pinned without the keys: no key does anything here; the
+                // status says what a click does.
+                readonly property bool shown: !(page.clipboard.pinned && !page.clipboard.keysRouted && !page.Window.active)
+                                              && (page.selectedCount > 0
+                                                  || statusLabel.implicitWidth <= footer.width - 18 - 12 - 16 - implicitWidth)
                 opacity: shown ? 1 : 0 // still laid out: its width tells when it fits again
 
                 KeyHint { keys: "Enter"; label: page.pasteLabel }
@@ -651,6 +684,11 @@ Item {
     HoverTip {
         target: separatorArea.containsMouse ? separatorChip : null
         text: qsTr("点一下换一种：换行、空格、逗号、Tab、不分隔")
+    }
+
+    HoverTip {
+        target: pinButton.tipWanted ? pinButton : null
+        text: pinButton.tip
     }
 
     // While the menu is open, a click anywhere on the page closes it (a right

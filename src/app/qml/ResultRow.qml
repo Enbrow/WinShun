@@ -12,8 +12,16 @@ import WinShun
 // A web shortcut's site or search is tagged "网页" and copies its address.
 // A file or folder says when it was last written, at the end of its name's
 // line (also on the current row, where the buttons take the right end).
+// A file or folder on a network share that cannot be reached now is dimmed
+// and tagged "离线".
+// A plugin's row (an app in the list's terms) is tagged with the plugin's
+// name, shows what the plugin said under its title, and has one button,
+// which copies its text (its actions are the plugin's: Enter, Ctrl+Enter,
+// Shift+Enter, and the menu).
 // While the modifier of the number keys is held, the rows show their number
 // there instead (Ctrl+1 opens the first one shown).
+// A file's or folder's row can be dragged out with the mouse, into a chat or
+// a folder (with the selection, when it is in it).
 Item {
     id: row
 
@@ -28,7 +36,7 @@ Item {
     required property int line
     required property string location // of a content match: "第 3 行", "第 2 页"
     required property bool recent
-    required property bool isApp // or a place
+    required property bool isApp // or a place, or a plugin's row
     required property bool place // or a web page
     required property bool web
     required property bool packagedApp
@@ -38,6 +46,12 @@ Item {
     required property bool selected // one of several picked with Ctrl / Shift
     required property string modified // "昨天 14:32"; empty for an app, or not known
     required property string modifiedFull
+    required property bool offline // on a network share that cannot be reached now: dimmed, tagged
+    required property bool plugin // a plugin's row
+    required property string source // ... the plugin's name
+    required property bool favorite // one of its user's favorites: tagged 收藏 (with its keyword)
+    required property string favoriteKeyword
+    required property bool missing // a favorite no longer there: dimmed, tagged
     property bool showModified: true
     property int hint: 0 // the number keys' modifier held: this row's number, 0 for none
 
@@ -56,6 +70,7 @@ Item {
     signal clicked(int index, int modifiers)
     signal menuRequested(int index, point globalPos)
     signal actionRequested(int index, int action)
+    signal dragRequested(int index) // its file or folder dragged out of the window
 
     // Text on whole device pixels. Qt rounds each corner of a glyph's quad to
     // the pixel grid on the GPU, in single precision: on a half pixel (where
@@ -96,6 +111,7 @@ Item {
 
     Item {
         id: iconSlot
+        opacity: row.offline || row.missing ? 0.6 : 1
         x: 16
         anchors.verticalCenter: parent.verticalCenter
         width: 32 // 48 device pixels at 150 %, 64 at 200 %: sizes icons are drawn for
@@ -127,6 +143,7 @@ Item {
     }
 
     Column {
+        opacity: row.offline || row.missing ? 0.6 : 1
         y: row.onPixel((row.height - height) / 2)
         anchors.left: iconSlot.right
         anchors.leftMargin: 12
@@ -198,7 +215,11 @@ Item {
         y: row.onPixel((row.height - height) / 2)
         width: Math.min(implicitWidth, 200)
         elide: Text.ElideMiddle
-        text: row.contentMode ? row.location : row.recent ? qsTr("最近") : ""
+        text: row.contentMode ? row.location
+            : row.offline ? qsTr("离线")
+            : row.missing ? qsTr("已不存在")
+            : row.favorite ? (row.favoriteKeyword.length > 0 ? qsTr("收藏 · %1").arg(row.favoriteKeyword) : qsTr("收藏"))
+            : row.recent ? qsTr("最近") : ""
         color: Theme.faint
         font.pixelSize: Theme.fontBody
     }
@@ -218,7 +239,9 @@ Item {
             id: badgeText
             anchors.horizontalCenter: parent.horizontalCenter
             y: row.onPixel((badge.height - height) / 2)
-            text: row.recent ? qsTr("最近") : row.web ? qsTr("网页") : row.place ? qsTr("系统") : qsTr("应用")
+            text: row.plugin ? row.source : row.missing ? qsTr("已不存在")
+                : row.favorite ? (row.favoriteKeyword.length > 0 ? qsTr("收藏 · %1").arg(row.favoriteKeyword) : qsTr("收藏"))
+                : row.recent ? qsTr("最近") : row.web ? qsTr("网页") : row.place ? qsTr("系统") : qsTr("应用")
             color: Theme.accent
             font.pixelSize: Theme.fontCaption
         }
@@ -235,10 +258,34 @@ Item {
 
     MouseArea {
         id: area
+
+        // A file's or folder's row, held with the mouse and moved past the
+        // system's drag distance, drags it out (into a chat, a folder). The
+        // list then does not take the drag for scrolling (the wheel, the
+        // scroll bar and touch still scroll it); the other rows scroll as before.
+        property point pressedAt: Qt.point(0, 0)
+        property bool draggedOut: false
+
         anchors.fill: parent
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onPressed: (mouse) => {
+            draggedOut = false
+            pressedAt = Qt.point(mouse.x, mouse.y)
+            preventStealing = mouse.button === Qt.LeftButton && !row.isApp && !row.offline && !row.missing
+                              && mouse.source === Qt.MouseEventNotSynthesized
+        }
+        onPositionChanged: (mouse) => {
+            if (!pressed || !preventStealing || draggedOut || !(mouse.buttons & Qt.LeftButton))
+                return
+            if (Math.hypot(mouse.x - pressedAt.x, mouse.y - pressedAt.y) < Application.styleHints.startDragDistance)
+                return
+            draggedOut = true
+            row.dragRequested(row.index) // returns once it was let go
+        }
         onClicked: (mouse) => {
+            if (draggedOut) // the release that ended a drag out
+                return
             if (mouse.button === Qt.RightButton)
                 row.menuRequested(row.index, area.mapToGlobal(mouse.x, mouse.y))
             else
@@ -280,9 +327,9 @@ Item {
             }
             RowAction {
                 id: copyPathAction
-                glyph: "copyPath" // drawn by Glyph: a box holding "\\.."
-                tip: row.web ? qsTr("复制网址") : row.place ? qsTr("复制打开命令") : qsTr("复制完整路径")
-                tipShortcut: "Ctrl+Shift+C"
+                glyph: row.plugin ? "" : "copyPath" // Copy; else drawn by Glyph: a box holding "\\.."
+                tip: row.plugin ? qsTr("复制") : row.web ? qsTr("复制网址") : row.place ? qsTr("复制打开命令") : qsTr("复制完整路径")
+                tipShortcut: row.plugin ? "Ctrl+C" : "Ctrl+Shift+C"
                 onClicked: row.actionRequested(row.index, Launcher.CopyPath)
             }
             RowAction {

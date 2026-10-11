@@ -1,0 +1,5 @@
+# Dark theme on the "aurora" wallpaper (the README's dark pictures go on aurora).
+scene --theme dark --wallpaper aurora
+sleep 2500
+let p D
+run scenes\windows.txt

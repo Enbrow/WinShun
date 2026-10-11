@@ -1,0 +1,14 @@
+{
+  "manifest": 1,
+  "id": "bench.ps",
+  "name": {"zh": "PowerShell 常驻示例", "en": "PowerShell resident sample"},
+  "version": "1.0.0",
+  "description": "wsbench --plugin 用的常驻 PowerShell 插件：把查询原样回成几行结果",
+  "runtime": {"mode": "resident", "program": "powershell", "script": "main.ps1"},
+  "commands": [{
+    "id": "echo",
+    "keyword": "ps",
+    "title": {"zh": "回声", "en": "Echo"},
+    "hint": {"zh": "随便输入", "en": "Type anything"}
+  }]
+}

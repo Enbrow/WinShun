@@ -490,7 +490,7 @@ std::vector<ContentIndexer::Work> ContentIndexer::findWork(
             } else {
                 w.order = e.flags & EntryFlag::Hidden ? 3 : 2;
             }
-            w.document = documents.matches(index.name(e), e.extLength);
+            w.document = documents.matches(index.name(e), index.extLength(e));
             w.volume = volume->volume;
             work.push_back(w);
         }

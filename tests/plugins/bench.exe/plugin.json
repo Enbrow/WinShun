@@ -1,0 +1,13 @@
+{
+  "manifest": 1,
+  "id": "bench.exe",
+  "name": {"zh": "C++ 常驻示例", "en": "C++ resident sample"},
+  "version": "1.0.0",
+  "description": "wsbench --plugin 用的常驻 exe 插件：把 build 里的 plugin_fake.exe 复制到这个文件夹再跑（tests/plugin_fake.cpp 的 --serve 角色）",
+  "runtime": {"mode": "resident", "program": "plugin_fake.exe", "args": ["--serve"], "sandbox": "strict"},
+  "commands": [{
+    "id": "main",
+    "keyword": "fk",
+    "title": {"zh": "假插件", "en": "Fake"}
+  }]
+}

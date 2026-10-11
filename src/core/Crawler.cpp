@@ -1,6 +1,7 @@
 #include "Crawler.h"
 
 #include "TextUtil.h"
+#include "Unc.h"
 #include "Win32Util.h"
 #include "Wtf8.h"
 
@@ -152,8 +153,11 @@ bool Crawler::isExcludedDir(std::wstring_view fullPath, std::wstring_view name) 
 
 bool Crawler::isExcludedPath(std::wstring_view fullPath) const
 {
-    // Check every ancestor folder ("C:\a", "C:\a\b", ...) and the path itself.
-    std::size_t start = fullPath.find(L'\\');
+    // Check every ancestor folder ("C:\a", "C:\a\b", ...) and the path itself;
+    // on a share, from the folders in it on ("\\nas\docs\a", ...).
+    std::size_t start = unc::isUnc(fullPath) ? unc::shareRoot(fullPath).size() : fullPath.find(L'\\');
+    if (start >= fullPath.size())
+        return false;
     while (start != std::wstring_view::npos) {
         const std::size_t end = fullPath.find(L'\\', start + 1);
         const std::wstring_view prefix = fullPath.substr(0, end);
@@ -323,18 +327,32 @@ private:
     std::vector<Child> m_children;
 };
 
-void removeChildren(FileIndex& index, EntryId dir)
+// Takes items out of the index, or only notes them in `deferred` (see sync()).
+struct Remover {
+    FileIndex& index;
+    std::vector<EntryId>* deferred;
+
+    void operator()(EntryId id) const
+    {
+        if (deferred)
+            deferred->push_back(id);
+        else
+            index.remove(id);
+    }
+};
+
+void removeChildren(FileIndex& index, EntryId dir, const Remover& remove)
 {
     std::vector<EntryId> children;
     for (EntryId c = index.entry(dir).firstChild; c != kNoEntry; c = index.entry(c).nextSibling)
         children.push_back(c);
     for (const EntryId c : children)
-        index.remove(c);
+        remove(c);
 }
 
 // Applies one directory listing to the index. Caller holds the write lock.
 void reconcile(FileIndex& index, const Crawler::Root& dir, const DirListing& listing, ChildMap& existing,
-    std::vector<Crawler::Root>& subdirs)
+    std::vector<Crawler::Root>& subdirs, const Remover& remove)
 {
     if (dir.id >= index.slotCount() || index.entry(dir.id).isDeleted())
         return;
@@ -346,14 +364,16 @@ void reconcile(FileIndex& index, const Crawler::Root& dir, const DirListing& lis
         EntryId id = existing.take(name);
         if (id != kNoEntry) {
             if (index.entry(id).isDir() != isDir) {
-                index.remove(id); // a file became a folder or vice versa
+                // A file became a folder or vice versa. With removals
+                // deferred, the old one stays beside the new one till then.
+                remove(id);
                 id = kNoEntry;
             } else {
                 if (index.name(id) != name)
                     index.move(id, dir.id, name); // renamed, case only
                 index.setFlags(id, item.flags);
                 if (!item.descend && index.entry(id).firstChild != kNoEntry)
-                    removeChildren(index, id); // turned into a junction
+                    removeChildren(index, id, remove); // turned into a junction
             }
         }
         if (id == kNoEntry)
@@ -369,7 +389,7 @@ void reconcile(FileIndex& index, const Crawler::Root& dir, const DirListing& lis
                 dir.volume, item.record});
         }
     }
-    existing.forEachLeft([&](EntryId id) { index.remove(id); }); // gone from disk
+    existing.forEachLeft(remove); // gone from disk
 }
 
 } // namespace
@@ -377,12 +397,20 @@ void reconcile(FileIndex& index, const Crawler::Root& dir, const DirListing& lis
 bool Crawler::sync(FileIndex& index, std::vector<Root> roots, int threads, bool lowPriority, std::stop_token stop,
     const Lister& list) const
 {
+    return sync(index, std::move(roots), threads, lowPriority, stop, list, nullptr, nullptr);
+}
+
+bool Crawler::sync(FileIndex& index, std::vector<Root> roots, int threads, bool lowPriority, std::stop_token stop,
+    const Lister& list, std::vector<EntryId>* deferRemovals, SyncStats* stats) const
+{
     struct Shared {
         std::mutex mutex;
         std::condition_variable_any cv;
         std::vector<Root> stack; // LIFO: depth-first keeps the pending set small
         int busy = 0;
+        SyncStats stats;
     } shared;
+    const Remover remove {index, deferRemovals}; // used under the write lock only
     shared.stack = std::move(roots);
 
     auto worker = [&] {
@@ -404,9 +432,10 @@ bool Crawler::sync(FileIndex& index, std::vector<Root> roots, int threads, bool 
                 ++shared.busy;
             }
 
-            if (list ? list(task, listing) : listDirectory(task, listing)) {
+            const bool listed = list ? list(task, listing) : listDirectory(task, listing);
+            if (listed) {
                 auto lock = index.writeLock();
-                reconcile(index, task, listing, existing, subdirs);
+                reconcile(index, task, listing, existing, subdirs, remove);
             }
 
             {
@@ -414,6 +443,8 @@ bool Crawler::sync(FileIndex& index, std::vector<Root> roots, int threads, bool 
                 for (auto& s : subdirs)
                     shared.stack.push_back(std::move(s));
                 --shared.busy;
+                ++(listed ? shared.stats.listed : shared.stats.failed);
+                shared.stats.items += listed ? listing.items.size() : 0;
             }
             subdirs.clear();
             shared.cv.notify_all();
@@ -431,7 +462,139 @@ bool Crawler::sync(FileIndex& index, std::vector<Root> roots, int threads, bool 
         for (int i = 0; i < n; ++i)
             pool.emplace_back(worker);
     } // joins
+    if (stats)
+        *stats = shared.stats;
     return !stop.stop_requested();
+}
+
+PathProbe probePath(const std::wstring& path)
+{
+    PathProbe p;
+    WIN32_FIND_DATAW fd;
+    const win32::UniqueFind find(
+        ::FindFirstFileExW(win32::longPath(path).c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, 0));
+    if (find.valid()) {
+        p.attributes = fd.dwFileAttributes;
+        p.reparseTag = fd.dwReserved0;
+        p.modified = fileTimeOf(win32::ticks(fd.ftLastWriteTime));
+    }
+    return p;
+}
+
+namespace {
+
+constexpr std::size_t kApplyBatch = 256; // changes applied per write lock
+
+std::pair<std::wstring_view, std::wstring_view> splitPath(std::wstring_view path)
+{
+    const std::size_t slash = path.find_last_of(L'\\');
+    if (slash == std::wstring_view::npos)
+        return {path, {}};
+    return {path.substr(0, slash), path.substr(slash + 1)};
+}
+
+bool isUnder(std::wstring_view path, std::wstring_view dir)
+{
+    return path.size() > dir.size() && path[dir.size()] == L'\\'
+        && win32::equalsIgnoreCase(path.substr(0, dir.size()), dir);
+}
+
+} // namespace
+
+void applyChanges(FileIndex& index, const std::vector<FsChange>& changes, const Crawler& crawler, std::stop_token stop,
+    const Crawler::Lister& list)
+{
+    using Kind = FsChange::Kind;
+    std::size_t i = 0;
+    while (i < changes.size()) {
+        std::size_t end = std::min(changes.size(), i + kApplyBatch);
+        if (end < changes.size() && changes[end - 1].kind == Kind::RenamedFrom)
+            ++end; // keep rename pairs in one batch
+
+        // File system probes happen before taking the lock.
+        std::vector<PathProbe> probes(end - i);
+        for (std::size_t k = i; k < end; ++k) {
+            if (changes[k].kind == Kind::Added || changes[k].kind == Kind::RenamedTo)
+                probes[k - i] = probePath(changes[k].path);
+        }
+
+        std::vector<Crawler::Root> newDirs;
+        {
+            auto lock = index.writeLock();
+
+            const auto removePath = [&](const std::wstring& path) {
+                const EntryId id = index.pathForUpdate(path);
+                if (id != kNoEntry && !(index.entry(id).flags & EntryFlag::Root))
+                    index.remove(id);
+            };
+
+            const auto addPath = [&](const std::wstring& path, const PathProbe& p) {
+                if (p.attributes == INVALID_FILE_ATTRIBUTES)
+                    return; // already gone again
+                for (const auto& dir : newDirs) {
+                    if (isUnder(path, dir.path))
+                        return; // the subtree walk below picks it up
+                }
+                const auto [parentPath, name] = splitPath(path);
+                const EntryId parent = index.pathForUpdate(parentPath);
+                if (parent == kNoEntry || name.empty())
+                    return;
+                const std::string utf8 = wtf8::fromUtf16(wtf8::view(name));
+                if (index.childForUpdate(parent, utf8, false) != kNoEntry)
+                    return;
+                auto flags = static_cast<std::uint8_t>(
+                    Crawler::attributeFlags(p.attributes) | (index.entry(parent).flags & EntryFlag::Inherited));
+                if (flags & EntryFlag::Directory)
+                    flags |= crawler.dirPriorityFlags(path, name);
+                const EntryId id = index.add(parent, utf8, flags);
+                index.setModified(id, p.modified);
+                if (Crawler::shouldDescend(p.attributes, p.reparseTag))
+                    newDirs.push_back({id, path, static_cast<std::uint8_t>(flags & EntryFlag::Inherited)});
+            };
+
+            const auto movePath = [&](const std::wstring& from, const std::wstring& to) {
+                const EntryId id = index.pathForUpdate(from);
+                if (id == kNoEntry)
+                    return false;
+                const auto [parentPath, name] = splitPath(to);
+                const EntryId parent = index.pathForUpdate(parentPath);
+                if (parent == kNoEntry || name.empty())
+                    return false;
+                const std::string utf8 = wtf8::fromUtf16(wtf8::view(name));
+                const EntryId existing = index.childForUpdate(parent, utf8, false);
+                if (existing != kNoEntry && existing != id)
+                    index.remove(existing); // replaced an existing item
+                return index.move(id, parent, utf8);
+            };
+
+            for (std::size_t k = i; k < end; ++k) {
+                const FsChange& c = changes[k];
+                switch (c.kind) {
+                case Kind::Removed:
+                    removePath(c.path);
+                    break;
+                case Kind::RenamedFrom:
+                    if (k + 1 < end && changes[k + 1].kind == Kind::RenamedTo
+                        && movePath(c.path, changes[k + 1].path)) {
+                        ++k;
+                        break;
+                    }
+                    removePath(c.path);
+                    break;
+                case Kind::Added:
+                case Kind::RenamedTo:
+                    addPath(c.path, probes[k - i]);
+                    break;
+                case Kind::Overflow:
+                    break;
+                }
+            }
+        }
+
+        if (!newDirs.empty())
+            crawler.sync(index, std::move(newDirs), 1, !list, stop, list);
+        i = end;
+    }
 }
 
 namespace {

@@ -2,6 +2,7 @@
 
 #include "AppCatalog.h"
 #include "ContentIndex.h"
+#include "Favorites.h"
 #include "ResultModel.h"
 #include "SearchTypes.h"
 #include "WebShortcut.h"
@@ -10,12 +11,15 @@
 #include <QObject>
 #include <QPointer>
 #include <QRectF>
+#include <QSet>
 #include <QVariantList>
 #include <QTimer>
 #include <QWindow>
 #include <QtQml/qqmlregistration.h>
 
+#include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -26,6 +30,12 @@ class History;
 class IndexService;
 class SearchEngine;
 class SystemCatalog;
+namespace plugin {
+class Host;
+class Merge;
+struct Effect;
+struct Item;
+}
 
 // The view-model behind the search window: query and scope in, results and
 // status out, plus the actions on a result (open, reveal, copy, ...).
@@ -42,6 +52,8 @@ class Launcher : public QObject {
     Q_PROPERTY(bool stale READ stale NOTIFY statusChanged FINAL)
     Q_PROPERTY(QString placeholder READ placeholder NOTIFY scopeChanged FINAL)
     Q_PROPERTY(QString contentFilesLabel READ contentFilesLabel NOTIFY scopeChanged FINAL)
+    // File content search is on (Settings::contentSearch): the 内容 tab is there.
+    Q_PROPERTY(bool contentEnabled READ contentEnabled NOTIFY scopeChanged FINAL)
     Q_PROPERTY(bool searchesContent READ searchesContent NOTIFY statusChanged FINAL)
     // History is kept and has something in it (the footer's clear button).
     Q_PROPERTY(bool canClearHistory READ canClearHistory NOTIFY historyChanged FINAL)
@@ -49,8 +61,12 @@ class Launcher : public QObject {
     // typed: for each {name, icon}. Read again each time it is shown; none
     // while history is not kept.
     Q_PROPERTY(QVariantList frequentApps READ frequentApps NOTIFY frequentAppsChanged FINAL)
-    // 文件 and 文件夹: newest first instead of best match first (the footer's switch).
-    Q_PROPERTY(bool rankByTime READ rankByTime WRITE setRankByTime NOTIFY rankByTimeChanged FINAL)
+    // 文件 and 文件夹: best match first, or by when last written (the
+    // footer's switch, Ctrl+S).
+    Q_PROPERTY(Sort sort READ sort WRITE setSort NOTIFY sortChanged FINAL)
+    // With nothing typed: what was opened last, or the files written last
+    // (the footer's switch there, Ctrl+S).
+    Q_PROPERTY(StartList startList READ startList WRITE setStartList NOTIFY startListChanged FINAL)
     // Rows say when each file or folder was last written.
     Q_PROPERTY(bool showModified READ showModified NOTIFY resultOptionsChanged FINAL)
     // The modifier that opens the nth row shown with a digit: "ctrl", "alt",
@@ -63,22 +79,89 @@ class Launcher : public QObject {
     // what is typed shows there, its own field is out of sight (SearchBar.qml
     // reports the field, the app draws it in the box).
     Q_PROPERTY(bool inTaskbarBox READ inTaskbarBox NOTIFY inTaskbarBoxChanged FINAL)
+    // The row the keyboard is on (Main.qml's), -1 for none: content matches
+    // coming in are placed by how well they match, but only below it.
+    Q_PROPERTY(int currentRow READ currentRow WRITE setCurrentRow NOTIFY currentRowChanged FINAL)
+    // The footer's key hints for the row the keyboard is on: what Enter
+    // does ("打开", a plugin action's name; empty for a row Enter does
+    // nothing on), what the second key does with its name ("Ctrl+Enter" /
+    // "打开位置"; empty when the row has no location or second action),
+    // and what Tab does ("切换范围", "补全"; empty when nothing).
+    Q_PROPERTY(QVariantMap keyHints READ keyHints NOTIFY keyHintsChanged FINAL)
+    // Plugins (plugin::Host, the plugin design §4.1): a keyword typed first
+    // ("kill note") gives the list to that command. The keyword as typed,
+    // empty otherwise; the command's title and icon for the chip in the
+    // scope tabs; its hint, shown after the keyword while nothing follows it.
+    Q_PROPERTY(QString pluginKeyword READ pluginKeyword NOTIFY pluginChanged FINAL)
+    Q_PROPERTY(QString pluginLabel READ pluginLabel NOTIFY pluginChanged FINAL)
+    Q_PROPERTY(QString pluginIcon READ pluginIcon NOTIFY pluginChanged FINAL)
+    Q_PROPERTY(QString pluginHint READ pluginHint NOTIFY pluginChanged FINAL)
+    // In keyword mode, once the plugin takes a while: "正在等 结束进程…" (or
+    // what it says it is doing); empty before that and otherwise.
+    Q_PROPERTY(QString pluginWaiting READ pluginWaiting NOTIFY statusChanged FINAL)
+    // Its user keeps favorites (Favorites): listed first with nothing typed.
+    Q_PROPERTY(bool hasFavorites READ hasFavorites NOTIFY favoritesChanged FINAL)
 
 public:
     // As ws::Scope. The tabs show 文件夹 within 文件: Tab goes 全部, 文件,
     // 文件夹, 内容 (cycleScope).
     enum Scope { All, Files, Content, Folders };
     Q_ENUM(Scope)
-    enum Action { Open, Reveal, RunAsAdmin, CopyPath, CopyName, CopyItem, Recycle, ForgetRecent, EditWebShortcuts };
+    // Alternate: Shift+Enter, a plugin row's third action (Open elsewhere).
+    // FavoriteFolder: the folder a file is in into the favorites.
+    // EditFavorite: the settings' 收藏夹 page, at the row's favorite.
+    // PluginAction + n: the nth of a plugin row's actions (its context menu).
+    enum Action {
+        Open,
+        Reveal,
+        RunAsAdmin,
+        CopyPath,
+        CopyName,
+        CopyItem,
+        Recycle,
+        ForgetRecent,
+        EditWebShortcuts,
+        Alternate,
+        AddFavorite,
+        RemoveFavorite,
+        FavoriteFolder,
+        EditFavorite,
+        PluginAction = 100
+    };
     Q_ENUM(Action)
+    // As ws::RankBy and ws::StartList.
+    enum Sort { BestMatch, NewestFirst, OldestFirst };
+    Q_ENUM(Sort)
+    enum StartList { RecentlyOpened, RecentlyModified };
+    Q_ENUM(StartList)
 
     Launcher(IndexService* index, AppCatalog* apps, SystemCatalog* places, SearchEngine* engine, History* history,
         QObject* parent = nullptr);
+    ~Launcher() override;
+
+    // The plugins (may be none): every query goes to them too (全部).
+    void setPluginHost(plugin::Host* host);
+    QString pluginKeyword() const;
+    QString pluginLabel() const;
+    QString pluginIcon() const;
+    QString pluginHint() const;
+    QString pluginWaiting() const;
+    // Esc in keyword mode: the words after the keyword go, the keyword
+    // stays (true); nothing to clear: false, and Esc closes the window.
+    Q_INVOKABLE bool clearToKeyword();
+    // Tab: the row's autocomplete into the box, if it has one; outside
+    // keyword mode else the hint row offering a keyword, wherever it is
+    // ("uu" → "uuid "; completionRow()). False when there is nothing.
+    Q_INVOKABLE bool autocomplete(int row);
+    Q_INVOKABLE void leaveKeyword(); // the chip clicked: the box is emptied
 
     QString query() const { return m_query; }
     void setQuery(const QString& query);
     Scope scope() const { return m_scope; }
     void setScope(Scope scope);
+    int currentRow() const { return m_currentRow; }
+    void setCurrentRow(int row);
+    QVariantMap keyHints() const { return m_keyHints; }
     ResultModel* results() { return &m_results; }
     QString statusText() const { return m_flash.isEmpty() ? m_status : m_flash; }
     bool busy() const;
@@ -86,13 +169,13 @@ public:
     // refreshing results that were already complete.
     bool searching() const
     {
-        return !m_quiet && (m_pending || m_contentRunning || m_contentDebounce.isActive());
+        return !m_quiet && (m_pending || m_contentRunning || m_contentDebounce.isActive() || !m_pluginPending.isEmpty());
     }
     // The rows on screen are for the previous query; the new one has found
     // nothing yet (内容 takes a while).
     bool stale() const { return m_replacePending && m_results.count() > 0; }
     // A name search for the current query is still running (window reveal
-    // waits for it, see App::showLauncher).
+    // waits for it, see App::showLauncher). Never for a plugin's answer.
     bool waitingForNames() const { return m_pending && !m_contentRunning; }
     QString placeholder() const;
     QString contentFilesLabel() const; // ".txt / .md / .log 等文件"
@@ -100,14 +183,25 @@ public:
     // and in 全部 unless the query is name syntax or starts with a web
     // shortcut's keyword (see contentNeedle()).
     bool searchesContent() const { return m_scope == Content || m_withContent; }
+    bool contentEnabled() const { return m_contentEnabled; }
 
     void setWindow(QWindow* window) { m_window = window; }
-    void setContentOptions(
-        QStringList extensions, const ContentSizeLimits& sizeLimits, bool inLowPriority, bool documents);
+    // `enabled` false: no 内容, and 全部 finds names only; a launcher in 内容 goes to 全部.
+    void setContentOptions(bool enabled, QStringList extensions, const ContentSizeLimits& sizeLimits,
+        bool inLowPriority, bool documents);
     void setWebShortcuts(const WebShortcuts& shortcuts);
+    // Its user's favorites (may be none): with every request, and the
+    // rows refreshed when they change.
+    void setFavorites(Favorites* favorites);
+    bool hasFavorites() const;
     void setResultOptions(KindOrder kindOrder, bool showModified, const QString& numberKeys);
-    bool rankByTime() const { return m_rankByTime; }
-    void setRankByTime(bool byTime);
+    Sort sort() const { return m_sort; }
+    void setSort(Sort sort);
+    StartList startList() const { return m_startList; }
+    void setStartList(StartList list);
+    // Ctrl+S: with nothing typed, the other start list; in 文件 and 文件夹,
+    // the next order (best match, newest, oldest). Elsewhere says where it can.
+    Q_INVOKABLE void switchOrder();
     bool showModified() const { return m_showModified; }
     QString numberKeys() const { return m_numberKeys; }
     bool composing() const { return m_composing; }
@@ -134,10 +228,15 @@ public:
     void handleShown();
     void handleHidden();
     void retranslate(); // the language changed: status, placeholder, rows
+    void flash(const QString& message); // a few words in the footer for a moment ("已复制")
 
     // An action on a row; on a row of a selection of several, on all of it.
     Q_INVOKABLE void trigger(int row, int action);
     Q_INVOKABLE void triggerSelection(int action); // the keyboard's, with rows selected
+    // The row's file or folder dragged out of the window (into a chat, a
+    // folder); the selection when the row is in it. Returns when it was let
+    // go (see dragout::drag). Apps, places, web pages and plugins' rows stay.
+    Q_INVOKABLE void dragOut(int row);
     // Selecting several rows: Ctrl toggles one, Shift takes the rows from an
     // anchor to here (instead of the selection, or with Ctrl added to it).
     Q_INVOKABLE void toggleSelected(int row);
@@ -166,7 +265,15 @@ signals:
     void historyChanged();
     void frequentAppsChanged();
     void webSettingsRequested(); // the settings window, on its 网页搜索 page
-    void rankByTimeChanged();
+    void favoriteSettingsRequested(const QString& path); // ... on its 收藏夹 page, at this favorite
+    void favoritesChanged();
+    // The settings window, on the 插件 page at this plugin's card: a plugin
+    // row opening "winshun:settings" (its own card only; performPlugin).
+    void pluginSettingsRequested(const QString& pluginId);
+    void currentRowChanged();
+    void keyHintsChanged();
+    void sortChanged();
+    void startListChanged();
     void resultOptionsChanged();
     void composingChanged();
     void inTaskbarBoxChanged();
@@ -177,11 +284,49 @@ signals:
     void selectionRequested(int anchor, int position);
     void numberPressed(int number); // 1…9: open that row, counted from the first one shown
     void heldKey(int action, int number); // see holdUntilShown(); `number` 0: the action on the current row
+    // A content match (or a plugin's row) better than the first row came in
+    // above it while the keyboard was there: the first row is current again
+    // (the list moved it down).
+    void betterFirstRow();
+    void pluginChanged();
 
 private:
+    class ModelSink; // the result model as plugin::Merge sees it
+    // Keyword mode: the command the keyword opens, and what it shows.
+    struct KeywordMode {
+        QString pluginId;
+        QString commandId;
+        QString keyword; // as typed
+        QString words; // after it
+        QString label; // the command's title
+        QString hint;
+        QString icon; // an image URL
+    };
+
     void search();
+    // The command whose keyword opens the text ("kill note"), if any: what
+    // keyword mode shows for it. No side effects (search() asks before it
+    // decides whether the rows are new ones).
+    std::optional<KeywordMode> matchKeyword(const QString& text) const;
+    // Part of search(): what the text triggers; `keyword` as matchKeyword() found it.
+    void startPluginQuery(const QString& text, std::optional<KeywordMode> keyword);
+    void refreshKeyHints(); // keyHints for the current row; keyHintsChanged when they differ
+    const SearchResult* completionRow(int row) const; // what Tab completes from `row`, or null (see autocomplete)
+    void onPluginTaken(std::uint64_t queryId, const QString& pluginId);
+    void onPluginResults(std::uint64_t queryId, const QString& pluginId, const QString& commandId,
+        const QList<ws::plugin::Item>& items, bool partial, bool replace);
+    void onPluginFinished(std::uint64_t queryId, const QString& pluginId);
+    void onPluginFailed(std::uint64_t queryId, const QString& pluginId, const QString& why);
+    void onPluginProgress(std::uint64_t queryId, const QString& pluginId, const QString& text);
+    void onPluginActionDone(std::uint64_t requestId, const QList<ws::plugin::Effect>& effects, bool ok, const QString& error);
+    void pluginSettled(const QString& pluginId); // answered, or failed
+    QString pluginName(const QString& pluginId) const;
+    void performPlugin(const SearchResult& result, Action action);
+    void applyEffects(const QList<ws::plugin::Effect>& effects);
+    void showPluginRows(SearchResults rows); // keyword mode: the whole list (showRows)
+    RankBy rankBy() const; // as the current scope has it
+    bool showsStartList() const; // nothing typed, and a list for it
     QString contentNeedle() const;
-    static bool looksLikeCode(QStringView text);
     QString shownExtensions() const;
     void startContentSearch();
     void showRows(SearchResults rows, QStringList highlights);
@@ -189,7 +334,10 @@ private:
     void performApp(const SearchResult& app, Action action);
     void performPlace(const SearchResult& place, Action action);
     void performWeb(const SearchResult& web, Action action);
+    void performFavorite(const SearchResult& result, Action action); // AddFavorite … EditFavorite
     void performMany(const SearchResults& items, Action action);
+    // A favorite folder's row, outside keyword mode: Tab goes into it (or null).
+    const SearchResult* enterableFolder(int row) const;
     void remember(const QString& path); // opened: into the history, if it is kept
     void forgetRecent(const QStringList& paths);
     bool forgetRecycled(const SearchResult& result); // its row and count; false if it is still there
@@ -200,7 +348,6 @@ private:
     void onContentResults(quint64 id, const SearchResults& results);
     void onContentProgress(quint64 id, int scanned, int total, bool finished);
     void refreshStatus();
-    void flash(const QString& message);
     void refreshFrequentApps();
 
     struct FrequentApp {
@@ -227,8 +374,13 @@ private:
     // index updated) refreshes them in place instead of starting over.
     QString m_shownText;
     Scope m_shownScope = All;
-    bool m_shownByTime = false;
+    RankBy m_shownRankBy = RankBy::Match;
+    StartList m_shownStartList = RecentlyOpened;
     KindOrder m_shownKindOrder = KindOrder::FilesFirst;
+    // The command whose list the rows are ("<plugin>/<command>"; empty: the
+    // name search's): "=" and "= " trim to the same text, but one lists
+    // files, the other the calculator's answer, and that is a new list.
+    QString m_shownKeyword;
     bool m_refresh = false; // the current search is such a refresh
     bool m_quiet = false; // ...of complete results: it shows no progress
     bool m_scanComplete = false; // the content scan behind the rows on screen ran to the end
@@ -243,10 +395,13 @@ private:
     int m_contentScanned = 0;
     int m_contentTotal = 0;
     int m_contentHits = 0; // 全部: content rows added below the name matches
+    int m_currentRow = -1;
+    QVariantMap m_keyHints; // see keyHints
 
     bool m_recordHistory = true;
     KindOrder m_kindOrder = KindOrder::FilesFirst;
-    bool m_rankByTime = false;
+    Sort m_sort = BestMatch;
+    StartList m_startList = RecentlyOpened;
     bool m_showModified = true;
     QString m_numberKeys = QStringLiteral("ctrl");
     bool m_composing = false;
@@ -259,7 +414,9 @@ private:
     ContentSizeLimits m_contentSizeLimits;
     bool m_contentInLowPriority = false; // 内容 also looks in system, program and tool folders
     WebShortcuts m_web;
+    QPointer<Favorites> m_favorites;
     bool m_contentDocuments = true; // and in Word, Excel, PowerPoint and PDF files
+    bool m_contentEnabled = true;
 
     QString m_status;
     QString m_flash;
@@ -270,6 +427,23 @@ private:
     // query's figures under its dimmed rows.
     QTimer m_slowSearch;
     bool m_searchSlow = false;
+
+    // Plugins. The query ids are the launcher's own (keyword mode has no
+    // engine request); the merge places their rows (plugin::Merge).
+    QPointer<plugin::Host> m_plugins;
+    std::unique_ptr<ModelSink> m_sink;
+    std::unique_ptr<plugin::Merge> m_merge;
+    std::uint64_t m_pluginQueryId = 0;
+    std::optional<KeywordMode> m_keyword;
+    QSet<QString> m_pluginPending; // answering the current query
+    QElapsedTimer m_pluginTimer; // since they were asked
+    qint64 m_pluginElapsedUs = 0; // keyword mode: until the answer
+    QTimer m_pluginWait; // 150 ms: only then does the status say who is being waited for
+    bool m_pluginSlow = false;
+    QString m_pluginProgress; // winshun/progress: what the keyword's plugin says it is doing
+    QString m_pluginError; // "X 没有响应": shown for a few seconds
+    QTimer m_pluginErrorTimer;
+    std::uint64_t m_pluginRequest = 0; // actions sent
 };
 
 } // namespace ws

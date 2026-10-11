@@ -59,10 +59,13 @@ Window {
     // Nothing found: under the search box, or in the list area at full height.
     readonly property string emptyTitle: contentMode
         ? qsTr("没有 %1包含“%2”").arg(launcher.contentFilesLabel).arg(shownQuery)
+        : launcher.pluginKeyword.length > 0 ? qsTr("%1 没有找到“%2”").arg(launcher.pluginLabel).arg(shownQuery)
         : qsTr("没有找到“%1”").arg(shownQuery)
     readonly property string emptyHint: contentMode ? qsTr("按 Tab 回到文件名搜索")
+        : launcher.pluginKeyword.length > 0 ? qsTr("按 Esc 清空关键字后面的文字")
         : launcher.searchesContent ? qsTr("文件名和 %1的内容里都没有").arg(launcher.contentFilesLabel)
-        : qsTr("按 Tab 切换范围，或搜索文件内容")
+        : launcher.contentEnabled ? qsTr("按 Tab 切换范围，或搜索文件内容")
+        : qsTr("按 Tab 切换范围")
     component EmptyState: Column {
         property string title
         property string hint
@@ -140,6 +143,11 @@ Window {
         target: window.launcher.results
         property: "highlightColor"
         value: Theme.accent
+    }
+    Binding {
+        target: window.launcher
+        property: "currentRow"
+        value: list.currentIndex
     }
     Binding { // with the fewest rows: kept room for below the window
         target: window.placement
@@ -318,19 +326,39 @@ Window {
         case Qt.Key_PageUp: shift ? extendSelection(-fitRows) : moveSelection(-fitRows); break
         case Qt.Key_Return:
         case Qt.Key_Enter: {
-            const action = ctrl && shift ? Launcher.RunAsAdmin : ctrl ? Launcher.Reveal : Launcher.Open
+            // Shift+Enter: a plugin row's third action (Open on any other row).
+            const action = ctrl && shift ? Launcher.RunAsAdmin : ctrl ? Launcher.Reveal
+                         : shift ? Launcher.Alternate : Launcher.Open
             if (!window.launcher.holdUntilShown(action, 0)) // typed a moment ago: on the rows for it
                 act(action)
             break
         }
         case Qt.Key_Escape:
+            // In a plugin's keyword mode, first the words after the keyword go; then the window.
             if (selectedCount > 0)
                 window.launcher.clearSelection()
-            else
+            else if (!window.launcher.clearToKeyword())
                 window.launcher.dismiss()
             break
-        case Qt.Key_Tab: window.launcher.cycleScope(1); break
-        case Qt.Key_Backtab: window.launcher.cycleScope(-1); break
+        case Qt.Key_Tab:
+            // In keyword mode the scopes mean nothing: Tab takes the row's
+            // autocomplete instead. Outside it the hint row of a keyword
+            // ("kill" typed alone, or "kil" that it begins with) takes it
+            // too, from whichever row the keyboard is on (Launcher.completionRow).
+            if (window.launcher.pluginKeyword.length > 0)
+                window.launcher.autocomplete(list.currentIndex)
+            else if (!window.launcher.autocomplete(list.currentIndex))
+                window.launcher.cycleScope(1)
+            break
+        case Qt.Key_S: // the footer's switch: the start list, or the order
+            if (!ctrl || shift)
+                return
+            window.launcher.switchOrder()
+            break
+        case Qt.Key_Backtab:
+            if (window.launcher.pluginKeyword.length === 0)
+                window.launcher.cycleScope(-1)
+            break
         case Qt.Key_C:
             // Ctrl+C copies selected text in the box; otherwise the file itself
             // (always the files, once rows have been picked).
@@ -372,6 +400,10 @@ Window {
             window.selectFirst()
         }
         function onStatusChanged() { Qt.callLater(window.settleRows) }
+        function onBetterFirstRow() {
+            if (window.homeIndex < 0 && list.count > 0)
+                list.currentIndex = 0
+        }
         function onContextMenuKeyPressed() { window.openContextMenu(list.currentIndex) } // Menu key, Shift+F10
         function onQueryChanged() {
             if (searchBar.text !== window.launcher.query)
@@ -386,6 +418,7 @@ Window {
         // its row still holds the same file.
         function onDataChanged() { window.checkContextMenu() }
         function onRowsRemoved() { window.checkContextMenu() }
+        function onRowsInserted() { window.checkContextMenu() } // a better content match above it
     }
 
     Connections {
@@ -538,7 +571,9 @@ Window {
                     height: 28
                     verticalAlignment: Text.AlignVCenter
                     visible: list.count > 0
-                    text: qsTr("最近")
+                    text: window.launcher.hasFavorites
+                          ? (window.launcher.startList === Launcher.RecentlyModified ? qsTr("收藏和最近修改") : qsTr("收藏和最近"))
+                          : (window.launcher.startList === Launcher.RecentlyModified ? qsTr("最近修改") : qsTr("最近"))
                     color: Theme.subtext
                     font.pixelSize: Theme.fontCaption
                 }
@@ -599,6 +634,7 @@ Window {
                         window.launcher.trigger(index, action)
                     }
                     onMenuRequested: (index, globalPos) => window.openContextMenu(index, globalPos)
+                    onDragRequested: (index) => window.launcher.dragOut(index)
                 }
             }
 
@@ -609,10 +645,16 @@ Window {
                 anchors.bottom: parent.bottom
             }
 
-            Text { // held open while file contents are still being searched
+            Text { // held open while file contents are still being searched, or a plugin answers
+                readonly property bool keywordMode: window.launcher.pluginKeyword.length > 0
                 anchors.centerIn: parent
+                // A plugin's wait shows only once it has lasted a moment
+                // (pluginWaiting is empty before that), fading in.
                 visible: list.count === 0 && window.launcher.searching
-                text: qsTr("正在搜索文件内容…")
+                         && (!keywordMode || window.launcher.pluginWaiting.length > 0)
+                opacity: visible ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: 100 } }
+                text: keywordMode ? window.launcher.pluginWaiting : qsTr("正在搜索文件内容…")
                 color: Theme.faint
                 font.pixelSize: Theme.fontBody
             }

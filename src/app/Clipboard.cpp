@@ -32,6 +32,7 @@ constexpr qint64 kFocusWaitMs = 800;
 // In front is not ready yet: the program still has to put its focus back
 // (on its text field), or the paste keys go to its window and are lost.
 constexpr qint64 kSettleMs = 60;
+constexpr qint64 kClipboardWaitMs = 300; // held open longer than that, the paste goes ahead anyway
 // The search box by a file dialog shows again only once the dialog is back
 // in front.
 constexpr qint64 kFieldWaitMs = 1000;
@@ -86,7 +87,12 @@ Clipboard::Clipboard(ClipStore* store, ClipboardWatcher* watcher, QObject* paren
         const bool front = paste::isForeground(m_pasteWindow);
         if (front && !m_frontClock.isValid())
             m_frontClock.start();
-        if (front ? m_frontClock.elapsed() < kSettleMs : m_pasteClock.elapsed() < kFocusWaitMs)
+        // In front: a moment more, and while some program has the clipboard
+        // open (clipboard history, other managers read each new copy): the
+        // target's Ctrl+V finds it held and pastes nothing (pitfalls.md).
+        if (front ? m_frontClock.elapsed() < kSettleMs
+                        || (::GetOpenClipboardWindow() && m_frontClock.elapsed() < kClipboardWaitMs)
+                  : m_pasteClock.elapsed() < kFocusWaitMs)
             return;
         m_focusTimer.stop();
         m_pasting = false;
@@ -117,7 +123,17 @@ void Clipboard::setKeysRouted(bool routed)
     if (m_keysRouted == routed)
         return;
     m_keysRouted = routed;
+    refreshStatus();
     emit keysRoutedChanged();
+}
+
+void Clipboard::setPinned(bool pinned)
+{
+    if (m_pinned == pinned)
+        return;
+    m_pinned = pinned;
+    refreshStatus();
+    emit pinnedChanged();
 }
 
 void Clipboard::setField(QQuickItem* field, const QString& name)
@@ -265,6 +281,8 @@ void Clipboard::refreshStatus()
         status = tr("已暂停记录，在托盘菜单里可以继续");
     else if (!m_recording)
         status = tr("没有在记录剪贴板");
+    else if (m_pinned && !m_keysRouted)
+        status = tr("已钉住：点一条，粘贴到正在用的程序");
     else if (!m_query.trimmed().isEmpty() || m_category != 0)
         status = tr("%Ln 条", nullptr, m_model.count());
     else
@@ -306,6 +324,7 @@ void Clipboard::handleShown()
 
 void Clipboard::handleHidden()
 {
+    setPinned(false);
     m_model.clearSelection();
     dropUndo();
     setField(nullptr, {}); // a paste on its way back to it has its own
@@ -458,17 +477,22 @@ void Clipboard::onWritten(bool ok)
         flash(tr("已复制。没有找到要粘贴进去的窗口，可以自己按 Ctrl+V"));
         return;
     }
+    // Pinned, it stays up: a joined paste's picks go, the next click is one
+    // entry again.
+    if (m_pinned)
+        m_model.clearSelection();
+    m_pasteClock.restart();
     // Never left the front, its text field never lost the keyboard: the
     // window goes (and with it KeyRouter, which would take the keys), then
-    // the paste keys, without waiting.
-    if (m_keysRouted && paste::isForeground(m_pasteWindow)) {
-        m_pasting = false;
+    // the paste keys once the clipboard settles (m_focusTimer). Pinned, it
+    // stays and only gives the keys back (App).
+    if ((m_keysRouted || m_pinned) && paste::isForeground(m_pasteWindow)) {
         emit dismissRequested();
-        paste::sendPasteKeys(m_pasteWindow);
+        m_frontClock.start();
+        m_focusTimer.start();
         return;
     }
     paste::activate(m_pasteWindow); // the clipboard window loses the focus and goes (App)
-    m_pasteClock.restart();
     m_frontClock.invalidate();
     m_focusTimer.start();
 }
@@ -523,6 +547,15 @@ void Clipboard::paste(int row, bool plainText)
 {
     if (m_pasting)
         return;
+    // Pinned, clicked without the keys: into the program in front now, which
+    // kept the focus. (Its own window in front: where it was before.)
+    if (m_pinned && !m_keysRouted) {
+        DWORD process = 0;
+        const HWND foreground = ::GetForegroundWindow();
+        ::GetWindowThreadProcessId(foreground, &process);
+        if (foreground && process != ::GetCurrentProcessId())
+            m_target = foreground;
+    }
     const std::vector<const Clip*> clips = targets(row);
     if (clips.empty())
         return;
@@ -730,6 +763,10 @@ void Clipboard::clearSelection()
 
 void Clipboard::dismiss()
 {
+    if (m_pinned) { // it stays up
+        emit keysReleased();
+        return;
+    }
     if (m_field.item && !m_pasting && !m_returnTimer.isActive())
         returnToField({});
     else

@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <mutex>
 #include <optional>
 #include <thread>
 #include <utility>
@@ -75,23 +76,10 @@ template <typename Fn> void runOnShellThread(Fn&& fn)
     }).detach();
 }
 
-// WinShun always runs elevated, and ShellExecute would start the target
-// elevated too. Explorer runs with the user's normal rights, so ask it to
-// launch instead: the desktop window -> its shell view -> the view's
-// Application object -> ShellExecute. False when there is no Explorer desktop.
-bool executeAsUser(const std::wstring& file, const std::wstring& args, const std::wstring& dir)
+// The Application object of an Explorer window: its shell view -> the view's
+// background -> Application. Null for a window without a folder view.
+ComPtr<IShellDispatch2> applicationOf(IDispatch* window)
 {
-    ComPtr<IShellWindows> windows;
-    if (FAILED(::CoCreateInstance(CLSID_ShellWindows, nullptr, CLSCTX_LOCAL_SERVER, IID_PPV_ARGS(&windows))))
-        return false;
-    VARIANT desktop {};
-    desktop.vt = VT_I4;
-    desktop.lVal = CSIDL_DESKTOP;
-    VARIANT none {};
-    long hwnd = 0;
-    ComPtr<IDispatch> found;
-    if (windows->FindWindowSW(&desktop, &none, SWC_DESKTOP, &hwnd, SWFO_NEEDDISPATCH, &found) != S_OK || !found)
-        return false;
     ComPtr<IServiceProvider> services;
     ComPtr<IShellBrowser> browser;
     ComPtr<IShellView> view;
@@ -99,10 +87,56 @@ bool executeAsUser(const std::wstring& file, const std::wstring& args, const std
     ComPtr<IShellFolderViewDual> folderView;
     ComPtr<IDispatch> application;
     ComPtr<IShellDispatch2> shell;
-    if (FAILED(found.As(&services)) || FAILED(services->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser)))
+    if (FAILED(window->QueryInterface(IID_PPV_ARGS(&services)))
+        || FAILED(services->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser)))
         || FAILED(browser->QueryActiveShellView(&view))
         || FAILED(view->GetItemObject(SVGIO_BACKGROUND, IID_PPV_ARGS(&background))) || FAILED(background.As(&folderView))
         || FAILED(folderView->get_Application(&application)) || FAILED(application.As(&shell)))
+        return nullptr;
+    return shell;
+}
+
+// Explorer's own Application object: the desktop's, else any folder
+// window's. An Explorer that has run for long can drop its desktop from
+// ShellWindows while its folder windows stay (see pitfalls). Null when
+// there is no Explorer window at all.
+ComPtr<IShellDispatch2> explorerApplication()
+{
+    ComPtr<IShellWindows> windows;
+    if (FAILED(::CoCreateInstance(CLSID_ShellWindows, nullptr, CLSCTX_LOCAL_SERVER, IID_PPV_ARGS(&windows))))
+        return nullptr;
+    VARIANT desktop {};
+    desktop.vt = VT_I4;
+    desktop.lVal = CSIDL_DESKTOP;
+    VARIANT none {};
+    long hwnd = 0;
+    ComPtr<IDispatch> found;
+    if (windows->FindWindowSW(&desktop, &none, SWC_DESKTOP, &hwnd, SWFO_NEEDDISPATCH, &found) == S_OK && found)
+        if (ComPtr<IShellDispatch2> shell = applicationOf(found.Get()))
+            return shell;
+    long count = 0;
+    if (FAILED(windows->get_Count(&count)))
+        return nullptr;
+    for (long i = 0; i < count; ++i) {
+        VARIANT index {};
+        index.vt = VT_I4;
+        index.lVal = i;
+        ComPtr<IDispatch> window;
+        if (windows->Item(index, &window) == S_OK && window)
+            if (ComPtr<IShellDispatch2> shell = applicationOf(window.Get()))
+                return shell;
+    }
+    return nullptr;
+}
+
+// WinShun always runs elevated, and ShellExecute would start the target
+// elevated too. Explorer runs with the user's normal rights, so ask it to
+// launch instead, through the ShellExecute of its Application object. False
+// when there is no Explorer window to ask.
+bool executeAsUser(const std::wstring& file, const std::wstring& args, const std::wstring& dir)
+{
+    const ComPtr<IShellDispatch2> shell = explorerApplication();
+    if (!shell)
         return false;
 
     const Bstr target(file.c_str());
@@ -153,36 +187,66 @@ win32::UniqueHandle startWithShellToken(std::wstring command, const std::wstring
     return win32::UniqueHandle(started.hProcess);
 }
 
-// Without an Explorer desktop to ask (another shell is in use), start the
-// target with the desktop shell's own token: the user's normal rights. The
-// unelevated rundll32 hands it to ShellExecute, which opens documents,
-// folders, programs and links alike. False when there is no shell at all.
+// A folder, shell location or URI ("shell:AppsFolder\<id>", "::{CLSID}",
+// "ms-settings:display"), not a file or program: what ShellExecute hands to
+// the running Explorer instead of starting it itself.
+bool isShellTarget(const std::wstring& file)
+{
+    if (file.starts_with(L"::"))
+        return true;
+    const std::size_t colon = file.find(L':');
+    if (colon != std::wstring::npos && colon >= 2 // "C:\..." has its colon second
+        && std::all_of(file.begin(), file.begin() + static_cast<std::ptrdiff_t>(colon),
+            [](wchar_t c) {
+                return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || (c >= L'0' && c <= L'9') || c == L'-'
+                    || c == L'.' || c == L'+';
+            }))
+        return true;
+    const DWORD attributes = ::GetFileAttributesW(file.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+// Without an Explorer window to ask (another shell is in use, or Explorer
+// lists none), start the target with the desktop shell's own token: the
+// user's normal rights. Folders, shell locations and URIs go to a new
+// explorer.exe, which opens them itself when the running Explorer takes
+// nothing more. rundll32's ShellExecute hands them to that Explorer all the
+// same, opens nothing and still says it did (see pitfalls). Files and
+// commands go to rundll32, which starts them itself, in `dir` (explorer.exe
+// would start them in System32). False when there is no shell at all.
 bool executeWithShellToken(const std::wstring& file, const std::wstring& args, const std::wstring& dir)
 {
     if (file.find(L'"') != std::wstring::npos)
         return false; // cannot be quoted on the command line (no path has one)
-    wchar_t system[MAX_PATH] = {};
-    const UINT n = ::GetSystemDirectoryW(system, MAX_PATH);
+    wchar_t folder[MAX_PATH] = {};
+    if (args.empty() && isShellTarget(file)) {
+        const UINT n = ::GetWindowsDirectoryW(folder, MAX_PATH);
+        if (n == 0 || n >= MAX_PATH)
+            return false;
+        // "D:\" stays bare: a backslash before a closing quote would escape it.
+        const std::wstring target = file.ends_with(L'\\') ? file : L'"' + file + L'"';
+        return startWithShellToken(L'"' + std::wstring(folder, n) + L"\\explorer.exe\" " + target, {}).valid();
+    }
+    const UINT n = ::GetSystemDirectoryW(folder, MAX_PATH);
     if (n == 0 || n >= MAX_PATH)
         return false;
     std::wstring command
-        = L"\"" + std::wstring(system, n) + L"\\rundll32.exe\" shell32.dll,ShellExec_RunDLL \"" + file + L'"';
+        = L'"' + std::wstring(folder, n) + L"\\rundll32.exe\" shell32.dll,ShellExec_RunDLL \"" + file + L'"';
     if (!args.empty())
         command += L' ' + args;
     return startWithShellToken(std::move(command), dir).valid();
 }
 
 // Starts `file` with the user's normal rights, never elevated: through
-// Explorer (waiting a few seconds if it is restarting), else with the token
-// of another shell. False when neither works.
+// Explorer, else with the desktop shell's token, waiting a few seconds for
+// a shell while Explorer restarts. False when neither works.
 bool executeUnelevated(const std::wstring& file, const std::wstring& args, const std::wstring& dir)
 {
     for (int attempt = 0; attempt < 10; ++attempt) {
-        if (executeAsUser(file, args, dir))
+        if (attempt > 0)
+            ::Sleep(300);
+        if (executeAsUser(file, args, dir) || executeWithShellToken(file, args, dir))
             return true;
-        if (attempt == 0 && executeWithShellToken(file, args, dir))
-            return true;
-        ::Sleep(300);
     }
     return false;
 }
@@ -329,14 +393,14 @@ void setFileManager(filemanager::Kind kind)
     g_fileManager = kind;
 }
 
-win32::UniqueHandle startUnelevated(const std::wstring& program, const std::wstring& args)
+win32::UniqueHandle startUnelevated(const std::wstring& program, const std::wstring& args, const std::wstring& cwd)
 {
     if (program.find(L'"') != std::wstring::npos)
         return {}; // cannot be quoted on the command line (no path has one)
     std::wstring command = L'"' + program + L'"';
     if (!args.empty())
         command += L' ' + args;
-    return startWithShellToken(std::move(command), {});
+    return startWithShellToken(std::move(command), cwd);
 }
 
 void recycle(const QStringList& paths, HWND owner, std::function<void(bool)> done)
@@ -447,6 +511,26 @@ int popupMenu(HWND owner, const std::vector<MenuItem>& items, POINT screenPos, s
     return chosen;
 }
 
+void prepareMenuHooks()
+{
+    // Nilesoft Shell's icon overlay handler hooks TrackPopupMenuEx in every
+    // process it is loaded into, and reads its settings on the first call: the
+    // tray menu's first open took 350-470 ms instead of 20 (see pitfalls).
+    static std::once_flag once;
+    std::call_once(once, [] {
+        runOnShellThread([] {
+            const HMENU menu = ::CreatePopupMenu();
+            if (!menu)
+                return;
+            ::AppendMenuW(menu, MF_STRING, 1, L"-");
+            // No owner window: Windows refuses (ERROR_INVALID_WINDOW_HANDLE)
+            // once the hooks have run, and nothing is shown.
+            ::TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_NOANIMATION, 0, 0, nullptr, nullptr);
+            ::DestroyMenu(menu);
+        });
+    });
+}
+
 QString pickFolder(HWND owner, const QString& title)
 {
     const HRESULT init = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
@@ -459,6 +543,69 @@ QString pickFolder(HWND owner, const QString& title)
         if (SUCCEEDED(::CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))
             && SUCCEEDED(dialog->GetOptions(&options))
             && SUCCEEDED(dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST))
+            && SUCCEEDED(dialog->SetTitle(reinterpret_cast<LPCWSTR>(title.utf16()))) && SUCCEEDED(dialog->Show(owner))
+            && SUCCEEDED(dialog->GetResult(&item)) && SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+            result = QString::fromWCharArray(path);
+            ::CoTaskMemFree(path);
+        }
+    } // released before COM is uninitialised
+    if (SUCCEEDED(init))
+        ::CoUninitialize();
+    return result;
+}
+
+QString pickFile(HWND owner, const QString& title, const std::vector<std::pair<QString, QString>>& filters)
+{
+    const HRESULT init = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    QString result;
+    {
+        std::vector<std::wstring> names;
+        std::vector<std::wstring> patterns;
+        for (const auto& [name, pattern] : filters) {
+            names.push_back(name.toStdWString());
+            patterns.push_back(pattern.toStdWString());
+        }
+        std::vector<COMDLG_FILTERSPEC> specs;
+        for (std::size_t i = 0; i < names.size(); ++i)
+            specs.push_back({names[i].c_str(), patterns[i].c_str()});
+        ComPtr<IFileOpenDialog> dialog;
+        ComPtr<IShellItem> item;
+        PWSTR path = nullptr;
+        DWORD options = 0;
+        if (SUCCEEDED(::CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))
+            && SUCCEEDED(dialog->GetOptions(&options))
+            && SUCCEEDED(dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST))
+            && (specs.empty() || SUCCEEDED(dialog->SetFileTypes(static_cast<UINT>(specs.size()), specs.data())))
+            && SUCCEEDED(dialog->SetTitle(reinterpret_cast<LPCWSTR>(title.utf16()))) && SUCCEEDED(dialog->Show(owner))
+            && SUCCEEDED(dialog->GetResult(&item)) && SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+            result = QString::fromWCharArray(path);
+            ::CoTaskMemFree(path);
+        }
+    } // released before COM is uninitialised
+    if (SUCCEEDED(init))
+        ::CoUninitialize();
+    return result;
+}
+
+QString pickSaveFile(HWND owner, const QString& title, const QString& fileName, const QString& filterName,
+    const QString& extension)
+{
+    const HRESULT init = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    QString result;
+    {
+        const std::wstring name = filterName.toStdWString();
+        const std::wstring pattern = (u"*."_s + extension).toStdWString();
+        const COMDLG_FILTERSPEC spec {name.c_str(), pattern.c_str()};
+        ComPtr<IFileSaveDialog> dialog;
+        ComPtr<IShellItem> item;
+        PWSTR path = nullptr;
+        DWORD options = 0;
+        if (SUCCEEDED(::CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))
+            && SUCCEEDED(dialog->GetOptions(&options))
+            && SUCCEEDED(dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_OVERWRITEPROMPT))
+            && SUCCEEDED(dialog->SetFileTypes(1, &spec))
+            && SUCCEEDED(dialog->SetDefaultExtension(reinterpret_cast<LPCWSTR>(extension.utf16())))
+            && SUCCEEDED(dialog->SetFileName(reinterpret_cast<LPCWSTR>(fileName.utf16())))
             && SUCCEEDED(dialog->SetTitle(reinterpret_cast<LPCWSTR>(title.utf16()))) && SUCCEEDED(dialog->Show(owner))
             && SUCCEEDED(dialog->GetResult(&item)) && SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
             result = QString::fromWCharArray(path);

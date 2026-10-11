@@ -50,6 +50,13 @@ class Clipboard : public QObject {
     // Shown over another program that keeps the focus: the keys come from
     // KeyRouter (App), the search field shows its caret without the focus.
     Q_PROPERTY(bool keysRouted READ keysRouted NOTIFY keysRoutedChanged FINAL)
+    // Pinned (the button in its header, issue #8): it stays up, on top of the
+    // others, through pastes, clicks elsewhere and other programs coming to
+    // the front, and takes no focus: a click on an entry pastes into the
+    // program in front, again and again. The keys stay that program's until
+    // the hotkey is pressed again or the search field clicked (keysWanted),
+    // up to the next paste or Esc. Not while it pastes into a field of Win顺's own.
+    Q_PROPERTY(bool pinned READ pinned WRITE setPinned NOTIFY pinnedChanged FINAL)
     Q_PROPERTY(bool recording READ recording NOTIFY stateChanged FINAL) // the history is on (settings)
     Q_PROPERTY(bool paused READ paused NOTIFY stateChanged FINAL) // ... but paused from the tray menu
     Q_PROPERTY(QString shortcut READ shortcut NOTIFY stateChanged FINAL) // what opens it: "Win+V"
@@ -113,9 +120,14 @@ public:
     QString separatorName() const;
     bool canUndo() const { return !m_removed.empty() || m_removedGroup.has_value(); }
 
+    bool pinned() const { return m_pinned; }
+    void setPinned(bool pinned);
+
     void setWindow(QWindow* window) { m_window = window; }
-    // The window to paste into: the one in front before the clipboard opened.
+    // The window to paste into: the one in front before the clipboard opened
+    // (pinned: before it took the keys; else the one in front as it pastes).
     void setTarget(HWND window) { m_target = window; }
+    HWND target() const { return m_target; }
     // The field of Win顺's own that had the keyboard as the window opened, if
     // any (see the class comment). Taken before the window takes the focus:
     // its selection is gone then.
@@ -146,7 +158,8 @@ public:
     Q_INVOKABLE void clearSelection();
     Q_INVOKABLE void cycleCategory(int delta);
     Q_INVOKABLE void cycleSeparator();
-    Q_INVOKABLE void dismiss(); // Esc, Win+V again: back to the field it came from, or closed
+    Q_INVOKABLE void dismiss(); // Esc, Win+V again: back to the field it came from, or closed (pinned: the keys given back)
+    Q_INVOKABLE void wantKeys() { emit keysWanted(); } // pinned: the search field clicked
     Q_INVOKABLE void turnOn(); // the history, from the window's button
 
     // The preview of a row: {kind, text, more, files, thumbnail, image,
@@ -166,6 +179,9 @@ signals:
     void numberKeysChanged();
     void activeChanged();
     void keysRoutedChanged();
+    void pinnedChanged();
+    void keysWanted(); // pinned, the keys elsewhere: they are wanted here (App)
+    void keysReleased(); // pinned, Esc (or the hotkey again): the keys and the focus back to the program (App)
     // The window takes the focus after all (App), from the program that kept
     // it: before handing over to another program (a link opened), which may
     // come to the front only from the one in front.
@@ -222,6 +238,7 @@ private:
     QPointer<QWindow> m_window;
     bool m_active = false;
     bool m_keysRouted = false;
+    bool m_pinned = false;
     bool m_recording = true;
     bool m_paused = false;
     QString m_shortcut;

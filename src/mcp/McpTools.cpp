@@ -1,0 +1,1387 @@
+#include "McpTools.h"
+
+#include "FileIndex.h"
+#include "IndexService.h"
+#include "SearchEngine.h"
+#include "Visibility.h"
+#include "Win32Util.h"
+#include "Wtf8.h"
+
+#include <QDateTime>
+#include <QDir>
+#include <QElapsedTimer>
+#include <QJsonDocument>
+
+#include <windows.h>
+
+#include <algorithm>
+#include <cctype>
+#include <chrono>
+#include <string>
+#include <unordered_map>
+
+using namespace Qt::StringLiterals;
+using namespace std::chrono_literals;
+
+namespace ws::mcp {
+
+namespace {
+
+constexpr int kDefaultFiles = 30;
+constexpr int kMaxFiles = 200;
+constexpr int kDefaultContent = 20;
+constexpr int kMaxContent = 100;
+constexpr int kDefaultFolder = 100;
+constexpr int kMaxFolder = 500;
+constexpr int kDefaultClips = 20;
+constexpr int kMaxClips = 100;
+constexpr int kDefaultClipChars = 500;
+constexpr int kMaxClipChars = 20000;
+constexpr int kDefaultTimeoutMs = 5000;
+constexpr int kMinTimeoutMs = 500;
+constexpr int kMaxTimeoutMs = 30000;
+constexpr int kSnippetChars = 300;
+constexpr int kContentThreads = 8;
+
+// ---- JSON Schema ------------------------------------------------------------
+
+QJsonObject typed(const char* type, const QString& description)
+{
+    return {{u"type"_s, QString::fromLatin1(type)}, {u"description"_s, description}};
+}
+
+QJsonObject integer(const QString& description, int minimum, int maximum, int fallback)
+{
+    QJsonObject schema = typed("integer", description);
+    schema.insert(u"minimum"_s, minimum);
+    schema.insert(u"maximum"_s, maximum);
+    schema.insert(u"default"_s, fallback);
+    return schema;
+}
+
+QJsonObject boolean(const QString& description, bool fallback)
+{
+    QJsonObject schema = typed("boolean", description);
+    schema.insert(u"default"_s, fallback);
+    return schema;
+}
+
+QJsonObject choice(const QString& description, const QStringList& values, const QString& fallback)
+{
+    QJsonObject schema = typed("string", description);
+    schema.insert(u"enum"_s, QJsonArray::fromStringList(values));
+    schema.insert(u"default"_s, fallback);
+    return schema;
+}
+
+QJsonObject array(const QJsonObject& items, const QString& description)
+{
+    QJsonObject schema = typed("array", description);
+    schema.insert(u"items"_s, items);
+    return schema;
+}
+
+QJsonObject object(const QJsonObject& properties, const QStringList& required = {})
+{
+    QJsonObject schema {{u"type"_s, u"object"_s}, {u"properties"_s, properties}};
+    if (!required.isEmpty())
+        schema.insert(u"required"_s, QJsonArray::fromStringList(required));
+    schema.insert(u"additionalProperties"_s, false);
+    return schema;
+}
+
+QJsonObject annotations(bool readOnly, bool idempotent)
+{
+    return {{u"readOnlyHint"_s, readOnly}, {u"destructiveHint"_s, false}, {u"idempotentHint"_s, idempotent},
+        {u"openWorldHint"_s, false}};
+}
+
+// The schema of one file or folder in a result.
+QJsonObject itemSchema()
+{
+    return object({{u"path"_s, typed("string", u"Full Windows path"_s)}, {u"name"_s, typed("string", u"File or folder name"_s)},
+        {u"type"_s, choice(u"file or folder"_s, {u"file"_s, u"folder"_s}, u"file"_s)},
+        {u"modified"_s, typed("string", u"When last written, ISO 8601 with offset; null if unknown"_s)},
+        {u"size"_s, typed("integer", u"Bytes; files only"_s)}});
+}
+
+// ---- arguments --------------------------------------------------------------
+
+// Reads the arguments of a call, noting the first thing wrong with them.
+class Args {
+public:
+    explicit Args(const QJsonObject& arguments)
+        : m_args(arguments)
+    {
+    }
+
+    QString string(const QString& key, bool required = false)
+    {
+        const QJsonValue v = m_args.value(key);
+        if (v.isUndefined() || v.isNull()) {
+            if (required)
+                fail(u"Missing required argument '%1'"_s.arg(key));
+            return {};
+        }
+        if (!v.isString()) {
+            fail(u"Argument '%1' must be a string"_s.arg(key));
+            return {};
+        }
+        return v.toString();
+    }
+
+    int integer(const QString& key, int fallback, int minimum, int maximum)
+    {
+        const QJsonValue v = m_args.value(key);
+        if (v.isUndefined() || v.isNull())
+            return fallback;
+        if (!v.isDouble()) {
+            fail(u"Argument '%1' must be an integer"_s.arg(key));
+            return fallback;
+        }
+        return std::clamp(static_cast<int>(v.toDouble()), minimum, maximum);
+    }
+
+    bool boolean(const QString& key, bool fallback)
+    {
+        const QJsonValue v = m_args.value(key);
+        if (v.isUndefined() || v.isNull())
+            return fallback;
+        if (!v.isBool()) {
+            fail(u"Argument '%1' must be true or false"_s.arg(key));
+            return fallback;
+        }
+        return v.toBool();
+    }
+
+    QString choice(const QString& key, const QString& fallback, const QStringList& values)
+    {
+        const QString value = string(key);
+        if (value.isEmpty())
+            return fallback;
+        if (!values.contains(value, Qt::CaseInsensitive)) {
+            fail(u"Argument '%1' must be one of: %2"_s.arg(key, values.join(u", "_s)));
+            return fallback;
+        }
+        return value.toLower();
+    }
+
+    QStringList strings(const QString& key)
+    {
+        const QJsonValue v = m_args.value(key);
+        if (v.isUndefined() || v.isNull())
+            return {};
+        QStringList out;
+        if (v.isString()) { // one, or comma-separated
+            for (const QString& s : v.toString().split(u',', Qt::SkipEmptyParts))
+                out.push_back(s.trimmed());
+            return out;
+        }
+        if (!v.isArray()) {
+            fail(u"Argument '%1' must be an array of strings"_s.arg(key));
+            return {};
+        }
+        for (const QJsonValue& item : v.toArray()) {
+            if (!item.isString()) {
+                fail(u"Argument '%1' must be an array of strings"_s.arg(key));
+                return {};
+            }
+            out.push_back(item.toString().trimmed());
+        }
+        return out;
+    }
+
+    const QString& error() const noexcept { return m_error; }
+
+private:
+    void fail(const QString& why)
+    {
+        if (m_error.isEmpty())
+            m_error = why;
+    }
+
+    const QJsonObject& m_args;
+    QString m_error;
+};
+
+// ---- values -----------------------------------------------------------------
+
+QJsonValue isoTime(qint64 secs)
+{
+    if (secs <= 0)
+        return QJsonValue::Null;
+    const QDateTime time = QDateTime::fromSecsSinceEpoch(secs);
+    return time.toOffsetFromUtc(time.offsetFromUtc()).toString(Qt::ISODate);
+}
+
+QJsonValue isoTimeMs(qint64 ms)
+{
+    if (ms <= 0)
+        return QJsonValue::Null;
+    const QDateTime time = QDateTime::fromMSecsSinceEpoch(ms);
+    return time.toOffsetFromUtc(time.offsetFromUtc()).toString(Qt::ISODate);
+}
+
+QJsonValue isoFileTime(const FILETIME& time)
+{
+    return isoTime(static_cast<qint64>(fileTimeOf(win32::ticks(time))));
+}
+
+// A file's size from the disk (folders and failures: nothing).
+std::optional<qint64> sizeOf(const QString& path)
+{
+    WIN32_FILE_ATTRIBUTE_DATA data {};
+    if (!::GetFileAttributesExW(win32::longPath(path.toStdWString()).c_str(), GetFileExInfoStandard, &data)
+        || (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+        return std::nullopt;
+    return static_cast<qint64>((static_cast<quint64>(data.nFileSizeHigh) << 32) | data.nFileSizeLow);
+}
+
+QJsonObject fileItem(const QString& path, const QString& name, bool isDir, std::uint32_t modified)
+{
+    QJsonObject item {{u"path"_s, path}, {u"name"_s, name}, {u"type"_s, isDir ? u"folder"_s : u"file"_s},
+        {u"modified"_s, isoTime(modified)}};
+    if (!isDir) {
+        if (const auto size = sizeOf(path))
+            item.insert(u"size"_s, *size);
+    }
+    return item;
+}
+
+QString nativePath(const QString& path)
+{
+    return QDir::toNativeSeparators(QDir::cleanPath(QString::fromStdWString(win32::expandEnvironment(path.trimmed().toStdWString()))));
+}
+
+// A path as the index knows it: native, without a trailing separator
+// (a root keeps "C:\" as "C:").
+std::wstring indexPath(const QString& path)
+{
+    QString p = nativePath(path);
+    while (p.size() > 2 && p.endsWith(u'\\'))
+        p.chop(1);
+    if (p.size() == 3 && p[1] == u':' && p[2] == u'\\')
+        p.chop(1);
+    return p.toStdWString();
+}
+
+QString contentWhere(SearchResult::Where where)
+{
+    switch (where) {
+    case SearchResult::Where::Page:
+        return u"page"_s;
+    case SearchResult::Where::Slide:
+        return u"slide"_s;
+    case SearchResult::Where::Row:
+        return u"row"_s;
+    case SearchResult::Where::Document:
+        return u"document"_s;
+    case SearchResult::Where::Line:
+        break;
+    }
+    return u"line"_s;
+}
+
+QJsonObject contentItem(const SearchResult& r)
+{
+    QJsonObject item {{u"path"_s, r.path}, {u"name"_s, r.name}, {u"modified"_s, isoTime(r.modified)}};
+    QJsonObject location {{u"kind"_s, contentWhere(r.where)}};
+    if (r.where == SearchResult::Where::Line)
+        location.insert(u"line"_s, r.line);
+    else if (r.where != SearchResult::Where::Document)
+        location.insert(u"number"_s, r.placeNumber);
+    if (!r.sheet.isEmpty())
+        location.insert(u"sheet"_s, r.sheet);
+    item.insert(u"location"_s, location);
+    // The snippet is the line (or the passage) with the terms; a long one
+    // (minified code, a data file) is cut around the first term.
+    QString snippet = r.snippet;
+    if (snippet.size() > kSnippetChars) {
+        qsizetype from = 0;
+        if (!r.snippetMatches.isEmpty())
+            from = std::max<qsizetype>(0, r.snippetMatches.first().first - kSnippetChars / 3);
+        snippet = (from > 0 ? u"…"_s : QString()) + snippet.mid(from, kSnippetChars) + u"…"_s;
+    }
+    item.insert(u"snippet"_s, snippet.simplified());
+    item.insert(u"score"_s, r.relevance);
+    return item;
+}
+
+QString stateName(IndexService::State state)
+{
+    switch (state) {
+    case IndexService::State::Idle:
+        return u"idle"_s;
+    case IndexService::State::Loading:
+        return u"loading"_s;
+    case IndexService::State::Building:
+        return u"building"_s;
+    case IndexService::State::Ready:
+        break;
+    }
+    return u"ready"_s;
+}
+
+} // namespace
+
+// ---- the host ---------------------------------------------------------------
+
+struct ToolHost::Tool {
+    enum class Gate { None, Open, Clipboard };
+    QString name;
+    QString title;
+    QString description;
+    QJsonObject inputSchema;
+    QJsonObject outputSchema;
+    QJsonObject annotations;
+    Gate gate = Gate::None;
+    bool engine = false; // runs on the search engine: one at a time
+    bool offered = true; // the services it needs are there; external: what its owner says
+    std::function<void(const std::shared_ptr<Call>&)> run;
+    // External tools (ExternalTool): their own handlers and words.
+    bool external = false;
+    QString offReason;
+    std::function<void(std::uint64_t, const QJsonObject&, std::function<void(ToolResult)>)> runExternal;
+    std::function<void(std::uint64_t)> cancelExternal;
+
+    bool allowed(const Policy& policy) const
+    {
+        if (external)
+            return offered;
+        return offered && (gate == Gate::None || (gate == Gate::Open && policy.allowOpen) || (gate == Gate::Clipboard && policy.allowClipboard));
+    }
+
+    QJsonObject json() const
+    {
+        QJsonObject tool {{u"name"_s, name}, {u"title"_s, title}, {u"description"_s, description},
+            {u"inputSchema"_s, inputSchema}, {u"annotations"_s, annotations}};
+        if (!outputSchema.isEmpty())
+            tool.insert(u"outputSchema"_s, outputSchema);
+        return tool;
+    }
+};
+
+struct ToolHost::Call {
+    std::uint64_t id = 0;
+    QString client;
+    const Tool* tool = nullptr;
+    std::shared_ptr<Tool> keep; // an external tool, held while the list may be replaced
+    QJsonObject arguments;
+    Done done;
+    QElapsedTimer timer;
+    bool cancelled = false;
+    HANDLE token = nullptr; // the caller's, for Visibility; null: the default
+    int checks = 0; // access checks made, and their time, for the log
+    qint64 checkUs = 0;
+
+    void checked(const Visibility& view)
+    {
+        checks += view.checks();
+        checkUs += view.microseconds();
+    }
+};
+
+struct ToolHost::Active {
+    std::shared_ptr<Call> call;
+    quint64 requestId = 0;
+    bool content = false;
+    int limit = 0;
+    QString kind; // search_files: all | files | folders
+    SearchResults found; // content matches so far
+    int scanned = 0;
+    int total = 0;
+};
+
+ToolHost::ToolHost(Services services, QObject* parent)
+    : QObject(parent)
+    , m_services(std::move(services))
+{
+    addTools();
+    if (m_services.engine) {
+        connect(m_services.engine, &SearchEngine::resultsReady, this, &ToolHost::onResults);
+        connect(m_services.engine, &SearchEngine::contentResults, this, &ToolHost::onContentResults);
+        connect(m_services.engine, &SearchEngine::contentProgress, this, &ToolHost::onContentProgress);
+    }
+    m_contentTimeout.setSingleShot(true);
+    connect(&m_contentTimeout, &QTimer::timeout, this, [this] { finishContent(false); });
+}
+
+ToolHost::~ToolHost() = default;
+
+void ToolHost::setPolicy(Policy policy)
+{
+    const QStringList before = toolNames();
+    m_policy = std::move(policy);
+    m_excluded.clear();
+    for (const QString& path : m_policy.excludedPaths) {
+        QString folder = nativePath(path);
+        if (folder.isEmpty() || folder == u".")
+            continue;
+        if (!folder.endsWith(u'\\'))
+            folder.append(u'\\');
+        m_excluded.push_back(folder.toCaseFolded());
+    }
+    if (toolNames() != before)
+        emit toolsChanged();
+}
+
+bool ToolHost::excluded(const QString& path) const
+{
+    if (m_excluded.empty())
+        return false;
+    QString folded = nativePath(path).toCaseFolded();
+    if (!folded.endsWith(u'\\'))
+        folded.append(u'\\');
+    return std::any_of(m_excluded.cbegin(), m_excluded.cend(), [&](const QString& ex) { return folded.startsWith(ex); });
+}
+
+QJsonArray ToolHost::tools() const
+{
+    QJsonArray out;
+    for (const Tool& tool : m_tools) {
+        if (tool.allowed(m_policy))
+            out.push_back(tool.json());
+    }
+    for (const auto& tool : m_external) {
+        if (tool->allowed(m_policy))
+            out.push_back(tool->json());
+    }
+    return out;
+}
+
+QStringList ToolHost::toolNames() const
+{
+    QStringList out;
+    for (const Tool& tool : m_tools) {
+        if (tool.allowed(m_policy))
+            out.push_back(tool.name);
+    }
+    for (const auto& tool : m_external) {
+        if (tool->allowed(m_policy))
+            out.push_back(tool->name);
+    }
+    return out;
+}
+
+const ToolHost::Tool* ToolHost::find(const QString& name) const
+{
+    for (const Tool& tool : m_tools) {
+        if (tool.name == name)
+            return &tool;
+    }
+    for (const auto& tool : m_external) {
+        if (tool->name == name)
+            return tool.get();
+    }
+    return nullptr;
+}
+
+ToolHost::Known ToolHost::known(const QString& name) const
+{
+    const Tool* tool = find(name);
+    if (!tool)
+        return Known::No;
+    return tool->allowed(m_policy) ? Known::Yes : Known::Off;
+}
+
+QString ToolHost::offReason(const QString& name) const
+{
+    const Tool* tool = find(name);
+    return tool && tool->external ? tool->offReason : QString();
+}
+
+void ToolHost::setExternalTools(std::vector<ExternalTool> tools)
+{
+    const QStringList before = toolNames();
+    m_external.clear();
+    for (ExternalTool& t : tools) {
+        auto tool = std::make_shared<Tool>();
+        tool->external = true;
+        tool->name = t.name;
+        tool->title = t.title;
+        tool->description = t.description;
+        tool->inputSchema = t.inputSchema;
+        tool->outputSchema = t.outputSchema;
+        tool->annotations = {{u"readOnlyHint"_s, t.readOnly}, {u"destructiveHint"_s, !t.readOnly}, {u"idempotentHint"_s, false},
+            {u"openWorldHint"_s, t.openWorld}};
+        tool->offered = t.offered;
+        tool->offReason = t.offReason;
+        tool->runExternal = std::move(t.run);
+        tool->cancelExternal = std::move(t.cancel);
+        m_external.push_back(std::move(tool));
+    }
+    if (toolNames() != before)
+        emit toolsChanged();
+}
+
+int ToolHost::pendingCalls() const
+{
+    return static_cast<int>(m_queue.size() + m_others.size()) + (m_active ? 1 : 0);
+}
+
+void ToolHost::call(std::uint64_t id, const QString& client, const QString& tool, const QJsonObject& arguments, Done done,
+    HANDLE token)
+{
+    auto call = std::make_shared<Call>();
+    call->id = id;
+    call->client = client;
+    call->arguments = arguments;
+    call->done = std::move(done);
+    call->token = token;
+    call->timer.start();
+    for (const Tool& t : m_tools) {
+        if (t.name == tool)
+            call->tool = &t;
+    }
+    for (const auto& t : m_external) {
+        if (t->name == tool) {
+            call->tool = t.get();
+            call->keep = t;
+        }
+    }
+    if (!call->tool || !call->tool->allowed(m_policy)) {
+        finish(call, {{}, true, u"Unknown tool: "_s + tool});
+        return;
+    }
+    if (call->tool->external) {
+        // Its owner runs it and answers when it will; the call waits among
+        // the others so that cancel() finds it.
+        m_others.push_back(call);
+        std::weak_ptr<Call> weak = call;
+        call->tool->runExternal(call->id, call->arguments, [this, weak](ToolResult result) {
+            const std::shared_ptr<Call> c = weak.lock();
+            if (!c)
+                return;
+            std::erase(m_others, c);
+            finish(c, std::move(result));
+        });
+        return;
+    }
+    if (call->tool->engine) {
+        m_queue.push_back(std::move(call));
+        next();
+    } else {
+        start(std::move(call));
+    }
+}
+
+void ToolHost::cancel(std::uint64_t id)
+{
+    for (auto it = m_queue.begin(); it != m_queue.end(); ++it) {
+        if ((*it)->id == id) {
+            (*it)->cancelled = true;
+            m_queue.erase(it);
+            return;
+        }
+    }
+    if (m_active && m_active->call->id == id) {
+        m_active->call->cancelled = true;
+        m_services.engine->cancel();
+        m_contentTimeout.stop();
+        m_active.reset();
+        next();
+        return;
+    }
+    for (auto it = m_others.begin(); it != m_others.end(); ++it) {
+        if ((*it)->id == id) {
+            const std::shared_ptr<Call> call = *it;
+            call->cancelled = true;
+            m_others.erase(it);
+            if (call->tool && call->tool->external && call->tool->cancelExternal)
+                call->tool->cancelExternal(id);
+            return;
+        }
+    }
+}
+
+void ToolHost::next()
+{
+    while (!m_active && !m_queue.empty()) {
+        std::shared_ptr<Call> call = std::move(m_queue.front());
+        m_queue.pop_front();
+        if (call->cancelled)
+            continue;
+        m_active = std::make_unique<Active>();
+        m_active->call = call;
+        start(call);
+        // A handler that found the arguments wrong finished the call without
+        // a search: on to the next.
+        if (m_active && m_active->requestId == 0)
+            m_active.reset();
+    }
+}
+
+void ToolHost::start(std::shared_ptr<Call> call)
+{
+    call->tool->run(call);
+}
+
+void ToolHost::finish(const std::shared_ptr<Call>& call, ToolResult result)
+{
+    if (call->cancelled)
+        return;
+    logCall(*call, result);
+    if (call->done)
+        call->done(std::move(result));
+}
+
+void ToolHost::logCall(const Call& call, const ToolResult& result) const
+{
+    if (!m_services.log)
+        return;
+    // What was asked and what came of it; never the clipboard's texts.
+    QJsonObject arguments = call.arguments;
+    QString outcome;
+    if (result.isError) {
+        outcome = u"error: "_s + result.errorText.left(200).simplified();
+    } else {
+        const QJsonValue returned = result.structured.value(u"returned"_s);
+        if (returned.isDouble())
+            outcome = u"%1 items"_s.arg(static_cast<int>(returned.toDouble()));
+        else if (result.structured.contains(u"opened"_s))
+            outcome = result.structured.value(u"opened"_s).toBool() ? u"opened"_s : u"not opened"_s;
+        else
+            outcome = u"ok"_s;
+    }
+    QString line = u"%1 %2 %3 %4 → %5, %6 ms"_s.arg(QDateTime::currentDateTime().toString(Qt::ISODate),
+        call.client.isEmpty() ? u"?"_s : call.client, call.tool ? call.tool->name : u"?"_s,
+        QString::fromUtf8(QJsonDocument(arguments).toJson(QJsonDocument::Compact)), outcome)
+                       .arg(call.timer.elapsed());
+    if (call.checks > 0)
+        line += u" (%1 access checks, %2 ms)"_s.arg(call.checks).arg(static_cast<double>(call.checkUs) / 1000.0, 0, 'f', 1);
+    m_services.log(line);
+}
+
+QString ToolHost::instructions()
+{
+    return u"Win顺 (WinShun) indexes every file and folder name on this PC's local drives and searches the text "
+           "inside text files and documents (Word, Excel, PowerPoint, PDF). search_files finds by name in "
+           "milliseconds; search_content looks inside files (slower, returns partial results with complete=false when "
+           "its timeout runs out); recent_files lists what changed lately; list_folder and get_file_info look around; "
+           "index_status says whether the index is ready.\n"
+           "search_files query syntax: words must all match (in the name, or in a parent folder's name); Chinese "
+           "names also match pinyin initials or full pinyin (bg, baogao or ndbg for 年度报告); \"quoted phrase\"; "
+           "!word excludes; *.pdf and ? wildcards; ext:pdf,docx keeps only those extensions; folder\\name needs a "
+           "parent folder containing 'folder'; a full path such as D:\\Projects\\report lists that folder's matches "
+           "first. Results are ranked: exact names, the user's own files and recently opened items first, system "
+           "and program folders last.\n"
+           "Paths are Windows paths; show them to the user as they are. Keep limits small (20–50) unless more is "
+           "needed. Tools that open files or read the clipboard history are listed only when the user allowed them "
+           "in Win顺's settings."_s;
+}
+
+// ---- the engine's answers ----------------------------------------------------
+
+void ToolHost::onResults(quint64 requestId, const SearchResults& results, qint64 totalMatches, qint64 elapsedUs)
+{
+    if (!m_active || m_active->requestId != requestId || m_active->content)
+        return;
+    const std::shared_ptr<Call> call = m_active->call;
+    const QString kind = m_active->kind;
+    const int limit = m_active->limit;
+    m_active.reset();
+
+    // Only what the caller may see: no count of the rest is given either
+    // (the engine's total would count files the caller cannot list).
+    Visibility view(call->token);
+    QJsonArray items;
+    for (const SearchResult& r : results) {
+        if (r.isApp())
+            continue;
+        if ((kind == u"files" && r.isDir) || (kind == u"folders" && !r.isDir))
+            continue;
+        if (excluded(r.path) || !view.sees(r.path))
+            continue;
+        if (items.size() >= limit)
+            break;
+        items.push_back(fileItem(r.path, r.name, r.isDir, r.modified));
+    }
+    call->checked(view);
+    QJsonObject out {{u"items"_s, items}, {u"returned"_s, items.size()},
+        {u"truncated"_s, totalMatches > results.size() || items.size() >= limit},
+        {u"elapsed_ms"_s, static_cast<double>(elapsedUs) / 1000.0}};
+    if (m_services.index && m_services.index->state() != IndexService::State::Ready)
+        out.insert(u"index_state"_s, stateName(m_services.index->state()));
+    finish(call, {out});
+    next();
+}
+
+void ToolHost::onContentResults(quint64 requestId, const SearchResults& results)
+{
+    if (!m_active || m_active->requestId != requestId || !m_active->content)
+        return;
+    m_active->found += results;
+}
+
+void ToolHost::onContentProgress(quint64 requestId, int scanned, int total, bool finished)
+{
+    if (!m_active || m_active->requestId != requestId || !m_active->content)
+        return;
+    m_active->scanned = scanned;
+    m_active->total = total;
+    if (finished)
+        finishContent(true);
+}
+
+void ToolHost::finishContent(bool complete)
+{
+    if (!m_active || !m_active->content)
+        return;
+    m_contentTimeout.stop();
+    if (!complete)
+        m_services.engine->cancel();
+    const std::shared_ptr<Call> call = m_active->call;
+    SearchResults found = std::move(m_active->found);
+    const int limit = m_active->limit;
+    const int scanned = m_active->scanned;
+    const int total = m_active->total;
+    m_active.reset();
+
+    std::ranges::stable_sort(found, std::ranges::greater {}, &SearchResult::relevance);
+    // The caller must be able to read the file itself (not only to see it):
+    // the snippet is its contents.
+    Visibility view(call->token);
+    QJsonArray items;
+    for (const SearchResult& r : found) {
+        if (excluded(r.path) || !view.sees(r.path) || !view.canRead(r.path))
+            continue;
+        if (items.size() >= limit)
+            break;
+        items.push_back(contentItem(r));
+    }
+    call->checked(view);
+    QJsonObject out {{u"items"_s, items}, {u"returned"_s, items.size()}, {u"complete"_s, complete},
+        {u"files_checked"_s, scanned}, {u"files_candidates"_s, total},
+        {u"elapsed_ms"_s, static_cast<double>(call->timer.elapsed())}};
+    if (!complete)
+        out.insert(u"note"_s, u"The timeout ran out: these are the matches found so far, best first. Call again with a larger timeout_ms or a more specific query for the rest."_s);
+    finish(call, {out});
+    next();
+}
+
+// ---- the tools ----------------------------------------------------------------
+
+void ToolHost::addTools()
+{
+    Tool search;
+    search.name = u"search_files"_s;
+    search.title = u"Search file and folder names"_s;
+    search.description = u"Find files and folders on this PC by name, instantly, from Win顺's index of all local drives. "
+                         "Supports pinyin for Chinese names (bg or baogao for 报告), \"quoted phrases\", !exclusions, "
+                         "wildcards (*.pdf), ext:pdf,docx, folder\\name, and full paths (D:\\Projects\\report). "
+                         "Ranked by relevance (exact names and the user's own, recently opened files first) or by "
+                         "modification time."_s;
+    search.inputSchema = object(
+        {{u"query"_s, typed("string", u"What to find; see the server instructions for the syntax"_s)},
+            {u"kind"_s, choice(u"Both files and folders, files only, or folders only"_s, {u"all"_s, u"files"_s, u"folders"_s}, u"all"_s)},
+            {u"sort"_s, choice(u"Best matches first, the most recently modified first, or the oldest first"_s, {u"relevance"_s, u"modified"_s, u"oldest"_s}, u"relevance"_s)},
+            {u"limit"_s, integer(u"How many results at most"_s, 1, kMaxFiles, kDefaultFiles)}},
+        {u"query"_s});
+    search.outputSchema = object({{u"items"_s, array(itemSchema(), u"The matches, best first"_s)},
+        {u"returned"_s, typed("integer", u"How many items"_s)},
+        {u"truncated"_s, typed("boolean", u"More matched than returned: narrow the query, or raise the limit"_s)},
+        {u"elapsed_ms"_s, typed("number", u"Search time"_s)},
+        {u"index_state"_s, typed("string", u"Present while the index is still being built: results may be incomplete"_s)}});
+    search.annotations = annotations(true, true);
+    search.engine = true;
+    search.run = [this](const std::shared_ptr<Call>& call) { searchFiles(call); };
+    m_tools.push_back(std::move(search));
+
+    Tool content;
+    content.name = u"search_content"_s;
+    content.title = u"Search text inside files"_s;
+    content.description = u"Find files whose text contains the given words: text files (txt, md, log, csv, json, code…) "
+                          "and documents (Word, Excel, PowerPoint, PDF, WPS). Several words must all occur in the file; "
+                          "a \"quoted phrase\" is found as written; a line of code is found as it is. Each match comes "
+                          "with the matching line (or page, slide, sheet row) and a snippet. Slower than search_files: "
+                          "returns what it found when timeout_ms runs out (complete=false)."_s;
+    content.inputSchema = object(
+        {{u"query"_s, typed("string", u"Words that must all occur, a \"quoted phrase\", or a line of code"_s)},
+            {u"limit"_s, integer(u"How many matching files at most"_s, 1, kMaxContent, kDefaultContent)},
+            {u"timeout_ms"_s, integer(u"How long to search before returning what was found"_s, kMinTimeoutMs, kMaxTimeoutMs, kDefaultTimeoutMs)},
+            {u"include_system"_s, boolean(u"Also look in system, program and tool folders (node_modules, .git…)"_s, false)}},
+        {u"query"_s});
+    content.outputSchema = object({{u"items"_s, array(object({{u"path"_s, typed("string", u"Full Windows path"_s)},
+                                                           {u"name"_s, typed("string", u"File name"_s)},
+                                                           {u"modified"_s, typed("string", u"When last written, ISO 8601"_s)},
+                                                           {u"location"_s, typed("object", u"kind (line, page, slide, row, document) with line or number, and sheet"_s)},
+                                                           {u"snippet"_s, typed("string", u"The matching line or passage"_s)},
+                                                           {u"score"_s, typed("integer", u"Relevance, higher is better"_s)}}),
+                                       u"The matches, best first"_s)},
+        {u"returned"_s, typed("integer", u"How many items"_s)}, {u"complete"_s, typed("boolean", u"False when the timeout ran out first"_s)},
+        {u"files_checked"_s, typed("integer", u"Files looked at"_s)}, {u"files_candidates"_s, typed("integer", u"Files that could contain the words"_s)},
+        {u"elapsed_ms"_s, typed("number", u"Search time"_s)}, {u"note"_s, typed("string", u"Advice when the result is partial"_s)}});
+    content.annotations = annotations(true, true);
+    content.engine = true;
+    content.run = [this](const std::shared_ptr<Call>& call) { searchContent(call); };
+    m_tools.push_back(std::move(content));
+
+    Tool recent;
+    recent.name = u"recent_files"_s;
+    recent.title = u"Recently modified files"_s;
+    recent.description = u"The files (or folders) most recently written, newest first, optionally within a folder, of "
+                         "certain extensions, or within the last days. No query needed; for names use search_files "
+                         "with sort=modified."_s;
+    recent.inputSchema = object({{u"folder"_s, typed("string", u"Only under this folder (full path); default: all drives"_s)},
+        {u"extensions"_s, array(typed("string", u"Extension without the dot, e.g. docx"_s), u"Only these extensions"_s)},
+        {u"days"_s, integer(u"Only files modified within this many days; 0 = any time"_s, 0, 36500, 0)},
+        {u"kind"_s, choice(u"Files, folders, or both"_s, {u"files"_s, u"folders"_s, u"all"_s}, u"files"_s)},
+        {u"include_system"_s, boolean(u"Also system, program and tool folders"_s, false)},
+        {u"include_hidden"_s, boolean(u"Also hidden files and folders"_s, false)},
+        {u"limit"_s, integer(u"How many at most"_s, 1, kMaxFiles, kDefaultFiles)}});
+    recent.outputSchema = object({{u"items"_s, array(itemSchema(), u"Newest first"_s)}, {u"returned"_s, typed("integer", u"How many items"_s)},
+        {u"elapsed_ms"_s, typed("number", u"Scan time"_s)}});
+    recent.annotations = annotations(true, true);
+    recent.run = [this](const std::shared_ptr<Call>& call) { recentFiles(call); };
+    m_tools.push_back(std::move(recent));
+
+    Tool list;
+    list.name = u"list_folder"_s;
+    list.title = u"List a folder"_s;
+    list.description = u"What a folder holds, from the index (instant, no disk access): folders first, then files, by name. "
+                       "Only folders on indexed drives that are not excluded from indexing."_s;
+    list.inputSchema = object({{u"path"_s, typed("string", u"Full path of the folder, e.g. D:\\Projects"_s)},
+                                  {u"kind"_s, choice(u"Both, files only, or folders only"_s, {u"all"_s, u"files"_s, u"folders"_s}, u"all"_s)},
+                                  {u"limit"_s, integer(u"How many entries at most"_s, 1, kMaxFolder, kDefaultFolder)}},
+        {u"path"_s});
+    list.outputSchema = object({{u"path"_s, typed("string", u"The folder"_s)}, {u"items"_s, array(itemSchema(), u"Its entries"_s)},
+        {u"returned"_s, typed("integer", u"How many items"_s)}, {u"total"_s, typed("integer", u"How many entries the folder has"_s)},
+        {u"truncated"_s, typed("boolean", u"More than returned"_s)}});
+    list.annotations = annotations(true, true);
+    list.run = [this](const std::shared_ptr<Call>& call) { listFolder(call); };
+    m_tools.push_back(std::move(list));
+
+    Tool info;
+    info.name = u"get_file_info"_s;
+    info.title = u"File or folder details"_s;
+    info.description = u"Size, dates and attributes of one file or folder, read from the disk, and whether Win顺 indexes it."_s;
+    info.inputSchema = object({{u"path"_s, typed("string", u"Full path"_s)}}, {u"path"_s});
+    info.outputSchema = object({{u"exists"_s, typed("boolean", u"Whether it is there"_s)}, {u"path"_s, typed("string", u"The path, normalized"_s)},
+        {u"name"_s, typed("string", u"Name"_s)}, {u"type"_s, typed("string", u"file or folder"_s)}, {u"size"_s, typed("integer", u"Bytes (files)"_s)},
+        {u"created"_s, typed("string", u"ISO 8601"_s)}, {u"modified"_s, typed("string", u"ISO 8601"_s)}, {u"accessed"_s, typed("string", u"ISO 8601"_s)},
+        {u"extension"_s, typed("string", u"Without the dot"_s)}, {u"hidden"_s, typed("boolean", u"Hidden attribute"_s)},
+        {u"read_only"_s, typed("boolean", u"Read-only attribute"_s)}, {u"system"_s, typed("boolean", u"System attribute"_s)},
+        {u"cloud_placeholder"_s, typed("boolean", u"A cloud file not on this disk: reading it would download it"_s)},
+        {u"indexed"_s, typed("boolean", u"Whether it is in Win顺's index"_s)}});
+    info.annotations = annotations(true, true);
+    info.run = [this](const std::shared_ptr<Call>& call) { fileInfo(call); };
+    m_tools.push_back(std::move(info));
+
+    Tool open;
+    open.name = u"open_item"_s;
+    open.title = u"Open a file or folder"_s;
+    open.description = u"Opens a file with its default program, or a folder in the file manager, with the user's normal "
+                       "rights (never elevated), as a double-click would. Only for items that exist on this PC."_s;
+    open.inputSchema = object({{u"path"_s, typed("string", u"Full path of the file or folder"_s)}}, {u"path"_s});
+    open.outputSchema = object({{u"opened"_s, typed("boolean", u"Whether it was started"_s)}, {u"path"_s, typed("string", u"What was opened"_s)}});
+    open.annotations = annotations(false, false);
+    open.gate = Tool::Gate::Open;
+    open.offered = static_cast<bool>(m_services.open);
+    open.run = [this](const std::shared_ptr<Call>& call) { openItem(call, false); };
+    m_tools.push_back(std::move(open));
+
+    Tool reveal;
+    reveal.name = u"show_in_folder"_s;
+    reveal.title = u"Show in its folder"_s;
+    reveal.description = u"Opens the folder that holds the file (or folder) in the file manager, with the item selected."_s;
+    reveal.inputSchema = object({{u"path"_s, typed("string", u"Full path of the item to select"_s)}}, {u"path"_s});
+    reveal.outputSchema = object({{u"opened"_s, typed("boolean", u"Whether the folder was opened"_s)}, {u"path"_s, typed("string", u"The item"_s)}});
+    reveal.annotations = annotations(false, false);
+    reveal.gate = Tool::Gate::Open;
+    reveal.offered = static_cast<bool>(m_services.reveal);
+    reveal.run = [this](const std::shared_ptr<Call>& call) { openItem(call, true); };
+    m_tools.push_back(std::move(reveal));
+
+    Tool clips;
+    clips.name = u"clipboard_history"_s;
+    clips.title = u"Clipboard history"_s;
+    clips.description = u"What the user copied lately (Win顺's clipboard history), newest first: text, links, file paths, "
+                        "copied files and pictures (pictures as their size only). Texts are cut to max_chars; "
+                        "clipboard_get reads one whole. Searchable by words (pinyin too) and @program."_s;
+    clips.inputSchema = object({{u"query"_s, typed("string", u"Words that must all occur; @name keeps to what one program copied"_s)},
+        {u"kind"_s, choice(u"Which entries"_s, {u"all"_s, u"text"_s, u"link"_s, u"path"_s, u"files"_s, u"image"_s}, u"all"_s)},
+        {u"limit"_s, integer(u"How many entries at most"_s, 1, kMaxClips, kDefaultClips)},
+        {u"max_chars"_s, integer(u"Characters of each text to include"_s, 50, kMaxClipChars, kDefaultClipChars)}});
+    clips.outputSchema = object({{u"items"_s, array(object({{u"id"_s, typed("integer", u"For clipboard_get"_s)},
+                                                         {u"kind"_s, typed("string", u"text, link, path, files or image"_s)},
+                                                         {u"text"_s, typed("string", u"The text, cut to max_chars; files as one path per line"_s)},
+                                                         {u"chars"_s, typed("integer", u"Length of the whole text"_s)},
+                                                         {u"truncated"_s, typed("boolean", u"The text was cut"_s)},
+                                                         {u"copied"_s, typed("string", u"First copied, ISO 8601"_s)},
+                                                         {u"used"_s, typed("string", u"Last copied or pasted, ISO 8601"_s)},
+                                                         {u"source"_s, typed("string", u"The program it was copied from"_s)},
+                                                         {u"group"_s, typed("string", u"The group it is kept in, if any"_s)},
+                                                         {u"pinned"_s, typed("boolean", u"Kept for good"_s)},
+                                                         {u"width"_s, typed("integer", u"Pictures: pixels"_s)},
+                                                         {u"height"_s, typed("integer", u"Pictures: pixels"_s)}}),
+                                     u"Newest first"_s)},
+        {u"returned"_s, typed("integer", u"How many items"_s)}});
+    clips.annotations = annotations(true, true);
+    clips.gate = Tool::Gate::Clipboard;
+    clips.offered = static_cast<bool>(m_services.clipboard);
+    clips.run = [this](const std::shared_ptr<Call>& call) { clipboardHistory(call); };
+    m_tools.push_back(std::move(clips));
+
+    Tool clip;
+    clip.name = u"clipboard_get"_s;
+    clip.title = u"One clipboard entry"_s;
+    clip.description = u"The whole text of one entry of the clipboard history, by the id clipboard_history gave."_s;
+    clip.inputSchema = object({{u"id"_s, typed("integer", u"The entry's id"_s)},
+                                  {u"max_chars"_s, integer(u"Characters at most"_s, 100, 200000, 20000)}},
+        {u"id"_s});
+    clip.outputSchema = object({{u"id"_s, typed("integer", u"The entry"_s)}, {u"text"_s, typed("string", u"Its text"_s)},
+        {u"chars"_s, typed("integer", u"Length of the whole text"_s)}, {u"truncated"_s, typed("boolean", u"Cut to max_chars"_s)}});
+    clip.annotations = annotations(true, true);
+    clip.gate = Tool::Gate::Clipboard;
+    clip.offered = static_cast<bool>(m_services.clipboardText);
+    clip.run = [this](const std::shared_ptr<Call>& call) { clipboardGet(call); };
+    m_tools.push_back(std::move(clip));
+
+    Tool status;
+    status.name = u"index_status"_s;
+    status.title = u"Win顺 status"_s;
+    status.description = u"Whether Win顺 is running and its index is ready: how many items it holds, which drives are "
+                         "still being read, the state of the content index, and which optional tools the user allowed."_s;
+    status.inputSchema = {{u"type"_s, u"object"_s}, {u"additionalProperties"_s, false}};
+    status.outputSchema = object({{u"running"_s, typed("boolean", u"Win顺 is running"_s)},
+        {u"connected"_s, typed("boolean", u"The AI connection to Win顺 is up; false when it is off or Win顺 is not running, and the relay answers alone"_s)},
+        {u"version"_s, typed("string", u"Its version"_s)},
+        {u"index"_s, typed("object", u"state (loading, building, ready), items, volumes"_s)},
+        {u"content_index"_s, typed("object", u"enabled, files, pending, reading"_s)},
+        {u"ai"_s, typed("object", u"open_allowed, clipboard_allowed, excluded_folders"_s)}, {u"hint"_s, typed("string", u"What to tell the user when Win顺 is not running"_s)}});
+    status.annotations = annotations(true, true);
+    status.run = [this](const std::shared_ptr<Call>& call) { indexStatus(call); };
+    m_tools.push_back(std::move(status));
+}
+
+void ToolHost::searchFiles(const std::shared_ptr<Call>& call)
+{
+    Args args(call->arguments);
+    const QString query = args.string(u"query"_s, true).trimmed();
+    const QString kind = args.choice(u"kind"_s, u"all"_s, {u"all"_s, u"files"_s, u"folders"_s});
+    const QString sort = args.choice(u"sort"_s, u"relevance"_s, {u"relevance"_s, u"modified"_s, u"oldest"_s});
+    const int limit = args.integer(u"limit"_s, kDefaultFiles, 1, kMaxFiles);
+    if (!args.error().isEmpty())
+        return finish(call, {{}, true, args.error()});
+    if (query.isEmpty())
+        return finish(call, {{}, true, u"query is empty. For the newest files without a query, use recent_files."_s});
+
+    SearchEngine::Request request;
+    request.text = query;
+    request.scope = kind == u"folders" ? Scope::Folders : Scope::Files;
+    request.kindOrder = m_policy.kindOrder;
+    request.rankBy = sort == u"modified" ? RankBy::Newest : sort == u"oldest" ? RankBy::Oldest : RankBy::Match;
+    // Files and folders are each kept to the limit (kindsApart); excluded
+    // ones are taken out afterwards, so a few more are asked for.
+    request.limit = std::min(kMaxFiles, limit + 10);
+    if (m_services.history)
+        request.history = m_services.history();
+    m_active->content = false;
+    m_active->limit = limit;
+    m_active->kind = kind;
+    m_active->requestId = m_services.engine->submit(std::move(request));
+}
+
+void ToolHost::searchContent(const std::shared_ptr<Call>& call)
+{
+    Args args(call->arguments);
+    const QString query = args.string(u"query"_s, true).trimmed();
+    const int limit = args.integer(u"limit"_s, kDefaultContent, 1, kMaxContent);
+    const int timeout = args.integer(u"timeout_ms"_s, kDefaultTimeoutMs, kMinTimeoutMs, kMaxTimeoutMs);
+    const bool system = args.boolean(u"include_system"_s, false);
+    if (!args.error().isEmpty())
+        return finish(call, {{}, true, args.error()});
+    if (query.isEmpty())
+        return finish(call, {{}, true, u"query is empty"_s});
+    if (!m_policy.content)
+        return finish(call, {{}, true, u"File content search is turned off in WinShun's settings"_s});
+
+    SearchEngine::Request request;
+    request.text = query;
+    request.scope = Scope::Content;
+    request.contentExtensions = m_policy.contentExtensions;
+    request.contentSizeLimits = m_policy.contentSizeLimits;
+    request.contentDocuments = m_policy.contentDocuments;
+    request.contentInLowPriority = system || m_policy.contentInLowPriority;
+    request.maxContentResults = limit + 10;
+    request.contentThreads = kContentThreads;
+    m_active->content = true;
+    m_active->limit = limit;
+    m_active->requestId = m_services.engine->submit(std::move(request));
+    m_contentTimeout.start(timeout);
+}
+
+void ToolHost::recentFiles(const std::shared_ptr<Call>& call)
+{
+    Args args(call->arguments);
+    const QString folder = args.string(u"folder"_s).trimmed();
+    QStringList extensions = args.strings(u"extensions"_s);
+    const int days = args.integer(u"days"_s, 0, 0, 36500);
+    const QString kind = args.choice(u"kind"_s, u"files"_s, {u"files"_s, u"folders"_s, u"all"_s});
+    const bool system = args.boolean(u"include_system"_s, false);
+    const bool hidden = args.boolean(u"include_hidden"_s, false);
+    const int limit = args.integer(u"limit"_s, kDefaultFiles, 1, kMaxFiles);
+    if (!args.error().isEmpty())
+        return finish(call, {{}, true, args.error()});
+    if (!folder.isEmpty() && excluded(folder))
+        return finish(call, {{}, true, u"This folder is not visible to AI (excluded in Win顺's settings)."_s});
+    std::vector<std::string> wanted; // extensions, lower case, without the dot
+    for (QString ext : extensions) {
+        while (ext.startsWith(u'.'))
+            ext.remove(0, 1);
+        if (!ext.isEmpty())
+            wanted.push_back(ext.toLower().toStdString());
+    }
+
+    QElapsedTimer timer;
+    timer.start();
+    struct Hit {
+        EntryId id;
+        FileTime modified;
+    };
+    struct Row {
+        QString path;
+        QString name;
+        bool isDir;
+        FileTime modified;
+    };
+    const auto index = m_services.index->index();
+    std::vector<Hit> hits;
+    std::vector<Row> rows;
+    {
+        const auto lock = index->readLock();
+        EntryId under = kNoEntry;
+        if (!folder.isEmpty()) {
+            under = index->findPath(indexPath(folder));
+            if (under == kNoEntry)
+                return finish(call, {{}, true, u"The folder is not in the index: it may not exist, be excluded from indexing, or be on a drive that is not indexed. Check it with get_file_info."_s});
+            if (!index->entry(under).isDir())
+                return finish(call, {{}, true, u"The path is a file, not a folder."_s});
+        }
+        const FileTime since = days > 0
+            ? static_cast<FileTime>(std::max<qint64>(1, QDateTime::currentSecsSinceEpoch() - static_cast<qint64>(days) * 86400))
+            : 1;
+        const std::size_t keep = static_cast<std::size_t>(limit) * 2; // some may be excluded afterwards
+        std::vector<std::vector<Hit>> found(index->chunkCount());
+        m_pool.parallelFor(index->chunkCount(), [&](std::size_t c) {
+            std::unordered_map<EntryId, bool> below; // folder -> under `under`
+            const auto isUnder = [&](EntryId id) {
+                if (under == kNoEntry)
+                    return true;
+                std::vector<EntryId> walked;
+                EntryId at = index->entry(id).parent;
+                bool result = false;
+                while (at != kNoEntry) {
+                    if (at == under) {
+                        result = true;
+                        break;
+                    }
+                    if (const auto it = below.find(at); it != below.end()) {
+                        result = it->second;
+                        break;
+                    }
+                    walked.push_back(at);
+                    at = index->entry(at).parent;
+                }
+                for (const EntryId w : walked)
+                    below.emplace(w, result);
+                return result;
+            };
+            std::vector<Hit>& mine = found[c];
+            const auto byTime = [](const Hit& a, const Hit& b) { return a.modified > b.modified; }; // a min-heap on time
+            const auto entries = index->chunk(c);
+            const auto first = static_cast<EntryId>(c << FileIndex::kChunkBits);
+            for (std::size_t i = 0; i < entries.size(); ++i) {
+                const Entry& e = entries[i];
+                if (e.isDeleted() || (e.flags & EntryFlag::Root))
+                    continue;
+                if ((kind == u"files" && e.isDir()) || (kind == u"folders" && !e.isDir()))
+                    continue;
+                if (!system && (e.flags & EntryFlag::LowPriority))
+                    continue;
+                if (!hidden && (e.flags & EntryFlag::Hidden))
+                    continue;
+                const auto id = static_cast<EntryId>(first + i);
+                const FileTime modified = index->modified(id);
+                if (modified < since)
+                    continue;
+                if (!mine.empty() && mine.size() >= keep && modified <= mine.front().modified)
+                    continue;
+                if (!wanted.empty()) {
+                    if (e.isDir())
+                        continue;
+                    std::size_t extLength = 0;
+                    const std::string_view name = index->fileName(e, extLength);
+                    if (extLength == 0)
+                        continue;
+                    std::string ext(name.substr(name.size() - extLength));
+                    std::ranges::transform(ext, ext.begin(), [](char ch) { return static_cast<char>(std::tolower(static_cast<unsigned char>(ch))); });
+                    if (std::ranges::find(wanted, ext) == wanted.end())
+                        continue;
+                }
+                if (!isUnder(id))
+                    continue;
+                mine.push_back({id, modified});
+                std::ranges::push_heap(mine, byTime);
+                if (mine.size() > keep) {
+                    std::ranges::pop_heap(mine, byTime);
+                    mine.pop_back();
+                }
+            }
+        });
+        for (auto& f : found)
+            hits.insert(hits.end(), f.begin(), f.end());
+        std::ranges::sort(hits, [](const Hit& a, const Hit& b) { return a.modified > b.modified; });
+        if (hits.size() > keep)
+            hits.resize(keep);
+        for (const Hit& hit : hits) {
+            const Entry& e = index->entry(hit.id);
+            const QString path = index->path(hit.id);
+            if (excluded(path))
+                continue;
+            rows.push_back({path, wtf8::toQString(index->name(e)), e.isDir(), hit.modified});
+        }
+    }
+    // The access checks and the sizes go to the disk: not under the index's lock.
+    Visibility view(call->token);
+    QJsonArray items;
+    for (const Row& row : rows) {
+        if (!view.sees(row.path))
+            continue;
+        if (items.size() >= limit)
+            break;
+        items.push_back(fileItem(row.path, row.name, row.isDir, row.modified));
+    }
+    call->checked(view);
+    QJsonObject out {{u"items"_s, items}, {u"returned"_s, items.size()}, {u"elapsed_ms"_s, static_cast<double>(timer.elapsed())}};
+    if (m_services.index->state() != IndexService::State::Ready)
+        out.insert(u"index_state"_s, stateName(m_services.index->state()));
+    finish(call, {out});
+}
+
+void ToolHost::listFolder(const std::shared_ptr<Call>& call)
+{
+    Args args(call->arguments);
+    const QString path = args.string(u"path"_s, true).trimmed();
+    const QString kind = args.choice(u"kind"_s, u"all"_s, {u"all"_s, u"files"_s, u"folders"_s});
+    const int limit = args.integer(u"limit"_s, kDefaultFolder, 1, kMaxFolder);
+    if (!args.error().isEmpty())
+        return finish(call, {{}, true, args.error()});
+    if (path.isEmpty())
+        return finish(call, {{}, true, u"path is empty"_s});
+    if (excluded(path))
+        return finish(call, {{}, true, u"This folder is not visible to AI (excluded in Win顺's settings)."_s});
+
+    struct Child {
+        QString name;
+        bool isDir;
+        FileTime modified;
+    };
+    std::vector<Child> children;
+    QString folderPath;
+    {
+        const auto index = m_services.index->index();
+        const auto lock = index->readLock();
+        const EntryId folder = index->findPath(indexPath(path));
+        if (folder == kNoEntry)
+            return finish(call, {{}, true, u"The folder is not in the index: it may not exist, be excluded from indexing, or be on a drive that is not indexed. Check it with get_file_info."_s});
+        if (!index->entry(folder).isDir())
+            return finish(call, {{}, true, u"The path is a file, not a folder."_s});
+        folderPath = index->path(folder);
+        for (EntryId child = index->entry(folder).firstChild; child != kNoEntry; child = index->entry(child).nextSibling) {
+            const Entry& e = index->entry(child);
+            if (e.isDeleted())
+                continue;
+            if ((kind == u"files" && e.isDir()) || (kind == u"folders" && !e.isDir()))
+                continue;
+            children.push_back({wtf8::toQString(index->name(e)), e.isDir(), index->modified(child)});
+        }
+    }
+    // A folder the caller cannot list is, to it, not there: the same answer
+    // as for one that is not in the index. Its entries' names are all
+    // visible once it can be listed.
+    Visibility view(call->token);
+    const bool listable = view.canList(folderPath);
+    call->checked(view);
+    if (!listable)
+        return finish(call, {{}, true, u"The folder is not in the index: it may not exist, be excluded from indexing, or be on a drive that is not indexed. Check it with get_file_info."_s});
+    std::ranges::sort(children, [](const Child& a, const Child& b) {
+        if (a.isDir != b.isDir)
+            return a.isDir;
+        return QString::compare(a.name, b.name, Qt::CaseInsensitive) < 0;
+    });
+    QJsonArray items;
+    for (const Child& child : children) {
+        if (items.size() >= limit)
+            break;
+        const QString childPath = folderPath + (folderPath.endsWith(u'\\') ? u""_s : u"\\"_s) + child.name;
+        if (excluded(childPath))
+            continue;
+        items.push_back(fileItem(childPath, child.name, child.isDir, child.modified));
+    }
+    finish(call, {{{u"path"_s, folderPath}, {u"items"_s, items}, {u"returned"_s, items.size()},
+        {u"total"_s, static_cast<qint64>(children.size())}, {u"truncated"_s, std::ssize(children) > items.size()}}});
+}
+
+void ToolHost::fileInfo(const std::shared_ptr<Call>& call)
+{
+    Args args(call->arguments);
+    const QString given = args.string(u"path"_s, true).trimmed();
+    if (!args.error().isEmpty())
+        return finish(call, {{}, true, args.error()});
+    if (given.isEmpty())
+        return finish(call, {{}, true, u"path is empty"_s});
+    if (excluded(given))
+        return finish(call, {{}, true, u"This path is not visible to AI (excluded in Win顺's settings)."_s});
+    const QString path = nativePath(given);
+    WIN32_FILE_ATTRIBUTE_DATA data {};
+    if (!::GetFileAttributesExW(win32::longPath(path.toStdWString()).c_str(), GetFileExInfoStandard, &data)) {
+        const DWORD error = ::GetLastError();
+        QJsonObject out {{u"exists"_s, false}, {u"path"_s, path}};
+        if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND && error != ERROR_INVALID_NAME)
+            out.insert(u"error"_s, u"Cannot be read (Win32 error %1)"_s.arg(error));
+        return finish(call, {out});
+    }
+    // What the caller could not see or read the attributes of is, to it, not there.
+    Visibility view(call->token);
+    const bool visible = view.sees(path) && view.canReadAttributes(path);
+    call->checked(view);
+    if (!visible)
+        return finish(call, {{{u"exists"_s, false}, {u"path"_s, path}}});
+    const bool isDir = data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
+    const QString name = path.section(u'\\', -1);
+    QJsonObject out {{u"exists"_s, true}, {u"path"_s, path}, {u"name"_s, name}, {u"type"_s, isDir ? u"folder"_s : u"file"_s},
+        {u"created"_s, isoFileTime(data.ftCreationTime)}, {u"modified"_s, isoFileTime(data.ftLastWriteTime)},
+        {u"accessed"_s, isoFileTime(data.ftLastAccessTime)}, {u"hidden"_s, (data.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0},
+        {u"read_only"_s, (data.dwFileAttributes & FILE_ATTRIBUTE_READONLY) != 0},
+        {u"system"_s, (data.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) != 0},
+        {u"cloud_placeholder"_s, (data.dwFileAttributes & (FILE_ATTRIBUTE_OFFLINE | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS)) != 0}};
+    if (!isDir) {
+        out.insert(u"size"_s, static_cast<qint64>((static_cast<quint64>(data.nFileSizeHigh) << 32) | data.nFileSizeLow));
+        if (const qsizetype dot = name.lastIndexOf(u'.'); dot > 0)
+            out.insert(u"extension"_s, name.mid(dot + 1).toLower());
+    }
+    {
+        const auto index = m_services.index->index();
+        const auto lock = index->readLock();
+        out.insert(u"indexed"_s, index->findPath(indexPath(path)) != kNoEntry);
+    }
+    finish(call, {out});
+}
+
+void ToolHost::openItem(const std::shared_ptr<Call>& call, bool reveal)
+{
+    Args args(call->arguments);
+    const QString given = args.string(u"path"_s, true).trimmed();
+    if (!args.error().isEmpty())
+        return finish(call, {{}, true, args.error()});
+    if (given.isEmpty())
+        return finish(call, {{}, true, u"path is empty"_s});
+    if (excluded(given))
+        return finish(call, {{}, true, u"This path is not visible to AI (excluded in Win顺's settings)."_s});
+    const QString path = nativePath(given);
+    const DWORD attributes = ::GetFileAttributesW(win32::longPath(path.toStdWString()).c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES)
+        return finish(call, {{}, true, u"There is no such file or folder: "_s + path});
+    // Only what the caller could open itself; the rest is, to it, not there.
+    Visibility view(call->token);
+    const bool isDir = attributes & FILE_ATTRIBUTE_DIRECTORY;
+    const bool visible = view.sees(path) && (isDir ? view.canList(path) : view.canRead(path));
+    call->checked(view);
+    if (!visible)
+        return finish(call, {{}, true, u"There is no such file or folder: "_s + path});
+    m_others.push_back(call);
+    const auto& action = reveal ? m_services.reveal : m_services.open;
+    action(path, [this, call, path](bool ok) {
+        // Any thread: back to ours.
+        QMetaObject::invokeMethod(this, [this, call, path, ok] {
+            std::erase(m_others, call);
+            if (ok)
+                finish(call, {{{u"opened"_s, true}, {u"path"_s, path}}});
+            else
+                finish(call, {{}, true, u"Could not open it: no Explorer to open it with the user's normal rights. The user can try again in a moment."_s});
+        }, Qt::QueuedConnection);
+    });
+}
+
+void ToolHost::clipboardHistory(const std::shared_ptr<Call>& call)
+{
+    Args args(call->arguments);
+    ClipQuery query;
+    query.query = args.string(u"query"_s).trimmed();
+    query.kind = args.choice(u"kind"_s, u"all"_s, {u"all"_s, u"text"_s, u"link"_s, u"path"_s, u"files"_s, u"image"_s});
+    query.limit = args.integer(u"limit"_s, kDefaultClips, 1, kMaxClips);
+    query.maxChars = args.integer(u"max_chars"_s, kDefaultClipChars, 50, kMaxClipChars);
+    if (!args.error().isEmpty())
+        return finish(call, {{}, true, args.error()});
+    const std::vector<ClipSummary> clips = m_services.clipboard(query);
+    QJsonArray items;
+    for (const ClipSummary& c : clips) {
+        QJsonObject item {{u"id"_s, c.id}, {u"kind"_s, c.kind}, {u"copied"_s, isoTimeMs(c.created)}, {u"used"_s, isoTimeMs(c.used)},
+            {u"pinned"_s, c.pinned}};
+        if (c.kind != u"image") {
+            item.insert(u"text"_s, c.text);
+            item.insert(u"chars"_s, c.chars);
+            item.insert(u"truncated"_s, c.chars > c.text.size());
+        } else {
+            item.insert(u"width"_s, c.width);
+            item.insert(u"height"_s, c.height);
+        }
+        if (!c.source.isEmpty())
+            item.insert(u"source"_s, c.source);
+        if (!c.group.isEmpty())
+            item.insert(u"group"_s, c.group);
+        items.push_back(item);
+    }
+    finish(call, {{{u"items"_s, items}, {u"returned"_s, items.size()}}});
+}
+
+void ToolHost::clipboardGet(const std::shared_ptr<Call>& call)
+{
+    Args args(call->arguments);
+    const QJsonValue id = call->arguments.value(u"id"_s);
+    const int maxChars = args.integer(u"max_chars"_s, 20000, 100, 200000);
+    if (!args.error().isEmpty())
+        return finish(call, {{}, true, args.error()});
+    if (!id.isDouble())
+        return finish(call, {{}, true, u"id must be the integer id of an entry from clipboard_history"_s});
+    const std::optional<QString> text = m_services.clipboardText(static_cast<qint64>(id.toDouble()));
+    if (!text)
+        return finish(call, {{}, true, u"No such clipboard entry (it may have expired)"_s});
+    finish(call, {{{u"id"_s, id}, {u"text"_s, text->left(maxChars)}, {u"chars"_s, text->size()}, {u"truncated"_s, text->size() > maxChars}}});
+}
+
+void ToolHost::indexStatus(const std::shared_ptr<Call>& call)
+{
+    IndexService* service = m_services.index;
+    QJsonObject index {{u"state"_s, stateName(service->state())}, {u"items"_s, static_cast<qint64>(service->itemCount())},
+        {u"refreshing"_s, service->isRefreshing()}};
+    QJsonArray volumes;
+    const std::vector<IndexService::Reading> reading = service->readingVolumes();
+    for (const std::wstring& root : service->volumeRoots()) {
+        QJsonObject volume {{u"root"_s, QString::fromStdWString(root)}};
+        const auto it = std::ranges::find_if(reading, [&](const IndexService::Reading& r) { return r.root == root; });
+        volume.insert(u"reading"_s, it != reading.end());
+        if (it != reading.end() && it->percent >= 0)
+            volume.insert(u"percent"_s, it->percent);
+        volumes.push_back(volume);
+    }
+    index.insert(u"volumes"_s, volumes);
+    QJsonObject content;
+    if (const auto contentIndex = service->contentIndex()) {
+        const ContentIndex::Stats stats = contentIndex->stats();
+        content.insert(u"enabled"_s, service->contentIndexer()->enabled());
+        content.insert(u"files"_s, static_cast<qint64>(stats.documents));
+        content.insert(u"pending"_s, static_cast<qint64>(stats.pending));
+        content.insert(u"reading"_s, service->readingContent());
+    } else {
+        content.insert(u"enabled"_s, false);
+    }
+    const QJsonObject ai {{u"open_allowed"_s, m_policy.allowOpen && m_services.open != nullptr},
+        {u"clipboard_allowed"_s, m_policy.allowClipboard && m_services.clipboard != nullptr},
+        {u"excluded_folders"_s, static_cast<qint64>(m_excluded.size())}};
+    finish(call, {{{u"running"_s, true}, {u"connected"_s, true}, {u"version"_s, m_services.version}, {u"index"_s, index},
+        {u"content_index"_s, content}, {u"ai"_s, ai}}});
+}
+
+} // namespace ws::mcp

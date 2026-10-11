@@ -1,7 +1,10 @@
 #include "NameSearch.h"
 
+#include "TextUtil.h"
+
 #include <algorithm>
 #include <atomic>
+#include <unordered_map>
 
 namespace ws {
 
@@ -23,6 +26,16 @@ int staticBonus(const Entry& e) noexcept
     return bonus;
 }
 
+// When written, as the order wants it: the larger the sooner. Oldest first
+// turns the time round; a time not known (0) comes last both ways.
+template <RankBy By> constexpr std::uint32_t timeKey(FileTime modified) noexcept
+{
+    if constexpr (By == RankBy::Oldest)
+        return modified == 0 ? 0 : ~modified;
+    else
+        return modified;
+}
+
 // By how well they match, a tie to the one written last; or by when they
 // were written, a tie to the better match. Then by id, so that the order
 // never depends on how the slices were split.
@@ -35,7 +48,7 @@ template <RankBy By> bool better(const NameHit& a, const NameHit& b) noexcept
             return a.modified > b.modified;
     } else {
         if (a.modified != b.modified)
-            return a.modified > b.modified;
+            return timeKey<By>(a.modified) > timeKey<By>(b.modified);
         if (a.score != b.score)
             return a.score > b.score;
     }
@@ -57,7 +70,10 @@ public:
     {
         if (m_heap.size() < m_capacity)
             return true;
-        return By == RankBy::Match ? score >= m_heap.front().score : modified >= m_heap.front().modified;
+        if constexpr (By == RankBy::Match)
+            return score >= m_heap.front().score;
+        else
+            return timeKey<By>(modified) >= timeKey<By>(m_heap.front().modified);
     }
 
     void push(const NameHit& hit)
@@ -77,6 +93,66 @@ public:
 private:
     std::size_t m_capacity;
     std::vector<NameHit> m_heap;
+};
+
+// Which of the index's stored names pass a test: a bit for each byte of the
+// name storage, set where such a name starts. A search tests each distinct
+// name once this way (a third of the names on a disk are distinct: index.js,
+// __init__.py...), reading the names in the order they are stored; the pass
+// over the entries then only looks at a bit for most of them. That pass is
+// what costs: matching every entry's name took 10 ms for 3.3 million items,
+// testing the names first and then a bit each about 2.
+class NameBits {
+public:
+    // False when cancelled. `test(name, fileExtLength, han)`.
+    template <typename Test>
+    bool build(const FileIndex& index, WorkerPool& pool, const std::function<bool()>& isCancelled, Test&& test)
+    {
+        const std::size_t chunks = index.nameChunkCount();
+        m_words.resize(chunks * kWordsPerChunk); // kept from search to search: no zeroing, no page faults
+        std::atomic<bool> cancelled {false};
+        pool.parallelFor(chunks, [&](std::size_t chunk) {
+            if (cancelled.load(std::memory_order_relaxed) || (isCancelled && isCancelled())) {
+                cancelled.store(true, std::memory_order_relaxed);
+                return;
+            }
+            std::fill_n(m_words.data() + chunk * kWordsPerChunk, kWordsPerChunk, 0);
+            index.forEachName(chunk, [&](std::uint32_t offset, std::string_view name) {
+                if (test(name, index.nameExtLength(offset), index.nameHasHan(offset))) {
+                    const std::size_t bit = bitOf(offset);
+                    m_words[bit >> 6] |= std::uint64_t {1} << (bit & 63);
+                }
+            });
+        });
+        return !cancelled.load();
+    }
+
+    bool has(std::uint32_t nameOffset) const noexcept
+    {
+        const std::size_t bit = bitOf(nameOffset);
+        return (m_words[bit >> 6] >> (bit & 63)) & 1;
+    }
+
+    // One per searching thread, reused.
+    static NameBits& forThisThread()
+    {
+        thread_local NameBits bits;
+        return bits;
+    }
+
+private:
+    // A stored name takes 3 bytes at least (FileIndex::storeName), so a bit
+    // for every third byte of a chunk is one per name at most: 1.2 MB for
+    // 29 MB of names. Each chunk has words of its own (a thread each).
+    static constexpr std::size_t kMinRecord = 3;
+    static constexpr std::size_t kWordsPerChunk = (FileIndex::kNameChunkSize / kMinRecord + 63) / 64;
+    static std::size_t bitOf(std::uint32_t offset) noexcept
+    {
+        return (offset >> FileIndex::kNameChunkBits) * kWordsPerChunk * 64
+            + (offset & (FileIndex::kNameChunkSize - 1)) / kMinRecord;
+    }
+
+    std::vector<std::uint64_t> m_words;
 };
 
 // The best `limit` of `hits`, best first.
@@ -101,6 +177,17 @@ NameSearchOutput search(const FileIndex& index, const NameMatcher& matcher, cons
     std::atomic<std::size_t> total {0};
     std::atomic<bool> cancelled {false};
 
+    NameBits* names = nullptr;
+    if (matcher.filtersNames()) {
+        names = &NameBits::forThisThread();
+        const bool built = names->build(index, pool, isCancelled,
+            [&](std::string_view name, std::size_t extLength, bool han) { return matcher.nameMayMatch(name, extLength, han); });
+        if (!built) {
+            output.cancelled = true;
+            return output;
+        }
+    }
+
     pool.parallelFor(slices, [&](std::size_t slice) {
         if (cancelled.load(std::memory_order_relaxed))
             return;
@@ -115,6 +202,7 @@ NameSearchOutput search(const FileIndex& index, const NameMatcher& matcher, cons
 
         TopK<By> top(limit);
         TopK<By> folders(apart ? limit : 0);
+        NameMatcher::Folders seen;
         std::size_t matches = 0;
         for (std::size_t i = 0; i < count; ++i) {
             const Entry& e = entries[i];
@@ -122,14 +210,16 @@ NameSearchOutput search(const FileIndex& index, const NameMatcher& matcher, cons
                 continue;
             if (options.foldersOnly && !e.isDir())
                 continue;
-            int score = matcher.match(index, e);
+            if (names && !names->has(e.nameOffset))
+                continue;
+            int score = matcher.match(index, e, seen);
             if (score < 0)
                 continue;
             ++matches;
             score += staticBonus(e);
             TopK<By>& heap = apart && e.isDir() ? folders : top;
             const auto id = static_cast<EntryId>(first + i);
-            const FileTime modified = index.modified(id);
+            const FileTime modified = knownTime(index.modified(id)); // 1970: none, last either way
             if (!heap.mayAccept(score, modified))
                 continue;
             score -= std::min(index.depth(id), 12);
@@ -174,8 +264,257 @@ NameSearchOutput searchNames(const FileIndex& index, const NameMatcher& matcher,
 {
     if (options.limit == 0)
         return {};
-    return options.rankBy == RankBy::Modified ? search<RankBy::Modified>(index, matcher, options, pool, isCancelled)
-                                              : search<RankBy::Match>(index, matcher, options, pool, isCancelled);
+    switch (options.rankBy) {
+    case RankBy::Newest:
+        return search<RankBy::Newest>(index, matcher, options, pool, isCancelled);
+    case RankBy::Oldest:
+        return search<RankBy::Oldest>(index, matcher, options, pool, isCancelled);
+    case RankBy::Match:
+        break;
+    }
+    return search<RankBy::Match>(index, matcher, options, pool, isCancelled);
+}
+
+namespace {
+
+// Whether a folder is, or lies in, one that a build tool or an environment
+// fills: a CMake or Ninja build folder, a cache folder so tagged (Cargo's
+// target), a Python virtual environment, or by name CMakeFiles and obj. A
+// build writes hundreds of files at once there; none is one a person works
+// on. Remembered by folder, for one thread.
+class OutputTrees {
+public:
+    explicit OutputTrees(const FileIndex& index)
+        : m_index(index)
+    {
+    }
+
+    bool contains(EntryId folder)
+    {
+        // Up to a folder known already (or the top), then down again.
+        m_chain.clear();
+        bool inside = false;
+        for (EntryId cur = folder; cur != kNoEntry; cur = m_index.entry(cur).parent) {
+            if (const auto it = m_known.find(cur); it != m_known.end()) {
+                inside = it->second;
+                break;
+            }
+            m_chain.push_back(cur);
+        }
+        for (auto it = m_chain.rbegin(); it != m_chain.rend(); ++it) {
+            inside = inside || isOutput(*it);
+            m_known.emplace(*it, inside);
+        }
+        return inside;
+    }
+
+private:
+    bool isOutput(EntryId folder) const
+    {
+        static constexpr std::string_view kNames[] {"CMakeFiles", "obj"};
+        static constexpr std::string_view kMarkers[] {"CMakeCache.txt", "build.ninja", "CACHEDIR.TAG", "pyvenv.cfg"};
+        const std::string_view name = m_index.name(folder);
+        return std::any_of(std::begin(kNames), std::end(kNames),
+                   [&](std::string_view n) { return text::equalsIgnoreAsciiCase(name, n); })
+            || std::any_of(std::begin(kMarkers), std::end(kMarkers),
+                [&](std::string_view marker) { return m_index.findChild(folder, marker) != kNoEntry; });
+    }
+
+    const FileIndex& m_index;
+    std::unordered_map<EntryId, bool> m_known;
+    std::vector<EntryId> m_chain;
+};
+
+// The tree of folders a folder belongs to, for taking only a few from one:
+// in a user's folder (C:\Users\me\Documents\...), the folder in that one
+// ("Documents\Project"); elsewhere, the folder at the top of the drive
+// ("F:\Project"). Directly in such a place, the place itself.
+EntryId workTree(const FileIndex& index, EntryId folder)
+{
+    std::vector<EntryId> chain; // folder first, the drive last
+    for (EntryId cur = folder; cur != kNoEntry; cur = index.entry(cur).parent)
+        chain.push_back(cur);
+    const auto level = [&](std::size_t k) { return chain[chain.size() - 1 - k]; }; // 0: the drive
+    const bool inProfile = chain.size() >= 3 && text::equalsIgnoreAsciiCase(index.name(level(1)), "Users");
+    const std::size_t top = inProfile ? 4 : 1; // C:\Users\me\Documents\Project, F:\Project
+    return level(std::min(top, chain.size() - 1));
+}
+
+} // namespace
+
+NewestOutput newestFiles(const FileIndex& index, const NewestOptions& options, WorkerPool& pool,
+    const std::function<bool()>& isCancelled)
+{
+    NewestOutput output;
+    if (options.limit == 0)
+        return output;
+    // Enough to choose from once a busy folder has had its share.
+    const std::size_t kept = options.limit * 16;
+    const std::size_t slotCount = index.slotCount();
+    const std::size_t slices = (slotCount + kSliceSize - 1) / kSliceSize;
+    std::vector<std::vector<NameHit>> partial(slices);
+    std::atomic<bool> cancelled {false};
+    const std::uint8_t skipped = EntryFlag::Deleted | EntryFlag::Root | EntryFlag::LowPriority | EntryFlag::Hidden;
+
+    pool.parallelFor(slices, [&](std::size_t slice) {
+        if (cancelled.load(std::memory_order_relaxed))
+            return;
+        if (isCancelled && isCancelled()) {
+            cancelled.store(true, std::memory_order_relaxed);
+            return;
+        }
+        const std::size_t first = slice * kSliceSize;
+        const std::size_t count = std::min(kSliceSize, slotCount - first);
+        const Entry* entries
+            = index.chunk(first >> FileIndex::kChunkBits).data() + (first & (FileIndex::kChunkSize - 1));
+        TopK<RankBy::Newest> top(kept);
+        OutputTrees outputs(index);
+        for (std::size_t i = 0; i < count; ++i) {
+            const Entry& e = entries[i];
+            if ((e.flags & skipped) || e.isDir())
+                continue;
+            const auto id = static_cast<EntryId>(first + i);
+            const FileTime modified = knownTime(index.modified(id));
+            if (modified == 0 || modified > options.notAfter || !top.mayAccept(0, modified))
+                continue;
+            if (isWorkFile(index.name(e), false) || outputs.contains(e.parent))
+                continue;
+            top.push({id, 0, modified});
+        }
+        partial[slice] = top.take();
+    });
+
+    output.cancelled = cancelled.load();
+    if (output.cancelled)
+        return output;
+    std::vector<NameHit> hits;
+    for (auto& p : partial)
+        hits.insert(hits.end(), p.begin(), p.end());
+    std::sort(hits.begin(), hits.end(), better<RankBy::Newest>);
+    // Files: a few from each folder, and from each tree of folders (workTree),
+    // so that a clone, an unpacked archive or an export that writes hundreds
+    // of files at once leaves room for the rest. Folders: each once.
+    std::unordered_map<EntryId, std::size_t> perFolder;
+    std::unordered_map<EntryId, std::size_t> perTree;
+    for (const NameHit& hit : hits) {
+        if (output.hits.size() >= options.limit)
+            break;
+        const EntryId parent = index.entry(hit.id).parent;
+        if (parent == kNoEntry)
+            continue;
+        std::size_t& inFolder = perFolder[parent];
+        std::size_t& inTree = perTree[workTree(index, parent)];
+        if (inFolder >= (options.folders ? 1 : options.perFolder) || inTree >= options.perTree)
+            continue;
+        ++inFolder;
+        ++inTree;
+        if (!options.folders)
+            output.hits.push_back(hit);
+        else if (!(index.entry(parent).flags & EntryFlag::Root)) // a drive is no place one works in
+            output.hits.push_back({parent, 0, hit.modified});
+    }
+    return output;
+}
+
+bool isWorkFile(std::string_view name, bool isDir) noexcept
+{
+    if (name.empty())
+        return true;
+    // Dot-names (.gitignore, .ninja_log) are tools' settings and records;
+    // "~$Report.docx" is Office's lock file, "~WRL0001.tmp" its scratch.
+    if (name.front() == '.' || name.front() == '~')
+        return true;
+    if (isDir)
+        return false;
+    const std::size_t dot = name.rfind('.');
+    // A name that starts with a long hash ("28090b2f866c9be9…", "f76b2d…_t.dat"):
+    // a program keeps its data under it. Digits alone may be a date or a
+    // count that a person chose.
+    const std::string_view stem = name.substr(0, dot);
+    const auto hexEnd = std::find_if(stem.begin(), stem.end(), [](char c) {
+        return !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
+    });
+    if (hexEnd - stem.begin() >= 16 && std::any_of(stem.begin(), hexEnd, [](char c) { return c > '9'; }))
+        return true;
+    if (dot == std::string_view::npos)
+        return false;
+    const std::string_view ext = name.substr(dot + 1);
+    // Downloads under way, scratch and lock files, logs, programs' own data
+    // and databases, and what compilers and build tools leave next to the
+    // sources.
+    static constexpr std::string_view kWorkExtensions[] {
+        "tmp", "temp", "bak", "crdownload", "part", "partial", "download", "opdownload", "!ut", "lock", "lck",
+        "swp", "swo", "log", "etl", "blf", "regtrans-ms", "dat", "db", "wal",
+        "shm", "ldb", "edb", "jfm", "crc", "mmkv", "dmp", "mdmp", "symcache", "obj", "o", "pdb", "ilk", "idb", "iobj", "ipdb", "pch",
+        "ipch", "tlog", "lastbuildstate", "exp", "ninja_log", "ninja_deps", "d", "pyc", "class", "cache",
+    };
+    // A database's side files: "x.db-wal", "x.snapshot-shm".
+    static constexpr std::string_view kWorkSuffixes[] {"-wal", "-shm", "-journal"};
+    if (ext.size() > 4 && text::equalsIgnoreAsciiCase(ext.substr(0, 4), "bak-")) // a copy kept aside: "x.exe.bak-old"
+        return true;
+    return std::any_of(std::begin(kWorkExtensions), std::end(kWorkExtensions),
+               [&](std::string_view work) { return text::equalsIgnoreAsciiCase(ext, work); })
+        || std::any_of(std::begin(kWorkSuffixes), std::end(kWorkSuffixes), [&](std::string_view suffix) {
+               return ext.size() > suffix.size()
+                   && text::equalsIgnoreAsciiCase(ext.substr(ext.size() - suffix.size()), suffix);
+           });
+}
+
+std::vector<EntryId> findRelativePath(const FileIndex& index, const std::vector<std::string>& names, bool foldersOnly,
+    std::size_t limit, WorkerPool& pool, const std::function<bool()>& isCancelled)
+{
+    if (names.empty() || limit == 0 || names.back().size() > 0xFFFF)
+        return {};
+    const std::string& last = names.back();
+    const std::size_t slotCount = index.slotCount();
+    const std::size_t slices = (slotCount + kSliceSize - 1) / kSliceSize;
+    std::vector<std::vector<EntryId>> partial(slices);
+    std::atomic<bool> cancelled {false};
+    NameBits& named = NameBits::forThisThread();
+    if (!named.build(index, pool, isCancelled, [&](std::string_view name, std::size_t, bool) {
+            return name.size() == last.size() && text::equalsIgnoreAsciiCase(name, last);
+        }))
+        return {};
+
+    pool.parallelFor(slices, [&](std::size_t slice) {
+        if (cancelled.load(std::memory_order_relaxed))
+            return;
+        if (isCancelled && isCancelled()) {
+            cancelled.store(true, std::memory_order_relaxed);
+            return;
+        }
+        const std::size_t first = slice * kSliceSize;
+        const std::size_t count = std::min(kSliceSize, slotCount - first);
+        const Entry* entries
+            = index.chunk(first >> FileIndex::kChunkBits).data() + (first & (FileIndex::kChunkSize - 1));
+        std::vector<EntryId>& found = partial[slice];
+        for (std::size_t i = 0; i < count && found.size() < limit; ++i) {
+            const Entry& e = entries[i];
+            if ((e.flags & (EntryFlag::Deleted | EntryFlag::Root)) || (foldersOnly && !e.isDir())
+                || !named.has(e.nameOffset))
+                continue;
+            // Then the folders it lies in, inside out.
+            std::size_t k = names.size() - 1;
+            for (EntryId cur = e.parent; k > 0 && cur != kNoEntry; cur = index.entry(cur).parent, --k) {
+                if (!text::equalsIgnoreAsciiCase(index.name(cur), names[k - 1]))
+                    break;
+            }
+            if (k == 0)
+                found.push_back(static_cast<EntryId>(first + i));
+        }
+    });
+
+    if (cancelled.load())
+        return {};
+    std::vector<EntryId> ids;
+    for (const auto& p : partial) {
+        ids.insert(ids.end(), p.begin(), p.end());
+        if (ids.size() >= limit)
+            break;
+    }
+    if (ids.size() > limit)
+        ids.resize(limit);
+    return ids;
 }
 
 } // namespace ws

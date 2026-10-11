@@ -24,11 +24,15 @@ namespace ws {
 // double Ctrl uses Raw Input instead (see KeyListener). This one lives only
 // while a shortcut is being recorded, and passes keys straight on unless the
 // recording window is in the foreground.
+//
+// While a process takes the keyboard's Raw Input, Windows never calls its
+// low-level keyboard hook first in line, which it is: KeyListener's is set
+// aside for as long as the capture lives (the double Ctrl rests meanwhile).
 class ShortcutCapture {
 public:
     struct Key {
         int key; // Qt::Key
-        Qt::KeyboardModifiers modifiers; // as Qt reports them: a modifier's own press includes it
+        Qt::KeyboardModifiers modifiers; // held before the key: QKeyEvent turns a modifier's own bit round
         bool press;
         bool autoRepeat;
     };

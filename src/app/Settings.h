@@ -2,12 +2,43 @@
 
 #include "ContentIndex.h"
 #include "Crawler.h"
+#include "ShareIndexer.h"
 #include "WebShortcut.h"
 
+#include <QList>
 #include <QString>
 #include <QStringList>
+#include <QStringView>
+
+#include <utility>
 
 namespace ws {
+
+// A network share searched with the local disks (ShareIndexer).
+struct NetworkShare {
+    QString path; // "\\host\share", or a folder in it (unc::normalize)
+    QString name; // shown instead of the path; empty: the path
+
+    bool operator==(const NetworkShare&) const = default;
+};
+
+// What the user set for one plugin (src/plugin): its [Plugin.<id>] section.
+// Kept as written, values and all, so that save() loses nothing of what the
+// settings page (to come) or a hand will put there.
+struct PluginConfig {
+    QString id;
+    bool enabled = false; // Enabled=; plugins start out off
+    QList<std::pair<QString, QString>> keywords; // Keyword.<command>=: the user's keyword for a command (empty: none)
+    QList<std::pair<QString, QString>> settings; // Setting.<key>=: a declared setting's value, as text (never a password: the Credential Manager keeps those)
+    // Confirmed=: the permissions the user said yes to when turning it on;
+    // a version asking for more is asked about again.
+    QStringList confirmed;
+    // Ai=: the card's "给 AI 用" switch (its commands as MCP tools, with
+    // [Mcp] Plugins on); on unless turned off.
+    bool ai = true;
+
+    bool operator==(const PluginConfig&) const = default;
+};
 
 // User settings, edited in the settings window and stored as an INI file
 // (%APPDATA%\WinShun\WinShun.ini). Missing keys are written back with
@@ -33,7 +64,12 @@ struct Settings {
     // [Results]
     bool foldersFirst = false; // 全部 and 文件 list the folders found before the files (else after)
     bool showModified = true; // each file and folder found says when it was last written
-    bool sortByModified = false; // 文件 and 文件夹: newest first, not best match first (the footer's switch)
+    // match | newest | oldest: how 文件 and 文件夹 order what they find, by
+    // best match or by when last written (the footer's switch, remembered).
+    QString sort = QStringLiteral("match");
+    // opened | modified: with nothing typed, what was opened last, or the
+    // files written last (the footer's switch, remembered).
+    QString startList = QStringLiteral("opened");
     // ctrl | alt | off: Ctrl+1…9 opens the nth row shown, in the launcher and
     // the bar by file dialogs (taken before other programs' hotkeys, see NumberKeys).
     QString numberKeys = QStringLiteral("ctrl");
@@ -56,6 +92,9 @@ struct Settings {
     QString indexFolder;
 
     // [Content]
+    // Off: no 内容 tab, 全部 finds names only, and no file is read for its
+    // text (no content index either).
+    bool contentSearch = true;
     QStringList contentExtensions;
     // Larger files are not searched, by kind (ContentSizeLimits::Kind): plain
     // text and logs, source code, data and web pages.
@@ -84,6 +123,41 @@ struct Settings {
     // Written as an array: size=, 1\Keyword=, 1\Name=, 1\Url=, 1\Home=.
     WebShortcuts webShortcuts;
 
+    // [Shares]: network shares searched too, written as an array: size=,
+    // 1\Path=, 1\Name=. A mapped drive (Z:\...) is kept as the share it maps.
+    QList<NetworkShare> shares;
+
+    // [Network]: how shares are read
+    // Read in full again, also when the server tells of changes: Samba (most NAS)
+    // tells only of those made over the network, and some tell of none while
+    // seeming to. 0: on start only.
+    int networkVerifyHours = 1;
+    int networkVerifyHoursUnwatched = 1; // when it does not
+    int networkThreads = 16; // folders read at a time from a server (half that when verifying)
+    QStringList networkExcludedNames; // folders NAS boxes and Macs keep for themselves; on top of [Index]
+    QStringList networkExcludedFiles; // file names left out on shares; '*' at the start only
+
+    // [Mcp]: AI clients (Claude, Cursor, VS Code …) use Win顺 through
+    // WinShunMcp.exe (src/mcp). The switch covers the read-only tools (off
+    // until a client is connected from the settings, which turns it on);
+    // opening things and reading the clipboard history have switches of their own.
+    bool mcp = false;
+    bool mcpAllowOpen = false; // open_item, show_in_folder
+    bool mcpClipboard = false; // clipboard_history, clipboard_get
+    QStringList mcpExcludedPaths; // folders AI never sees, on top of the index's exclusions
+    // Plugins=: the plugins' commands as tools (plugin::AiBridge; queries
+    // only); PluginActions=: their actions too (plugin_<id>_<command>_run).
+    bool mcpPlugins = false;
+    bool mcpPluginActions = false;
+
+    // [Plugins]: the plugin system's own (the plugin design, §5.5).
+    bool pluginDeveloperMode = false; // DeveloperMode=: the log pane, scripts reloaded as they change
+
+    // [Plugin.<id>]: one section per plugin the user set anything for.
+    QList<PluginConfig> plugins;
+    const PluginConfig* plugin(QStringView id) const; // nothing when the user set nothing for it
+    PluginConfig& pluginConfig(const QString& id); // the section, made when there is none
+
     static Settings defaults();
     static bool exists(); // false on the very first run
 
@@ -93,6 +167,7 @@ struct Settings {
     bool operator==(const Settings&) const = default;
 
     CrawlRules crawlRules() const;
+    ShareIndexer::Options shareOptions() const;
     ContentSizeLimits contentSizeLimits() const;
     QString indexDir() const; // indexFolder expanded, with native separators; dataDir() when it is empty
 
@@ -110,6 +185,9 @@ struct Settings {
     static bool windowsClipboardHistory(); // Windows' own clipboard history is on (Settings > System > Clipboard)
     static bool hasClipboardSettings(); // the file has a [Clipboard] section: written by a version with the clipboard history
     static QString resolveLanguage(const QString& language); // "system" -> zh with a Chinese Windows, else en
+    // What is typed or written for a share, as it is kept: "\\host\share[\folder]"
+    // (a mapped drive's share instead of the letter); empty when it is no share.
+    static QString sharePath(const QString& text);
 };
 
 } // namespace ws

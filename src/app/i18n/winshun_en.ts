@@ -2,6 +2,188 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="en" sourcelanguage="zh_CN">
 <context>
+    <name>AiAccessSection</name>
+    <message>
+        <source>让 AI 使用 Win顺</source>
+        <translation>Let AI assistants use WinShun</translation>
+    </message>
+    <message>
+        <source>Claude、Cursor、VS Code 等 AI 助手通过 MCP（Model Context Protocol）连接 Win顺，就能搜文件名、文件里的文字和最近改过的文件：和你在搜索框里一样快，拼音也行。默认只读，不改动任何文件。</source>
+        <translation>AI assistants such as Claude, Cursor and VS Code connect to WinShun through MCP (Model Context Protocol) and can then search file names, the text inside files and the files changed lately, as fast as you do from the search box, pinyin included. Read-only by default: nothing is changed.</translation>
+    </message>
+    <message>
+        <source>允许 AI 连接</source>
+        <translation>Allow AI assistants to connect</translation>
+    </message>
+    <message>
+        <source>MCP;AI;Claude;Cursor;智能;助手;大模型;人工智能</source>
+        <translation>MCP;AI;Claude;Cursor;assistant;model;LLM</translation>
+    </message>
+    <message>
+        <source>关着时 AI 客户端连不上 Win顺</source>
+        <translation>Off: AI clients cannot reach WinShun</translation>
+    </message>
+    <message>
+        <source>AI 客户端启动 WinShunMcp.exe 就能连上</source>
+        <translation>An AI client connects by starting WinShunMcp.exe</translation>
+    </message>
+    <message>
+        <source>允许 AI 打开文件和文件夹</source>
+        <translation>Allow AI to open files and folders</translation>
+    </message>
+    <message>
+        <source>打开;文件夹;显示;open;AI</source>
+        <translation>open;folder;show;reveal;AI</translation>
+    </message>
+    <message>
+        <source>用默认程序打开文件、在文件管理器里显示；以普通权限打开，AI 客户端每次会先问你</source>
+        <translation>Opens files with their default program and shows them in the file manager, with your normal rights; the AI client asks you first each time</translation>
+    </message>
+    <message>
+        <source>允许 AI 读取剪贴板历史</source>
+        <translation>Allow AI to read the clipboard history</translation>
+    </message>
+    <message>
+        <source>剪贴板;剪切板;隐私;clipboard;AI</source>
+        <translation>clipboard;privacy;AI</translation>
+    </message>
+    <message>
+        <source>AI 能看到复制过的文字、链接和文件名，图片只告诉它大小；密码管理器复制的本来就不记录</source>
+        <translation>AI can see copied text, links and file names; of pictures only their size. What password managers copy is never kept anyway</translation>
+    </message>
+    <message>
+        <source>AI 可以使用插件</source>
+        <translation>Allow AI to use plugins</translation>
+    </message>
+    <message>
+        <source>插件;工具;plugin;tool;AI</source>
+        <translation>plugin;tool;AI</translation>
+    </message>
+    <message>
+        <source>标明可给 AI 用的插件，每个命令成为一个工具（plugin_插件_命令）：AI 只能查询，像你在搜索框里输入那样拿到结果；每个插件的卡片上还有一个开关</source>
+        <translation>Plugins that offer themselves to AI: each command becomes a tool (plugin_&lt;plugin&gt;_&lt;command&gt;). AI can only query, getting what you would see in the search box; each plugin&apos;s card has a switch of its own</translation>
+    </message>
+    <message>
+        <source>允许 AI 执行插件动作</source>
+        <translation>Allow AI to run plugin actions</translation>
+    </message>
+    <message>
+        <source>插件;动作;执行;结束;plugin;action;AI</source>
+        <translation>plugin;action;run;AI</translation>
+    </message>
+    <message>
+        <source>再多一个工具（plugin_插件_命令_run）做 Enter 做的事：结束进程、打开、复制这类会改动东西的操作；AI 客户端每次会先问你</source>
+        <translation>One more tool (plugin_&lt;plugin&gt;_&lt;command&gt;_run) does what Enter does: ending a process, opening, copying and other things that change something; the AI client asks you first each time</translation>
+    </message>
+    <message>
+        <source>不让 AI 看到的文件夹</source>
+        <translation>Folders AI never sees</translation>
+    </message>
+    <message>
+        <source>排除;隐私;隐藏;黑名单;exclude;AI</source>
+        <translation>exclude;privacy;hide;blacklist;AI</translation>
+    </message>
+    <message>
+        <source>这些文件夹里的东西不出现在 AI 的搜索结果里，也不能打开；“搜索范围”里不搜索的文件夹 AI 本来就看不到</source>
+        <translation>Nothing in these folders shows in AI&apos;s results, nor can it be opened; folders left out under Search scope are invisible to AI anyway</translation>
+    </message>
+    <message>
+        <source>添加文件夹…</source>
+        <translation>Add folder…</translation>
+    </message>
+    <message>
+        <source>AI 能看到索引里的所有文件夹</source>
+        <translation>AI sees every indexed folder</translation>
+    </message>
+    <message>
+        <source>移除</source>
+        <translation>Remove</translation>
+    </message>
+    <message>
+        <source>调用记录</source>
+        <translation>Call log</translation>
+    </message>
+    <message>
+        <source>日志;记录;log;AI</source>
+        <translation>log;history;AI</translation>
+    </message>
+    <message>
+        <source>AI 每次调用都记在 mcp.log 里：时间、客户端、工具和参数、结果数量；不记录剪贴板里的文字</source>
+        <translation>Every call AI makes goes into mcp.log: time, client, tool and arguments, how many results; never the clipboard&apos;s text</translation>
+    </message>
+    <message>
+        <source>打开</source>
+        <translation>Open</translation>
+    </message>
+</context>
+<context>
+    <name>AiClientsSection</name>
+    <message>
+        <source>连接到 AI 客户端</source>
+        <translation>Connect to AI clients</translation>
+    </message>
+    <message>
+        <source>点“连接”就写进那个客户端的配置（原文件先备份成 .bak），上面的“允许 AI 连接”也会一起打开。装了的客户端才列出来。</source>
+        <translation>“Connect” writes WinShun into that client&apos;s configuration (the file is backed up as .bak first) and turns on “Allow AI assistants to connect” above. Only installed clients are listed.</translation>
+    </message>
+    <message>
+        <source>没找到 WinShunMcp.exe，重新安装 Win顺 就有了。</source>
+        <translation>WinShunMcp.exe is missing; reinstalling WinShun brings it back.</translation>
+    </message>
+    <message>
+        <source>连接;配置;MCP;AI;%1</source>
+        <translation>connect;configure;MCP;AI;%1</translation>
+    </message>
+    <message>
+        <source>已连接 · %1</source>
+        <translation>Connected · %1</translation>
+    </message>
+    <message>
+        <source>重新连接</source>
+        <translation>Connect again</translation>
+    </message>
+    <message>
+        <source>连接</source>
+        <translation>Connect</translation>
+    </message>
+    <message>
+        <source>复制命令</source>
+        <translation>Copy command</translation>
+    </message>
+    <message>
+        <source>复制配置</source>
+        <translation>Copy config</translation>
+    </message>
+    <message>
+        <source>其他支持 MCP 的客户端</source>
+        <translation>Other MCP clients</translation>
+    </message>
+    <message>
+        <source>其他;配置;stdio;MCP;AI;JSON</source>
+        <translation>other;configure;stdio;MCP;AI;JSON</translation>
+    </message>
+    <message>
+        <source>把 WinShunMcp.exe 加为 stdio 类型的 MCP 服务器，不需要参数：</source>
+        <translation>Add WinShunMcp.exe as a stdio MCP server, no arguments needed:</translation>
+    </message>
+    <message>
+        <source>复制路径</source>
+        <translation>Copy path</translation>
+    </message>
+    <message>
+        <source>复制 JSON</source>
+        <translation>Copy JSON</translation>
+    </message>
+    <message>
+        <source>刚才的结果</source>
+        <translation>Last result</translation>
+    </message>
+    <message>
+        <source>知道了</source>
+        <translation>Got it</translation>
+    </message>
+</context>
+<context>
     <name>ClipPreview</name>
     <message numerus="yes">
         <source>…还有 %Ln 字</source>
@@ -65,6 +247,14 @@
     <message>
         <source>搜索剪贴板，支持拼音</source>
         <translation>Search the clipboard</translation>
+    </message>
+    <message>
+        <source>取消钉住</source>
+        <translation>Unpin</translation>
+    </message>
+    <message>
+        <source>钉住：一直显示在最上面，粘贴后也不收起</source>
+        <translation>Pin: stays on top, and stays open after pasting</translation>
     </message>
     <message>
         <source>已暂停记录</source>
@@ -201,34 +391,139 @@
     </message>
 </context>
 <context>
-    <name>Footer</name>
+    <name>FavoriteForm</name>
     <message>
-        <source>最近修改的在前</source>
-        <translation>Newest first</translation>
+        <source>名称</source>
+        <translation>Name</translation>
     </message>
     <message>
-        <source>最匹配的在前</source>
-        <translation>Best match first</translation>
+        <source>不填就用它自己的名字</source>
+        <translation>Leave empty to use its own name</translation>
     </message>
     <message>
-        <source>点一下改为最匹配的在前</source>
-        <translation>Click for best match first</translation>
+        <source>关键词</source>
+        <translation>Keyword</translation>
     </message>
     <message>
-        <source>点一下改为最近修改的在前</source>
-        <translation>Click for newest first</translation>
+        <source>可选，例如 gz</source>
+        <translation>Optional, e.g. gz</translation>
+    </message>
+    <message>
+        <source>只输入它，按 Enter 就打开</source>
+        <translation>Type just this and press Enter to open it</translation>
+    </message>
+    <message>
+        <source>保存</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>上移</source>
+        <translation>Move up</translation>
+    </message>
+    <message>
+        <source>下移</source>
+        <translation>Move down</translation>
+    </message>
+</context>
+<context>
+    <name>FavoritesSection</name>
+    <message>
+        <source>什么都不输入时，收藏排在最前；只输入关键词再按 Enter 就打开，收藏的文件夹按 Tab 可以进去接着搜。在搜索结果上右键可以加入收藏，也可以把文件或文件夹拖到这里。</source>
+        <translation>With nothing typed, favorites come first; type just a keyword and press Enter to open it, and Tab on a favorite folder goes into it to search on there. Right-click a search result to add it, or drop files and folders here.</translation>
+    </message>
+    <message>
+        <source>收藏</source>
+        <translation>Favorites</translation>
+    </message>
+    <message>
+        <source>收藏;常用;书签;固定;关键词;favorites;bookmark;pin</source>
+        <translation>favorites;favourites;bookmark;pin;keyword;frequent</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 项，拖动把手排序</source>
+        <translation>
+            <numerusform>%n item; drag the handle to reorder</numerusform>
+            <numerusform>%n items; drag the handles to reorder</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>还没有收藏</source>
+        <translation>No favorites yet</translation>
+    </message>
+    <message>
+        <source>导入…</source>
+        <translation>Import…</translation>
+    </message>
+    <message>
+        <source>导出…</source>
+        <translation>Export…</translation>
+    </message>
+    <message>
+        <source>添加文件夹…</source>
+        <translation>Add folder…</translation>
+    </message>
+    <message>
+        <source>添加文件…</source>
+        <translation>Add file…</translation>
+    </message>
+    <message>
+        <source>在搜索结果上右键“加入收藏夹”，或点“添加文件夹…”，或把文件、文件夹拖到这里</source>
+        <translation>Right-click a search result → Add to favorites, click “Add folder…”, or drop files and folders here</translation>
+    </message>
+    <message>
+        <source>已不存在 · %1</source>
+        <translation>Gone · %1</translation>
+    </message>
+    <message>
+        <source>重新选择…</source>
+        <translation>Pick again…</translation>
     </message>
     <message>
         <source>打开</source>
         <translation>Open</translation>
     </message>
     <message>
-        <source>打开位置</source>
-        <translation>Folder</translation>
+        <source>编辑</source>
+        <translation>Edit</translation>
     </message>
     <message>
-        <source>切换范围</source>
-        <translation>Scope</translation>
+        <source>移除</source>
+        <translation>Remove</translation>
+    </message>
+</context>
+<context>
+    <name>Footer</name>
+    <message>
+        <source>最近打开</source>
+        <translation>Opened</translation>
+    </message>
+    <message>
+        <source>最近修改</source>
+        <translation>Modified</translation>
+    </message>
+    <message>
+        <source>最匹配</source>
+        <translation>Best match</translation>
+    </message>
+    <message>
+        <source>最新</source>
+        <translation>Newest</translation>
+    </message>
+    <message>
+        <source>最早</source>
+        <translation>Oldest</translation>
+    </message>
+    <message>
+        <source>不输入时列出最近打开的，或最近修改的文件</source>
+        <translation>With nothing typed: what you opened lately, or the files changed lately</translation>
+    </message>
+    <message>
+        <source>最匹配的在前，或按修改时间：最新的在前、最早的在前</source>
+        <translation>Best match first, or by date modified: newest or oldest first</translation>
     </message>
     <message>
         <source>清除最近使用记录</source>
@@ -388,12 +683,20 @@
         <translation>“%2” was not found in %1</translation>
     </message>
     <message>
+        <source>%1 没有找到“%2”</source>
+        <translation>%1 found nothing for “%2”</translation>
+    </message>
+    <message>
         <source>没有找到“%1”</source>
         <translation>Nothing found for “%1”</translation>
     </message>
     <message>
         <source>按 Tab 回到文件名搜索</source>
         <translation>Press Tab to go back to searching names</translation>
+    </message>
+    <message>
+        <source>按 Esc 清空关键字后面的文字</source>
+        <translation>Press Esc to clear the words after the keyword</translation>
     </message>
     <message>
         <source>文件名和 %1的内容里都没有</source>
@@ -404,12 +707,28 @@
         <translation>Press Tab to switch scope, or search file contents</translation>
     </message>
     <message>
+        <source>按 Tab 切换范围</source>
+        <translation>Press Tab to switch scope</translation>
+    </message>
+    <message>
         <source>常用应用</source>
         <translation>Frequent apps</translation>
     </message>
     <message>
+        <source>收藏和最近修改</source>
+        <translation>Favorites and recently modified</translation>
+    </message>
+    <message>
+        <source>收藏和最近</source>
+        <translation>Favorites and recent</translation>
+    </message>
+    <message>
         <source>最近</source>
         <translation>Recent</translation>
+    </message>
+    <message>
+        <source>最近修改</source>
+        <translation>Recently modified</translation>
     </message>
     <message>
         <source>输入名称或拼音，搜索文件、应用和设置</source>
@@ -417,10 +736,457 @@
     </message>
 </context>
 <context>
+    <name>McpClients</name>
+    <message>
+        <source>读不了 %1</source>
+        <translation>Cannot read %1</translation>
+    </message>
+    <message>
+        <source>%1 不是标准的 JSON（可能带注释），没有改动它。请“复制配置”后自己加进去。</source>
+        <translation>%1 is not plain JSON (it may have comments), so it was left alone. Use “Copy config” and add it yourself.</translation>
+    </message>
+    <message>
+        <source>写不了 %1</source>
+        <translation>Cannot write %1</translation>
+    </message>
+    <message>
+        <source>已写入 %1。%2</source>
+        <translation>Written to %1. %2</translation>
+    </message>
+    <message>
+        <source>完全退出并重新打开 Claude Desktop 后生效</source>
+        <translation>Takes effect after Claude Desktop is fully quit and opened again</translation>
+    </message>
+    <message>
+        <source>加在用户范围（所有项目）；新开的会话里生效</source>
+        <translation>Added in the user scope (all projects); new sessions have it</translation>
+    </message>
+    <message>
+        <source>Cursor 的设置 → MCP 里能看到它，马上可用</source>
+        <translation>Shows under Cursor&apos;s Settings → MCP, usable at once</translation>
+    </message>
+    <message>
+        <source>VS Code 的 Copilot 聊天（代理模式）里能用；“MCP: 列出服务器”可以查看</source>
+        <translation>Usable in VS Code&apos;s Copilot chat (agent mode); “MCP: List Servers” shows it</translation>
+    </message>
+    <message>
+        <source>没找到 WinShunMcp.exe，重新安装 Win顺 就有了</source>
+        <translation>WinShunMcp.exe is missing; reinstalling WinShun brings it back</translation>
+    </message>
+    <message>
+        <source>完全退出并重新打开 Claude Desktop 后生效。</source>
+        <translation>Fully quit and reopen Claude Desktop for it to take effect.</translation>
+    </message>
+    <message>
+        <source>Cursor 会马上认出它（设置 → MCP）。</source>
+        <translation>Cursor picks it up at once (Settings → MCP).</translation>
+    </message>
+    <message>
+        <source>在 VS Code 的聊天里（代理模式）就能用了。</source>
+        <translation>It is ready in VS Code&apos;s chat (agent mode).</translation>
+    </message>
+    <message>
+        <source>没找到 claude 命令。请“复制命令”，在终端里运行它。</source>
+        <translation>The claude command was not found. Use “Copy command” and run it in a terminal.</translation>
+    </message>
+    <message>
+        <source>已加到 Claude Code（用户范围）。新开的会话里就能用；claude mcp list 可以查看。</source>
+        <translation>Added to Claude Code (user scope). New sessions have it; claude mcp list shows it.</translation>
+    </message>
+    <message>
+        <source>claude mcp add 没有成功：%1</source>
+        <translation>claude mcp add did not succeed: %1</translation>
+    </message>
+    <message>
+        <source>运行不了 claude 命令：%1</source>
+        <translation>The claude command could not be run: %1</translation>
+    </message>
+    <message>
+        <source>不认识的客户端</source>
+        <translation>Unknown client</translation>
+    </message>
+</context>
+<context>
+    <name>PluginCard</name>
+    <message>
+        <source>随包</source>
+        <translation>Bundled</translation>
+    </message>
+    <message>
+        <source>关键字 · %1</source>
+        <translation>Keyword · %1</translation>
+    </message>
+    <message>
+        <source>无</source>
+        <translation>None</translation>
+    </message>
+    <message>
+        <source>恢复默认</source>
+        <translation>Reset</translation>
+    </message>
+    <message>
+        <source>给 AI 用</source>
+        <translation>For AI</translation>
+    </message>
+    <message numerus="yes">
+        <source>权限 · %n 项</source>
+        <translation>
+            <numerusform>Permissions · %n</numerusform>
+            <numerusform>Permissions · %n</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>仅声明</source>
+        <translation>Declared only</translation>
+    </message>
+    <message>
+        <source>已保存，输入可替换</source>
+        <translation>Saved; type to replace</translation>
+    </message>
+    <message>
+        <source>未设置</source>
+        <translation>Not set</translation>
+    </message>
+    <message>
+        <source>选择…</source>
+        <translation>Choose…</translation>
+    </message>
+    <message>
+        <source>说明</source>
+        <translation>Readme</translation>
+    </message>
+    <message>
+        <source>主页</source>
+        <translation>Homepage</translation>
+    </message>
+    <message>
+        <source>打开文件夹</source>
+        <translation>Open folder</translation>
+    </message>
+    <message>
+        <source>重新加载</source>
+        <translation>Reload</translation>
+    </message>
+    <message>
+        <source>查看日志</source>
+        <translation>View log</translation>
+    </message>
+    <message>
+        <source>卸载</source>
+        <translation>Uninstall</translation>
+    </message>
+</context>
+<context>
+    <name>PluginDevSection</name>
+    <message>
+        <source>高级</source>
+        <translation>Advanced</translation>
+    </message>
+    <message>
+        <source>开发者模式</source>
+        <translation>Developer mode</translation>
+    </message>
+    <message>
+        <source>开发;调试;日志;协议;模板;developer;debug;log</source>
+        <translation>developer;debug;log;protocol;template</translation>
+    </message>
+    <message>
+        <source>记下每一条发给插件和插件回来的消息；改了脚本自动重新加载常驻插件</source>
+        <translation>Records every message to and from the plugins; resident plugins reload when their scripts change</translation>
+    </message>
+    <message>
+        <source>全部</source>
+        <translation>All</translation>
+    </message>
+    <message>
+        <source>消息记录</source>
+        <translation>Message log</translation>
+    </message>
+    <message>
+        <source>日志;记录;协议;JSON;log;trace</source>
+        <translation>log;trace;protocol;JSON</translation>
+    </message>
+    <message numerus="yes">
+        <source>最近 %n 条；→ 发给插件，← 插件回的，· 事件；点一条看整个消息</source>
+        <translation>
+            <numerusform>The last %n line; → to the plugin, ← from it, · an event; click a line for the whole message</numerusform>
+            <numerusform>The last %n lines; → to the plugin, ← from it, · an event; click a line for the whole message</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>还没有消息：开着开发者模式，在搜索框里用一下插件</source>
+        <translation>No messages yet: with developer mode on, use a plugin from the search box</translation>
+    </message>
+    <message>
+        <source>清空</source>
+        <translation>Clear</translation>
+    </message>
+    <message>
+        <source>打开 plugins.log</source>
+        <translation>Open plugins.log</translation>
+    </message>
+    <message>
+        <source>没有消息</source>
+        <translation>No messages</translation>
+    </message>
+    <message>
+        <source>%1 ms</source>
+        <translation>%1 ms</translation>
+    </message>
+    <message>
+        <source>新建插件…</source>
+        <translation>New plugin…</translation>
+    </message>
+    <message>
+        <source>模板;新建;创建;PowerShell;Python;零代码;template;new</source>
+        <translation>template;new;create;PowerShell;Python;zero-code</translation>
+    </message>
+    <message>
+        <source>名字，如 hello</source>
+        <translation>Name, e.g. hello</translation>
+    </message>
+    <message>
+        <source>PowerShell 常驻</source>
+        <translation>PowerShell (resident)</translation>
+    </message>
+    <message>
+        <source>按模板在插件文件夹里建一个，SDK 文件一起放进去：PowerShell、Python、C++ 的常驻插件，Python 的一次性插件，或只有 plugin.json 的零代码</source>
+        <translation>Makes one from a template in the plugins folder, its SDK file alongside: a resident plugin in PowerShell, Python or C++, a once plugin in Python, or a zero-code one with only plugin.json</translation>
+    </message>
+    <message>
+        <source>Python 一次性</source>
+        <translation>Python (once)</translation>
+    </message>
+    <message>
+        <source>零代码</source>
+        <translation>Zero-code</translation>
+    </message>
+    <message>
+        <source>Python 常驻</source>
+        <translation>Python (resident)</translation>
+    </message>
+    <message>
+        <source>C++ 常驻</source>
+        <translation>C++ (resident)</translation>
+    </message>
+    <message>
+        <source>创建</source>
+        <translation>Create</translation>
+    </message>
+    <message>
+        <source>插件文件夹</source>
+        <translation>Plugins folder</translation>
+    </message>
+    <message>
+        <source>位置;路径;文件夹;folder;path</source>
+        <translation>folder;path;location</translation>
+    </message>
+    <message>
+        <source>打开</source>
+        <translation>Open</translation>
+    </message>
+</context>
+<context>
+    <name>PluginDialog</name>
+    <message>
+        <source>“%1” 的新版本要更多权限</source>
+        <translation>The new version of “%1” asks for more permissions</translation>
+    </message>
+    <message>
+        <source>打开“%1”？</source>
+        <translation>Turn on “%1”?</translation>
+    </message>
+    <message>
+        <source>重新安装“%1”？</source>
+        <translation>Reinstall “%1”?</translation>
+    </message>
+    <message>
+        <source>把“%1”换成旧版本？</source>
+        <translation>Replace “%1” with an older version?</translation>
+    </message>
+    <message>
+        <source>升级“%1”？</source>
+        <translation>Upgrade “%1”?</translation>
+    </message>
+    <message>
+        <source>卸载“%1”？</source>
+        <translation>Uninstall “%1”?</translation>
+    </message>
+    <message>
+        <source>版本 %1</source>
+        <translation>Version %1</translation>
+    </message>
+    <message>
+        <source>作者 %1</source>
+        <translation>By %1</translation>
+    </message>
+    <message>
+        <source>已装的是 %1，要装的是 %2。它的设置和关键字保留；装好后如果它要的权限变多，打开时会再问一次。</source>
+        <translation>Installed: %1; to install: %2. Its settings and keywords stay; if the new one asks for more permissions, you will be asked again when turning it on.</translation>
+    </message>
+    <message>
+        <source>它的文件夹、设置和保存的密码会删掉。它自己的数据（%1.data）也一起删吗？</source>
+        <translation>Its folder, settings and saved passwords will be deleted. Delete its own data (%1.data) as well?</translation>
+    </message>
+    <message>
+        <source>它的文件夹、设置和保存的密码会删掉。</source>
+        <translation>Its folder, settings and saved passwords will be deleted.</translation>
+    </message>
+    <message>
+        <source>仅声明</source>
+        <translation>Declared only</translation>
+    </message>
+    <message>
+        <source>（新增）</source>
+        <translation> (new)</translation>
+    </message>
+    <message>
+        <source>只删插件，留下数据</source>
+        <translation>Remove the plugin, keep its data</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>打开</source>
+        <translation>Turn on</translation>
+    </message>
+    <message>
+        <source>安装</source>
+        <translation>Install</translation>
+    </message>
+    <message>
+        <source>连数据一起删</source>
+        <translation>Delete with its data</translation>
+    </message>
+    <message>
+        <source>卸载</source>
+        <translation>Uninstall</translation>
+    </message>
+</context>
+<context>
+    <name>PluginsPreview</name>
+    <message>
+        <source>插件</source>
+        <translation>Plugins</translation>
+    </message>
+    <message>
+        <source>AI 助手</source>
+        <translation>AI assistants</translation>
+    </message>
+    <message>
+        <source>结束进程</source>
+        <translation>Kill process</translation>
+    </message>
+    <message>
+        <source>你的插件文件夹</source>
+        <translation>Your plugins folder</translation>
+    </message>
+    <message>
+        <source>在严格沙箱里运行：低完整性，不是管理员，写不了你的文件（只能写它自己的数据文件夹）；内存上限 %1 MB</source>
+        <translation>Runs in the strict sandbox: low integrity, not administrator, cannot write your files (only its own data folder); memory limit %1 MB</translation>
+    </message>
+    <message>
+        <source>启动其他程序（子进程）</source>
+        <translation>Start other programs (child processes)</translation>
+    </message>
+    <message>
+        <source>联网</source>
+        <translation>Network access</translation>
+    </message>
+    <message>
+        <source>Win顺 不能阻止它联网</source>
+        <translation>WinShun cannot stop it going online</translation>
+    </message>
+</context>
+<context>
+    <name>PluginsSection</name>
+    <message>
+        <source>插件</source>
+        <translation>Plugins</translation>
+    </message>
+    <message>
+        <source>插件给搜索框加关键字命令、把结果混进列表。它们永远以你的普通权限运行，不是管理员；装上后默认关着，打开开关时会先列出它要的权限。</source>
+        <translation>Plugins add keyword commands to the search box and mix their results into the list. They always run with your normal rights, never as administrator; a plugin starts out off, and turning it on first shows the permissions it asks for.</translation>
+    </message>
+    <message>
+        <source>插件看不到你在资源管理器里登录的网络位置</source>
+        <translation>Plugins cannot see the network places you signed in to in File Explorer</translation>
+    </message>
+    <message>
+        <source>网络;共享;NAS;登录;令牌;plugin;network</source>
+        <translation>network;share;NAS;sign in;token;plugin</translation>
+    </message>
+    <message>
+        <source>已安装的插件</source>
+        <translation>Installed plugins</translation>
+    </message>
+    <message>
+        <source>插件;扩展;关键字;命令;安装;plugin;extension</source>
+        <translation>plugin;extension;keyword;command;install</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 个；文件夹或 .zip / .wsplugin 拖到这里也能安装</source>
+        <translation>
+            <numerusform>%n plugin; a folder or a .zip / .wsplugin dropped here installs too</numerusform>
+            <numerusform>%n plugins; a folder or a .zip / .wsplugin dropped here installs too</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>还没有插件：点“添加插件…”，或把插件文件夹、.zip / .wsplugin 拖到这里</source>
+        <translation>No plugins yet: click “Add plugin…”, or drop a plugin folder or a .zip / .wsplugin here</translation>
+    </message>
+    <message>
+        <source>添加插件…</source>
+        <translation>Add plugin…</translation>
+    </message>
+    <message>
+        <source>插件文件夹…</source>
+        <translation>Plugin folder…</translation>
+    </message>
+    <message>
+        <source>压缩包（.zip / .wsplugin）…</source>
+        <translation>Archive (.zip / .wsplugin)…</translation>
+    </message>
+    <message>
+        <source>打开文件夹</source>
+        <translation>Open folder</translation>
+    </message>
+    <message>
+        <source>松开就安装</source>
+        <translation>Drop to install</translation>
+    </message>
+    <message>
+        <source>刚才的结果</source>
+        <translation>Last result</translation>
+    </message>
+    <message>
+        <source>知道了</source>
+        <translation>OK</translation>
+    </message>
+</context>
+<context>
     <name>ResultRow</name>
     <message>
         <source>最近</source>
         <translation>Recent</translation>
+    </message>
+    <message>
+        <source>离线</source>
+        <translation>Offline</translation>
+    </message>
+    <message>
+        <source>已不存在</source>
+        <translation>Gone</translation>
+    </message>
+    <message>
+        <source>收藏 · %1</source>
+        <translation>Favorite · %1</translation>
+    </message>
+    <message>
+        <source>收藏</source>
+        <translation>Favorite</translation>
     </message>
     <message>
         <source>应用</source>
@@ -545,8 +1311,20 @@
         <translation>File contents</translation>
     </message>
     <message>
+        <source>收藏夹</source>
+        <translation>Favorites</translation>
+    </message>
+    <message>
         <source>高级</source>
         <translation>Advanced</translation>
+    </message>
+    <message>
+        <source>AI 助手</source>
+        <translation>AI assistants</translation>
+    </message>
+    <message>
+        <source>插件</source>
+        <translation>Plugins</translation>
     </message>
     <message>
         <source>唤出;呼出;打开方式</source>
@@ -579,6 +1357,18 @@
     <message>
         <source>其他;更多;advanced</source>
         <translation>other;more</translation>
+    </message>
+    <message>
+        <source>MCP;人工智能;大模型;Claude;Cursor;ai</source>
+        <translation>MCP;AI;LLM;Claude;Cursor;assistant</translation>
+    </message>
+    <message>
+        <source>扩展;脚本;PowerShell;Python;plugin;extension</source>
+        <translation>extension;script;PowerShell;Python;plugin</translation>
+    </message>
+    <message>
+        <source>网络共享</source>
+        <translation>Network shares</translation>
     </message>
     <message>
         <source>设置</source>
@@ -993,14 +1783,6 @@
         <translation>Pin</translation>
     </message>
     <message>
-        <source>Win顺 按钮也已固定到任务栏</source>
-        <translation>WinShun’s button is pinned to the taskbar too</translation>
-    </message>
-    <message>
-        <source>固定按钮</source>
-        <translation>Pin button</translation>
-    </message>
-    <message>
         <source>排除;忽略;隐藏;黑名单;exclude</source>
         <translation>exclude;ignore;hide;blocklist</translation>
     </message>
@@ -1017,6 +1799,10 @@
         <translation>rescan;scan</translation>
     </message>
     <message>
+        <source>%1共享名，或映射的 Z:</source>
+        <translation>%1share, or a mapped Z:</translation>
+    </message>
+    <message>
         <source>文件和文件夹的顺序</source>
         <translation>Files and folders</translation>
     </message>
@@ -1031,14 +1817,6 @@
     <message>
         <source>文件夹在前</source>
         <translation>Folders first</translation>
-    </message>
-    <message>
-        <source>最近修改的排在前面</source>
-        <translation>Newest first</translation>
-    </message>
-    <message>
-        <source>排序;修改时间;修改日期;最新;sort;date</source>
-        <translation>sort;date modified;modified;newest;date</translation>
     </message>
     <message>
         <source>显示修改日期</source>
@@ -1146,6 +1924,106 @@
     <message>
         <source>不记录这些程序复制的内容</source>
         <translation>Don’t keep copies from these programs</translation>
+    </message>
+    <message>
+        <source>快捷访问;常去;quick access</source>
+        <translation>quick access;go to often;shortcuts</translation>
+    </message>
+    <message>
+        <source>只收录文件名和文件夹名，搜索和本机文件一样快，不读取文件内容。服务器离线时，收录过的照样能搜到。</source>
+        <translation>Only the names of files and folders are read: they are searched as fast as your own files, and no file is opened. While a server is offline, what was read from it can still be searched.</translation>
+    </message>
+    <message>
+        <source>网络共享文件夹</source>
+        <translation>Shared network folders</translation>
+    </message>
+    <message>
+        <source>网络;共享;局域网;内网;NAS;服务器;SMB;映射;网络驱动器;network;share</source>
+        <translation>network;share;shared;LAN;intranet;NAS;server;SMB;mapped;network drive</translation>
+    </message>
+    <message>
+        <source>公司或家里的 NAS、别的电脑共享出来的文件夹，和本机文件一起搜索</source>
+        <translation>Folders shared by a NAS or other computers, at work or at home, searched with your own files</translation>
+    </message>
+    <message>
+        <source>查看共享的文件夹</source>
+        <translation>Show shared folders</translation>
+    </message>
+    <message>
+        <source>正在连接 %1…</source>
+        <translation>Connecting to %1…</translation>
+    </message>
+    <message>
+        <source>%1 上共享的文件夹，点一下添加：</source>
+        <translation>Folders %1 shares; click one to add it:</translation>
+    </message>
+    <message>
+        <source>登录…</source>
+        <translation>Sign in…</translation>
+    </message>
+    <message>
+        <source>这台电脑访问过的：</source>
+        <translation>Opened on this computer before:</translation>
+    </message>
+    <message>
+        <source>排序</source>
+        <translation>Sort</translation>
+    </message>
+    <message>
+        <source>排序;修改时间;修改日期;最新;最早;升序;降序;sort;date</source>
+        <translation>sort;order;date modified;modified;newest;oldest;ascending;descending;date</translation>
+    </message>
+    <message>
+        <source>“文件”里的结果怎么排；底栏也能切换（Ctrl+S）</source>
+        <translation>How results in Files are ordered; also at the bottom of the search box (Ctrl+S)</translation>
+    </message>
+    <message>
+        <source>最匹配</source>
+        <translation>Best match</translation>
+    </message>
+    <message>
+        <source>最新在前</source>
+        <translation>Newest first</translation>
+    </message>
+    <message>
+        <source>最早在前</source>
+        <translation>Oldest first</translation>
+    </message>
+    <message>
+        <source>不输入时显示</source>
+        <translation>With nothing typed, show</translation>
+    </message>
+    <message>
+        <source>最近;最近打开;最近修改;最近使用;历史;recent</source>
+        <translation>recent;recently opened;recently modified;history;start</translation>
+    </message>
+    <message>
+        <source>打开搜索框还没输入时列出的 5 项；底栏也能切换（Ctrl+S）</source>
+        <translation>The 5 items listed before you type; also at the bottom of the search box (Ctrl+S)</translation>
+    </message>
+    <message>
+        <source>最近打开</source>
+        <translation>Recently opened</translation>
+    </message>
+    <message>
+        <source>最近修改</source>
+        <translation>Recently modified</translation>
+    </message>
+    <message>
+        <source>内容;全文;文字;开关;关闭;content</source>
+        <translation>content;full text;text;switch;off;contents</translation>
+    </message>
+    <message>
+        <source>关掉后搜索框里不再有“内容”，“全部”只按名字找；Win顺 不读取文件里的文字，内容索引也会清空</source>
+        <translation>Off: no “Content” in the search box and “All” finds names only; WinShun reads no file’s text, and the content index is cleared</translation>
+    </message>
+    <message>
+        <source>导入…</source>
+        <translation>Import…</translation>
+    </message>
+    <message>
+        <source>导出…</source>
+        <translation>Export…</translation>
     </message>
     <message>
         <source>输入程序文件名，例如 KeePass.exe</source>
@@ -1372,10 +2250,6 @@
         <translation>For when you keep Win+V as it is, such as Win+Alt+V</translation>
     </message>
     <message>
-        <source>也可以只固定一个按钮</source>
-        <translation>Or pin just a button</translation>
-    </message>
-    <message>
         <source>任何位置的同名文件夹都跳过，例如 node_modules</source>
         <translation>Folders by these names are skipped wherever they are, such as node_modules</translation>
     </message>
@@ -1384,8 +2258,8 @@
         <translation>Taskbar</translation>
     </message>
     <message>
-        <source>任务栏太挤，放不下：取消固定几个图标，或改为固定按钮</source>
-        <translation>No room on the taskbar: unpin a few icons, or pin a button instead</translation>
+        <source>任务栏太挤，放不下：取消固定几个图标</source>
+        <translation>No room on the taskbar: unpin a few icons</translation>
     </message>
     <message>
         <source>保留</source>
@@ -1432,10 +2306,6 @@
         <translation>Press Ctrl+G in an Open or Save As dialog to go to your file manager’s current folder</translation>
     </message>
     <message>
-        <source>在“文件”里按修改时间排，最新的在前；底栏按钮也能切换</source>
-        <translation>In Files, newest changed first; the button at the bottom switches it too</translation>
-    </message>
-    <message>
         <source>在任务栏设置里把“搜索”选成“隐藏”</source>
         <translation>In taskbar settings, set “Search” to “Hide”</translation>
     </message>
@@ -1466,10 +2336,6 @@
     <message>
         <source>对话框出现时，自动转到文件管理器当前的文件夹</source>
         <translation>When a dialog appears, it goes to your file manager’s current folder</translation>
-    </message>
-    <message>
-        <source>已固定按钮，也可以再放一个搜索框</source>
-        <translation>The button is pinned; you can add a search box too</translation>
     </message>
     <message>
         <source>已固定，点它就能打开 Win顺</source>
@@ -1634,6 +2500,25 @@
     </message>
 </context>
 <context>
+    <name>ShareCard</name>
+    <message>
+        <source>登录…</source>
+        <translation>Sign in…</translation>
+    </message>
+    <message>
+        <source>按现在的内容更新</source>
+        <translation>Update to what is there now</translation>
+    </message>
+    <message>
+        <source>立即核对</source>
+        <translation>Check now</translation>
+    </message>
+    <message>
+        <source>移除</source>
+        <translation>Remove</translation>
+    </message>
+</context>
+<context>
     <name>ToggleSwitch</name>
     <message>
         <source>开</source>
@@ -1738,6 +2623,22 @@
         <translation>Opened by the keyword alone; left empty, the search address’s site</translation>
     </message>
     <message>
+        <source>图标</source>
+        <translation>Icon</translation>
+    </message>
+    <message>
+        <source>选择图片…</source>
+        <translation>Choose picture…</translation>
+    </message>
+    <message>
+        <source>用网站的图标</source>
+        <translation>Use the site&apos;s icon</translation>
+    </message>
+    <message>
+        <source>PNG 或 ICO，方形最好；不选就用网站自己的图标</source>
+        <translation>PNG or ICO, square is best. Without one, the site&apos;s own icon is used</translation>
+    </message>
+    <message>
         <source>添加</source>
         <translation>Add</translation>
     </message>
@@ -1813,6 +2714,10 @@
         <translation>WinShun Search</translation>
     </message>
     <message>
+        <source>搜索</source>
+        <translation>Search</translation>
+    </message>
+    <message>
         <source>搜索应用和文件</source>
         <translation>Search apps and files</translation>
     </message>
@@ -1857,6 +2762,38 @@
             <numerusform>; %Ln changed files will be updated shortly</numerusform>
         </translation>
     </message>
+    <message>
+        <source>%1 可以搜索了</source>
+        <translation>%1 can be searched now</translation>
+    </message>
+    <message>
+        <source>已收录 %L1 项，之后有变化会自动更新。</source>
+        <translation>%L1 items read. Changes are picked up by themselves from now on.</translation>
+    </message>
+    <message>
+        <source>连接到 %1</source>
+        <translation>Connect to %1</translation>
+    </message>
+    <message>
+        <source>输入 %1 上的账户（例如 NAS 的用户名）和密码。勾选“记住我的凭据”，资源管理器以后也不用再输入。</source>
+        <translation>Enter an account on %1 (such as your NAS user name) and its password. With “Remember my credentials” ticked, File Explorer will not ask for them either.</translation>
+    </message>
+    <message>
+        <source>连不上 %1</source>
+        <translation>Cannot reach %1</translation>
+    </message>
+    <message>
+        <source>这台服务器只允许来宾访问，Windows 不允许这样连接</source>
+        <translation>This server allows guests only, which Windows does not allow</translation>
+    </message>
+    <message>
+        <source>服务器上没有这个共享文件夹</source>
+        <translation>The server has no such shared folder</translation>
+    </message>
+    <message>
+        <source>没有连上（错误 %1）</source>
+        <translation>Could not connect (error %1)</translation>
+    </message>
     <message numerus="yes">
         <source>已索引 %Ln 项</source>
         <translation>
@@ -1879,6 +2816,34 @@
     <message>
         <source>剪贴板历史</source>
         <translation>Clipboard history</translation>
+    </message>
+    <message>
+        <source>插件已停用</source>
+        <translation>Plugin turned off</translation>
+    </message>
+    <message>
+        <source>“%1” 连续崩溃，已停用。详见 plugins.log。</source>
+        <translation>“%1” kept crashing and was turned off. See plugins.log.</translation>
+    </message>
+    <message>
+        <source>已重新加载 %1</source>
+        <translation>Reloaded %1</translation>
+    </message>
+    <message>
+        <source>%1（%2 次调用）</source>
+        <translation>%1 (%2 calls)</translation>
+    </message>
+    <message>
+        <source>还没有 AI 客户端连接；连上以后显示在这里</source>
+        <translation>No AI client is connected yet; connected ones show here</translation>
+    </message>
+    <message>
+        <source>已连接：%1</source>
+        <translation>Connected: %1</translation>
+    </message>
+    <message>
+        <source>没能建立连接通道，详见 WinShun.log</source>
+        <translation>The connection channel could not be set up; see WinShun.log</translation>
     </message>
     <message>
         <source>输入框</source>
@@ -2089,6 +3054,10 @@
     <message>
         <source>没有在记录剪贴板</source>
         <translation>Clipboard history is off</translation>
+    </message>
+    <message>
+        <source>已钉住：点一条，粘贴到正在用的程序</source>
+        <translation>Pinned: click an entry to paste it into the program you are using</translation>
     </message>
     <message numerus="yes">
         <source>%Ln 条</source>
@@ -2325,10 +3294,6 @@
 <context>
     <name>ws::DialogBar</name>
     <message>
-        <source>固定</source>
-        <translation>Pinned</translation>
-    </message>
-    <message>
         <source>输入的路径</source>
         <translation>Typed path</translation>
     </message>
@@ -2341,6 +3306,10 @@
         <translation>Explorer</translation>
     </message>
     <message>
+        <source>收藏</source>
+        <translation>Favorite</translation>
+    </message>
+    <message>
         <source>剪贴板</source>
         <translation>Clipboard</translation>
     </message>
@@ -2349,12 +3318,12 @@
         <translation>Recent</translation>
     </message>
     <message>
-        <source>取消固定“%1”</source>
-        <translation>Unpin “%1”</translation>
+        <source>从收藏夹移除“%1”</source>
+        <translation>Remove “%1” from favorites</translation>
     </message>
     <message>
-        <source>固定“%1”</source>
-        <translation>Pin “%1”</translation>
+        <source>收藏“%1”</source>
+        <translation>Add “%1” to favorites</translation>
     </message>
     <message>
         <source>这次不显示</source>
@@ -2385,16 +3354,171 @@
         <translation>Copy path</translation>
     </message>
     <message>
-        <source>取消固定</source>
-        <translation>Unpin</translation>
+        <source>从收藏夹移除</source>
+        <translation>Remove from favorites</translation>
     </message>
     <message>
-        <source>固定到列表</source>
-        <translation>Pin to the list</translation>
+        <source>加入收藏夹</source>
+        <translation>Add to favorites</translation>
     </message>
     <message>
-        <source>固定所在的文件夹</source>
-        <translation>Pin its folder</translation>
+        <source>收藏所在的文件夹</source>
+        <translation>Add its folder to favorites</translation>
+    </message>
+</context>
+<context>
+    <name>ws::FavoritesSettings</name>
+    <message>
+        <source>应用</source>
+        <translation>App</translation>
+    </message>
+    <message>
+        <source>系统</source>
+        <translation>System</translation>
+    </message>
+    <message>
+        <source>这一项已经不在了</source>
+        <translation>This one is no longer there</translation>
+    </message>
+    <message>
+        <source>关键词里不能有空格、引号、斜杠或冒号</source>
+        <translation>A keyword can&apos;t have spaces, quotes, slashes or colons</translation>
+    </message>
+    <message>
+        <source>关键词“%1”已经给了“%2”</source>
+        <translation>The keyword “%1” already belongs to “%2”</translation>
+    </message>
+    <message>
+        <source>关键词“%1”已经给了网页搜索“%2”</source>
+        <translation>The keyword “%1” already belongs to the web search “%2”</translation>
+    </message>
+    <message numerus="yes">
+        <source>已添加 %n 项</source>
+        <translation>
+            <numerusform>Added %n item</numerusform>
+            <numerusform>Added %n items</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>它已经在收藏夹里了</source>
+        <translation>It&apos;s already in your favorites</translation>
+    </message>
+    <message numerus="yes">
+        <source>这 %n 项都已在收藏夹里</source>
+        <translation>
+            <numerusform>It&apos;s already in your favorites</numerusform>
+            <numerusform>All %n are already in your favorites</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>，</source>
+        <translation>, </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 项本来就有</source>
+        <translation>
+            <numerusform>%n was there already</numerusform>
+            <numerusform>%n were there already</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>选择要收藏的文件夹</source>
+        <translation>Choose a folder to add to favorites</translation>
+    </message>
+    <message>
+        <source>选择要收藏的文件</source>
+        <translation>Choose a file to add to favorites</translation>
+    </message>
+    <message>
+        <source>所有文件</source>
+        <translation>All files</translation>
+    </message>
+    <message>
+        <source>只能收藏文件和文件夹</source>
+        <translation>Only files and folders can be added here</translation>
+    </message>
+    <message>
+        <source>“%1”现在在哪里？</source>
+        <translation>Where is “%1” now?</translation>
+    </message>
+    <message>
+        <source>“%1”已经在收藏夹里了</source>
+        <translation>“%1” is already in your favorites</translation>
+    </message>
+    <message>
+        <source>导入收藏夹</source>
+        <translation>Import favorites</translation>
+    </message>
+    <message>
+        <source>收藏夹（JSON）</source>
+        <translation>Favorites (JSON)</translation>
+    </message>
+    <message>
+        <source>读不了这个文件</source>
+        <translation>Can&apos;t read this file</translation>
+    </message>
+    <message>
+        <source>这个文件是更新版本的 Win顺 导出的，请先更新 Win顺</source>
+        <translation>This file was exported by a newer WinShun. Update WinShun first</translation>
+    </message>
+    <message>
+        <source>这不是 Win顺 导出的收藏夹文件</source>
+        <translation>This isn&apos;t a favorites file exported by WinShun</translation>
+    </message>
+    <message numerus="yes">
+        <source>新增 %n 项</source>
+        <translation>
+            <numerusform>%n added</numerusform>
+            <numerusform>%n added</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>其中 %n 项补上了名称或关键词</source>
+        <translation>
+            <numerusform>%n of them given its name or keyword</numerusform>
+            <numerusform>%n of them given their names or keywords</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 项用不了，跳过了</source>
+        <translation>
+            <numerusform>%n unusable, skipped</numerusform>
+            <numerusform>%n unusable, skipped</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 个关键词已经给了网页搜索，没有带上</source>
+        <translation>
+            <numerusform>%n keyword already belongs to a web search and was left out</numerusform>
+            <numerusform>%n keywords already belong to web searches and were left out</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>已导入：</source>
+        <translation>Imported: </translation>
+    </message>
+    <message>
+        <source>还没有收藏可以导出</source>
+        <translation>No favorites to export yet</translation>
+    </message>
+    <message>
+        <source>导出收藏夹</source>
+        <translation>Export favorites</translation>
+    </message>
+    <message>
+        <source>Win顺 收藏夹.json</source>
+        <translation>WinShun favorites.json</translation>
+    </message>
+    <message>
+        <source>写不了这个文件：%1</source>
+        <translation>Can&apos;t write this file: %1</translation>
+    </message>
+    <message numerus="yes">
+        <source>已导出 %n 项到 %1</source>
+        <translation>
+            <numerusform>Exported %n item to %1</numerusform>
+            <numerusform>Exported %n items to %1</numerusform>
+        </translation>
     </message>
 </context>
 <context>
@@ -2531,8 +3655,52 @@
         <translation>Searching…</translation>
     </message>
     <message>
+        <source>（%1 查看全部）</source>
+        <translation> (%1 for all of them)</translation>
+    </message>
+    <message>
+        <source>按空格进入；Enter 或 Tab 也行</source>
+        <translation>Press Space to enter; Enter or Tab works too</translation>
+    </message>
+    <message>
+        <source>按 Tab 补全；Enter 直接进入</source>
+        <translation>Tab completes it; Enter goes straight in</translation>
+    </message>
+    <message>
+        <source>在“文件”里可以按修改时间排序</source>
+        <translation>Files can be sorted by date modified</translation>
+    </message>
+    <message>
         <source> · 索引尚未建完</source>
         <translation> · Index still being built</translation>
+    </message>
+    <message>
+        <source> · 正在等 %1…</source>
+        <translation> · Waiting for %1…</translation>
+    </message>
+    <message>
+        <source>切换范围</source>
+        <translation>Scope</translation>
+    </message>
+    <message>
+        <source>打开位置</source>
+        <translation>Folder</translation>
+    </message>
+    <message>
+        <source>打开设置</source>
+        <translation>Settings</translation>
+    </message>
+    <message>
+        <source>进入</source>
+        <translation>Start</translation>
+    </message>
+    <message>
+        <source>补全</source>
+        <translation>Complete</translation>
+    </message>
+    <message>
+        <source>连不上 %1：它离线了，或不在同一网络</source>
+        <translation>Cannot reach %1: it is offline, or on another network</translation>
     </message>
     <message>
         <source>“%1” 已不存在</source>
@@ -2575,6 +3743,14 @@
         <translation>Deleted “%1”</translation>
     </message>
     <message>
+        <source>打开网址</source>
+        <translation>Open address</translation>
+    </message>
+    <message>
+        <source>填入搜索框</source>
+        <translation>Put in the search box</translation>
+    </message>
+    <message>
         <source>打开</source>
         <translation>Open</translation>
     </message>
@@ -2589,6 +3765,56 @@
     <message>
         <source>打开安装文件夹</source>
         <translation>Open install folder</translation>
+    </message>
+    <message numerus="yes">
+        <source>加入收藏夹（%Ln 项）</source>
+        <translation>
+            <numerusform>Add to favorites (%Ln item)</numerusform>
+            <numerusform>Add to favorites (%Ln items)</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>从收藏夹移除（%Ln 项）</source>
+        <translation>
+            <numerusform>Remove from favorites (%Ln item)</numerusform>
+            <numerusform>Remove from favorites (%Ln items)</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>从收藏夹移除</source>
+        <translation>Remove from favorites</translation>
+    </message>
+    <message>
+        <source>编辑收藏（名称、关键词）…</source>
+        <translation>Edit favorite (name, keyword)…</translation>
+    </message>
+    <message>
+        <source>加入收藏夹</source>
+        <translation>Add to favorites</translation>
+    </message>
+    <message>
+        <source>收藏所在的文件夹</source>
+        <translation>Add its folder to favorites</translation>
+    </message>
+    <message>
+        <source>正在等 %1…</source>
+        <translation>Waiting for %1…</translation>
+    </message>
+    <message>
+        <source>%1：%2</source>
+        <translation>%1: %2</translation>
+    </message>
+    <message>
+        <source>已复制</source>
+        <translation>Copied</translation>
+    </message>
+    <message>
+        <source>插件的结果不以管理员身份运行</source>
+        <translation>A plugin’s results never run as administrator</translation>
+    </message>
+    <message>
+        <source>插件没有完成这个操作</source>
+        <translation>The plugin did not complete the action</translation>
     </message>
     <message>
         <source>打开所在位置</source>
@@ -2610,11 +3836,61 @@
         <source>打开文件夹</source>
         <translation>Open folder</translation>
     </message>
+    <message>
+        <source>搜索应用和文件</source>
+        <translation>Search apps and files</translation>
+    </message>
     <message numerus="yes">
         <source>已选择 %Ln 项</source>
         <translation>
             <numerusform>%Ln selected</numerusform>
             <numerusform>%Ln selected</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>进入文件夹</source>
+        <translation>Go into folder</translation>
+    </message>
+    <message>
+        <source>“%1” 已不存在；右键可从收藏夹移除</source>
+        <translation>“%1” is gone; right-click to remove it from favorites</translation>
+    </message>
+    <message>
+        <source>已加入收藏夹</source>
+        <translation>Added to favorites</translation>
+    </message>
+    <message>
+        <source>已在收藏夹里</source>
+        <translation>Already in favorites</translation>
+    </message>
+    <message>
+        <source>已从收藏夹移除</source>
+        <translation>Removed from favorites</translation>
+    </message>
+    <message>
+        <source>已把“%1”加入收藏夹</source>
+        <translation>Added “%1” to favorites</translation>
+    </message>
+    <message>
+        <source>“%1”已在收藏夹里</source>
+        <translation>“%1” is already in favorites</translation>
+    </message>
+    <message numerus="yes">
+        <source>已加入收藏夹 %Ln 项</source>
+        <translation>
+            <numerusform>Added %Ln item to favorites</numerusform>
+            <numerusform>Added %Ln items to favorites</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>选中的项目都已在收藏夹里</source>
+        <translation>The selected items are all in favorites already</translation>
+    </message>
+    <message numerus="yes">
+        <source>已从收藏夹移除 %Ln 项</source>
+        <translation>
+            <numerusform>Removed %Ln item from favorites</numerusform>
+            <numerusform>Removed %Ln items from favorites</numerusform>
         </translation>
     </message>
     <message>
@@ -2728,6 +4004,352 @@
     <message>
         <source>编辑网页搜索…</source>
         <translation>Edit web searches…</translation>
+    </message>
+</context>
+<context>
+    <name>ws::PluginSettings</name>
+    <message>
+        <source>这些由 Windows 强制：不是管理员、内存上限、子进程、剪贴板、窗口。这些只是插件自己的说明，Win顺 挡不住：联网、读哪些文件、写哪些文件（严格沙箱的插件除外）。只安装你信得过来源的插件。</source>
+        <translation>These are enforced by Windows: not administrator, the memory limit, child processes, the clipboard, windows. These are only the plugin&apos;s own word, which WinShun cannot enforce: going online, which files it reads, which files it writes (except for plugins in the strict sandbox). Only install plugins from sources you trust.</translation>
+    </message>
+    <message>
+        <source>不运行自己的程序：Win顺 按它的清单打开网址、程序或文件夹，用你的普通权限，不是管理员</source>
+        <translation>Runs no program of its own: Win顺 opens the addresses, programs or folders its manifest names, with your normal rights, not as administrator</translation>
+    </message>
+    <message>
+        <source>在严格沙箱里运行：低完整性，不是管理员，写不了你的文件（只能写它自己的数据文件夹）；内存上限 %1 MB</source>
+        <translation>Runs in the strict sandbox: low integrity, not administrator, cannot write your files (only its own data folder); memory limit %1 MB</translation>
+    </message>
+    <message>
+        <source>以普通用户权限运行，不是管理员；内存上限 %1 MB</source>
+        <translation>Runs with your normal rights, not as administrator; memory limit %1 MB</translation>
+    </message>
+    <message>
+        <source>启动其他程序（子进程）</source>
+        <translation>Start other programs (child processes)</translation>
+    </message>
+    <message>
+        <source>读剪贴板</source>
+        <translation>Read the clipboard</translation>
+    </message>
+    <message>
+        <source>写剪贴板</source>
+        <translation>Write the clipboard</translation>
+    </message>
+    <message>
+        <source>打开自己的窗口、切换前台</source>
+        <translation>Open windows of its own, switch the foreground</translation>
+    </message>
+    <message>
+        <source>部分</source>
+        <translation>partly</translation>
+    </message>
+    <message>
+        <source>用 Win顺 搜索文件名和内容</source>
+        <translation>Search file names and contents with WinShun</translation>
+    </message>
+    <message>
+        <source>让 Win顺 打开文件和网址（以普通权限）</source>
+        <translation>Have WinShun open files and URLs (with normal rights)</translation>
+    </message>
+    <message>
+        <source>读最近打开的项目</source>
+        <translation>Read the recently opened items</translation>
+    </message>
+    <message>
+        <source>写文件</source>
+        <translation>Write files</translation>
+    </message>
+    <message>
+        <source>严格沙箱：只能写它自己的数据文件夹</source>
+        <translation>strict sandbox: only its own data folder</translation>
+    </message>
+    <message>
+        <source>和你自己一样能写</source>
+        <translation>can write whatever you can</translation>
+    </message>
+    <message>
+        <source>读你的文件</source>
+        <translation>Read your files</translation>
+    </message>
+    <message>
+        <source>读这些文件：%1</source>
+        <translation>Read these files: %1</translation>
+    </message>
+    <message>
+        <source>联网</source>
+        <translation>Network access</translation>
+    </message>
+    <message>
+        <source>Win顺 不能阻止它联网</source>
+        <translation>WinShun cannot stop it going online</translation>
+    </message>
+    <message>
+        <source>无法使用：%1</source>
+        <translation>Unusable: %1</translation>
+    </message>
+    <message>
+        <source>AI 助手页的“允许 AI 连接”关着</source>
+        <translation>“Allow AI assistants to connect” on the AI assistants page is off</translation>
+    </message>
+    <message>
+        <source>AI 助手页的“AI 可以使用插件”关着，打开后才成为工具</source>
+        <translation>“Allow AI to use plugins” on the AI assistants page is off; the commands become tools once it is on</translation>
+    </message>
+    <message>
+        <source>关着：AI 看不到这个插件的命令</source>
+        <translation>Off: AI does not see this plugin&apos;s commands</translation>
+    </message>
+    <message>
+        <source>插件停用时 AI 调用会得到“已停用”的提示</source>
+        <translation>While the plugin is off, an AI call is told so</translation>
+    </message>
+    <message>
+        <source>工具：%1</source>
+        <translation>Tools: %1</translation>
+    </message>
+    <message>
+        <source>已停用</source>
+        <translation>Off</translation>
+    </message>
+    <message>
+        <source>就绪，用到时启动</source>
+        <translation>Ready, starts when used</translation>
+    </message>
+    <message>
+        <source>就绪</source>
+        <translation>Ready</translation>
+    </message>
+    <message>
+        <source>正在启动…</source>
+        <translation>Starting…</translation>
+    </message>
+    <message>
+        <source>运行中</source>
+        <translation>Running</translation>
+    </message>
+    <message>
+        <source>运行中 · %1</source>
+        <translation>Running · %1</translation>
+    </message>
+    <message numerus="yes">
+        <source> · 超时 %n 次</source>
+        <translation>
+            <numerusform> · timed out %n time</numerusform>
+            <numerusform> · timed out %n times</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>崩溃，稍后重启：%1</source>
+        <translation>Crashed, restarting soon: %1</translation>
+    </message>
+    <message>
+        <source>连续崩溃，已停用：%1</source>
+        <translation>Crashed repeatedly, turned off: %1</translation>
+    </message>
+    <message>
+        <source>网页搜索“%1”</source>
+        <translation>the web search “%1”</translation>
+    </message>
+    <message>
+        <source>收藏“%1”</source>
+        <translation>the favorite “%1”</translation>
+    </message>
+    <message>
+        <source>插件“%1”</source>
+        <translation>the plugin “%1”</translation>
+    </message>
+    <message>
+        <source>关键字 %1 已被%2占用，改一个</source>
+        <translation>The keyword %1 is taken by %2; choose another</translation>
+    </message>
+    <message>
+        <source>插件看不到你在资源管理器里登录的网络位置：资源管理器以管理员身份运行或没有运行，插件只能用 Win顺 自己降权后的身份，它和资源管理器不在同一个登录会话里。</source>
+        <translation>Plugins cannot see the network places you signed in to in File Explorer: Explorer runs as administrator or is not running, so plugins get WinShun&apos;s own token with its rights lowered, which is not in Explorer&apos;s logon session.</translation>
+    </message>
+    <message>
+        <source>随 Win顺 安装</source>
+        <translation>Installed with WinShun</translation>
+    </message>
+    <message>
+        <source>你的插件文件夹</source>
+        <translation>Your plugins folder</translation>
+    </message>
+    <message>
+        <source>选择文件夹</source>
+        <translation>Choose a folder</translation>
+    </message>
+    <message>
+        <source>选择文件</source>
+        <translation>Choose a file</translation>
+    </message>
+    <message>
+        <source>选择插件文件夹（里面有 plugin.json）</source>
+        <translation>Choose the plugin folder (the one with plugin.json)</translation>
+    </message>
+    <message>
+        <source>选择插件压缩包</source>
+        <translation>Choose a plugin archive</translation>
+    </message>
+    <message>
+        <source>插件压缩包</source>
+        <translation>Plugin archives</translation>
+    </message>
+    <message>
+        <source>所有文件</source>
+        <translation>All files</translation>
+    </message>
+    <message>
+        <source>找不到 %1</source>
+        <translation>Cannot find %1</translation>
+    </message>
+    <message>
+        <source>不能安装 %1：%2</source>
+        <translation>Cannot install %1: %2</translation>
+    </message>
+    <message>
+        <source>没有安装 %1：%2</source>
+        <translation>%1 was not installed: %2</translation>
+    </message>
+    <message>
+        <source>已安装 %1 %2</source>
+        <translation>Installed %1 %2</translation>
+    </message>
+    <message>
+        <source>已安装 %1 %2，打开它的开关就能用</source>
+        <translation>Installed %1 %2; turn it on to use it</translation>
+    </message>
+    <message>
+        <source>已卸载 %1</source>
+        <translation>Uninstalled %1</translation>
+    </message>
+    <message>
+        <source>卸载 %1：%2</source>
+        <translation>Uninstalling %1: %2</translation>
+    </message>
+    <message>
+        <source>没有这种模板</source>
+        <translation>No such template</translation>
+    </message>
+    <message>
+        <source>名字只能用小写字母、数字和连字符</source>
+        <translation>The name may only have lower-case letters, digits and hyphens</translation>
+    </message>
+    <message>
+        <source>名字不合规则</source>
+        <translation>The name is not allowed</translation>
+    </message>
+    <message>
+        <source>插件文件夹未知</source>
+        <translation>The plugins folder is unknown</translation>
+    </message>
+    <message>
+        <source>已经有一个叫 %1 的插件了</source>
+        <translation>There is a plugin called %1 already</translation>
+    </message>
+    <message>
+        <source>建不了 %1</source>
+        <translation>Cannot create %1</translation>
+    </message>
+    <message>
+        <source>写不了 %1</source>
+        <translation>Cannot write %1</translation>
+    </message>
+    <message>
+        <source>已建好 %1，打开它的开关、输入 %2 试试；改了脚本，开发者模式下会自动重新加载</source>
+        <translation>Made %1: turn it on and type %2 to try it; in developer mode it reloads as its scripts change</translation>
+    </message>
+    <message>
+        <source>结束进程</source>
+        <translation>Kill process</translation>
+    </message>
+    <message>
+        <source>kill &lt;进程名或 PID&gt; 列出进程，Enter 结束，Ctrl+Enter 连同子进程</source>
+        <translation>kill &lt;name or PID&gt; lists processes; Enter kills, Ctrl+Enter with children</translation>
+    </message>
+    <message>
+        <source>也列出系统进程</source>
+        <translation>Include system processes</translation>
+    </message>
+    <message>
+        <source>翻译</source>
+        <translation>Translate</translation>
+    </message>
+    <message>
+        <source>tr &lt;句子&gt; 翻译；整句中文或英文时推送一行</source>
+        <translation>tr &lt;sentence&gt; translates; a whole Chinese or English sentence pushes a row</translation>
+    </message>
+    <message>
+        <source>API 密钥</source>
+        <translation>API key</translation>
+    </message>
+    <message>
+        <source>存在 Windows 凭据管理器里，不写进设置文件</source>
+        <translation>Kept in the Windows Credential Manager, never in the settings file</translation>
+    </message>
+    <message>
+        <source>用哪家</source>
+        <translation>Service</translation>
+    </message>
+    <message>
+        <source>目标语言</source>
+        <translation>Target language</translation>
+    </message>
+    <message>
+        <source>例如 zh、en、ja</source>
+        <translation>e.g. zh, en, ja</translation>
+    </message>
+    <message>
+        <source>缓存文件夹</source>
+        <translation>Cache folder</translation>
+    </message>
+    <message>
+        <source>网页快捷方式</source>
+        <translation>Web shortcuts</translation>
+    </message>
+    <message>
+        <source>零代码：gh 搜 GitHub，bd 搜百度</source>
+        <translation>Zero-code: gh searches GitHub, bd searches Baidu</translation>
+    </message>
+    <message>
+        <source>百度</source>
+        <translation>Baidu</translation>
+    </message>
+    <message>
+        <source>浏览器书签</source>
+        <translation>Browser bookmarks</translation>
+    </message>
+    <message>
+        <source>bm &lt;词&gt; 搜 Chrome 和 Edge 的书签</source>
+        <translation>bm &lt;words&gt; searches Chrome and Edge bookmarks</translation>
+    </message>
+    <message>
+        <source>需要 Python 3：没有找到 python.exe</source>
+        <translation>Needs Python 3: python.exe was not found</translation>
+    </message>
+    <message>
+        <source>书签</source>
+        <translation>Bookmarks</translation>
+    </message>
+    <message>
+        <source>小工具</source>
+        <translation>Tools</translation>
+    </message>
+    <message>
+        <source>= 计算，# 颜色，ts 时间戳</source>
+        <translation>= calculates, # colours, ts timestamps</translation>
+    </message>
+    <message>
+        <source>崩溃（退出码 %1）</source>
+        <translation>Crashed (exit code %1)</translation>
+    </message>
+    <message>
+        <source>计算</source>
+        <translation>Calculate</translation>
+    </message>
+    <message>
+        <source>时间戳</source>
+        <translation>Timestamp</translation>
     </message>
 </context>
 <context>
@@ -2863,6 +4485,10 @@
         <translation>The keyword “%1” already belongs to “%2”</translation>
     </message>
     <message>
+        <source>关键词“%1”已经给了收藏“%2”</source>
+        <translation>The keyword “%1” already belongs to the favorite “%2”</translation>
+    </message>
+    <message>
         <source>请填写网址</source>
         <translation>Enter an address</translation>
     </message>
@@ -2873,6 +4499,285 @@
     <message>
         <source>打不开主页的网址：它应当以 https:// 开头</source>
         <translation>Cannot open the home page’s address: it should start with https://</translation>
+    </message>
+    <message>
+        <source>选择图标</source>
+        <translation>Choose an icon</translation>
+    </message>
+    <message>
+        <source>图片（PNG、ICO）</source>
+        <translation>Pictures (PNG, ICO)</translation>
+    </message>
+    <message>
+        <source>所有文件</source>
+        <translation>All files</translation>
+    </message>
+    <message>
+        <source>读不了这个文件</source>
+        <translation>Can&apos;t read this file</translation>
+    </message>
+    <message>
+        <source>图片太大了：请用 1 MB 以内的 PNG</source>
+        <translation>The picture is too large: use a PNG under 1 MB</translation>
+    </message>
+    <message>
+        <source>用不了这张图片：请用 PNG 或 ICO，至少 16×16</source>
+        <translation>Can&apos;t use this picture: use a PNG or ICO of at least 16×16</translation>
+    </message>
+    <message>
+        <source>导入网页搜索</source>
+        <translation>Import web searches</translation>
+    </message>
+    <message>
+        <source>网页搜索（JSON）</source>
+        <translation>Web searches (JSON)</translation>
+    </message>
+    <message>
+        <source>这个文件太大了，不像是导出的网页搜索</source>
+        <translation>This file is too large to be exported web searches</translation>
+    </message>
+    <message>
+        <source>这个文件是更新版本的 Win顺 导出的，请先更新 Win顺</source>
+        <translation>This file was exported by a newer WinShun. Update WinShun first</translation>
+    </message>
+    <message>
+        <source>这不是 Win顺 导出的网页搜索文件</source>
+        <translation>This is not a file of web searches exported by WinShun</translation>
+    </message>
+    <message>
+        <source>文件里没有网页搜索</source>
+        <translation>The file has no web searches</translation>
+    </message>
+    <message numerus="yes">
+        <source>新增 %n 个</source>
+        <translation>
+            <numerusform>%n added</numerusform>
+            <numerusform>%n added</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>更新 %n 个</source>
+        <translation>
+            <numerusform>%n updated</numerusform>
+            <numerusform>%n updated</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 个本来就有</source>
+        <translation>
+            <numerusform>%n already here</numerusform>
+            <numerusform>%n already here</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 个用不了，跳过了</source>
+        <translation>
+            <numerusform>%n unusable, skipped</numerusform>
+            <numerusform>%n unusable, skipped</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 个图标读不了，用网站自己的</source>
+        <translation>
+            <numerusform>%n icon unreadable, the site&apos;s used</numerusform>
+            <numerusform>%n icons unreadable, the sites&apos; used</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 个和收藏的关键词重复，输入时先打开网页</source>
+        <translation>
+            <numerusform>%n has the same keyword as a favorite; typed, the web page opens first</numerusform>
+            <numerusform>%n have the same keywords as favorites; typed, the web pages open first</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>已导入：</source>
+        <translation>Imported: </translation>
+    </message>
+    <message>
+        <source>，</source>
+        <translation>, </translation>
+    </message>
+    <message>
+        <source>还没有网页搜索可以导出</source>
+        <translation>No web searches to export yet</translation>
+    </message>
+    <message>
+        <source>导出网页搜索</source>
+        <translation>Export web searches</translation>
+    </message>
+    <message>
+        <source>Win顺 网页搜索.json</source>
+        <translation>WinShun web searches.json</translation>
+    </message>
+    <message>
+        <source>写不了这个文件：%1</source>
+        <translation>Can&apos;t write this file: %1</translation>
+    </message>
+    <message numerus="yes">
+        <source>已导出 %n 个到 %1</source>
+        <translation>
+            <numerusform>Exported %n to %1</numerusform>
+            <numerusform>Exported %n to %1</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>刚刚</source>
+        <translation>just now</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 分钟前</source>
+        <translation>
+            <numerusform>%n minute ago</numerusform>
+            <numerusform>%n minutes ago</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>今天 %1</source>
+        <translation>today at %1</translation>
+    </message>
+    <message>
+        <source>昨天 %1</source>
+        <translation>yesterday at %1</translation>
+    </message>
+    <message>
+        <source>%1月%2日</source>
+        <translation>%1/%2</translation>
+    </message>
+    <message>
+        <source>%L1 项</source>
+        <translation>%L1 items</translation>
+    </message>
+    <message>
+        <source>离线：连不上 %1（已关机、不在同一网络，或 VPN 没连）</source>
+        <translation>Offline: cannot reach %1 (turned off, on another network, or the VPN is not connected)</translation>
+    </message>
+    <message>
+        <source>连接中断了，稍后自动重试</source>
+        <translation>The connection dropped; trying again shortly</translation>
+    </message>
+    <message>
+        <source>找不到这个共享文件夹：%1 在线，但上面没有它（改名或删除了？）</source>
+        <translation>Shared folder not found: %1 is online but does not have it (renamed or removed?)</translation>
+    </message>
+    <message>
+        <source>需要登录：Windows 还没有 %1 的用户名和密码</source>
+        <translation>Sign-in needed: Windows has no user name and password for %1 yet</translation>
+    </message>
+    <message>
+        <source>%1 只允许来宾（不用密码）访问，Windows 默认不允许这样连接。请在 %1 上建一个带密码的账户，再点“登录…”；或者请管理员在组策略里启用“不安全的来宾登录”（会降低安全性）</source>
+        <translation>%1 allows guests only (no password), which Windows does not allow by default. Create an account with a password on %1, then click “Sign in…”; or ask your administrator to enable insecure guest logons in Group Policy (less secure)</translation>
+    </message>
+    <message>
+        <source>%1 不支持 Windows 要求的 SMB 签名，多见于老 NAS：请升级它的固件，或请管理员调整签名设置</source>
+        <translation>%1 does not support the SMB signing Windows requires, as older NAS boxes often don&apos;t: update its firmware, or ask your administrator about the signing settings</translation>
+    </message>
+    <message>
+        <source>%1 只支持老旧的 SMB1，Windows 不再用它连接：请在 %1 上启用 SMB 2 或 SMB 3</source>
+        <translation>%1 only speaks the old SMB1, which Windows no longer uses: turn on SMB 2 or SMB 3 on %1</translation>
+    </message>
+    <message>
+        <source>没有权限读取这个文件夹：换一个有权限的账户登录试试</source>
+        <translation>No permission to read this folder: try signing in with another account</translation>
+    </message>
+    <message>
+        <source>出错了（错误 %1），稍后自动重试</source>
+        <translation>Something went wrong (error %1); trying again shortly</translation>
+    </message>
+    <message>
+        <source>稍后开始收录</source>
+        <translation>To be read shortly</translation>
+    </message>
+    <message>
+        <source>%1核对过</source>
+        <translation>checked %1</translation>
+    </message>
+    <message>
+        <source>稍后连接</source>
+        <translation>connecting shortly</translation>
+    </message>
+    <message>
+        <source>正在收录…已收录 %1</source>
+        <translation>Reading… %1 so far</translation>
+    </message>
+    <message>
+        <source>正在核对… · %1</source>
+        <translation>Checking… · %1</translation>
+    </message>
+    <message>
+        <source>在线</source>
+        <translation>Online</translation>
+    </message>
+    <message>
+        <source>实时跟踪变化</source>
+        <translation>changes followed live</translation>
+    </message>
+    <message numerus="yes">
+        <source>服务器不通知变化，每 %n 小时核对一次</source>
+        <translation>
+            <numerusform>the server does not report changes: checked every hour</numerusform>
+            <numerusform>the server does not report changes: checked every %n hours</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>已收录的 %1 照常能搜到</source>
+        <translation>The %1 read before can still be searched</translation>
+    </message>
+    <message>
+        <source>这次核对少了 %1（原有 %2），先不删除：可能是服务器的磁盘还没准备好。半小时后再核对一次；确实删掉了，就点“按现在的内容更新”</source>
+        <translation>This check found %1 fewer (of %2), so nothing is removed yet: the server&apos;s disks may not be ready. It checks again in half an hour; if they were deleted indeed, click “Update to what is there now”</translation>
+    </message>
+    <message>
+        <source>%1 不是映射的网络驱动器</source>
+        <translation>%1 is not a mapped network drive</translation>
+    </message>
+    <message>
+        <source>还要写上共享文件夹的名字，例如 \\%1\资料</source>
+        <translation>Add the shared folder&apos;s name too, such as \\%1\Documents</translation>
+    </message>
+    <message>
+        <source>请输入网络路径，例如 \\192.168.1.10\资料</source>
+        <translation>Enter a network path, such as \\192.168.1.10\Documents</translation>
+    </message>
+    <message>
+        <source>已经添加过了</source>
+        <translation>Added already</translation>
+    </message>
+    <message>
+        <source>它在已添加的 %1 里面，已经能搜到</source>
+        <translation>It is inside %1, which is searched already</translation>
+    </message>
+    <message>
+        <source>连不上 %1（已关机、不在同一网络，或 VPN 没连）</source>
+        <translation>Cannot reach %1 (turned off, on another network, or the VPN is not connected)</translation>
+    </message>
+    <message>
+        <source>%1 要先登录才能列出共享</source>
+        <translation>Sign in to %1 to see what it shares</translation>
+    </message>
+    <message>
+        <source>%1 没有列出共享（错误 %2）；可以直接输入共享的路径</source>
+        <translation>%1 did not list its shares (error %2); you can type a share&apos;s path instead</translation>
+    </message>
+    <message>
+        <source>%1 上没有共享文件夹</source>
+        <translation>%1 shares no folders</translation>
+    </message>
+    <message>
+        <source>选择不让 AI 看到的文件夹</source>
+        <translation>Choose a folder AI never sees</translation>
+    </message>
+    <message>
+        <source>正在连接…</source>
+        <translation>Connecting…</translation>
+    </message>
+    <message>
+        <source>已复制命令，在终端里运行它就行</source>
+        <translation>Command copied; run it in a terminal</translation>
+    </message>
+    <message>
+        <source>已复制，粘贴到那个客户端的 MCP 配置文件里</source>
+        <translation>Copied; paste it into that client&apos;s MCP configuration file</translation>
     </message>
 </context>
 <context>

@@ -8,6 +8,7 @@ Rectangle {
     property alias text: input.text
     property alias validator: input.validator
     property alias horizontalAlignment: input.horizontalAlignment
+    property alias echoMode: input.echoMode // TextInput.Password for a plugin's password setting
     property string placeholder
 
     signal accepted()
@@ -40,6 +41,10 @@ Rectangle {
         clip: true
         color: Theme.text
         font.pixelSize: Theme.fontBody
+        // A value wider than the box shows its start while nobody is
+        // typing in it: set, the text leaves the cursor at the end, and
+        // scrolling to the cursor would show the end ("d5 sha1 sha256").
+        autoScroll: activeFocus
         selectByMouse: true
         selectionColor: Theme.textSelection
         selectedTextColor: Theme.text

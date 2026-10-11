@@ -1,0 +1,461 @@
+#include "FavoritesSettings.h"
+
+#include "AppCatalog.h"
+#include "FileIconProvider.h"
+#include "SettingsEditor.h"
+#include "ShareLister.h"
+#include "SystemCatalog.h"
+#include "Unc.h"
+#include "platform/Shell.h"
+
+#include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QGuiApplication>
+#include <QSaveFile>
+#include <QStyleHints>
+#include <QUrl>
+
+#include <windows.h>
+
+#include <thread>
+
+using namespace Qt::StringLiterals;
+
+namespace ws {
+
+namespace {
+
+constexpr qint64 kMaxFile = 16 << 20;
+
+QString kindName(Favorite::Kind kind)
+{
+    switch (kind) {
+    case Favorite::Kind::Folder:
+        return u"folder"_s;
+    case Favorite::Kind::File:
+        return u"file"_s;
+    case Favorite::Kind::App:
+        return u"app"_s;
+    case Favorite::Kind::Place:
+        return u"place"_s;
+    }
+    return {};
+}
+
+QString lastName(const QString& path)
+{
+    const QString name = path.mid(path.lastIndexOf(u'\\') + 1);
+    return name.isEmpty() ? path : name;
+}
+
+const AppInfo* findApp(const AppList& apps, const QString& path)
+{
+    const QString id = appIdOf(path);
+    const auto it = std::find_if(apps.begin(), apps.end(), [&](const AppInfo& a) { return a.id == id; });
+    return id.isEmpty() || it == apps.end() ? nullptr : &*it;
+}
+
+const PlaceInfo* findPlace(const PlaceList& places, const QString& path)
+{
+    const QString key = placeKeyOf(path);
+    const auto it = std::find_if(places.begin(), places.end(), [&](const PlaceInfo& p) { return p.key == key; });
+    return key.isEmpty() || it == places.end() ? nullptr : &*it;
+}
+
+enum class Where { Local, Network, Unknown };
+
+// Where a path is: on this PC's disks, on a network (a drive letter mapped
+// to a share, or a share), or nowhere to ask.
+Where whereIs(const QString& path)
+{
+    if (path.startsWith(u"\\\\"))
+        return Where::Network;
+    if (path.size() < 3 || path[1] != u':' || path[2] != u'\\')
+        return Where::Unknown;
+    const wchar_t root[] {static_cast<wchar_t>(path[0].unicode()), L':', L'\\', L'\0'};
+    const UINT type = ::GetDriveTypeW(root);
+    return type == DRIVE_REMOTE ? Where::Network : type == DRIVE_UNKNOWN ? Where::Unknown : Where::Local;
+}
+
+// Whether the disk says a path is not there: not when its server does not
+// answer, or it will not say (no access, no disk in the drive). As the
+// launcher tells (SearchEngine's RecentOnDisk).
+bool gone(const QString& path)
+{
+    if (::GetFileAttributesW(reinterpret_cast<const wchar_t*>(path.utf16())) != INVALID_FILE_ATTRIBUTES)
+        return false;
+    const DWORD error = ::GetLastError();
+    return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
+}
+
+bool dark()
+{
+    return QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark;
+}
+
+} // namespace
+
+FavoritesSettings::FavoritesSettings(SettingsEditor* editor, QObject* parent)
+    : QObject(parent)
+    , m_editor(editor)
+{
+    connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, &FavoritesSettings::refresh);
+}
+
+void FavoritesSettings::setStore(Favorites* favorites)
+{
+    if (m_store)
+        disconnect(m_store, nullptr, this, nullptr);
+    m_store = favorites;
+    if (favorites) {
+        connect(favorites, &Favorites::changed, this, [this] {
+            refresh();
+            lookForMissing();
+        });
+    }
+    refresh();
+    lookForMissing();
+}
+
+void FavoritesSettings::setCatalogs(AppCatalog* apps, SystemCatalog* places)
+{
+    m_apps = apps;
+    m_places = places;
+    if (apps)
+        connect(apps, &AppCatalog::changed, this, &FavoritesSettings::refresh);
+    if (places)
+        connect(places, &SystemCatalog::changed, this, &FavoritesSettings::refresh);
+    refresh();
+}
+
+QString FavoritesSettings::ownName(const Favorite& f) const
+{
+    if (f.kind == Favorite::Kind::App && m_apps) {
+        if (const auto apps = m_apps->apps(); apps) {
+            if (const AppInfo* app = findApp(*apps, f.path))
+                return app->name;
+        }
+    }
+    if (f.kind == Favorite::Kind::Place && m_places) {
+        if (const auto places = m_places->places(); places) {
+            if (const PlaceInfo* place = findPlace(*places, f.path))
+                return place->name;
+        }
+    }
+    return f.isFileOrFolder() ? lastName(f.path) : f.name;
+}
+
+void FavoritesSettings::refresh()
+{
+    QVariantList items;
+    const std::shared_ptr<const AppList> apps = m_apps ? m_apps->apps() : nullptr;
+    const std::shared_ptr<const PlaceList> places = m_places ? m_places->places() : nullptr;
+    for (const Favorite& f : m_store ? m_store->items() : FavoriteList()) {
+        QString icon;
+        QString shownPath = f.path;
+        bool missing = m_missing.contains(f.path.toCaseFolded());
+        if (f.kind == Favorite::Kind::App) {
+            const AppInfo* app = apps ? findApp(*apps, f.path) : nullptr;
+            const bool packaged = app && (app->kind == AppKind::Store || app->kind == AppKind::System || app->kind == AppKind::Package);
+            icon = FileIconProvider::appIconUrl(appIdOf(f.path), packaged, dark());
+            shownPath = tr("应用");
+            missing = apps && !apps->empty() && !app;
+        } else if (f.kind == Favorite::Kind::Place) {
+            const PlaceInfo* place = places ? findPlace(*places, f.path) : nullptr;
+            if (place) {
+                icon = place->icon.startsWith(u"app:") ? FileIconProvider::appIconUrl(place->icon.mid(4), true, dark())
+                                                       : FileIconProvider::placeIconUrl(place->icon);
+            }
+            shownPath = tr("系统");
+            missing = places && !places->empty() && !place;
+        } else {
+            icon = FileIconProvider::iconUrl(f.path, f.kind == Favorite::Kind::Folder);
+        }
+        items.append(QVariantMap {
+            {u"path"_s, f.path},
+            {u"name"_s, f.name},
+            {u"ownName"_s, ownName(f)},
+            {u"keyword"_s, f.keyword},
+            {u"kind"_s, kindName(f.kind)},
+            {u"icon"_s, icon},
+            {u"shownPath"_s, shownPath},
+            {u"missing"_s, missing},
+        });
+    }
+    if (items == m_items)
+        return;
+    m_items = std::move(items);
+    emit itemsChanged();
+}
+
+void FavoritesSettings::lookForMissing()
+{
+    QStringList local;
+    QStringList network;
+    for (const Favorite& f : m_store ? m_store->items() : FavoriteList()) {
+        if (!f.isFileOrFolder())
+            continue;
+        const Where where = whereIs(f.path);
+        if (where == Where::Local)
+            local.append(f.path);
+        else if (where == Where::Network)
+            network.append(f.path);
+    }
+    const int look = ++m_looks;
+    // This PC's disks first, shown at once; then those on a network, which
+    // may take long: until then they keep what was known of them.
+    std::thread([self = QPointer(this), look, local, network] {
+        const auto tell = [&](QSet<QString> missing, bool final) {
+            QMetaObject::invokeMethod(qApp, [self, look, missing = std::move(missing), final, network]() mutable {
+                if (!self || look != self->m_looks)
+                    return;
+                if (!final) {
+                    for (const QString& path : network) {
+                        if (self->m_missing.contains(path.toCaseFolded()))
+                            missing.insert(path.toCaseFolded());
+                    }
+                }
+                self->m_missing = std::move(missing);
+                self->refresh();
+            }, Qt::QueuedConnection);
+        };
+        QSet<QString> missing;
+        for (const QString& path : local) {
+            if (gone(path))
+                missing.insert(path.toCaseFolded());
+        }
+        tell(missing, network.isEmpty());
+        if (network.isEmpty())
+            return;
+        for (const QString& path : network) {
+            // A server that does not answer would take Windows half a minute to say so.
+            if (path.startsWith(u"\\\\") && !share::reachable(unc::host(path.toStdWString())))
+                continue;
+            if (gone(path))
+                missing.insert(path.toCaseFolded());
+        }
+        tell(missing, true);
+    }).detach();
+}
+
+void FavoritesSettings::setMessage(const QString& message)
+{
+    if (message == m_message)
+        return;
+    m_message = message;
+    emit messageChanged();
+}
+
+QString FavoritesSettings::keywordOwner(const QString& keyword) const
+{
+    if (!m_store)
+        return {};
+    const qsizetype i = typedFavoriteKeyword(m_store->items(), keyword);
+    return i < 0 ? QString() : m_store->items()[i].name;
+}
+
+QString FavoritesSettings::save(int index, const QString& name, const QString& keyword)
+{
+    if (!m_store || index < 0 || index >= m_store->items().size())
+        return tr("这一项已经不在了");
+    Favorite f = m_store->items()[index];
+    const QString word = keyword.trimmed();
+    if (!word.isEmpty()) {
+        if (!isValidFavoriteKeyword(word))
+            return tr("关键词里不能有空格、引号、斜杠或冒号");
+        for (qsizetype i = 0; i < m_store->items().size(); ++i) {
+            const Favorite& other = m_store->items()[i];
+            if (i != index && other.keyword.compare(word, Qt::CaseInsensitive) == 0)
+                return tr("关键词“%1”已经给了“%2”").arg(other.keyword, other.name);
+        }
+        for (const WebShortcut& web : m_editor->m_settings.webShortcuts) {
+            if (web.keyword.compare(word, Qt::CaseInsensitive) == 0)
+                return tr("关键词“%1”已经给了网页搜索“%2”").arg(web.keyword, web.name);
+        }
+    }
+    f.keyword = word;
+    f.name = name.trimmed().isEmpty() ? ownName(f) : name.trimmed();
+    m_store->update(index, f);
+    return {};
+}
+
+void FavoritesSettings::remove(int index)
+{
+    if (m_store && index >= 0 && index < m_store->items().size())
+        m_store->remove(m_store->items()[index].path);
+}
+
+bool FavoritesSettings::move(int from, int to)
+{
+    return m_store && m_store->move(from, to);
+}
+
+void FavoritesSettings::addPicked(const QStringList& paths)
+{
+    if (!m_store || paths.isEmpty())
+        return;
+    FavoriteList favorites;
+    for (const QString& picked : paths) {
+        Favorite f;
+        f.path = QDir::toNativeSeparators(QFileInfo(picked).absoluteFilePath());
+        if (f.path.size() > 3 && f.path.endsWith(u'\\'))
+            f.path.chop(1);
+        f.kind = QFileInfo(f.path).isDir() ? Favorite::Kind::Folder : Favorite::Kind::File;
+        f.name = lastName(f.path);
+        favorites.append(f);
+    }
+    const int added = m_store->addAll(favorites);
+    const int there = static_cast<int>(favorites.size()) - added;
+    if (there == 0)
+        setMessage(tr("已添加 %n 项", "", added));
+    else if (added == 0)
+        setMessage(there == 1 ? tr("它已经在收藏夹里了") : tr("这 %n 项都已在收藏夹里", "", there));
+    else
+        setMessage(tr("已添加 %n 项", "", added) + tr("，") + tr("%n 项本来就有", "", there));
+}
+
+void FavoritesSettings::addFolder()
+{
+    const HWND owner = m_editor->m_window ? reinterpret_cast<HWND>(m_editor->m_window->winId()) : nullptr;
+    if (const QString path = shell::pickFolder(owner, tr("选择要收藏的文件夹")); !path.isEmpty())
+        addPicked({path});
+}
+
+void FavoritesSettings::addFile()
+{
+    const HWND owner = m_editor->m_window ? reinterpret_cast<HWND>(m_editor->m_window->winId()) : nullptr;
+    if (const QString path = shell::pickFile(owner, tr("选择要收藏的文件"), {{tr("所有文件"), u"*.*"_s}}); !path.isEmpty())
+        addPicked({path});
+}
+
+void FavoritesSettings::addPaths(const QVariantList& urls)
+{
+    QStringList paths;
+    for (const QVariant& v : urls) {
+        const QString text = v.typeId() == QMetaType::QUrl ? v.toUrl().toLocalFile() : v.toString();
+        const QString path = text.startsWith(u"file:", Qt::CaseInsensitive) ? QUrl(text).toLocalFile() : text;
+        if (!path.isEmpty() && QFileInfo::exists(path))
+            paths.append(path);
+    }
+    if (paths.isEmpty())
+        setMessage(tr("只能收藏文件和文件夹"));
+    addPicked(paths);
+}
+
+void FavoritesSettings::repick(int index)
+{
+    if (!m_store || index < 0 || index >= m_store->items().size())
+        return;
+    Favorite f = m_store->items()[index];
+    if (!f.isFileOrFolder())
+        return;
+    const HWND owner = m_editor->m_window ? reinterpret_cast<HWND>(m_editor->m_window->winId()) : nullptr;
+    const QString path = f.kind == Favorite::Kind::Folder
+        ? shell::pickFolder(owner, tr("“%1”现在在哪里？").arg(f.name))
+        : shell::pickFile(owner, tr("“%1”现在在哪里？").arg(f.name), {{tr("所有文件"), u"*.*"_s}});
+    if (path.isEmpty())
+        return;
+    const bool ownNamed = f.name == lastName(f.path); // not renamed: the new one's name then
+    f.path = QDir::toNativeSeparators(path);
+    if (f.path.size() > 3 && f.path.endsWith(u'\\'))
+        f.path.chop(1);
+    if (ownNamed)
+        f.name = lastName(f.path);
+    if (!m_store->update(index, f))
+        setMessage(tr("“%1”已经在收藏夹里了").arg(lastName(f.path)));
+}
+
+void FavoritesSettings::open(int index)
+{
+    if (!m_store || index < 0 || index >= m_store->items().size())
+        return;
+    const Favorite& f = m_store->items()[index];
+    switch (f.kind) {
+    case Favorite::Kind::App:
+        shell::launchApp(f.path);
+        break;
+    case Favorite::Kind::Place:
+        if (m_places) {
+            if (const auto places = m_places->places(); places) {
+                if (const PlaceInfo* place = findPlace(*places, f.path))
+                    shell::run(place->command);
+            }
+        }
+        break;
+    default:
+        shell::open(f.path);
+        break;
+    }
+}
+
+int FavoritesSettings::indexOf(const QString& path) const
+{
+    return m_store ? static_cast<int>(m_store->indexOf(path)) : -1;
+}
+
+void FavoritesSettings::importFile()
+{
+    if (!m_store)
+        return;
+    const HWND owner = m_editor->m_window ? reinterpret_cast<HWND>(m_editor->m_window->winId()) : nullptr;
+    const QString path = shell::pickFile(owner, tr("导入收藏夹"), {{tr("收藏夹（JSON）"), u"*.json"_s}, {tr("所有文件"), u"*.*"_s}});
+    if (path.isEmpty())
+        return;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly) || file.size() > kMaxFile) {
+        setMessage(tr("读不了这个文件"));
+        return;
+    }
+    bool newer = false;
+    const std::optional<FavoritesFile> read = readFavoritesFile(file.readAll(), &newer);
+    if (!read) {
+        setMessage(newer ? tr("这个文件是更新版本的 Win顺 导出的，请先更新 Win顺") : tr("这不是 Win顺 导出的收藏夹文件"));
+        return;
+    }
+    // A keyword the web shortcuts have stays theirs.
+    FavoriteList favorites = read->favorites;
+    int keywordsTaken = 0;
+    for (Favorite& f : favorites) {
+        for (const WebShortcut& web : m_editor->m_settings.webShortcuts) {
+            if (!f.keyword.isEmpty() && web.keyword.compare(f.keyword, Qt::CaseInsensitive) == 0) {
+                f.keyword.clear();
+                ++keywordsTaken;
+            }
+        }
+    }
+    const Favorites::Merged merged = m_store->merge(favorites);
+    QStringList parts;
+    parts.append(tr("新增 %n 项", "", merged.added));
+    if (const int there = static_cast<int>(favorites.size()) - merged.added; there > 0)
+        parts.append(tr("%n 项本来就有", "", there));
+    if (merged.completed > 0)
+        parts.append(tr("其中 %n 项补上了名称或关键词", "", merged.completed));
+    if (read->skipped > 0)
+        parts.append(tr("%n 项用不了，跳过了", "", read->skipped));
+    if (keywordsTaken > 0)
+        parts.append(tr("%n 个关键词已经给了网页搜索，没有带上", "", keywordsTaken));
+    setMessage(tr("已导入：") + parts.join(tr("，")));
+}
+
+void FavoritesSettings::exportFile()
+{
+    if (!m_store || m_store->items().isEmpty()) {
+        setMessage(tr("还没有收藏可以导出"));
+        return;
+    }
+    const HWND owner = m_editor->m_window ? reinterpret_cast<HWND>(m_editor->m_window->winId()) : nullptr;
+    const QString path = shell::pickSaveFile(owner, tr("导出收藏夹"), tr("Win顺 收藏夹.json"), tr("收藏夹（JSON）"), u"json"_s);
+    if (path.isEmpty())
+        return;
+    const QByteArray json = writeFavoritesFile(m_store->items());
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly) || file.write(json) != json.size() || !file.commit()) {
+        setMessage(tr("写不了这个文件：%1").arg(QDir::toNativeSeparators(path)));
+        return;
+    }
+    setMessage(tr("已导出 %n 项到 %1", "", static_cast<int>(m_store->items().size())).arg(QDir::toNativeSeparators(path)));
+}
+
+} // namespace ws

@@ -1,12 +1,39 @@
 #include "ShortcutCapture.h"
 
+#include <QtLogging>
+
+#include <iterator>
 #include <latch>
+#include <optional>
 
 namespace ws {
 
 namespace {
 
 thread_local ShortcutCapture* t_capture = nullptr; // a low-level hook is called on the thread that set it
+
+constexpr USHORT kGenericDesktop = 0x01;
+constexpr USHORT kKeyboard = 0x06;
+
+// The process's Raw Input registration for keyboards (KeyListener's), taken
+// away: returned to put it back.
+std::optional<RAWINPUTDEVICE> setKeyboardRawInputAside()
+{
+    RAWINPUTDEVICE devices[8];
+    UINT count = std::size(devices);
+    const UINT got = ::GetRegisteredRawInputDevices(devices, &count, sizeof(RAWINPUTDEVICE));
+    if (got == static_cast<UINT>(-1))
+        return std::nullopt;
+    for (UINT i = 0; i < got; ++i) {
+        if (devices[i].usUsagePage != kGenericDesktop || devices[i].usUsage != kKeyboard)
+            continue;
+        const RAWINPUTDEVICE remove {kGenericDesktop, kKeyboard, RIDEV_REMOVE, nullptr};
+        if (!::RegisterRawInputDevices(&remove, 1, sizeof remove))
+            return std::nullopt;
+        return devices[i];
+    }
+    return std::nullopt;
+}
 
 // The key as the settings window's recorder knows it (see HotkeyRecorder.qml).
 int qtKey(UINT vk, Qt::KeyboardModifiers modifiers)
@@ -64,15 +91,20 @@ ShortcutCapture::ShortcutCapture(HWND window, std::function<void(const Key&)> on
         m_threadId = ::GetCurrentThreadId();
         // Every key press in the system waits for the hook's answer.
         ::SetThreadPriority(::GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+        const std::optional<RAWINPUTDEVICE> rawInput = setKeyboardRawInputAside(); // see the header
         const HHOOK hook = ::SetWindowsHookExW(WH_KEYBOARD_LL, &ShortcutCapture::hookProc, ::GetModuleHandleW(nullptr), 0);
         m_active = hook != nullptr;
-        ready.count_down();
         if (!hook)
-            return;
-        // The hook is called from inside GetMessage; there is nothing to dispatch.
-        while (::GetMessageW(&msg, nullptr, 0, 0) > 0) {
+            qWarning("ShortcutCapture: no keyboard hook (error %lu)", ::GetLastError());
+        ready.count_down();
+        if (hook) {
+            // The hook is called from inside GetMessage; there is nothing to dispatch.
+            while (::GetMessageW(&msg, nullptr, 0, 0) > 0) {
+            }
+            ::UnhookWindowsHookEx(hook);
         }
-        ::UnhookWindowsHookEx(hook);
+        if (rawInput && !::RegisterRawInputDevices(&*rawInput, 1, sizeof(RAWINPUTDEVICE)))
+            qWarning("ShortcutCapture: keyboard Raw Input not restored (error %lu)", ::GetLastError());
     });
     ready.wait();
 }
@@ -110,14 +142,13 @@ bool ShortcutCapture::handle(WPARAM message, const KBDLLHOOKSTRUCT& event)
             // its auto-repeat): it must see all of it, up to the release.
             if (::GetAsyncKeyState(static_cast<int>(vk)) & 0x8000)
                 return false;
-            m_taken.set(vk);
         }
-    } else {
-        if (!m_taken.test(vk))
-            return false; // likewise
-        m_taken.reset(vk);
+    } else if (!m_taken.test(vk)) {
+        return false; // likewise
     }
+    m_taken.set(vk, !press); // a press is not counted yet, a release still is (see Key::modifiers)
     const Qt::KeyboardModifiers held = modifiers();
+    m_taken.set(vk, press);
     m_onKey({qtKey(vk, held), held, press, autoRepeat});
     return true;
 }
@@ -127,7 +158,6 @@ bool ShortcutCapture::isDown(UINT vk) const
     return m_taken.test(vk) || (::GetAsyncKeyState(static_cast<int>(vk)) & 0x8000); // or held from before
 }
 
-// After the current key is counted, as Qt does it.
 Qt::KeyboardModifiers ShortcutCapture::modifiers() const
 {
     Qt::KeyboardModifiers held;

@@ -6,16 +6,21 @@
     ./scripts/build.ps1                      # Release build + tests
     ./scripts/build.ps1 -Config Debug
     ./scripts/build.ps1 -Deploy              # also produce dist/WinShun with all Qt DLLs
+    ./scripts/build.ps1 -DeployDir F:\wsstage\WinShun   # the same, into that folder (dist\WinShun untouched)
     ./scripts/build.ps1 -QtDir C:\Qt\6.12.0\msvc2022_64
 #>
 param(
     [ValidateSet('Debug', 'Release')] [string] $Config = 'Release',
     [string] $QtDir = $env:QTDIR,
     [switch] $Deploy,
+    # Where to deploy (implies -Deploy); default dist\WinShun. For a staged
+    # copy to compare with, or test from, while the deployed one is running.
+    [string] $DeployDir,
     [switch] $SkipTests
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+if ($DeployDir) { $Deploy = $true }
 
 # Qt: use -QtDir / %QTDIR%, otherwise the newest MSVC kit under C:\Qt. A
 # %QTDIR% without Qt in it (left over from a Qt since removed, in a program
@@ -57,13 +62,20 @@ try {
         if ($LASTEXITCODE) { throw 'tests failed' }
     }
     if ($Deploy) {
-        $dist = Join-Path $root 'dist\WinShun'
+        $dist = if ($DeployDir) { [IO.Path]::GetFullPath($DeployDir) } else { Join-Path $root 'dist\WinShun' }
         if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
         New-Item -ItemType Directory -Force $dist | Out-Null
         Copy-Item "$root\build\$preset\WinShun.exe" $dist
         Copy-Item "$root\build\$preset\fonts" $dist -Recurse # UI font (see main.cpp)
         # The button users pin to the taskbar (src/stub).
         Copy-Item "$root\build\$preset\WinShunSearch.exe" $dist
+        # The MCP server AI clients start (src/mcp); it relays to WinShun over a pipe.
+        Copy-Item "$root\build\$preset\WinShunMcp.exe" $dist
+        # Plugin processes are started by WinShunPluginHost.exe (src/plugin/runner), with the user's normal rights.
+        Copy-Item "$root\build\$preset\WinShunPluginHost.exe" $dist
+        # The plugins that come with Win顺 (plugins\, staged by the build with
+        # their SDK files and WinShunTools.exe): installed off by default.
+        Copy-Item "$root\build\$preset\plugins" "$dist\plugins" -Recurse
         # Documents are read by WinShunExtract.exe (src/extract), PDFs with
         # PDFium; their licenses go along.
         Copy-Item "$root\build\$preset\WinShunExtract.exe", "$root\build\$preset\pdfium.dll" $dist

@@ -24,6 +24,12 @@ Item {
     signal keyPressed(var event)
     signal keyReleased(var event)
 
+    // On whole device pixels, as the rows' text (ResultRow.qml): centred, at
+    // 150 % the field's text sits on a half pixel, and while the window slides
+    // in (Placement.contentShift) its glyphs come out a pixel taller on some
+    // frames than when it rests.
+    function onPixel(y) { return Math.round(y * Screen.devicePixelRatio) / Screen.devicePixelRatio }
+
     function focusAndSelect() {
         input.forceActiveFocus()
         input.selectAll()
@@ -107,7 +113,7 @@ Item {
         visible: !bar.inBox
         anchors.left: parent.left
         anchors.leftMargin: 20
-        anchors.verticalCenter: parent.verticalCenter
+        y: bar.onPixel((bar.height - height) / 2)
         glyph: bar.launcher.scope === Launcher.Content ? "" // Document
              : "" // Search
         size: 22
@@ -120,7 +126,7 @@ Item {
         anchors.leftMargin: 14
         anchors.right: tabs.left
         anchors.rightMargin: 12
-        anchors.verticalCenter: parent.verticalCenter
+        y: bar.onPixel((bar.height - height) / 2)
         focus: true
         clip: true
         color: Theme.text
@@ -154,6 +160,39 @@ Item {
             elide: Text.ElideRight
             visible: input.text.length === 0 && input.preeditText.length === 0
         }
+
+        Text { // a plugin command's hint, after its keyword, until the words are typed ("kill |进程名或 PID")
+            id: keywordHint
+
+            // Where the typed text ends: asked again whenever it changes
+            // (positionToRectangle is a call, not a property, so a binding
+            // would not follow the text). On displayTextChanged, not
+            // textChanged: TextInput emits textChanged before it lays the
+            // new text out, and asked then for a text that grew, the old
+            // layout has no such position and answers x = 0 (the hint came
+            // out over the keyword; pitfalls "TextInput 的 textChanged 早于排版").
+            property real textEnd: 0
+            function place() { textEnd = input.positionToRectangle(input.length).x }
+
+            // Placed by x, so not anchored on the right (an anchor there would
+            // set x itself, see pitfalls "只锚了右边又写了 x"): the width to the edge instead.
+            x: textEnd + 2
+            width: Math.max(0, parent.width - x)
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            verticalAlignment: Text.AlignVCenter
+            text: bar.launcher.pluginHint
+            color: Theme.faint
+            font: input.font
+            elide: Text.ElideRight
+            visible: text.length > 0 && input.preeditText.length === 0 && !bar.inBox
+
+            Connections {
+                target: input
+                function onDisplayTextChanged() { keywordHint.place() }
+                function onFontChanged() { keywordHint.place() }
+            }
+        }
     }
 
     ScopeTabs {
@@ -161,11 +200,22 @@ Item {
         anchors.right: parent.right
         anchors.rightMargin: 12
         anchors.leftMargin: 16
-        anchors.verticalCenter: parent.verticalCenter
+        y: bar.onPixel((bar.height - height) / 2)
         current: bar.launcher.scope
+        contentTab: bar.launcher.contentEnabled
         subOf: Launcher.Files
         subValue: Launcher.Folders
         subLabel: qsTr("文件夹")
-        onActivated: (scope) => bar.launcher.scope = scope
+        // 全部 › [icon] 结束进程 while a plugin's keyword has the list; the
+        // chip (or 全部 itself) empties the box, which leaves the mode.
+        pluginLabel: bar.launcher.pluginLabel
+        pluginIcon: bar.launcher.pluginIcon
+        onActivated: (scope) => {
+            if (scope === Launcher.All && bar.launcher.scope === Launcher.All && bar.launcher.pluginKeyword.length > 0)
+                bar.launcher.leaveKeyword()
+            else
+                bar.launcher.scope = scope
+        }
+        onPluginClicked: bar.launcher.leaveKeyword()
     }
 }

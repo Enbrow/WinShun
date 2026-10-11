@@ -166,15 +166,20 @@ struct ContentFilter {
 
     bool accepts(const FileIndex& index, const Entry& e) const noexcept
     {
-        constexpr std::uint8_t kNever = EntryFlag::Deleted | EntryFlag::Directory | EntryFlag::Offline;
-        if ((e.flags & kNever) || e.extLength == 0)
+        // Files on network shares neither: reading them is slow, and a server
+        // that went away would hold a search up for the seconds Windows waits.
+        constexpr std::uint8_t kNever = EntryFlag::Deleted | EntryFlag::Directory | EntryFlag::Offline | EntryFlag::Remote;
+        if (e.flags & kNever)
             return false;
         if (!includeLowPriority && (e.flags & EntryFlag::LowPriority))
+            return false; // before anything about the name: that is read from elsewhere
+        std::size_t extLength;
+        const std::string_view name = index.fileName(e, extLength); // not a folder: ruled out above
+        if (extLength == 0)
             return false;
-        const std::string_view name = index.name(e);
         if (name.starts_with("~$"))
             return false; // Office's lock file next to an open document
-        return extensions.matches(name, e.extLength);
+        return extensions.matches(name, extLength);
     }
 };
 
@@ -215,13 +220,15 @@ public:
     // ---- searching ------------------------------------------------------------
     struct Lookup {
         static constexpr std::uint32_t kMatch = 0x8000'0000u;
-        bool usable = false; // the phrase has grams to look up
-        bool decisive = false; // ... and having them means containing the phrase
+        bool usable = false; // the terms have grams to look up
+        bool decisive = false; // ... and having them means containing every term
         // The entries whose content is known, ascending; when usable, kMatch
-        // is set on those whose content has every gram of the phrase.
+        // is set on those whose content has every gram of every term.
         std::vector<std::uint32_t> known;
     };
-    Lookup lookup(QStringView phrase) const;
+    // For files that contain every one of `terms` (ContentScanner's), anywhere.
+    Lookup lookup(std::span<const QString> terms) const;
+    Lookup lookup(const QString& phrase) const { return lookup(std::span(&phrase, 1)); }
     bool knows(EntryId entry) const; // its content is known (as Lookup::known)
 
     // While a content search runs, the indexer waits: both would open files.

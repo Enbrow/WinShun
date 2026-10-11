@@ -6,14 +6,70 @@ target_link_libraries(tst_core PRIVATE wscore wsextract miniz Qt6::Test)
 qt_add_executable(tst_clipboard tst_clipboard.cpp)
 target_link_libraries(tst_clipboard PRIVATE wscore Qt6::Test)
 
+# The favorites: their file, the store, and the search's list with nothing typed.
+qt_add_executable(tst_favorites tst_favorites.cpp)
+target_link_libraries(tst_favorites PRIVATE wscore Qt6::Test)
+
 # Colour values as text: app code that needs nothing but QColor.
 qt_add_executable(tst_color tst_color.cpp ${PROJECT_SOURCE_DIR}/src/app/ColorText.cpp)
 target_include_directories(tst_color PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(tst_color PRIVATE Qt6::Gui Qt6::Test)
 
+# Sites' icons as read from what a site sends (PNG, ICO), damaged ones too.
+qt_add_executable(tst_siteicon tst_siteicon.cpp ${PROJECT_SOURCE_DIR}/src/app/SiteIconImage.cpp)
+target_include_directories(tst_siteicon PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_link_libraries(tst_siteicon PRIVATE Qt6::Gui Qt6::Test)
+
+# What a drop target gets when results are dragged out of Win顺.
+qt_add_executable(tst_dragout tst_dragout.cpp ${PROJECT_SOURCE_DIR}/src/app/platform/DragOut.cpp)
+target_include_directories(tst_dragout PRIVATE ${PROJECT_SOURCE_DIR}/src/app/platform)
+target_link_libraries(tst_dragout PRIVATE winshun_options Qt6::Core Qt6::Test)
+
+# The MCP server (src/mcp): the protocol, the tools on a hand-made index, the
+# pipe, and the relay WinShunMcp.exe, whose path it is told; and the
+# plugins' commands as tools (plugin::AiBridge), with plugin_fake.exe through
+# the runner as in tst_plugin.
+qt_add_executable(tst_mcp tst_mcp.cpp)
+target_link_libraries(tst_mcp PRIVATE wsmcp wsplugin Qt6::Test)
+target_compile_definitions(tst_mcp PRIVATE
+    WINSHUN_MCP_RELAY="$<TARGET_FILE:WinShunMcp>"
+    WINSHUN_PLUGIN_HOST="$<TARGET_FILE:WinShunPluginHost>"
+    WINSHUN_PLUGIN_FAKE="$<TARGET_FILE:plugin_fake>")
+add_dependencies(tst_mcp WinShunMcp WinShunPluginHost plugin_fake)
+
+# The pieces of the tools plugin that compute (src/tools-plugin), built in
+# again: the calculator and the conversions have edges (division by zero,
+# overflow, bad input) worth pinning down.
+qt_add_executable(tst_tools tst_tools.cpp
+    ${PROJECT_SOURCE_DIR}/src/tools-plugin/Calc.cpp ${PROJECT_SOURCE_DIR}/src/tools-plugin/Units.cpp
+    ${PROJECT_SOURCE_DIR}/src/tools-plugin/Color.cpp ${PROJECT_SOURCE_DIR}/src/tools-plugin/Codec.cpp)
+target_include_directories(tst_tools PRIVATE ${PROJECT_SOURCE_DIR}/src/tools-plugin)
+target_link_libraries(tst_tools PRIVATE winshun_options Qt6::Test bcrypt)
+
+# The plugin system (src/plugin): manifests, items, zero-code, the catalog,
+# and plugin processes started through the runner WinShunPluginHost.exe,
+# played by plugin_fake.exe (no Qt, as a plugin would be); both paths are
+# told to the test.
+add_executable(plugin_fake plugin_fake.cpp)
+target_link_libraries(plugin_fake PRIVATE wsplugin_lite)
+set_target_properties(plugin_fake PROPERTIES AUTOMOC OFF MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+qt_add_executable(tst_plugin tst_plugin.cpp)
+target_link_libraries(tst_plugin PRIVATE wsplugin miniz Qt6::Test) # miniz: the test writes zips to install
+target_compile_definitions(tst_plugin PRIVATE
+    WINSHUN_PLUGIN_HOST="$<TARGET_FILE:WinShunPluginHost>"
+    WINSHUN_PLUGIN_FAKE="$<TARGET_FILE:plugin_fake>"
+    WINSHUN_TEST_PLUGINS="${CMAKE_CURRENT_SOURCE_DIR}/plugins")
+add_dependencies(tst_plugin WinShunPluginHost plugin_fake)
+
 add_test(NAME tst_core COMMAND tst_core)
 add_test(NAME tst_clipboard COMMAND tst_clipboard)
+add_test(NAME tst_favorites COMMAND tst_favorites)
 add_test(NAME tst_color COMMAND tst_color)
+add_test(NAME tst_dragout COMMAND tst_dragout)
+add_test(NAME tst_siteicon COMMAND tst_siteicon)
+add_test(NAME tst_tools COMMAND tst_tools)
+add_test(NAME tst_mcp COMMAND tst_mcp)
+add_test(NAME tst_plugin COMMAND tst_plugin)
 # Let ctest find the Qt DLLs without a deploy step.
-set_tests_properties(tst_core tst_clipboard tst_color PROPERTIES
+set_tests_properties(tst_core tst_clipboard tst_favorites tst_color tst_dragout tst_siteicon tst_tools tst_mcp tst_plugin PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")

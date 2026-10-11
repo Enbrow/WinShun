@@ -21,6 +21,7 @@ namespace ws {
 //   !node_modules\  nothing inside a folder whose name contains "node_modules"
 //   *.pdf  a?c      wildcard match against the whole name
 //   proj\readme     "readme" in the name, under a folder containing "proj"
+//   C:\My Files\a   a path from a drive (or share) is one term, spaces and all
 //   ext:pdf,docx    only files with these extensions
 struct QueryTerm {
     std::string text; // folded UTF-8; the last segment for path terms
@@ -38,15 +39,53 @@ struct ParsedQuery {
     bool isEmpty() const noexcept { return terms.empty() && extensions.empty(); }
 };
 
+// What was typed, split at whitespace; "within quotes" is one word, spaces
+// and all (the quotes go).
+QStringList queryWords(const QString& text);
+
+// Characters that name searches have no use for, but lines of code are full of.
+bool looksLikeCode(QStringView text);
+
+// What a content search looks for, every one somewhere in the file: the
+// words ("报告 2025"), or a line of code as it is, quotes, spaces and all
+// (printf("%d", *p)).
+QStringList contentTerms(const QString& text);
+
 ParsedQuery parseQuery(const QString& text);
 
 // Decides whether a name matches and how well. Higher scores rank first;
 // -1 means no match. Thread-safe (immutable after construction).
+//
+// Several terms ("合同 2025", "src app"): each is in the name or, ranked
+// lower, in the name of a folder the item is in; at least one is in the name.
 class NameMatcher {
 public:
     explicit NameMatcher(const ParsedQuery& query);
 
+    // Which terms the folders of an index hold, kept while one search looks
+    // at many entries (siblings share them): one per thread and query.
+    class Folders {
+    private:
+        friend class NameMatcher;
+        struct Slot {
+            EntryId folder = kNoEntry;
+            std::uint64_t terms = 0; // in it or any folder it is in
+        };
+        static constexpr std::size_t kSlots = 1024;
+        std::vector<Slot> m_slots; // made when first needed
+    };
+
+    // Whether an entry with this name (stored in the index, so padded) may
+    // match, whatever its folders and kind: false rules out every entry that
+    // has it, so a search can look at each distinct name once and then only
+    // at the entries whose name may match. `fileExtLength` as for a file;
+    // `han`: whether it has Chinese characters.
+    bool nameMayMatch(std::string_view name, std::size_t fileExtLength, bool han) const;
+    // Whether nameMayMatch() ever says no (a query of folders alone does not).
+    bool filtersNames() const noexcept;
+
     // Caller holds index.readLock().
+    int match(const FileIndex& index, const Entry& entry, Folders& folders) const;
     int match(const FileIndex& index, const Entry& entry) const;
     // Matches a full path that is not (necessarily) in the index, e.g. history.
     int matchPath(const QString& fullPath, bool isDir) const;
@@ -65,10 +104,23 @@ private:
         std::vector<pinyin::Matcher> folders; // the same for each ancestor segment
     };
 
-    template <bool Padded, typename AncestorsMatch>
-    int score(std::string_view name, bool isDir, bool han, std::size_t extLength, AncestorsMatch&& ancestorsMatch) const;
+    // `han()`: whether the name has Chinese characters (asked only when it
+    // matters, as working it out reads the name).
+    template <bool Padded, typename Han, typename AncestorsMatch, typename FolderTerms>
+    int score(std::string_view name, bool isDir, Han&& han, std::size_t extLength, AncestorsMatch&& ancestorsMatch,
+        FolderTerms&& folderTerms) const;
+    // Which of m_folderTerms a folder's own name has.
+    std::uint64_t termsInFolder(std::string_view name, bool han, bool padded) const;
+    // ... it or any folder it is in.
+    std::uint64_t termsInFolders(const FileIndex& index, EntryId folder, Folders* folders) const;
 
     std::vector<Positive> m_positive;
+    // The longest term every matching name has (as it is, or as pinyin): a
+    // quick test before the rest. -1: none such. `m_quickDecides`: nothing
+    // else about a name can rule it out.
+    int m_quick = -1;
+    bool m_quickDecides = false;
+    std::uint64_t m_folderTerms = 0; // m_positive's that may be in a folder's name instead, one bit each
     std::vector<QueryTerm> m_negative;
     std::vector<std::string> m_extensions;
 };

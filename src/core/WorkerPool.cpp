@@ -4,9 +4,12 @@
 
 namespace ws {
 
+// A search goes over every name, the more threads the sooner, up to 16:
+// on 3.3 million items a one-letter query took 17 ms with 8 threads and 11
+// with 16 (24: 8); the threads sleep between searches.
 int WorkerPool::defaultThreadCount()
 {
-    return std::clamp(static_cast<int>(std::thread::hardware_concurrency()), 1, 8);
+    return std::clamp(static_cast<int>(std::thread::hardware_concurrency()), 1, 16);
 }
 
 WorkerPool::WorkerPool(int threads)

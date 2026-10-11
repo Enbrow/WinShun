@@ -84,26 +84,46 @@ void CALLBACK DialogJump::onLocation(HWINEVENTHOOK, DWORD event, HWND hwnd, LONG
 void DialogJump::follow(HWND foreground)
 {
     m_recheck.stop();
+    std::erase_if(m_wentToManager, [](HWND dialog) { return !::IsWindow(dialog); });
     if (foreground && std::ranges::find(m_companions, foreground) != m_companions.end()) {
         // The bar, the clipboard: the dialog is still the one. Not back from
         // a file manager then, whatever is picked there: no going by itself after that.
-        m_managerInFront = false;
+        std::erase(m_wentToManager, m_lastDialog); // m_dialog: null since the file manager came up
         return;
     }
-    const bool manager = filemanager::kindOf(foreground).has_value();
-    const bool fromManager = std::exchange(m_managerInFront, manager);
-    // Left for a file manager: what it shows now tells, on the way back,
-    // whether the user went somewhere there.
-    if (manager && m_dialog && m_autoJump)
-        m_worker.post([this, dialog = m_dialog] { noteManager(dialog); });
+    // Left for a file manager, straight or by way of the taskbar, the task
+    // switcher or the Start menu (each in front for a moment): what it shows
+    // when it first comes up tells, on the way back, whether the user went
+    // somewhere there.
+    if (m_autoJump && m_lastDialog && ::IsWindow(m_lastDialog) && filemanager::kindOf(foreground).has_value()
+        && std::ranges::find(m_wentToManager, m_lastDialog) == m_wentToManager.end()) {
+        m_wentToManager.push_back(m_lastDialog);
+        m_worker.post([this, dialog = m_lastDialog] { noteManager(dialog); });
+    }
+    const bool fromManager = std::erase(m_wentToManager, foreground) > 0;
     const bool fileDialog = filedialog::kind(foreground) != filedialog::Kind::None;
     setDialog(fileDialog ? foreground : nullptr, fromManager);
+    if (fileDialog)
+        return;
     // A dialog may come to the front before all of its controls are there.
-    if (!fileDialog && hasClass(foreground, L"#32770")) {
+    if (hasClass(foreground, L"#32770")) {
         m_pending = foreground;
         m_pendingFromManager = fromManager;
         m_retries = 5;
         m_recheck.start();
+    } else if (filedialog::mayBeKingsoft(foreground) && !filedialog::probed(foreground)) {
+        // WPS Office's own, asked through UI Automation: on the worker, as
+        // that waits on the program.
+        m_pending = foreground;
+        m_pendingFromManager = fromManager;
+        m_worker.post([this, hwnd = foreground] {
+            if (filedialog::probe(hwnd) == filedialog::Kind::None)
+                return;
+            QMetaObject::invokeMethod(&m_recheck, [this, hwnd] {
+                if (hwnd == m_pending && ::GetForegroundWindow() == hwnd)
+                    setDialog(hwnd, m_pendingFromManager);
+            }, Qt::QueuedConnection);
+        });
     }
 }
 
@@ -118,6 +138,7 @@ void DialogJump::setDialog(HWND dialog, bool fromManager)
         }
         m_dialog = dialog;
         if (dialog) {
+            m_lastDialog = dialog;
             DWORD process = 0;
             const DWORD thread = ::GetWindowThreadProcessId(dialog, &process);
             // Shown, hidden, moved: a dialog comes to the front before it shows.

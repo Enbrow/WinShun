@@ -10,16 +10,30 @@ import WinShun
 // opens to 文件 › 文件夹. `subOf` is the tab's index, `subValue` what
 // activated() gives for the smaller one (Launcher.Folders); clicking it
 // again goes back to its tab.
+//
+// The first tab (全部) opens the same way to a plugin's command while its
+// keyword has the list: 全部 › [icon] 结束进程, with `pluginLabel` and
+// `pluginIcon` (an image URL); the chip is current as long as it shows,
+// and clicking it is pluginClicked (the launcher leaves the keyword).
 Rectangle {
     id: tabs
 
     property int current: 0
-    property var labels: [qsTr("全部"), qsTr("文件"), qsTr("内容")]
+    property bool contentTab: true // the launcher's: 内容 is there (Launcher.contentEnabled)
+    property var labels: contentTab ? [qsTr("全部"), qsTr("文件"), qsTr("内容")] : [qsTr("全部"), qsTr("文件")]
     property int subOf: -1
     property int subValue: -1
     property string subLabel
+    property string pluginLabel
+    property string pluginIcon
 
     signal activated(int scope)
+    signal pluginClicked()
+
+    // Labels on whole device pixels (see SearchBar.onPixel): centred, at 150 %
+    // they sat on half ones, and came out a pixel taller on some frames while
+    // the launcher slid in.
+    function onPixel(v) { return Math.round(v * Screen.devicePixelRatio) / Screen.devicePixelRatio }
 
     implicitWidth: row.implicitWidth + 6
     implicitHeight: 38
@@ -28,7 +42,8 @@ Rectangle {
 
     Row {
         id: row
-        anchors.centerIn: parent
+        x: tabs.onPixel((tabs.width - width) / 2)
+        y: tabs.onPixel((tabs.height - height) / 2)
         spacing: 2
 
         Repeater {
@@ -43,10 +58,13 @@ Rectangle {
                 readonly property bool subCurrent: hasSub && tabs.current === tabs.subValue
                 readonly property bool active: index === tabs.current || subCurrent
                 readonly property bool open: hasSub && active
+                // The plugin's chip: in the first tab, while it is current.
+                readonly property bool hasPlugin: index === 0 && tabs.pluginLabel.length > 0
+                readonly property bool pluginOpen: hasPlugin && tabs.current === 0
                 // Whole pixels: a half one would leave the labels to its right blurred.
                 readonly property int labelWidth: Math.ceil(label.implicitWidth) + 24
 
-                width: labelWidth + (open ? sub.fullWidth : 0)
+                width: labelWidth + (open ? sub.fullWidth : 0) + (pluginOpen ? pluginSub.fullWidth : 0)
                 height: 32
                 radius: 6
                 clip: true
@@ -58,10 +76,10 @@ Rectangle {
                 Text {
                     id: label
                     x: 12
-                    anchors.verticalCenter: parent.verticalCenter
+                    y: tabs.onPixel((tab.height - height) / 2)
                     text: tab.modelData
-                    // The smaller tab current: this one is the way back to the whole.
-                    color: tab.active && !tab.subCurrent ? Theme.text : Theme.subtext
+                    // The smaller tab (or the plugin's chip) current: this one is the way back to the whole.
+                    color: tab.active && !tab.subCurrent && !tab.pluginOpen ? Theme.text : Theme.subtext
                     font.pixelSize: Theme.fontBody
                     font.weight: tab.active ? Font.DemiBold : Font.Normal
                 }
@@ -109,7 +127,8 @@ Rectangle {
 
                         Text {
                             id: subText
-                            anchors.centerIn: parent
+                            x: tabs.onPixel((subChip.width - width) / 2)
+                            y: tabs.onPixel((subChip.height - height) / 2)
                             text: tabs.subLabel
                             color: tab.subCurrent ? Theme.accentText : subArea.containsMouse ? Theme.text : Theme.subtext
                             font.pixelSize: Theme.fontCaption
@@ -124,6 +143,83 @@ Rectangle {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: tabs.activated(tab.subCurrent ? tab.index : tabs.subValue)
+                        }
+                    }
+                }
+
+                // 全部 › [icon] 结束进程: the plugin command whose keyword has the list.
+                Item {
+                    id: pluginSub
+
+                    readonly property int fullWidth: pluginChevron.width + pluginChip.width + 6
+
+                    visible: tab.hasPlugin
+                    x: tab.labelWidth - 8
+                    width: fullWidth
+                    height: parent.height
+                    opacity: tab.pluginOpen ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: 150 } }
+
+                    Glyph {
+                        id: pluginChevron
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 14
+                        glyph: "" // ChevronRight
+                        size: 10
+                        color: Theme.faint
+                    }
+
+                    Rectangle { // current as long as it shows: the accent, as the smaller tab when current
+                        id: pluginChip
+                        anchors.left: pluginChevron.right
+                        anchors.leftMargin: 2
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 8 + pluginIconSlot.width + 6 + Math.ceil(pluginText.implicitWidth) + 8
+                        height: 24
+                        radius: 4
+                        color: Theme.accent
+
+                        Item {
+                            id: pluginIconSlot
+                            x: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 16
+                            height: 16
+
+                            Image { // as a row's icon (ResultRow.qml): its own device pixels, unsmoothed
+                                readonly property real dpr: Screen.devicePixelRatio
+                                readonly property int pixels: Math.round(pluginIconSlot.width * dpr)
+
+                                x: 1 / 64
+                                y: 1 / 64
+                                width: pixels / dpr
+                                height: pixels / dpr
+                                source: tabs.pluginIcon
+                                sourceSize.width: pixels / dpr
+                                sourceSize.height: pixels / dpr
+                                smooth: false
+                                asynchronous: true
+                                fillMode: Image.PreserveAspectFit
+                            }
+                        }
+
+                        Text {
+                            id: pluginText
+                            x: 8 + pluginIconSlot.width + 6
+                            y: tabs.onPixel((pluginChip.height - height) / 2)
+                            text: tabs.pluginLabel
+                            color: Theme.accentText
+                            font.pixelSize: Theme.fontCaption
+                            font.weight: Font.DemiBold
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            anchors.margins: -4
+                            enabled: tab.pluginOpen
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: tabs.pluginClicked()
                         }
                     }
                 }

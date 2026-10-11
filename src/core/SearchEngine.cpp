@@ -7,9 +7,12 @@
 #include "Documents.h"
 #include "IndexService.h"
 #include "NameSearch.h"
+#include "PathText.h"
 #include "Query.h"
 #include "SystemCatalog.h"
+#include "ShareLister.h"
 #include "TextUtil.h"
+#include "Unc.h"
 #include "Win32Util.h"
 #include "Wtf8.h"
 
@@ -61,10 +64,14 @@ public:
     }
 
     // For each of `paths`, in its place: what is there, or nothing (not there,
-    // or no answer in time and none from before).
-    std::vector<std::optional<Item>> look(const QStringList& paths)
+    // or no answer in time and none from before). `known`, if given: for each,
+    // whether the disk said (so nothing means not there): not when its server
+    // did not answer, or it would not say (no access, no disk in the drive).
+    std::vector<std::optional<Item>> look(const QStringList& paths, std::vector<bool>* known = nullptr)
     {
         std::vector<std::optional<Item>> found(static_cast<std::size_t>(paths.size()));
+        if (known)
+            known->assign(found.size(), false);
         if (paths.isEmpty())
             return found;
         State& s = *m_state;
@@ -93,8 +100,11 @@ public:
         };
         s.answered.wait_until(lock, now + kWait, [&] { return std::all_of(awaited.cbegin(), awaited.cend(), answered); });
         for (qsizetype i = 0; i < paths.size(); ++i) {
-            if (const auto it = s.answers.find(paths[i]); it != s.answers.end())
+            if (const auto it = s.answers.find(paths[i]); it != s.answers.end()) {
                 found[static_cast<std::size_t>(i)] = it->second.item;
+                if (known)
+                    (*known)[static_cast<std::size_t>(i)] = it->second.item || it->second.gone;
+            }
         }
         return found;
     }
@@ -105,7 +115,8 @@ private:
 
     struct Answer {
         quint64 look = 0; // State::looks when it was begun
-        std::optional<Item> item; // nothing: not there
+        std::optional<Item> item; // nothing: not there, or could not be told
+        bool gone = false; // nothing, and the disk said so (no such file or path)
     };
     struct Drive {
         std::deque<QString> queue;
@@ -146,6 +157,16 @@ private:
         return {};
     }
 
+    // With "\\?\" when longer than Windows takes otherwise.
+    static std::wstring longPath(const QString& path)
+    {
+        if (path.size() < MAX_PATH - 12 || path.startsWith(u"\\\\?\\"))
+            return path.toStdWString();
+        if (path.startsWith(u"\\\\"))
+            return L"\\\\?\\UNC\\" + path.mid(2).toStdWString();
+        return L"\\\\?\\" + path.toStdWString();
+    }
+
     static void run(std::shared_ptr<State> state, QString key)
     {
         State& s = *state;
@@ -165,18 +186,24 @@ private:
             lock.unlock();
 
             std::optional<Item> item;
-            const QFileInfo info(path);
-            if (info.exists()) {
-                const qint64 modified = info.lastModified(QTimeZone::UTC).toSecsSinceEpoch();
-                item = Item {info.isDir(),
-                    static_cast<std::uint32_t>(std::clamp<qint64>(modified, 0, std::numeric_limits<std::uint32_t>::max()))};
+            bool gone = false;
+            WIN32_FILE_ATTRIBUTE_DATA data {};
+            if (::GetFileAttributesExW(longPath(path).c_str(), GetFileExInfoStandard, &data)) {
+                const auto written = (static_cast<std::uint64_t>(data.ftLastWriteTime.dwHighDateTime) << 32) | data.ftLastWriteTime.dwLowDateTime;
+                const auto seconds = static_cast<qint64>(written / 10'000'000) - 11'644'473'600; // since 1601 → since 1970
+                item = Item {bool(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY),
+                    static_cast<std::uint32_t>(std::clamp<qint64>(seconds, 0, std::numeric_limits<std::uint32_t>::max()))};
+            } else {
+                // Not "the server is not there" (ERROR_BAD_NETPATH and the like), "access denied", "no disk".
+                const DWORD error = ::GetLastError();
+                gone = error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
             }
             const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - began);
 
             lock.lock();
             drive.busySince.reset();
             drive.busyPath.clear();
-            s.answers[path] = {look, item};
+            s.answers[path] = {look, item, gone};
             s.answered.notify_all();
             // Once while it stays slow: a share whose server is gone takes as long every time.
             if (took > 2s && drive.lastTook <= 2s) {
@@ -197,6 +224,11 @@ constexpr int kRecentPromoted = 3;
 // Places in 全部: the best few. Windows lists over a thousand, and words like
 // 设置 or 显示 are in hundreds of their names.
 constexpr std::size_t kPlacesShown = 5;
+constexpr int kTypedKeywordScore = 1000; // a web keyword's row: above every app, and every plugin row
+// Where a path typed from some folder along the way leads ("src/app/"): the
+// places looked at, and the best few put first.
+constexpr std::size_t kPathsSearched = 200;
+constexpr std::size_t kPathsLed = 3;
 constexpr std::size_t kFirstContentBatch = 8; // the most rows the launcher shows (maxRows in Main.qml)
 
 std::shared_ptr<const AppList> appsOf(const AppCatalog* catalog)
@@ -264,6 +296,7 @@ SearchResult fromWeb(const WebShortcut& web, const QString& words)
     r.target = words.isEmpty() ? web.homeUrl() : web.searchUrl(words);
     r.keyword = web.keyword;
     r.words = words;
+    r.icon = web.iconRef(); // its site's icon (or its user's), whichever page it opens
     return r;
 }
 
@@ -414,13 +447,168 @@ void arrange(SearchResults& results, const SearchEngine::Request& request, const
     const qsizetype promoted = rankBy == RankBy::Match ? promoteHistory(results, request, matcher, onDisk) : 0;
     auto rest = results.begin() + promoted; // after promoteHistory: it puts `results` together anew
     if (rankBy == RankBy::Match) {
+        const auto exactBegin = rest;
         rest = std::stable_partition(rest, results.end(),
             [&](const SearchResult& r) { return matcher.isExactName(wtf8::fromUtf16(wtf8::view(r.name)), r.isDir); });
+        for (auto it = exactBegin; it != rest; ++it)
+            it->exact = true; // a plugin's rows keep below them (plugin::Merge)
     } else {
         markRecent(results, request.history);
     }
     const bool foldersFirst = request.kindOrder == KindOrder::FoldersFirst;
     std::stable_partition(rest, results.end(), [&](const SearchResult& r) { return r.isDir == foldersFirst; });
+    if (results.size() > request.limit)
+        results.resize(request.limit);
+}
+
+constexpr qsizetype kFavoritesPromoted = 5; // of those that match, the first put first
+
+void markFavorite(SearchResult& r, const Favorite& f)
+{
+    r.favorite = true;
+    r.favoriteKeyword = f.keyword;
+}
+
+// Favorites' rows as things are now, in their order: their app or place, or
+// what is at their path (asked of the disk as recent items are). One known
+// to be gone is there all the same, `missing`; one that cannot be told yet
+// (the apps or places not read yet) is left out. On a share that cannot be
+// reached now: `offline`, the disk not asked.
+SearchResults favoriteRows(const QList<const Favorite*>& favorites, const AppList& apps, const PlaceList& places,
+    RecentOnDisk& onDisk, const IndexService* index)
+{
+    std::vector<std::optional<SearchResult>> rows(static_cast<std::size_t>(favorites.size()));
+    QStringList paths;
+    std::vector<std::size_t> asked;
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        const Favorite& f = *favorites[static_cast<qsizetype>(i)];
+        SearchResult r;
+        if (f.kind == Favorite::Kind::App) {
+            if (const AppInfo* app = findApp(apps, f.path))
+                r = fromApp(*app, false);
+            else if (apps.empty())
+                continue;
+            else
+                r = {.path = f.path, .missing = true, .app = AppKind::Desktop};
+        } else if (f.kind == Favorite::Kind::Place) {
+            if (const PlaceInfo* place = findPlace(places, f.path))
+                r = fromPlace(*place, false);
+            else if (places.empty())
+                continue;
+            else
+                r = {.path = f.path, .missing = true, .app = AppKind::Tool};
+        } else {
+            r.path = f.path;
+            r.isDir = f.kind == Favorite::Kind::Folder;
+            if (index && r.path.startsWith(u"\\\\") && index->shares().offline(r.path.toStdWString())) {
+                r.offline = true;
+            } else {
+                paths.push_back(f.path);
+                asked.push_back(i);
+            }
+        }
+        r.name = f.name;
+        markFavorite(r, f);
+        rows[i] = std::move(r);
+    }
+    std::vector<bool> known;
+    const auto found = onDisk.look(paths, &known);
+    for (std::size_t k = 0; k < asked.size(); ++k) {
+        SearchResult& r = *rows[asked[k]];
+        if (found[k]) {
+            r.isDir = found[k]->isDir;
+            r.modified = found[k]->modified;
+        } else if (known[k]) {
+            r.missing = true;
+        }
+    }
+    SearchResults out;
+    for (std::optional<SearchResult>& r : rows) {
+        if (r)
+            out.push_back(std::move(*r));
+    }
+    return out;
+}
+
+// Favorites among the matches: marked; one whose keyword is all that was
+// typed on top (below a web shortcut's typed keyword); with `promote`, the
+// first few that match (in their order) put first, those the index does not
+// hold (a folder left out of it) looked for on disk. Adds to `total` what it
+// adds.
+void promoteFavorites(SearchResults& results, qint64& total, const SearchEngine::Request& request,
+    const NameMatcher& matcher, bool promote, const AppList& apps, const PlaceList& places, RecentOnDisk& onDisk,
+    const IndexService* index)
+{
+    const FavoriteList& favorites = request.favorites;
+    if (favorites.isEmpty())
+        return;
+    const auto nameMatches = [&](const QString& name) { return matcher.matchName(wtf8::fromUtf16(wtf8::view(name))) >= 0; };
+    for (SearchResult& r : results) {
+        const qsizetype i = r.isWeb() || r.isPlugin() ? -1 : indexOfFavorite(favorites, r.path);
+        if (i < 0)
+            continue;
+        markFavorite(r, favorites[i]);
+        if (nameMatches(favorites[i].name))
+            r.name = favorites[i].name; // its user's name for it, when that is what was typed
+    }
+
+    QList<const Favorite*> wanted;
+    const qsizetype keyword = typedFavoriteKeyword(favorites, request.text);
+    if (keyword >= 0 && scopeShows(request.scope, favorites[keyword].kind))
+        wanted.push_back(&favorites[keyword]);
+    const bool keyed = !wanted.isEmpty();
+    for (qsizetype i = 0; promote && i < favorites.size() && wanted.size() < kFavoritesPromoted + (keyed ? 1 : 0); ++i) {
+        const Favorite& f = favorites[i];
+        if (i == keyword || !scopeShows(request.scope, f.kind))
+            continue;
+        const bool found = std::any_of(results.cbegin(), results.cend(),
+            [&](const SearchResult& r) { return r.favorite && r.path.compare(f.path, Qt::CaseInsensitive) == 0; });
+        if (found || nameMatches(f.name)
+            || (f.isFileOrFolder() && matcher.matchPath(f.path, f.kind == Favorite::Kind::Folder) >= 0)) {
+            wanted.push_back(&f);
+        }
+    }
+    if (wanted.isEmpty())
+        return;
+
+    // Those found taken out as they are, the others asked of the disk.
+    SearchResults rows;
+    QList<const Favorite*> unfound;
+    std::vector<qsizetype> unfoundAt;
+    for (const Favorite* f : std::as_const(wanted)) {
+        const auto it = std::find_if(results.begin(), results.end(),
+            [&](const SearchResult& r) { return r.favorite && r.path.compare(f->path, Qt::CaseInsensitive) == 0; });
+        if (it != results.end()) {
+            rows.push_back(std::move(*it));
+            results.erase(it);
+            --total;
+        } else {
+            unfound.push_back(f);
+            unfoundAt.push_back(rows.size());
+            rows.push_back({});
+        }
+    }
+    const SearchResults looked = favoriteRows(unfound, apps, places, onDisk, index);
+    SearchResults put;
+    for (qsizetype i = 0, k = 0; i < rows.size(); ++i) {
+        if (k < std::ssize(unfoundAt) && unfoundAt[static_cast<std::size_t>(k)] == i) {
+            const QString& path = unfound[k++]->path;
+            const auto it = std::find_if(looked.cbegin(), looked.cend(), [&](const SearchResult& r) { return r.path == path; });
+            if (it != looked.cend())
+                put.push_back(*it);
+            continue;
+        }
+        put.push_back(std::move(rows[i]));
+    }
+    if (keyed && !put.isEmpty() && put.first().path.compare(favorites[keyword].path, Qt::CaseInsensitive) == 0) {
+        put.first().score = kTypedKeywordScore; // as a web keyword's row: nothing a plugin pushes goes above it
+        put.first().exact = true;
+    }
+    total += put.size();
+    // Below a web shortcut's keyword typed (the same word cannot be both; one typed with words can).
+    const qsizetype at = !results.isEmpty() && results.first().isWeb() && results.first().score == kTypedKeywordScore ? 1 : 0;
+    for (qsizetype i = 0; i < put.size(); ++i)
+        results.insert(at + i, std::move(put[i]));
     if (results.size() > request.limit)
         results.resize(request.limit);
 }
@@ -507,13 +695,35 @@ void SearchEngine::runNameSearch(const Job& job)
     Clock::duration names {};
 
     const bool foldersOnly = request.scope == Scope::Folders;
-    if (query.isEmpty()) {
+    if (query.isEmpty() && request.startList == StartList::Modified) {
+        // The files written last (in 文件夹, the folders they are in), newest first.
+        // A day ahead at most: later is a clock gone wrong, not new work.
+        const auto now = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
+        const NewestOptions options {.limit = kRecentOnEmptyQuery,
+            .folders = foldersOnly,
+            .notAfter = static_cast<FileTime>(std::clamp<std::int64_t>(now + 86'400, 0, 0xFFFF'FFFF))};
+        const auto index = m_index->index();
+        const auto lock = index->readLock();
+        lockWait = Clock::now() - began;
+        const NewestOutput out = newestFiles(*index, options, m_pool, [&] { return isStale(job.id); });
+        if (out.cancelled || isStale(job.id))
+            return;
+        for (const NameHit& hit : out.hits) {
+            SearchResult r = fromIndex(*index, hit.id);
+            r.modified = hit.modified;
+            results.push_back(std::move(r));
+        }
+        markRecent(results, request.history);
+        total = results.size();
+    } else if (query.isEmpty()) {
         qsizetype next = 0;
         while (results.size() < kRecentOnEmptyQuery && next < request.history.size() && !isStale(job.id)) {
             std::vector<RecentItem> round;
             QStringList paths;
             while (next < request.history.size() && results.size() + std::ssize(round) < kRecentOnEmptyQuery) {
                 const QString& path = request.history[next++];
+                if (indexOfFavorite(request.favorites, path) >= 0)
+                    continue; // listed above them
                 if (isAppLaunchPath(path)) {
                     const AppInfo* app = request.scope == Scope::All ? findApp(*apps, path) : nullptr;
                     if (app)
@@ -546,6 +756,10 @@ void SearchEngine::runNameSearch(const Job& job)
         const NameMatcher matcher(query);
         const auto index = m_index->index();
         const RankBy rankBy = request.scope == Scope::All ? RankBy::Match : request.rankBy;
+        // A path typed or pasted ("C:\Users\me\Tencent Files\x"): what that
+        // folder holds and is so named, from the disk as Explorer lists it,
+        // then what lies deeper in it and is so named, from the index.
+        const pathtext::TypedPath typedPath = pathtext::splitTyped(request.text);
         {
             const auto lock = index->readLock();
             lockWait = Clock::now() - began;
@@ -560,7 +774,15 @@ void SearchEngine::runNameSearch(const Job& job)
                 return;
             total = static_cast<qint64>(out.totalMatches);
             results.reserve(static_cast<qsizetype>(out.hits.size()));
+            // The folders of a typed path match names anywhere along the way:
+            // only what really lies under the folder typed.
+            const EntryId folder = typedPath.folder.isEmpty() ? kNoEntry : index->findPath(typedPath.folder.toStdWString());
+            UnderFolder under(*index, folder);
             for (const NameHit& hit : out.hits) {
+                if (folder != kNoEntry && !under(hit.id)) {
+                    --total;
+                    continue;
+                }
                 SearchResult r = fromIndex(*index, hit.id);
                 r.modified = hit.modified;
                 results.push_back(std::move(r));
@@ -568,18 +790,48 @@ void SearchEngine::runNameSearch(const Job& job)
         }
         arrange(results, request, matcher, rankBy, *m_onDisk);
 
+        // A network folder is listed only when its server answers: one that
+        // is not there would hold the search up for the half minute Windows
+        // waits. Known to be away (a share searched), or not answering now.
+        const bool listable = !unc::isUnc(typedPath.folder.toStdWString())
+            || (!m_index->shares().offline(typedPath.folder.toStdWString())
+                && share::reachable(unc::host(typedPath.folder.toStdWString())));
+        if (!typedPath.folder.isEmpty() && listable) {
+            // The ones named just so first; with nothing more typed than the
+            // folder, the folder itself (listTyped puts it first).
+            SearchResults rows = pathtext::listTyped(typedPath, foldersOnly, static_cast<int>(request.limit));
+            std::stable_partition(rows.begin(), rows.end(),
+                [&](const SearchResult& r) { return matcher.isExactName(wtf8::fromUtf16(wtf8::view(r.name)), r.isDir); });
+            total -= results.removeIf([&](const SearchResult& deeper) {
+                return std::any_of(rows.cbegin(), rows.cend(),
+                    [&](const SearchResult& r) { return r.path.compare(deeper.path, Qt::CaseInsensitive) == 0; });
+            });
+            total += rows.size();
+            rows.append(std::move(results));
+            if (rows.size() > request.limit)
+                rows.resize(request.limit);
+            results = std::move(rows);
+        }
+        // On a share that cannot be reached now: shown all the same, dimmed.
+        for (SearchResult& r : results) {
+            if (r.path.startsWith(u"\\\\"))
+                r.offline = m_index->shares().offline(r.path.toStdWString());
+        }
+
         // 全部: a web shortcut's keyword typed first ("gh", "gh WinShun")
         // puts its site or search on top. Then every app found, the best few
         // places and the web shortcuts by name, best first; then the files
         // and folders.
-        if (request.scope == Scope::All) {
+        if (request.scope == Scope::All && typedPath.folder.isEmpty()) {
             struct Ranked {
                 int score;
                 SearchResult result;
             };
             std::vector<Ranked> ranked;
-            for (const AppHit& hit : searchApps(*apps, query, matcher, request.history))
+            for (const AppHit& hit : searchApps(*apps, query, matcher, request.history)) {
                 ranked.push_back({hit.score, fromApp((*apps)[hit.index], false, hit.otherName)});
+                ranked.back().result.exact = matcher.isExactName((*apps)[hit.index].nameUtf8, false);
+            }
             const std::size_t appCount = ranked.size();
             for (const PlaceHit& hit : searchPlaces(*places, query, matcher, request.history)) {
                 if (ranked.size() - appCount >= kPlacesShown)
@@ -599,12 +851,16 @@ void SearchEngine::runNameSearch(const Job& job)
             // Equal scores: apps first.
             std::stable_sort(ranked.begin(), ranked.end(), [](const Ranked& a, const Ranked& b) { return a.score > b.score; });
             SearchResults top;
-            if (typed)
+            if (typed) {
                 top.push_back(fromWeb(request.web[typed->index], typed->words));
+                top.back().score = kTypedKeywordScore; // nothing a plugin pushes goes above it
+                top.back().exact = true;
+            }
             total += static_cast<qint64>(ranked.size()) + top.size();
             for (Ranked& r : ranked) {
                 if (top.size() >= request.limit)
                     break;
+                r.result.score = r.score;
                 top.push_back(std::move(r.result));
             }
             if (!top.isEmpty()) {
@@ -617,6 +873,85 @@ void SearchEngine::runNameSearch(const Job& job)
                 results = std::move(top);
             }
         }
+
+        // A path typed from some folder along the way ("tools/out/covers/",
+        // "src\app\App.cpp"): where it leads first, so Enter goes there, not
+        // to the best of what lies in it or is named like it. Several such
+        // places: the one opened last, then your own, then the shallowest.
+        if (const pathtext::RelativePath typed = typedPath.folder.isEmpty() ? pathtext::splitRelative(request.text)
+                                                                            : pathtext::RelativePath();
+            !typed.names.isEmpty()) {
+            std::vector<std::string> names;
+            for (const QString& name : typed.names)
+                names.push_back(wtf8::fromUtf16(wtf8::view(name)));
+            struct Led {
+                SearchResult row;
+                qsizetype opened; // in the history; its size when not there
+                bool aside; // under system, program or tool folders, or hidden
+                int depth;
+            };
+            std::vector<Led> led;
+            {
+                const auto lock = index->readLock();
+                const std::vector<EntryId> ids = findRelativePath(*index, names, foldersOnly || typed.folder,
+                    kPathsSearched, m_pool, [&] { return isStale(job.id); });
+                for (const EntryId id : ids) {
+                    SearchResult row = fromIndex(*index, id);
+                    row.modified = index->modified(id);
+                    const qsizetype opened = request.history.indexOf(row.path, 0, Qt::CaseInsensitive);
+                    const bool aside = index->entry(id).flags & (EntryFlag::LowPriority | EntryFlag::Hidden);
+                    led.push_back({std::move(row), opened < 0 ? request.history.size() : opened, aside, index->depth(id)});
+                }
+            }
+            if (isStale(job.id))
+                return;
+            const auto keep = std::min(led.size(), kPathsLed);
+            std::ranges::partial_sort(led, led.begin() + static_cast<std::ptrdiff_t>(keep), [](const Led& a, const Led& b) {
+                if (a.opened != b.opened)
+                    return a.opened < b.opened;
+                if (a.aside != b.aside)
+                    return !a.aside;
+                if (a.depth != b.depth)
+                    return a.depth < b.depth;
+                return a.row.modified > b.row.modified;
+            });
+            led.resize(keep);
+            if (!led.empty()) {
+                total -= results.removeIf([&](const SearchResult& r) {
+                    return std::ranges::any_of(
+                        led, [&](const Led& l) { return l.row.path.compare(r.path, Qt::CaseInsensitive) == 0; });
+                });
+                SearchResults rows;
+                for (Led& l : led)
+                    rows.push_back(std::move(l.row));
+                total += rows.size();
+                rows.append(std::move(results));
+                if (rows.size() > request.limit)
+                    rows.resize(request.limit);
+                results = std::move(rows);
+            }
+        }
+
+        // Favorites first, but not before what a typed path leads to, nor
+        // among rows ranked by time (marked there only).
+        const bool promote = rankBy == RankBy::Match && typedPath.folder.isEmpty()
+            && pathtext::splitRelative(request.text).names.isEmpty();
+        promoteFavorites(results, total, request, matcher, promote, *apps, *places, *m_onDisk, m_index);
+    }
+
+    // Nothing typed: every favorite first, in its user's order; the recent
+    // items after them (not twice).
+    if (query.isEmpty() && !request.favorites.isEmpty() && !isStale(job.id)) {
+        QList<const Favorite*> shown;
+        for (const Favorite& f : request.favorites) {
+            if (scopeShows(request.scope, f.kind))
+                shown.push_back(&f);
+        }
+        SearchResults rows = favoriteRows(shown, *apps, *places, *m_onDisk, m_index);
+        results.removeIf([&](const SearchResult& r) { return indexOfFavorite(request.favorites, r.path) >= 0; });
+        total = rows.size() + results.size();
+        rows.append(std::move(results));
+        results = std::move(rows);
     }
 
     // The rows of the query before stay on screen (dimmed) until these come.
@@ -639,9 +974,9 @@ void SearchEngine::runContentSearch(const Job& job)
     QElapsedTimer timer;
     timer.start();
     const Request& request = job.request;
-    const QString needle = request.text.trimmed();
+    const QStringList terms = contentTerms(request.text);
     emit resultsReady(job.id, {}, 0, 0);
-    if (needle.isEmpty()) {
+    if (terms.isEmpty()) {
         emit contentProgress(job.id, 0, 0, true);
         return;
     }
@@ -678,14 +1013,14 @@ void SearchEngine::runContentSearch(const Job& job)
     // index would wait for that, and name searches behind it.
     QElapsedTimer lookupTimer;
     lookupTimer.start();
-    const ContentIndex::Lookup lookup = content ? content->lookup(needle) : ContentIndex::Lookup();
+    const ContentIndex::Lookup lookup = content ? content->lookup(terms) : ContentIndex::Lookup();
     if (lookupTimer.elapsed() > 50) // a few milliseconds from the cache: it was read off the disk
         m_index->prewarmSoon(std::chrono::seconds(5));
     if (isStale(job.id))
         return;
     {
         // Every entry is looked at: a chunk of them per worker (on one
-        // thread, 3 million take some 12 ms).
+        // thread, 3 million take some 15 ms).
         const auto lock = index->readLock();
         constexpr std::uint32_t kMatch = ContentIndex::Lookup::kMatch;
         const EntryId profile = index->findPath(win32::expandEnvironment(L"%USERPROFILE%"));
@@ -742,7 +1077,8 @@ void SearchEngine::runContentSearch(const Job& job)
     std::stable_sort(candidates.begin(), candidates.end(),
         [](const Candidate& a, const Candidate& b) { return a.order < b.order; });
 
-    const ContentScanner scanner(needle);
+    const ContentScanner scanner(terms);
+    const std::int64_t now = QDateTime::currentSecsSinceEpoch();
     ContentIndexer::Intake intake(m_index->contentIndexer()); // before the reads, gone once they are done
     const int total = static_cast<int>(candidates.size()) + ruledOut;
     std::atomic<std::size_t> next {0};
@@ -765,6 +1101,8 @@ void SearchEngine::runContentSearch(const Job& job)
         }
         if (stale())
             return;
+        // Best first (the launcher places them among the rows it has).
+        std::ranges::stable_sort(out, std::ranges::greater {}, &SearchResult::relevance);
         if (!out.isEmpty())
             emit contentResults(job.id, out);
         emit contentProgress(job.id, scanned.load(), total, finished);
@@ -866,8 +1204,9 @@ void SearchEngine::runContentSearch(const Job& job)
                         r.placeNumber = static_cast<int>(location.number);
                     }
                     r.snippet = match->snippet;
-                    r.snippetMatchStart = match->matchStart;
-                    r.snippetMatchLength = match->matchLength;
+                    r.snippetMatches = std::move(match->matches);
+                    r.relevance = contentRelevance(*match, terms, r.name, candidate.order & 3,
+                        modified ? now - static_cast<std::int64_t>(modified) : -1);
                     std::lock_guard lock(batchMutex);
                     if (found.load() < request.maxContentResults) {
                         batch.push_back(std::move(r));

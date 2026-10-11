@@ -28,30 +28,40 @@ inline constexpr std::uint8_t LowPriority = 0x08; // under system/program/toolin
 inline constexpr std::uint8_t Hidden = 0x10;
 inline constexpr std::uint8_t Offline = 0x20; // cloud placeholder: reading would download it
 inline constexpr std::uint8_t Han = 0x40; // the name has Chinese characters (tried as pinyin); set by the index
-inline constexpr std::uint8_t Persistent = Directory | Root | LowPriority | Hidden | Offline;
-inline constexpr std::uint8_t Inherited = LowPriority | Hidden;
+inline constexpr std::uint8_t Remote = 0x80; // on a network share (a root named "\\host\share")
+inline constexpr std::uint8_t Persistent = Directory | Root | LowPriority | Hidden | Offline | Remote;
+inline constexpr std::uint8_t Inherited = LowPriority | Hidden | Remote;
 } // namespace EntryFlag
 
 // One file or folder. Children form a sibling list, newest first. Taking a
 // child out of it needs the one before: found by walking a small folder;
 // a big one has a table of its children that knows (see ChildTable).
+// Packed: there is one per file and folder, and a name search reads them
+// all (unaligned reads cost nothing on x64). The name's length and that of
+// its extension are kept with the name (see FileIndex::name).
+#pragma pack(push, 1)
 struct Entry {
     EntryId parent = kNoEntry;
     EntryId firstChild = kNoEntry;
     EntryId nextSibling = kNoEntry;
-    std::uint32_t nameOffset = 0;
-    std::uint16_t nameLength = 0;
+    std::uint32_t nameOffset = 0; // in the index's name storage
     std::uint8_t flags = 0;
-    std::uint8_t extLength = 0; // bytes after the last '.', 0 when there is no extension
 
     bool isDir() const noexcept { return flags & EntryFlag::Directory; }
     bool isDeleted() const noexcept { return flags & EntryFlag::Deleted; }
 };
-static_assert(sizeof(Entry) == 20, "keep Entry compact: there is one per file and folder");
+#pragma pack(pop)
+static_assert(sizeof(Entry) == 17, "keep Entry compact: there is one per file and folder");
 
 // When a file or folder was last written: seconds since 1970 (UTC), 0 when
 // not known. Good until 2106.
 using FileTime = std::uint32_t;
+
+// A time to sort by or to show: one before 1980 is none. Archives, package
+// managers and copies from systems that knew no time leave 1970-01-01 (Unix
+// time 0) or 1980-01-01 (the DOS epoch, a day either way in local time).
+inline constexpr FileTime kFirstKnownTime = 315'619'200; // 1980-01-02 00:00 UTC
+constexpr FileTime knownTime(FileTime time) noexcept { return time < kFirstKnownTime ? 0 : time; }
 
 // A FILETIME's count (100-nanosecond intervals since 1601) as a FileTime.
 constexpr FileTime fileTimeOf(std::int64_t ticks) noexcept
@@ -70,6 +80,7 @@ public:
     void set(std::uint32_t record, EntryId id);
     void erase(std::uint32_t record) noexcept;
     std::size_t size() const noexcept { return m_count; }
+    std::size_t capacity() const noexcept { return m_slots.capacity(); }
     template <typename F> void forEach(F&& f) const
     {
         for (const Slot& s : m_slots) {
@@ -113,7 +124,7 @@ class FileIndex {
 public:
     static constexpr std::size_t kChunkBits = 16;
     static constexpr std::size_t kChunkSize = std::size_t {1} << kChunkBits;
-    static constexpr std::size_t kNameChunkBits = 20;
+    static constexpr std::size_t kNameChunkBits = 18;
     static constexpr std::size_t kNameChunkSize = std::size_t {1} << kNameChunkBits;
 
     FileIndex();
@@ -148,14 +159,33 @@ public:
     std::size_t liveCount() const noexcept { return m_live.load(std::memory_order_relaxed); }
 
     const Entry& entry(EntryId id) const noexcept { return m_chunks[id >> kChunkBits][id & (kChunkSize - 1)]; }
-    std::string_view name(const Entry& e) const noexcept
-    {
-        return {m_names[e.nameOffset >> kNameChunkBits].get() + (e.nameOffset & (kNameChunkSize - 1)), e.nameLength};
-    }
+    std::string_view name(const Entry& e) const noexcept { return nameAt(e.nameOffset); }
     std::string_view name(EntryId id) const noexcept { return name(entry(id)); }
+    // Bytes after the last '.' of a file's name; 0 for folders and names without one.
+    std::size_t extLength(const Entry& e) const noexcept { return e.isDir() ? 0 : nameExtLength(e.nameOffset); }
+    // A file's name and its extLength, from one read of the record (for passes over every file).
+    std::string_view fileName(const Entry& e, std::size_t& extLength) const noexcept
+    {
+        const char* record = nameRecord(m_names, e.nameOffset);
+        const std::string_view name = storedName(record);
+        extLength = static_cast<unsigned char>(name.data()[-1]) & 0x7F;
+        return name;
+    }
     // Kept apart from the entries, which name searches go through: only the
     // matches have theirs looked at.
     FileTime modified(EntryId id) const noexcept { return m_times[id >> kChunkBits][id & (kChunkSize - 1)]; }
+
+    // Bytes held, by part (for measuring). Caller holds a read lock.
+    struct MemoryUse {
+        std::size_t entries = 0;
+        std::size_t times = 0;
+        std::size_t names = 0; // name chunks allocated
+        std::size_t nameBytes = 0; // ... of which used
+        std::size_t folderRecords = 0;
+        std::size_t childTables = 0;
+        std::size_t intern = 0;
+    };
+    MemoryUse memoryUse() const noexcept;
 
     std::size_t chunkCount() const noexcept { return m_chunks.size(); }
     std::span<const Entry> chunk(std::size_t index) const noexcept;
@@ -163,7 +193,7 @@ public:
 
     // Names compare ignoring ASCII case, as NTFS does for most names.
     EntryId findChild(EntryId parent, std::string_view name) const;
-    EntryId findPath(std::wstring_view path) const; // "C:\dir\file.txt"
+    EntryId findPath(std::wstring_view path) const; // "C:\dir\file.txt", "\\host\share\dir\file.txt"
     std::u16string path16(EntryId id) const;
     void appendPath16(EntryId id, std::u16string& out) const;
     QString path(EntryId id) const;
@@ -179,11 +209,11 @@ public:
     EntryId childForUpdate(EntryId parent, std::string_view name, bool exactCase);
     EntryId pathForUpdate(std::wstring_view path);
 
-    EntryId addRoot(std::string_view name); // "C:"
+    EntryId addRoot(std::string_view name); // "C:", or a share's "\\host\share" (or a folder in it)
     EntryId add(EntryId parent, std::string_view name, std::uint8_t flags);
     // The same with a name already stored (storeName), for loading names
     // that are distinct already; a root when parent is kNoEntry.
-    EntryId addStored(EntryId parent, std::uint32_t nameOffset, std::uint16_t nameLength, std::uint8_t flags);
+    EntryId addStored(EntryId parent, std::uint32_t nameOffset, std::uint8_t flags);
     std::size_t remove(EntryId id); // removes the whole subtree; returns entries removed
     bool move(EntryId id, EntryId newParent, std::string_view newName);
     void setFlags(EntryId id, std::uint8_t flags);
@@ -244,10 +274,34 @@ public:
 
     // Name storage, for bulk readers that collect names before adding the
     // entries (the MFT reader). Offsets stay valid until compact().
+    //
+    // Each name is stored as its length (one byte below 128, else two: the
+    // first with its top bit set), one byte with the length of its extension
+    // as a file's (an extension of 128 bytes or more counts as none) and on
+    // top whether it has Chinese characters, and its bytes; chunks end with
+    // zero bytes. Every record takes 3 bytes at least. Entries refer
+    // to where a name starts. Names longer than kMaxName bytes are cut.
+    static constexpr std::size_t kMaxName = 0x7FFF;
     std::uint32_t storeName(std::string_view name);
-    std::string_view nameAt(std::uint32_t offset, std::size_t length) const noexcept
+    std::string_view nameAt(std::uint32_t offset) const noexcept { return storedName(nameRecord(m_names, offset)); }
+    std::size_t nameExtLength(std::uint32_t offset) const noexcept { return nameTraits(offset) & 0x7F; }
+    bool nameHasHan(std::uint32_t offset) const noexcept { return nameTraits(offset) & 0x80; }
+
+    // The stored names, a chunk at a time (for a pass over them all, which
+    // looks at each name once however many entries have it). Calls
+    // f(offset, name) for every name stored in chunk `chunk` in order, also
+    // those no entry has any more. Caller holds a read lock.
+    std::size_t nameChunkCount() const noexcept { return m_names.size(); }
+    template <typename F> void forEachName(std::size_t chunk, F&& f) const
     {
-        return {m_names[offset >> kNameChunkBits].get() + (offset & (kNameChunkSize - 1)), length};
+        const char* const base = m_names[chunk].get();
+        const auto start = static_cast<std::uint32_t>(chunk << kNameChunkBits);
+        std::size_t at = 0;
+        while (at < kNameChunkSize && base[at] != 0) {
+            const std::string_view name = storedName(base + at);
+            f(start + static_cast<std::uint32_t>(at), name);
+            at = static_cast<std::size_t>(name.data() + name.size() - base);
+        }
     }
 
     // ---- NTFS folder record numbers --------------------------------------
@@ -260,6 +314,23 @@ public:
     const RecordTable* folderRecords(EntryId root) const noexcept;
 
 private:
+    unsigned char nameTraits(std::uint32_t offset) const noexcept
+    {
+        const char* p = nameRecord(m_names, offset);
+        return static_cast<unsigned char>(p[static_cast<unsigned char>(p[0]) < 0x80 ? 1 : 2]);
+    }
+    static const char* nameRecord(const std::vector<std::unique_ptr<char[]>>& names, std::uint32_t offset) noexcept
+    {
+        return names[offset >> kNameChunkBits].get() + (offset & (kNameChunkSize - 1));
+    }
+    static std::string_view storedName(const char* record) noexcept
+    {
+        const auto first = static_cast<unsigned char>(record[0]);
+        if (first < 0x80)
+            return {record + 2, first};
+        return {record + 3, (std::size_t {first & 0x7Fu} << 8) | static_cast<unsigned char>(record[1])};
+    }
+
     // A folder's children by name: open addressing over their ids, by the
     // hash of the ASCII-folded name. Each also has the child before it in
     // the sibling list, so taking one out of a big folder walks nothing.
@@ -272,6 +343,7 @@ private:
 
     Entry& mut(EntryId id) noexcept { return m_chunks[id >> kChunkBits][id & (kChunkSize - 1)]; }
     template <typename Lookup> EntryId walkPath(std::wstring_view path, Lookup&& lookup) const;
+    std::pair<EntryId, std::size_t> shareRootOf(std::wstring_view path) const;
     EntryId tableFind(const ChildTable& table, std::string_view name, bool exactCase) const noexcept;
     std::size_t tableSlot(const ChildTable& table, EntryId child) const noexcept; // kNoSlot: not in it
     void tableInsert(ChildTable& table, EntryId child, EntryId previous);

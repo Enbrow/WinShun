@@ -38,6 +38,7 @@ public:
     QColor accent() const;
     static QColor accentColor(); // accent(), for C++
     QString iconFont() const { return m_iconFont; }
+    static QString iconFontName(); // iconFont(), for C++ (FileIconProvider draws glyph icons)
     bool animations() const;
     bool materials() const;
     bool backdropSystem() const;

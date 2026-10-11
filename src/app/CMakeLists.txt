@@ -3,13 +3,18 @@ qt_add_executable(WinShun WIN32
     App.cpp App.h
     ColorText.cpp ColorText.h
     FileIconProvider.cpp FileIconProvider.h
+    McpClients.cpp McpClients.h
     Migration.cpp Migration.h
+    Preview.cpp Preview.h
     Settings.cpp Settings.h
+    SiteIconImage.cpp SiteIconImage.h
     TextField.cpp TextField.h
     WindowLogo.cpp WindowLogo.h
     platform/ClipboardWatcher.cpp platform/ClipboardWatcher.h
     platform/ComWorker.cpp platform/ComWorker.h
+    platform/Credentials.cpp platform/Credentials.h
     platform/DialogJump.cpp platform/DialogJump.h
+    platform/DragOut.cpp platform/DragOut.h
     platform/FileDialog.cpp platform/FileDialog.h
     platform/FileManagers.cpp platform/FileManagers.h
     platform/Foreground.cpp platform/Foreground.h
@@ -17,11 +22,13 @@ qt_add_executable(WinShun WIN32
     platform/KeyListener.cpp platform/KeyListener.h
     platform/KeyRouter.cpp platform/KeyRouter.h
     platform/MessageWindow.cpp platform/MessageWindow.h
+    platform/NetworkNotifier.cpp platform/NetworkNotifier.h
     platform/NumberKeys.cpp platform/NumberKeys.h
     platform/Paster.cpp platform/Paster.h
     platform/PeekingLogo.cpp platform/PeekingLogo.h
     platform/Shell.cpp platform/Shell.h
     platform/ShortcutCapture.cpp platform/ShortcutCapture.h
+    platform/SiteIcons.cpp platform/SiteIcons.h
     platform/StartMenuTyping.cpp platform/StartMenuTyping.h
     platform/TaskbarSearch.cpp platform/TaskbarSearch.h
     platform/TaskbarSearchBox.cpp platform/TaskbarSearchBox.h
@@ -66,6 +73,9 @@ set(qml_files
     qml/FlatButton.qml
     qml/InputBox.qml
     qml/WebShortcutForm.qml
+    qml/FavoritesSection.qml
+    qml/FavoriteForm.qml
+    qml/ShareCard.qml
     qml/CenteredNumber.qml
     qml/KeyCap.qml
     qml/Chip.qml
@@ -76,6 +86,13 @@ set(qml_files
     qml/AuthorAvatar.qml
     qml/GleaningBackdrop.qml
     qml/GleaningPage.qml
+    qml/AiAccessSection.qml
+    qml/AiClientsSection.qml
+    qml/PluginsSection.qml
+    qml/PluginCard.qml
+    qml/PluginDevSection.qml
+    qml/PluginDialog.qml
+    qml/PluginsPreview.qml
 )
 set_source_files_properties(qml/Theme.qml qml/Gleaning.qml qml/WarmPalette.qml qml/AuthorClock.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
@@ -120,10 +137,13 @@ qt_add_qml_module(WinShun
         Clipboard.cpp Clipboard.h
         ColorSwatch.cpp ColorSwatch.h
         DialogBar.cpp DialogBar.h
+        FavoritesSettings.cpp FavoritesSettings.h
+        FileDropTarget.cpp FileDropTarget.h
         GleaningScene.cpp GleaningScene.h
         IconBadge.cpp IconBadge.h
         Launcher.cpp Launcher.h
         Placement.cpp Placement.h
+        PluginSettings.cpp PluginSettings.h
         ResultModel.cpp ResultModel.h
         SettingsEditor.cpp SettingsEditor.h
         SettingsSearch.cpp SettingsSearch.h
@@ -154,12 +174,21 @@ qt_add_resources(WinShun "translations"
     PREFIX /i18n
     BASE "${CMAKE_CURRENT_BINARY_DIR}"
     FILES "${qm_file}")
+# The plugin SDK (src/plugins-sdk), copied into a new plugin's folder by
+# "新建插件…" (PluginSettings::createFromTemplate): one source of truth.
+qt_add_resources(WinShun "plugins_sdk"
+    PREFIX /sdk
+    BASE "${PROJECT_SOURCE_DIR}/src/plugins-sdk"
+    FILES "${PROJECT_SOURCE_DIR}/src/plugins-sdk/winshun.py"
+          "${PROJECT_SOURCE_DIR}/src/plugins-sdk/WinShun.psm1"
+          "${PROJECT_SOURCE_DIR}/src/plugins-sdk/winshun.h")
 
 target_include_directories(WinShun PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(WinShun PRIVATE
-    wscore
+    wscore wsmcp wsplugin
     Qt6::Gui Qt6::Qml Qt6::Quick
     comctl32 d2d1 dwmapi dwrite oleacc oleaut32 shcore shell32 shlwapi ole32 user32 uxtheme version winhttp winmm
+    credui iphlpapi mpr psapi
     mfplat mfreadwrite mfuuid delayimp)
 # The execution level (requireAdministrator) comes from app.manifest alone; the
 # linker's own default (asInvoker) would conflict with it. Media Foundation is

@@ -1,0 +1,90 @@
+# The windows of the README and the post, {p}-<name>.png each (p: L light,
+# D dark; light.txt and dark.txt set it and the theme). The launcher keeps
+# its scope from one opening to the next, Tab going 全部 → 文件 → 文件夹 → 内容,
+# and starts at 全部 when WinShun starts: this file starts and ends at 全部.
+# End before each shot, so that the query isn't selected.
+open ndbg
+sleep 800
+# 全部 → 文件
+tap 09
+sleep 500
+tap 23
+sleep 700
+matte {p}-search
+tap 1B
+sleep 600
+open 第三季度销售额
+sleep 800
+# 文件 → 文件夹 → 内容 (the content search takes a moment)
+tap 09
+sleep 300
+tap 09
+sleep 1500
+tap 23
+sleep 500
+matte {p}-content
+tap 1B
+sleep 600
+open guanliqi
+sleep 800
+# 内容 → 全部
+tap 09
+sleep 1000
+tap 23
+sleep 500
+matte {p}-apps
+tap 1B
+sleep 600
+open shipeiqi
+sleep 1000
+tap 23
+sleep 500
+matte {p}-places
+tap 1B
+sleep 600
+
+# The clipboard history over Notepad (Win+Alt+V, Alt+P for the preview);
+# it doesn't take the focus, so the matte is of WinShun's window.
+notepad work\clipseed.txt
+clickfg 400 170
+sleep 600
+down 5B
+down 12
+tap 56
+up 12
+up 5B
+sleep 900
+chord 12 50
+sleep 700
+matte {p}-clipboard winshun
+clickfg 400 170
+sleep 300
+
+# Settings, closed with Alt+F4.
+settings
+sleep 1200
+matte {p}-settings
+chord 12 73
+sleep 500
+
+# The bar under Notepad's Open dialog: Explorer open on a folder of the demo
+# first (Ctrl+G in the bar goes there), the dialog on the demo folder, a
+# click into the bar (its place on this 2560x1600 screen), a query.
+explorer open F:\Win顺演示\财务
+notepad work\clipseed.txt
+chord 11 4F
+sleep 1500
+type F:\Win顺演示
+tap 0D
+sleep 2000
+clickws 400 956
+sleep 300
+type ndbg
+sleep 1200
+matte {p}-dialog
+tap 1B
+sleep 300
+tap 1B
+sleep 300
+canceldialogs
+explorer close

@@ -26,8 +26,11 @@ namespace ws::taskbar {
 //
 // Placed in a free stretch beside the icons, which UI Automation measures:
 // by default left of them when they are centred (against Start), else right
-// of them; the user moves it by dragging its icon (Spot). Not shown where it
-// would be too narrow. When the taskbar moves its icons (a location event on
+// of them; the user drags it to either side (Spot). As wide as that stretch
+// allows, as Windows' own search: the whole box, then its icon and a short
+// label, then its icon alone; typing shows in the whole box only (wide), else
+// the launcher opens over it with its own field. On the other side only where
+// not even the icon fits. When the taskbar moves its icons (a location event on
 // its thread), they are measured again on every frame until they settle, and
 // the box moves with them; a jump that would leave it in the clear is taken
 // only once the taskbar has drawn it (see follow in the .cpp). Explorer
@@ -49,6 +52,7 @@ public:
     // A left button press on the box (on its icon: a click, not a drag).
     struct Press {
         POINT anchor {}; // the middle of the box's top edge, on the screen (physical pixels)
+        bool wide = false; // the whole box (see wide())
         std::optional<int> at; // while active: where in the text it was pressed (UTF-16)
         bool word = false; // a double click: the word there
     };
@@ -68,6 +72,7 @@ public:
         std::function<void(bool shown)> shownChanged; // on the taskbar, or not (no room, no taskbar)
         std::function<void()> caretMoved; // caret() is somewhere else
         std::function<void(const Spot&)> moved; // dragged somewhere else by the user
+        std::function<void(bool wide)> wideChanged; // see wide()
     };
     // What the launcher's field has while it is open over the box.
     struct Text {
@@ -81,6 +86,7 @@ public:
     struct Look {
         std::wstring name; // for screen readers: "Win顺 搜索"
         std::wstring placeholder;
+        std::wstring label; // short, where the box is narrow: "搜索"
         COLORREF accent = RGB(0x00, 0x67, 0xC0); // under selected text
     };
 
@@ -96,6 +102,7 @@ public:
     void setText(Text text);
     void reattach(); // Explorer started again (TaskbarCreated)
     std::optional<RECT> rect() const; // where it settles, on the screen, physical pixels; none while not shown
+    bool wide() const; // ... as the whole box, which shows what is typed (else its label or icon alone)
     std::optional<RECT> caret() const; // ... the caret while active
     bool underPointer() const; // the mouse pointer is on it
 

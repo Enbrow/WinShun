@@ -7,6 +7,8 @@ Row {
 
     property string keys
     property string label
+    // Its width when shown, also while hidden (a hidden Row lays out nothing).
+    readonly property real fullWidth: label.length > 0 ? keyText.implicitWidth + 10 + spacing + labelText.implicitWidth : 0
 
     spacing: 5
 
@@ -29,6 +31,7 @@ Row {
     }
 
     Text {
+        id: labelText
         anchors.verticalCenter: parent.verticalCenter
         text: hint.label
         color: Theme.faint

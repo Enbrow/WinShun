@@ -51,6 +51,19 @@ Rectangle {
     border.color: recording ? Theme.accent : Theme.controlBorder
 
     onRecordingChanged: if (!recording) { partial = ""; partialIsHint = false }
+    // Keeping the focus on another page, or in a window closed or left, it
+    // would go on taking the keys (Win among them) as soon as the window is
+    // in front again. `focus`, not `recording`: in a window left, no item has
+    // the active focus any more.
+    onVisibleChanged: if (!visible && focus) stop()
+
+    Connections {
+        target: recorder.Window.window
+        function onActiveChanged() {
+            if (!recorder.Window.window.active && recorder.focus)
+                recorder.stop()
+        }
+    }
 
     Keys.onPressed: (event) => {
         event.accepted = true

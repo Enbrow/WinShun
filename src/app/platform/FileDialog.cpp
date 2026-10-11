@@ -5,14 +5,23 @@
 #include <QDebug>
 #include <QString>
 
+#include <ole2.h> // before uiautomation.h: WIN32_LEAN_AND_MEAN leaves it out of windows.h
+
 #include <commctrl.h>
+#include <uiautomation.h>
+#include <wrl/client.h>
 
 #include <algorithm>
 #include <chrono>
 #include <concepts>
 #include <initializer_list>
+#include <mutex>
+#include <optional>
 #include <thread>
+#include <utility>
+#include <vector>
 
+using Microsoft::WRL::ComPtr;
 using namespace std::chrono_literals;
 
 namespace ws::filedialog {
@@ -204,12 +213,264 @@ bool goByName(HWND dialog, const std::wstring& folder)
     return true;
 }
 
+// WPS Office's own file dialog. Its address bar shows crumbs, and a text box
+// in their place once the space after them is clicked (KcfdLocSpaceButton);
+// Enter there goes, as in Explorer. A folder it cannot go to gets a message
+// box of its own ("输入位置有误").
+namespace kingsoft {
+
+// The programs of WPS Office that show it.
+constexpr const wchar_t* kPrograms[] {L"wps.exe", L"et.exe", L"wpp.exe", L"wpspdf.exe", L"wpsoffice.exe"};
+
+// What probe() found for each window it asked (None: not one).
+std::mutex g_mutex;
+std::vector<std::pair<HWND, Kind>> g_known;
+
+std::optional<Kind> known(HWND hwnd)
+{
+    std::scoped_lock lock(g_mutex);
+    const auto it = std::ranges::find(g_known, hwnd, &std::pair<HWND, Kind>::first);
+    return it != g_known.end() ? std::optional(it->second) : std::nullopt;
+}
+
+bool isOne(HWND dialog)
+{
+    const std::optional<Kind> k = known(dialog);
+    return k && *k != Kind::None;
+}
+
+void remember(HWND hwnd, Kind k)
+{
+    std::scoped_lock lock(g_mutex);
+    std::erase_if(g_known, [hwnd](const auto& seen) { return seen.first == hwnd || !::IsWindow(seen.first); });
+    g_known.emplace_back(hwnd, k);
+}
+
+std::wstring programOf(HWND hwnd)
+{
+    DWORD pid = 0;
+    ::GetWindowThreadProcessId(hwnd, &pid);
+    const HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!process)
+        return {};
+    std::wstring path(MAX_PATH, L'\0');
+    DWORD size = MAX_PATH;
+    const bool ok = ::QueryFullProcessImageNameW(process, 0, path.data(), &size);
+    ::CloseHandle(process);
+    if (!ok)
+        return {};
+    path.resize(size);
+    return path.substr(path.find_last_of(L'\\') + 1);
+}
+
+// The dialog through UI Automation, made for each use: given up on soon
+// should the program hang.
+class Dialog {
+public:
+    explicit Dialog(HWND hwnd)
+    {
+        if (FAILED(::CoCreateInstance(__uuidof(CUIAutomation8), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&m_uia)))
+            && FAILED(::CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&m_uia))))
+            return;
+        ComPtr<IUIAutomation2> timed;
+        if (SUCCEEDED(m_uia.As(&timed))) {
+            timed->put_ConnectionTimeout(1000);
+            timed->put_TransactionTimeout(1000);
+        }
+        if (FAILED(m_uia->ElementFromHandle(hwnd, &m_root)) || !m_root)
+            return;
+        m_root->get_CurrentProcessId(&m_process);
+    }
+
+    explicit operator bool() const { return m_root != nullptr; }
+    IUIAutomationElement* root() const { return m_root.Get(); }
+
+    // The first under `in` (the dialog) of that class, as Qt names its widgets.
+    ComPtr<IUIAutomationElement> find(const wchar_t* className, IUIAutomationElement* in = nullptr,
+        TreeScope scope = TreeScope_Descendants) const
+    {
+        ComPtr<IUIAutomationElement> found;
+        ComPtr<IUIAutomationCondition> condition;
+        if (byClass(className, condition))
+            (in ? in : m_root.Get())->FindFirst(scope, condition.Get(), &found);
+        return found;
+    }
+
+    // What has the keyboard focus, if in the dialog's program.
+    ComPtr<IUIAutomationElement> focused() const
+    {
+        ComPtr<IUIAutomationElement> element;
+        int process = 0;
+        if (FAILED(m_uia->GetFocusedElement(&element)) || !element || FAILED(element->get_CurrentProcessId(&process))
+            || process != m_process)
+            return nullptr;
+        return element;
+    }
+
+    bool focusIn(const wchar_t* className) const
+    {
+        const ComPtr<IUIAutomationElement> element = focused();
+        return element && classOf(element.Get()) == className;
+    }
+
+    // Open (or Save, Select…): the first push button of the row at the bottom, before Cancel.
+    ComPtr<IUIAutomationElement> acceptButton() const
+    {
+        const ComPtr<IUIAutomationElement> row = find(L"kd::KDDialogButtonBox");
+        return row ? find(L"kd::KDButton", row.Get(), TreeScope_Children) : nullptr;
+    }
+
+    // In the box for the file name: an edit field in a combo box.
+    ComPtr<IUIAutomationElement> nameBox() const
+    {
+        const ComPtr<IUIAutomationElement> filter = find(L"KcfdFilterWidget");
+        return filter ? find(L"kd::KDTextField", filter.Get()) : nullptr;
+    }
+
+    static std::wstring classOf(IUIAutomationElement* element) { return text(element, &IUIAutomationElement::get_CurrentClassName); }
+    static std::wstring nameOf(IUIAutomationElement* element) { return text(element, &IUIAutomationElement::get_CurrentName); }
+
+    static bool setValue(IUIAutomationElement* element, const std::wstring& value)
+    {
+        ComPtr<IUIAutomationValuePattern> pattern;
+        if (FAILED(element->GetCurrentPatternAs(UIA_ValuePatternId, IID_PPV_ARGS(&pattern))) || !pattern)
+            return false;
+        BSTR text = ::SysAllocStringLen(value.data(), static_cast<UINT>(value.size()));
+        const bool ok = SUCCEEDED(pattern->SetValue(text));
+        ::SysFreeString(text);
+        return ok;
+    }
+
+    static bool invoke(IUIAutomationElement* element)
+    {
+        ComPtr<IUIAutomationInvokePattern> pattern;
+        return SUCCEEDED(element->GetCurrentPatternAs(UIA_InvokePatternId, IID_PPV_ARGS(&pattern))) && pattern
+            && SUCCEEDED(pattern->Invoke());
+    }
+
+private:
+    bool byClass(const wchar_t* className, ComPtr<IUIAutomationCondition>& condition) const
+    {
+        VARIANT value;
+        ::VariantInit(&value);
+        value.vt = VT_BSTR;
+        value.bstrVal = ::SysAllocString(className);
+        const bool ok = SUCCEEDED(m_uia->CreatePropertyCondition(UIA_ClassNamePropertyId, value, &condition));
+        ::VariantClear(&value);
+        return ok;
+    }
+
+    static std::wstring text(IUIAutomationElement* element, HRESULT (STDMETHODCALLTYPE IUIAutomationElement::*get)(BSTR*))
+    {
+        BSTR value = nullptr;
+        if (!element || FAILED((element->*get)(&value)) || !value)
+            return {};
+        std::wstring result(value, ::SysStringLen(value));
+        ::SysFreeString(value);
+        return result;
+    }
+
+    ComPtr<IUIAutomation> m_uia;
+    ComPtr<IUIAutomationElement> m_root;
+    int m_process = 0;
+};
+
+Kind probe(HWND hwnd)
+{
+    const Dialog dialog(hwnd);
+    if (!dialog)
+        return Kind::None;
+    // Until Qt has its accessibility up (the first question turns it on), the
+    // window answers for itself: "Qt5QWindowIcon".
+    std::wstring name;
+    waitFor([&] {
+        name = Dialog::classOf(dialog.root());
+        return !name.starts_with(L"Qt");
+    }, 500ms);
+    if (name != L"KcfdFileDialog")
+        return Kind::None;
+    // Its buttons may come a moment after it is in front.
+    ComPtr<IUIAutomationElement> accept;
+    waitFor([&] { return (accept = dialog.acceptButton()) != nullptr; }, 500ms);
+    const std::wstring label = accept ? Dialog::nameOf(accept.Get()) : std::wstring(); // "保存(S)", "打开(O)"
+    const bool open = label.find(L"打开") != std::wstring::npos || label.find(L"開啟") != std::wstring::npos
+        || ::_wcsnicmp(label.c_str(), L"Open", 4) == 0;
+    return open ? Kind::Open : Kind::Save;
+}
+
+bool goTo(HWND hwnd, const std::wstring& folder)
+{
+    const DWORD attributes = ::GetFileAttributesW(folder.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY))
+        return false; // spared its message box
+    const Dialog dialog(hwnd);
+    if (!dialog)
+        return false;
+    const ComPtr<IUIAutomationElement> before = dialog.focused(); // usually the file name
+    ComPtr<IUIAutomationElement> box = dialog.find(L"KcfdLocNavigationLineEdit");
+    if (!box) {
+        if (const ComPtr<IUIAutomationElement> space = dialog.find(L"KcfdLocSpaceButton"))
+            Dialog::invoke(space.Get());
+        waitFor([&] { return (box = dialog.find(L"KcfdLocNavigationLineEdit")) != nullptr; }, 500ms);
+    }
+    if (!box)
+        return false;
+    // Enter goes to whatever has the focus: never with it elsewhere, as in the
+    // file name box, where it would save.
+    constexpr const wchar_t* kBox = L"KcfdLocNavigationLineEdit";
+    box->SetFocus();
+    if (!dialog.focusIn(kBox) || !Dialog::setValue(box.Get(), folder) || !dialog.focusIn(kBox))
+        return false;
+    ::PostMessageW(hwnd, WM_KEYDOWN, VK_RETURN, 0x001C0001);
+    ::PostMessageW(hwnd, WM_KEYUP, VK_RETURN, 0xC01C0001);
+    // Gone there: the crumbs are back. The focus then is on the space after
+    // them; to the file name, where it was or where the user goes on from the
+    // bar, unless the user has gone on meanwhile.
+    const bool gone = waitFor([&] { return !dialog.find(kBox); }, 1500ms);
+    if (gone && ::GetForegroundWindow() == hwnd && dialog.focusIn(L"KcfdLocSpaceButton")) {
+        const ComPtr<IUIAutomationElement> name =
+            before && Dialog::classOf(before.Get()) == L"kd::KDTextField" ? before : dialog.nameBox();
+        if (name)
+            name->SetFocus();
+    }
+    return gone;
+}
+
+bool waitForLocation(HWND hwnd)
+{
+    const Dialog dialog(hwnd);
+    return dialog && waitFor([&] { return dialog.find(L"kd::KDBreadcrumb") != nullptr; }, 1500ms);
+}
+
+bool setFileName(HWND hwnd, const std::wstring& name)
+{
+    const Dialog dialog(hwnd);
+    const ComPtr<IUIAutomationElement> box = dialog ? dialog.nameBox() : nullptr;
+    if (!box || !Dialog::setValue(box.Get(), name))
+        return false;
+    box->SetFocus();
+    return true;
+}
+
+// Invoke waits while the program handles the press, which a message box of
+// its own may hold up: given up on after a second, the press goes on.
+bool accept(HWND hwnd)
+{
+    const Dialog dialog(hwnd);
+    const ComPtr<IUIAutomationElement> button = dialog ? dialog.acceptButton() : nullptr;
+    return button && Dialog::invoke(button.Get());
+}
+
+} // namespace kingsoft
+
 } // namespace
 
 Kind kind(HWND hwnd)
 {
-    if (!hwnd || !hasClass(hwnd, L"#32770"))
+    if (!hwnd)
         return Kind::None;
+    if (!hasClass(hwnd, L"#32770"))
+        return kingsoft::known(hwnd).value_or(Kind::None);
     // Windows Vista and later: IFileDialog, and GetOpenFileName without a hook.
     if (::FindWindowExW(hwnd, nullptr, L"DUIViewWndClassName", nullptr)) {
         if (!crumbBar(hwnd))
@@ -227,16 +488,43 @@ Kind kind(HWND hwnd)
     return Kind::None;
 }
 
+bool mayBeKingsoft(HWND hwnd)
+{
+    wchar_t name[64] {};
+    if (!hwnd || !::GetClassNameW(hwnd, name, static_cast<int>(std::size(name))))
+        return false;
+    const std::wstring_view className(name); // "Qt5QWindowIcon"
+    if (!className.starts_with(L"Qt") || !className.ends_with(L"QWindowIcon") || !::GetWindow(hwnd, GW_OWNER))
+        return false;
+    const std::wstring program = kingsoft::programOf(hwnd);
+    return std::ranges::any_of(kingsoft::kPrograms, [&](const wchar_t* p) { return ::_wcsicmp(program.c_str(), p) == 0; });
+}
+
+bool probed(HWND hwnd)
+{
+    return kingsoft::known(hwnd).has_value();
+}
+
+Kind probe(HWND hwnd)
+{
+    if (const std::optional<Kind> k = kingsoft::known(hwnd))
+        return *k;
+    const Kind k = mayBeKingsoft(hwnd) ? kingsoft::probe(hwnd) : Kind::None;
+    if (::IsWindow(hwnd))
+        kingsoft::remember(hwnd, k);
+    return k;
+}
+
 std::wstring currentFolder(HWND dialog)
 {
-    const HWND crumbs = crumbBar(dialog);
+    const HWND crumbs = kingsoft::isOne(dialog) ? nullptr : crumbBar(dialog);
     return crumbs ? pathtext::folderFromAddress(QString::fromStdWString(caption(crumbs))).toStdWString()
                   : std::wstring();
 }
 
 std::wstring fileType(HWND dialog)
 {
-    if (kind(dialog) != Kind::Open)
+    if (kind(dialog) != Kind::Open || kingsoft::isOne(dialog))
         return {};
     const HWND types = ::GetDlgItem(dialog, kFileTypeCombo); // a drop-down list: its text is the chosen entry
     return types && hasClass(types, L"ComboBox") ? controlText(types) : std::wstring();
@@ -249,6 +537,8 @@ bool waitForFront(HWND dialog)
 
 bool waitForLocation(HWND dialog)
 {
+    if (kingsoft::isOne(dialog))
+        return kingsoft::waitForLocation(dialog);
     const HWND crumbs = crumbBar(dialog);
     return crumbs && waitFor([crumbs] {
         DWORD_PTR buttons = 0;
@@ -264,6 +554,8 @@ bool goTo(HWND dialog, const std::wstring& folder)
         return goByName(dialog, folder);
     if (k == Kind::None)
         return false;
+    if (kingsoft::isOne(dialog))
+        return kingsoft::goTo(dialog, folder);
     if (pathtext::sameFolder(QString::fromStdWString(currentFolder(dialog)), QString::fromStdWString(folder)))
         return true;
     if (goByAddress(dialog, folder))
@@ -276,6 +568,8 @@ bool goTo(HWND dialog, const std::wstring& folder)
 
 bool setFileName(HWND dialog, const std::wstring& name)
 {
+    if (kingsoft::isOne(dialog))
+        return kingsoft::setFileName(dialog, name);
     const HWND box = fileNameBox(dialog);
     if (!box || !setText(box, name))
         return false;
@@ -285,6 +579,8 @@ bool setFileName(HWND dialog, const std::wstring& name)
 
 bool accept(HWND dialog)
 {
+    if (kingsoft::isOne(dialog))
+        return kingsoft::accept(dialog);
     const HWND ok = ::GetDlgItem(dialog, IDOK);
     return ok && ::PostMessageW(dialog, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), reinterpret_cast<LPARAM>(ok));
 }

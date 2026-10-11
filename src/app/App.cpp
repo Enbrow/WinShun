@@ -1,31 +1,45 @@
 #include "App.h"
 
+#include "AiBridge.h"
 #include "AppCatalog.h"
 #include "ClipStore.h"
 #include "Clipboard.h"
 #include "DialogBar.h"
+#include "Favorites.h"
+#include "FavoritesSettings.h"
 #include "FileIconProvider.h"
 #include "History.h"
+#include "Host.h"
 #include "IndexFolder.h"
 #include "IndexService.h"
 #include "Launcher.h"
+#include "McpServer.h"
+#include "McpTools.h"
+#include "Pipe.h"
 #include "Placement.h"
+#include "PluginSettings.h"
 #include "SearchEngine.h"
+#include "Secrets.h"
 #include "SettingsEditor.h"
 #include "SystemCatalog.h"
 #include "SystemTheme.h"
 #include "TextField.h"
+#include "Tools.h"
+#include "Unc.h"
 #include "Updater.h"
 #include "WindowFrame.h"
 #include "WindowLogo.h"
 #include "platform/ClipboardWatcher.h"
+#include "platform/Credentials.h"
 #include "platform/DialogJump.h"
 #include "platform/Foreground.h"
 #include "platform/KeyListener.h"
 #include "platform/MessageWindow.h"
+#include "platform/NetworkNotifier.h"
 #include "platform/NumberKeys.h"
 #include "platform/Paster.h"
 #include "platform/Shell.h"
+#include "platform/SiteIcons.h"
 #include "platform/StartMenuTyping.h"
 #include "platform/TaskbarSearch.h"
 #include "platform/TextCaret.h"
@@ -41,6 +55,7 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QInputMethod>
+#include <QJsonDocument>
 #include <QKeyEvent>
 #include <QLocale>
 #include <QQmlApplicationEngine>
@@ -76,6 +91,17 @@ constexpr int kScreenClipHotkeyId = 6; // Win+Shift+S, which Explorer gives up w
 constexpr auto kCaretWait = 100ms;
 constexpr DWORD kSlowMenuMs = 100; // a tray menu slower than this to appear is logged
 
+// The favorites' keywords (keyword, name), which the plugins' give way to.
+QList<std::pair<QString, QString>> favoriteKeywords(const Favorites& favorites)
+{
+    QList<std::pair<QString, QString>> keywords;
+    for (const Favorite& f : favorites.items()) {
+        if (!f.keyword.isEmpty())
+            keywords.append({f.keyword, f.name});
+    }
+    return keywords;
+}
+
 enum TrayCommand {
     ShowCommand = 1,
     IndexInfo,
@@ -96,11 +122,12 @@ IndexService::Options indexOptions(const Settings& settings)
     options.rules = settings.crawlRules();
     options.includeRemovable = settings.includeRemovableDrives;
     options.rescanOnStartup = settings.rescanOnStartup;
-    options.content.enabled = settings.contentIndex;
+    options.content.enabled = settings.contentSearch && settings.contentIndex; // off: the index is cleared
     options.content.extensions = settings.contentExtensions;
     options.content.sizeLimits = settings.contentSizeLimits();
     options.content.includeLowPriority = settings.contentInLowPriority;
     options.content.documents = settings.contentDocuments;
+    options.shares = settings.shareOptions();
     return options;
 }
 
@@ -227,10 +254,12 @@ App::App()
     });
     m_contentStatusTimer.setInterval(2s);
     connect(&m_contentStatusTimer, &QTimer::timeout, this, &App::refreshContentIndexStatus);
+    connect(&m_contentStatusTimer, &QTimer::timeout, this, &App::refreshShareStatuses); // counts while reading
 }
 
 App::~App()
 {
+    siteicons::shutdown(); // an icon arriving now would be told to no one
     m_keyRouter.reset(); // no keys taken from here on
     m_drainingRouter.reset();
     delete m_settingsWindow; // before the QML engine it was created with
@@ -259,6 +288,15 @@ bool App::start(const StartOptions& options)
     QDir().mkpath(dataDir);
     m_history = std::make_unique<History>(dataDir + u"\\history.txt"_s);
     m_history->load();
+    // The dialog bar's pinned folders of old become favorites, once.
+    m_favorites = std::make_unique<Favorites>(dataDir + u"\\favorites.json"_s, dataDir + u"\\dialog-pins.txt"_s);
+    m_favorites->load();
+    connect(m_favorites.get(), &Favorites::changed, this, [this] {
+        if (m_pluginHost)
+            m_pluginHost->setFavoriteKeywords(favoriteKeywords(*m_favorites));
+    });
+    // Sites' icons: fetched when a row of theirs is first shown, not before.
+    siteicons::setFolder(dataDir + u"\\icons\\web"_s);
     m_index = std::make_unique<IndexService>(startIndexFolder(), indexOptions(m_settings));
     connect(m_index.get(), &IndexService::moveProgress, this, [this](int percent) {
         m_indexMoveProgress = percent;
@@ -267,11 +305,15 @@ bool App::start(const StartOptions& options)
     connect(m_index.get(), &IndexService::moveFinished, this, &App::indexMoved);
     // Files still in the default place go where the settings say, once read.
     connect(m_index.get(), &IndexService::stateChanged, this, &App::applyIndexFolder);
+    connect(m_index.get(), &IndexService::sharesChanged, this, &App::refreshShareStatuses);
+    // Shares that could not be reached are tried again when the network changes.
+    m_network = std::make_unique<NetworkNotifier>([index = m_index.get()] { index->shares().networkChanged(); });
     m_apps = std::make_unique<AppCatalog>();
     m_places = std::make_unique<SystemCatalog>();
     m_engine = std::make_unique<SearchEngine>(m_index.get(), m_apps.get(), m_places.get());
     m_launcher
         = std::make_unique<Launcher>(m_index.get(), m_apps.get(), m_places.get(), m_engine.get(), m_history.get());
+    m_launcher->setFavorites(m_favorites.get());
     connect(m_launcher.get(), &Launcher::dismissRequested, this, &App::hideLauncher);
     connect(m_launcher.get(), &Launcher::openFailed, this, [this](const QString& name) {
         m_messages->showNotification(tr("没有打开“%1”").arg(name),
@@ -282,6 +324,8 @@ bool App::start(const StartOptions& options)
             armReveal();
     });
     connect(m_launcher.get(), &Launcher::webSettingsRequested, this, &App::showWebSettings);
+    connect(m_launcher.get(), &Launcher::favoriteSettingsRequested, this, &App::showFavoriteSettings);
+    connect(m_launcher.get(), &Launcher::pluginSettingsRequested, this, &App::showPluginSettings);
     connect(m_launcher.get(), &Launcher::fieldReported, this, &App::mirrorField);
     connect(m_launcher.get(), &Launcher::scopeChanged, this, &App::updateSearchBoxLook); // the placeholder
     m_boxPressGrace.setSingleShot(true);
@@ -290,16 +334,24 @@ bool App::start(const StartOptions& options)
         if (m_window && m_window->isVisible() && !m_window->isActive())
             hideLauncher();
     });
-    // The footer's sort switch: remembered.
-    connect(m_launcher.get(), &Launcher::rankByTimeChanged, this, [this] {
-        if (m_settings.sortByModified == m_launcher->rankByTime())
+    // The footer's switches (the order, the start list): remembered.
+    const auto remember = [this](QString Settings::* field, QString value) {
+        if (m_settings.*field == value)
             return;
-        m_settings.sortByModified = m_launcher->rankByTime();
+        m_settings.*field = std::move(value);
         m_settings.save();
         if (m_settingsEditor)
             m_settingsEditor->setSettings(m_settings);
+    };
+    connect(m_launcher.get(), &Launcher::sortChanged, this, [this, remember] {
+        static constexpr QStringView kSorts[] {u"match", u"newest", u"oldest"};
+        remember(&Settings::sort, kSorts[m_launcher->sort()].toString());
+    });
+    connect(m_launcher.get(), &Launcher::startListChanged, this, [this, remember] {
+        remember(&Settings::startList, m_launcher->startList() == Launcher::RecentlyModified ? u"modified"_s : u"opened"_s);
     });
     connect(m_launcher.get(), &Launcher::composingChanged, this, &App::updateNumberKeys);
+    createPluginHost();
 
     // Clipboard history (Win+V), in clipboard\ next to the index.
     m_clipStore = std::make_unique<ClipStore>(dataDir + u"\\clipboard"_s);
@@ -319,7 +371,15 @@ bool App::start(const StartOptions& options)
     };
     m_clipWatcher = std::make_unique<ClipboardWatcher>(clipboardOptions(), std::move(clipCallbacks));
     m_clipboard = std::make_unique<Clipboard>(m_clipStore.get(), m_clipWatcher.get());
+    // Pinned, it stays up through a paste or a file opened (hideClipboard);
+    // Esc hands the focus back too.
     connect(m_clipboard.get(), &Clipboard::dismissRequested, this, [this] { hideClipboard(); });
+    connect(m_clipboard.get(), &Clipboard::keysReleased, this, [this] {
+        if (m_clipWindow && m_clipWindow->isVisible())
+            releaseClipboard(true);
+    });
+    connect(m_clipboard.get(), &Clipboard::pinnedChanged, this, &App::clipboardPinnedChanged);
+    connect(m_clipboard.get(), &Clipboard::keysWanted, this, &App::engageClipboard);
     connect(m_clipboard.get(), &Clipboard::focusNeeded, this, &App::activateClipboard);
     // A group's name is typed in the window itself, Chinese with the input
     // method, which only works in the window with the focus.
@@ -388,7 +448,10 @@ bool App::start(const StartOptions& options)
         return m_volumeNotifier ? m_volumeNotifier->handle(event, data) : TRUE;
     };
     // Once the disks have settled: after hibernating, the file cache is gone.
-    callbacks.resumed = [this] { m_index->prewarmSoon(30s); };
+    callbacks.resumed = [this] {
+        m_index->prewarmSoon(30s);
+        m_index->shares().networkChanged(); // the servers may have gone, or come back, meanwhile
+    };
     m_messages = std::make_unique<MessageWindow>(std::move(callbacks));
 
     // Drives: let go of one being ejected or locked; index new ones, drop gone ones.
@@ -474,6 +537,7 @@ bool App::createWindow()
     m_placement->setWindow(m_window);
     m_frame->setWindow(m_window);
     m_launcherLogo = new WindowLogo(m_window, 64); // the search box's height (SearchBar.qml)
+    m_launcherLogo->follow(m_placement.get());
     m_searchField = m_window->findChild<QQuickItem*>(u"searchField"_s);
     if (m_searchField)
         m_searchField->installEventFilter(this); // the input method's questions, while it is in the box
@@ -494,7 +558,7 @@ bool App::createWindow()
             const HWND front = ::GetForegroundWindow();
             const bool elsewhere = front && front != reinterpret_cast<HWND>(m_window->winId())
                 && !(onBox && taskbar::isTaskbar(front)) && !win::isShellFlyout(front);
-            if (m_searchBox && m_launcher->inTaskbarBox() && !elsewhere && (justShown || onBox))
+            if (m_searchBox && m_launcherOverBox && !elsewhere && (justShown || onBox))
                 m_boxPressGrace.start();
             else
                 hideLauncher();
@@ -614,6 +678,8 @@ void App::applyTheme()
 {
     const bool dark = isDarkMode();
     win::setMenuTheme(dark);
+    if (m_pluginHost)
+        m_pluginHost->setAppearance(m_language, dark ? u"dark"_s : u"light"_s);
     if (m_window)
         styleWindow(m_window, SystemTheme::backdropAvailable());
     if (m_clipWindow)
@@ -658,12 +724,17 @@ void App::applyAppearance()
     if (m_updater)
         m_updater->setChinese(language == u"zh");
 
+    if (m_pluginHost)
+        m_pluginHost->setAppearance(language, isDarkMode() ? u"dark"_s : u"light"_s);
+
     if (!m_qml)
         return; // starting up: nothing shown yet
     m_qml->retranslate();
     m_launcher->retranslate();
     updateSearchBoxLook();
     m_clipboard->retranslate();
+    if (m_settingsEditor)
+        m_settingsEditor->plugins()->setLocale(language); // the cards' names and texts
     m_messages->setTrayTooltip(trayTooltip());
     applyHotkey(); // its error message
     refreshContentIndexStatus();
@@ -686,6 +757,7 @@ void App::applySettings(bool initial)
     applyDialogs();
     applyClipboard();
     applyTaskbar();
+    applyMcp();
     for (const auto& [kind, name] : filemanager::kSettingNames) {
         if (m_settings.fileManager == QLatin1StringView(name))
             shell::setFileManager(kind);
@@ -697,13 +769,17 @@ void App::applySettings(bool initial)
     m_launcher->setRecordHistory(m_settings.recordHistory);
     m_launcher->setResultOptions(m_settings.foldersFirst ? KindOrder::FoldersFirst : KindOrder::FilesFirst,
         m_settings.showModified, m_settings.numberKeys);
-    m_launcher->setRankByTime(m_settings.sortByModified);
+    m_launcher->setSort(m_settings.sort == u"newest" ? Launcher::NewestFirst
+            : m_settings.sort == u"oldest"           ? Launcher::OldestFirst
+                                                     : Launcher::BestMatch);
+    m_launcher->setStartList(m_settings.startList == u"modified" ? Launcher::RecentlyModified : Launcher::RecentlyOpened);
     m_clipboard->setNumberKeys(m_settings.clipboardNumberKeys);
     updateNumberKeys();
     applyHotkey();
-    m_launcher->setContentOptions(m_settings.contentExtensions, m_settings.contentSizeLimits(),
-        m_settings.contentInLowPriority, m_settings.contentDocuments);
+    m_launcher->setContentOptions(m_settings.contentSearch, m_settings.contentExtensions,
+        m_settings.contentSizeLimits(), m_settings.contentInLowPriority, m_settings.contentDocuments);
     m_launcher->setWebShortcuts(m_settings.webShortcuts);
+    applyPlugins();
     if (!initial) {
         m_indexOptionsApply.start();
         applyIndexFolder();
@@ -829,6 +905,9 @@ void App::applySearchBox()
         callbacks.moved = [this](const taskbar::SearchBox::Spot& spot) {
             QMetaObject::invokeMethod(this, [spot] { saveBoxSpot(spot); }, Qt::QueuedConnection);
         };
+        callbacks.wideChanged = [this](bool wide) {
+            QMetaObject::invokeMethod(this, [this, wide] { setSearchBoxWide(wide); }, Qt::QueuedConnection);
+        };
         m_searchBox = std::make_unique<taskbar::SearchBox>(
             std::move(callbacks), taskbar::SearchBox::Look {}, loadBoxSpot());
         updateSearchBoxLook();
@@ -851,6 +930,18 @@ void App::setSearchBoxShown(bool shown)
         hideLauncher(); // what is typed there would be out of sight
 }
 
+void App::setSearchBoxWide(bool wide)
+{
+    // Narrowed under what is being typed (the taskbar filled up): on in the
+    // launcher's own field, the box looking open. Not back the other way
+    // while it is open, under the user's hands.
+    if (wide || !m_searchBox || !m_launcher->inTaskbarBox() || m_launcherClosing)
+        return;
+    m_launcher->setInTaskbarBox(false);
+    m_searchBox->setText({.active = true});
+    updateSearchBoxLook();
+}
+
 void App::updateSearchBoxLook()
 {
     if (!m_searchBox)
@@ -861,6 +952,7 @@ void App::updateSearchBoxLook()
     // Typing there: what the launcher searches (its tabs say which).
     const bool typing = m_launcher->inTaskbarBox() && !m_launcherClosing;
     look.placeholder = (typing ? m_launcher->placeholder() : tr("搜索应用和文件")).toStdWString();
+    look.label = tr("搜索").toStdWString();
     look.accent = RGB(accent.red(), accent.green(), accent.blue());
     m_searchBox->setLook(std::move(look));
 }
@@ -869,8 +961,12 @@ void App::searchBoxPressed(const taskbar::SearchBox::Press& press)
 {
     if (!m_window || !m_searchBox)
         return;
-    if (!launcherShown() || !m_launcher->inTaskbarBox()) {
+    if (!launcherShown() || !m_launcherOverBox) {
         showLauncherInBox();
+        return;
+    }
+    if (!m_launcher->inTaskbarBox()) { // its label or icon alone: a button, pressed again
+        hideLauncher();
         return;
     }
     // Open over it already: the press took the keyboard (see m_boxPressGrace).
@@ -1095,6 +1191,15 @@ void App::showSettings()
             m_launcher->clearHistory();
             editor->setHistoryCount(0);
         });
+        connect(editor, &SettingsEditor::shareVerifyRequested, this,
+            [this](const QString& path) { m_index->shares().verifyNow(path.toStdWString()); });
+        connect(editor, &SettingsEditor::shareAcceptRequested, this,
+            [this](const QString& path) { m_index->shares().acceptMissing(path.toStdWString()); });
+        connect(editor, &SettingsEditor::signInRequested, this, [this](const QString& path) { signInToServer(path); });
+        editor->plugins()->setLocale(m_language);
+        editor->plugins()->setHost(m_pluginHost.get());
+        editor->favorites()->setCatalogs(m_apps.get(), m_places.get());
+        editor->favorites()->setStore(m_favorites.get());
         m_settingsWindow = window;
         m_settingsEditor = editor;
         applyHotkey(); // shows whether the current hotkey works
@@ -1103,6 +1208,8 @@ void App::showSettings()
         editor->refreshTaskbarState();
         editor->setSearchBoxShown(m_searchBoxShown);
         editor->refreshFileManagers();
+        editor->refreshMcpClients();
+        refreshMcpStatus();
 
         prepareBackdrop(window);
         window->create();
@@ -1124,6 +1231,7 @@ void App::showSettings()
         });
     }
     refreshContentIndexStatus();
+    refreshShareStatuses();
     refreshIndexFolder(true);
     m_settingsEditor->setHistoryCount(static_cast<int>(m_history->items().size()));
     m_settingsEditor->setClipboardCount(static_cast<int>(m_clipStore->clips().size()));
@@ -1149,6 +1257,20 @@ void App::showWebSettings()
         QMetaObject::invokeMethod(m_settingsWindow, "showWebPage");
 }
 
+void App::showFavoriteSettings(const QString& path)
+{
+    showSettings();
+    if (m_settingsWindow)
+        QMetaObject::invokeMethod(m_settingsWindow, "showFavoritesPage", Q_ARG(QVariant, QVariant(path)));
+}
+
+void App::showPluginSettings(const QString& pluginId)
+{
+    showSettings();
+    if (m_settingsWindow)
+        QMetaObject::invokeMethod(m_settingsWindow, "showPluginPage", Q_ARG(QVariant, QVariant(pluginId)));
+}
+
 void App::showUpdate()
 {
     showSettings();
@@ -1163,7 +1285,7 @@ void App::refreshContentIndexStatus()
         return;
     }
     QString status;
-    if (m_settings.contentIndex) {
+    if (m_settings.contentSearch && m_settings.contentIndex) {
         const ContentIndex::Stats stats = m_index->contentIndex()->stats();
         const int files = static_cast<int>(stats.documents);
         if (m_index->readingContent())
@@ -1178,6 +1300,77 @@ void App::refreshContentIndexStatus()
             status += tr("；%Ln 个文件有改动，稍后更新", nullptr, static_cast<int>(stats.pending));
     }
     m_settingsEditor->setContentIndexStatus(status);
+}
+
+void App::refreshShareStatuses()
+{
+    using State = ShareIndexer::State;
+    std::vector<ShareIndexer::Status> statuses = m_index->shares().statuses();
+    // A share read for the first time: told once it is, unless the settings,
+    // where it was added, still show it.
+    for (const ShareIndexer::Status& s : statuses) {
+        const auto building = std::ranges::find(m_sharesBuilding, s.path);
+        if (s.state == State::Building && building == m_sharesBuilding.end()) {
+            m_sharesBuilding.push_back(s.path);
+        } else if (s.state != State::Building && building != m_sharesBuilding.end()) {
+            m_sharesBuilding.erase(building);
+            const bool shown = m_settingsWindow && m_settingsWindow->isVisible();
+            if (s.state == State::Online && !shown)
+                m_messages->showNotification(tr("%1 可以搜索了").arg(QString::fromStdWString(s.name.empty() ? s.path : s.name)),
+                    tr("已收录 %L1 项，之后有变化会自动更新。").arg(static_cast<qulonglong>(s.items)));
+        }
+    }
+    if (m_settingsEditor)
+        m_settingsEditor->setShareStatuses(std::move(statuses));
+}
+
+// Windows' own dialog for the user name and password of the server of
+// `path`, then connecting with them in the background; asked again while
+// they are wrong. The share is read again once connected.
+void App::signInToServer(const QString& path, unsigned long error, const QString& user)
+{
+    const std::wstring host(unc::host(path.toStdWString()));
+    if (host.empty())
+        return;
+    const HWND owner = m_settingsWindow ? reinterpret_cast<HWND>(m_settingsWindow->winId()) : nullptr;
+    auto entered = std::make_shared<credentials::Entered>();
+    const QString server = QString::fromStdWString(host);
+    if (!credentials::prompt(owner, tr("连接到 %1").arg(server).toStdWString(),
+            tr("输入 %1 上的账户（例如 NAS 的用户名）和密码。勾选“记住我的凭据”，资源管理器以后也不用再输入。")
+                .arg(server)
+                .toStdWString(),
+            error, user.toStdWString(), *entered))
+        return;
+    std::thread([this, guard = QPointer<QObject>(this), path, entered] {
+        const unsigned long result = credentials::connect(path.toStdWString(), *entered);
+        QMetaObject::invokeMethod(qApp, [this, guard, path, entered, result] {
+            if (!guard)
+                return;
+            if (result == ERROR_LOGON_FAILURE || result == ERROR_INVALID_PASSWORD || result == ERROR_ACCOUNT_RESTRICTION) {
+                signInToServer(path, result, QString::fromStdWString(entered->user)); // wrong: again, saying so
+                return;
+            }
+            QString problem;
+            if (result != NO_ERROR) {
+                const share::Problem p = share::classify(result, true);
+                problem = p == share::Problem::Offline ? tr("连不上 %1").arg(QString::fromStdWString(std::wstring(unc::host(path.toStdWString()))))
+                    : p == share::Problem::GuestBlocked ? tr("这台服务器只允许来宾访问，Windows 不允许这样连接")
+                    : p == share::Problem::NotFound     ? tr("服务器上没有这个共享文件夹")
+                                                        : tr("没有连上（错误 %1）").arg(result);
+            }
+            if (m_settingsEditor)
+                m_settingsEditor->setSignedIn(path, problem);
+            if (result != NO_ERROR)
+                return;
+            // Every share on the server is worth trying again now.
+            const std::wstring_view host = unc::host(path.toStdWString());
+            for (const ShareIndexer::Status& s : m_index->shares().statuses()) {
+                if (s.state == ShareIndexer::State::Problem && unc::host(s.path).size() == host.size()
+                    && ::_wcsnicmp(unc::host(s.path).data(), host.data(), host.size()) == 0)
+                    m_index->shares().verifyNow(s.path);
+            }
+        });
+    }).detach();
 }
 
 QString App::startIndexFolder()
@@ -1372,7 +1565,7 @@ void App::applyDialogs()
         if (!m_dialogEngine)
             m_dialogEngine = std::make_unique<SearchEngine>(m_index.get(), m_apps.get(), m_places.get());
         m_dialogBar = std::make_unique<DialogBar>(m_dialogEngine.get(), m_history.get(),
-            Settings::dataDir() + u"\\dialog-pins.txt"_s, [this](HWND dialog, std::wstring path, bool isFile, bool open) {
+            m_favorites.get(), [this](HWND dialog, std::wstring path, bool isFile, bool open) {
                 if (m_dialogJump)
                     m_dialogJump->go(dialog, std::move(path), isFile, open);
             });
@@ -1586,10 +1779,11 @@ void App::showLauncher(const QString& query, const std::optional<taskbar::Spot>&
     m_launcherShown.start();
     const bool wasClosing = std::exchange(m_launcherClosing, false); // back from on its way out
     const bool wasInBox = m_launcher->inTaskbarBox();
-    m_launcher->setInTaskbarBox(inBox && m_searchBox);
+    m_launcherOverBox = inBox && m_searchBox;
+    m_launcher->setInTaskbarBox(m_launcherOverBox && m_searchBox->wide());
     updateSearchBoxLook();
-    if (m_searchBox && !m_launcher->inTaskbarBox())
-        m_searchBox->setText({}); // opened elsewhere: the box is idle
+    if (m_searchBox && !m_launcher->inTaskbarBox()) // opened elsewhere: the box is idle; over it, it looks open
+        m_searchBox->setText({.active = m_launcherOverBox});
     else if (m_searchBox && wasClosing && wasInBox) // the field has not changed, nor said so again
         m_searchBox->setText(m_fieldShown);
     if (spot) {
@@ -1631,6 +1825,10 @@ void App::showClipboard()
         return;
     if (m_keyRouter) // up already, over the program that keeps the focus
         return;
+    if (m_clipboard->pinned() && m_clipWindow->isVisible() && !m_clipPrewarming.load()) {
+        engageClipboard(); // where it is, over whatever is in front now
+        return;
+    }
     const bool prewarming = m_clipPrewarming.exchange(false); // up already, cloaked
     bool keepFocus = false; // where it is, with the program it pastes into
     if (!m_clipWindow->isVisible() || prewarming) {
@@ -1641,6 +1839,7 @@ void App::showClipboard()
         m_clipboard->setField(field, field && field->window() == m_settingsWindow ? tr("输入框") : tr("搜索框"));
         const HWND foreground = ::GetForegroundWindow();
         m_clipboard->setTarget(foreground);
+        m_clipboard->setPinned(false); // as it opens, whatever closed it last (a close of Qt's own)
         m_clipboard->setActive(true); // under the launcher's search box, it folds its rows away (Main.qml)
         m_clipboard->handleShown(); // the list alone again: its width as it opens
         if (field) {
@@ -1764,6 +1963,7 @@ void App::routedKey(const KeyRouter::Key& key)
         return;
     }
     if (key.press && key.vk == VK_F4 && key.modifiers.testFlag(Qt::AltModifier)) {
+        m_clipboard->setPinned(false); // closed, pinned or not
         m_clipboard->dismiss(); // closes it, not the program behind
         return;
     }
@@ -1799,13 +1999,56 @@ void App::routedForeground(HWND window)
 
 void App::activateClipboard()
 {
-    if (!m_keyRouter || !m_clipWindow)
+    if (!m_clipWindow || (!m_keyRouter && !m_clipboard->pinned()))
         return;
+    if (!m_keyRouter) // pinned, the keys elsewhere: it takes no focus until told
+        m_clipFrame->setNoActivate(false);
     // Active first, then no longer drawn as active without being so: the
     // backdrop does not flicker. Keys pressed in between are its own already.
     win::bringToFront(m_clipWindow);
     m_clipWindow->requestActivate();
     stopKeyRouting();
+}
+
+void App::releaseClipboard(bool giveFocus)
+{
+    const bool hadFocus = m_clipWindow->isActive();
+    stopKeyRouting();
+    m_clipFrame->setNoActivate(true); // clicks paste into the program in front, which keeps the focus
+    if (giveFocus && hadFocus) {
+        if (const HWND target = paste::usableTarget(m_clipboard->target()))
+            paste::activate(target);
+    }
+}
+
+void App::engageClipboard()
+{
+    if (!m_clipWindow || !m_clipWindow->isVisible() || m_keyRouter)
+        return;
+    // As when it opens over a program: that one keeps the focus, the keys
+    // come here. Its own window in front (nothing else to paste into): it
+    // takes the focus, and pastes where it did last.
+    const HWND foreground = ::GetForegroundWindow();
+    if (const HWND target = paste::usableTarget(foreground)) {
+        m_clipboard->setTarget(target);
+        if (!win::isShellFlyout(foreground) && startKeyRouting(target)) {
+            m_clipFrame->setNoActivate(true);
+            return;
+        }
+    }
+    m_clipFrame->setNoActivate(false);
+    win::bringToFront(m_clipWindow);
+    m_clipWindow->requestActivate();
+}
+
+void App::clipboardPinnedChanged()
+{
+    if (!m_clipWindow || !m_clipWindow->isVisible() || !m_clipboard->active() || m_clipPrewarming.load())
+        return;
+    if (m_clipboard->pinned())
+        releaseClipboard(false); // the keys back to the program in front; the window stays
+    else
+        engageClipboard(); // a menu again: clicking elsewhere hides it
 }
 
 void App::uncloakClipboard()
@@ -1821,6 +2064,10 @@ void App::uncloakClipboard()
 
 void App::hideClipboard(bool launcherToo)
 {
+    if (m_clipboard->pinned() && m_clipWindow && m_clipWindow->isVisible() && !m_clipPrewarming.load()) {
+        releaseClipboard(false); // clicked elsewhere, another program in front, the launcher opened
+        return;
+    }
     if (m_keyRouter)
         m_keyRouter->drain(); // first: the keys go to the program from here on
     if (!m_clipWindow || !m_clipWindow->isVisible() || m_clipPrewarming.load()) {
@@ -1917,14 +2164,13 @@ void App::revealLauncher()
     m_revealTimeout.stop();
     if (!m_window)
         return;
-    // In from off its place first, then seen: not if this was the launcher
-    // hiding before its first frame. The logo once it is there.
+    // In from off its place first, then seen, the logo with it: not if this
+    // was the launcher hiding before its first frame.
     if (m_window->isVisible())
-        m_placement->slideIn([this] {
-            if (m_launcherLogo && launcherShown())
-                m_launcherLogo->reveal();
-        });
+        m_placement->slideIn();
     win::setCloaked(m_window, false);
+    if (m_launcherLogo && launcherShown())
+        m_launcherLogo->reveal();
 }
 
 bool App::launcherShown() const
@@ -1974,13 +2220,11 @@ void App::hideLauncher()
     m_launcherClosing = true;
     // The box idle at once; the launcher keeps its look (in the box: no
     // field) until it is gone.
-    if (m_searchBox && m_launcher->inTaskbarBox()) {
+    if (m_searchBox && m_launcherOverBox) {
         m_searchBox->setText({}); // the placeholder again
         updateSearchBoxLook();
     }
-    if (m_launcherLogo)
-        m_launcherLogo->conceal();
-    m_placement->slideOut([this] {
+    m_placement->slideOut([this] { // the logo goes along (WindowLogo)
         if (m_launcherClosing)
             finishHidingLauncher();
     });
@@ -1989,6 +2233,7 @@ void App::hideLauncher()
 void App::finishHidingLauncher()
 {
     m_launcherClosing = false;
+    m_launcherOverBox = false;
     if (m_launcher->inTaskbarBox()) {
         m_launcher->setInTaskbarBox(false);
         if (m_searchBox) {
@@ -2088,6 +2333,299 @@ void App::restart(const QStringList& arguments)
 {
     m_restartArguments = arguments;
     QGuiApplication::quit();
+}
+
+// ---- AI 助手: the MCP server --------------------------------------------------
+
+namespace {
+
+// Each call the AI clients make, in %LOCALAPPDATA%\WinShun\mcp.log (over
+// 1 MB it becomes mcp.old.log and a new one starts).
+void logMcpCall(const QString& line)
+{
+    const QString path = Settings::dataDir() + u"\\mcp.log"_s;
+    if (QFile::exists(path) && QFile(path).size() > (1 << 20)) {
+        const QString old = Settings::dataDir() + u"\\mcp.old.log"_s;
+        QFile::remove(old);
+        QFile::rename(path, old);
+    }
+    QFile file(path);
+    if (file.open(QIODevice::Append | QIODevice::Text))
+        file.write(line.toUtf8() + '\n');
+}
+
+QString clipKindName(ClipKind kind)
+{
+    switch (kind) {
+    case ClipKind::Link:
+        return u"link"_s;
+    case ClipKind::Path:
+        return u"path"_s;
+    case ClipKind::Files:
+        return u"files"_s;
+    case ClipKind::Image:
+        return u"image"_s;
+    case ClipKind::Text:
+        break;
+    }
+    return u"text"_s;
+}
+
+} // namespace
+
+mcp::Policy App::mcpPolicy() const
+{
+    mcp::Policy policy;
+    policy.allowOpen = m_settings.mcpAllowOpen;
+    policy.allowClipboard = m_settings.mcpClipboard;
+    policy.excludedPaths = m_settings.mcpExcludedPaths;
+    policy.content = m_settings.contentSearch;
+    policy.contentExtensions = m_settings.contentExtensions;
+    policy.contentSizeLimits = m_settings.contentSizeLimits();
+    policy.contentDocuments = m_settings.contentDocuments;
+    policy.contentInLowPriority = m_settings.contentInLowPriority;
+    policy.kindOrder = m_settings.foldersFirst ? KindOrder::FoldersFirst : KindOrder::FilesFirst;
+    return policy;
+}
+
+// What the tool hosts need from the app: the AI's (applyMcp) and the
+// plugins' (pluginTools) alike, each on an engine of its own.
+mcp::Services App::toolServices() const
+{
+    mcp::Services services;
+    services.index = m_index.get();
+    services.version = QStringLiteral(WINSHUN_VERSION);
+    services.history = [this] { return m_history->items(); };
+    services.open = [](const QString& path, std::function<void(bool)> done) { shell::open(path, false, std::move(done)); };
+    services.reveal = [](const QString& path, std::function<void(bool)> done) {
+        shell::reveal(path);
+        done(true);
+    };
+    services.clipboard = [this](const mcp::ClipQuery& query) {
+        std::vector<mcp::ClipSummary> out;
+        ClipFilter filter;
+        filter.query = query.query;
+        for (const int row : m_clipStore->find(filter)) {
+            const Clip& c = m_clipStore->clips()[static_cast<std::size_t>(row)];
+            const QString kind = clipKindName(c.kind);
+            if (query.kind != u"all" && kind != query.kind)
+                continue;
+            if (std::ssize(out) >= query.limit)
+                break;
+            mcp::ClipSummary summary;
+            summary.id = c.id;
+            summary.kind = kind;
+            summary.text = c.text.left(query.maxChars);
+            summary.chars = c.textLength;
+            summary.created = c.created;
+            summary.used = c.used;
+            summary.source = c.source;
+            if (const ClipGroup* group = c.group != 0 ? m_clipStore->group(c.group) : nullptr)
+                summary.group = group->name;
+            summary.pinned = c.group == ClipStore::kPinned;
+            summary.width = c.width;
+            summary.height = c.height;
+            out.push_back(std::move(summary));
+        }
+        return out;
+    };
+    services.clipboardText = [this](qint64 id) -> std::optional<QString> {
+        if (!m_clipStore->clip(id))
+            return std::nullopt;
+        return m_clipStore->payload(id).text;
+    };
+    services.log = [](const QString& line) { logMcpCall(line); };
+    return services;
+}
+
+void App::applyMcp()
+{
+    if (!m_settings.mcp) {
+        m_aiBridge.reset();
+        m_mcpServer.reset();
+        m_mcpHost.reset();
+        m_mcpEngine.reset();
+        refreshMcpStatus();
+        return;
+    }
+    if (!m_mcpServer) {
+        // Its own engine: an engine runs only its newest request, so one
+        // shared with the launcher would drop the launcher's searches.
+        m_mcpEngine = std::make_unique<SearchEngine>(m_index.get(), m_apps.get(), m_places.get());
+        mcp::Services services = toolServices();
+        services.engine = m_mcpEngine.get();
+        m_mcpHost = std::make_unique<mcp::ToolHost>(std::move(services));
+        m_mcpHost->setPolicy(mcpPolicy());
+        m_mcpServer = std::make_unique<mcp::McpServer>(m_mcpHost.get(), QStringLiteral(WINSHUN_VERSION));
+        connect(m_mcpServer.get(), &mcp::McpServer::sessionsChanged, this, &App::refreshMcpStatus);
+        connect(m_mcpHost.get(), &mcp::ToolHost::toolsChanged, this, &App::writeMcpToolsCache);
+        DWORD error = 0;
+        if (!m_mcpServer->listen(pipe::defaultName(), &error))
+            qWarning("MCP: cannot serve on the pipe (error %lu)", error);
+        writeMcpToolsCache();
+    } else {
+        m_mcpHost->setPolicy(mcpPolicy());
+    }
+    applyAiBridge();
+    refreshMcpStatus();
+}
+
+void App::applyAiBridge()
+{
+    if (!m_mcpHost || !m_pluginHost)
+        return;
+    if (!m_aiBridge)
+        m_aiBridge = std::make_unique<plugin::AiBridge>(m_pluginHost.get(), m_mcpHost.get());
+    plugin::AiBridge::Options options;
+    options.enabled = m_settings.mcpPlugins;
+    options.actions = m_settings.mcpPluginActions;
+    for (const PluginConfig& c : m_settings.plugins) {
+        if (!c.ai)
+            options.excluded.insert(c.id);
+    }
+    m_aiBridge->setOptions(options);
+}
+
+// The plugins' tools: not the AI's host (its switch is the AI's, and its
+// engine would make the two cancel each other), one of their own, made
+// when a plugin first asks (plugin::Tools, the plugin design §6.3).
+plugin::Tools& App::pluginTools()
+{
+    if (!m_pluginTools) {
+        m_pluginTools = std::make_unique<plugin::Tools>(toolServices(), m_apps.get(), m_places.get());
+        m_pluginTools->setPolicy(mcpPolicy());
+    }
+    return *m_pluginTools;
+}
+
+// ---- 插件: the plugin host ------------------------------------------------------
+
+void App::createPluginHost()
+{
+    const QString dataDir = Settings::dataDir();
+    const QString appDir = QDir::toNativeSeparators(QCoreApplication::applicationDirPath());
+    plugin::Host::Options options;
+    options.userPluginDir = dataDir + u"\\plugins"_s;
+    if (QFileInfo::exists(appDir + u"\\plugins"_s))
+        options.bundledPluginDir = appDir + u"\\plugins"_s;
+    options.logPath = dataDir + u"\\plugins.log"_s;
+    options.runnerExe = appDir + u"\\WinShunPluginHost.exe"_s;
+    options.locale = m_language;
+    options.theme = isDarkMode() ? u"dark"_s : u"light"_s;
+    options.version = QStringLiteral(WINSHUN_VERSION);
+    m_pluginHost = std::make_unique<plugin::Host>(options);
+    connect(&m_pluginHost->catalog(), &plugin::Catalog::changed, this, &App::pluginsChanged);
+    connect(m_pluginHost.get(), &plugin::Host::disabledAfterCrashes, this, [this](const QString& id) {
+        const plugin::Entry* e = m_pluginHost->catalog().find(id);
+        const QString name = e && e->manifest ? e->manifest->name.pick(m_language) : id;
+        m_messages->showNotification(tr("插件已停用"), tr("“%1” 连续崩溃，已停用。详见 plugins.log。").arg(name));
+    });
+    connect(m_pluginHost.get(), &plugin::Host::reloaded, this, [this](const QString& id) {
+        const plugin::Entry* e = m_pluginHost->catalog().find(id);
+        m_launcher->flash(tr("已重新加载 %1").arg(e && e->manifest ? e->manifest->name.pick(m_language) : id));
+    });
+    // Its winshun/tool calls: the plugins' own tools, made when first asked.
+    plugin::ToolBridge bridge;
+    bridge.call = [this](std::uint64_t callId, const QString& client, const QString& tool, const QJsonObject& arguments,
+                      std::function<void(mcp::ToolResult)> done) { pluginTools().host().call(callId, client, tool, arguments, std::move(done)); };
+    bridge.cancel = [this](std::uint64_t callId) {
+        if (m_pluginTools)
+            m_pluginTools->host().cancel(callId);
+    };
+    bridge.known = [this](const QString& tool) { return pluginTools().host().known(tool); };
+    m_pluginHost->setToolBridge(std::move(bridge));
+    pluginsChanged();
+    m_pluginHost->catalog().setWatching(true); // a folder put into plugins\ is a plugin at once
+    m_launcher->setPluginHost(m_pluginHost.get());
+    // Resident plugins that want starting early: after the start-up rescan
+    // has had its say (see RescanOnStartup), not with it.
+    QTimer::singleShot(10s, this, [this] {
+        if (m_pluginHost)
+            m_pluginHost->preload();
+    });
+    // On the way out: shutdown requests, two seconds, then the job ends them.
+    connect(qApp, &QCoreApplication::aboutToQuit, this, [this] {
+        if (m_pluginHost)
+            m_pluginHost->shutdown();
+    });
+}
+
+void App::pluginsChanged()
+{
+    QHash<QString, QString> folders;
+    for (const plugin::Entry& e : m_pluginHost->catalog().entries())
+        folders.insert(e.id, e.dir);
+    FileIconProvider::setPluginFolders(std::move(folders));
+}
+
+void App::applyPlugins()
+{
+    if (!m_pluginHost)
+        return;
+    m_pluginHost->setDeveloperMode(m_settings.pluginDeveloperMode);
+    if (m_pluginTools)
+        m_pluginTools->setPolicy(mcpPolicy());
+    plugin::Catalog& catalog = m_pluginHost->catalog();
+    QSet<QString> enabled;
+    QHash<QString, QString> overrides;
+    for (const PluginConfig& c : m_settings.plugins) {
+        if (c.enabled)
+            enabled.insert(c.id);
+        for (const auto& [command, keyword] : c.keywords)
+            overrides.insert(c.id + u'/' + command, keyword);
+    }
+    // Through the host where the state changes (it forgets a plugin's
+    // crashes when it is turned on again), the catalog otherwise.
+    for (const plugin::Entry& e : catalog.entries()) {
+        if (catalog.enabled(e.id) != enabled.contains(e.id))
+            m_pluginHost->setEnabled(e.id, enabled.contains(e.id));
+    }
+    catalog.setEnabled(enabled); // the ones not installed yet count too
+    m_pluginHost->setKeywordOverrides(overrides);
+    QList<std::pair<QString, QString>> web;
+    for (const WebShortcut& w : m_settings.webShortcuts)
+        web.append({w.keyword, w.name});
+    m_pluginHost->setWebKeywords(web); // [WebSearch] keeps its keywords: a plugin's alike is set aside
+    m_pluginHost->setFavoriteKeywords(favoriteKeywords(*m_favorites)); // so do the favorites
+    // Each plugin's settings: the INI's values by the manifest's types, the
+    // passwords from the Credential Manager (never in the INI).
+    for (const plugin::Entry& e : catalog.entries()) {
+        if (!e.manifest || e.manifest->settings.isEmpty())
+            continue;
+        const PluginConfig* c = m_settings.plugin(e.id);
+        m_pluginHost->setPluginSettings(e.id, plugin::secrets::settingsOf(e.id, *e.manifest, c ? c->settings : QList<std::pair<QString, QString>>()));
+    }
+    applyAiBridge(); // the cards' "给 AI 用" switches
+}
+
+void App::refreshMcpStatus()
+{
+    if (!m_settingsEditor)
+        return;
+    QString status;
+    if (m_mcpServer && m_mcpServer->listening()) {
+        QStringList names;
+        for (const mcp::McpServer::SessionInfo& s : m_mcpServer->sessions()) {
+            if (s.client.isEmpty())
+                continue;
+            const QString name = s.calls > 0 ? tr("%1（%2 次调用）").arg(s.client).arg(s.calls) : s.client;
+            if (!names.contains(name))
+                names.push_back(name);
+        }
+        status = names.isEmpty() ? tr("还没有 AI 客户端连接；连上以后显示在这里") : tr("已连接：%1").arg(names.join(u"、"_s));
+    } else if (m_settings.mcp) {
+        status = tr("没能建立连接通道，详见 WinShun.log");
+    }
+    m_settingsEditor->setMcpStatus(status);
+}
+
+void App::writeMcpToolsCache()
+{
+    if (!m_mcpHost)
+        return;
+    QFile file(Settings::dataDir() + u"\\mcp-tools.json"_s);
+    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        file.write(QJsonDocument(m_mcpHost->tools()).toJson(QJsonDocument::Compact));
 }
 
 } // namespace ws

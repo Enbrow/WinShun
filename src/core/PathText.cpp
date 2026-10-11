@@ -7,6 +7,7 @@
 #include <QDirListing>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QTimeZone>
 #include <QUrl>
 #include <QXmlStreamReader>
 
@@ -116,6 +117,30 @@ TypedPath splitTyped(const QString& text)
     return typed;
 }
 
+RelativePath splitRelative(const QString& text)
+{
+    const QString line = text.trimmed();
+    const auto separator = [](QChar c) { return c == u'\\' || c == u'/'; };
+    if (line.contains(u'\n') || line.startsWith(u'!') || !std::ranges::any_of(line, separator)
+        || (line.size() >= 2 && line[1] == u':') || line.startsWith(u"\\\\"_s) || line.startsWith(u"//"_s))
+        return {};
+    RelativePath path;
+    path.folder = separator(line.back());
+    for (const QStringView name : QStringView(line).tokenize(u'/')) {
+        for (const QStringView part : name.tokenize(u'\\')) {
+            if (part.isEmpty())
+                continue;
+            if (part == u"." || part == u".." || part.front().isSpace() || part.back().isSpace()
+                || !std::ranges::all_of(part, isNameChar))
+                return {};
+            path.names.append(part.toString());
+        }
+    }
+    if (path.names.isEmpty())
+        return {};
+    return path;
+}
+
 SearchResults listTyped(const TypedPath& typed, bool foldersOnly, int max)
 {
     if (typed.folder.isEmpty() || max <= 0)
@@ -134,6 +159,7 @@ SearchResults listTyped(const TypedPath& typed, bool foldersOnly, int max)
         row.name = entry.fileName();
         row.path = prefix + row.name;
         row.isDir = entry.isDir();
+        row.modified = static_cast<std::uint32_t>(std::max<qint64>(0, entry.lastModified(QTimeZone::UTC).toSecsSinceEpoch()));
         const int score = all ? 0 : matcher.matchName(wtf8::fromUtf16(wtf8::view(row.name)));
         if (score >= 0)
             found.push_back({std::move(row), score});
@@ -148,7 +174,8 @@ SearchResults listTyped(const TypedPath& typed, bool foldersOnly, int max)
             return a.score > b.score;
         return collator.compare(a.row.name, b.row.name) < 0;
     };
-    const bool self = all && QFileInfo(typed.folder).isDir();
+    const QFileInfo folderInfo(typed.folder);
+    const bool self = all && folderInfo.isDir();
     const auto keep = std::min<std::size_t>(found.size(), static_cast<std::size_t>(max - (self ? 1 : 0)));
     std::ranges::partial_sort(found, found.begin() + static_cast<std::ptrdiff_t>(keep), before);
 
@@ -160,6 +187,7 @@ SearchResults listTyped(const TypedPath& typed, bool foldersOnly, int max)
         const qsizetype slash = typed.folder.lastIndexOf(u'\\');
         row.name = slash < 0 || slash == typed.folder.size() - 1 ? typed.folder : typed.folder.mid(slash + 1);
         row.isDir = true;
+        row.modified = static_cast<std::uint32_t>(std::max<qint64>(0, folderInfo.lastModified(QTimeZone::UTC).toSecsSinceEpoch()));
         rows.append(std::move(row));
     }
     for (std::size_t i = 0; i < keep; ++i)

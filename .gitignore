@@ -6,3 +6,4 @@
 CMakeUserPresets.json
 *.user
 __pycache__/
+/tools/screenshots/work/

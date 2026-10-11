@@ -5,6 +5,7 @@
 #include "ContentIndexer.h"
 #include "Crawler.h"
 #include "FileIndex.h"
+#include "ShareIndexer.h"
 
 #include <QObject>
 #include <QString>
@@ -41,6 +42,8 @@ namespace ws {
 //      them again in the background; it is saved with the snapshot
 //   7. its files (see indexfolder) can be moved to another folder while it
 //      runs (moveTo)
+//   8. network shares the user added: each a root of the index of its own,
+//      kept current by the ShareIndexer
 //
 // The first run has no snapshot: the (empty) index is searchable at once and
 // fills up while the volumes are read. There is only ever one index in memory.
@@ -57,6 +60,7 @@ public:
         bool rescanOnStartup = true; // walked volumes only: NTFS always catches up
         int rescanDelayMs = 15000;
         ContentIndexer::Options content;
+        ShareIndexer::Options shares;
     };
 
     // `folder` holds the index files (indexfolder), or will.
@@ -102,6 +106,7 @@ public:
     // Content searches hand it what they read (ContentIndexer::Intake).
     ContentIndexer* contentIndexer() const noexcept { return m_contentIndexer.get(); }
     State state() const noexcept { return m_state.load(); }
+    ShareIndexer& shares() const noexcept { return *m_shares; }
     bool isRefreshing() const noexcept { return m_refreshing.load(); }
     std::size_t itemCount() const;
     // A volume being read from disk now: its MFT, or walked.
@@ -119,6 +124,7 @@ signals:
     // 0 once the files are in the new folder (and the old ones deleted), else
     // a Win32 error code; ERROR_CANCELLED when it was shut down meanwhile.
     void moveFinished(int error);
+    void sharesChanged(); // shares().statuses() differ
 
 private:
     // What a worker run reads again: everything (Full), the walked volumes
@@ -147,7 +153,6 @@ private:
         std::stop_token stop, std::vector<std::unique_ptr<Followed>>& followed, std::vector<std::size_t> walkLater);
     void ensureWatcher(); // watches the volumes that are walked; never with m_journalMutex held
     void onChanges(std::vector<FsChange>&& changes);
-    void applyChanges(FileIndex& index, const std::vector<FsChange>& changes, const Crawler& crawler);
     // Files on the volume may have changed without the journal saying so:
     // the content index checks them again.
     void contentUnsureOf(const std::wstring& root);
@@ -196,6 +201,7 @@ private:
 
     std::shared_ptr<ContentIndex> m_content;
     std::unique_ptr<ContentIndexer> m_contentIndexer;
+    std::unique_ptr<ShareIndexer> m_shares;
     std::atomic<bool> m_compactOwed {false}; // put off while ids were pinned
 
     // The files on disk: saving, loading and moving them, and where they are.

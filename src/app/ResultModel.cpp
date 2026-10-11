@@ -1,11 +1,13 @@
 #include "ResultModel.h"
 
 #include "AppCatalog.h"
+#include "FileIndex.h"
 #include "FileIconProvider.h"
 #include "Pinyin.h"
 #include "SystemCatalog.h"
 #include "WebShortcut.h"
 #include "Wtf8.h"
+#include "platform/SiteIcons.h"
 
 #include <QGuiApplication>
 #include <QLocale>
@@ -81,6 +83,8 @@ QString appOrigin(const SearchResult& r)
         return ResultModel::tr("Windows 安全中心");
     case AppKind::Tool:
         return describeCommand(r.target); // "diskmgmt.msc", the folder
+    case AppKind::Plugin:
+        return r.plugin ? r.plugin->subtitle : QString();
     default:
         return r.target.isEmpty() ? ResultModel::tr("Windows 系统应用") : r.target; // no file: Control Panel, Run, ...
     }
@@ -91,10 +95,18 @@ QString appOrigin(const SearchResult& r)
 ResultModel::ResultModel(QObject* parent)
     : QAbstractListModel(parent)
 {
-    // Store apps' logos come in a light and a dark variant.
+    // Store apps' logos come in a light and a dark variant; sites' icons may sit on a plate.
     connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this] {
         if (!m_items.isEmpty())
             emit dataChanged(index(0), index(count() - 1), {IconRole});
+    });
+    // A site's icon arrived: its rows trade the browser's for it.
+    connect(siteicons::notifier(), &siteicons::Notifier::fetched, this, [this](const QString& site) {
+        for (int row = 0; row < count(); ++row) {
+            const SearchResult* r = at(row);
+            if (r && r->isWeb() && siteIconKey(r->icon) == site)
+                emit dataChanged(index(row), index(row), {IconRole});
+        }
     });
 }
 
@@ -149,10 +161,12 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
     case IsDirRole:
         return r->isDir;
     case IconRole:
-        if (r->isWeb())
-            return FileIconProvider::webIconUrl(r->target);
-        if (r->isApp()) {
+        if (r->isWeb() || r->isApp()) {
             const bool dark = QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark;
+            if (r->isWeb())
+                return FileIconProvider::webIconUrl(r->icon.isEmpty() ? r->target : r->icon, dark);
+            if (r->isPlugin())
+                return FileIconProvider::pluginIconUrl(r->plugin->pluginId, r->plugin->icon, dark);
             if (r->isPlace() && r->icon.startsWith(u"app:")) // the logo of Settings, of Windows Security
                 return FileIconProvider::appIconUrl(r->icon.mid(4), true, dark);
             if (r->isPlace())
@@ -163,7 +177,7 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
     case SnippetHtmlRole:
         if (r->snippet.isEmpty())
             return QString();
-        return highlighted(r->snippet, {{r->snippetMatchStart, r->snippetMatchLength}}, m_highlightColor);
+        return highlighted(r->snippet, r->snippetMatches, m_highlightColor);
     case LineRole:
         return r->line;
     case LocationRole:
@@ -190,6 +204,18 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
         return r->isApp() ? QString() : modifiedText(r->modified, QDateTime::currentDateTime());
     case ModifiedFullRole:
         return r->isApp() ? QString() : modifiedFullText(r->modified);
+    case OfflineRole:
+        return r->offline;
+    case PluginRole:
+        return r->isPlugin();
+    case SourceRole:
+        return r->isPlugin() ? r->plugin->source : QString();
+    case FavoriteRole:
+        return r->favorite;
+    case FavoriteKeywordRole:
+        return r->favoriteKeyword;
+    case MissingRole:
+        return r->missing;
     default:
         return {};
     }
@@ -218,6 +244,12 @@ QHash<int, QByteArray> ResultModel::roleNames() const
         {SelectedRole, "selected"},
         {ModifiedRole, "modified"},
         {ModifiedFullRole, "modifiedFull"},
+        {OfflineRole, "offline"},
+        {PluginRole, "plugin"},
+        {SourceRole, "source"},
+        {FavoriteRole, "favorite"},
+        {FavoriteKeywordRole, "favoriteKeyword"},
+        {MissingRole, "missing"},
     };
 }
 
@@ -286,6 +318,15 @@ void ResultModel::append(const SearchResults& items)
     emit countChanged();
 }
 
+void ResultModel::insert(int row, const SearchResult& item)
+{
+    row = std::clamp(row, 0, count());
+    beginInsertRows({}, row, row);
+    m_items.insert(row, item);
+    endInsertRows();
+    emit countChanged();
+}
+
 bool ResultModel::remove(const QString& path)
 {
     const int row = indexOf(path);
@@ -340,8 +381,8 @@ void ResultModel::retranslate()
 // day of the week within the last week, the day this year, else the date.
 QString ResultModel::modifiedText(std::uint32_t modified, const QDateTime& now)
 {
-    if (modified == 0)
-        return {};
+    if (knownTime(modified) == 0)
+        return {}; // 1970-01-01 and the like: not a time anyone wrote it
     const QLocale locale;
     const QDateTime when = QDateTime::fromSecsSinceEpoch(modified).toLocalTime();
     const QDate day = when.date();
@@ -364,7 +405,7 @@ QString ResultModel::modifiedText(std::uint32_t modified, const QDateTime& now)
 
 QString ResultModel::modifiedFullText(std::uint32_t modified)
 {
-    if (modified == 0)
+    if (knownTime(modified) == 0)
         return {};
     const QDateTime when = QDateTime::fromSecsSinceEpoch(modified).toLocalTime();
     //: When a file was last written, in full, as QLocale::toString formats it: "Oct 3, 2026, 14:32"

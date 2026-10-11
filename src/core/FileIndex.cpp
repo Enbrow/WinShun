@@ -9,14 +9,15 @@
 #include <cassert>
 #include <cstring>
 #include <cwctype>
+#include <tuple>
 
 namespace ws {
 
 namespace {
 
-std::uint8_t hanFlag(std::string_view name) noexcept
+std::uint8_t hanFlag(const FileIndex& index, std::uint32_t nameOffset) noexcept
 {
-    return pinyin::hasHan(name) ? EntryFlag::Han : 0;
+    return index.nameHasHan(nameOffset) ? EntryFlag::Han : 0;
 }
 
 // Children a writer's lookup walks through before it builds a ChildTable.
@@ -118,6 +119,21 @@ std::span<const Entry> FileIndex::chunk(std::size_t index) const noexcept
     return {m_chunks[index].get(), n};
 }
 
+FileIndex::MemoryUse FileIndex::memoryUse() const noexcept
+{
+    MemoryUse use;
+    use.entries = m_chunks.size() * kChunkSize * sizeof(Entry);
+    use.times = m_times.size() * kChunkSize * sizeof(FileTime);
+    use.names = m_names.size() * (kNameChunkSize + text::kReadPastEnd);
+    use.nameBytes = m_names.empty() ? 0 : (m_names.size() - 1) * kNameChunkSize + m_nameUsed; // roughly: chunks end early
+    for (const auto& [root, table] : m_folderRecords)
+        use.folderRecords += table.capacity() * 8;
+    for (const auto& [folder, table] : m_childTables)
+        use.childTables += (table.buckets.capacity() + table.previous.capacity()) * sizeof(EntryId);
+    use.intern = m_intern.capacity() * sizeof(std::uint64_t);
+    return use;
+}
+
 EntryId FileIndex::allocate()
 {
     if ((m_count >> kChunkBits) == m_chunks.size()) {
@@ -184,7 +200,7 @@ void FileIndex::setInterning(bool enabled)
         bool known = false;
         for (std::size_t s = h & mask; m_intern[s] != 0; s = (s + 1) & mask) {
             const std::uint64_t slot = m_intern[s];
-            if (slotLength(slot) == n.size() && slotTag(slot) == tagOf(h) && nameAt(slotOffset(slot), n.size()) == n) {
+            if (slotLength(slot) == n.size() && slotTag(slot) == tagOf(h) && nameAt(slotOffset(slot)) == n) {
                 known = true;
                 break;
             }
@@ -230,6 +246,7 @@ std::size_t FileIndex::compact(bool always, const std::function<void(const Renum
     // shared a name keep sharing it. Open addressing: (old + 1) << 32 | new.
     std::vector<std::unique_ptr<char[]>> oldNames;
     oldNames.swap(m_names);
+
     m_nameUsed = kNameChunkSize; // the next name starts a new chunk
     std::vector<std::uint64_t> moved(std::bit_ceil(std::max<std::size_t>(live / 2, 1024)), 0);
     std::size_t movedCount = 0;
@@ -254,8 +271,7 @@ std::size_t FileIndex::compact(bool always, const std::function<void(const Renum
             moved.swap(bigger);
             s = slotFor(moved, key);
         }
-        const char* old = oldNames[e.nameOffset >> kNameChunkBits].get() + (e.nameOffset & (kNameChunkSize - 1));
-        const std::uint32_t offset = appendName({old, e.nameLength});
+        const std::uint32_t offset = appendName(storedName(nameRecord(oldNames, e.nameOffset)));
         moved[s] = (key << 32) | offset;
         ++movedCount;
         return offset;
@@ -303,7 +319,7 @@ void FileIndex::internInsert(std::uint64_t slot, std::size_t hash) noexcept
         m_internCount = 0;
         for (const std::uint64_t s : old) {
             if (s != 0)
-                internInsert(s, hashName(nameAt(slotOffset(s), slotLength(s))));
+                internInsert(s, hashName(nameAt(slotOffset(s))));
         }
     }
     const std::size_t mask = m_intern.size() - 1;
@@ -316,14 +332,14 @@ void FileIndex::internInsert(std::uint64_t slot, std::size_t hash) noexcept
 
 std::uint32_t FileIndex::storeName(std::string_view name)
 {
+    name = name.substr(0, kMaxName);
     if (m_intern.empty())
         return appendName(name);
     const std::size_t h = hashName(name);
     const std::size_t mask = m_intern.size() - 1;
     for (std::size_t i = h & mask; m_intern[i] != 0; i = (i + 1) & mask) {
         const std::uint64_t slot = m_intern[i];
-        if (slotLength(slot) == name.size() && slotTag(slot) == tagOf(h)
-            && nameAt(slotOffset(slot), name.size()) == name)
+        if (slotLength(slot) == name.size() && slotTag(slot) == tagOf(h) && nameAt(slotOffset(slot)) == name)
             return slotOffset(slot);
     }
     const std::uint32_t offset = appendName(name);
@@ -333,14 +349,29 @@ std::uint32_t FileIndex::storeName(std::string_view name)
 
 std::uint32_t FileIndex::appendName(std::string_view name)
 {
-    if (m_nameUsed + name.size() > kNameChunkSize) {
-        // Padding lets SIMD name matching read a little past the last name.
+    name = name.substr(0, kMaxName);
+    // Length and extension length. An empty name (never on a disk) takes the
+    // two-byte length: a zero byte ends the chunk, and every record is 3
+    // bytes at least (name searches rely on that).
+    const std::size_t head = !name.empty() && name.size() < 0x80 ? 2 : 3;
+    if (m_nameUsed + head + name.size() > kNameChunkSize) {
+        // Zeroed: the rest of a chunk reads as its end. Padding lets SIMD
+        // name matching read a little past the last name.
         m_names.push_back(std::make_unique<char[]>(kNameChunkSize + text::kReadPastEnd));
         m_nameUsed = 0;
     }
     const auto offset = static_cast<std::uint32_t>(((m_names.size() - 1) << kNameChunkBits) + m_nameUsed);
-    std::memcpy(m_names.back().get() + m_nameUsed, name.data(), name.size());
-    m_nameUsed += name.size();
+    auto* p = reinterpret_cast<unsigned char*>(m_names.back().get() + m_nameUsed);
+    if (head == 2) {
+        *p++ = static_cast<unsigned char>(name.size());
+    } else {
+        *p++ = static_cast<unsigned char>(0x80 | (name.size() >> 8));
+        *p++ = static_cast<unsigned char>(name.size() & 0xFF);
+    }
+    const std::uint8_t ext = extensionLength(name, false);
+    *p++ = static_cast<unsigned char>((ext < 0x80 ? ext : 0) | (pinyin::hasHan(name) ? 0x80 : 0));
+    std::memcpy(p, name.data(), name.size());
+    m_nameUsed += head + name.size();
     return offset;
 }
 
@@ -414,30 +445,26 @@ void FileIndex::unlink(EntryId child)
 
 EntryId FileIndex::addRoot(std::string_view name)
 {
-    return addStored(kNoEntry, storeName(name), static_cast<std::uint16_t>(name.size()), 0);
+    return addStored(kNoEntry, storeName(name), 0);
 }
 
 EntryId FileIndex::add(EntryId parent, std::string_view name, std::uint8_t flags)
 {
-    return addStored(
-        parent, storeName(name), static_cast<std::uint16_t>(std::min<std::size_t>(name.size(), 0xFFFF)), flags);
+    return addStored(parent, storeName(name), flags);
 }
 
-EntryId FileIndex::addStored(EntryId parent, std::uint32_t nameOffset, std::uint16_t nameLength, std::uint8_t flags)
+EntryId FileIndex::addStored(EntryId parent, std::uint32_t nameOffset, std::uint8_t flags)
 {
     const EntryId id = allocate();
-    const std::string_view name = nameAt(nameOffset, nameLength);
     Entry& e = mut(id);
     e = Entry {};
     setModified(id, 0); // a slot freed by compact() may be used again
     e.nameOffset = nameOffset;
-    e.nameLength = nameLength;
     if (parent == kNoEntry) {
-        e.flags = static_cast<std::uint8_t>(EntryFlag::Directory | EntryFlag::Root | hanFlag(name));
+        e.flags = static_cast<std::uint8_t>(EntryFlag::Directory | EntryFlag::Root | hanFlag(*this, nameOffset));
         m_roots.push_back(id);
     } else {
-        e.flags = static_cast<std::uint8_t>((flags & ~(EntryFlag::Deleted | EntryFlag::Root | EntryFlag::Han)) | hanFlag(name));
-        e.extLength = extensionLength(name, e.isDir());
+        e.flags = static_cast<std::uint8_t>((flags & ~(EntryFlag::Deleted | EntryFlag::Root | EntryFlag::Han)) | hanFlag(*this, nameOffset));
         link(parent, id);
     }
     m_live.fetch_add(1, std::memory_order_relaxed);
@@ -488,9 +515,7 @@ bool FileIndex::move(EntryId id, EntryId newParent, std::string_view newName)
         const std::uint32_t offset = storeName(newName);
         Entry& e = mut(id);
         e.nameOffset = offset;
-        e.nameLength = static_cast<std::uint16_t>(std::min<std::size_t>(newName.size(), 0xFFFF));
-        e.extLength = extensionLength(newName, e.isDir());
-        e.flags = static_cast<std::uint8_t>((e.flags & ~EntryFlag::Han) | hanFlag(newName));
+        e.flags = static_cast<std::uint8_t>((e.flags & ~EntryFlag::Han) | hanFlag(*this, offset));
     }
     link(newParent, id); // under the new one
     return true;
@@ -660,24 +685,54 @@ EntryId FileIndex::pathForUpdate(std::wstring_view path)
         path, [this](EntryId parent, std::string_view name) { return childForUpdate(parent, name, false); });
 }
 
-template <typename Lookup> EntryId FileIndex::walkPath(std::wstring_view path, Lookup&& lookup) const
+// The share root `path` is in ("\\host\share" or a folder in it), and where
+// in `path` it ends. With roots for both a share and a folder in it, the
+// longer one.
+std::pair<EntryId, std::size_t> FileIndex::shareRootOf(std::wstring_view path) const
 {
-    if (path.size() < 2 || path[1] != L':')
-        return kNoEntry;
-    const auto drive = static_cast<unsigned char>(std::towupper(path[0]) & 0x7F);
-    EntryId cur = kNoEntry;
+    std::pair<EntryId, std::size_t> best {kNoEntry, 0};
+    std::u16string wide;
     for (EntryId r : m_roots) {
         const std::string_view rn = name(r);
-        if (rn.size() >= 2 && text::fold(rn[0]) == text::fold(static_cast<char>(drive)) && rn[1] == ':') {
-            cur = r;
-            break;
+        if (!rn.starts_with("\\\\"))
+            continue;
+        wide.clear();
+        wtf8::decodeAppend(wide, rn);
+        if (wide.size() <= best.second || path.size() < wide.size()
+            || (path.size() > wide.size() && path[wide.size()] != L'\\' && path[wide.size()] != L'/'))
+            continue;
+        const bool same = std::equal(wide.begin(), wide.end(), path.begin(), [](char16_t a, wchar_t b) {
+            return a == b || (b == L'/' && a == u'\\')
+                || std::towupper(static_cast<wint_t>(a)) == std::towupper(static_cast<wint_t>(b));
+        });
+        if (same)
+            best = {r, wide.size()};
+    }
+    return best;
+}
+
+template <typename Lookup> EntryId FileIndex::walkPath(std::wstring_view path, Lookup&& lookup) const
+{
+    EntryId cur = kNoEntry;
+    std::size_t i = 2;
+    if (path.starts_with(L"\\\\")) {
+        std::tie(cur, i) = shareRootOf(path);
+    } else {
+        if (path.size() < 2 || path[1] != L':')
+            return kNoEntry;
+        const auto drive = static_cast<unsigned char>(std::towupper(path[0]) & 0x7F);
+        for (EntryId r : m_roots) {
+            const std::string_view rn = name(r);
+            if (rn.size() >= 2 && text::fold(rn[0]) == text::fold(static_cast<char>(drive)) && rn[1] == ':') {
+                cur = r;
+                break;
+            }
         }
     }
     if (cur == kNoEntry)
         return kNoEntry;
 
     std::string component;
-    std::size_t i = 2;
     while (i < path.size()) {
         while (i < path.size() && (path[i] == L'\\' || path[i] == L'/'))
             ++i;

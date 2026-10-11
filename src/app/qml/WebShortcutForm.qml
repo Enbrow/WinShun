@@ -3,21 +3,23 @@ import WinShun
 
 // Adding or changing a web shortcut in the settings (网页搜索): its keyword,
 // its name, the address it searches with %s where the words go, and the page
-// the keyword alone opens. SettingsEditor checks and saves it, or says what
-// is wrong. Enter saves, Esc puts it away.
+// the keyword alone opens, and a picture of the user's for its icon.
+// SettingsEditor checks and saves it, or says what is wrong. Enter saves,
+// Esc puts it away.
 Item {
     id: form
 
     required property SettingsEditor editor
     property int index: -1 // the one being changed; -1: a new one
-    property var shortcut: ({ keyword: "", name: "", url: "", home: "" })
+    property var shortcut: ({ keyword: "", name: "", url: "", home: "", icon: "", homeUrl: "" })
     property string error
+    property string icon: form.shortcut.icon || "" // a picture chosen (SettingsEditor::pickWebIcon); empty: the site's
 
     signal finished()
 
     function save() {
         form.error = form.editor.saveWebShortcut(form.index, keywordField.text, nameField.text, urlField.text,
-                                                 homeField.text)
+                                                 homeField.text, form.icon)
         if (form.error.length === 0)
             form.finished()
     }
@@ -118,6 +120,75 @@ Item {
             placeholder: qsTr("只输入关键词时打开的网址；不填就打开搜索网址所在网站的首页")
             text: form.shortcut.home
             onAccepted: form.save()
+        }
+
+        Column {
+            width: parent.width
+            spacing: 6
+
+            Text {
+                text: qsTr("图标")
+                color: Theme.text
+                font.pixelSize: Theme.fontCaption
+            }
+            Row {
+                spacing: 10
+
+                Item { // as its rows will show it
+                    id: iconPreview
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 24
+                    height: 24
+
+                    Image {
+                        readonly property real dpr: Screen.devicePixelRatio
+                        readonly property int pixels: Math.round(iconPreview.width * dpr)
+
+                        // Exactly its device pixels, unsmoothed (as in ResultRow).
+                        x: 1 / 64
+                        y: 1 / 64
+                        width: pixels / dpr
+                        height: pixels / dpr
+                        sourceSize.width: pixels / dpr
+                        sourceSize.height: pixels / dpr
+                        smooth: false
+                        asynchronous: true
+                        // A new one has no site yet: the browser's icon ("https:" has no host).
+                        source: form.editor.siteIconsArrived >= 0
+                                ? form.editor.webIconUrl(form.icon.length > 0 ? "custom:" + form.icon
+                                                                             : (form.shortcut.homeUrl || "https:"),
+                                                         Theme.dark)
+                                : ""
+                    }
+                }
+                FlatButton {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("选择图片…")
+                    onClicked: {
+                        const picked = form.editor.pickWebIcon()
+                        if (picked.error) {
+                            form.error = picked.error
+                        } else if (picked.icon) {
+                            form.icon = picked.icon
+                            form.error = ""
+                        }
+                    }
+                }
+                FlatButton {
+                    visible: form.icon.length > 0
+                    anchors.verticalCenter: parent.verticalCenter
+                    flat: true
+                    text: qsTr("用网站的图标")
+                    onClicked: form.icon = ""
+                }
+            }
+            Text {
+                width: parent.width
+                text: qsTr("PNG 或 ICO，方形最好；不选就用网站自己的图标")
+                color: Theme.subtext
+                font.pixelSize: Theme.fontCaption
+                wrapMode: Text.Wrap
+            }
         }
 
         Text {

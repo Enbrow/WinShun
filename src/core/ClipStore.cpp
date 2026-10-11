@@ -72,6 +72,23 @@ bool run(QSqlDatabase& db, const QString& sql)
     return false;
 }
 
+// Removed entries leave their pages free inside the file, which never gets
+// smaller by itself (one big copy, pruned later, left 29 MB of free pages
+// around 0.4 MB of history), and what was removed stays in them. With
+// auto_vacuum=FULL every commit gives them back. A file made before is
+// turned into one once, by VACUUM (it copies what is in use: small).
+// (Not INCREMENTAL: its pragma frees one page per step, and Qt steps once
+// through a statement without columns.)
+void reclaimSpace(QSqlDatabase& db)
+{
+    QSqlQuery mode(db);
+    if (!mode.exec(u"PRAGMA auto_vacuum"_s) || !mode.next() || mode.value(0).toInt() == 1)
+        return;
+    mode.finish();
+    if (run(db, u"PRAGMA auto_vacuum=FULL"_s))
+        run(db, u"VACUUM"_s);
+}
+
 } // namespace
 
 ClipKind kindOfText(const QString& text)
@@ -319,10 +336,16 @@ bool ClipStore::open(qint64 now)
             qWarning().noquote() << "Clipboard history: cannot open the database:" << db.lastError().text();
             return loaded;
         }
+        // A new file gives back its free pages from the start (see
+        // reclaimSpace; for one with tables already this only takes effect
+        // with a VACUUM).
+        run(db, u"PRAGMA auto_vacuum=FULL"_s);
         // WAL: a write is an append, and without a sync on every commit (the
-        // history is not worth slowing a copy down for).
+        // history is not worth slowing a copy down for). After a big write
+        // the log is cut back to 1 MB at the next checkpoint.
         run(db, u"PRAGMA journal_mode=WAL"_s);
         run(db, u"PRAGMA synchronous=NORMAL"_s);
+        run(db, u"PRAGMA journal_size_limit=1048576"_s);
         // AUTOINCREMENT: the ids given out here (explicitly) go on from the
         // highest there ever was, a removed one's too.
         const bool created = run(db,
@@ -395,7 +418,7 @@ bool ClipStore::open(qint64 now)
 
     // Pictures nothing refers to any more (removed, then the app quit before
     // they were discarded).
-    m_writer->post([this, ids](QSqlDatabase&) {
+    m_writer->post([this, ids](QSqlDatabase& db) {
         const QDir images(m_folder + u"/images"_s);
         for (const QString& name : images.entryList({u"*.png"_s}, QDir::Files)) {
             bool ok = false;
@@ -403,6 +426,7 @@ bool ClipStore::open(qint64 now)
             if (!ok || !ids.contains(id))
                 QFile::remove(images.filePath(name));
         }
+        reclaimSpace(db);
     });
     prune(now);
     return true;

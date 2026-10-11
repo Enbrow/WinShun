@@ -1,0 +1,12 @@
+{
+  "manifest": 1,
+  "id": "zero.go",
+  "name": {"zh": "书签示例", "en": "Bookmarks sample"},
+  "version": "1.0.0",
+  "description": "测试用零代码插件：dl 跳到下载文件夹，pdf <词> 是 ext:pdf <词> 的保存搜索，np <文件> 用记事本打开",
+  "commands": [
+    {"id": "dl", "keyword": "dl", "title": {"zh": "下载", "en": "Downloads"}, "icon": "glyph:U+E896", "run": {"folder": "%USERPROFILE%\\Downloads"}},
+    {"id": "pdf", "keyword": "pdf", "title": "PDF", "icon": "ext:pdf", "hint": {"zh": "文件名里的词", "en": "Words of the name"}, "run": {"search": {"query": "ext:pdf %s", "scope": "files"}}},
+    {"id": "np", "keyword": "np", "title": {"zh": "记事本", "en": "Notepad"}, "run": {"program": "%SystemRoot%\\notepad.exe", "args": "%s"}}
+  ]
+}

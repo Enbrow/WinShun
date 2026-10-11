@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ContentIndex.h"
+#include "Favorites.h"
 #include "SearchTypes.h"
 #include "WebShortcut.h"
 #include "WorkerPool.h"
@@ -38,6 +39,7 @@ public:
         Scope scope = Scope::All;
         KindOrder kindOrder = KindOrder::FilesFirst; // 全部, 文件
         RankBy rankBy = RankBy::Match; // 文件, 文件夹 (全部 always by match)
+        StartList startList = StartList::Opened; // nothing typed: what was opened, or written, last
         int limit = 100;
         QStringList history; // newest first
         QStringList contentExtensions; // e.g. {"txt"}
@@ -51,6 +53,9 @@ public:
         int contentThreads = 4;
         // 全部: a keyword typed first puts its page or search on top; names find them too.
         WebShortcuts web;
+        // Listed first with nothing typed, the first few that match first
+        // when typed, a favorite's keyword alone on top (after a web one).
+        FavoriteList favorites;
     };
 
     explicit SearchEngine(

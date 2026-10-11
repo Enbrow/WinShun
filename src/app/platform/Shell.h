@@ -33,8 +33,9 @@ void revealInExplorer(const QString& path);
 void setFileManager(filemanager::Kind kind);
 // Starts `program` with the user's normal rights (the desktop shell's), never
 // elevated, for a program to wait for (see filemanager); the others start
-// through open() and run(). Invalid when no shell runs to take them from.
-win32::UniqueHandle startUnelevated(const std::wstring& program, const std::wstring& args);
+// through open() and run(). `cwd`: its working folder; empty for ours.
+// Invalid when no shell runs to take them from.
+win32::UniqueHandle startUnelevated(const std::wstring& program, const std::wstring& args, const std::wstring& cwd = {});
 void openUrl(const QString& url); // https:, mailto: ...
 // A command or shell location ("%windir%\system32\control.exe /name X",
 // "ms-settings:display"): a place in Windows (see SystemCatalog).
@@ -64,9 +65,21 @@ struct MenuItem {
 // Native popup menu at a screen position (physical pixels). Returns the
 // chosen id, or 0 when dismissed. `shown` runs once the menu is on screen.
 int popupMenu(HWND owner, const std::vector<MenuItem>& items, POINT screenPos, std::function<void()> shown = {});
+// Shell extensions that come in with the first shell icon may hook popup
+// menus and set themselves up on the first one (Nilesoft Shell: ~350 ms).
+// Makes that first call now, on a thread of its own, and one Windows refuses:
+// nothing shows. Once per process; later calls return at once.
+void prepareMenuHooks();
 
 // The standard "select folder" dialog (modal). Returns an empty string when cancelled.
 QString pickFolder(HWND owner, const QString& title);
+// The standard "open file" dialog (modal), for one file of the kinds in
+// `filters` ({"插件压缩包", "*.zip;*.wsplugin"} pairs). Empty when cancelled.
+QString pickFile(HWND owner, const QString& title, const std::vector<std::pair<QString, QString>>& filters);
+// The standard "save as" dialog (modal), starting at `fileName`, for a file
+// of one kind ("网页搜索", "json"); asks before replacing one. Empty when cancelled.
+QString pickSaveFile(HWND owner, const QString& title, const QString& fileName, const QString& filterName,
+    const QString& extension);
 
 } // namespace ws::shell
 

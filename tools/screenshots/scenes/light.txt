@@ -1,0 +1,5 @@
+# Light theme on the "dawn" wallpaper (the README's light pictures go on dawn).
+scene --theme light --wallpaper dawn
+sleep 2500
+let p L
+run scenes\windows.txt

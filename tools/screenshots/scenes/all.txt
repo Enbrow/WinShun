@@ -1,0 +1,12 @@
+# Every shot: WinShun on the demo profile, the clipboard history filled in,
+# the light shots and the dark ones, then everything as it was.
+# Run elevated: tools\screenshots\agent.ps1 scenes\all.txt
+profile start
+# the demo folder indexed (8 s are enough once the profile has its index)
+sleep 15000
+run scenes\clipboard.txt
+run scenes\light.txt
+run scenes\taskbar.txt
+run scenes\dark.txt
+restore
+profile stop

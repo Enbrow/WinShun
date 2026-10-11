@@ -78,8 +78,10 @@ private:
     bool m_registered = false;
     bool m_warned = false; // about Ctrl+G being taken, once
     bool m_autoJump = false;
-    bool m_managerInFront = false; // a file manager's window, the last we heard
-    HWND m_pending = nullptr; // a dialog that may still be building its controls
+    HWND m_lastDialog = nullptr; // the file dialog in front last, maybe still open behind others
+    // Dialogs a file manager came to the front after (and none of them since).
+    std::vector<HWND> m_wentToManager;
+    HWND m_pending = nullptr; // a dialog that may still be building its controls, or WPS Office's being probed
     bool m_pendingFromManager = false;
     int m_retries = 0;
     QTimer m_recheck;
