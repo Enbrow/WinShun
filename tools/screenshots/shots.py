@@ -9,7 +9,7 @@ How it all goes together: README.md next to this.
            the windows' Mica takes its tint from the wallpaper, so one of the
            backgrounds below makes the window match the image it goes on.
            What was there before is noted; `restore` puts it back.
-  profile  [FOLDER] [--files DEMO] [--recent PATH ...]
+  profile  [FOLDER] [--files DEMO] [--recent PATH ...] [--number-keys ctrl|alt|off]
            A folder (work/profile) for `WinShun.exe --profile FOLDER`: the
            settings of this user, but only DEMO indexed (every other folder
            excluded; F:/Win顺演示 by default, copied from demo/ if missing),
@@ -67,21 +67,28 @@ README = (("search", "search"), ("content", "content"), ("apps", "apps"), ("plac
           ("favorites", "fav"), ("plugins", "plug1+plug2+plug3"))
 
 # The pages of a post after the cover: file, shot (several joined with "+":
-# short windows one under another), title, subtitle.
+# short windows one under another), title, subtitle[, background: "silk"
+# for a dark one]. With the cover, the taskbar page and the last page,
+# 18 images: as many as a Xiaohongshu post takes.
 PAGES = (
     ("01-search", "L-search", "打拼音首字母，[秒找文件]", "ndbg → 年度报告，三百多万个文件几毫秒搜完"),
-    ("02-content", "L-content", "搜[文件里的文字]", "Word、Excel、PPT、PDF、代码，一起搜"),
+    ("02-numbers", "L-numbers", "按住 Ctrl，[数字直达]", "每行标出序号，Ctrl+1～9 打开第几行"),
     ("03-newest", "X-newest", "找[最新的那一版]", "Ctrl+S 按修改时间排，最新的或最早的在前"),
-    ("04-apps", "L-apps", "应用和设置，[拼音直达]", "guanliqi → 任务管理器、设备管理器……"),
-    ("05-web", "X-web1+X-web3+X-web4", "网站里搜，[一步到位]", "关键词加空格再打字，直接在那个网站上搜"),
-    ("06-favorites", "L-fav", "常去的地方，[收藏起来]", "不打字就排在最前；起个关键词，cw 回车就进“财务”"),
-    ("07-plugins", "L-plug1+L-plug2+L-plug3", "算、换、查，[打完就有]", "计算、单位换算、颜色……装插件还能更多"),
-    ("08-dialog", "L-dialog", "打开、保存时[直接搜]", "对话框下面多一个搜索框，不用一层层点文件夹"),
-    ("09-clipboard", "L-clipboard", "剪贴板历史，[随叫随到]", "代替 Win+V · 拼音搜索 · 图片预览"),
-    ("11-ai", "X-ai2", "让 AI [帮你找文件]", "Claude、Cursor、VS Code 一键连上，只读、按你的权限"),
-    ("12-settings", "L-settings", "设置[一页看清]", "开关直接点，左上角还能搜设置"),
+    ("04-content", "L-content", "搜[文件里的文字]", "Word、Excel、PPT、PDF、代码，一起搜"),
+    ("05-apps", "L-apps", "应用和设置，[拼音直达]", "guanliqi → 任务管理器、设备管理器……"),
+    ("06-places", "L-places", "系统设置，[打字就到]", "shipeiqi → 网络连接，一千多个设置页都能搜"),
+    ("07-web", "X-web1+X-web3+X-web4", "网站里搜，[一步到位]", "关键词加空格再打字，直接在那个网站上搜"),
+    ("08-favorites", "L-fav", "常去的地方，[收藏起来]", "不打字就排在最前；起个关键词，cw 回车就进“财务”"),
+    ("09-plugins", "L-plug1+L-plug2+L-plug3", "算、换、查，[打完就有]", "计算、单位换算、颜色……装插件还能更多"),
+    ("10-dialog", "L-dialog", "打开、保存时[直接搜]", "对话框下面多一个搜索框，不用一层层点文件夹"),
+    ("11-clipboard", "L-clipboard", "剪贴板历史，[随叫随到]", "代替 Win+V · 拼音搜索 · 图片预览"),
+    ("12-clipocr", "L-clipocr", "图片里的字，[也能搜]", "复制过的截图，搜“西南”就找到；在本机识别，不联网"),
+    ("14-ai", "X-ai2", "让 AI [帮你找文件]", "Claude、Cursor、VS Code 一键连上，只读、按你的权限"),
+    ("15-settings", "L-setsearch", "设置[一搜就到]", "打 kjj 就找到“快捷键”，开关直接点"),
+    ("16-dark", "D-clipboard", "深色模式，[一样好看]", "跟随系统切换浅色、深色，Win11 云母效果", "silk"),
 )
-TASKBAR_PAGE = ("10-taskbar", "L-taskbar", "screen-taskbar", "任务栏上的[搜索框]", "点一下就搜，结果从任务栏上方滑出来")
+TASKBAR_PAGE = ("13-taskbar", "L-taskbar", "screen-taskbar", "任务栏上的[搜索框]", "点一下就搜，结果从任务栏上方滑出来")
+ENDING_PAGE = "17-follow"  # who made it, where to get it, follow
 
 # Covers: file, shot, preset, background.
 COVERS = (
@@ -107,10 +114,12 @@ def jobs(sets, shots, out):
             found.append(("compose", (shot(themed("D", name)), "readme", "aurora", None, None), images / f"{image}-dark.png"))
     for kind, preset, folder in (("pages", "xhs", "pages"), ("square", "square", "pages-square")):
         if kind in sets:
-            for file, name, title, subtitle in PAGES:
-                found.append(("compose", (shot(name), preset, "letters", title, subtitle), out / folder / f"{file}.png"))
+            for file, name, title, subtitle, *bg in PAGES:
+                found.append(("compose", (shot(name), preset, (bg or ["letters"])[0], title, subtitle),
+                              out / folder / f"{file}.png"))
             file, launcher, screen, title, subtitle = TASKBAR_PAGE
             found.append(("taskbar", (shot(launcher), shot(screen), title, subtitle, preset), out / folder / f"{file}.png"))
+            found.append(("ending", (preset,), out / folder / f"{ENDING_PAGE}.png"))
     if "covers" in sets:
         for file, name, preset, bg in COVERS:
             found.append(("cover", (shot(name), preset, bg), out / "covers" / f"{file}.png"))
@@ -126,6 +135,8 @@ def make(kind, args):
     if kind == "taskbar":
         launcher, screen, title, subtitle, preset = args
         return art.taskbar_page(Image.open(launcher), Image.open(screen), title, subtitle, preset)
+    if kind == "ending":
+        return art.ending(*args)
     window, preset, bg = args
     return art.cover(Image.open(window), preset, bg)
 
@@ -160,6 +171,8 @@ def main() -> None:
     c.add_argument("folder", nargs="?", default=WORK / "profile")
     c.add_argument("--files", help="the only folder indexed (default: the demo folder)")
     c.add_argument("--recent", nargs="*", help="recently opened, newest first (default: some of the demo folder)")
+    c.add_argument("--number-keys", default="off", choices=("ctrl", "alt", "off"),
+                   help="the launcher's number keys (default: off, so a held Ctrl shows nothing)")
     c = commands.add_parser("shoot")
     c.add_argument("-o", "--out", required=True)
     c.add_argument("--delay", type=float, default=0.0, help="seconds to wait first, to bring the window up")
@@ -183,7 +196,7 @@ def main() -> None:
     c.add_argument("-o", "--out", required=True)
     c.add_argument("--preset", choices=[p for p in PRESETS if PRESETS[p]], default="xhs")
     c.add_argument("--bg", default="silk", help=f"{', '.join(NAMES)} or a photo")
-    c.add_argument("--title", default="双击 Ctrl\\n搜遍整台电脑", help=r"lines split at \n; the last in the gradient")
+    c.add_argument("--title", default=art.TITLE, help=r"lines split at \n; the last in the gradient")
     c.add_argument("--badge", action="append", help='"BIG|small", between laurels; repeat for more, "" for none')
     c.add_argument("--keys", nargs="*", default=["Ctrl", "Ctrl"], help="keys floating by the window")
     c.add_argument("--tilt", nargs=3, type=float, metavar=("YAW", "PITCH", "ROLL"), help="degrees")
@@ -210,7 +223,7 @@ def main() -> None:
             return stage.restore()
         files = pathlib.Path(args.files) if args.files else stage.DEMO
         recent = args.recent if args.recent is not None else [stage.DEMO / name for name in stage.RECENT]             if files == stage.DEMO else []
-        return stage.make_profile(args.folder, files, recent)
+        return stage.make_profile(args.folder, files, recent, args.number_keys)
     if args.command == "render":
         if unknown := set(args.sets) - set(SETS):
             parser.error(f"no such set: {', '.join(sorted(unknown))} (there are {', '.join(SETS)})")

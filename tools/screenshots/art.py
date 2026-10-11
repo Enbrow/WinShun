@@ -80,8 +80,9 @@ RIBBONS = (
 GRADIENT = {True: ("#86DFFF", "#7C8DFF", "#B98BFF"), False: ("#FF7A45", "#F0436F", "#B83DB8")}
 
 # What a cover says unless told otherwise (from the top of the README).
-TITLE = "双击 Ctrl\n搜遍整台电脑"
-BADGES = ("300 万文件|几毫秒搜完", "免费开源|MIT 许可")
+TITLE = "Win顺\n让你的电脑更好用"
+BADGES = ("11 合 1|双击 Ctrl 全搞定", "免费开源|GitHub")  # 11: the README's feature sections
+SAY = "关注我，看更多效率神器"  # the maker speaking, on the cover
 REPOSITORY = "WinShun"  # by GitHub's mark
 
 # Shadows, three layers: how far each is blurred and drops, as fractions of
@@ -540,6 +541,20 @@ def turned(image, degrees):
     return sprite(image.convert("RGBa").rotate(degrees, resample=Image.BICUBIC, expand=True))
 
 
+def spun(piece, degrees, *points):
+    """A sprite turned `degrees` counterclockwise about its centre, grown to
+    hold it all, and where each of the `points` of it went."""
+    h, w = piece[1].shape
+    turn = [np.asarray(Image.fromarray(np.ascontiguousarray(c, np.float32), "F")
+                       .rotate(degrees, resample=Image.BICUBIC, expand=True)) for c in (*np.moveaxis(piece[0], 2, 0), piece[1])]
+    alpha = np.clip(turn[3], 0, 1)
+    colours = np.clip(np.dstack(turn[:3]), 0, 255 * alpha[..., None])
+    a = math.radians(degrees)
+    went = [(alpha.shape[1] / 2 + (x - w / 2) * math.cos(a) + (y - h / 2) * math.sin(a),
+             alpha.shape[0] / 2 - (x - w / 2) * math.sin(a) + (y - h / 2) * math.cos(a)) for x, y in points]
+    return (colours, alpha), went
+
+
 def laurel(height, colour):
     """A laurel branch curving up the left of a badge `height` px high, as a
     sprite."""
@@ -590,7 +605,7 @@ def badge(big, small, height, colour, leaves):
     branch = laurel(height, leaves)
     texts = [text_piece(big, face(BOLD, height * 0.34), colour)]
     if small:
-        texts.append(text_piece(small, face(BOLD, height * 0.2), colour))
+        texts.append(text_piece(small, face(BOLD, height * 0.26), colour))
     gap = round(height * 0.04)
     inner = max(t[1].shape[1] for t in texts)
     bw = branch[1].shape[1]
@@ -734,17 +749,124 @@ def github_chip(name, height, dark):
     return colours, alpha
 
 
-def maker(height, dark):
-    """LingCore's logo with its name beside it, as a sprite."""
-    logo = sprite(Image.open(ROOT / "resources/lingcore.png").convert("RGBA").resize(
+ROLE = "独立开发者"  # under LingCore's name: a person made this
+FOLLOW = "关注我，看更多效率神器"
+
+
+def avatar(height):
+    return sprite(Image.open(ROOT / "resources/lingcore.png").convert("RGBA").resize(
         (round(height), round(height)), Image.LANCZOS))
-    name = text_piece("LingCore", face(BOLD, height * 0.5), "#F4F5F8" if dark else "#15171D")
-    gap = round(height * 0.22)
-    w = round(height) + gap + name[1].shape[1]
+
+
+def maker(height, dark, role=ROLE):
+    """LingCore's logo with its name beside it and `role` after the name, on
+    one baseline (None: the name alone), as a sprite."""
+    logo = avatar(height)
+    ink, soft = ("#F4F5F8", "#C9CBD3") if dark else ("#15171D", "#5A5D68")
+    runs = [("LingCore", face(BOLD, height * 0.5), ink)]
+    if role:
+        runs.append((role, face(REGULAR, height * 0.38), soft))
+    gap, space = round(height * 0.22), round(height * 0.2)
+    h = round(height)
+    x = h + gap
+    starts = []
+    for text, font, _ in runs:
+        starts.append(x)
+        x += font.getlength(text) + space
+    w = math.ceil(x - space) + 4
+    colours, alpha = np.zeros((h, w, 3), np.float32), np.zeros((h, w), np.float32)
+    over(colours, alpha, logo, 0, 0)
+    # The name's ink centred on the logo; the role on the name's baseline.
+    top, bottom = runs[0][1].getbbox(runs[0][0], anchor="ls")[1::2]
+    base = (h - (bottom - top)) / 2 - top - 0.04 * height  # a little up: "g" hangs below
+    for (text, font, colour), left in zip(runs, starts):
+        mask = Image.new("L", (w, h))
+        ImageDraw.Draw(mask).text((left, base), text, font=font, fill=255, anchor="ls")
+        a = np.asarray(mask, np.float32) / 255
+        over(colours, alpha, (a[..., None] * rgb(colour), a), 0, 0)
+    return colours, alpha
+
+
+BYLINE = "独立开发者 · Vibe Coding"  # on the cover, at the right of the maker's row
+
+
+def byline(height, dark, text=BYLINE):
+    """`text` set as LingCore's name is in `maker` (same font, size and
+    baseline for a sprite as tall), as a sprite."""
+    ink = "#F4F5F8" if dark else "#15171D"
+    font, name = face(BOLD, height * 0.5), "LingCore"
+    h = round(height)
+    top, bottom = font.getbbox(name, anchor="ls")[1::2]
+    base = (h - (bottom - top)) / 2 - top - 0.04 * height
+    w = math.ceil(font.getlength(text)) + 4
+    mask = Image.new("L", (w, h))
+    ImageDraw.Draw(mask).text((0, base), text, font=font, fill=255, anchor="ls")
+    a = np.asarray(mask, np.float32) / 255
+    return a[..., None] * rgb(ink), a
+
+
+def follow_line(height, dark, text=f"LingCore · {ROLE} · " + FOLLOW.replace("，", "")):
+    """A small line for the foot of a page: the avatar and who made it, as a
+    sprite."""
+    logo = avatar(height)
+    words = text_piece(text, face(REGULAR, height * 0.62), "#C9CBD3" if dark else "#5A5D68")
+    gap = round(height * 0.3)
+    w = round(height) + gap + words[1].shape[1]
     colours, alpha = np.zeros((round(height), w, 3), np.float32), np.zeros((round(height), w), np.float32)
     over(colours, alpha, logo, 0, 0)
-    over(colours, alpha, name, round(height) + gap, (height - name[1].shape[0]) / 2)
+    over(colours, alpha, words, round(height) + gap, (height - words[1].shape[0]) / 2)
     return colours, alpha
+
+
+BUBBLE = 0.59  # how much of a speech sprite is the bubble; the rest, over it, is the thumb
+# The thumb of a thumbs-up icon (iconfont's 👍), in its own units: from the
+# front of its foot up to the tip, round it, and down the back, which curves
+# in and ends on the hand's top left corner, THUMB_FOOT.
+THUMB = (((646.97, 423.14), (739.16, 82.68), (583.45, 65.29), (583.45, 65.29)),
+         ((583.45, 65.29), (517.46, 65.29), (531.14, 117.47), (526.15, 126.17)),
+         ((526.15, 126.17), (526.15, 292.67), (349.30, 423.14), (349.30, 423.14)))
+THUMB_FOOT = (349.30, 423.14)
+SWING = 6  # degrees the bubble is turned on the cover, its thumb's end up
+
+
+def speech(text, height, dark):
+    """A speech bubble with `text` and a thumb up on its right end (👍: the
+    bubble is the fist), as a sprite `height` tall (thumb included).
+    Returns the colours, the alpha, how far the bubble's left end is from
+    the sprite's and how far the thumb's tip is."""
+    fill, ink = ("#2A2D36", "#F4F5F8") if dark else ("#FFFFFF", "#1B1B1F")
+    bh = round(height * BUBBLE)
+    words = text_piece(text, face(BOLD, bh * 0.46), ink)
+    pad = bh * 0.5
+    body_w = round(2 * pad + words[1].shape[1])
+    h = round(height)
+    top = h - bh  # the bubble's top; the thumb stands over it
+    # The hand's top runs a little inside the bubble, so the back meets the
+    # bubble's round right end where both run the same way (about 37 degrees); mirrored,
+    # the hand turned so the thumb stands on the right.
+    foot = (body_w - 0.5 * bh + math.sqrt(0.25 - 0.16) * bh, top + 0.1 * bh)
+    scale = (foot[1] - 1) / (THUMB_FOOT[1] - min(y for part in THUMB for _, y in part))
+
+    def at(point):
+        return foot[0] - (point[0] - THUMB_FOOT[0]) * scale, foot[1] + (point[1] - THUMB_FOOT[1]) * scale
+
+    path = []
+    for p0, p1, p2, p3 in THUMB:
+        path += [tuple((1 - q) ** 3 * a + 3 * (1 - q) ** 2 * q * b + 3 * (1 - q) * q * q * c + q ** 3 * d
+                       for a, b, c, d in zip(*map(at, (p0, p1, p2, p3)))) for q in np.linspace(0, 1, 40)]
+    lead = max(0, math.ceil(-min(p[0] for p in path)) + 2)
+    w = body_w + lead
+    k = 4
+    alpha = rounded((w, h), (lead, top, w, h), bh / 2)
+    mask = Image.new("L", (w * k, h * k))
+    ImageDraw.Draw(mask).polygon([((x + lead) * k, y * k) for x, y in path], fill=255)
+    alpha = np.maximum(alpha, np.asarray(mask.reduce(k), np.float32) / 255)
+    # Blurred a little and cut again at half: soft where thumb and bubble meet.
+    sigma = 0.025 * bh
+    alpha = np.clip((smooth(alpha, sigma) - 0.5) * math.sqrt(2 * math.pi) * sigma + 0.5, 0, 1)
+    colours = alpha[..., None] * rgb(fill)
+    over(colours, alpha, words, lead + pad - 2, top + (bh - words[1].shape[0]) / 2)
+    return colours, alpha, lead, lead + min(path, key=lambda p: p[1])[0]
 
 
 def mark(height, dark):
@@ -813,7 +935,7 @@ def compose(window, preset="readme", bg="sky", title=None, subtitle=None, seed=1
         title_h = title_block(Image.new("RGB", size), 0, title, subtitle, 0, 0, em) \
             if titled else 0
         gap = 0.045 * h if titled else 0
-        room = (w - 0.12 * w, h - title_top - title_h - gap - 0.06 * h)
+        room = (w - 0.12 * w, h - title_top - title_h - gap - 0.105 * h)  # the foot line under it
         width = min(room[0], room[1] * body_w / body_h, 1.2 * body_w)
         spare = room[1] - width * body_h / body_w
         middle = (w / 2, title_top + title_h + gap + 0.5 * spare + width * body_h / body_w / 2)
@@ -825,6 +947,8 @@ def compose(window, preset="readme", bg="sky", title=None, subtitle=None, seed=1
         pixels = put(pixels, mark(0.06 * min(size), dark), (0.06 * min(size), 0.055 * min(size)))
         made = maker(0.06 * min(size), dark)
         pixels = put(pixels, made, (size[0] - 0.06 * min(size) - made[1].shape[1], 0.055 * min(size)))
+        foot = follow_line(0.03 * h, dark)
+        pixels = put(pixels, foot, ((w - foot[1].shape[1]) / 2, h - 0.0525 * h - foot[1].shape[0] / 2))
         pixels = grain(pixels, seed)
     canvas = Image.fromarray(np.clip(np.round(pixels), 0, 255).astype(np.uint8))
     if titled:
@@ -836,11 +960,62 @@ def compose(window, preset="readme", bg="sky", title=None, subtitle=None, seed=1
     return canvas
 
 
+def ending(preset="square", bg="letters", say=SAY, github="LingCore/WinShun", seed=1):
+    """The last page of a post: who made it, the app and where to get it,
+    and the thumbs-up bubble asking to follow, one under another in the
+    middle."""
+    w, h = PRESETS[preset]
+    u = min(w, h) / 1440 * (1.2 if h > w else 1)  # upright: more room down the page
+    pixels, dark = background(bg, (w, h))
+    ink, soft = ("#F5F5F7", "#C9CBD3") if dark else ("#1B1B1F", "#4A4D57")
+    sys.path.insert(0, str(ROOT / "tools"))
+    import make_icon
+    app_font = face(BOLD, 76 * u)
+    app_name = text_piece("Win顺", app_font, ink)
+    icon = sprite(make_icon.render(round(1.08 * app_name[1].shape[0])))
+    said_h = round(1.5 * 88 * u / BUBBLE)
+    bubble = speech(say, said_h, dark)
+    body_h = round(said_h * BUBBLE)
+    middle = ((bubble[2] + bubble[1].shape[1]) / 2, bubble[1].shape[0] - body_h / 2)
+    bubble, (went,) = spun(bubble, SWING, middle)
+    rows = [  # sprite, gap over it
+        (avatar(300 * u), 0),
+        (text_piece("LingCore", face(BOLD, 112 * u), ink), 34 * u),
+        (text_piece(BYLINE, face(REGULAR, 50 * u), soft), 18 * u),
+        (None, 96 * u),  # the app: its icon and name, then where it is
+        (github_chip(github, round(92 * u), dark), 34 * u),
+        (text_piece("免费开源 · 双击 Ctrl 就能用", face(REGULAR, 44 * u), soft), 26 * u),
+        (bubble, 70 * u),
+    ]
+    app_w = icon[1].shape[1] + 0.2 * app_font.size + app_name[1].shape[1]
+    app_h = max(icon[1].shape[0], app_name[1].shape[0])
+    total = sum(gap + (app_h if piece is None else piece[1].shape[0]) for piece, gap in rows)
+    y = (h - total) / 2
+    for piece, gap in rows:
+        y += gap
+        if piece is None:
+            x = (w - app_w) / 2
+            pixels = put(pixels, icon, (x, y + (app_h - icon[1].shape[0]) / 2))
+            pixels = put(pixels, app_name, (x + icon[1].shape[1] + 0.2 * app_font.size,
+                                            y + (app_h - app_name[1].shape[0]) / 2))
+            y += app_h
+            continue
+        if piece is bubble:  # the bubble's body in the middle, the thumb as it falls
+            pixels = put(pixels, piece, (w / 2 - went[0], y), 0.12 * body_h, dark)
+        else:
+            lift = 0.12 * piece[1].shape[0] if rows[4][0] is piece else 0
+            pixels = put(pixels, piece, ((w - piece[1].shape[1]) / 2, y), lift, dark)
+        y += piece[1].shape[0]
+    pixels = grain(pixels, seed)
+    return Image.fromarray(np.clip(np.round(pixels), 0, 255).astype(np.uint8))
+
+
 def cover(window, preset="xhs", bg="silk", title=TITLE, badges=BADGES, keys=("Ctrl", "Ctrl"), tilt=None, seed=1,
-          github=REPOSITORY):
+          github=REPOSITORY, say=SAY):
     """The first image of a post. Upright images: the name at the top left,
-    the title centred under it, the badges in a row, GitHub's mark with the
-    repository's name (`github`, None for none) under them, and the window
+    the maker at the top right, the title centred under it, the badges in a
+    row, under them the maker saying `say` (None: GitHub's mark with the
+    repository's name, `github`; both None for neither), and the window
     turned below, running off the bottom; wide ones: the title, badges and
     GitHub on the left, the window on the right running off the edges."""
     size = PRESETS[preset] or PRESETS["xhs"]
@@ -854,9 +1029,10 @@ def cover(window, preset="xhs", bg="silk", title=TITLE, badges=BADGES, keys=("Ct
     v = u * min(1.0, 0.75 * h / w) if upright else u  # upright but less tall (square): tighter down the page
 
     corner = (84 * u, 80 * u) if upright else (64 * u, 60 * u)
-    pixels = put(pixels, mark((96 if upright else 80) * u, dark), corner)
-    made = maker((96 if upright else 80) * u, dark)
-    pixels = put(pixels, made, (w - corner[0] - made[1].shape[1], corner[1]))
+    row_h = (96 if upright else 80) * u
+    pixels = put(pixels, maker(row_h, dark, role=None), corner)  # the maker at the top left, who they are at the right
+    said = byline(row_h, dark)
+    pixels = put(pixels, said, (w - corner[0] - said[1].shape[1], corner[1]))
 
     # The title, its last line in the gradient with a sparkle at its end.
     size_t = 150 * v if upright else 104 * u
@@ -870,11 +1046,19 @@ def cover(window, preset="xhs", bg="silk", title=TITLE, badges=BADGES, keys=("Ct
             pitch *= 0.4 * w / widest
             pieces = [text_piece(line, font, GRADIENT[dark] if i == len(lines) - 1 else ink)
                       for i, line in enumerate(lines)]
-    y = 240 * v if upright else 200 * u
+    y = max(240 * v, corner[1] + 132 * u) if upright else 200 * u  # clear of the top row (square: tight)
     x_text = 96 * u
     last = None
-    for p in pieces:
-        x = (w - p[1].shape[1]) / 2 if upright else x_text
+    sys.path.insert(0, str(ROOT / "tools"))
+    import make_icon
+    for i, p in enumerate(pieces):
+        # The app's icon left of the first line, as tall as its ink, the two
+        # centred together.
+        icon = sprite(make_icon.render(round(1.08 * p[1].shape[0]))) if i == 0 else None
+        lead = icon[1].shape[1] + 0.2 * font.size if icon else 0
+        x = (w - p[1].shape[1] + lead) / 2 if upright else x_text + lead
+        if icon:
+            pixels = put(pixels, icon, (x - lead, y - 2 + (p[1].shape[0] - icon[1].shape[0]) / 2))
         pixels = put(pixels, p, (x - 2, y - 2))
         last = (x, y, x + p[1].shape[1] - 4, y + p[1].shape[0] - 4)
         y += pitch
@@ -897,6 +1081,7 @@ def cover(window, preset="xhs", bg="silk", title=TITLE, badges=BADGES, keys=("Ct
     top = last[3] + (90 * v if upright else 64 * u)
     if made:
         x = (w - total) / 2 if upright else x_text - 0.12 * badge_h
+        gap = x + made[0][1].shape[1] + space / 2 if len(made) > 1 else None  # between the first two
         for m in made:
             pixels = put(pixels, m, (x, top))
             x += m[1].shape[1] + space
@@ -904,16 +1089,38 @@ def cover(window, preset="xhs", bg="silk", title=TITLE, badges=BADGES, keys=("Ct
         seen = top + inked.max() + 1  # where the laurels end, as one sees it
         top += badge_h
     else:
-        seen = top
+        seen, gap = top, None
 
     # GitHub's mark and the name on a pill: upright, in the middle of the gap
     # between the badges and the window (placed below); wide, under the badges.
     chip_h = round(88 * v if upright else 72 * u)
-    chip = github_chip(github, chip_h, dark) if github else None
+    said_h = round(1.5 * chip_h / BUBBLE)  # the bubble 1.5 pills tall, the thumb over it
+    chip = speech(say, said_h, dark) if say else github_chip(github, chip_h, dark) if github else None
+    room = 0.9 * w if upright else 0.45 * w - x_text  # wide: clear of the window on the right
+    if say and chip[1].shape[1] > room:
+        said_h = round(said_h * room / chip[1].shape[1])
+        chip = speech(say, said_h, dark)
+    chip_h = chip[1].shape[0] if chip else chip_h
+    body_h = round(said_h * BUBBLE) if say else chip_h  # what is placed: the bubble, not the thumb over it
+
+    def bubble_at(pixels, x, y, gap=None):
+        """The bubble, turned up a little at the thumb's end (lively), its
+        middle where it would be unturned with its left end at x and its top
+        at y, or further right, the thumb's tip at `gap`, between the badges."""
+        made = speech(say, said_h, dark)
+        h_made, w_made = made[1].shape
+        middle = ((made[2] + w_made) / 2, h_made - body_h / 2)
+        turned_made, (went, tip) = spun(made, SWING, middle, (made[3], 0))
+        reach = tip[0] - went[0]  # the tip, right of the middle
+        centre = (x + (w_made - made[2]) / 2, y + body_h / 2)
+        if gap is not None:
+            centre = (max(centre[0], gap - reach), centre[1])
+        return put(pixels, turned_made, (centre[0] - went[0], centre[1] - went[1]), 0.12 * body_h, dark)
+
     if chip and not upright:
-        top += 36 * u
-        pixels = put(pixels, chip, (x_text, top), 0.12 * chip_h, dark)
-        top += chip_h
+        top += 36 * u + (chip_h - body_h)
+        pixels = bubble_at(pixels, x_text, top) if say else put(pixels, chip, (x_text, top), 0.12 * chip_h, dark)
+        top += body_h
 
     # The window, upright unless told otherwise, its top a little under the
     # badges (or under the pill), running off the bottom (and in wide images
@@ -927,10 +1134,13 @@ def cover(window, preset="xhs", bg="silk", title=TITLE, badges=BADGES, keys=("Ct
         corners = [(-half[0], -half[1]), (half[0], -half[1]), (half[0], half[1]), (-half[0], half[1])]
     if upright:
         middle = (w / 2, seen + (300 if chip else 190) * v - min(c[1] for c in corners))
-        if chip:  # centred between the laurels' ends and the window's top edge where the pill is
+        if chip:  # between the laurels' ends and the window's top edge; the bubble at the window's left, clear of the keys
             edge = middle[1] + (corners[0][1] + corners[1][1]) / 2
-            pixels = put(pixels, chip, ((w - chip[1].shape[1]) / 2, (seen + edge - chip_h) / 2), 0.12 * chip_h,
-                         dark)
+            if say:  # the bubble itself in the middle; the thumb goes up into the room over it
+                pixels = bubble_at(pixels, middle[0] + corners[0][0] + 0.02 * w, (seen + edge - body_h) / 2, gap)
+            else:
+                pixels = put(pixels, chip, ((w - chip[1].shape[1]) / 2, (seen + edge - chip_h) / 2), 0.12 * chip_h,
+                             dark)
     else:  # its left edge clear of the title
         middle = (0.47 * w - min(c[0] for c in corners), 0.3 * h - min(c[1] for c in corners))
     pixels = put(pixels, piece, (middle[0] - centre[0], middle[1] - centre[1]))  # no shadow under the program
@@ -943,6 +1153,7 @@ def cover(window, preset="xhs", bg="silk", title=TITLE, badges=BADGES, keys=("Ct
         x = corner[0] - (0.75 + 1.4 * i) * key_h - piece[1].shape[1] / 2
         y = corner[1] - (0.42 + 0.22 * i) * key_h - piece[1].shape[0] / 2
         pixels = put(pixels, piece, (x, y), 0.3 * key_h, dark)
+
 
     return Image.fromarray(np.clip(np.round(grain(pixels, seed)), 0, 255).astype(np.uint8))
 

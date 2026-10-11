@@ -1,0 +1,92 @@
+# The post's pages that the README doesn't have, light: the row numbers
+# (held Ctrl), words found in a picture on the clipboard, the settings
+# searched, and again those that show the version (the settings, the AI
+# page). WinShun is left off: start it again by hand if it was running.
+# Run elevated: tools\screenshots\agent.ps1 scenes\post.txt
+profile start --number-keys ctrl
+# the demo folder indexed, and the words in the history's picture read
+# (that starts 20 s after WinShun)
+sleep 35000
+# WinShun put what was on the clipboard at its start on top of the demo
+# history: Delete takes it away (see all.txt)
+notepad work\clipseed.txt
+clickfg 400 170
+sleep 600
+down 5B
+down 12
+tap 56
+up 12
+up 5B
+sleep 900
+tap 2E
+sleep 6000
+clickfg 400 170
+sleep 300
+scene --theme light --wallpaper dawn
+sleep 2500
+
+# Row numbers: Ctrl held a moment (never a digit: PixPin owns Ctrl+1..3);
+# 全部 → 文件 as in windows.txt, then back to 全部.
+open ndbg
+sleep 800
+chord 10 09
+sleep 400
+chord 10 09
+sleep 400
+chord 10 09
+sleep 800
+tap 23
+sleep 700
+down 11
+sleep 1200
+matte L-numbers
+up 11
+sleep 300
+chord 10 09
+sleep 300
+tap 1B
+sleep 600
+
+# The clipboard searched for a word that is only in the picture, its preview
+# open (Alt+P).
+notepad work\clipseed.txt
+clickfg 400 170
+sleep 600
+down 5B
+down 12
+tap 56
+up 12
+up 5B
+sleep 900
+type 西南
+sleep 1200
+chord 12 50
+sleep 1500
+matte L-clipocr winshun
+clickfg 400 170
+sleep 300
+
+# The settings: as they open, then searched (Ctrl+F, kjj: 快捷键), then the
+# AI page's clients; closed with Alt+F4.
+settings
+sleep 1200
+matte L-settings
+chord 11 46
+sleep 400
+type kjj
+sleep 1500
+matte L-setsearch
+chord 12 73
+sleep 500
+settings
+sleep 1200
+clickfg 120 780
+sleep 1000
+clickfg 526 177
+sleep 1200
+matte X-ai2
+chord 12 73
+sleep 500
+
+restore
+quit

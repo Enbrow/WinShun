@@ -195,11 +195,14 @@ function RunLines($lines) {
             }
             'scene' { Shots scene @($arg -split '\s+') }
             'restore' { Shots restore }
-            'profile' { # start: WinShun on work\profile, with a fresh clipboard history; stop: the user's own again
+            'quit' { QuitWs } # WinShun off (when it wasn't running before)
+            'profile' { # start [shots.py profile options]: WinShun on work\profile, with a fresh clipboard history; stop: the user's own again
                 QuitWs
+                $more = @($arg -split '\s+' | Select-Object -Skip 1 | Where-Object { $_ })
+                $arg = ($arg -split '\s+')[0]
                 if ($arg -eq 'start') {
                     # made again each time: the demo dates counted from now, the clipboard history filled in
-                    Shots profile $profileDir
+                    Shots profile $profileDir @more
                     StartWs @('--profile', "`"$profileDir`"")
                 } elseif ($arg -eq 'stop') { StartWs @() } else { throw "profile what? '$arg'" }
             }

@@ -205,11 +205,12 @@ def seed_clipboard(folder):
     return len(rows)
 
 
-def make_profile(folder, files, recent):
+def make_profile(folder, files, recent, number_keys="off"):
     """A folder for `WinShun.exe --profile <folder>`: this user's settings,
     but nothing indexed outside `files`, no update check, the built-in web
     shortcuts only, no shares, `recent` (paths, newest first) as the recently
-    opened items, the demo favorites and clipboard history.
+    opened items, the demo favorites and clipboard history, the launcher's
+    number keys `number_keys` (ctrl, alt or off).
     The demo folder is put in place first if it is not there."""
     folder = pathlib.Path(folder).resolve()
     if pathlib.Path(files) == DEMO and not DEMO.exists():
@@ -228,7 +229,7 @@ def make_profile(folder, files, recent):
                                    "Folder": ""})
     text = ini_set(text, "Update", {"Automatic": "false"})
     text = ini_drop(text, "WebSearch", "Shares")  # one's own sites and shares stay out; the defaults come back
-    text = ini_set(text, "Results", {"Sort": "match", "StartList": "recent", "NumberKeys": "off"})
+    text = ini_set(text, "Results", {"Sort": "match", "StartList": "recent", "NumberKeys": number_keys})
     (folder / "WinShun" / "WinShun.ini").write_text(text, encoding="utf-8")
     now = int(time.time() * 1000)
     lines = [f"{pathlib.Path(p)}\t1\t{now - i * 7 * 60_000}" for i, p in enumerate(recent)]

@@ -11,7 +11,7 @@ README 里的图（`docs/images/*-light.png`、`*-dark.png`）和发帖用的图
 | `capture.py` | 抠图：窗口后面放黑、白背板各拍一张算出透明度，第三张黑的用来发现光标闪烁和没停的动画 |
 | `stage.py` | 布景：只索引演示文件夹的配置（`--profile`，每次 `profile start` 重新生成：演示文件的修改时间、收藏夹和关键词、剪贴板历史都直接写进配置），临时换应用主题和壁纸、拍完换回 |
 | `agent.ps1` | 提权运行的输入代理：执行场景文件里的按键、点击、抠图命令，每次按键前确认前台是 Win顺 |
-| `scenes/` | 场景文件（代理的命令序列）：`all.txt` 拍全部，`light.txt`/`dark.txt` → `windows.txt`，`taskbar.txt` 任务栏搜索框；`区域销售额.png` 是剪贴板历史里那张图 |
+| `scenes/` | 场景文件（代理的命令序列）：`all.txt` 拍全部，`light.txt`/`dark.txt` → `windows.txt`，`taskbar.txt` 任务栏搜索框，`post.txt` 帖子另有的几张（按住 Ctrl 的序号、剪贴板搜图里的字、设置搜索、设置和 AI 页）；`区域销售额.png` 是剪贴板历史里那张图（数字用普惠体，Windows 的文字识别才不会把 371 认成 571） |
 | `demo/` | 演示文件夹的内容，`profile` 发现 `F:\Win顺演示` 不在时复制过去（这个路径会出现在对话框截图里） |
 | `work/` | 不进 git：`shots/` 原始抠图，`profile/` 演示配置，`out/` 帖子用图，`agent.txt` 代理日志 |
 
@@ -42,7 +42,7 @@ README 用哪几张抠图在 `shots.py` 的 `README` 里；帖子各页的标题
 3. 逐张看 `work/shots/` 的抠图：范围标签对不对、查询文字有没有被选中、有没有自己的文件。
 4. `shots.py render`。
 
-只补拍一部分：照 `all.txt` 写一个场景文件（先 `profile start`，拍剪贴板就照它先删掉最上面那一条，最后 `restore`、`profile stop`）。不带参数运行 `agent.ps1` 时，它执行每次写进 `work\cmd.txt` 的一批命令，适合边看边拍；帖子里只有亮色的几张（`X-newest`、`X-web1/3/4`、`X-ai2`）就是这样拍的，不在场景文件里。
+只补拍一部分：照 `all.txt` 写一个场景文件（先 `profile start`，拍剪贴板就照它先删掉最上面那一条，最后 `restore`、`profile stop`）。不带参数运行 `agent.ps1` 时，它执行每次写进 `work\cmd.txt` 的一批命令，适合边看边拍；帖子里只有亮色的几张（`X-newest`、`X-web1/3/4`）就是这样拍的，不在场景文件里。`profile start` 后面可以跟 `shots.py profile` 的参数，比如 `--number-keys ctrl`；`quit` 关掉 Win顺（原来就没在运行时用它代替 `profile stop`）。帖子最后一页（`17-follow`）不用截图，由 `art.ending` 画出来。
 
 ## 换了屏幕要改的
 
