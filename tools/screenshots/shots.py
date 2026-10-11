@@ -63,16 +63,22 @@ WORK = HERE / "work"
 # "dawn" and dark on "aurora", as the scene's wallpapers were.
 README = ("search", "content", "apps", "places", "dialog", "clipboard", "settings")
 
-# The pages of a post after the cover: file, shot, title, subtitle.
+# The pages of a post after the cover: file, shot (several joined with "+":
+# short windows one under another), title, subtitle.
 PAGES = (
-    ("1-search", "L-search", "打拼音首字母，[秒找文件]", "ndbg → 年度报告，三百多万个文件几毫秒搜完"),
-    ("2-content", "L-content", "搜[文件里的文字]", "Word、Excel、PPT、PDF、代码，一起搜"),
-    ("3-apps", "L-apps", "应用和设置，[拼音直达]", "guanliqi → 任务管理器、设备管理器……"),
-    ("4-dialog", "L-dialog", "打开、保存时[直接搜]", "对话框下面多一个搜索框，不用一层层点文件夹"),
-    ("5-clipboard", "L-clipboard", "剪贴板历史，[随叫随到]", "代替 Win+V · 拼音搜索 · 图片预览"),
-    ("6-settings", "L-settings", "设置[一页看清]", "开关直接点，左上角还能搜设置"),
+    ("01-search", "L-search", "打拼音首字母，[秒找文件]", "ndbg → 年度报告，三百多万个文件几毫秒搜完"),
+    ("02-content", "L-content", "搜[文件里的文字]", "Word、Excel、PPT、PDF、代码，一起搜"),
+    ("03-newest", "X-newest", "找[最新的那一版]", "Ctrl+S 按修改时间排，最新的或最早的在前"),
+    ("04-apps", "L-apps", "应用和设置，[拼音直达]", "guanliqi → 任务管理器、设备管理器……"),
+    ("05-web", "X-web1+X-web3+X-web4", "网站里搜，[一步到位]", "关键词加空格再打字，直接在那个网站上搜"),
+    ("06-favorites", "X-fav", "常去的地方，[收藏起来]", "不打字就排在最前；起个关键词，cw 回车就进“财务”"),
+    ("07-plugins", "X-plug1+X-plug2+X-plug3", "算、换、查，[打完就有]", "计算、单位换算、颜色……装插件还能更多"),
+    ("08-dialog", "L-dialog", "打开、保存时[直接搜]", "对话框下面多一个搜索框，不用一层层点文件夹"),
+    ("09-clipboard", "L-clipboard", "剪贴板历史，[随叫随到]", "代替 Win+V · 拼音搜索 · 图片预览"),
+    ("11-ai", "X-ai2", "让 AI [帮你找文件]", "Claude、Cursor、VS Code 一键连上，只读、按你的权限"),
+    ("12-settings", "L-settings", "设置[一页看清]", "开关直接点，左上角还能搜设置"),
 )
-TASKBAR_PAGE = ("7-taskbar", "L-taskbar", "screen-taskbar", "任务栏上的[搜索框]", "点一下就搜，结果从任务栏上方滑出来")
+TASKBAR_PAGE = ("10-taskbar", "L-taskbar", "screen-taskbar", "任务栏上的[搜索框]", "点一下就搜，结果从任务栏上方滑出来")
 
 # Covers: file, shot, preset, background.
 COVERS = (
@@ -88,7 +94,7 @@ SETS = ("readme", "pages", "square", "covers")
 
 def jobs(sets, shots, out):
     """What `render` makes: (function name, arguments, output) each."""
-    shot = lambda name: str(shots / f"{name}.png")
+    shot = lambda name: "+".join(str(shots / f"{part}.png") for part in name.split("+"))
     found = []
     if "readme" in sets:
         images = HERE.parent.parent / "docs/images"
@@ -110,7 +116,9 @@ def jobs(sets, shots, out):
 def make(kind, args):
     if kind == "compose":
         window, preset, bg, title, subtitle = args
-        return art.compose(Image.open(window), preset, bg, title, subtitle)
+        parts = window.split("+")
+        image = Image.open(window) if len(parts) == 1 else art.stacked([Image.open(p) for p in parts])
+        return art.compose(image, preset, bg, title, subtitle)
     if kind == "taskbar":
         launcher, screen, title, subtitle, preset = args
         return art.taskbar_page(Image.open(launcher), Image.open(screen), title, subtitle, preset)
@@ -127,8 +135,8 @@ def run(job):
 
 def render(sets, shots, out):
     todo = jobs(sets or SETS, shots, out)
-    missing = sorted({a for _, args, _ in todo for a in args[:2] if isinstance(a, str) and a.endswith(".png")
-                      and not pathlib.Path(a).is_file()})
+    missing = sorted({part for _, args, _ in todo for a in args[:2] if isinstance(a, str) and a.endswith(".png")
+                      for part in a.split("+") if not pathlib.Path(part).is_file()})
     if missing:
         sys.exit("shots missing (take them first, see README.md):\n  " + "\n  ".join(missing))
     with concurrent.futures.ProcessPoolExecutor() as pool:

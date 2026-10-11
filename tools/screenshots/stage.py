@@ -25,6 +25,41 @@ PROFILE_MARK = "made-for-screenshots.txt"  # a profile folder this may empty aga
 DEMO = pathlib.Path("F:/Win顺演示")
 RECENT = ("年度报告 定稿 v3.pptx", "财务", "年度报告 数据附录.xlsx", "会议纪要")
 
+# When the demo files were last changed, minutes ago (the dates in the shots
+# and the order "newest first" gives); the rest keep theirs.
+CHANGED = {
+    "年度报告 定稿 v3.pptx": 18, "年度报告 数据附录.xlsx": 75, "年度报告 致辞.docx": 60 * 26,
+    "年度报告 提纲.md": 60 * 24 * 3, "年度报告 封面.png": 60 * 24 * 5, "2026 年度报告.docx": 60 * 24 * 9,
+    "2025 年度报告.pdf": 60 * 24 * 340, "年度报告素材": 60 * 24 * 2, "财务/年度报表汇总.xlsx": 45,
+    "会议纪要/0915 季度复盘.md": 60 * 24 * 26, "董事会汇报 讲稿.txt": 60 * 5,
+}
+
+# The demo profile's favorites: kind, path in the demo folder, name, keyword.
+FAVORITES = (
+    ("folder", "财务", "财务", "cw"),
+    ("folder", "会议纪要", "会议纪要", "hy"),
+    ("file", "年度报告 定稿 v3.pptx", "年报定稿", "nb"),
+    ("folder", "年度报告素材", "年报素材", ""),
+)
+
+# The demo clipboard history, newest first: minutes ago and the text; the
+# picture (scenes/区域销售额.png, copied in Paint) is the newest.
+CLIPS = (
+    (3, "第三季度销售额 1260 万，环比增长 9%，华东区首次超过华南"),
+    (9, "年度报告 定稿 v3：第 12 页的图表换成柱状图"),
+    (24, "下周一 10:00 前提交董事会汇报讲稿"),
+    (41, "https://github.com/LingCore/WinShun"),
+    (65, "会议改到周五下午 3 点，5 楼大会议室"),
+    (130, "SELECT region, SUM(amount) FROM sales GROUP BY region;"),
+)
+
+def store_app(package, exe):
+    """The program file of a Store app (its folder has the version in it)."""
+    import subprocess  # WindowsApps can't be listed, but the package knows where it is
+    out = subprocess.run(["powershell", "-NoProfile", "-Command", f"(Get-AppxPackage {package}).InstallLocation"],
+                         capture_output=True, text=True).stdout.strip().splitlines()
+    return str(pathlib.Path(out[0]) / exe) if out else ""
+
 
 def fixed_drives():
     kernel32 = ctypes.WinDLL("kernel32")
@@ -89,10 +124,92 @@ def ini_set(text, section, values):
     return "\n".join(out) + "\n"
 
 
+def ini_drop(text, *sections):
+    """The INI text without these sections."""
+    out, skipping = [], False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            skipping = stripped[1:-1] in sections
+        if not skipping:
+            out.append(line)
+    return "\n".join(out) + "\n"
+
+
+def touch_demo(files):
+    """The demo files' dates as CHANGED says, counted back from now."""
+    now = time.time()
+    for name, minutes in CHANGED.items():
+        path = pathlib.Path(files) / name
+        if path.exists():
+            os.utime(path, (now - minutes * 60, now - minutes * 60))
+
+
+def write_favorites(folder, files):
+    entries = [{"kind": kind, "path": str(pathlib.Path(files) / path), "name": name, **({"keyword": key} if key else {})}
+               for kind, path, name, key in FAVORITES]
+    (folder / "favorites.json").write_text(json.dumps({"format": "winshun-favorites", "version": 1,
+                                                       "favorites": entries}, ensure_ascii=False, indent=2),
+                                           encoding="utf-8")
+
+
+def clip_hash(kind, text):
+    """ClipStore's clipHash: SHA-1 of a tag ('f' for files) and the UTF-16."""
+    import hashlib
+    return hashlib.sha1(("f" if kind == 3 else "t").encode() + text.encode("utf-16-le")).digest()
+
+
+def seed_clipboard(folder):
+    """The demo clipboard history written straight into the profile's
+    clipboard.db (as ClipStore keeps it), so nothing goes through the
+    system clipboard: Windows' own history, often full, would drop the
+    user's oldest entries for it. Run while WinShun is not running."""
+    import hashlib
+    import sqlite3
+    store = folder / "clipboard"
+    (store / "images").mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(store / "clipboard.db")
+    db.executescript(
+        "PRAGMA auto_vacuum=FULL;"
+        "CREATE TABLE IF NOT EXISTS clips (id INTEGER PRIMARY KEY AUTOINCREMENT, kind INTEGER NOT NULL, "
+        "text TEXT NOT NULL DEFAULT '', length INTEGER NOT NULL DEFAULT 0, html BLOB, rtf BLOB, "
+        "hash BLOB NOT NULL, created INTEGER NOT NULL, used INTEGER NOT NULL, "
+        "source TEXT NOT NULL DEFAULT '', sourcePath TEXT NOT NULL DEFAULT '', "
+        "groupId INTEGER NOT NULL DEFAULT 0, width INTEGER NOT NULL DEFAULT 0, "
+        "height INTEGER NOT NULL DEFAULT 0, bytes INTEGER NOT NULL DEFAULT 0);"
+        "CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY, name TEXT NOT NULL, position INTEGER NOT NULL);"
+        "CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+        "INSERT OR IGNORE INTO groups (id, name, position) VALUES (1, '', 0);")
+    now = int(time.time() * 1000)
+    notepad = store_app("Microsoft.WindowsNotepad", r"Notepad\Notepad.exe")
+    rows = []
+    for minutes, text in reversed(CLIPS):  # oldest first, as they were copied
+        kind = 1 if text.startswith("http") else 0
+        at = now - minutes * 60_000
+        rows.append((kind, text, len(text.encode("utf-16-le")) // 2, clip_hash(kind, text), at, at, "Notepad", notepad,
+                     0, 0, 0))
+    picture = pathlib.Path(__file__).resolve().parent / "scenes" / "区域销售额.png"
+    png = picture.read_bytes()
+    with Image.open(picture) as im:
+        size = im.size
+    at = now - 60_000
+    rows.append((4, "", 0, hashlib.sha1(png).digest(), at, at, "Paint", store_app("Microsoft.Paint", r"PaintApp\mspaint.exe"),
+                 size[0], size[1], len(png)))
+    for row in rows:
+        cur = db.execute("INSERT INTO clips (kind, text, length, hash, created, used, source, sourcePath, width, height, "
+                         "bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", row)
+        if row[0] == 4:
+            (store / "images" / f"{cur.lastrowid}.png").write_bytes(png)
+    db.commit()
+    db.close()
+    return len(rows)
+
+
 def make_profile(folder, files, recent):
     """A folder for `WinShun.exe --profile <folder>`: this user's settings,
-    but nothing indexed outside `files`, no update check, and `recent` (paths,
-    newest first) as the recently opened items; no clipboard history yet.
+    but nothing indexed outside `files`, no update check, the built-in web
+    shortcuts only, no shares, `recent` (paths, newest first) as the recently
+    opened items, the demo favorites and clipboard history.
     The demo folder is put in place first if it is not there."""
     folder = pathlib.Path(folder).resolve()
     if pathlib.Path(files) == DEMO and not DEMO.exists():
@@ -110,11 +227,17 @@ def make_profile(folder, files, recent):
     text = ini_set(text, "Index", {"ExcludedPaths": ini_list(excluded), "IncludeRemovableDrives": "false",
                                    "Folder": ""})
     text = ini_set(text, "Update", {"Automatic": "false"})
+    text = ini_drop(text, "WebSearch", "Shares")  # one's own sites and shares stay out; the defaults come back
+    text = ini_set(text, "Results", {"Sort": "match", "StartList": "recent", "NumberKeys": "off"})
     (folder / "WinShun" / "WinShun.ini").write_text(text, encoding="utf-8")
     now = int(time.time() * 1000)
     lines = [f"{pathlib.Path(p)}\t1\t{now - i * 7 * 60_000}" for i, p in enumerate(recent)]
     (folder / "history.txt").write_text("\r\n".join(lines) + ("\r\n" if lines else ""), encoding="utf-8")
-    print(f"profile in {folder}: {len(excluded)} folders excluded, {len(recent)} recent items")
+    touch_demo(files)
+    write_favorites(folder, files)
+    clips = seed_clipboard(folder)
+    print(f"profile in {folder}: {len(excluded)} folders excluded, {len(recent)} recent items, "
+          f"{len(FAVORITES)} favorites, {clips} clips")
 
 
 SCENE = pathlib.Path(tempfile.gettempdir()) / "winshun-screenshot-scene.json"

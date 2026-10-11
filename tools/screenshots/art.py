@@ -395,6 +395,27 @@ def put(pixels, piece, at, lift=0.0, dark=False, glow=None):
     return pixels
 
 
+def stacked(windows, gap=0.04):
+    """Several shots of the launcher (short ones, a row or two each) one
+    under another as one image: each without Windows' shadow, the logo
+    peeking out only from behind the first, the windows' bodies lined up on
+    the left, `gap` (of the body's width) between them."""
+    pieces = [lifted(w) for w in windows]
+    left = max(box[0] for _, box in pieces)
+    width = max(image.width - box[0] for image, box in pieces) + left
+    space = round(gap * (pieces[0][1][2] - pieces[0][1][0]))
+    placed, y = [], 0
+    for i, (image, box) in enumerate(pieces):
+        if i:  # just the body: no logo above it
+            image, box = image.crop((0, box[1], image.width, image.height)), (box[0], 0, box[2], box[3] - box[1])
+        placed.append((image, left - box[0], y))
+        y += box[3] + space
+    canvas = Image.new("RGBA", (width, max(top + image.height for image, _, top in placed)))
+    for image, x, top in placed:
+        canvas.alpha_composite(image, (x, top))
+    return canvas
+
+
 def flat(window, box, width):
     """The window scaled so that its body is `width` px wide, and where the
     body's centre is in it."""
@@ -930,7 +951,7 @@ def cover(window, preset="xhs", bg="silk", title=TITLE, badges=BADGES, keys=("Ct
 # the taskbar box (2560x1600, physical px): the launcher, the taskbar's top and
 # bottom, the part of the taskbar taken as it is (Start and the box), the box.
 # A new screen shot needs these measured again.
-TASKBAR = {"frame": (18, 617, 1158, 1510), "bar": (1528, 1600), "real": (200, 658), "box": (220, 1540, 580, 1588)}
+TASKBAR = {"frame": (18, 617, 1158, 1510), "bar": (1528, 1600), "real": (360, 818), "box": (380, 1540, 740, 1588)}
 
 
 def taskbar_page(window, screen, title, subtitle, preset="xhs", bg="letters", seed=7, places=TASKBAR):

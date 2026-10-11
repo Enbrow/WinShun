@@ -15,7 +15,7 @@
 #   shot <name> (the front window) | shotabs <name> <x> <y> <w> <h>        -> work\shots\<name>.png
 #   matte <name> [winshun] (cut out by shots.py shoot)                      -> work\shots\<name>.png
 #   scene [--theme light|dark] [--wallpaper NAME] | restore
-#   profile start | profile stop (WinShun on work\profile, made if missing; then the user's own again)
+#   profile start | profile stop (WinShun on work\profile, made afresh; then the user's own again)
 #   notepad <file> | paint <file> (files of this folder) | explorer open <folder of the demo> | explorer close
 #   canceldialogs | clip <text> | clipfile <path>
 param([string]$Scene)
@@ -198,9 +198,8 @@ function RunLines($lines) {
             'profile' { # start: WinShun on work\profile, with a fresh clipboard history; stop: the user's own again
                 QuitWs
                 if ($arg -eq 'start') {
-                    if (-not (Test-Path (Join-Path $profileDir 'made-for-screenshots.txt'))) { Shots profile $profileDir }
-                    $clips = Join-Path $profileDir 'clipboard'
-                    if (Test-Path $clips) { Remove-Item $clips -Recurse -Force }
+                    # made again each time: the demo dates counted from now, the clipboard history filled in
+                    Shots profile $profileDir
                     StartWs @('--profile', "`"$profileDir`"")
                 } elseif ($arg -eq 'stop') { StartWs @() } else { throw "profile what? '$arg'" }
             }
