@@ -37,7 +37,7 @@ Item {
             width: 40
             height: 20
             radius: 10
-            color: toggle.checked ? Theme.accent : area.containsMouse ? Theme.controlHover : "transparent"
+            color: toggle.checked ? Theme.accentFill : area.containsMouse ? Theme.controlHover : "transparent"
             border.width: toggle.checked ? 0 : 1
             border.color: Theme.subtext
 

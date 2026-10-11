@@ -25,7 +25,7 @@ Rectangle {
     implicitHeight: 32
     radius: 4
     color: danger
-           ? (area.pressed ? Qt.darker(Theme.danger, 1.15) : area.containsMouse ? Qt.lighter(Theme.danger, 1.08) : Theme.danger)
+           ? (area.pressed ? Qt.darker(Theme.dangerFill, 1.15) : area.containsMouse ? Qt.lighter(Theme.dangerFill, 1.08) : Theme.dangerFill)
            : (area.pressed ? Theme.controlPressed : area.containsMouse || checked ? Theme.controlHover : "transparent")
 
     Row {

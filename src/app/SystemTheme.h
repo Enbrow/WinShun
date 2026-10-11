@@ -15,6 +15,8 @@ class SystemTheme : public QObject, public QAbstractNativeEventFilter {
     QML_SINGLETON
     Q_PROPERTY(bool dark READ dark NOTIFY changed FINAL)
     Q_PROPERTY(QColor accent READ accent NOTIFY changed FINAL)
+    // A fill that carries white words or marks (see accentFill()).
+    Q_PROPERTY(QColor accentFill READ accentFill NOTIFY changed FINAL)
     Q_PROPERTY(QString iconFont READ iconFont CONSTANT FINAL)
     // Settings > Accessibility > Visual effects > Animation effects.
     Q_PROPERTY(bool animations READ animations NOTIFY changed FINAL)
@@ -36,6 +38,7 @@ public:
 
     bool dark() const;
     QColor accent() const;
+    QColor accentFill() const;
     static QColor accentColor(); // accent(), for C++
     QString iconFont() const { return m_iconFont; }
     static QString iconFontName(); // iconFont(), for C++ (FileIconProvider draws glyph icons)

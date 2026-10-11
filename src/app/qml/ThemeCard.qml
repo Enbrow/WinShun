@@ -175,7 +175,7 @@ Item {
             width: 20
             height: 20
             radius: 10
-            color: Theme.accent
+            color: Theme.accentFill
 
             Glyph {
                 anchors.centerIn: parent
@@ -207,7 +207,7 @@ Item {
             width: 18
             height: 18
             radius: 9
-            color: card.selected ? Theme.accent : "transparent"
+            color: card.selected ? Theme.accentFill : "transparent"
             border.width: card.selected ? 0 : 1
             border.color: Theme.subtext
 

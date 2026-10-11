@@ -10,6 +10,8 @@
 
 #include <windows.h>
 
+#include <cmath>
+
 using namespace Qt::StringLiterals;
 
 namespace ws {
@@ -59,6 +61,32 @@ bool SystemTheme::dark() const
 QColor SystemTheme::accent() const
 {
     return accentColor();
+}
+
+namespace {
+
+// WCAG relative luminance.
+double luminance(const QColor& c)
+{
+    const auto channel = [](double v) { return v <= 0.03928 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4); };
+    return 0.2126 * channel(c.redF()) + 0.7152 * channel(c.greenF()) + 0.0722 * channel(c.blueF());
+}
+
+} // namespace
+
+QColor SystemTheme::accentFill() const
+{
+    // Under white words or marks (a highlighted button, a switch that is
+    // on, the current sub-tab): the accent, a little lighter on dark, then
+    // darker until white on it reads (WCAG AA, 4.5:1), whatever the accent
+    // (a yellow one too). Theme.accent, much lighter on dark, is for text
+    // and lines, where black on it would be the only legible word colour.
+    QColor fill = accentColor();
+    if (dark())
+        fill = fill.lighter(115);
+    for (int i = 0; i < 30 && 1.05 / (luminance(fill) + 0.05) < 4.5; ++i)
+        fill = fill.darker(108);
+    return fill;
 }
 
 QColor SystemTheme::accentColor()

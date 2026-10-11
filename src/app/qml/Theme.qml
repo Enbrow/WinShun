@@ -10,7 +10,11 @@ QtObject {
     // them are translucent then, with the fill colours WinUI uses there; over
     // a plain background they keep their solid colours.
     readonly property bool backdrop: SystemTheme.backdrop
+    // For text, glyphs and lines: lightened on dark to read there.
     readonly property color accent: dark ? Qt.lighter(SystemTheme.accent, 1.55) : SystemTheme.accent
+    // For fills under white words or marks (accentText): deep enough for
+    // white to read, whatever the accent (SystemTheme.accentFill).
+    readonly property color accentFill: SystemTheme.accentFill
 
     readonly property color background: dark ? "#202020" : "#F9F9F9"
     // The edge of our windows (WindowEdge.qml), rounded as DWM rounds them.
@@ -22,7 +26,8 @@ QtObject {
                                               : dark ? "#2E2E2E" : "#EAEAEA"
     readonly property color text: dark ? "#F3F3F3" : "#1B1B1B"
     readonly property color subtext: dark ? "#A7A7A7" : "#666666"
-    readonly property color faint: dark ? "#727272" : "#9A9A9A"
+    // Hints and placeholders: Windows 11's tertiary text, legible on a card (≥ 3:1).
+    readonly property color faint: "#8A8A8A"
     readonly property color hover: backdrop ? (dark ? Qt.rgba(1, 1, 1, 0.05) : Qt.rgba(0, 0, 0, 0.035))
                                             : dark ? "#292929" : "#F1F1F1"
     readonly property color selection: backdrop ? (dark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.06))
@@ -57,12 +62,15 @@ QtObject {
     readonly property color controlPressed: dark ? "#323232" : "#F0F0F0"
     readonly property color controlBorder: dark ? "#444444" : "#D5D5D5"
     readonly property color inputFocused: dark ? "#1F1F1F" : "#FFFFFF"
+    // Words and marks on accentFill and dangerFill: white in both themes,
+    // never Windows 11's black on a light accent (see docs/colors.md).
     // Not "onAccent": a name of on + capital letter reads as a signal handler,
     // and such a property was never re-evaluated when the theme changed.
-    readonly property color accentText: dark ? "#000000" : "#FFFFFF"
+    readonly property color accentText: "#FFFFFF"
     readonly property color menuBackground: dark ? "#2C2C2C" : "#F9F9F9"
     readonly property color menuHover: dark ? "#3A3A3A" : "#ECECEC"
-    readonly property color danger: dark ? "#FF99A4" : "#C42B1C"
+    readonly property color danger: dark ? "#FF99A4" : "#C42B1C" // words and glyphs
+    readonly property color dangerFill: "#C42B1C" // under white words (an armed delete button)
     readonly property color success: dark ? "#6CCB5F" : "#0F7B0F" // Windows 11's status colours
     readonly property color caution: dark ? "#FCE100" : "#9D5D00"
     readonly property color closeHover: "#C42B1C" // title bar close button, as in Windows 11

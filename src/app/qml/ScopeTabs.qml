@@ -123,7 +123,7 @@ Rectangle {
                         width: Math.ceil(subText.implicitWidth) + 16
                         height: 24
                         radius: 4
-                        color: tab.subCurrent ? Theme.accent : subArea.containsMouse ? Theme.chipHover : "transparent"
+                        color: tab.subCurrent ? Theme.accentFill : subArea.containsMouse ? Theme.chipHover : "transparent"
 
                         Text {
                             id: subText
@@ -177,7 +177,7 @@ Rectangle {
                         width: 8 + pluginIconSlot.width + 6 + Math.ceil(pluginText.implicitWidth) + 8
                         height: 24
                         radius: 4
-                        color: Theme.accent
+                        color: Theme.accentFill
 
                         Item {
                             id: pluginIconSlot

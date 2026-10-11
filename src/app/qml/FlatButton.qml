@@ -19,7 +19,7 @@ Rectangle {
     opacity: enabled ? 1 : 0.45
     activeFocusOnTab: true
     color: highlighted
-           ? (area.pressed ? Qt.darker(Theme.accent, 1.15) : area.containsMouse ? Qt.lighter(Theme.accent, 1.08) : Theme.accent)
+           ? (area.pressed ? Qt.darker(Theme.accentFill, 1.15) : area.containsMouse ? Qt.lighter(Theme.accentFill, 1.08) : Theme.accentFill)
            : (area.pressed ? Theme.controlPressed : area.containsMouse ? Theme.controlHover : flat ? "transparent" : Theme.control)
     border.width: highlighted || (flat && !area.containsMouse) ? 0 : 1
     border.color: Theme.controlBorder

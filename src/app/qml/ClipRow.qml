@@ -137,7 +137,7 @@ Item {
             width: Math.max(18, orderText.implicitWidth + 8)
             height: 18
             radius: 9
-            color: Theme.accent
+            color: Theme.accentFill
             border.width: 2
             border.color: Theme.background
 
