@@ -340,6 +340,7 @@ bool App::start(const StartOptions& options)
             armReveal();
     });
     connect(m_launcher.get(), &Launcher::webSettingsRequested, this, &App::showWebSettings);
+    connect(m_launcher.get(), &Launcher::fileTypeSettingsRequested, this, &App::showFileTypeSettings);
     connect(m_launcher.get(), &Launcher::favoriteSettingsRequested, this, &App::showFavoriteSettings);
     connect(m_launcher.get(), &Launcher::pluginSettingsRequested, this, &App::showPluginSettings);
     connect(m_launcher.get(), &Launcher::fieldReported, this, &App::mirrorField);
@@ -493,6 +494,12 @@ bool App::start(const StartOptions& options)
     }
 
     applySettings(true);
+    // The launcher's strip of kinds of file as its user left it (after
+    // applySettings: the kinds are known by then).
+    m_launcher->setFileChoice(QSettings(statePath(), QSettings::IniFormat).value(u"Search/FileType"_s).toString());
+    connect(m_launcher.get(), &Launcher::fileChoiceChanged, this, [this] {
+        QSettings(statePath(), QSettings::IniFormat).setValue(u"Search/FileType"_s, m_launcher->fileChoice());
+    });
     applyTheme();
     connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, &App::applyTheme);
 
@@ -797,6 +804,7 @@ void App::applySettings(bool initial)
     m_launcher->setContentOptions(m_settings.contentSearch, m_settings.contentExtensions,
         m_settings.contentSizeLimits(), m_settings.contentInLowPriority, m_settings.contentDocuments);
     m_launcher->setWebShortcuts(m_settings.webShortcuts);
+    m_launcher->setFileTypes(m_settings.namedFileTypes()); // after applyAppearance: the built-in ones' names
     applyPlugins();
     if (!initial) {
         m_indexOptionsApply.start();
@@ -1325,6 +1333,13 @@ void App::showWebSettings()
     showSettings();
     if (m_settingsWindow)
         QMetaObject::invokeMethod(m_settingsWindow, "showWebPage");
+}
+
+void App::showFileTypeSettings()
+{
+    showSettings();
+    if (m_settingsWindow)
+        QMetaObject::invokeMethod(m_settingsWindow, "showFileTypesPage");
 }
 
 void App::showFavoriteSettings(const QString& path)

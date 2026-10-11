@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import WinShun
 
@@ -55,17 +57,16 @@ Item {
     required property string favoriteKeyword
     required property bool missing // a favorite no longer there: dimmed, tagged
     property bool showModified: true
-    property int hint: 0 // the number keys' modifier held: this row's number, 0 for none
+    property int hint: 0 // its number for the number keys (Ctrl+1…), on its icon; 0 for none
 
     readonly property bool contentMode: line > 0 // a content match (also mixed into 全部)
     readonly property bool current: ListView.isCurrentItem
     // With rows selected, the background marks them; the current row keeps only its accent pill.
     readonly property int selectedCount: ListView.view ? ListView.view.model.selectedCount : 0
     readonly property var results: ListView.view ? ListView.view.model : null // the ResultModel
-    readonly property bool showActions: (current || area.containsMouse) && hint === 0
-    // Room kept on the right for the buttons, the keycap, the badge or the label.
+    readonly property bool showActions: current || area.containsMouse
+    // Room kept on the right for the buttons, the badge or the label.
     readonly property real trailingSpace: (showActions ? actions.width + actions.anchors.rightMargin
-                                           : keycap.visible ? keycap.width + keycap.anchors.rightMargin
                                            : isApp ? badge.width + badge.anchors.rightMargin
                                            : trailing.width + trailing.anchors.rightMargin) + 10
     property bool deleteArmed: false // first click on delete; the second one deletes
@@ -220,7 +221,7 @@ Item {
 
     Text {
         id: trailing
-        visible: !row.showActions && !row.isApp && row.hint === 0
+        visible: !row.showActions && !row.isApp
         anchors.right: parent.right
         anchors.rightMargin: 18
         y: row.onPixel((row.height - height) / 2)
@@ -237,7 +238,7 @@ Item {
 
     Rectangle {
         id: badge
-        visible: row.isApp && !row.showActions && row.hint === 0
+        visible: row.isApp && !row.showActions
         anchors.right: parent.right
         anchors.rightMargin: 16
         anchors.verticalCenter: parent.verticalCenter
@@ -258,13 +259,49 @@ Item {
         }
     }
 
-    KeyCap { // the number keys' modifier held: it and this number open the row
-        id: keycap
-        visible: row.hint > 0
-        anchors.right: parent.right
-        anchors.rightMargin: 16
-        anchors.verticalCenter: parent.verticalCenter
-        number: row.hint
+    Loader { // its number on the icon's corner: Ctrl+1 (or Alt+1) opens the row that shows "1"
+        active: row.hint > 0
+        // The digit centred a little inside the icon's top right; on whole
+        // device pixels (the halo is a layer: no blur); not dimmed with the icon.
+        x: row.onPixel(iconSlot.x + iconSlot.width - 2 - width / 2)
+        y: row.onPixel(iconSlot.y + 4 - height / 2)
+        width: 24
+        height: 24
+
+        sourceComponent: Item {
+            id: number
+
+            readonly property font face: Qt.font({ family: "Segoe UI", weight: Font.DemiBold, pixelSize: 20 })
+
+            Item { // a halo of the window's dark (light), so it reads over any icon and on the selected row alike
+                anchors.fill: parent
+                opacity: Theme.dark ? 0.6 : 0.9
+                layer.enabled: true // the copies made one shape first, then faded as one
+
+                Repeater {
+                    model: 17 // itself, then a ring of 16 around it
+
+                    CenteredNumber {
+                        id: copy
+
+                        required property int index
+
+                        text: row.hint
+                        font: number.face
+                        color: Theme.dark ? "black" : "white"
+                        transform: Translate {
+                            x: copy.index > 0 ? 1.5 * Math.cos(copy.index * Math.PI / 8) : 0
+                            y: copy.index > 0 ? 1.5 * Math.sin(copy.index * Math.PI / 8) : 0
+                        }
+                    }
+                }
+            }
+            CenteredNumber {
+                text: row.hint
+                font: number.face
+                color: Theme.text
+            }
+        }
     }
 
     MouseArea {

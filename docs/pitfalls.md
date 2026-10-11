@@ -797,6 +797,13 @@
 - **做法**：`stepSlide` 里把位移按设备像素取整再交给 QML，和窗口本身一样一格一格地走，小于半个像素时就已经是 0。改完再测 3 次：内容约 247 毫秒停下后，画面上只剩 logo 出现和光标闪烁。
 - **还有一处**：用户接着说“搜索框里的文字也在变”。位移取整以后，搜索框的字在滑动的最后两三个像素里仍比停下时高 1 像素（字形底边那几行不一样）。原因同上一条的第二层：搜索栏里的图标、输入框、范围切换都是 `anchors.verticalCenter` 居中，150% 下落在半个设备像素上。做法和结果行一样，`y` 用 `onPixel(...)` 放到整设备像素上（`SearchBar.qml`）。
 
+### 类型条收起时，底栏闪没了一帧
+
+- **现象**：在“文件”里按 Shift+Tab 回到“全部”，类型条收起、窗口变矮的那一下，底栏（排序、快捷键提示）整个不见了约 8 毫秒（240 Hz 下两帧，60 Hz 下一帧），再出现在新的底边。
+- **怎么量**：和上一条一样用 DXGI 桌面复制抓每一帧（scratchpad `ts/stripcap.exe`，只抓窗口左边 160 像素宽的一列，不到 1 MB 一帧），每毫秒记窗口矩形；再拿最后一帧里底栏的排序图标和第一行的图标，逐帧上下找它们在哪。
+- **原因**：窗口变小后，DWM 先拿交换链里上一帧裁掉底部来显示，直到新尺寸的一帧画好。上一帧里底栏还在旧的底边，正好在被裁掉的那 60 像素里。只是等 `frameSwapped` 也不够：那时帧只是交给了系统，紧接着改大小，这一帧就被丢掉，屏幕上仍是更早那帧（实测，加了等待也照样闪一帧）。
+- **做法**：类型条收完后先不还高度，只把底栏画到它最后的位置（`Main.qml` 的 `stripLeaving`，底栏的 `Translate`），`WindowFrame::afterNextFrame()` 等这之后同步的那一帧交换完、再 `DwmFlush()` 一次（等 DWM 合成过它），发 `frameShown` 时才还高度。被裁掉的就只是空白。实测两次收起，底栏都直接从旧位置落到新位置，没有缺底栏的帧；只剩窗口底边那条 1 像素的系统边框晚了约 12 毫秒才补上。打开时窗口先长高，上一帧的内容留在上面、下面是空白，底栏晚两帧落到底，不刺眼，没改。
+
 ### 启动器旁边的 logo 停稳后才冒出来
 
 - **现象**：用户说左上角的 logo“动画不对”。窗口滑上来、停稳，过 70 毫秒左右 logo 才突然出现；收起时它先没了，窗口才往下走。
@@ -856,6 +863,12 @@
 - **做法**：用 `GetUserDefaultUILanguage()` 判断 Windows 的显示语言（`Settings::resolveLanguage`）。
 
 ## QML / JavaScript
+
+### `import QtQuick.Shapes`（或 Effects）编译通过，部署后程序起不来
+
+- **现象**：结果行里加了 `import QtQuick.Shapes` 画描边数字，编译和 qmllint 都通过，换进 dist 后程序启动 8 秒内就退出了。日志：`module "QtQuick.Shapes" is not installed`，`Main.qml` 里 `Type ResultRow unavailable`。
+- **原因**：`dist\WinShun\qml\QtQuick\` 下有 Shapes、Effects 等目录，但 dist 只带了 Qt6Core、Gui、Qml、Quick 这几个 DLL，没有 `Qt6QuickShapes.dll`、`Qt6QuickEffects.dll`，插件加载不了。
+- **做法**：界面只用 `QtQuick` 本身能做的。数字的描边改成多份错开的 `Text` 放进一个 `layer.enabled` 的 Item，整体调半透明（`ResultRow.qml`）。真要用新模块，先把对应 DLL 加进部署和安装包，再在 dist 里实际启动一次。部署脚本会在新版起不来时自动换回旧版。
 
 ### QML 文件和 C++ 类同名，加载的是 C++ 那个
 
@@ -1680,3 +1693,9 @@
 - **现象**：在剪贴板面板里切换分类（以及每次打开面板）后，列表看着在顶部，其实往下偏了 `topMargin`（4 px），滚动条也不在最顶。
 - **原因**：`ClipModel::setRows` 分类相同顺序时是逐行删、逐行插，`originY` 随之漂移；之后 `positionViewAtBeginning()` 常常把 `contentY` 停在 `originY`，不算 `topMargin`。只在第一行不变时才对。先 `forceLayout()` 也没用（用 qml.exe 离屏实验逐种比过）。
 - **做法**：`positionViewAtBeginning()` 之后再 `contentY = originY - topMargin`（和 `ListScrollBar.minY` 同一个起点），之前先 `cancelFlick()`。搜索结果（Main.qml）和对话框栏（DialogBarWindow.qml）的列表也有 `topMargin: 4`，遇到同样现象照此处理。
+
+### 单元测试的输出在管道里看不见
+
+- **现象**：`ctest --output-on-failure` 报 `tst_core` 失败却一行输出都没有；直接在 PowerShell 或 Git Bash 里跑 `tst_core.exe 某个测试 2>&1 | head`，也只有退出码（失败的个数），没有 QTest 的任何文字（2026-10-11）。
+- **原因**：这台机器上 QTest 的默认输出没有进到管道里（`-functions` 这类直接 stdout 的输出倒是能看到）；具体在 Qt 哪一层没查。
+- **做法**：让 QTest 自己写文件：`tst_core.exe 测试名 -o 输出.txt,txt`，再读那个文件。跑前把 `C:\Qt\<版本>\msvc2022_64\bin` 加进 PATH（ctest 替你加）。

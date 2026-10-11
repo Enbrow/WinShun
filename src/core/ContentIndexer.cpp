@@ -678,7 +678,8 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
             const FileText text = readFile(path, maxBytes, cancelled, &m_documents);
             if (text.outcome == Outcome::Skipped)
                 return true;
-            if (!m_content->add(w.entry, text.keys, text.outcome == Outcome::Empty, text.stamp, since, text.text))
+            if (!m_content->add(
+                    w.entry, text.keys, text.outcome == Outcome::Empty, text.stamp, since, text.text, text.large))
                 return false;
         }
         report.added = true;
@@ -845,6 +846,7 @@ win32::UniqueHandle openText(std::wstring_view path, std::int64_t maxBytes, Cont
     out.stamp = ContentIndex::stampOf(size.QuadPart, basic.LastWriteTime.QuadPart);
     if (size.QuadPart <= 0 || (maxBytes > 0 && size.QuadPart > maxBytes)) {
         out.outcome = ContentIndexer::Outcome::Empty; // as ContentScanner::scanFile skips it
+        out.large = size.QuadPart > 0;
         return {};
     }
     FILE_IO_PRIORITY_HINT_INFO hint {};
@@ -1028,7 +1030,8 @@ void ContentIndexer::Intake::take(EntryId entry, const FileText& text, std::uint
         if (m_indexer->m_paused || !m_indexer->m_options.enabled)
             return;
     }
-    if (m_indexer->m_content->add(entry, text.keys, text.outcome == Outcome::Empty, text.stamp, since, text.text))
+    if (m_indexer->m_content->add(
+            entry, text.keys, text.outcome == Outcome::Empty, text.stamp, since, text.text, text.large))
         ++m_taken;
 }
 

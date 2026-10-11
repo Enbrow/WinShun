@@ -536,6 +536,50 @@
         <source>确认清除</source>
         <translation>Clear</translation>
     </message>
+    <message>
+        <source>切换范围：全部、文件、内容</source>
+        <translation>Switch scope: All, Files, Content</translation>
+    </message>
+    <message>
+        <source>上下移动，PgUp PgDn 翻页</source>
+        <translation>Move up and down; PgUp PgDn a page at a time</translation>
+    </message>
+    <message>
+        <source>选中多行，也可 Ctrl+单击、Shift+单击</source>
+        <translation>Select several rows; Ctrl+click and Shift+click too</translation>
+    </message>
+    <message>
+        <source>以管理员身份运行</source>
+        <translation>Run as administrator</translation>
+    </message>
+    <message>
+        <source>复制文件</source>
+        <translation>Copy the file</translation>
+    </message>
+    <message>
+        <source>复制路径</source>
+        <translation>Copy the path</translation>
+    </message>
+    <message>
+        <source>切换排序；不输入时切换最近打开、最近修改</source>
+        <translation>Switch the order; with nothing typed, opened or modified lately</translation>
+    </message>
+    <message>
+        <source>打开第几行（图标上的数字）</source>
+        <translation>Open the nth row (the number on its icon)</translation>
+    </message>
+    <message>
+        <source>右键菜单</source>
+        <translation>Context menu</translation>
+    </message>
+    <message>
+        <source>关闭；选中了多行时先取消选择</source>
+        <translation>Close; with several rows selected, unselect them first</translation>
+    </message>
+    <message>
+        <source>快捷键</source>
+        <translation>Shortcuts</translation>
+    </message>
 </context>
 <context>
     <name>Gleaning</name>
@@ -736,6 +780,10 @@
     <message>
         <source>输入名称或拼音，搜索文件、应用和设置</source>
         <translation>Type a name to search files, apps and settings</translation>
+    </message>
+    <message>
+        <source>按 Tab 换个类型，Shift+Tab 切换范围</source>
+        <translation>Press Tab for another type, Shift+Tab to switch scope</translation>
     </message>
 </context>
 <context>
@@ -1791,6 +1839,38 @@
         <translation>Chinese;English;language</translation>
     </message>
     <message>
+        <source>放在开始按钮右边</source>
+        <translation>Right of the Start button</translation>
+    </message>
+    <message>
+        <source>开始按钮;右边;位置;任务栏;搜索框</source>
+        <translation>start button;right;position;taskbar;search box</translation>
+    </message>
+    <message>
+        <source>和 Windows 自带的搜索框一样，图标往右让出位置</source>
+        <translation>Where Windows’ own search box goes: the icons move over for it</translation>
+    </message>
+    <message>
+        <source>已放在开始按钮右边</source>
+        <translation>Right of the Start button now</translation>
+    </message>
+    <message>
+        <source>另一个改任务栏的工具占着（%1），两者只能用一个</source>
+        <translation>Another taskbar tool (%1) is using this: only one of them can</translation>
+    </message>
+    <message>
+        <source>重启资源管理器后生效</source>
+        <translation>Takes effect after Explorer restarts</translation>
+    </message>
+    <message>
+        <source>没能在开始按钮旁留出位置，先放在原处</source>
+        <translation>Couldn’t make room by the Start button: it stays where it was</translation>
+    </message>
+    <message>
+        <source>正在留出位置…</source>
+        <translation>Making room…</translation>
+    </message>
+    <message>
         <source>1. 在任务栏上放 Win顺 的搜索框</source>
         <translation>1. Put WinShun’s search box on the taskbar</translation>
     </message>
@@ -1837,38 +1917,6 @@
     <message>
         <source>排序;顺序;文件夹在前;目录;sort;folder</source>
         <translation>sort;order;folders first;directories</translation>
-    </message>
-    <message>
-        <source>放在开始按钮右边</source>
-        <translation>Right of the Start button</translation>
-    </message>
-    <message>
-        <source>开始按钮;右边;位置;任务栏;搜索框</source>
-        <translation>start button;right;position;taskbar;search box</translation>
-    </message>
-    <message>
-        <source>和 Windows 自带的搜索框一样，图标往右让出位置</source>
-        <translation>Where Windows’ own search box goes: the icons move over for it</translation>
-    </message>
-    <message>
-        <source>已放在开始按钮右边</source>
-        <translation>Right of the Start button now</translation>
-    </message>
-    <message>
-        <source>另一个改任务栏的工具占着（%1），两者只能用一个</source>
-        <translation>Another taskbar tool (%1) is using this: only one of them can</translation>
-    </message>
-    <message>
-        <source>重启资源管理器后生效</source>
-        <translation>Takes effect after Explorer restarts</translation>
-    </message>
-    <message>
-        <source>没能在开始按钮旁留出位置，先放在原处</source>
-        <translation>Couldn’t make room by the Start button: it stays where it was</translation>
-    </message>
-    <message>
-        <source>正在留出位置…</source>
-        <translation>Making room…</translation>
     </message>
     <message>
         <source>文件在前</source>
@@ -2362,8 +2410,8 @@
         <translation>Notes the text in files in the background, which makes searches much faster. NTFS disks only; takes about 100–200 MB</translation>
     </message>
     <message>
-        <source>在搜索框按 Tab 切换“全部”“文件”“内容”；“文件”里还能只找文件夹。</source>
-        <translation>Press Tab in the search box to switch between All, Files and Content; Files can also show folders only.</translation>
+        <source>在搜索框按 Tab 切换“全部”“文件”“内容”；在“文件”里 Tab 切换文件类型，Shift+Tab 切换范围。</source>
+        <translation>Press Tab in the search box to switch between All, Files and Content; in Files, Tab switches the type of file and Shift+Tab the scope.</translation>
     </message>
     <message>
         <source>在搜索框的“更多”菜单里添加</source>
@@ -2527,8 +2575,8 @@
         <translation>All set: the taskbar, Win+S and the Start menu all search with WinShun.</translation>
     </message>
     <message>
-        <source>按住 %1 标出序号，按 %1+1 打开第一行</source>
-        <translation>Hold %1 to see numbers; %1+1 opens the first row</translation>
+        <source>结果的图标上标着序号，按 %1+1 打开第一行</source>
+        <translation>Results show their number on the icon; %1+1 opens the first row</translation>
     </message>
     <message>
         <source>文件夹</source>
@@ -2545,6 +2593,38 @@
     <message>
         <source>输入关键词按 Enter 打开网页；网址里有 %s 的，在关键词后加空格和文字就能搜索。</source>
         <translation>Type a keyword and press Enter to open the page; when the address has %s, add a space and words after the keyword to search the site.</translation>
+    </message>
+    <message>
+        <source>文件类型</source>
+        <translation>File types</translation>
+    </message>
+    <message>
+        <source>类型;扩展名;后缀;筛选;图片;文档;视频;音乐;压缩包;filter;type;extension</source>
+        <translation>type;extension;suffix;filter;picture;document;video;music;archive;kind</translation>
+    </message>
+    <message>
+        <source>“文件”里搜索框下面的一排，按 Tab 切换；每个类型是一组扩展名，用空格或逗号隔开</source>
+        <translation>The row under the search box in Files; Tab goes along it. Each type is a list of extensions, separated by spaces or commas</translation>
+    </message>
+    <message>
+        <source>上移</source>
+        <translation>Move up</translation>
+    </message>
+    <message>
+        <source>下移</source>
+        <translation>Move down</translation>
+    </message>
+    <message>
+        <source>删除</source>
+        <translation>Delete</translation>
+    </message>
+    <message>
+        <source>新类型</source>
+        <translation>New type</translation>
+    </message>
+    <message>
+        <source>扩展名，例如 dwg dxf</source>
+        <translation>Extensions, such as dwg dxf</translation>
     </message>
 </context>
 <context>
@@ -2575,6 +2655,29 @@
     <message>
         <source>关</source>
         <translation>Off</translation>
+    </message>
+</context>
+<context>
+    <name>TypeStrip</name>
+    <message>
+        <source>不限</source>
+        <translation>Any</translation>
+    </message>
+    <message>
+        <source>所有文件和文件夹</source>
+        <translation>All files and folders</translation>
+    </message>
+    <message>
+        <source>文件夹</source>
+        <translation>Folders</translation>
+    </message>
+    <message>
+        <source>只找文件夹</source>
+        <translation>Folders only</translation>
+    </message>
+    <message>
+        <source>添加或修改类型</source>
+        <translation>Add or change types</translation>
     </message>
 </context>
 <context>
@@ -3580,6 +3683,132 @@
         <translation>Open in Terminal</translation>
     </message>
     <message>
+        <source>这些大文件里也没有</source>
+        <translation>Not in those large files either</translation>
+    </message>
+    <message numerus="yes">
+        <source>大文件里找到 %Ln 条</source>
+        <translation>
+            <numerusform>%Ln match in the large files</numerusform>
+            <numerusform>%Ln matches in the large files</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>正在搜这些大文件…</source>
+        <translation>Searching those large files…</translation>
+    </message>
+    <message>
+        <source>正在搜系统和程序文件夹里的文件…</source>
+        <translation>Searching the files in system and program folders…</translation>
+    </message>
+    <message>
+        <source>正在搜这些类型的文件…</source>
+        <translation>Searching files of those types…</translation>
+    </message>
+    <message numerus="yes">
+        <source>正在搜 %1… 已看 %Ln 项</source>
+        <translation>
+            <numerusform>Searching %1… %Ln item looked at</numerusform>
+            <numerusform>Searching %1… %Ln items looked at</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>停止</source>
+        <translation>Stop</translation>
+    </message>
+    <message numerus="yes">
+        <source>另有 %Ln 个大文件超过大小上限没搜</source>
+        <translation>
+            <numerusform>%Ln large file over the size limit was skipped</numerusform>
+            <numerusform>%Ln large files over the size limit were skipped</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>也搜这些</source>
+        <translation>Search them too</translation>
+    </message>
+    <message numerus="yes">
+        <source>系统和程序文件夹里还有 %Ln 个文件没搜</source>
+        <translation>
+            <numerusform>%Ln more file in system and program folders was not searched</numerusform>
+            <numerusform>%Ln more files in system and program folders were not searched</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>还有 %Ln 个 %1 等文件不在内容搜索的类型里</source>
+        <translation>
+            <numerusform>%Ln more file (%1 and other types) is not among the types searched</numerusform>
+            <numerusform>%Ln more files (%1 and other types) are not among the types searched</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>还有 %Ln 个 %1 文件不在内容搜索的类型里</source>
+        <translation>
+            <numerusform>%Ln more %1 file is not among the types searched</numerusform>
+            <numerusform>%Ln more %1 files are not among the types searched</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>U 盘 %1 没收录</source>
+        <translation>USB drive %1 is not indexed</translation>
+    </message>
+    <message>
+        <source>U 盘 %1（%2）没收录</source>
+        <translation>USB drive %1 (%2) is not indexed</translation>
+    </message>
+    <message>
+        <source>这次也搜它</source>
+        <translation>Search it this time</translation>
+    </message>
+    <message>
+        <source>没有叫“%1”的，按读音找到：</source>
+        <translation>Nothing is named “%1”; found by how it sounds:</translation>
+    </message>
+    <message numerus="yes">
+        <source>已停止，找到 %Ln 条</source>
+        <translation>
+            <numerusform>Stopped; %Ln match found</numerusform>
+            <numerusform>Stopped; %Ln matches found</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>已停止</source>
+        <translation>Stopped</translation>
+    </message>
+    <message numerus="yes">
+        <source>系统和程序文件夹里找到 %Ln 条</source>
+        <translation>
+            <numerusform>%Ln match in system and program folders</numerusform>
+            <numerusform>%Ln matches in system and program folders</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>系统和程序文件夹里也没有</source>
+        <translation>Not in system and program folders either</translation>
+    </message>
+    <message numerus="yes">
+        <source>这些类型的文件里找到 %Ln 条</source>
+        <translation>
+            <numerusform>%Ln match in files of those types</numerusform>
+            <numerusform>%Ln matches in files of those types</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>这些类型的文件里也没有</source>
+        <translation>Not in files of those types either</translation>
+    </message>
+    <message numerus="yes">
+        <source>%1 里找到 %Ln 项</source>
+        <translation>
+            <numerusform>%Ln item found on %1</numerusform>
+            <numerusform>%Ln items found on %1</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>%1 里也没有</source>
+        <translation>Not on %1 either</translation>
+    </message>
+    <message>
         <source>%1 等文件</source>
         <translation>%1 files and more</translation>
     </message>
@@ -3980,6 +4209,15 @@
     <message>
         <source>编辑网页搜索…</source>
         <translation>Edit web searches…</translation>
+    </message>
+    <message>
+        <source>搜索%1</source>
+        <comment>a kind of file, as 图片</comment>
+        <translation>Search %1</translation>
+    </message>
+    <message>
+        <source>切换类型</source>
+        <translation>Type</translation>
     </message>
 </context>
 <context>
@@ -4407,6 +4645,41 @@
     </message>
 </context>
 <context>
+    <name>ws::Settings</name>
+    <message>
+        <source>文档</source>
+        <translation>Documents</translation>
+    </message>
+    <message>
+        <source>图片</source>
+        <translation>Pictures</translation>
+    </message>
+    <message>
+        <source>视频</source>
+        <translation>Videos</translation>
+    </message>
+    <message>
+        <source>音频</source>
+        <translation>Audio</translation>
+    </message>
+    <message>
+        <source>压缩包</source>
+        <translation>Archives</translation>
+    </message>
+    <message>
+        <source>程序</source>
+        <translation>Programs</translation>
+    </message>
+    <message>
+        <source>电子书</source>
+        <translation>E-books</translation>
+    </message>
+    <message>
+        <source>代码</source>
+        <translation>Code</translation>
+    </message>
+</context>
+<context>
     <name>ws::SettingsEditor</name>
     <message>
         <source>选择不需要搜索的文件夹</source>
@@ -4754,6 +5027,18 @@
     <message>
         <source>已复制，粘贴到那个客户端的 MCP 配置文件里</source>
         <translation>Copied; paste it into that client&apos;s MCP configuration file</translation>
+    </message>
+    <message>
+        <source>给类型起个名字</source>
+        <translation>Give the type a name</translation>
+    </message>
+    <message>
+        <source>已有这个类型</source>
+        <translation>There is a type of that name already</translation>
+    </message>
+    <message>
+        <source>填上扩展名，例如 md, log</source>
+        <translation>Fill in extensions, such as md, log</translation>
     </message>
 </context>
 <context>

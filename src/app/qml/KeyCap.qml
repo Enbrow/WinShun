@@ -2,8 +2,8 @@ import QtQuick
 import WinShun
 
 // A row's number while its modifier is held: Ctrl+1 (or Alt+1) acts on the
-// row that shows "1". On the rows of the launcher, of the bar by file
-// dialogs and of the clipboard.
+// row that shows "1". On the rows of the bar by file dialogs and of the
+// clipboard (the launcher's rows have theirs on the icon, ResultRow).
 Rectangle {
     id: cap
 

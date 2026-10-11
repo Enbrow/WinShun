@@ -22,8 +22,42 @@ Window {
     readonly property int rowHeight: 60
     readonly property int maxRows: 8
     readonly property int minRows: 3 // the window settles no lower than these fit below
-    // Everything but the rows: header, divider, the list's margins, footer.
-    readonly property int chromeHeight: searchBar.implicitHeight + 1 + 8 + footer.implicitHeight
+    // Everything but the rows: header, the strip of kinds of file, divider,
+    // the list's margins, footer. Room is kept for the strip in every scope
+    // (so opening it never moves the window), but at the taskbar, where the
+    // list area takes its room from the rows instead.
+    readonly property int chromeHeight: searchBar.implicitHeight + (fullHeight ? 0 : typeStrip.fullHeight) + 1 + 8
+                                        + footer.implicitHeight
+    // The strip opens and closes in steps (TypeStrip): the window takes its
+    // full height at once as it opens and gives it back once it has closed,
+    // so it is resized once, not on every frame (a native resize per frame
+    // shows torn and stretched frames). Meanwhile the rows below glide, the
+    // room it does not fill yet left above the footer; at the taskbar the
+    // window keeps its height and the list area gives the strip its room.
+    // Closed, it still keeps its room for a frame with the footer drawn up
+    // where it ends (stripLeaving): a window made smaller shows its last
+    // frame cut at the bottom until it draws the next, and cut there that
+    // frame would have no footer.
+    readonly property bool stripOut: typeStrip.targetHeight > 0 || typeStrip.height > 0
+    property bool stripLeaving: false
+    readonly property int stripRoom: stripOut || stripLeaving ? typeStrip.fullHeight : 0
+    readonly property real stripSlack: stripRoom - typeStrip.height
+    onStripOutChanged: {
+        stripLeaving = !stripOut && !fullHeight && visible
+        if (stripLeaving) {
+            frame.afterNextFrame()
+            stripLeft.restart()
+        }
+    }
+    Connections {
+        target: window.frame
+        function onFrameShown() { window.stripLeaving = false }
+    }
+    Timer { // no frame comes (hidden meanwhile)
+        id: stripLeft
+        interval: 150
+        onTriggered: window.stripLeaving = false
+    }
     // As many rows as fit between the window's top and the bottom of the screen.
     readonly property int fitRows: Math.max(minRows, Math.min(maxRows,
                                             Math.floor((placement.room - chromeHeight) / rowHeight)))
@@ -35,6 +69,57 @@ Window {
     // After the list area has closed (see settleRows), not while it is held open.
     readonly property bool showEmptyState: trimmedQuery.length > 0 && list.count === 0 && !launcher.searching
                                            && shownRows === 0
+
+    // What the search behind the rows passed over (Launcher.leftOutHints:
+    // files over the size limit, system folders, other kinds of text, a USB
+    // drive not indexed): said in rows after the last result, each with what
+    // a click does (searched this once), or with Enter once ↓ past the last
+    // row has put the keyboard on one (hintIndex; as homeIndex for the apps
+    // above), ↓ ↑ going along them. With no result at all, the empty state
+    // lists them instead, and ↓ ↑ Enter work there too. The one running
+    // shows how far it is; Enter or a click on it stops it.
+    readonly property var hints: launcher.leftOutHints
+    readonly property bool showHints: hints.length > 0 && list.count > 0
+    readonly property int hintHeight: 36
+    // Room for the rows after the last result: when every result is shown
+    // without scrolling (else they come into view at the end), and the window
+    // keeps its own height (at the taskbar the list area is as tall as it gets).
+    readonly property int hintSpace: showHints && !fullHeight && shownRows < fitRows ? hints.length * hintHeight : 0
+    property int hintIndex: -1 // the hint the keyboard is on; -1: none
+    property int rowsBeforeHints: 0 // list.count when the keyboard went onto the hints: where what one brings starts
+    function enterHints() {
+        rowsBeforeHints = list.count
+        hintIndex = 0
+        list.currentIndex = -1
+        list.positionViewAtEnd()
+    }
+    function takeHint(index) {
+        if (index < 0 || index >= hints.length)
+            return
+        if (hints[index].running)
+            launcher.stopLeftOut()
+        else
+            launcher.searchLeftOut(hints[index].kind)
+    }
+    onHintsChanged: {
+        // Changed under the keyboard (one taken up: it alone, running; done:
+        // the rest, or none): the hint in the same place, or, none left, the
+        // first row the one taken up brought in (they go after the last
+        // row), else the last row.
+        if (hintIndex < 0)
+            return
+        if (hints.length > 0) {
+            hintIndex = Math.min(hintIndex, hints.length - 1)
+        } else {
+            hintIndex = -1
+            if (list.count > 0)
+                list.currentIndex = Math.min(rowsBeforeHints, list.count - 1)
+        }
+    }
+    // Nothing is named as typed, and these rows sound like it: a heading over
+    // them (Launcher.approximateHeading), above the list so the rows stay
+    // where the number keys count them.
+    readonly property int headingHeight: launcher.approximateHeading.length > 0 && list.count > 0 ? 28 : 0
     // Opened from the taskbar (its button, Win+S), the window stands on the
     // taskbar: the list area keeps the height of all the rows that fit, so
     // the search box stays where it is as results come and go.
@@ -62,6 +147,7 @@ Window {
         : launcher.pluginKeyword.length > 0 ? qsTr("%1 没有找到“%2”").arg(launcher.pluginLabel).arg(shownQuery)
         : qsTr("没有找到“%1”").arg(shownQuery)
     readonly property string emptyHint: contentMode ? qsTr("按 Tab 回到文件名搜索")
+        : typeStrip.shown ? qsTr("按 Tab 换个类型，Shift+Tab 切换范围")
         : launcher.pluginKeyword.length > 0 ? qsTr("按 Esc 清空关键字后面的文字")
         : launcher.searchesContent ? qsTr("文件名和 %1的内容里都没有").arg(launcher.contentFilesLabel)
         : launcher.contentEnabled ? qsTr("按 Tab 切换范围，或搜索文件内容")
@@ -88,6 +174,57 @@ Window {
             text: parent.hint
             color: Theme.faint
             font.pixelSize: Theme.fontBody
+        }
+        Repeater { // what the search passed over, each with its action (as after the last row; ↓ ↑ and Enter too)
+            model: window.hints
+
+            delegate: Item {
+                id: emptyHint
+
+                required property int index
+                required property var modelData
+                // The first is current until ↓ ↑ say otherwise: it is what Enter takes.
+                readonly property bool current: window.hintIndex === index || (window.hintIndex < 0 && index === 0)
+
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: hintLine.width + 24
+                height: 28
+                Accessible.role: Accessible.Button
+                Accessible.name: modelData.text + " " + modelData.action
+
+                Rectangle { // raised with the keyboard on it, or hovered, as a row
+                    anchors.fill: parent
+                    radius: 6
+                    color: emptyHint.current ? Theme.selection : emptyHintArea.containsMouse ? Theme.hover : "transparent"
+                }
+                Row {
+                    id: hintLine
+                    anchors.centerIn: parent
+
+                    Text {
+                        text: emptyHint.modelData.text
+                        color: Theme.faint
+                        font.pixelSize: Theme.fontBody
+                    }
+                    Text {
+                        text: " · "
+                        color: Theme.faint
+                        font.pixelSize: Theme.fontBody
+                    }
+                    Text { // the action: accent words on the plain background, as a link
+                        text: emptyHint.modelData.action
+                        color: Theme.accent
+                        font.pixelSize: Theme.fontBody
+                    }
+                }
+                MouseArea {
+                    id: emptyHintArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: window.takeHint(emptyHint.index)
+                }
+            }
         }
     }
 
@@ -147,7 +284,9 @@ Window {
     Binding {
         target: window.launcher
         property: "currentRow"
-        value: list.currentIndex
+        // On a hint after the last row, that row: what the search brings
+        // goes after it (never above the row the keyboard is on).
+        value: window.hintIndex >= 0 ? list.count - 1 : list.currentIndex
     }
     Binding { // with the fewest rows: kept room for below the window
         target: window.placement
@@ -158,8 +297,22 @@ Window {
     onClipboardBelowChanged: closeContextMenu()
 
     function moveSelection(delta) {
-        if (list.count > 0)
-            list.currentIndex = Math.max(0, Math.min(list.count - 1, list.currentIndex + delta))
+        if (hintIndex >= 0) { // on the hints after the last row: ↓ ↑ along them, ↑ from the first back to the last row
+            if (delta > 0)
+                hintIndex = Math.min(hints.length - 1, hintIndex + 1)
+            else if (hintIndex > 0)
+                hintIndex -= 1
+            else if (list.count > 0)
+                list.currentIndex = list.count - 1 // onCurrentIndexChanged leaves the hints
+        } else if (list.count > 0) {
+            const next = list.currentIndex + delta
+            if (delta === 1 && next >= list.count && showHints)
+                enterHints() // ↓ past the last row
+            else
+                list.currentIndex = Math.max(0, Math.min(list.count - 1, next))
+        } else if (hints.length > 0) { // nothing found: along the hints under 没有找到, the first already shown as current
+            hintIndex = Math.max(0, Math.min(hints.length - 1, Math.max(hintIndex, 0) + delta))
+        }
         selectionAnchor = -1
     }
 
@@ -186,34 +339,24 @@ Window {
     }
 
     // Ctrl+1… (or Alt+1…, Launcher.numberKeys) opens the nth row shown,
-    // counted from the first one at least half in view. The modifier held
-    // shows the numbers: Alt at once, Ctrl after a moment held alone (it also
-    // starts Ctrl+C, Ctrl+Enter, a Ctrl+click and the double Ctrl). The keys
-    // themselves come from NumberKeys (before other programs' hotkeys), or
-    // here when it is not running.
+    // counted from the first one at least half in view. The numbers are on
+    // the rows' icons all along: shown only while the modifier was held,
+    // they came late (after a wait, so that Ctrl+C and the like would not
+    // flash them) and swapped the right of every row. The keys themselves
+    // come from NumberKeys (before other programs' hotkeys), or here when it
+    // is not running.
     readonly property int numberKey: launcher.numberKeys === "ctrl" ? Qt.Key_Control
                                    : launcher.numberKeys === "alt" ? Qt.Key_Alt : -1
     readonly property int firstShownRow: Math.max(0, Math.floor((list.contentY + rowHeight / 2) / rowHeight))
     readonly property int lastShownRow: Math.min(list.count - 1, firstShownRow + 8,
                                                  Math.floor((list.contentY + list.height - rowHeight / 2) / rowHeight))
-    property bool showNumbers: false
-    Timer {
-        id: numbersDelay
-        interval: 500
-        onTriggered: window.showNumbers = true
-    }
-    function hideNumbers() {
-        numbersDelay.stop()
-        showNumbers = false
-    }
     function numberOf(index) {
-        return showNumbers && index >= firstShownRow && index <= lastShownRow ? index - firstShownRow + 1 : 0
+        return numberKey >= 0 && index >= firstShownRow && index <= lastShownRow ? index - firstShownRow + 1 : 0
     }
     function openNumber(number) {
         const row = firstShownRow + number - 1
         if (number < 1 || row > lastShownRow)
             return
-        hideNumbers()
         window.launcher.clearSelection() // that row alone
         list.currentIndex = row
         window.launcher.trigger(row, Launcher.Open)
@@ -227,11 +370,6 @@ Window {
         return numberKey === Qt.Key_Control ? modifiers === Qt.ControlModifier
              : numberKey === Qt.Key_Alt ? modifiers === Qt.AltModifier && !keypad : false
     }
-    function handleKeyRelease(event) {
-        if (event.key === numberKey)
-            hideNumbers()
-    }
-    onActiveChanged: if (!active) hideNumbers()
 
     // On the selection when there is one, else on the current row.
     function act(action) {
@@ -281,18 +419,10 @@ Window {
             event.accepted = true
             return
         }
-        if (event.key === numberKey && numberKey >= 0) {
-            if (event.isAutoRepeat)
-                return
-            if (numberKey === Qt.Key_Alt) {
-                showNumbers = true
-                event.accepted = true // alone, it would open the window menu
-            } else if (event.modifiers === Qt.ControlModifier) {
-                numbersDelay.restart()
-            }
+        if (event.key === Qt.Key_Alt && numberKey === Qt.Key_Alt) {
+            event.accepted = true // alone, it would open the window menu
             return
         }
-        hideNumbers() // a key with it: Ctrl+C, Ctrl+Enter...
         if (isNumberChord(event) && searchBar.composition.length === 0) {
             window.launcher.pressNumber(event.key - Qt.Key_0)
             event.accepted = true
@@ -326,6 +456,12 @@ Window {
         case Qt.Key_PageUp: shift ? extendSelection(-fitRows) : moveSelection(-fitRows); break
         case Qt.Key_Return:
         case Qt.Key_Enter: {
+            // On a hint after the last row, or in the empty state with some:
+            // that part is searched too (the first, with none chosen there).
+            if (hintIndex >= 0 || (list.count === 0 && hints.length > 0)) {
+                takeHint(Math.max(hintIndex, 0))
+                break
+            }
             // Shift+Enter: a plugin row's third action (Open on any other row).
             const action = ctrl && shift ? Launcher.RunAsAdmin : ctrl ? Launcher.Reveal
                          : shift ? Launcher.Alternate : Launcher.Open
@@ -347,8 +483,13 @@ Window {
             // too, from whichever row the keyboard is on (Launcher.completionRow).
             if (window.launcher.pluginKeyword.length > 0)
                 window.launcher.autocomplete(list.currentIndex)
-            else if (!window.launcher.autocomplete(list.currentIndex))
-                window.launcher.cycleScope(1)
+            else if (!window.launcher.autocomplete(list.currentIndex)) {
+                // In 文件 along the strip of kinds; Shift+Tab goes on to the scopes.
+                if (typeStrip.shown)
+                    window.launcher.cycleFileType(1)
+                else
+                    window.launcher.cycleScope(1)
+            }
             break
         case Qt.Key_S: // the footer's switch: the start list, or the order
             if (!ctrl || shift)
@@ -373,6 +514,7 @@ Window {
     }
 
     function selectFirst() {
+        hintIndex = -1
         if (list.count > 0 && homeIndex < 0)
             list.currentIndex = 0
         list.positionViewAtBeginning()
@@ -390,7 +532,6 @@ Window {
         function onShown() {
             // Still cloaked here (App::showLauncher): nobody sees the jump.
             window.homeIndex = -1
-            window.hideNumbers()
             window.selectFirst()
             searchBar.focusAndSelect()
         }
@@ -454,7 +595,15 @@ Window {
             placement: window.placement
             frame: window.frame
             onKeyPressed: (event) => window.handleKey(event)
-            onKeyReleased: (event) => window.handleKeyRelease(event)
+        }
+
+        TypeStrip {
+            id: typeStrip
+            width: parent.width
+            launcher: window.launcher
+            frame: window.frame
+            shown: (window.launcher.scope === Launcher.Files || window.launcher.scope === Launcher.Folders)
+                   && !window.clipboardBelow
         }
 
         Rectangle {
@@ -467,8 +616,23 @@ Window {
         Item {
             id: listArea
             width: parent.width
-            height: window.listRows > 0 ? window.listRows * window.rowHeight + 8 : 0
+            height: window.listRows > 0 ? window.listRows * window.rowHeight + 8 + window.hintSpace
+                                          + (window.fullHeight ? -typeStrip.height : window.headingHeight) : 0
             visible: window.listRows > 0 && !window.clipboardBelow
+
+            Text { // nothing is named as typed: these rows sound like it (window.headingHeight)
+                id: readingHeading
+                x: 20
+                width: parent.width - 40
+                height: window.headingHeight
+                visible: height > 0
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideMiddle // a long query keeps its start and its end
+                text: window.launcher.approximateHeading
+                textFormat: Text.PlainText // holds what was typed
+                color: Theme.subtext
+                font.pixelSize: Theme.fontCaption
+            }
 
             Column { // the apps opened most (showHome), over the recent ones
                 id: home
@@ -582,7 +746,7 @@ Window {
             ListView {
                 id: list
                 anchors.fill: parent
-                anchors.topMargin: window.showHome ? home.height : 0
+                anchors.topMargin: (window.showHome ? home.height : 0) + window.headingHeight
                 topMargin: 4
                 bottomMargin: 4
                 clip: true
@@ -592,7 +756,89 @@ Window {
                 boundsBehavior: Flickable.StopAtBounds
                 highlightMoveDuration: 0
                 reuseItems: true
-                onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+                onCurrentIndexChanged: {
+                    positionViewAtIndex(currentIndex, ListView.Contain)
+                    if (currentIndex >= 0)
+                        window.hintIndex = -1 // back on a row, however it got there
+                }
+
+                // After the last row: what the search passed over, a row each
+                // with the offer to search it (window.hints). The keyboard
+                // reaches them with ↓ past the last row (window.hintIndex).
+                footer: Column {
+                    id: hintRows
+                    width: list.width
+                    visible: window.showHints
+                    transform: Translate { // on whole device pixels, as the rows are (see the delegate)
+                        y: {
+                            const dpr = Screen.devicePixelRatio
+                            const listTop = layout.y + listArea.y + list.y
+                            const deviceY = (listTop + list.contentItem.y + hintRows.y) * dpr
+                            return (Math.round(deviceY) - deviceY) / dpr
+                        }
+                    }
+
+                    Repeater {
+                        model: window.showHints ? window.hints : []
+
+                        delegate: Item {
+                            id: hintRow
+
+                            required property int index
+                            required property var modelData
+                            readonly property bool current: window.hintIndex === index
+
+                            width: hintRows.width
+                            height: window.hintHeight
+                            Accessible.role: Accessible.Button
+                            Accessible.name: modelData.text + " " + modelData.action
+
+                            Rectangle { // as a row's: raised with the keyboard on it, or hovered
+                                anchors.fill: parent
+                                anchors.leftMargin: 6
+                                anchors.rightMargin: 6
+                                anchors.topMargin: 1
+                                anchors.bottomMargin: 1
+                                radius: 6
+                                color: hintRow.current ? Theme.selection : hintArea.containsMouse ? Theme.hover : "transparent"
+                            }
+                            Rectangle { // accent pill, as on the current row
+                                visible: hintRow.current
+                                x: 7
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 3
+                                height: 18
+                                radius: 1.5
+                                color: Theme.accent
+                            }
+                            Text {
+                                x: 60 // under the rows' text
+                                width: hintAction.x - 16 - x
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: hintRow.modelData.text
+                                color: Theme.subtext
+                                font.pixelSize: Theme.fontBody
+                                elide: Text.ElideRight
+                            }
+                            Text { // the action: accent words on the plain background, as a link; right, as the rows' labels
+                                id: hintAction
+                                anchors.right: parent.right
+                                anchors.rightMargin: 18
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: hintRow.modelData.action
+                                color: Theme.accent
+                                font.pixelSize: Theme.fontBody
+                            }
+                            MouseArea {
+                                id: hintArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: window.takeHint(hintRow.index)
+                            }
+                        }
+                    }
+                }
 
                 // Scrolled, or moved with the keys, to the end: a page more if
                 // there is one (Launcher.loadMore), added after the rows. Asked
@@ -632,7 +878,6 @@ Window {
                         }
                     }
                     onClicked: (index, modifiers) => {
-                        window.hideNumbers() // Ctrl held for a Ctrl+click
                         const ctrl = (modifiers & Qt.ControlModifier) !== 0
                         if (modifiers & Qt.ShiftModifier) {
                             window.selectTo(index, ctrl)
@@ -696,15 +941,21 @@ Window {
 
         Item {
             width: parent.width
-            height: 80
+            height: Math.max(80, emptyBelow.implicitHeight + 24) // taller with hints under it
             visible: window.showEmptyState && !window.clipboardBelow && !window.fullHeight
 
             EmptyState {
+                id: emptyBelow
                 anchors.centerIn: parent
                 width: parent.width - 80
                 title: window.emptyTitle
                 hint: window.emptyHint
             }
+        }
+
+        Item { // the strip's room it does not fill yet, as it opens or closes (stripSlack)
+            width: parent.width
+            height: window.fullHeight ? 0 : window.stripSlack // at the taskbar, in the list area
         }
 
         Footer {
@@ -713,6 +964,7 @@ Window {
             visible: !window.clipboardBelow
             launcher: window.launcher
             frame: window.frame
+            transform: Translate { y: window.stripLeaving ? -window.stripSlack : 0 } // up where it ends
         }
     }
 

@@ -90,7 +90,7 @@ Window {
     property bool showNumbers: false
     Timer {
         id: numbersDelay
-        interval: 500
+        interval: 200 // as in the launcher
         onTriggered: window.showNumbers = true
     }
     function hideNumbers() {

@@ -3,14 +3,17 @@
 #include "Unc.h"
 #include "Win32Util.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QStandardPaths>
 
 #include <windows.h>
 
 #include <algorithm>
+#include <cmath>
 
 using namespace Qt::StringLiterals;
 
@@ -128,8 +131,11 @@ const QStringList kDefaultNetworkExcludedNames {
 const QStringList kDefaultNetworkExcludedFiles {u"._*"_s, u".DS_Store"_s};
 
 // Bumped when kDefaultContentExtensions grows, so lists that still hold an
-// older default pick up the new one.
-constexpr int kContentDefaultsVersion = 2;
+// older default pick up the new one; 3: smaller default size limits.
+constexpr int kContentDefaultsVersion = 3;
+// The size limits before version 3, by ContentSizeLimits::Kind: one still
+// at its old default takes the new one.
+constexpr std::array<double, ContentSizeLimits::kKinds> kOldContentMaxSizeMB {64, 8, 16, 512};
 
 // The size limits of the kinds of files, by ContentSizeLimits::Kind.
 const QString kContentSizeKeys[ContentSizeLimits::kKinds] {u"Content/MaxFileSizeMB"_s, u"Content/MaxCodeFileSizeMB"_s,
@@ -218,6 +224,74 @@ WebShortcuts readWebShortcuts(QSettings& s, const WebShortcuts& fallback)
         writeWebShortcuts(s, shortcuts);
     }
     return shortcuts;
+}
+
+// The built-in file types: id, name (to translate), extensions. As
+// Everything groups them, less what few people look for; 代码 last, the
+// least asked for.
+struct BuiltInFileType {
+    const char* id;
+    const char* name;
+    const char* extensions;
+};
+constexpr BuiltInFileType kBuiltInFileTypes[] {
+    {"documents", QT_TRANSLATE_NOOP("ws::Settings", "文档"),
+        "doc docx docm dot dotx rtf odt wps wpd txt md pdf xls xlsx xlsm xlsb csv ods et ppt pptx pptm pps ppsx odp dps "
+        "vsd vsdx one pages numbers key"},
+    {"pictures", QT_TRANSLATE_NOOP("ws::Settings", "图片"),
+        "jpg jpeg jfif png gif bmp webp heic heif avif tif tiff ico svg psd ai raw cr2 cr3 nef arw dng orf rw2"},
+    {"videos", QT_TRANSLATE_NOOP("ws::Settings", "视频"),
+        "mp4 mkv avi mov wmv flv webm m4v mpg mpeg ts m2ts 3gp rm rmvb vob"},
+    {"audio", QT_TRANSLATE_NOOP("ws::Settings", "音频"),
+        "mp3 wav flac aac m4a ogg opus wma ape aiff alac mid midi amr"},
+    {"archives", QT_TRANSLATE_NOOP("ws::Settings", "压缩包"), "zip rar 7z tar gz tgz bz2 xz zst iso cab lzh arj"},
+    {"programs", QT_TRANSLATE_NOOP("ws::Settings", "程序"), "exe msi msix appx bat cmd ps1 vbs com lnk"},
+    {"ebooks", QT_TRANSLATE_NOOP("ws::Settings", "电子书"), "epub mobi azw azw3 fb2 djvu chm cbz cbr"},
+    {"code", QT_TRANSLATE_NOOP("ws::Settings", "代码"),
+        "c h cpp hpp cc cxx cs java kt py js mjs ts jsx tsx go rs swift rb php lua html htm css scss json xml yaml "
+        "yml toml ini sql sh ps1 qml vue"},
+};
+
+void writeFileTypes(QSettings& s, const FileTypes& types)
+{
+    s.remove(u"FileTypes"_s); // no entries left over from a longer list
+    s.beginWriteArray(u"FileTypes"_s, static_cast<int>(types.size()));
+    for (int i = 0; i < types.size(); ++i) {
+        s.setArrayIndex(i);
+        if (!types[i].id.isEmpty())
+            s.setValue(u"Id"_s, types[i].id);
+        if (!types[i].name.isEmpty())
+            s.setValue(u"Name"_s, types[i].name);
+        s.setValue(u"Extensions"_s, types[i].extensions.join(u' '));
+    }
+    s.endArray();
+}
+
+// Edited by hand perhaps: extensions tidied (".JPG," is jpg), one with no
+// name to show or no extension left out.
+FileTypes readFileTypes(QSettings& s, const FileTypes& fallback)
+{
+    if (!s.contains(u"FileTypes/size"_s)) { // never written: the defaults, and into the file with them
+        writeFileTypes(s, fallback);
+        return fallback;
+    }
+    FileTypes types;
+    const int size = s.beginReadArray(u"FileTypes"_s);
+    for (int i = 0; i < size; ++i) {
+        s.setArrayIndex(i);
+        FileType type;
+        type.id = s.value(u"Id"_s).toString().trimmed();
+        type.name = s.value(u"Name"_s).toString().trimmed();
+        type.extensions = Settings::fileExtensions(s.value(u"Extensions"_s).toString());
+        const bool builtIn = std::ranges::any_of(kBuiltInFileTypes, [&](const BuiltInFileType& b) { return type.id == QLatin1StringView(b.id); });
+        if (!builtIn)
+            type.id.clear();
+        if ((type.name.isEmpty() && !builtIn) || type.extensions.isEmpty())
+            continue;
+        types.append(type);
+    }
+    s.endArray();
+    return types;
 }
 
 void writeShares(QSettings& s, const QList<NetworkShare>& shares)
@@ -408,6 +482,45 @@ QString Settings::resolveLanguage(const QString& language)
     return PRIMARYLANGID(::GetUserDefaultUILanguage()) == LANG_CHINESE ? u"zh"_s : u"en"_s;
 }
 
+FileTypes Settings::defaultFileTypes()
+{
+    FileTypes types;
+    for (const BuiltInFileType& b : kBuiltInFileTypes)
+        types.append({{}, QString::fromLatin1(b.extensions).split(u' ', Qt::SkipEmptyParts), QString::fromLatin1(b.id)});
+    return types;
+}
+
+QStringList Settings::fileExtensions(const QString& text)
+{
+    static const QRegularExpression separators(u"[\\s,;，；、]+"_s);
+    QStringList extensions;
+    for (QString ext : text.split(separators, Qt::SkipEmptyParts)) {
+        while (ext.startsWith(u'*') || ext.startsWith(u'.'))
+            ext.remove(0, 1);
+        ext = ext.sliced(ext.lastIndexOf(u'.') + 1).toLower(); // "tar.gz": what comes after the last dot
+        // What no name ends in (a path, a pattern) is no extension.
+        if (ext.isEmpty() || ext.contains(u'\\') || ext.contains(u'/') || ext.contains(u':') || ext.contains(u'*')
+            || ext.contains(u'?') || extensions.contains(ext))
+            continue;
+        extensions.append(ext);
+    }
+    return extensions;
+}
+
+FileTypes Settings::namedFileTypes() const
+{
+    FileTypes types = fileTypes;
+    for (FileType& type : types) {
+        if (!type.name.isEmpty())
+            continue;
+        for (const BuiltInFileType& b : kBuiltInFileTypes) {
+            if (type.id == QLatin1StringView(b.id))
+                type.name = QCoreApplication::translate("ws::Settings", b.name);
+        }
+    }
+    return types;
+}
+
 Settings Settings::defaults()
 {
     Settings d;
@@ -417,6 +530,7 @@ Settings Settings::defaults()
     d.clipboard = windowsClipboardHistory(); // whoever kept Windows' clipboard history keeps ours
     d.clipboardExcludedApps = kDefaultClipboardExcludedApps;
     d.webShortcuts = defaultWebShortcuts();
+    d.fileTypes = defaultFileTypes();
     d.networkExcludedNames = kDefaultNetworkExcludedNames;
     d.networkExcludedFiles = kDefaultNetworkExcludedFiles;
     d.renderer = defaultRenderer();
@@ -511,7 +625,8 @@ void Settings::load()
 
     contentSearch = readOrDefault(s, u"Content/Enabled"_s, d.contentSearch);
     contentExtensions = readOrDefault(s, u"Content/Extensions"_s, d.contentExtensions);
-    if (s.value(u"Content/DefaultsVersion"_s, 1).toInt() < kContentDefaultsVersion) {
+    const int contentDefaults = s.value(u"Content/DefaultsVersion"_s, 1).toInt();
+    if (contentDefaults < kContentDefaultsVersion) {
         // Version 1 defaulted to just "txt". A list the user edited is left alone.
         if (contentExtensions == QStringList {u"txt"_s}) {
             contentExtensions = d.contentExtensions;
@@ -522,11 +637,16 @@ void Settings::load()
     // MaxFileSizeMB once held for every kind of text file: a size set there
     // holds for code and data too, until they have their own.
     for (std::size_t k = 0; k < ContentSizeLimits::kKinds; ++k) {
-        int fallback = d.contentMaxSizeMB[k];
+        double fallback = d.contentMaxSizeMB[k];
         if ((k == ContentSizeLimits::Code || k == ContentSizeLimits::Data) && !s.contains(kContentSizeKeys[k])
             && contentMaxSizeMB[0] != d.contentMaxSizeMB[0])
             fallback = contentMaxSizeMB[0];
-        contentMaxSizeMB[k] = std::clamp(readOrDefault(s, kContentSizeKeys[k], fallback), 1, 4096);
+        double mb = readOrDefault(s, kContentSizeKeys[k], fallback);
+        if (contentDefaults < 3 && mb == kOldContentMaxSizeMB[k]) { // never changed: the new default
+            mb = d.contentMaxSizeMB[k];
+            s.setValue(kContentSizeKeys[k], mb);
+        }
+        contentMaxSizeMB[k] = roundedSizeMB(mb);
     }
     contentIndex = readOrDefault(s, u"Content/Index"_s, d.contentIndex);
     contentInLowPriority = readOrDefault(s, u"Content/IncludeSystemFolders"_s, d.contentInLowPriority);
@@ -641,7 +761,7 @@ ContentSizeLimits Settings::contentSizeLimits() const
 {
     ContentSizeLimits limits;
     for (std::size_t k = 0; k < ContentSizeLimits::kKinds; ++k)
-        limits.bytes[k] = static_cast<std::int64_t>(contentMaxSizeMB[k]) << 20;
+        limits.bytes[k] = std::llround(contentMaxSizeMB[k] * (1 << 20));
     return limits;
 }
 

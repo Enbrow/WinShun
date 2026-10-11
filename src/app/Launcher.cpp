@@ -22,6 +22,7 @@
 #include <QGuiApplication>
 #include <QLocale>
 #include <QPointer>
+#include <QRegularExpression>
 #include <QScreen>
 #include <QSet>
 #include <QStyleHints>
@@ -55,9 +56,20 @@ constexpr int kContentThreads = 16;
 
 constexpr qsizetype kShownExtensions = 3; // named in the search box and the status line
 
+// The most a content size limit can be set to (Settings: roundedSizeMB), the
+// limit for the files asked for after being left out (searchLeftOut "large").
+constexpr std::int64_t kLargestFile = 4096ll << 20;
+
+// The hints' kinds (leftOutHints), and a drive's root from its kind.
+constexpr QLatin1StringView kLargeHint("large");
+constexpr QLatin1StringView kSystemHint("system");
+constexpr QLatin1StringView kTypesHint("types");
+constexpr QLatin1StringView kDriveHint("drive:"); // + "E:"
+
 // Rows asked for at a time: names, content matches, files written lately.
 // Scrolled to the end, a page more (loadMore), up to kMaxPages.
 constexpr int kPage = 256;
+constexpr int kFewRows = 8; // fewer found than the window shows: the content scan's left-out hints
 constexpr int kMaxPages = 16;
 
 // Ranked by time: where a content match goes among `count` rows (`at(i)`
@@ -204,6 +216,10 @@ Launcher::Launcher(IndexService* index, AppCatalog* apps, SystemCatalog* places,
     connect(m_engine, &SearchEngine::resultsReady, this, &Launcher::onResults);
     connect(m_engine, &SearchEngine::contentResults, this, &Launcher::onContentResults);
     connect(m_engine, &SearchEngine::contentProgress, this, &Launcher::onContentProgress);
+    connect(m_engine, &SearchEngine::contentLeftOut, this, &Launcher::onContentLeftOut);
+    connect(m_engine, &SearchEngine::removableDrives, this, &Launcher::onRemovableDrives);
+    connect(m_engine, &SearchEngine::driveResults, this, &Launcher::onDriveResults);
+    connect(m_engine, &SearchEngine::driveProgress, this, &Launcher::onDriveProgress);
     connect(m_index, &IndexService::stateChanged, this, [this] {
         // A finished index can only improve the current results.
         if (m_index->state() == IndexService::State::Ready && m_window && m_window->isVisible() && m_scope != Content)
@@ -260,12 +276,20 @@ void Launcher::setScope(Scope scope)
 {
     if (scope == Content && !m_contentEnabled)
         scope = All; // a plugin's row may still ask for it
+    // Back in 文件: as it was left (文件夹, or the kind chosen kept meanwhile).
+    if (scope == Files && m_scope != Folders && m_foldersChosen)
+        scope = Folders;
     if (scope == m_scope)
         return;
     m_scope = scope;
+    if ((scope == Files || scope == Folders) && m_foldersChosen != (scope == Folders)) {
+        m_foldersChosen = scope == Folders;
+        emit fileChoiceChanged();
+    }
     emit scopeChanged();
     m_results.setSelection({});
     m_held.reset();
+    refreshKeyHints(); // Tab: through the kinds in 文件
     // Keep the old rows until the new results replace them: clearing first
     // collapses the window and then grows it back (flicker).
     search();
@@ -275,7 +299,7 @@ bool Launcher::busy() const
 {
     const auto state = m_index->state();
     return state == IndexService::State::Loading || state == IndexService::State::Building
-        || (m_contentRunning && !m_quiet);
+        || (m_contentRunning && !m_quiet) || m_walkRunning;
 }
 
 qreal Launcher::progress() const
@@ -288,7 +312,10 @@ qreal Launcher::progress() const
 
 bool Launcher::moreAvailable() const
 {
-    return (m_moreNames || m_moreContent) && m_pages < kMaxPages && m_haveResults && !m_replacePending && !m_keyword;
+    // Not while a hint's one-off search runs: its rows reaching the end of
+    // the list would ask for a page more, which would cut it short.
+    return (m_moreNames || m_moreContent) && m_pages < kMaxPages && m_haveResults && !m_replacePending && !m_keyword
+        && m_hintRunning.isEmpty();
 }
 
 void Launcher::loadMore()
@@ -297,6 +324,189 @@ void Launcher::loadMore()
         return;
     ++m_pages;
     search(true);
+}
+
+bool Launcher::hintsSettled() const
+{
+    if (!m_haveResults || m_replacePending || m_keyword || m_query.trimmed().isEmpty())
+        return false;
+    return m_quiet || (!m_pending && !m_contentRunning && !m_walkRunning && !m_contentDebounce.isActive());
+}
+
+// In the order they are offered: the content scan's parts (large files in
+// any scope; system folders and other kinds of text in 内容, where contents
+// are what was asked for: 全部 reads them as a by-product, and under its name
+// rows the counts would read oddly), then the drives. The content parts once
+// the scan has run to its end (stopped at its limit, more rows come first:
+// loadMore), the drives once the names are all listed, for the same reason.
+QVariantList Launcher::leftOutHints() const
+{
+    QVariantList hints;
+    const auto add = [&](const QString& kind, const QString& text, const QString& action) {
+        hints.append(QVariantMap {
+            {u"kind"_s, kind}, {u"text"_s, text}, {u"action"_s, action}, {u"running"_s, kind == m_hintRunning}});
+    };
+    if (!m_hintRunning.isEmpty()) {
+        QString text;
+        if (m_hintRunning == kLargeHint)
+            text = tr("正在搜这些大文件…");
+        else if (m_hintRunning == kSystemHint)
+            text = tr("正在搜系统和程序文件夹里的文件…");
+        else if (m_hintRunning == kTypesHint)
+            text = tr("正在搜这些类型的文件…");
+        else
+            text = tr("正在搜 %1… 已看 %Ln 项", nullptr, m_walkSeen).arg(m_hintRunning.mid(kDriveHint.size()));
+        add(m_hintRunning, text, tr("停止"));
+        return hints;
+    }
+    if (!hintsSettled())
+        return hints;
+    // The counts are of files not read, whatever was typed: offered under
+    // every list they would be noise. Only when what was found does not fill
+    // the window (Main.qml maxRows), where "is that all?" is the question.
+    if (m_scanComplete && !m_moreContent && m_results.count() < kFewRows) {
+        if (!m_leftOut.large.isEmpty()) {
+            add(kLargeHint, tr("另有 %Ln 个大文件超过大小上限没搜", nullptr, static_cast<int>(m_leftOut.large.size())),
+                tr("也搜这些"));
+        }
+        if (m_scope == Content && m_leftOut.lowPriority > 0)
+            add(kSystemHint, tr("系统和程序文件夹里还有 %Ln 个文件没搜", nullptr, m_leftOut.lowPriority), tr("也搜这些"));
+        if (m_scope == Content && m_leftOut.otherTypes > 0) {
+            // The two most numerous kinds by name, "等" when there are more.
+            QStringList kinds;
+            for (const QString& ext : m_leftOut.otherExtensions.first(std::min<qsizetype>(2, m_leftOut.otherExtensions.size())))
+                kinds.append(u'.' + ext);
+            const QString named = kinds.join(u' ');
+            add(kTypesHint,
+                m_leftOut.otherExtensions.size() > 2
+                    ? tr("还有 %Ln 个 %1 等文件不在内容搜索的类型里", nullptr, m_leftOut.otherTypes).arg(named)
+                    : tr("还有 %Ln 个 %1 文件不在内容搜索的类型里", nullptr, m_leftOut.otherTypes).arg(named),
+                tr("也搜这些"));
+        }
+    }
+    if (m_scope != Content && !m_moreNames) {
+        for (const RemovableDrive& drive : m_drives) {
+            const QString kind = kDriveHint + drive.root;
+            if (m_hintsTaken.contains(kind))
+                continue;
+            add(kind,
+                drive.label.isEmpty() ? tr("U 盘 %1 没收录").arg(drive.root) : tr("U 盘 %1（%2）没收录").arg(drive.root, drive.label),
+                tr("这次也搜它"));
+        }
+    }
+    return hints;
+}
+
+QString Launcher::approximateHeading() const
+{
+    if (!m_approximate || !m_haveResults || m_shownText.isEmpty())
+        return {};
+    // What was typed, on one line (as Main.qml shows it when nothing is found).
+    static const QRegularExpression kSpaces(u"\\s+"_s);
+    return tr("没有叫“%1”的，按读音找到：").arg(QString(m_shownText).replace(kSpaces, u" "_s));
+}
+
+// A hint taken up: the same query over that part alone. The content parts
+// are a content scan (SearchEngine::Request::contentSet) whose matches come
+// in as content matches do: the files over the limit under the largest limit
+// the settings allow, the others under the limits set. A drive is walked
+// (Request::walkDrive); its rows go after the rows there are, as they come.
+// Not while a search runs, but a quiet refresh (the window opened again) is
+// stopped for it: its rows stay as they were, which is what a quiet refresh
+// keeps anyway, and a scan that finished without finding them again would
+// have taken them for gone.
+void Launcher::searchLeftOut(const QString& kind)
+{
+    if (!m_window || !m_window->isVisible() || !m_hintRunning.isEmpty())
+        return;
+    const QVariantList offered = leftOutHints();
+    if (std::none_of(offered.cbegin(), offered.cend(), [&](const QVariant& h) { return h.toMap()[u"kind"_s] == kind; }))
+        return;
+    if (m_pending || m_contentRunning) {
+        m_engine->cancel();
+        m_pending = false;
+        m_contentRunning = false;
+        m_loadingMore = false;
+        m_unconfirmed.clear();
+    }
+    SearchEngine::Request request;
+    request.rankBy = rankBy();
+    if (kind.startsWith(kDriveHint)) {
+        request.text = m_query;
+        request.scope = m_scope == Folders ? ws::Scope::Folders : ws::Scope::Files; // 全部: its files and folders
+        request.extensions = fileExtensions();
+        request.limit = kPage;
+        request.walkDrive = kind.mid(kDriveHint.size());
+        m_walkRunning = true;
+        m_walkSeen = 0;
+    } else {
+        request.text = m_scope == Content ? m_query.trimmed() : contentNeedle();
+        request.scope = ws::Scope::Content;
+        request.contentExtensions = m_contentExtensions;
+        request.contentSizeLimits = m_contentSizeLimits;
+        request.contentDocuments = m_contentDocuments;
+        request.contentInLowPriority = m_contentInLowPriority;
+        request.contentThreads = kContentThreads; // asked for: many files at once (each open mostly waits for the antivirus)
+        request.maxContentResults = kPage * m_pages;
+        if (kind == kLargeHint) {
+            request.contentSet = SearchEngine::ContentSet::Given;
+            request.contentOnly = m_leftOut.large;
+            request.maxContentResults = static_cast<int>(m_leftOut.large.size()); // a match per file at most: all of them
+            request.contentSizeLimits.bytes.fill(kLargestFile);
+        } else {
+            request.contentSet
+                = kind == kSystemHint ? SearchEngine::ContentSet::LowPriority : SearchEngine::ContentSet::OtherTypes;
+        }
+        m_pending = true;
+        m_contentRunning = true;
+    }
+    m_hintRunning = kind;
+    m_hintsTaken.insert(kind);
+    m_hintHits = 0;
+    m_quiet = false; // the divider shows how far it is
+    m_requestId = m_engine->submit(std::move(request));
+    refreshStatus();
+}
+
+void Launcher::stopLeftOut()
+{
+    if (m_hintRunning.isEmpty())
+        return;
+    m_engine->cancel();
+    m_requestId = 0;
+    m_pending = false;
+    m_contentRunning = false;
+    m_walkRunning = false;
+    m_contentScanned = m_contentTotal; // the scan behind the rows did run to its end (setSort reads the figures)
+    finishLeftOut(true);
+}
+
+// The rows it brought went in where they rank (content matches), which may
+// be out of sight: the footer says what came of it.
+void Launcher::finishLeftOut(bool stopped)
+{
+    const QString kind = std::exchange(m_hintRunning, QString());
+    const int hits = m_hintHits;
+    if (kind == kLargeHint)
+        m_leftOut.large.clear();
+    else if (kind == kSystemHint)
+        m_leftOut.lowPriority = 0;
+    else if (kind == kTypesHint)
+        m_leftOut.otherTypes = 0;
+    QString said;
+    if (stopped)
+        said = hits > 0 ? tr("已停止，找到 %Ln 条", nullptr, hits) : tr("已停止");
+    else if (kind == kLargeHint)
+        said = hits > 0 ? tr("大文件里找到 %Ln 条", nullptr, hits) : tr("这些大文件里也没有");
+    else if (kind == kSystemHint)
+        said = hits > 0 ? tr("系统和程序文件夹里找到 %Ln 条", nullptr, hits) : tr("系统和程序文件夹里也没有");
+    else if (kind == kTypesHint)
+        said = hits > 0 ? tr("这些类型的文件里找到 %Ln 条", nullptr, hits) : tr("这些类型的文件里也没有");
+    else {
+        const QString root = kind.mid(kDriveHint.size());
+        said = hits > 0 ? tr("%1 里找到 %Ln 项", nullptr, hits).arg(root) : tr("%1 里也没有").arg(root);
+    }
+    flash(said);
 }
 
 // The first few content extensions, ".txt / .md / .log": the full default
@@ -321,6 +531,8 @@ QString Launcher::placeholder() const
 {
     switch (m_scope) {
     case Files:
+        if (m_fileType >= 0)
+            return tr("搜索%1", "a kind of file, as 图片").arg(m_fileTypes[m_fileType].name);
         return tr("搜索文件和文件夹");
     case Folders:
         return tr("搜索文件夹");
@@ -569,12 +781,14 @@ void Launcher::handleHidden()
     m_contentDebounce.stop();
     m_slowSearch.stop();
     m_searchSlow = false;
-    if (m_contentRunning || m_pending) {
+    if (m_contentRunning || m_pending || m_walkRunning) {
         m_engine->cancel();
         m_requestId = 0;
         m_pending = false;
         m_contentRunning = false;
+        m_walkRunning = false;
     }
+    m_hintRunning.clear(); // whatever was asked is over; the hint is not offered again (m_hintsTaken)
     if (m_plugins)
         m_plugins->cancelAll(); // nobody is looking: whatever they were asked is moot
     m_pluginPending.clear();
@@ -602,16 +816,23 @@ void Launcher::search(bool more)
     std::optional<KeywordMode> keyword = matchKeyword(m_query);
     const QString keywordKey = keyword ? keyword->pluginId + u'/' + keyword->commandId : QString();
     m_refresh = m_haveResults && !m_replacePending && text == m_shownText && m_scope == m_shownScope
-        && rankBy() == m_shownRankBy && m_kindOrder == m_shownKindOrder && keywordKey == m_shownKeyword
+        && fileExtensions() == m_shownExtensions && rankBy() == m_shownRankBy && m_kindOrder == m_shownKindOrder && keywordKey == m_shownKeyword
         && (!text.isEmpty() || m_startList == m_shownStartList);
     m_replacePending = !m_refresh;
     // A page more of what is listed, or (anything else asking again) the
     // pages there are; a new list starts with one.
     m_loadingMore = more && m_refresh;
+    m_hintRunning.clear(); // superseded, as any search is by what follows
+    m_walkRunning = false;
     if (!m_refresh) {
         m_pages = 1;
         m_moreNames = false;
         m_moreContent = false;
+        m_leftOut = {};
+        m_drives.clear();
+        m_hintsTaken.clear();
+        m_leftOutFound.clear();
+        m_approximate = false;
     }
     // The plugins are asked first: a keyword makes the list theirs, and
     // then neither names nor contents are searched (nothing waits for them
@@ -651,11 +872,14 @@ void Launcher::search(bool more)
             m_haveResults = false;
             emit resultsReplaced();
         } else if (m_refresh) {
-            // Asked again, the rows not found again go; for a page more,
+            // Asked again, the rows not found again go (not those a one-off
+            // brought: this scan does not read those files); for a page more,
             // what is listed stays (the new scan finds those first).
             if (!m_loadingMore) {
-                for (int row = 0; row < m_results.count(); ++row)
-                    m_unconfirmed.insert(m_results.at(row)->path);
+                for (int row = 0; row < m_results.count(); ++row) {
+                    if (!m_leftOutFound.contains(m_results.at(row)->path))
+                        m_unconfirmed.insert(m_results.at(row)->path);
+                }
             }
             startContentSearch(); // at once: nobody is typing
         } else {
@@ -668,6 +892,7 @@ void Launcher::search(bool more)
     SearchEngine::Request request;
     request.text = m_query;
     request.scope = static_cast<ws::Scope>(m_scope);
+    request.extensions = fileExtensions();
     request.kindOrder = m_kindOrder;
     request.rankBy = rankBy();
     request.startList = static_cast<ws::StartList>(m_startList);
@@ -678,6 +903,7 @@ void Launcher::search(bool more)
     if (m_favorites)
         request.favorites = m_favorites->items();
     m_requestId = m_engine->submit(std::move(request)); // also stops a running content scan
+    m_nameRequestId = m_requestId;
     m_pending = true;
     m_contentRunning = false;
     if (m_replacePending)
@@ -692,6 +918,7 @@ void Launcher::showRows(SearchResults rows, QStringList highlights)
     m_results.assign(std::move(rows), std::move(highlights));
     m_shownText = m_query.trimmed();
     m_shownScope = m_scope;
+    m_shownExtensions = fileExtensions();
     m_shownRankBy = rankBy();
     m_shownStartList = m_startList;
     m_shownKindOrder = m_kindOrder;
@@ -805,14 +1032,16 @@ void Launcher::onResults(quint64 id, const SearchResults& results, qint64 total,
     }
 
     SearchResults rows = results;
+    QSet<QString> names;
+    if (m_refresh) {
+        for (const SearchResult& r : rows)
+            names.insert(r.path);
+    }
     if (m_refresh && m_withContent) {
         // Keep last scan's content matches below the names until the new
         // scan finds them again (or finishes without them), rather than
         // dropping them only to add them back a moment later.
         // By time, each among the files where it belongs.
-        QSet<QString> names;
-        for (const SearchResult& r : rows)
-            names.insert(r.path);
         const RankBy by = rankBy();
         for (int row = 0; row < m_results.count(); ++row) {
             const SearchResult* r = m_results.at(row);
@@ -822,8 +1051,18 @@ void Launcher::onResults(quint64 id, const SearchResults& results, qint64 total,
                     : timePlace(static_cast<int>(rows.size()), [&](int i) -> const SearchResult& { return rows.at(i); },
                           *r, 0, by, m_kindOrder);
                 rows.insert(at, *r);
-                m_unconfirmed.insert(r->path);
+                if (!m_leftOutFound.contains(r->path)) // a one-off brought it: the scan will not read that file
+                    m_unconfirmed.insert(r->path);
             }
+        }
+    }
+    if (m_refresh) {
+        // Likewise the rows a walk of a drive brought (searchLeftOut): the
+        // index has nothing to find them by again. After the names, as they came.
+        for (int row = 0; row < m_results.count(); ++row) {
+            const SearchResult* r = m_results.at(row);
+            if (r->line == 0 && !r->isPlugin() && m_leftOutFound.contains(r->path) && !names.contains(r->path))
+                rows.append(*r);
         }
     }
     if (m_refresh) {
@@ -849,7 +1088,22 @@ void Launcher::onResults(quint64 id, const SearchResults& results, qint64 total,
         else
             m_contentDebounce.start();
     }
-    showRows(std::move(rows), ws::parseQuery(m_query).highlights);
+    // Rows found by how their names read (nothing is named as typed): the
+    // heading says so (approximateHeading), and the names are highlighted by
+    // the pinyin, as the result list reads "bg" back into 报告.
+    m_approximate = std::ranges::any_of(results, [](const SearchResult& r) { return r.approximate; });
+    const ParsedQuery query = ws::parseQuery(m_query);
+    QStringList highlights = query.highlights;
+    if (m_approximate) {
+        highlights.clear();
+        for (const ParsedQuery& reading : ws::homophoneQueries(query)) {
+            for (const QString& word : reading.highlights) {
+                if (!highlights.contains(word))
+                    highlights.append(word);
+            }
+        }
+    }
+    showRows(std::move(rows), std::move(highlights));
     refreshStatus();
     emit namesShown();
 }
@@ -874,6 +1128,11 @@ void Launcher::onContentResults(quint64 id, const SearchResults& results)
     }
     if (m_scope != Content)
         m_contentHits += static_cast<int>(fresh.size());
+    if (!m_hintRunning.isEmpty()) {
+        for (const SearchResult& r : fresh)
+            m_leftOutFound.insert(r.path);
+        m_hintHits += static_cast<int>(fresh.size());
+    }
     if (m_loadingMore) { // a page more: after the rows, as they come (loadMore)
         m_results.append(fresh);
         return;
@@ -916,7 +1175,12 @@ void Launcher::onContentProgress(quint64 id, int scanned, int total, bool finish
         return; // the status keeps the last scan's figures
     m_contentScanned = scanned;
     m_contentTotal = total;
-    if (finished) {
+    if (finished && !m_hintRunning.isEmpty()) {
+        // A part read after all (searchLeftOut): the scan behind the rows
+        // is as it was (this one may have stopped at its limit, which says
+        // nothing about that one).
+        finishLeftOut(false);
+    } else if (finished) {
         m_scanComplete = true;
         m_loadingMore = false;
         // Stopped at its limit before every file was read: more to list.
@@ -929,6 +1193,59 @@ void Launcher::onContentProgress(quint64 id, int scanned, int total, bool finish
                 m_contentHits -= removed;
             m_unconfirmed.clear();
         }
+    }
+    refreshStatus();
+}
+
+void Launcher::onContentLeftOut(quint64 id, const ContentLeftOut& leftOut)
+{
+    if (id != m_requestId || !m_hintRunning.isEmpty())
+        return; // superseded
+    // Shown once the finishing progress arrives (leftOutHints); the parts
+    // read already for this query are not offered again.
+    m_leftOut = leftOut;
+    if (m_hintsTaken.contains(kLargeHint))
+        m_leftOut.large.clear();
+    if (m_hintsTaken.contains(kSystemHint))
+        m_leftOut.lowPriority = 0;
+    if (m_hintsTaken.contains(kTypesHint))
+        m_leftOut.otherTypes = 0;
+}
+
+void Launcher::onRemovableDrives(quint64 id, const RemovableDrives& drives)
+{
+    if (id != m_nameRequestId || drives == m_drives)
+        return;
+    m_drives = drives;
+    refreshStatus();
+}
+
+// A drive's rows, as the walk finds them: after the rows there are (the hint
+// taken up stands there), each file once.
+void Launcher::onDriveResults(quint64 id, const SearchResults& results)
+{
+    if (id != m_requestId)
+        return;
+    SearchResults fresh;
+    for (const SearchResult& r : results) {
+        if (m_results.indexOf(r.path) < 0) {
+            fresh.append(r);
+            m_leftOutFound.insert(r.path);
+        }
+    }
+    m_hintHits += static_cast<int>(fresh.size());
+    m_results.append(fresh);
+}
+
+void Launcher::onDriveProgress(quint64 id, int seen, bool finished)
+{
+    if (id != m_requestId)
+        return;
+    m_walkSeen = seen;
+    if (finished) {
+        m_walkRunning = false;
+        if (!m_hintRunning.isEmpty())
+            finishLeftOut(false);
     }
     refreshStatus();
 }
@@ -1015,10 +1332,13 @@ void Launcher::refreshKeyHints()
     QString enter;
     QString secondKeys;
     QString second;
-    QString tab = enterableFolder(m_currentRow) ? tr("进入文件夹")
-        : completionRow(m_currentRow)           ? tr("补全")
-        : m_keyword                             ? QString()
-                                                : tr("切换范围");
+    // In 文件, Tab goes through the strip of kinds (not into a folder).
+    const bool narrowing = (m_scope == Files || m_scope == Folders) && !m_keyword;
+    QString tab = enterableFolder(m_currentRow) && !narrowing ? tr("进入文件夹")
+        : completionRow(m_currentRow)                          ? tr("补全")
+        : narrowing                                            ? tr("切换类型")
+        : m_keyword                                            ? QString()
+                                                               : tr("切换范围");
     const SearchResult* r = m_results.at(m_currentRow);
     if (!r) {
         if (!m_keyword) {
@@ -1075,10 +1395,114 @@ void Launcher::flash(const QString& message)
 
 void Launcher::cycleScope(int delta)
 {
-    static constexpr Scope kOrder[] {All, Files, Folders, Content}; // as the tabs show them
+    static constexpr Scope kOrder[] {All, Files, Content}; // as the tabs show them (文件夹 within 文件)
     const int scopes = static_cast<int>(std::size(kOrder)) - (m_contentEnabled ? 0 : 1); // Content last
-    const int at = static_cast<int>(std::find(std::begin(kOrder), std::end(kOrder), m_scope) - std::begin(kOrder));
+    const Scope tab = m_scope == Folders ? Files : m_scope;
+    const int at = static_cast<int>(std::find(std::begin(kOrder), std::end(kOrder), tab) - std::begin(kOrder));
     setScope(kOrder[((at + delta) % scopes + scopes) % scopes]);
+}
+
+QVariantList Launcher::fileTypes() const
+{
+    QVariantList types;
+    for (const FileType& type : m_fileTypes)
+        types.append(QVariantMap {{u"name"_s, type.name}, {u"extensions"_s, type.extensions.join(u' ')}});
+    return types;
+}
+
+void Launcher::setFileTypes(const FileTypes& types)
+{
+    if (types == m_fileTypes)
+        return;
+    // The kind chosen stays chosen where it went (moved up, renamed: by its
+    // id or name); gone, any kind.
+    const QString chosen = m_fileType >= 0 ? fileTypeKey(m_fileTypes[m_fileType]) : QString();
+    m_fileTypes = types;
+    const int at = chosen.isEmpty() ? -1 : fileTypeIndex(chosen);
+    if (at != m_fileType) {
+        m_fileType = at;
+        emit fileTypeChanged();
+        emit fileChoiceChanged();
+    }
+    emit fileTypesChanged();
+    emit scopeChanged(); // the placeholder names the kind
+    // Its extensions changed: listed again (a refresh when they did not).
+    if (m_fileType >= 0 && m_window && m_window->isVisible())
+        search();
+}
+
+QStringList Launcher::fileExtensions() const
+{
+    return m_scope == Files && m_fileType >= 0 ? m_fileTypes[m_fileType].extensions : QStringList();
+}
+
+void Launcher::chooseFileType(int type)
+{
+    const Scope scope = type == kFoldersChip ? Folders : Files;
+    if (type < -1 || type >= m_fileTypes.size())
+        type = -1;
+    if (scope == m_scope && type == m_fileType)
+        return;
+    m_scope = scope;
+    if (type != m_fileType || m_foldersChosen != (scope == Folders)) {
+        m_fileType = type;
+        m_foldersChosen = scope == Folders;
+        emit fileTypeChanged();
+        emit fileChoiceChanged();
+    }
+    emit scopeChanged();
+    m_results.setSelection({});
+    m_held.reset();
+    refreshKeyHints();
+    search(); // the rows stay until the new ones come (see setScope)
+}
+
+void Launcher::cycleFileType(int delta)
+{
+    QList<int> chips {-1, kFoldersChip};
+    for (int i = 0; i < m_fileTypes.size(); ++i)
+        chips.append(i);
+    const int at = std::max(0, static_cast<int>(chips.indexOf(m_scope == Folders ? kFoldersChip : m_fileType)));
+    const int count = static_cast<int>(chips.size());
+    chooseFileType(chips[((at + delta) % count + count) % count]);
+}
+
+void Launcher::editFileTypes()
+{
+    emit fileTypeSettingsRequested();
+}
+
+QString Launcher::fileTypeKey(const FileType& type)
+{
+    return type.id.isEmpty() ? u"name:"_s + type.name : type.id;
+}
+
+int Launcher::fileTypeIndex(const QString& key) const
+{
+    for (int i = 0; i < m_fileTypes.size(); ++i) {
+        if (fileTypeKey(m_fileTypes[i]) == key)
+            return i;
+    }
+    return -1;
+}
+
+QString Launcher::fileChoice() const
+{
+    return m_foldersChosen ? u"folders"_s : m_fileType >= 0 ? fileTypeKey(m_fileTypes[m_fileType]) : QString();
+}
+
+void Launcher::setFileChoice(const QString& choice)
+{
+    const int type = choice == u"folders" || choice.isEmpty() ? -1 : fileTypeIndex(choice);
+    if (m_scope == Files || m_scope == Folders) {
+        chooseFileType(choice == u"folders" ? kFoldersChip : type);
+        return;
+    }
+    m_foldersChosen = choice == u"folders";
+    if (type != m_fileType) {
+        m_fileType = type;
+        emit fileTypeChanged();
+    }
 }
 
 void Launcher::dismiss()
@@ -1928,7 +2352,9 @@ const SearchResult* Launcher::enterableFolder(int row) const
 
 bool Launcher::autocomplete(int row)
 {
-    if (const SearchResult* folder = enterableFolder(row)) {
+    // In 文件, Tab goes through the strip of kinds instead (cycleFileType).
+    const bool narrowing = m_scope == Files || m_scope == Folders;
+    if (const SearchResult* folder = narrowing ? nullptr : enterableFolder(row)) {
         setQuery(folder->path.endsWith(u'\\') ? folder->path : folder->path + u'\\');
         return true;
     }

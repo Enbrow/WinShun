@@ -33,6 +33,7 @@
 #include <QWinEventNotifier>
 
 #include <algorithm>
+#include <cmath>
 #include <thread>
 
 using namespace Qt::StringLiterals;
@@ -357,12 +358,12 @@ QStringList SettingsEditor::excludedPaths() const
     return paths;
 }
 
-void SettingsEditor::setContentMaxSizeMB(int kind, int mb)
+void SettingsEditor::setContentMaxSizeMB(int kind, double mb)
 {
-    if (kind < 0 || kind >= static_cast<int>(ContentSizeLimits::kKinds))
+    if (kind < 0 || kind >= static_cast<int>(ContentSizeLimits::kKinds) || !std::isfinite(mb))
         return;
-    mb = std::clamp(mb, 1, 4096);
-    int& limit = m_settings.contentMaxSizeMB[static_cast<std::size_t>(kind)];
+    mb = roundedSizeMB(mb);
+    double& limit = m_settings.contentMaxSizeMB[static_cast<std::size_t>(kind)];
     if (limit == mb)
         return;
     limit = mb;
@@ -759,6 +760,86 @@ QVariantList SettingsEditor::webShortcuts() const
         });
     }
     return list;
+}
+
+QVariantList SettingsEditor::fileTypes() const
+{
+    QVariantList list;
+    for (const FileType& type : m_settings.namedFileTypes())
+        list.append(QVariantMap {{u"name"_s, type.name}, {u"extensions"_s, type.extensions}});
+    return list;
+}
+
+QString SettingsEditor::addFileType(const QString& name, const QString& extensions)
+{
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty())
+        return tr("给类型起个名字");
+    const FileTypes named = m_settings.namedFileTypes();
+    if (std::ranges::any_of(named, [&](const FileType& t) { return t.name.compare(trimmed, Qt::CaseInsensitive) == 0; }))
+        return tr("已有这个类型");
+    const QStringList exts = Settings::fileExtensions(extensions);
+    if (exts.isEmpty())
+        return tr("填上扩展名，例如 md, log");
+    m_settings.fileTypes.append({trimmed, exts, {}});
+    commit();
+    return {};
+}
+
+QString SettingsEditor::renameFileType(int index, const QString& name)
+{
+    if (index < 0 || index >= m_settings.fileTypes.size())
+        return {};
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty())
+        return tr("给类型起个名字");
+    const FileTypes named = m_settings.namedFileTypes();
+    if (named[index].name == trimmed)
+        return {};
+    for (qsizetype i = 0; i < named.size(); ++i) {
+        if (i != index && named[i].name.compare(trimmed, Qt::CaseInsensitive) == 0)
+            return tr("已有这个类型");
+    }
+    m_settings.fileTypes[index].name = trimmed;
+    commit();
+    return {};
+}
+
+QString SettingsEditor::setFileTypeExtensions(int index, const QString& text)
+{
+    if (index < 0 || index >= m_settings.fileTypes.size())
+        return {};
+    const QStringList exts = Settings::fileExtensions(text);
+    if (exts.isEmpty())
+        return tr("填上扩展名，例如 md, log");
+    if (exts != m_settings.fileTypes[index].extensions) {
+        m_settings.fileTypes[index].extensions = exts;
+        commit();
+    }
+    return {};
+}
+
+void SettingsEditor::removeFileType(int index)
+{
+    if (index < 0 || index >= m_settings.fileTypes.size())
+        return;
+    m_settings.fileTypes.removeAt(index);
+    commit();
+}
+
+void SettingsEditor::moveFileType(int index, int delta)
+{
+    const qsizetype to = index + delta;
+    if (index < 0 || index >= m_settings.fileTypes.size() || to < 0 || to >= m_settings.fileTypes.size())
+        return;
+    m_settings.fileTypes.move(index, to);
+    commit();
+}
+
+void SettingsEditor::resetFileTypes()
+{
+    m_settings.fileTypes = Settings::defaultFileTypes();
+    commit();
 }
 
 QString SettingsEditor::webIconUrl(const QString& homeUrl, bool dark) const

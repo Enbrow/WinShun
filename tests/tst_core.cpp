@@ -1111,6 +1111,53 @@ private slots:
         QCOMPARE(ws::parseQuery(uR"(D:\Projects\ ext:pdf)"_s).extensions, std::vector<std::string> {"pdf"}); // no path: as before
     }
 
+    // The query read aloud (homophoneQueries), for names that sound the same.
+    void homophoneQueries()
+    {
+        // The term as pinyin (the most common readings first: 度 is also
+        // duo), the rest of the query as it was.
+        const std::vector<ParsedQuery> spoken = ws::homophoneQueries(ws::parseQuery(u"年度报高 2025 !草稿 ext:docx"_s));
+        QCOMPARE(spoken.size(), std::size_t {2});
+        QCOMPARE(spoken[1].terms[0].text, std::string("nianduobaogao"));
+        QCOMPARE(spoken[0].terms.size(), std::size_t {3});
+        QCOMPARE(spoken[0].terms[0].text, std::string("niandubaogao"));
+        QCOMPARE(spoken[0].terms[1].text, std::string("2025"));
+        QVERIFY(spoken[0].terms[2].negated);
+        QCOMPARE(spoken[0].terms[2].text, std::string("草稿")); // exclusions stay as typed
+        QCOMPARE(spoken[0].extensions, std::vector<std::string> {"docx"});
+        QCOMPARE(spoken[0].highlights, (QStringList {u"niandubaogao"_s, u"2025"_s}));
+        // Other characters in the term stay: "报高v2" reads "baogaov2".
+        QCOMPARE(ws::homophoneQueries(ws::parseQuery(u"报高v2"_s))[0].terms[0].text, std::string("baogaov2"));
+        // A character with several readings: a query per reading, the most
+        // common first (行: xing, then hang).
+        const std::vector<ParsedQuery> bank = ws::homophoneQueries(ws::parseQuery(u"银行"_s));
+        QVERIFY(bank.size() >= 2);
+        QCOMPARE(bank[0].terms[0].text, std::string("yinxing"));
+        QVERIFY(std::ranges::any_of(bank, [](const ParsedQuery& q) { return q.terms[0].text == "yinhang"; }));
+        // Two such characters: every combination, up to the few allowed.
+        QVERIFY(ws::homophoneQueries(ws::parseQuery(u"银行长"_s)).size() >= 4);
+        QVERIFY(ws::homophoneQueries(ws::parseQuery(u"行行行行行行"_s)).size() <= 8);
+        // Nothing to read: no queries. A wildcard term is not read either.
+        QVERIFY(ws::homophoneQueries(ws::parseQuery(u"report 2025"_s)).empty());
+        QVERIFY(ws::homophoneQueries(ws::parseQuery(u"报告*"_s)).empty());
+        QVERIFY(ws::homophoneQueries(ws::parseQuery(u""_s)).empty());
+
+        // In an index: 年度报高 is nowhere, read aloud it finds 年度报告 (and
+        // not 其他); the pinyin highlights read back into the name.
+        FileIndex index;
+        const EntryId root = index.addRoot("C:");
+        const EntryId annual = index.add(root, "年度报告.docx", 0);
+        index.add(root, "其他.txt", 0);
+        index.add(root, "年度计划.txt", 0);
+        const ParsedQuery typed = ws::parseQuery(u"年度报高"_s);
+        WorkerPool pool(2);
+        QCOMPARE(searchNames(index, NameMatcher(typed), {.limit = 10}, pool, {}).hits.size(), std::size_t {0});
+        const auto found = searchNames(index, NameMatcher(ws::homophoneQueries(typed)[0]), {.limit = 10}, pool, {});
+        QCOMPARE(found.hits.size(), std::size_t {1});
+        QCOMPARE(found.hits[0].id, annual);
+        QVERIFY(pinyin::Matcher("niandubaogao").findUtf16(u"年度报告.docx").has_value());
+    }
+
     void matcherRanking()
     {
         const NameMatcher m(ws::parseQuery(u"report"_s));
@@ -3645,8 +3692,12 @@ private slots:
         const auto match = scanner.scanFile(path, 0, {});
         QVERIFY(match);
         QCOMPARE(match->line, 2);
-        QVERIFY(!scanner.scanFile(path, 10, {})); // larger than the limit
-        QVERIFY(!scanner.scanFile(path + L".missing", 0, {}));
+        bool large = false;
+        QVERIFY(!scanner.scanFile(path, 10, {}, &large)); // larger than the limit
+        QVERIFY(large);
+        QVERIFY(!scanner.scanFile(path + L".missing", 0, {}, &large));
+        QVERIFY(!large);
+        QVERIFY(scanner.scanFile(path, 0, {}, &large) && !large);
     }
 
     void gramsOfText()
@@ -3734,18 +3785,69 @@ private slots:
         QVERIFY(!filter.matches("a.tx", 2) && !filter.matches("a.txt", 0) && !filter.matches("a.markdown", 8));
     }
 
+    // What a content scan passes over, and counts (ContentFilter::classify,
+    // OtherTextTypes): the kinds of text the list leaves out, and the files
+    // of listed types in system and program folders.
+    void contentLeftOut()
+    {
+        const OtherTextTypes other({u"txt"_s, u".md"_s, u"*.js"_s, u"JSON"_s});
+        QVERIFY(other.count() > 50);
+        QVERIFY(other.indexOf("App.vue", 3) >= 0 && other.indexOf("Main.KT", 2) >= 0 && other.indexOf("x.rst", 3) >= 0);
+        QCOMPARE(other.extension(static_cast<std::size_t>(other.indexOf("App.vue", 3))), u"vue"_s);
+        QCOMPARE(other.indexOf("notes.md", 2), -1); // listed
+        QCOMPARE(other.indexOf("app.js", 2), -1);
+        QCOMPARE(other.indexOf("data.json", 4), -1);
+        QCOMPARE(other.indexOf("setup.exe", 3), -1); // not text
+        QCOMPARE(other.indexOf("report.docx", 4), -1); // a document: read under its own setting
+        QCOMPARE(other.indexOf("x.dat", 3), -1); // may hold anything
+        QCOMPARE(other.indexOf("README", 0), -1);
+        QVERIFY(other.extensions().contains(u"swift"_s) && !other.extensions().contains(u"txt"_s));
+        QCOMPARE(other.extensions().size(), static_cast<qsizetype>(other.count()));
+
+        FileIndex index;
+        const EntryId root = index.addRoot("C:");
+        const EntryId program = index.add(root, "Program Files", EntryFlag::Directory | EntryFlag::LowPriority);
+        const EntryId own = index.add(root, "notes.txt", 0);
+        const EntryId code = index.add(root, "App.vue", 0);
+        const EntryId system = index.add(program, "readme.txt", EntryFlag::LowPriority);
+        const EntryId systemCode = index.add(program, "lib.kt", EntryFlag::LowPriority);
+        const EntryId lock = index.add(root, "~$notes.txt", 0);
+        const EntryId bare = index.add(root, "README", 0);
+        ContentFilter filter;
+        filter.extensions = ExtensionFilter({u"txt"_s});
+        std::string_view name;
+        std::size_t extLength = 0;
+        const auto verdict = [&](EntryId id) { return filter.classify(index, index.entry(id), name, extLength); };
+        QCOMPARE(verdict(own), ContentVerdict::Read);
+        QCOMPARE(name, std::string_view("notes.txt"));
+        QCOMPARE(extLength, std::size_t {3});
+        QCOMPARE(verdict(code), ContentVerdict::OtherType);
+        QVERIFY(other.indexOf(name, extLength) >= 0);
+        QCOMPARE(verdict(system), ContentVerdict::LowPriority);
+        QCOMPARE(verdict(systemCode), ContentVerdict::OtherType); // its type first: the one-off over types would not read it either
+        QCOMPARE(verdict(lock), ContentVerdict::Never);
+        QCOMPARE(verdict(bare), ContentVerdict::Never);
+        QCOMPARE(verdict(program), ContentVerdict::Never);
+        QVERIFY(filter.accepts(index, index.entry(own)) && !filter.accepts(index, index.entry(system)));
+        filter.includeLowPriority = true; // asked for: read as any other
+        QCOMPARE(verdict(system), ContentVerdict::Read);
+        QVERIFY(filter.accepts(index, index.entry(system)));
+    }
+
+
     void contentIndex()
     {
         QTemporaryDir dir;
         ContentIndex content(dir.path());
         QVERIFY(content.add(10, gramsOf(u"季度报告"_s), false, 1, 0));
         QVERIFY(content.add(20, gramsOf(u"年度报告和计划"_s), false, 2, 0));
-        QVERIFY(content.add(30, {}, true, 3, 0)); // too large: nothing to find in it
+        QVERIFY(content.add(30, {}, true, 3, 0, {}, true)); // too large: nothing to find in it
         QVERIFY(content.add(5, gramsOf(u"English only"_s), false, 4, 0));
 
         const auto lookup = content.lookup(u"报告"_s);
         QVERIFY(lookup.usable && lookup.decisive);
         QCOMPARE(knownOf(content, u"报告"_s), (std::vector<EntryId> {5, 10, 20, 30}));
+        QCOMPARE(lookup.large, (std::vector<EntryId> {30}));
         QCOMPARE(matchesOf(content, u"报告"_s), (std::vector<EntryId> {10, 20}));
         QCOMPARE(matchesOf(content, u"季度报告"_s), (std::vector<EntryId> {10}));
         QVERIFY(!content.lookup(u"季度报告"_s).decisive);
@@ -3803,9 +3905,11 @@ private slots:
         QCOMPARE(matchesOf(content, u"报告"_s), (std::vector<EntryId> {10}));
         content.remap([](EntryId e) { return e == 5 ? kNoEntry : e - 1; });
         QCOMPARE(knownOf(content, u"报告"_s), (std::vector<EntryId> {9, 29}));
+        QCOMPARE(content.lookup(u"报告"_s).large, (std::vector<EntryId> {29}));
         QCOMPARE(matchesOf(content, u"已更新"_s), (std::vector<EntryId> {9}));
         content.retire(std::vector<EntryId> {29});
         QCOMPARE(knownOf(content, u"报告"_s), (std::vector<EntryId> {9}));
+        QVERIFY(content.lookup(u"报告"_s).large.empty());
 
         std::vector<EntryId> newIds(40, kNoEntry);
         newIds[9] = 1;
@@ -3820,6 +3924,38 @@ private slots:
         QCOMPARE(restored.documents()[1].need, ContentIndex::Need::Read); // still dirty
         QVERIFY(restored.add(2, gramsOf(u"计划书"_s), false, 7, restored.changeSequence()));
         QCOMPARE(matchesOf(restored, u"计划"_s), (std::vector<EntryId> {2}));
+
+        // A document too large for the size limit stays so when saved and
+        // read back, and of the empty documents it alone is read again when
+        // the limit goes up. A state of the version before had not recorded
+        // which were too large: read back, every empty document is read
+        // again, and the state is to be saved anew.
+        QVERIFY(restored.add(0, {}, true, 8, 0, {}, true));
+        QCOMPARE(restored.lookup(u"报告"_s).large, (std::vector<EntryId> {0}));
+        QCOMPARE(knownOf(restored, u"报告"_s), (std::vector<EntryId> {0, 1, 2}));
+        const std::vector<EntryId> threeIds {0, 1, 2};
+        std::vector<std::uint64_t> moreSegments;
+        std::vector<char> saved = restored.serialize(threeIds, moreSegments);
+        ContentIndex reread(dir.path());
+        QVERIFY(reread.restore(saved, 3));
+        QVERIFY(!reread.takeChanged());
+        QCOMPARE(reread.lookup(u"报告"_s).large, (std::vector<EntryId> {0}));
+        QVERIFY(reread.add(1, {}, true, 9, 0)); // nothing in it, and within the limit
+        reread.markEmptyChanged();
+        QCOMPARE(reread.documents()[0].need, ContentIndex::Need::Read);
+        QCOMPARE(reread.documents()[1].need, ContentIndex::Need::None);
+        QCOMPARE(reread.documents()[2].need, ContentIndex::Need::None);
+        QVERIFY(reread.lookup(u"报告"_s).large.empty()); // dirty: not known until read again
+        saved[0] = 7; // the version, in its first byte
+        ContentIndex older(dir.path());
+        QVERIFY(older.restore(saved, 3));
+        QVERIFY(older.takeChanged());
+        QCOMPARE(older.documents()[0].need, ContentIndex::Need::Read);
+        QCOMPARE(older.documents()[1].need, ContentIndex::Need::None);
+        QCOMPARE(older.documents()[2].need, ContentIndex::Need::None);
+        QVERIFY(older.lookup(u"报告"_s).large.empty());
+        saved[0] = 6;
+        QVERIFY(!ContentIndex(dir.filePath(u"older"_s)).restore(saved, 3)); // older still: not read
 
         // Enough grams for segments of their own, and a merge of them all.
         ContentIndex big(dir.filePath(u"big"_s));
@@ -4110,8 +4246,12 @@ private slots:
 
         const std::wstring bom = write(u"b.txt"_s, utf16le(u"合同"_s, true));
         QVERIFY(hasAll(ContentIndexer::readFile(bom, 0, {}).keys, u"合同"_s));
-        QCOMPARE(ContentIndexer::readFile(utf8, 4, {}).outcome, ContentIndexer::Outcome::Empty); // too large
-        QCOMPARE(ContentIndexer::readFile(write(u"c.txt"_s, {}), 0, {}).outcome, ContentIndexer::Outcome::Empty);
+        const auto tooLarge = ContentIndexer::readFile(utf8, 4, {});
+        QCOMPARE(tooLarge.outcome, ContentIndexer::Outcome::Empty); // too large
+        QVERIFY(tooLarge.large);
+        const auto nothing = ContentIndexer::readFile(write(u"c.txt"_s, {}), 0, {});
+        QCOMPARE(nothing.outcome, ContentIndexer::Outcome::Empty);
+        QVERIFY(!nothing.large);
         QCOMPARE(ContentIndexer::readFile(utf8 + L".missing", 0, {}).outcome, ContentIndexer::Outcome::Skipped);
         QVERIFY(!ContentIndexer::stampOf(utf8 + L".missing"));
 
@@ -4135,7 +4275,10 @@ private slots:
         const auto ansi = write(u"e.txt"_s, QByteArray("plain \xB0\xA1 GBK"));
         QCOMPARE(ContentIndexer::scanFile(ansi, 0, ContentScanner(u"\U0001F600"_s), {}).text.keys,
             ContentIndexer::readFile(ansi, 0, {}).keys); // the phrase cannot be in it: read anyway
-        QCOMPARE(ContentIndexer::scanFile(utf8, 4, contract, {}).text.outcome, ContentIndexer::Outcome::Empty);
+        const auto overLimit = ContentIndexer::scanFile(utf8, 4, contract, {});
+        QCOMPARE(overLimit.text.outcome, ContentIndexer::Outcome::Empty);
+        QVERIFY(overLimit.text.large && !overLimit.match);
+        QVERIFY(!scanned.text.large);
         const auto cut = ContentIndexer::scanFile(large, 0, ContentScanner(u"nowhere"_s), [] { return true; });
         QCOMPARE(cut.text.outcome, ContentIndexer::Outcome::Skipped);
     }
@@ -4173,11 +4316,17 @@ private slots:
             intake.take(1, text, intake.since());
             intake.take(2, {ContentIndexer::Outcome::Empty, {}, 8}, intake.since());
             intake.take(3, {}, intake.since()); // Skipped: not taken
+            ContentIndexer::FileText tooLarge;
+            tooLarge.outcome = ContentIndexer::Outcome::Empty;
+            tooLarge.large = true;
+            tooLarge.stamp = 9;
+            intake.take(6, tooLarge, intake.since());
         }
-        QCOMPARE(content->stats().documents, std::size_t {2});
-        QVERIFY(content->knows(1) && content->knows(2) && !content->knows(3));
+        QCOMPARE(content->stats().documents, std::size_t {3});
+        QVERIFY(content->knows(1) && content->knows(2) && !content->knows(3) && content->knows(6));
         QCOMPARE(matchesOf(*content, u"合同"_s), std::vector<EntryId> {1});
-        QCOMPARE(knownOf(*content, u"x"_s), (std::vector<EntryId> {1, 2})); // no grams, yet both known
+        QCOMPARE(knownOf(*content, u"x"_s), (std::vector<EntryId> {1, 2, 6})); // no grams, yet all known
+        QCOMPARE(content->lookup(u"x"_s).large, (std::vector<EntryId> {6})); // ... and one for its size
 
         // Written to while the search read it: taken, but dirty.
         {
@@ -4718,7 +4867,10 @@ private slots:
         QCOMPARE(read.text.text, std::string("Contract number\n"));
         QCOMPARE(extractor.extractFile(bad, 1 << 20, {}).status, extractproto::Status::Unsupported);
         QCOMPARE(extractor.extractFile(pdf + L".missing", 1 << 20, {}).status, extractproto::Status::Failed);
-        QCOMPARE(extractor.extractFile(pdf, 10, {}).status, extractproto::Status::Failed); // too large
+        QVERIFY(!extractor.extractFile(pdf + L".missing", 1 << 20, {}).large);
+        const DocExtractor::Result tooLarge = extractor.extractFile(pdf, 10, {});
+        QCOMPARE(tooLarge.status, extractproto::Status::Failed); // too large
+        QVERIFY(tooLarge.large && !read.large);
 
         // What the content indexer keeps of a document: its grams and its text.
         const ContentIndexer::FileText text = ContentIndexer::readFile(pdf, 0, {}, &extractor);
@@ -4726,7 +4878,9 @@ private slots:
         QVERIFY(hasAll(text.keys, u"contract number"_s));
         QVERIFY(!text.text.isEmpty());
         QVERIFY(text.document && text.document->text == "Contract number\n"); // for a search to look through
-        QCOMPARE(ContentIndexer::readFile(pdf, 10, {}, &extractor).outcome, ContentIndexer::Outcome::Empty);
+        const ContentIndexer::FileText overLimit = ContentIndexer::readFile(pdf, 10, {}, &extractor);
+        QCOMPARE(overLimit.outcome, ContentIndexer::Outcome::Empty);
+        QVERIFY(overLimit.large && !text.large);
         QCOMPARE(ContentIndexer::readFile(pdf, 0, {}, nullptr).outcome, ContentIndexer::Outcome::Skipped);
         QCOMPARE(ContentIndexer::readFile(bad, 0, {}, &extractor).outcome, ContentIndexer::Outcome::Empty);
         extractor.closeIdle();

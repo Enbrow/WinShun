@@ -91,7 +91,7 @@ Item {
     property bool numbersHeld: false
     Timer {
         id: numbersDelay
-        interval: 500
+        interval: 200 // as in the launcher
         onTriggered: page.numbersHeld = true
     }
     function hideNumbers() {

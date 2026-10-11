@@ -7,8 +7,9 @@ import WinShun
 // typed, what was opened last or the files written last; else best match
 // first or by when last written, newest or oldest first. Beside it a word
 // when there is something to say ("已复制路径"); keyboard hints on the
-// right, and at the very right a button that clears the recent items (while
-// there are some to clear). The divider above shows work going on.
+// right (the three used most; the info button after them lists the rest),
+// and at the very right a button that clears the recent items (while there
+// are some to clear). The divider above shows work going on.
 // Dragging it moves the window.
 Item {
     id: footer
@@ -234,8 +235,8 @@ Item {
 
     Row {
         id: hints
-        anchors.right: clearHistory.visible ? clearHistory.left : parent.right
-        anchors.rightMargin: clearHistory.visible ? 10 : 16
+        anchors.right: info.left
+        anchors.rightMargin: 8
         anchors.verticalCenter: parent.verticalCenter
         spacing: 14
 
@@ -251,8 +252,7 @@ Item {
         // and all show. Worked out from the full widths, not the laid-out
         // ones, which depend on it.
         readonly property real statusNeeds: Math.ceil(statusMetrics.advanceWidth)
-        readonly property real statusRoom: (clearHistory.visible ? footer.width - 6 - clearHistory.width - 10 : footer.width - 16)
-                                           - (order.visible ? 16 + order.width + 14 : 18) - 12
+        readonly property real statusRoom: info.x - 8 - (order.visible ? 16 + order.width + 14 : 18) - 12
         function roomWith(shown) { // the status's, with these hints shown
             const widths = shown.map(h => h.fullWidth).filter(w => w > 0)
             return statusRoom - widths.reduce((a, b) => a + b, 0) - hints.spacing * Math.max(0, widths.length - 1)
@@ -269,6 +269,90 @@ Item {
         KeyHint { id: enterHint; visible: hints.given < 1 && label.length > 0; keys: "Enter"; label: hints.keyHints.enter ?? "" }
         KeyHint { id: secondHint; visible: hints.given < 2 && label.length > 0; keys: hints.keyHints.secondKeys ?? ""; label: hints.keyHints.second ?? "" }
         KeyHint { id: tabHint; visible: label.length > 0; keys: "Tab"; label: hints.keyHints.tab ?? "" }
+    }
+
+    // The launcher's other shortcuts, while the mouse rests on it (ShortcutTip).
+    Rectangle {
+        id: info
+
+        readonly property string modifier: footer.launcher.numberKeys === "alt" ? "Alt" : "Ctrl"
+        readonly property var shortcuts: [
+            ["Shift+Tab", qsTr("切换范围：全部、文件、内容")],
+            ["↑ ↓", qsTr("上下移动，PgUp PgDn 翻页")],
+            ["Shift+↑ ↓", qsTr("选中多行，也可 Ctrl+单击、Shift+单击")],
+            ["Ctrl+Shift+Enter", qsTr("以管理员身份运行")],
+            ["Ctrl+C", qsTr("复制文件")],
+            ["Ctrl+Shift+C", qsTr("复制路径")],
+            ["Ctrl+S", qsTr("切换排序；不输入时切换最近打开、最近修改")]
+        ].concat(footer.launcher.numberKeys === "off" ? []
+                 : [[modifier + "+1…9", qsTr("打开第几行（图标上的数字）")]])
+         .concat([
+            ["Shift+F10", qsTr("右键菜单")],
+            ["Esc", qsTr("关闭；选中了多行时先取消选择")]
+        ])
+
+        anchors.right: clearHistory.visible ? clearHistory.left : parent.right
+        anchors.rightMargin: clearHistory.visible ? 2 : 6
+        anchors.verticalCenter: parent.verticalCenter
+        width: 32
+        height: 32
+        radius: 4
+        color: infoArea.containsMouse ? Theme.controlHover : "transparent"
+        Accessible.role: Accessible.Button
+        Accessible.name: qsTr("快捷键")
+        Component.onCompleted: footer.frame.addControl(info) // a button, not part of the drag area
+
+        Glyph {
+            anchors.centerIn: parent
+            glyph: "\uE946" // Info
+            size: 16
+            color: infoArea.containsMouse ? Theme.text : Theme.subtext
+        }
+
+        MouseArea {
+            id: infoArea
+            anchors.fill: parent
+            hoverEnabled: true
+            onContainsMouseChanged: {
+                if (containsMouse) {
+                    tipDelay.restart()
+                } else {
+                    tipDelay.stop()
+                    if (tipLoader.item)
+                        (tipLoader.item as ShortcutTip).visible = false
+                }
+            }
+            onClicked: tipDelay.triggered() // at once
+        }
+
+        Timer {
+            id: tipDelay
+            interval: 250 // as HoverTip
+            onTriggered: {
+                if (!infoArea.containsMouse)
+                    return
+                tipLoader.active = true
+                const tip = tipLoader.item as ShortcutTip
+                tip.rows = info.shortcuts
+                tip.popup(info)
+            }
+        }
+
+        Loader { // made when first wanted; gone with the launcher's window (see Main.qml's menu)
+            id: tipLoader
+            active: false
+            sourceComponent: ShortcutTip {
+                host: footer.launcher
+            }
+        }
+
+        Connections { // the launcher hidden: the tip goes too
+            target: footer.Window.window
+            function onVisibleChanged() {
+                if (tipLoader.item && !footer.Window.window.visible)
+                    (tipLoader.item as ShortcutTip).visible = false
+            }
+        }
     }
 
     // Two clicks, as a row's delete button: the first arms it.

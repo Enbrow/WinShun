@@ -48,6 +48,7 @@ set(qml_files
     qml/WindowEdge.qml
     qml/SearchBar.qml
     qml/ScopeTabs.qml
+    qml/TypeStrip.qml
     qml/ResultRow.qml
     qml/ClipboardWindow.qml
     qml/ClipboardPage.qml
@@ -60,6 +61,7 @@ set(qml_files
     qml/DialogBarWindow.qml
     qml/DialogBarRow.qml
     qml/HoverTip.qml
+    qml/ShortcutTip.qml
     qml/DropMenu.qml
     qml/Footer.qml
     qml/KeyHint.qml

@@ -48,6 +48,7 @@ public:
         extractproto::Status status = extractproto::Status::Failed;
         doctext::DocText text; // when Ok
         bool retry = false; // not tried: ask again later
+        bool large = false; // not read: more than extractFile's maxBytes (a search counts those)
     };
     // The text of an open file (read access). Waits for a free extractor
     // unless `cancelled` says stop.

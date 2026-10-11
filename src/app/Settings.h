@@ -2,6 +2,7 @@
 
 #include "ContentIndex.h"
 #include "Crawler.h"
+#include "SearchTypes.h"
 #include "ShareIndexer.h"
 #include "WebShortcut.h"
 
@@ -10,9 +11,17 @@
 #include <QStringList>
 #include <QStringView>
 
+#include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace ws {
+
+// A content size limit as kept: MB to a tenth, 0.1 to 4096.
+inline double roundedSizeMB(double mb)
+{
+    return std::clamp(std::round(mb * 10) / 10, 0.1, 4096.0);
+}
 
 // A network share searched with the local disks (ShareIndexer).
 struct NetworkShare {
@@ -74,6 +83,16 @@ struct Settings {
     // the bar by file dialogs (taken before other programs' hotkeys, see NumberKeys).
     QString numberKeys = QStringLiteral("ctrl");
 
+    // [FileTypes]: what 文件 can be narrowed to, in the strip under the
+    // search box (图片: jpg, png…), in its user's order. Written as an
+    // array: size=, 1\Id=, 1\Name=, 1\Extensions=; a built-in one keeps
+    // its Id and no Name until renamed, so it shows in either language.
+    FileTypes fileTypes;
+    static FileTypes defaultFileTypes();
+    FileTypes namedFileTypes() const; // each with its name, a built-in one's in the language shown
+    // "jpg, .PNG *.gif" → {"jpg", "png", "gif"}: lower case, no dots, each once.
+    static QStringList fileExtensions(const QString& text);
+
     // [Appearance]
     QString theme = QStringLiteral("system"); // system | light | dark
     QString language = QStringLiteral("system"); // system | zh | en
@@ -97,8 +116,11 @@ struct Settings {
     bool contentSearch = true;
     QStringList contentExtensions;
     // Larger files are not searched, by kind (ContentSizeLimits::Kind): plain
-    // text and logs, source code, data and web pages.
-    std::array<int, ContentSizeLimits::kKinds> contentMaxSizeMB {64, 8, 16, 512};
+    // text and logs, source code, data and web pages, documents. In MB, to a
+    // tenth (0.1 to 4096). What people write is small; the large ones are
+    // mostly logs, generated code and exported data (measured 2026-10-11 on
+    // a developer's PC: these leave out under 1% of files, half the bytes).
+    std::array<double, ContentSizeLimits::kKinds> contentMaxSizeMB {16, 2, 4, 100};
     bool contentIndex = true; // which files have which Chinese, Japanese and Korean characters
     bool contentInLowPriority = false; // 内容 also looks in system, program and tool folders
     bool contentDocuments = true; // and in Word, Excel, PowerPoint and PDF files (documentExtensions())

@@ -29,6 +29,16 @@ enum class RankBy : std::uint8_t { Match, Newest, Oldest };
 // (History), or the files written last (the folders, in 文件夹).
 enum class StartList : std::uint8_t { Opened, Modified };
 
+// A kind of file 文件 can be narrowed to (图片: jpg, png…), as the strip
+// under the search box offers them; its user's to name and change.
+struct FileType {
+    QString name; // empty for a built-in one not renamed: named in the language shown (by id)
+    QList<QString> extensions; // without the dot, lower case
+    QString id; // a built-in one's ("pictures"); empty for its user's own
+    bool operator==(const FileType&) const = default;
+};
+using FileTypes = QList<FileType>;
+
 // What kind of installed app a result is (see AppCatalog), or of place in
 // Windows (SystemCatalog), or None for a file or folder.
 enum class AppKind : quint8 {
@@ -106,6 +116,9 @@ struct SearchResult {
     // 0 when not known.
     std::uint32_t modified = 0;
     bool offline = false; // on a network share that cannot be reached now (ShareIndexer::offline)
+    // Found by how its name reads, not by what was typed (年度报告 for
+    // 年度报高; homophoneQueries): listed under a heading that says so.
+    bool approximate = false;
     // One of its user's favorites (Favorites): listed first, marked 收藏.
     // With `recent`, what a plugin's rows never go above.
     bool favorite = false;

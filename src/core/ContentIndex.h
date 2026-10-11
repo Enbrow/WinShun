@@ -151,11 +151,19 @@ struct ContentSizeLimits {
         Document, // Word, Excel, PowerPoint, PDF (documentExtensions())
         kKinds
     };
-    std::array<std::int64_t, kKinds> bytes {64ll << 20, 8ll << 20, 16ll << 20, 512ll << 20};
+    std::array<std::int64_t, kKinds> bytes {16ll << 20, 2ll << 20, 4ll << 20, 100ll << 20}; // as Settings' defaults
 
     static Kind kindOf(std::string_view extension) noexcept; // without the dot, any case
     std::int64_t of(std::wstring_view path) const noexcept; // by the file's extension
     bool operator==(const ContentSizeLimits&) const = default;
+};
+
+// Whether a content search reads a file, and if not, why (ContentFilter::classify).
+enum class ContentVerdict : std::uint8_t {
+    Read,
+    Never, // deleted, a folder, a cloud placeholder, on a network share, an Office lock file, no extension
+    LowPriority, // of a listed type, but in a system, program or tool folder, and those are not asked for
+    OtherType, // not of a listed type (a file otherwise fit to read: whether it is text of another kind is the caller's to ask)
 };
 
 // The files a content search looks in. The content indexer covers the same
@@ -166,21 +174,54 @@ struct ContentFilter {
 
     bool accepts(const FileIndex& index, const Entry& e) const noexcept
     {
+        if (!includeLowPriority && (e.flags & EntryFlag::LowPriority))
+            return false; // before anything about the name: that is read from elsewhere
+        std::string_view name;
+        std::size_t extLength;
+        return classify(index, e, name, extLength) == ContentVerdict::Read;
+    }
+
+    // As accepts(), and why not, for a search that counts what it passes
+    // over (SearchEngine: ContentLeftOut). `name` and `extLength` are the
+    // file's once its name was looked at (Read, LowPriority, OtherType).
+    ContentVerdict classify(const FileIndex& index, const Entry& e, std::string_view& name, std::size_t& extLength) const noexcept
+    {
         // Files on network shares neither: reading them is slow, and a server
         // that went away would hold a search up for the seconds Windows waits.
         constexpr std::uint8_t kNever = EntryFlag::Deleted | EntryFlag::Directory | EntryFlag::Offline | EntryFlag::Remote;
         if (e.flags & kNever)
-            return false;
-        if (!includeLowPriority && (e.flags & EntryFlag::LowPriority))
-            return false; // before anything about the name: that is read from elsewhere
-        std::size_t extLength;
-        const std::string_view name = index.fileName(e, extLength); // not a folder: ruled out above
+            return ContentVerdict::Never;
+        name = index.fileName(e, extLength); // not a folder: ruled out above
         if (extLength == 0)
-            return false;
+            return ContentVerdict::Never;
         if (name.starts_with("~$"))
-            return false; // Office's lock file next to an open document
-        return extensions.matches(name, extLength);
+            return ContentVerdict::Never; // Office's lock file next to an open document
+        if (!extensions.matches(name, extLength))
+            return ContentVerdict::OtherType;
+        if (!includeLowPriority && (e.flags & EntryFlag::LowPriority))
+            return ContentVerdict::LowPriority;
+        return ContentVerdict::Read;
     }
+};
+
+// The kinds of text a content search could read that its list of extensions
+// (Settings) leaves out: source code, data and markup as ContentSizeLimits
+// knows them (vue, kt, swift, scss...), and a few plain-text ones (markdown,
+// rst, tex...). Documents are not among them (contentDocuments has them). A
+// search counts the files of these it passes over (ContentLeftOut), to offer
+// reading them this once.
+class OtherTextTypes {
+public:
+    explicit OtherTextTypes(const QStringList& listed); // leading '.' and '*' are ignored
+    std::size_t count() const noexcept { return m_types.size(); }
+    // Which of them a file so named is (an index below count(), for
+    // counting), or -1 for none.
+    int indexOf(std::string_view name, std::size_t extLength) const noexcept;
+    QString extension(std::size_t index) const; // "vue"
+    QStringList extensions() const; // all of them, for a search over them (ExtensionFilter)
+
+private:
+    std::vector<std::pair<std::uint64_t, std::string_view>> m_types; // packed (sorted), and the extension itself
 };
 
 // A file-level inverted index of grams (see above) over the files a content
@@ -225,6 +266,11 @@ public:
         // The entries whose content is known, ascending; when usable, kMatch
         // is set on those whose content has every gram of every term.
         std::vector<std::uint32_t> known;
+        // Of those, the entries whose file had more bytes than the size limit
+        // when it was read, ascending: nothing to find in them until the
+        // limit goes up (markEmptyChanged), and a search counts them as left
+        // out rather than opening them.
+        std::vector<EntryId> large;
     };
     // For files that contain every one of `terms` (ContentScanner's), anywhere.
     Lookup lookup(std::span<const QString> terms) const;
@@ -273,11 +319,12 @@ public:
     void beginReads();
     void endReads();
     std::uint64_t changeSequence() const noexcept { return m_changeSequence.load(); }
-    // What was read from the entry's file (`empty`: nothing to find in it)
-    // replaces the entry's document, with the text of a document file, packed
-    // by packText(). False when there is no room left.
+    // What was read from the entry's file (`empty`: nothing to find in it;
+    // `large` with it: because it has more bytes than the size limit) replaces
+    // the entry's document, with the text of a document file, packed by
+    // packText(). False when there is no room left.
     bool add(EntryId entry, std::span<const grams::Key> keys, bool empty, std::uint32_t stamp, std::uint64_t since,
-        QByteArrayView text = {});
+        QByteArrayView text = {}, bool large = false);
     // The entry's file has the same bytes as the original's, whose document
     // was read when its file had `originalStamp`: the entry gets a document
     // of its own with what that one has (grams, text), without reading the

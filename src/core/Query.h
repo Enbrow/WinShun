@@ -53,6 +53,17 @@ QStringList contentTerms(const QString& text);
 
 ParsedQuery parseQuery(const QString& text);
 
+// The query read aloud: each term with Chinese characters as pinyin
+// ("年度报高" → "niandubaogao"), for finding a name that sounds the same
+// (年度报告) when nothing is spelled that way (the name search tries these
+// only then). A character with several readings (行: xing, hang) gives a
+// query per combination, the common readings first, up to a few; the rest
+// take the most common one. Exclusions, wildcards, ext: and the terms with
+// no Chinese stay as they are; the highlights are the pinyin, which the
+// result list reads back into the names. Empty when no term has Chinese
+// characters it can read.
+std::vector<ParsedQuery> homophoneQueries(const ParsedQuery& query);
+
 // Decides whether a name matches and how well. Higher scores rank first;
 // -1 means no match. Thread-safe (immutable after construction).
 //

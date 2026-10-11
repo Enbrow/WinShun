@@ -6,11 +6,13 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QGuiApplication>
+#include <QQuickWindow>
 #include <QStyleHints>
 #include <QWindow>
 
 #include <windows.h>
 #include <commctrl.h>
+#include <dwmapi.h>
 #include <windowsx.h>
 
 #include <algorithm>
@@ -181,6 +183,21 @@ void WindowFrame::setWindow(QWindow* window)
             setMaximizeState(false, false);
         }
     });
+    if (auto* quick = qobject_cast<QQuickWindow*>(window)) { // afterNextFrame; both on the render thread
+        connect(quick, &QQuickWindow::afterSynchronizing, this, [this] {
+            if (m_frameArmed.exchange(false))
+                m_frameSynced.store(true);
+        }, Qt::DirectConnection);
+        connect(quick, &QQuickWindow::frameSwapped, this, [this] {
+            if (!m_frameSynced.exchange(false))
+                return;
+            // Handed over, not yet shown: a resize now would drop it, and the
+            // screen keep the frame before (measured, 240 Hz). Shown once DWM
+            // has composed again.
+            ::DwmFlush();
+            QMetaObject::invokeMethod(this, &WindowFrame::frameShown, Qt::QueuedConnection);
+        }, Qt::DirectConnection);
+    }
     if (!m_ownFrame)
         return;
     // For Windows a normal window (snapping, the animations, the window menu);
@@ -189,6 +206,15 @@ void WindowFrame::setWindow(QWindow* window)
     ::SetWindowLongPtrW(hwnd, GWL_STYLE, (style & ~WS_POPUP) | WS_OVERLAPPEDWINDOW);
     ::SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
         SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE);
+}
+
+void WindowFrame::afterNextFrame()
+{
+    // This thread waits while the scene is synchronised, so the first
+    // synchronisation after this takes the scene as it is now.
+    m_frameArmed.store(true);
+    if (auto* quick = qobject_cast<QQuickWindow*>(m_window.data()))
+        quick->update();
 }
 
 void WindowFrame::setNoActivate(bool on)

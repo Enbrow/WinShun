@@ -135,6 +135,106 @@ ParsedQuery parseQuery(const QString& text)
     return q;
 }
 
+std::vector<ParsedQuery> homophoneQueries(const ParsedQuery& query)
+{
+    constexpr std::size_t kMostQueries = 8; // each is a search over the whole index
+    // Each term to read, in pieces: a Chinese character's readings, or a run
+    // of other characters as it is (one "reading").
+    struct Spoken {
+        std::size_t term;
+        std::vector<QStringList> pieces;
+    };
+    std::vector<Spoken> spoken;
+    for (std::size_t i = 0; i < query.terms.size(); ++i) {
+        const QueryTerm& t = query.terms[i];
+        if (t.negated || t.wildcard || t.text.empty())
+            continue;
+        std::vector<QStringList> pieces;
+        QString run;
+        bool han = false;
+        for (const char32_t c : wtf8::toQString(t.text).toUcs4()) {
+            const pinyin::Readings readings = pinyin::readings(c);
+            if (readings.count == 0) {
+                run.append(QString::fromUcs4(&c, 1));
+                continue;
+            }
+            if (!run.isEmpty())
+                pieces.push_back({std::exchange(run, QString())});
+            QStringList options;
+            for (const std::string_view reading : readings)
+                options.append(QString::fromLatin1(reading));
+            pieces.push_back(std::move(options));
+            han = true;
+        }
+        if (!han)
+            continue;
+        if (!run.isEmpty())
+            pieces.push_back({run});
+        spoken.push_back({i, std::move(pieces)});
+    }
+    if (spoken.empty())
+        return {};
+
+    // The characters with more than one reading, and which reading each takes
+    // in the query being made: counted up as an odometer (the first character
+    // slowest), so the first query is every character's most common reading.
+    std::vector<std::pair<std::size_t, std::size_t>> several; // in spoken, piece
+    for (std::size_t s = 0; s < spoken.size(); ++s) {
+        for (std::size_t p = 0; p < spoken[s].pieces.size(); ++p) {
+            if (spoken[s].pieces[p].size() > 1)
+                several.push_back({s, p});
+        }
+    }
+    std::vector<qsizetype> chosen(several.size(), 0);
+    std::vector<ParsedQuery> queries;
+    for (;;) {
+        ParsedQuery q = query;
+        q.highlights.clear();
+        std::vector<QString> texts(spoken.size());
+        for (std::size_t s = 0; s < spoken.size(); ++s) {
+            QString text;
+            for (std::size_t p = 0; p < spoken[s].pieces.size(); ++p) {
+                const auto it = std::find(several.begin(), several.end(), std::pair {s, p});
+                const qsizetype which = it == several.end() ? 0 : chosen[static_cast<std::size_t>(it - several.begin())];
+                text += spoken[s].pieces[p][which];
+            }
+            q.terms[spoken[s].term].text = foldedUtf8(text);
+            texts[s] = text;
+        }
+        // The highlights as parseQuery gives them (one per term that is
+        // neither an exclusion nor a wildcard, in order): the pinyin for the
+        // terms read, the rest as they were.
+        qsizetype k = 0;
+        for (std::size_t i = 0; i < q.terms.size(); ++i) {
+            const QueryTerm& t = q.terms[i];
+            if (t.negated || t.wildcard || t.text.empty())
+                continue;
+            const auto it = std::find_if(spoken.begin(), spoken.end(), [&](const Spoken& s) { return s.term == i; });
+            if (it != spoken.end())
+                q.highlights.append(texts[static_cast<std::size_t>(it - spoken.begin())]);
+            else if (k < query.highlights.size())
+                q.highlights.append(query.highlights[k]);
+            ++k;
+        }
+        queries.push_back(std::move(q));
+        if (queries.size() >= kMostQueries)
+            break;
+        // The next combination, the last character's reading changing fastest.
+        std::size_t d = several.size();
+        while (d > 0) {
+            --d;
+            if (++chosen[d] < spoken[several[d].first].pieces[several[d].second].size())
+                break;
+            chosen[d] = 0;
+            if (d == 0)
+                return queries; // every combination made
+        }
+        if (several.empty())
+            break;
+    }
+    return queries;
+}
+
 NameMatcher::NameMatcher(const ParsedQuery& query)
     : m_extensions(query.extensions)
 {

@@ -380,7 +380,15 @@ NewestOutput newestFiles(const FileIndex& index, const NewestOptions& options, W
             const FileTime modified = knownTime(index.modified(id));
             if (modified == 0 || modified > options.notAfter || !top.mayAccept(0, modified))
                 continue;
-            if (isWorkFile(index.name(e), false) || outputs.contains(e.parent))
+            std::size_t extLength = 0;
+            const std::string_view name = index.fileName(e, extLength);
+            if (!options.extensions.empty()) {
+                const std::string_view ext = name.substr(name.size() - extLength);
+                if (extLength == 0 || std::none_of(options.extensions.begin(), options.extensions.end(),
+                        [&](const std::string& x) { return text::equalsFolded(ext, x); }))
+                    continue;
+            }
+            if (isWorkFile(name, false) || outputs.contains(e.parent))
                 continue;
             top.push({id, 0, modified});
         }

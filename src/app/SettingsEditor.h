@@ -54,7 +54,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QStringList contentExtensions READ contentExtensions NOTIFY changed FINAL)
     // Size limits in MB by kind of file (ContentSizeLimits::Kind: text, code, data),
     // and the listed extensions of each kind (".c .cpp .h").
-    Q_PROPERTY(QList<int> contentMaxSizeMB READ contentMaxSizeMB NOTIFY changed FINAL)
+    Q_PROPERTY(QList<double> contentMaxSizeMB READ contentMaxSizeMB NOTIFY changed FINAL)
     Q_PROPERTY(QStringList contentKindExtensions READ contentKindExtensions NOTIFY changed FINAL)
     Q_PROPERTY(bool contentIndex READ contentIndex WRITE setContentIndex NOTIFY changed FINAL)
     Q_PROPERTY(bool contentInLowPriority READ contentInLowPriority WRITE setContentInLowPriority NOTIFY changed FINAL)
@@ -108,6 +108,10 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool windowsSearchShown READ windowsSearchShown NOTIFY taskbarStateChanged FINAL)
     // 网页搜索: for each, {keyword, name, url, home, searches, shownUrl, shownHome, homeUrl}
     Q_PROPERTY(QVariantList webShortcuts READ webShortcuts NOTIFY changed FINAL)
+    // The kinds of file 文件 narrows to: [{name, extensions: [..]}], named
+    // in the language shown; fileTypesDefault while they are as they came.
+    Q_PROPERTY(QVariantList fileTypes READ fileTypes NOTIFY changed FINAL)
+    Q_PROPERTY(bool fileTypesDefault READ fileTypesDefault NOTIFY changed FINAL)
     // Counts the sites' icons that arrived: a binding on webIconUrl() reads it
     // to be asked again (without the list made anew, and a form open in it lost).
     Q_PROPERTY(int siteIconsArrived READ siteIconsArrived NOTIFY siteIconArrived FINAL)
@@ -198,8 +202,8 @@ public:
     bool contentSearch() const { return m_settings.contentSearch; }
     void setContentSearch(bool on);
     QStringList contentExtensions() const { return m_settings.contentExtensions; }
-    QList<int> contentMaxSizeMB() const { return {m_settings.contentMaxSizeMB.begin(), m_settings.contentMaxSizeMB.end()}; }
-    Q_INVOKABLE void setContentMaxSizeMB(int kind, int mb);
+    QList<double> contentMaxSizeMB() const { return {m_settings.contentMaxSizeMB.begin(), m_settings.contentMaxSizeMB.end()}; }
+    Q_INVOKABLE void setContentMaxSizeMB(int kind, double mb);
     QStringList contentKindExtensions() const;
     bool contentIndex() const { return m_settings.contentIndex; }
     void setContentIndex(bool on);
@@ -309,6 +313,15 @@ public:
     Q_INVOKABLE bool showTaskbarButton();
 
     QVariantList webShortcuts() const;
+    QVariantList fileTypes() const;
+    bool fileTypesDefault() const { return m_settings.fileTypes == Settings::defaultFileTypes(); }
+    // Each returns what is wrong ("已有这个类型"), empty when done.
+    Q_INVOKABLE QString addFileType(const QString& name, const QString& extensions);
+    Q_INVOKABLE QString renameFileType(int index, const QString& name);
+    Q_INVOKABLE QString setFileTypeExtensions(int index, const QString& text); // "jpg, .PNG *.gif"
+    Q_INVOKABLE void removeFileType(int index);
+    Q_INVOKABLE void moveFileType(int index, int delta); // up (-1) or down (1) the strip
+    Q_INVOKABLE void resetFileTypes();
 
     QVariantList shares() const;
     QVariantList knownShares() const;

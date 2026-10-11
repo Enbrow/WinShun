@@ -168,6 +168,7 @@ private:
     void setClipboardPaused(bool paused);
     void showClipboardSettings(); // the settings window on its 剪贴板 page
     void showWebSettings(); // ... on its 网页搜索 page (a web row's menu)
+    void showFileTypeSettings(); // ... on its 结果列表 page, at the file types (the + of the launcher's strip)
     void showFavoriteSettings(const QString& path); // ... on its 收藏夹 page, at that favorite (a row's menu)
     void showPluginSettings(const QString& pluginId); // ... on that plugin's card ("winshun:settings")
     void applyHotkey();

@@ -104,6 +104,7 @@ public:
         std::uint32_t stamp = 0; // ContentIndex::stampOf
         QByteArray text; // a document's, packed (ContentIndex::packText)
         std::optional<doctext::DocText> document; // ... and as read, for a search to look through
+        bool large = false; // Empty for having more bytes than the limit (a search counts those)
     };
     // A document (isDocumentPath) goes to `documents`; without it, it is skipped.
     static FileText readFile(std::wstring_view path, std::int64_t maxBytes, const std::function<bool()>& cancelled,

@@ -8,6 +8,8 @@
 #include <QtGui/qwindowdefs.h>
 #include <QtQml/qqmlregistration.h>
 
+#include <atomic>
+
 class QWindow;
 
 namespace ws {
@@ -53,6 +55,11 @@ public:
     Q_INVOKABLE void addControl(QQuickItem* item);
     // With ownFrame: hit-tested as the maximise button (Snap Layouts).
     Q_INVOKABLE void setMaximizeButton(QQuickItem* item) { m_maximizeButton = item; }
+    // frameShown() once the scene as it is now is on the screen: the first
+    // frame synchronised after this call has been swapped (a QQuickWindow's
+    // only). Before a native resize that would otherwise show the last frame
+    // cut (Main.qml, the strip closing).
+    Q_INVOKABLE void afterNextFrame();
 
     // Shown over another program that keeps the focus (the clipboard, see
     // KeyRouter): a click does not activate the window either, and its frame
@@ -68,6 +75,7 @@ signals:
     void pointerChanged();
     void maximizeButtonChanged();
     void doubleClicked(); // on a drag area
+    void frameShown(); // see afterNextFrame
 
 private:
     struct Hook; // the window procedure subclass
@@ -90,6 +98,9 @@ private:
     bool m_maximizeHovered = false;
     bool m_maximizePressed = false;
     bool m_noActivate = false;
+    // afterNextFrame, set on the render thread: armed, then synchronised.
+    std::atomic<bool> m_frameArmed = false;
+    std::atomic<bool> m_frameSynced = false;
 };
 
 } // namespace ws

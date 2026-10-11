@@ -715,8 +715,10 @@ std::optional<ContentMatch> ContentScanner::scan(
 }
 
 std::optional<ContentMatch> ContentScanner::scanFile(
-    std::wstring_view path, std::int64_t maxBytes, const CancelFn& cancelled) const
+    std::wstring_view path, std::int64_t maxBytes, const CancelFn& cancelled, bool* large) const
 {
+    if (large)
+        *large = false;
     win32::UniqueHandle file(::CreateFileW(win32::longPath(path).c_str(), GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN,
         nullptr));
@@ -731,8 +733,13 @@ std::optional<ContentMatch> ContentScanner::scanFile(
         return std::nullopt; // never trigger a cloud download
 
     LARGE_INTEGER size {};
-    if (!::GetFileSizeEx(file.get(), &size) || size.QuadPart <= 0 || (maxBytes > 0 && size.QuadPart > maxBytes))
+    if (!::GetFileSizeEx(file.get(), &size) || size.QuadPart <= 0)
         return std::nullopt;
+    if (maxBytes > 0 && size.QuadPart > maxBytes) {
+        if (large)
+            *large = true;
+        return std::nullopt;
+    }
     FILE_IO_PRIORITY_HINT_INFO hint {};
     hint.PriorityHint = IoPriorityHintLow;
     ::SetFileInformationByHandle(file.get(), FileIoPriorityHintInfo, &hint, sizeof hint);

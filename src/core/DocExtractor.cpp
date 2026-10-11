@@ -369,8 +369,13 @@ DocExtractor::Result DocExtractor::extractFile(
         return {};
     constexpr DWORD kNotHere = FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_OFFLINE | FILE_ATTRIBUTE_RECALL_ON_OPEN
         | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS;
-    if ((basic.FileAttributes & kNotHere) || size.QuadPart <= 0 || size.QuadPart > maxBytes)
+    if ((basic.FileAttributes & kNotHere) || size.QuadPart <= 0)
         return {};
+    if (size.QuadPart > maxBytes) {
+        Result result;
+        result.large = true;
+        return result;
+    }
     FILE_IO_PRIORITY_HINT_INFO hint {};
     hint.PriorityHint = IoPriorityHintLow;
     ::SetFileInformationByHandle(file.get(), FileIoPriorityHintInfo, &hint, sizeof hint);

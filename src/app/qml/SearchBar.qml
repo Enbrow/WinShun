@@ -201,11 +201,9 @@ Item {
         anchors.rightMargin: 12
         anchors.leftMargin: 16
         y: bar.onPixel((bar.height - height) / 2)
-        current: bar.launcher.scope
+        // 文件夹 is a chip of the strip under the box (TypeStrip): 文件 stays current.
+        current: bar.launcher.scope === Launcher.Folders ? Launcher.Files : bar.launcher.scope
         contentTab: bar.launcher.contentEnabled
-        subOf: Launcher.Files
-        subValue: Launcher.Folders
-        subLabel: qsTr("文件夹")
         // 全部 › [icon] 结束进程 while a plugin's keyword has the list; the
         // chip (or 全部 itself) empties the box, which leaves the mode.
         pluginLabel: bar.launcher.pluginLabel
@@ -213,7 +211,7 @@ Item {
         onActivated: (scope) => {
             if (scope === Launcher.All && bar.launcher.scope === Launcher.All && bar.launcher.pluginKeyword.length > 0)
                 bar.launcher.leaveKeyword()
-            else
+            else if (scope !== Launcher.Files || bar.launcher.scope !== Launcher.Folders) // 文件 in 文件夹: stays
                 bar.launcher.scope = scope
         }
         onPluginClicked: bar.launcher.leaveKeyword()

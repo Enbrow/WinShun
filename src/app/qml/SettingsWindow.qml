@@ -288,6 +288,7 @@ Window {
     function showUpdateDialog() { updateDialog.show() } // App::showUpdate
     function showClipboardPage() { showPage(clipboardPage) } // App::showClipboardSettings
     function showWebPage() { showPage(webPage) } // App::showWebSettings
+    function showFileTypesPage() { goTo(fileTypesRow) } // App::showFileTypeSettings: the launcher strip's +
     function showFavoritesPage(path) { // App::showFavoriteSettings: that favorite's form open
         showPage(favoritesPage)
         favoritesSection.edit(path)
@@ -1782,7 +1783,7 @@ Window {
             SettingsSection {
                 page: 3
                 width: parent.width
-                note: qsTr("在搜索框按 Tab 切换“全部”“文件”“内容”；“文件”里还能只找文件夹。")
+                note: qsTr("在搜索框按 Tab 切换“全部”“文件”“内容”；在“文件”里 Tab 切换文件类型，Shift+Tab 切换范围。")
 
                 SettingRow {
                     title: qsTr("文件和文件夹的顺序")
@@ -1834,7 +1835,7 @@ Window {
                 SettingRow {
                     title: qsTr("用数字键直接打开")
                     keywords: qsTr("快捷键;数字键;序号;Ctrl+1;Alt+1;冲突;hotkey").split(";")
-                    description: qsTr("按住 %1 标出序号，按 %1+1 打开第一行")
+                    description: qsTr("结果的图标上标着序号，按 %1+1 打开第一行")
                                  .arg(window.editor.numberKeys === "alt" ? "Alt" : "Ctrl")
 
                     ScopeTabs {
@@ -1851,6 +1852,134 @@ Window {
                         font.pixelSize: Theme.fontCaption
                         wrapMode: Text.Wrap
                     }
+                }
+
+                SettingRow {
+                    id: fileTypesRow
+
+                    property string problem // what was wrong with the last change
+                    // The rest of a line after the name, then ↑ ↓ and delete (or 添加).
+                    readonly property int extensionsWidth: Math.max(160, typeRows.width - 120 - 3 * 32 - 4 * 6)
+
+                    title: qsTr("文件类型")
+                    keywords: qsTr("类型;扩展名;后缀;筛选;图片;文档;视频;音乐;压缩包;filter;type;extension").split(";")
+                    values: window.editor.fileTypes.map(t => t.name)
+                    description: qsTr("“文件”里搜索框下面的一排，按 Tab 切换；每个类型是一组扩展名，用空格或逗号隔开")
+
+                    FlatButton {
+                        visible: !window.editor.fileTypesDefault
+                        text: qsTr("恢复默认")
+                        onClicked: {
+                            fileTypesRow.problem = ""
+                            window.editor.resetFileTypes()
+                        }
+                    }
+
+                    body: [
+                        Column {
+                            id: typeRows
+                            width: parent.width
+                            spacing: 6
+
+                            Repeater {
+                                model: window.editor.fileTypes
+
+                                delegate: Row { // its name, its extensions, then up, down and remove
+                                    id: typeRow
+
+                                    required property int index
+                                    required property var modelData
+
+                                    spacing: 6
+
+                                    InputBox {
+                                        id: typeName
+                                        width: 120
+                                        text: typeRow.modelData.name
+                                        onEditingFinished: {
+                                            fileTypesRow.problem = window.editor.renameFileType(typeRow.index, text)
+                                            if (fileTypesRow.problem.length > 0)
+                                                text = typeRow.modelData.name
+                                        }
+                                    }
+                                    InputBox {
+                                        id: typeExtensions
+                                        width: fileTypesRow.extensionsWidth
+                                        text: typeRow.modelData.extensions.join(" ")
+                                        onEditingFinished: {
+                                            fileTypesRow.problem = window.editor.setFileTypeExtensions(typeRow.index, text)
+                                            if (fileTypesRow.problem.length > 0)
+                                                text = typeRow.modelData.extensions.join(" ")
+                                        }
+                                    }
+                                    FlatButton {
+                                        flat: true
+                                        glyph: "\uE70E" // ChevronUp
+                                        enabled: typeRow.index > 0
+                                        Accessible.name: qsTr("上移")
+                                        onClicked: {
+                                            fileTypesRow.problem = ""
+                                            window.editor.moveFileType(typeRow.index, -1)
+                                        }
+                                    }
+                                    FlatButton {
+                                        flat: true
+                                        glyph: "\uE70D" // ChevronDown
+                                        enabled: typeRow.index < window.editor.fileTypes.length - 1
+                                        Accessible.name: qsTr("下移")
+                                        onClicked: {
+                                            fileTypesRow.problem = ""
+                                            window.editor.moveFileType(typeRow.index, 1)
+                                        }
+                                    }
+                                    FlatButton {
+                                        flat: true
+                                        glyph: "\uE74D" // Delete
+                                        Accessible.name: qsTr("删除")
+                                        onClicked: {
+                                            fileTypesRow.problem = ""
+                                            window.editor.removeFileType(typeRow.index)
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        Row {
+                            spacing: 6
+
+                            InputBox {
+                                id: newTypeName
+                                width: 120
+                                placeholder: qsTr("新类型")
+                                onAccepted: newTypeExtensions.takeFocus()
+                            }
+                            InputBox {
+                                id: newTypeExtensions
+                                width: fileTypesRow.extensionsWidth
+                                placeholder: qsTr("扩展名，例如 dwg dxf")
+                                onAccepted: addType.clicked()
+                            }
+                            FlatButton {
+                                id: addType
+                                width: 3 * 32 + 2 * 6 // under ↑ ↓ and delete
+                                text: qsTr("添加")
+                                enabled: newTypeName.text.trim().length > 0
+                                onClicked: {
+                                    fileTypesRow.problem = window.editor.addFileType(newTypeName.text, newTypeExtensions.text)
+                                    if (fileTypesRow.problem.length === 0) {
+                                        newTypeName.clear()
+                                        newTypeExtensions.clear()
+                                    }
+                                }
+                            }
+                        },
+                        Text {
+                            visible: fileTypesRow.problem.length > 0
+                            text: fileTypesRow.problem
+                            color: Theme.danger
+                            font.pixelSize: Theme.fontCaption
+                        }
+                    ]
                 }
             }
 
@@ -1985,7 +2114,10 @@ Window {
 
                         required property int index
                         required property var modelData
-                        readonly property int mb: window.editor.contentMaxSizeMB[index]
+                        readonly property real mb: window.editor.contentMaxSizeMB[index]
+                        // − and +: by a tenth under 1 MB, by 1 under 16, by 16 above
+                        readonly property real down: mb > 16 ? Math.max(16, mb - 16) : mb > 1 ? Math.max(1, mb - 1) : mb - 0.1
+                        readonly property real up: mb >= 16 ? mb + 16 : mb >= 1 ? Math.min(16, Math.floor(mb) + 1) : mb + 0.1
                         readonly property string extensions: window.editor.contentKindExtensions[index]
 
                         shown: window.editor.contentSearch && (modelData.files === undefined || window.editor.contentDocuments)
@@ -1995,16 +2127,16 @@ Window {
 
                         FlatButton {
                             glyph: "" // Remove (minus)
-                            enabled: sizeRow.mb > 1
-                            onClicked: window.editor.setContentMaxSizeMB(sizeRow.index, sizeRow.mb > 16 ? sizeRow.mb - 16 : sizeRow.mb - 1)
+                            enabled: sizeRow.mb > 0.1
+                            onClicked: window.editor.setContentMaxSizeMB(sizeRow.index, sizeRow.down)
                         }
                         InputBox {
                             width: 80
                             horizontalAlignment: TextInput.AlignHCenter
-                            text: sizeRow.mb
-                            validator: IntValidator { bottom: 1; top: 4096 }
+                            text: String(Math.round(sizeRow.mb * 10) / 10) // 16, 0.5
+                            validator: RegularExpressionValidator { regularExpression: /\d{0,4}([.。]\d?)?/ }
                             onEditingFinished: {
-                                const mb = parseInt(text)
+                                const mb = parseFloat(text.replace("。", "."))
                                 if (!isNaN(mb))
                                     window.editor.setContentMaxSizeMB(sizeRow.index, mb)
                                 text = Qt.binding(() => sizeRow.mb)
@@ -2013,7 +2145,7 @@ Window {
                         FlatButton {
                             glyph: "" // Add
                             enabled: sizeRow.mb < 4096
-                            onClicked: window.editor.setContentMaxSizeMB(sizeRow.index, sizeRow.mb >= 16 ? sizeRow.mb + 16 : sizeRow.mb + 1)
+                            onClicked: window.editor.setContentMaxSizeMB(sizeRow.index, sizeRow.up)
                         }
                         Text {
                             anchors.verticalCenter: parent.verticalCenter

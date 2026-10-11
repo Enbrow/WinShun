@@ -4,6 +4,7 @@
 #include "ContentIndex.h"
 #include "Favorites.h"
 #include "ResultModel.h"
+#include "SearchEngine.h"
 #include "SearchTypes.h"
 #include "WebShortcut.h"
 
@@ -28,7 +29,6 @@ namespace ws {
 
 class History;
 class IndexService;
-class SearchEngine;
 class SystemCatalog;
 namespace plugin {
 class Host;
@@ -52,6 +52,19 @@ class Launcher : public QObject {
     // those listed, a content scan stopped at its limit, more files written
     // lately.
     Q_PROPERTY(bool moreAvailable READ moreAvailable NOTIFY statusChanged FINAL)
+    // What the search behind the rows passed over, once it is done, each with
+    // a one-off action that searches it for this query alone (nothing is
+    // saved): [{kind, text, action, running}], for the rows after the last
+    // result (or the lines under 没有找到). Files over the size limit (kind
+    // "large"), in 内容 the files in system and program folders ("system")
+    // and the text of kinds not listed ("types"), and a removable drive the
+    // index leaves out ("drive:E:"). While one runs, it alone, with how far
+    // it is and 停止 (searchLeftOut, stopLeftOut).
+    Q_PROPERTY(QVariantList leftOutHints READ leftOutHints NOTIFY statusChanged FINAL)
+    // The rows were found by how their names read, not as typed
+    // (SearchResult::approximate): the heading over them, "没有叫“年度报高”的，
+    // 按读音找到："; empty otherwise.
+    Q_PROPERTY(QString approximateHeading READ approximateHeading NOTIFY statusChanged FINAL)
     // How far the content scan is, 0–1 (the footer's divider fills); -1 while
     // that is not known (busy: the divider shows work going on).
     Q_PROPERTY(qreal progress READ progress NOTIFY statusChanged FINAL)
@@ -96,6 +109,13 @@ class Launcher : public QObject {
     // "打开位置"; empty when the row has no location or second action),
     // and what Tab does ("切换范围", "补全"; empty when nothing).
     Q_PROPERTY(QVariantMap keyHints READ keyHints NOTIFY keyHintsChanged FINAL)
+    // 文件 narrowed to a kind of file, as the strip under the search box
+    // shows it: its index in fileTypes, or -1 for any (不限; 文件夹 is the
+    // scope Folders). Kept while in another scope: 文件 comes back as it
+    // was left, 文件夹 too (fileChoice, remembered between runs).
+    Q_PROPERTY(int fileType READ fileType NOTIFY fileTypeChanged FINAL)
+    // The kinds as the settings have them: [{name, extensions: "jpg png …"}].
+    Q_PROPERTY(QVariantList fileTypes READ fileTypes NOTIFY fileTypesChanged FINAL)
     // Plugins (plugin::Host, the plugin design §4.1): a keyword typed first
     // ("kill note") gives the list to that command. The keyword as typed,
     // empty otherwise; the command's title and icon for the chip in the
@@ -111,8 +131,9 @@ class Launcher : public QObject {
     Q_PROPERTY(bool hasFavorites READ hasFavorites NOTIFY favoritesChanged FINAL)
 
 public:
-    // As ws::Scope. The tabs show 文件夹 within 文件: Tab goes 全部, 文件,
-    // 文件夹, 内容 (cycleScope).
+    // As ws::Scope. 文件夹 is shown within 文件, as a chip of its strip
+    // (chooseFileType): Tab goes 全部, 文件, 内容 (cycleScope), and in 文件
+    // through the strip (cycleFileType).
     enum Scope { All, Files, Content, Folders };
     Q_ENUM(Scope)
     // Alternate: Shift+Enter, a plugin row's third action (Open elsewhere).
@@ -181,11 +202,23 @@ public:
     // what it finds that is not listed yet added after the rows (none of
     // them moves).
     Q_INVOKABLE void loadMore();
+    QVariantList leftOutHints() const;
+    QString approximateHeading() const;
+    // A hint taken up (its kind, as leftOutHints names it): that part
+    // searched for this query, and what it holds put among the rows (content
+    // matches where they rank; a drive's files after the rows, as found).
+    // Not offered again for this query; nothing is written to the settings or
+    // the index. stopLeftOut() ends the one running (the rows found stay).
+    Q_INVOKABLE void searchLeftOut(const QString& kind);
+    Q_INVOKABLE void stopLeftOut();
     // More results for the query are on the way. Not while quietly
-    // refreshing results that were already complete.
+    // refreshing results that were already complete, nor for a hint's
+    // one-off search (searchLeftOut): the rows are the query's, and the hint
+    // itself says what is going on (with 停止); the divider shows its progress.
     bool searching() const
     {
-        return !m_quiet && (m_pending || m_contentRunning || m_contentDebounce.isActive() || !m_pluginPending.isEmpty());
+        return !m_quiet && m_hintRunning.isEmpty()
+            && (m_pending || m_contentRunning || m_contentDebounce.isActive() || !m_pluginPending.isEmpty());
     }
     // The rows on screen are for the previous query; the new one has found
     // nothing yet (内容 takes a while).
@@ -264,6 +297,21 @@ public:
     Q_INVOKABLE QRectF screenArea(QPointF globalPos) const;
     Q_INVOKABLE void prepareMenuWindow(QWindow* menu) const;
     Q_INVOKABLE void cycleScope(int delta);
+    int fileType() const { return m_fileType; }
+    QVariantList fileTypes() const;
+    void setFileTypes(const FileTypes& types); // named (Settings::namedFileTypes)
+    // A chip of the strip: kFoldersChip (文件夹), -1 (不限), or a kind
+    // (fileTypes); in 文件 (or 文件夹) from any scope.
+    static constexpr int kFoldersChip = -2;
+    Q_INVOKABLE void chooseFileType(int type);
+    // Tab in 文件: the next chip, round (不限, 文件夹, then the kinds).
+    Q_INVOKABLE void cycleFileType(int delta);
+    Q_INVOKABLE void editFileTypes(); // the strip's +: fileTypeSettingsRequested
+    // The strip's choice, to keep between runs: "folders", a kind's id
+    // ("pictures") or "name:<its name>" for one of the user's own, or empty
+    // (不限). Set after setFileTypes; in 文件 it applies at once.
+    QString fileChoice() const;
+    void setFileChoice(const QString& choice);
     Q_INVOKABLE void dismiss();
 
 signals:
@@ -281,6 +329,10 @@ signals:
     void historyChanged();
     void frequentAppsChanged();
     void webSettingsRequested(); // the settings window, on its 网页搜索 page
+    void fileTypeSettingsRequested(); // ... on its 结果列表 page, at the file types
+    void fileTypeChanged();
+    void fileTypesChanged();
+    void fileChoiceChanged();
     void favoriteSettingsRequested(const QString& path); // ... on its 收藏夹 page, at this favorite
     void favoritesChanged();
     // The settings window, on the 插件 page at this plugin's card: a plugin
@@ -363,6 +415,15 @@ private:
     void onResults(quint64 id, const SearchResults& results, qint64 total, qint64 elapsedUs);
     void onContentResults(quint64 id, const SearchResults& results);
     void onContentProgress(quint64 id, int scanned, int total, bool finished);
+    void onContentLeftOut(quint64 id, const ContentLeftOut& leftOut);
+    void onRemovableDrives(quint64 id, const RemovableDrives& drives);
+    void onDriveResults(quint64 id, const SearchResults& results);
+    void onDriveProgress(quint64 id, int seen, bool finished);
+    // Whether the search behind the rows is done (a quiet refresh keeps them
+    // as they are, so it counts as done): only then is what it passed over
+    // known, and the hints shown.
+    bool hintsSettled() const;
+    void finishLeftOut(bool stopped); // the one running is over: the hint goes, the footer says what came of it
     void refreshStatus();
     void refreshFrequentApps();
 
@@ -384,6 +445,10 @@ private:
     QString m_query;
     Scope m_scope = All;
     quint64 m_requestId = 0;
+    // The last name search's: its report of the removable drives
+    // (onRemovableDrives) may arrive after 全部 has gone on to its content
+    // scan, under a new m_requestId.
+    quint64 m_nameRequestId = 0;
     bool m_pending = false;
     bool m_haveResults = false;
     // What the rows on screen are for. Searching it again (window reopened,
@@ -393,6 +458,7 @@ private:
     RankBy m_shownRankBy = RankBy::Match;
     StartList m_shownStartList = RecentlyOpened;
     KindOrder m_shownKindOrder = KindOrder::FilesFirst;
+    QStringList m_shownExtensions; // of the kind of file chosen (fileExtensions())
     // The command whose list the rows are ("<plugin>/<command>"; empty: the
     // name search's): "=" and "= " trim to the same text, but one lists
     // files, the other the calculator's answer, and that is a new list.
@@ -416,8 +482,31 @@ private:
     bool m_loadingMore = false; // the current search is loadMore()'s: its new rows go at the end
     bool m_moreNames = false; // the last name search (or files written last) filled its page
     bool m_moreContent = false; // the last content scan stopped at its limit
+    // What the search behind the rows passed over (leftOutHints): the content
+    // scan's report (SearchEngine::contentLeftOut), and the removable drives
+    // the index leaves out (SearchEngine::removableDrives). A hint taken up
+    // (searchLeftOut) is the one running (m_hintRunning, its kind) and then
+    // not offered again for this query (m_hintsTaken); the rows a one-off
+    // brought (m_leftOutFound) stay through refreshes, which cannot find them
+    // again (the limits, the settings, or the index leave them out). Back to
+    // nothing with a new query.
+    ContentLeftOut m_leftOut;
+    RemovableDrives m_drives;
+    QString m_hintRunning;
+    QSet<QString> m_hintsTaken;
+    QSet<QString> m_leftOutFound;
+    int m_hintHits = 0; // rows the one running has brought
+    bool m_walkRunning = false; // ... it is a walk of a drive (SearchEngine::driveProgress ends it)
+    int m_walkSeen = 0; // files and folders it has looked at
+    bool m_approximate = false; // the rows were found by reading (approximateHeading)
     int m_currentRow = -1;
     QVariantMap m_keyHints; // see keyHints
+    FileTypes m_fileTypes;
+    int m_fileType = -1; // see fileType
+    bool m_foldersChosen = false; // 文件夹 was the strip's last choice (fileChoice)
+    static QString fileTypeKey(const FileType& type); // as fileChoice names it
+    int fileTypeIndex(const QString& key) const; // -1: none
+    QStringList fileExtensions() const; // the kind chosen's, in 文件; none otherwise
 
     bool m_recordHistory = true;
     KindOrder m_kindOrder = KindOrder::FilesFirst;

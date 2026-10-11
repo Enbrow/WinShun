@@ -79,8 +79,11 @@ public:
     bool isValid() const noexcept { return !m_terms.empty(); }
     unsigned ansiCodePage() const noexcept { return m_codePage; }
 
-    // Reads at low I/O priority: a scan reads many files, and other programs come first.
-    std::optional<ContentMatch> scanFile(std::wstring_view path, std::int64_t maxBytes, const CancelFn& cancelled) const;
+    // Reads at low I/O priority: a scan reads many files, and other programs
+    // come first. `large`, if given, says whether the file was left unread for
+    // having more than `maxBytes` (a search counts those).
+    std::optional<ContentMatch> scanFile(
+        std::wstring_view path, std::int64_t maxBytes, const CancelFn& cancelled, bool* large = nullptr) const;
     std::optional<ContentMatch> scan(const ReadFn& read, std::size_t chunkSize, const CancelFn& cancelled) const;
 
     static TextEncoding detect(std::string_view head, std::size_t* bomLength);

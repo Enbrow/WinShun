@@ -48,6 +48,9 @@ struct NewestOptions {
     // Later than this is a clock gone wrong (a file from a camera or another
     // computer dated in the future): left out.
     FileTime notAfter = 0xFFFF'FFFFu;
+    // Files: only those with one of these extensions (folded, without the
+    // dot); empty: any.
+    std::vector<std::string> extensions;
 };
 
 struct NewestOutput {

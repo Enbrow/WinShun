@@ -39,7 +39,7 @@
 
 <p align="center">
   <img src="docs/images/search.jpg" width="49%" alt="打拼音首字母秒找文件：ndbg 找到年度报告 / pinyin initials ndbg find 年度报告">
-  <img src="docs/images/numbers.jpg" width="49%" alt="按住 Ctrl 显示序号，Ctrl+1～9 直接打开 / hold Ctrl for row numbers, Ctrl+1–9 opens a row">
+  <img src="docs/images/numbers.jpg" width="49%" alt="图标上的序号，Ctrl+1～9 直接打开 / row numbers on the icons, Ctrl+1–9 opens a row">
   <img src="docs/images/newest.jpg" width="49%" alt="按修改时间排序，找最新的那一版 / sort by date modified, newest first">
   <img src="docs/images/content.jpg" width="49%" alt="文件内容全文搜索：Word、Excel、PPT、PDF、代码 / full-text search inside documents and code">
   <img src="docs/images/apps.jpg" width="49%" alt="拼音搜应用：guanliqi 找到任务管理器 / launch apps by pinyin">
@@ -71,11 +71,11 @@
 #### 🔍 文件搜索
 
 - **双击 Ctrl** 打开，再按一次或 `Esc` 关闭；三百多万个文件里搜一次只要几毫秒。
-- **拼音和首字母**：`ndbg` → 年度报告，`baog` → 报告；多音字按常用读音。
-- **搜整台电脑**：所有本地磁盘，U 盘可选；**NAS、内网共享文件夹（SMB）** 也能加进来一起搜，服务器关机时收录过的照样能搜到。
+- **拼音和首字母**：`ndbg` → 年度报告，`baog` → 报告；多音字按常用读音。打错了同音字（年度报高）找不到时，自动按读音再找一遍。
+- **搜整台电脑**：所有本地磁盘，U 盘可选（没收录的 U 盘插着时，列表末尾会提示你顺手搜一下它）；**NAS、内网共享文件夹（SMB）** 也能加进来一起搜，服务器关机时收录过的照样能搜到。
 - **排序懂你**：自己的文件在前，系统目录、`node_modules` 在后，名字完全一样的最前。每行显示修改日期，`Ctrl+S` 在最匹配、最新、最早之间切换。不输入时列出最近打开或最近修改的文件。
-- **数字键直达**：按住 `Ctrl` 显示序号，`Ctrl+1`～`Ctrl+9` 打开第几行（也可改成 `Alt`）。
-- **只找文件夹**：选中 **文件** 后再按 `Tab`。
+- **数字键直达**：结果的图标上标着序号，`Ctrl+1`～`Ctrl+9` 打开第几行（也可改成 `Alt`）。
+- **按类型找**：选中 **文件** 后，下面一排是文件夹、文档、图片、视频、压缩包等类型，`Tab` 依次切换；点 `+` 或在设置里自己加类型。
 - **拖出去就能用**：结果直接拖进微信、邮件、资源管理器。
 - **实时更新**：读 USN 变更日志，改名、新建、删除马上搜得到；拔 U 盘不会提示“设备正在使用”。
 
@@ -97,7 +97,7 @@
   - 纯文本：txt、md、log、csv、json、代码等；
   - 文档：**Word、Excel、PowerPoint、PDF、WPS**，结果里显示第几页、第几张幻灯片或哪个表的第几行。
 - **怎么找**：可以写多个词、用引号找整个短语，结果按相关度排。
-- **编码和速度**：自动识别 UTF-8、UTF-16、GBK 编码；有内容索引，几十万个文件也很快。
+- **编码和速度**：自动识别 UTF-8、UTF-16、GBK 编码；有内容索引，几十万个文件也很快。超过大小上限的、系统目录里的、类型没列出的文件默认不搜，搜完会告诉你各有几个，点一下就临时把它们也搜了。
 - **安全**：文档由一个权限受限的独立进程读取。
 
 #### 🚀 应用和系统设置
@@ -163,8 +163,8 @@
 | 双击 `Ctrl` | 打开 / 关闭搜索框（可另设组合键，如 `Alt+Space`） |
 | `Enter` / `Ctrl+Enter` / `Ctrl+Shift+Enter` | 打开 / 打开所在文件夹 / 以管理员身份运行 |
 | `Ctrl+C` / `Ctrl+Shift+C` | 复制文件 / 复制路径 |
-| `Ctrl+1`～`Ctrl+9` | 打开第几行（按住 `Ctrl` 显示序号） |
-| `Tab` / `Shift+Tab` | 切换范围：全部 / 文件 / 文件夹 / 内容 |
+| `Ctrl+1`～`Ctrl+9` | 打开第几行（图标上的数字） |
+| `Tab` / `Shift+Tab` | 切换范围：全部 / 文件 / 内容；在 **文件** 里 `Tab` 切换类型 |
 | `Ctrl+S` | 最匹配 → 最新在前 → 最早在前 |
 | `Ctrl+G`（对话框里） | 转到文件管理器正在显示的文件夹 |
 | `Win+V` / `Win+S`（设置里打开后） | 剪贴板历史 / 任务栏上方的搜索框 |
@@ -237,15 +237,16 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 
 - 🔍 **File search**
   - **Speed**: press Ctrl twice; a search over three million files takes milliseconds.
-  - **Pinyin**: `ndbg` finds 年度报告.
-  - **Where**: all local drives, USB drives if you like, and **NAS / SMB network shares**, still searchable while their server is off.
+  - **Pinyin**: `ndbg` finds 年度报告; a mistyped homophone (年度报高) is retried by sound.
+  - **Where**: all local drives, USB drives if you like (an unindexed one that is plugged in is offered at the end of the list), and **NAS / SMB network shares**, still searchable while their server is off.
   - **Order**: your own files first, the date modified on each row, `Ctrl+S` for best match / newest / oldest. Recent files are listed when the box is empty.
-  - **Shortcuts**: `Ctrl+1`…`Ctrl+9` opens a row (hold Ctrl to see the numbers); `Tab` past **Files** lists folders only.
+  - **Shortcuts**: `Ctrl+1`…`Ctrl+9` opens a row (its number is on its icon).
+  - **By kind**: under **Files**, a row of kinds (folders, documents, pictures, videos, archives…); `Tab` steps through them, `+` adds your own.
   - **Drag out**: drag results into a chat, a mail or Explorer.
   - **Query syntax**: `"exact phrase"`, `!exclude`, `!node_modules\`, wildcards `*` `?`, `ext:pdf,docx`, `folder\name`, and paths (`D:\My Files\`, `tools/out/`).
 - 📄 **Full-text search**
   - **What**: the **Content** scope searches inside txt, md, logs, source code and **Word, Excel, PowerPoint, PDF and WPS** files, showing the page, slide or sheet and row.
-  - **How**: ranked by relevance, with a content index for speed; UTF-8, UTF-16 and GBK are detected.
+  - **How**: ranked by relevance, with a content index for speed; UTF-8, UTF-16 and GBK are detected. Files over the size limit, in system folders or of unlisted text types are skipped; the list says how many of each, and one click searches them too.
   - **Safety**: documents are read by a separate process with restricted rights.
 - 🚀 **Apps and settings**
   - **Apps**: everything in the Start menu (Store apps included), by name, pinyin, initials (`vsc`) or program file (`winword`).
@@ -279,8 +280,8 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 | Ctrl twice | Open / close the search bar (another shortcut, such as `Alt+Space`, can be set) |
 | `Enter` / `Ctrl+Enter` / `Ctrl+Shift+Enter` | Open / show in folder / run as administrator |
 | `Ctrl+C` / `Ctrl+Shift+C` | Copy the file / copy its path |
-| `Ctrl+1`…`Ctrl+9` | Open the nth row (hold Ctrl to see the numbers) |
-| `Tab` / `Shift+Tab` | Switch scope: All / Files / Folders / Content |
+| `Ctrl+1`…`Ctrl+9` | Open the nth row (the number on its icon) |
+| `Tab` / `Shift+Tab` | Switch scope: All / Files / Content; in **Files**, `Tab` steps through the kinds |
 | `Ctrl+S` | Best match → newest first → oldest first |
 | `Ctrl+G` (in a file dialog) | Go to the folder shown in your file manager |
 | `Win+V` / `Win+S` (once turned on) | Clipboard history / search above the taskbar |

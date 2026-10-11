@@ -39,8 +39,10 @@ constexpr std::size_t kMaxSegments = 64; // more (whatever their levels) are mer
 constexpr std::size_t kOrderTail = 1024;
 // 2: ASCII trigrams; 3: dense documents; 4: contents shared by documents, segment files v4;
 // 5: trigrams of any ASCII characters, spaces and punctuation too; 6: documents' texts;
-// 7: texts shared by documents, segment files v5 (contents ordered by bisection)
-constexpr std::uint32_t kStateVersion = 7;
+// 7: texts shared by documents, segment files v5 (contents ordered by bisection);
+// 8: documents too large for the size limit flagged (kLarge; a 7 is read, its empty documents dirty)
+constexpr std::uint32_t kStateVersion = 8;
+constexpr std::uint32_t kReadableVersion = 7; // the oldest state restore() still reads
 // The text file is rewritten once texts no document has take more than
 // this, and more than the others.
 constexpr std::uint64_t kTextGarbage = 32u << 20;
@@ -52,6 +54,9 @@ constexpr std::uint8_t kDead = 2; // replaced by a newer document, or its file i
 constexpr std::uint8_t kBase = 3;
 constexpr std::uint8_t kDirty = 0x04; // written to since it was read: read it again
 constexpr std::uint8_t kUnsure = 0x08; // may have changed unseen: compare its size and time
+// With kEmpty: the file had more bytes than the size limit (Lookup::large).
+// Of the empty documents, these alone may hold something once the limit goes up.
+constexpr std::uint8_t kLarge = 0x10;
 
 bool isDead(std::uint8_t state) noexcept
 {
@@ -1209,6 +1214,12 @@ constexpr std::string_view kCodeExtensions[] {"asm", "bash", "bat", "c", "c++", 
 constexpr std::string_view kDataExtensions[] {"htm", "html", "json", "jsonl", "ndjson", "plist", "resx", "sql", "svg",
     "wsdl", "xaml", "xhtml", "xml", "xsd"};
 static_assert(std::ranges::is_sorted(kCodeExtensions) && std::ranges::is_sorted(kDataExtensions));
+// Plain text that people write, not in the default list of extensions
+// (Settings' kDefaultContentExtensions) but sure to be text: for
+// OtherTextTypes. Kept to what is unmistakably text: no "dat", "bak" or the
+// like, which may hold anything.
+constexpr std::string_view kPlainExtensions[] {"adoc", "bib", "lrc", "markdown", "org", "rst", "tex", "vtt"};
+static_assert(std::ranges::is_sorted(kPlainExtensions));
 
 } // namespace
 
@@ -1242,6 +1253,55 @@ std::int64_t ContentSizeLimits::of(std::wstring_view path) const noexcept
         }
     }
     return bytes[kindOf({ext.data(), n})];
+}
+
+// ---- OtherTextTypes -------------------------------------------------------------------
+
+OtherTextTypes::OtherTextTypes(const QStringList& listed)
+{
+    std::vector<std::uint64_t> taken; // the listed ones, packed
+    for (QString ext : listed) {
+        ext = ext.trimmed();
+        while (ext.startsWith(u'.') || ext.startsWith(u'*'))
+            ext.remove(0, 1);
+        std::uint64_t packed = 0;
+        if (!ext.isEmpty() && packExtension(text::foldAscii(wtf8::fromUtf16(wtf8::view(ext))), packed))
+            taken.push_back(packed);
+    }
+    std::sort(taken.begin(), taken.end());
+    using Set = std::span<const std::string_view>;
+    for (const Set set : {Set(kCodeExtensions), Set(kDataExtensions), Set(kPlainExtensions)}) {
+        for (const std::string_view ext : set) {
+            std::uint64_t packed = 0;
+            if (packExtension(ext, packed) && !std::binary_search(taken.begin(), taken.end(), packed))
+                m_types.emplace_back(packed, ext);
+        }
+    }
+    std::sort(m_types.begin(), m_types.end());
+}
+
+int OtherTextTypes::indexOf(std::string_view name, std::size_t extLength) const noexcept
+{
+    if (extLength == 0 || extLength > 8 || extLength > name.size())
+        return -1;
+    std::uint64_t packed = 0;
+    packExtension(name.substr(name.size() - extLength), packed);
+    const auto it = std::lower_bound(m_types.begin(), m_types.end(), packed,
+        [](const std::pair<std::uint64_t, std::string_view>& type, std::uint64_t key) { return type.first < key; });
+    return it != m_types.end() && it->first == packed ? static_cast<int>(it - m_types.begin()) : -1;
+}
+
+QString OtherTextTypes::extension(std::size_t index) const
+{
+    return index < m_types.size() ? QString::fromLatin1(m_types[index].second) : QString();
+}
+
+QStringList OtherTextTypes::extensions() const
+{
+    QStringList all;
+    for (const auto& [packed, ext] : m_types)
+        all.append(QString::fromLatin1(ext));
+    return all;
 }
 
 // ---- ExtensionFilter ------------------------------------------------------------------
@@ -1971,6 +2031,8 @@ ContentIndex::Lookup ContentIndex::lookup(std::span<const QString> terms) const
         const ContentId c = m_docContent[d];
         const bool match = c != kNoContent && ((bits[c >> 6] >> (c & 63)) & 1);
         out.known.push_back(entry | (match ? Lookup::kMatch : 0));
+        if (m_docState[d] & kLarge)
+            out.large.push_back(entry);
     });
     return out;
 }
@@ -2017,7 +2079,7 @@ void ContentIndex::markEmptyChanged()
 {
     std::unique_lock lock(m_mutex);
     for (std::uint8_t& state : m_docState) {
-        if ((state & kBase) == kEmpty) {
+        if ((state & kLarge) && !isDead(state)) {
             state |= kDirty;
             m_changed = true;
         }
@@ -2137,7 +2199,7 @@ void ContentIndex::endReads()
 }
 
 bool ContentIndex::add(EntryId entry, std::span<const grams::Key> keys, bool empty, std::uint32_t stamp,
-    std::uint64_t since, QByteArrayView text)
+    std::uint64_t since, QByteArrayView text, bool large)
 {
     const bool hasGrams = !empty && !keys.empty();
     const bool hasText = !text.isEmpty() && text.size() <= 0x7FFF'FFFF;
@@ -2223,7 +2285,8 @@ bool ContentIndex::add(EntryId entry, std::span<const grams::Key> keys, bool emp
         for (const grams::Key key : keys)
             m_memory.push_back((key << kIdBits) | content);
     }
-    const DocId doc = addDocLocked(entry, empty ? kEmpty : kLive, stamp, since, content);
+    const auto state = static_cast<std::uint8_t>(!empty ? kLive : large ? kEmpty | kLarge : kEmpty);
+    const DocId doc = addDocLocked(entry, state, stamp, since, content);
     if (textRef)
         useText(doc, *textRef, textPrint);
     replaceLocked(entry, doc);
@@ -2240,7 +2303,7 @@ bool ContentIndex::addCopy(
     if (from == kNoDoc || !isCurrent(m_docState[from]) || m_docStamp[from] != originalStamp
         || m_docEntry.size() >= kMaxIds)
         return false;
-    const DocId doc = addDocLocked(entry, m_docState[from] & kBase, stamp, since, m_docContent[from]);
+    const DocId doc = addDocLocked(entry, m_docState[from] & (kBase | kLarge), stamp, since, m_docContent[from]);
     if (const auto it = m_texts.find(from); it != m_texts.end()) {
         const auto use = m_textUses.find(it->second.offset);
         useText(doc, it->second, use != m_textUses.end() ? use->second.print : std::nullopt);
@@ -3074,12 +3137,15 @@ bool ContentIndex::restore(std::span<const char> data, std::size_t entryCount)
     m_flushed.wait(lock, [&] { return !m_flushing; }); // segment numbers start again from the state's
     resetLocked();
     m_obsolete.clear(); // whatever is on disk and unused goes below
+    bool upgraded = false; // an older state was read: it is saved anew
     const auto parse = [&] {
         if (data.empty())
             return false;
         BlobReader r(data);
-        if (r.get<std::uint32_t>() != kStateVersion)
+        const auto version = r.get<std::uint32_t>();
+        if (version < kReadableVersion || version > kStateVersion)
             return false;
+        upgraded = version != kStateVersion;
         m_nextSegment = std::max<std::uint64_t>(r.get<std::uint64_t>(), 1);
         const auto contentEnd = r.get<ContentId>();
         const auto segmentCount = r.get<std::uint32_t>();
@@ -3103,7 +3169,8 @@ bool ContentIndex::restore(std::span<const char> data, std::size_t entryCount)
             return false;
         for (DocId d = 0; d < count; ++d) {
             const std::uint8_t state = m_docState[d];
-            if ((state & kBase) > kDead || (state & ~(kBase | kDirty | kUnsure)))
+            if ((state & kBase) > kDead || (state & ~(kBase | kDirty | kUnsure | kLarge))
+                || ((state & kLarge) && (state & kBase) != kEmpty))
                 return false;
             if (isDead(state)) {
                 m_docEntry[d] = kNoEntry;
@@ -3112,6 +3179,11 @@ bool ContentIndex::restore(std::span<const char> data, std::size_t entryCount)
             } else if (m_docEntry[d] >= entryCount
                 || (m_docContent[d] != kNoContent && m_docContent[d] >= contentEnd)) {
                 return false;
+            } else if (version < 8 && (state & kBase) == kEmpty) {
+                // Which of the empty documents were too large was not recorded
+                // yet: their files are opened again (not read: the size
+                // decides), as when the size limit goes up.
+                m_docState[d] |= kDirty;
             }
         }
         const auto pairs = r.get<std::uint32_t>();
@@ -3203,7 +3275,7 @@ bool ContentIndex::restore(std::span<const char> data, std::size_t entryCount)
         if (!inUse && !QFile::remove(dir.filePath(name)) && numeric)
             (text ? m_obsoleteTexts : m_obsolete).push_back(number);
     }
-    m_changed = !ok;
+    m_changed = !ok || upgraded;
     return ok;
 }
 
