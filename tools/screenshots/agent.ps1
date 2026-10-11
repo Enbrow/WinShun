@@ -18,7 +18,7 @@
 #   profile start | profile stop (WinShun on work\profile, made afresh; then the user's own again)
 #   notepad <file> | paint <file> (files of this folder) | explorer open <folder of the demo> | explorer close
 #   canceldialogs | clip <text> | clipfile <path>
-param([string]$Scene)
+param([string]$Scene, [string]$Exe) # Exe: another WinShun.exe than dist's (a build under test)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 Add-Type -TypeDefinition @'
@@ -78,7 +78,7 @@ $profileDir = Join-Path $work 'profile'
 New-Item -ItemType Directory -Force $shots | Out-Null
 $cmdFile = Join-Path $work 'cmd.txt'
 $log = Join-Path $work 'agent.txt'
-$exe = Join-Path $root 'dist\WinShun\WinShun.exe'
+$exe = if ($Exe) { $Exe } else { Join-Path $root 'dist\WinShun\WinShun.exe' }
 $tool = Join-Path $here 'shots.py'
 $demo = 'F:\Win' + [char]0x987A + [char]0x6F14 + [char]0x793A # the demo folder the shots show (stage.py's DEMO)
 $python = (Get-Command python -ErrorAction SilentlyContinue).Source
