@@ -163,7 +163,7 @@ Item {
                 }
                 FlatButton {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: qsTr("选择图片…")
+                    text: qsTr("选择图片")
                     onClicked: {
                         const picked = form.editor.pickWebIcon()
                         if (picked.error) {

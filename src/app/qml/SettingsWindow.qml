@@ -1386,7 +1386,7 @@ Window {
                     description: qsTr("这些文件夹里的内容都不出现在结果里")
 
                     FlatButton {
-                        text: qsTr("添加文件夹…")
+                        text: qsTr("添加文件夹")
                         glyph: "" // Add
                         onClicked: window.editor.addExcludedFolder()
                     }
@@ -1672,7 +1672,7 @@ Window {
                                 FlatButton {
                                     visible: sharesRow.listSignIn
                                     highlighted: true
-                                    text: qsTr("登录…")
+                                    text: qsTr("登录")
                                     onClicked: window.editor.signInToServer(sharesRow.listedServer)
                                 }
                                 Repeater {
@@ -2013,7 +2013,8 @@ Window {
 
                     FlatButton {
                         flat: true
-                        text: qsTr("导入…")
+                        text: qsTr("导入")
+                        glyph: "\uE8B5" // Import
                         onClicked: {
                             const message = window.editor.importWebShortcuts()
                             if (message.length > 0)
@@ -2022,7 +2023,8 @@ Window {
                     }
                     FlatButton {
                         flat: true
-                        text: qsTr("导出…")
+                        text: qsTr("导出")
+                        glyph: "\uEDE1" // Export
                         onClicked: {
                             const message = window.editor.exportWebShortcuts()
                             if (message.length > 0)
@@ -2578,7 +2580,7 @@ Window {
                         onClicked: window.editor.openIndexFolder()
                     }
                     FlatButton {
-                        text: qsTr("更改…")
+                        text: qsTr("更改")
                         glyph: "" // MoveToFolder
                         enabled: !indexFolderRow.moving
                         onClicked: window.editor.chooseIndexFolder()

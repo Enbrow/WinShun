@@ -108,7 +108,7 @@ Rectangle {
             visible: card.share.signIn
             implicitHeight: 32
             highlighted: true
-            text: qsTr("登录…")
+            text: qsTr("登录")
             onClicked: card.signInClicked()
         }
         FlatButton {

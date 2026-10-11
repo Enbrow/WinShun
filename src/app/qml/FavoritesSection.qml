@@ -48,21 +48,23 @@ SettingsSection {
 
         FlatButton {
             flat: true
-            text: qsTr("导入…")
+            text: qsTr("导入")
+            glyph: "\uE8B5" // Import
             onClicked: section.favorites.importFile()
         }
         FlatButton {
             flat: true
-            text: qsTr("导出…")
+            text: qsTr("导出")
+            glyph: "\uEDE1" // Export
             onClicked: section.favorites.exportFile()
         }
         FlatButton {
-            text: qsTr("添加文件夹…")
+            text: qsTr("添加文件夹")
             glyph: "\uE8B7" // Folder
             onClicked: section.favorites.addFolder()
         }
         FlatButton {
-            text: qsTr("添加文件…")
+            text: qsTr("添加文件")
             glyph: "\uE8A5" // Document
             onClicked: section.favorites.addFile()
         }
@@ -293,7 +295,7 @@ SettingsSection {
                                 visible: favRow.modelData.missing && (favRow.modelData.kind === "folder" || favRow.modelData.kind === "file")
                                 implicitHeight: 32
                                 flat: true
-                                text: qsTr("重新选择…")
+                                text: qsTr("重新选择")
                                 onClicked: section.favorites.repick(favRow.index)
                             }
                             FlatButton {
