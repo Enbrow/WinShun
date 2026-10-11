@@ -10,6 +10,7 @@ Rectangle {
     id: button
 
     property string glyph
+    property string glyphOverlay // drawn over `glyph` (see Glyph.overlay)
     property string text
     property bool danger: false
     property bool checked: false
@@ -36,6 +37,7 @@ Rectangle {
         Glyph {
             anchors.verticalCenter: parent.verticalCenter
             glyph: button.glyph
+            overlay: button.glyphOverlay
             size: 64 / 3 // 32 device pixels at 150%
             color: button.foreground
         }

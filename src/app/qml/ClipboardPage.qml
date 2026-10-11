@@ -39,7 +39,12 @@ Item {
     function selectFirst() {
         if (list.count > 0)
             list.currentIndex = 0
+        // After rows went and came in place (ClipModel::setRows) the view
+        // stops with the first row at the very top, its top margin scrolled
+        // off; the true start is the margin above the origin.
+        list.cancelFlick()
         list.positionViewAtBeginning()
+        list.contentY = list.originY - list.topMargin
     }
     function windowHidden() {
         hideNumbers()
@@ -383,6 +388,7 @@ Item {
                 anchors.rightMargin: 14
                 anchors.verticalCenter: parent.verticalCenter
                 glyph: page.clipboard.pinned ? "" : "" // PinnedFill, Pin
+                glyphOverlay: page.clipboard.pinned ? "" : "" // Pin: the needle (lines up with PinnedFill in Fluent and MDL2)
                 checked: page.clipboard.pinned
                 tip: page.clipboard.pinned ? qsTr("取消钉住") : qsTr("钉住：一直显示在最上面，粘贴后也不收起")
                 onClicked: page.clipboard.pinned = !page.clipboard.pinned

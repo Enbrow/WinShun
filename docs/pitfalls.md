@@ -1609,3 +1609,17 @@
 - **现象**：从资源管理器往设置窗口的收藏夹拖文件，收藏是加上了，Win顺 随即退出（事件查看器：WinShun.exe 0xc0000005）。看上去像是“列表没刷新”，其实是进程没了，再打开设置时它被重新启动。
 - **原因**：`WM_DROPFILES` 是投递来的消息，Qt 的事件分派器把它交给 `QAbstractNativeEventFilter::nativeEventFilter` 时 `result` 是空指针（只有窗口过程那一路才给结果指针）。`FileDropTarget` 无条件 `*result = 0`。
 - **做法**：只在 `result` 不为空时写。凡是处理投递消息（`WM_DROPFILES`、`WM_HOTKEY`、线程消息）的原生过滤器都一样。
+
+## 剪贴板面板
+
+### 叠在填充图标上的轮廓才有针：PinnedFill 单用只剩针头
+
+- **现象**：剪贴板面板钉住后，右上角的蓝色图钉只有针头，针不见了。
+- **原因**：Segoe Fluent / MDL2 里 `PinnedFill`（E841）只是填充层，只画针头那一块实心；针是线，只在轮廓里。
+- **做法**：`Glyph.overlay`（`RowAction.glyphOverlay`）在填充上用同一字体、同一颜色再叠一层轮廓 `Pin`（E718）。不能叠 `Pinned`（E840）：Fluent（Win11）里 E840、E841、E718 都是斜的，叠哪个都对；MDL2（Win10）里 E841 和 E718 是横的，E840 却是斜的，叠上去错位。挑叠加的字形时两套字体都画出来比一比；其他 `…Fill` 图标单独用之前，也先看一眼是不是缺了线条部分。
+
+### 切换分类后 `positionViewAtBeginning()` 停在第一行顶上，`topMargin` 被滚掉了
+
+- **现象**：在剪贴板面板里切换分类（以及每次打开面板）后，列表看着在顶部，其实往下偏了 `topMargin`（4 px），滚动条也不在最顶。
+- **原因**：`ClipModel::setRows` 分类相同顺序时是逐行删、逐行插，`originY` 随之漂移；之后 `positionViewAtBeginning()` 常常把 `contentY` 停在 `originY`，不算 `topMargin`。只在第一行不变时才对。先 `forceLayout()` 也没用（用 qml.exe 离屏实验逐种比过）。
+- **做法**：`positionViewAtBeginning()` 之后再 `contentY = originY - topMargin`（和 `ListScrollBar.minY` 同一个起点），之前先 `cancelFlick()`。搜索结果（Main.qml）和对话框栏（DialogBarWindow.qml）的列表也有 `topMargin: 4`，遇到同样现象照此处理。

@@ -8,6 +8,9 @@ Item {
     id: icon
 
     property string glyph
+    // A second font glyph drawn over the first, as MDL2 fills pair with their
+    // outlines: PinnedFill is only the head, the needle is in Pin.
+    property string overlay
     property real size: 16
     property color color: Theme.subtext
 
@@ -62,6 +65,16 @@ Item {
         // In points: font.pixelSize is a whole number of logical pixels, which
         // would round a size like 64/3 (32 device pixels at 150%) down.
         font.pointSize: icon.size * 72 / 96
+        color: icon.color
+        horizontalAlignment: Text.AlignHCenter
+        verticalAlignment: Text.AlignVCenter
+    }
+
+    Text {
+        anchors.centerIn: parent
+        visible: !icon.drawn && icon.overlay.length > 0
+        text: icon.overlay
+        font: label.font
         color: icon.color
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
