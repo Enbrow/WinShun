@@ -290,6 +290,31 @@ void openUrl(const QString& url)
     runOnShellThread([target = url.toStdWString()] { executeUnelevated(target, {}, {}); });
 }
 
+void openTerminal(const QString& folder, std::function<void(bool)> done)
+{
+    ::AllowSetForegroundWindow(ASFW_ANY);
+    const QString native = QDir::toNativeSeparators(folder);
+    runOnShellThread([dir = native.toStdWString(), done = std::move(done)] {
+        wchar_t system[MAX_PATH] = {};
+        const UINT n = ::GetSystemDirectoryW(system, MAX_PATH);
+        bool ok = false;
+        if (n > 0 && n < MAX_PATH) {
+            const std::wstring cmd = std::wstring(system, n) + L"\\cmd.exe";
+            if (dir.starts_with(L"\\\\")) {
+                // Without a backslash at the end: before the closing quote it would escape it.
+                std::wstring target = dir;
+                while (target.ends_with(L'\\'))
+                    target.pop_back();
+                ok = executeUnelevated(cmd, L"/k pushd \"" + target + L'"', {});
+            } else {
+                ok = executeUnelevated(cmd, {}, dir);
+            }
+        }
+        if (done)
+            done(ok);
+    });
+}
+
 void run(const QString& command, std::function<void(bool)> done)
 {
     ::AllowSetForegroundWindow(ASFW_ANY);

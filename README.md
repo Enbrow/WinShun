@@ -217,7 +217,7 @@
 | `Win+S`（在设置里打开后） | 在任务栏上方打开 / 关闭搜索框，代替 Windows 搜索 |
 | `Win+V`（在设置里打开后） | 剪贴板历史：点一条或 `Enter` 粘贴，`Alt+P` 预览，`Shift+Enter` 粘贴为纯文本，`Tab` 切换分类，`Ctrl+P` 固定，`Alt+1`～`Alt+9` 粘贴第几条（设置里可以改成 `Ctrl`）；在 Win顺 自己的输入框里按，粘贴到这个框 |
 
-鼠标也能用：选中或悬停的结果右边有四个按钮，分别是打开所在位置、复制、复制路径和删除（点两次才删，移到回收站）。选中了多项时，打开、复制、删除等操作都对全部选中项生效。
+鼠标也能用：选中或悬停的结果右边有几个按钮：打开所在位置、在终端中打开（cmd，到它所在的文件夹）、复制、复制路径和删除（点两次才删，移到回收站）。选中了多项时，打开、复制、删除等操作都对全部选中项生效。
 
 #### 🎨 像 Windows 11 自带的一样
 
@@ -436,7 +436,7 @@ The interface comes in **English and Simplified Chinese**. It follows the Window
 
 #### ⌨️ Keyboard first
 
-`Enter` opens, `Ctrl+Enter` shows the item in its folder, `Ctrl+Shift+Enter` runs as administrator, `Ctrl+C` copies the file, `Ctrl+Shift+C` copies its path, `Ctrl+1`…`Ctrl+9` opens the nth row in view (hold `Ctrl` to see the numbers; in the bar by file dialogs it goes to that row), `Tab` / `Shift+Tab` switch scopes, `Ctrl+S` switches the order (or, with nothing typed, opened ⇄ modified), the menu key or right-click shows more actions, `Esc` closes. The selected row also has buttons to show in folder, copy, copy path and delete (to the Recycle Bin, after a second click). Select several results with `Shift+↑` / `Shift+↓`, `Ctrl`+click or `Shift`+click: opening, copying and deleting then act on all of them, and `Esc` first clears the selection.
+`Enter` opens, `Ctrl+Enter` shows the item in its folder, `Ctrl+Shift+Enter` runs as administrator, `Ctrl+C` copies the file, `Ctrl+Shift+C` copies its path, `Ctrl+1`…`Ctrl+9` opens the nth row in view (hold `Ctrl` to see the numbers; in the bar by file dialogs it goes to that row), `Tab` / `Shift+Tab` switch scopes, `Ctrl+S` switches the order (or, with nothing typed, opened ⇄ modified), the menu key or right-click shows more actions, `Esc` closes. The selected row also has buttons to show in folder, open in Terminal (cmd, in its folder), copy, copy path and delete (to the Recycle Bin, after a second click). Select several results with `Shift+↑` / `Shift+↓`, `Ctrl`+click or `Shift`+click: opening, copying and deleting then act on all of them, and `Esc` first clears the selection.
 
 In the settings window, type into the box above the categories (or press `Ctrl+F`) and only the settings that fit stay on the right, their switches and buttons working as usual; `↑` / `↓` pick one, `Enter` goes to its page. When WinShun has no such setting, the Windows settings it may be are listed (try "Bluetooth").
 

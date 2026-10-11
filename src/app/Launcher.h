@@ -118,6 +118,7 @@ public:
     // Alternate: Shift+Enter, a plugin row's third action (Open elsewhere).
     // FavoriteFolder: the folder a file is in into the favorites.
     // EditFavorite: the settings' 收藏夹 page, at the row's favorite.
+    // OpenTerminal: a command prompt in a folder, or in the folder a file is in.
     // PluginAction + n: the nth of a plugin row's actions (its context menu).
     enum Action {
         Open,
@@ -134,6 +135,7 @@ public:
         RemoveFavorite,
         FavoriteFolder,
         EditFavorite,
+        OpenTerminal,
         PluginAction = 100
     };
     Q_ENUM(Action)

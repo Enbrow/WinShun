@@ -1088,7 +1088,8 @@ void Launcher::dismiss()
 
 void Launcher::trigger(int row, int action)
 {
-    if (m_results.isSelected(row) && m_results.selectedCount() > 1) {
+    // A terminal opens for the row it was asked on, not for each of a selection.
+    if (action != OpenTerminal && m_results.isSelected(row) && m_results.selectedCount() > 1) {
         performMany(m_results.selection(), static_cast<Action>(action));
         return;
     }
@@ -1190,7 +1191,8 @@ void Launcher::perform(const SearchResult& result, Action action)
         performApp(r, action);
         return;
     }
-    const bool needsFile = action == Open || action == Reveal || action == RunAsAdmin || action == Recycle;
+    const bool needsFile
+        = action == Open || action == Reveal || action == RunAsAdmin || action == Recycle || action == OpenTerminal;
     if (needsFile && !serverAnswers(r.path)) {
         flash(tr("连不上 %1：它离线了，或不在同一网络").arg(QString::fromStdWString(std::wstring(unc::host(r.path.toStdWString())))));
         return;
@@ -1247,6 +1249,11 @@ void Launcher::perform(const SearchResult& result, Action action)
     case EditWebShortcuts:
     case AddFavorite:
     case RemoveFavorite:
+    case OpenTerminal:
+        remember(r.path);
+        shell::openTerminal(r.isDir ? r.path : folderOf(r.path), reportFailure(r.name));
+        emit dismissRequested();
+        break;
     case FavoriteFolder:
     case EditFavorite:
         break; // not for a file, or done above
@@ -1304,6 +1311,7 @@ void Launcher::performApp(const SearchResult& app, Action action)
     case RemoveFavorite:
     case FavoriteFolder:
     case EditFavorite:
+    case OpenTerminal:
         break;
     }
 }
@@ -1341,6 +1349,7 @@ void Launcher::performPlace(const SearchResult& place, Action action)
     case RemoveFavorite:
     case FavoriteFolder:
     case EditFavorite:
+    case OpenTerminal:
         break;
     }
 }
@@ -1375,6 +1384,7 @@ void Launcher::performWeb(const SearchResult& web, Action action)
     case RemoveFavorite:
     case FavoriteFolder:
     case EditFavorite:
+    case OpenTerminal:
         break;
     }
 }
@@ -1826,6 +1836,7 @@ QVariantList Launcher::menuItems(int row) const
     }
     items.append(entry(Open, r->isDir ? tr("打开文件夹") : tr("打开"), u"Enter"_s, r->isDir ? u"\uE838"_s : u"\uE8E5"_s));
     items.append(entry(Reveal, tr("打开所在位置"), u"Ctrl+Enter"_s, u"\uE8DA"_s));
+    items.append(entry(OpenTerminal, tr("在终端中打开"), QString(), u"\uE756"_s)); // CommandPrompt
     if (!r->isDir && shell::canRunAsAdministrator(r->path))
         items.append(entry(RunAsAdmin, tr("以管理员身份运行"), u"Ctrl+Shift+Enter"_s, u"\uE7EF"_s));
     items.append(separator);

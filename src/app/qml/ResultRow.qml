@@ -329,6 +329,13 @@ Item {
                 onClicked: row.actionRequested(row.index, Launcher.Reveal)
             }
             RowAction {
+                id: terminalAction
+                visible: !row.isApp // a file's or folder's: its folder in cmd
+                glyph: "" // CommandPrompt
+                tip: qsTr("在终端中打开")
+                onClicked: row.actionRequested(row.index, Launcher.OpenTerminal)
+            }
+            RowAction {
                 id: copyAction
                 visible: row.copyable // a desktop app copies its program; a packaged one has none
                 glyph: "" // Copy
@@ -370,6 +377,7 @@ Item {
     HoverTip {
         readonly property RowAction hovered: adminAction.tipWanted ? adminAction
                                            : revealAction.tipWanted ? revealAction
+                                           : terminalAction.tipWanted ? terminalAction
                                            : copyAction.tipWanted ? copyAction
                                            : copyPathAction.tipWanted ? copyPathAction
                                            : deleteAction.tipWanted ? deleteAction : null

@@ -37,6 +37,10 @@ void setFileManager(filemanager::Kind kind);
 // Invalid when no shell runs to take them from.
 win32::UniqueHandle startUnelevated(const std::wstring& program, const std::wstring& args, const std::wstring& cwd = {});
 void openUrl(const QString& url); // https:, mailto: ...
+// A command prompt (cmd.exe; in Windows Terminal when that is the default)
+// in `folder`, with the user's normal rights. On a network share, pushd
+// gives it a drive letter: cmd cannot start in a UNC path.
+void openTerminal(const QString& folder, std::function<void(bool)> done = {});
 // A command or shell location ("%windir%\system32\control.exe /name X",
 // "ms-settings:display"): a place in Windows (see SystemCatalog).
 void run(const QString& command, std::function<void(bool)> done = {});
