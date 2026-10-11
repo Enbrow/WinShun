@@ -260,6 +260,13 @@ begin
     GiveBackKey('Clipboard', 'WinV', 'V');
     GiveBackKey('Taskbar', 'WinS', 'S');
   end;
+  // The copies of WinShunTap.dll made for Explorer (the room right of Start);
+  // one Explorer still has loaded stays until it is gone too.
+  if CurUninstallStep = usPostUninstall then
+  begin
+    DelTree(ExpandConstant('{commonappdata}\WinShun\tap'), True, True, True);
+    RemoveDir(ExpandConstant('{commonappdata}\WinShun'));
+  end;
   if (CurUninstallStep = usPostUninstall) and not UninstallSilent then
     if MsgBox(CustomMessage('RemoveData'), mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
     begin

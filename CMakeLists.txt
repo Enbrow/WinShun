@@ -45,6 +45,7 @@ add_subdirectory(src/core)
 add_subdirectory(src/mcp)
 add_subdirectory(src/plugin)
 add_subdirectory(src/tools-plugin)
+add_subdirectory(src/tap)
 add_subdirectory(src/app)
 add_subdirectory(src/stub)
 

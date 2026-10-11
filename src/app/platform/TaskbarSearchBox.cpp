@@ -33,6 +33,7 @@ constexpr UINT kStateMessage = WM_APP + 1; // the look or the text changed
 constexpr UINT kMeasuredMessage = WM_APP + 2; // a Layout is waiting (Impl::measured)
 constexpr UINT kReattachMessage = WM_APP + 3;
 constexpr UINT kQuitMessage = WM_APP + 4;
+constexpr UINT kGapMessage = WM_APP + 5; // the Start gap wanted, or reported (Impl::gapReported)
 
 constexpr UINT_PTR kMeasureTimer = 1; // its taskbar not put together yet: again
 constexpr UINT_PTR kAttachTimer = 2;
@@ -51,6 +52,8 @@ constexpr float kFontSize = 14;
 constexpr double kMargin = 6; // round the box in its window: for growing when lifted, its shadow, its glow
 constexpr double kSnap = 16; // dropped this near either end of a stretch: right against it
 constexpr double kFollowStep = 14; // a step this small: the taskbar animating (see follow)
+constexpr double kFormSlack = 24; // room past what a form needs before a wider one is asked for (wantGap)
+constexpr double kGapWaitMs = 2500; // the gap reported made, measured by then or given up on (verifyGap)
 
 constexpr UINT kHoldMs = 800; // a jump into the clear (see follow)
 constexpr UINT kBriefHoldMs = 100; // ... into the box's way
@@ -273,12 +276,15 @@ struct Layout {
     int generation = 0;
     bool measured = false; // its frame was found
     std::optional<RECT> icons; // Start, Windows' search, the apps
+    std::optional<RECT> start; // the Start button by itself (in icons too)
+    std::optional<RECT> afterStart; // the first of the icons right of it: the gap is between
     std::vector<RECT> obstacles; // the tray, the widgets
 };
 
 bool sameLayout(const Layout& a, const Layout& b)
 {
-    return a.measured == b.measured && sameRect(a.icons, b.icons) && a.obstacles.size() == b.obstacles.size()
+    return a.measured == b.measured && sameRect(a.icons, b.icons) && sameRect(a.start, b.start)
+        && sameRect(a.afterStart, b.afterStart) && a.obstacles.size() == b.obstacles.size()
         && std::equal(a.obstacles.begin(), a.obstacles.end(), b.obstacles.begin(),
             [](const RECT& x, const RECT& y) { return ::EqualRect(&x, &y) != FALSE; });
 }
@@ -341,6 +347,11 @@ private:
                     ::UnionRect(&*layout.icons, &*layout.icons, &r);
                 else
                     layout.icons = r;
+                if (automationId == L"StartButton")
+                    layout.start = r;
+                else if (layout.start && r.left >= layout.start->right
+                    && (!layout.afterStart || r.left < layout.afterStart->left))
+                    layout.afterStart = r;
             }
         }
         if (full && root) { // on some builds outside the frame
@@ -440,6 +451,10 @@ struct SearchBox::Impl {
     std::optional<RECT> shownRect;
     bool shownWide = false; // ... the whole box, not its label or icon alone
     std::optional<RECT> caretRect;
+    bool gapWantedShared = false; // the setting (setStartGapWanted)
+    bool gapFreshShared = false; // ... just turned on by the user
+    bool gapAppliedShared = false; // what StartGap reports (setStartGap)
+    double gapDipsShared = 0;
     std::atomic<HWND> helper {nullptr};
     std::atomic<HWND> box {nullptr};
 
@@ -472,6 +487,15 @@ struct SearchBox::Impl {
     Layout taskbarLayout; // the latest measured
     Spot spot;
 
+    // The gap right of Start (StartGap, through the callbacks): asked for by
+    // the form the room allows, used once the Measurer has seen it.
+    bool gapWanted = false; // the setting
+    bool gapApplied = false; // the TAP says the margin is on the Start button
+    bool gapVerified = false; // ... and the Measurer saw a gap that wide
+    double gapDips = 0; // what the TAP has
+    double wantedDips = 0; // what was last asked for (wantedForm's need)
+    double gapSince = 0; // when the TAP's word came (nowMs), for giving up
+
     // As wide as the room beside the icons allows: the whole box, which
     // what is typed goes into; its icon and a short label; its icon alone.
     enum class Form { Box, Label, Icon };
@@ -489,18 +513,31 @@ struct SearchBox::Impl {
         double width; // physical pixels
     };
     struct Side {
-        bool before; // left of the icons
+        Spot::Side side; // never Auto
         Shape shape;
     };
-    // The free stretches beside the icons, the gaps kept.
+    // The free stretches beside the icons, and the gap right of Start, the gaps kept.
     struct Room {
         RECT bar {};
         bool haveIcons = false;
         double iconsMiddle = 0;
         double beforeFrom = 0, beforeTo = 0; // left of the icons
         double afterFrom = 0, afterTo = 0; // right of them
+        bool haveStartGap = false; // Start and an icon after it were seen
+        double startFrom = 0, startTo = 0; // between them
         LONG y = 0, h = 0;
-        double width(bool before) const { return before ? beforeTo - beforeFrom : afterTo - afterFrom; }
+        double from(Spot::Side side) const
+        {
+            return side == Spot::Side::Before ? beforeFrom : side == Spot::Side::After ? afterFrom : startFrom;
+        }
+        double to(Spot::Side side) const
+        {
+            return side == Spot::Side::Before ? beforeTo : side == Spot::Side::After ? afterTo : startTo;
+        }
+        double width(Spot::Side side) const
+        {
+            return side == Spot::Side::AfterStart && !haveStartGap ? 0 : to(side) - from(side);
+        }
     };
     enum class Fit { Skip, None, Fits }; // not now (the taskbar sliding), nowhere, somewhere
     enum class Move { Still, Glide, Spring, Drag };
@@ -553,6 +590,7 @@ struct SearchBox::Impl {
     double grab = 0; // the pointer's x in the pill, a fraction of its width
     Form form = Form::Box; // as drawn: its target's once it goes there
     Form drawnForm = Form::Box; // in the last frame
+    Form wantedForm = Form::Box; // what the gap right of Start was asked for (wantGap)
     double labelWidth = 0; // the label form's, physical pixels (labelForm)
     std::wstring labelMeasured;
     UINT labelDpi = 0;
@@ -862,6 +900,8 @@ struct SearchBox::Impl {
         case Fit::Fits:
             break;
         }
+        wantGap(room);
+        verifyGap(room);
         setTarget(targetIn(room, spot));
         // Over the taskbar's own content (its XAML island, a sibling).
         if (placed && ::GetWindow(window, GW_HWNDPREV))
@@ -872,8 +912,10 @@ struct SearchBox::Impl {
     void refit()
     {
         Room room;
-        if (box.load() && taskbarLayout.measured && measureRoom(room) == Fit::Fits)
+        if (box.load() && taskbarLayout.measured && measureRoom(room) == Fit::Fits) {
+            wantGap(room); // the label form's width may have changed
             setTarget(targetIn(room, spot));
+        }
     }
 
     Fit measureRoom(Room& room)
@@ -887,6 +929,8 @@ struct SearchBox::Impl {
         if (barDpi != dpi) {
             dpi = barDpi;
             windowSize = {}; // drawn again at the new size
+            gapVerified = false; // the same DIPs, another width: seen again first
+            gapSince = nowMs();
         }
         const double s = scale();
         const LONG barWidth = bar.right - bar.left;
@@ -918,6 +962,11 @@ struct SearchBox::Impl {
         room.beforeTo = beforeTo - gap;
         room.afterFrom = afterFrom + gap;
         room.afterTo = afterTo - gap;
+        if (layout.start && layout.afterStart) {
+            room.haveStartGap = true;
+            room.startFrom = layout.start->right + gap;
+            room.startTo = layout.afterStart->left - gap;
+        }
         room.h = std::lround(barHeight * 2.0 / 3.0); // as Windows' own box
         room.y = bar.top + (barHeight - room.h) / 2;
         marginX = static_cast<int>(std::lround(kMargin * s));
@@ -925,8 +974,144 @@ struct SearchBox::Impl {
         return Fit::Fits;
     }
 
-    // The default side: before the icons when they are centred (by Start).
-    bool defaultBefore(const Room& room) const { return room.haveIcons && iconsCentred(); }
+    // The default side: in the gap right of Start while there is one; else
+    // before the icons when they are centred (by Start).
+    Spot::Side defaultSide(const Room& room) const
+    {
+        if (gapApplied && gapVerified && room.haveStartGap)
+            return Spot::Side::AfterStart;
+        return room.haveIcons && iconsCentred() ? Spot::Side::Before : Spot::Side::After;
+    }
+
+    // The side a point along the taskbar is on: the gap right of Start, or
+    // before or after the icons by their middle.
+    Spot::Side sideAt(const Room& room, double x) const
+    {
+        const double gap = kGap * scale();
+        if (room.haveStartGap && x >= room.startFrom - gap && x <= room.startTo + gap)
+            return Spot::Side::AfterStart;
+        // The gap closed (the box was dragged away): on or just past Start, back into it.
+        const std::optional<RECT>& start = taskbarLayout.start;
+        if (gapWanted && !room.haveStartGap && start && x >= start->left && x <= start->right + room.h)
+            return Spot::Side::AfterStart;
+        return room.haveIcons && x < room.iconsMiddle ? Spot::Side::Before : Spot::Side::After;
+    }
+
+    // ---- the gap right of Start ----
+
+    // The margin, in DIPs, a form needs right of Start: the box and a gap at
+    // either end. In DIPs so the DPI does not come into it.
+    double dipsFor(Form f, const Room& room)
+    {
+        const double s = scale();
+        switch (f) {
+        case Form::Box:
+            return kMaxWidth + 2 * kGap;
+        case Form::Label:
+            return std::ceil(labelForm() / s) + 2 * kGap;
+        case Form::Icon:
+            break;
+        }
+        return std::ceil(room.h / s) + 2 * kGap;
+    }
+
+    // What is free beside the icons, our gap counted in: the room without
+    // our margin, whatever the margin is now, so it never feeds back.
+    double freeRoom(const Room& room) const
+    {
+        return std::max(0.0, room.width(Spot::Side::Before)) + std::max(0.0, room.width(Spot::Side::After))
+            + std::max(0.0, room.width(Spot::Side::AfterStart));
+    }
+
+    // Asks for the gap the widest form the taskbar has room for needs; none
+    // when the setting is off or nothing of the box would fit.
+    void wantGap(const Room& room)
+    {
+        if (!gapWanted || spot.side == Spot::Side::Before || spot.side == Spot::Side::After) { // dragged beside the icons: no empty gap left
+            ask(0);
+            return;
+        }
+        const double s = scale();
+        const double free = freeRoom(room);
+        Form f;
+        if (free >= dipsFor(Form::Box, room) * s)
+            f = Form::Box;
+        else if (free >= dipsFor(Form::Label, room) * s)
+            f = Form::Label;
+        else if (free >= dipsFor(Form::Icon, room) * s)
+            f = Form::Icon;
+        else {
+            ask(0);
+            return;
+        }
+        // Kept while the room is within a step of what the form has: no flapping at the edge.
+        if (wantedDips > 0 && f != wantedForm && std::abs(free - dipsFor(wantedForm, room) * s) < kFormSlack * s)
+            f = wantedForm;
+        wantedForm = f;
+        ask(dipsFor(f, room));
+    }
+
+    void ask(double dips)
+    {
+        if (dips == wantedDips)
+            return;
+        wantedDips = dips;
+        gapVerified = false;
+        call(callbacks.gapWanted, dips);
+    }
+
+    // The gap the TAP says it made, seen by the Measurer before the box goes
+    // there (the icons take a moment to slide); not seen for a while, and the
+    // box keeps to the old places.
+    void verifyGap(const Room& room)
+    {
+        if (!gapApplied || gapVerified)
+            return;
+        const double s = scale();
+        const double expected = std::round(gapDips * s);
+        const double seen = room.haveStartGap ? room.startTo - room.startFrom + 2 * kGap * s : 0;
+        if (std::abs(seen - expected) <= 2 * s) {
+            gapVerified = true;
+            return;
+        }
+        if (nowMs() - gapSince > kGapWaitMs) {
+            gapApplied = false;
+            call(callbacks.gapMissing);
+            return;
+        }
+        ::SetTimer(helper, kMeasureTimer, 300, nullptr); // another reading soon
+    }
+
+    // setStartGapWanted or setStartGap: on the box's thread.
+    void gapReported()
+    {
+        bool wanted = false;
+        bool applied = false;
+        double dips = 0;
+        bool fresh = false;
+        {
+            std::lock_guard lock(mutex);
+            wanted = gapWantedShared;
+            applied = gapAppliedShared;
+            dips = gapDipsShared;
+            fresh = std::exchange(gapFreshShared, false);
+        }
+        if (wanted && !gapWanted)
+            wantedDips = 0; // asked for again from scratch: the StartGap may be a new one
+        if (fresh && (spot.side == Spot::Side::Before || spot.side == Spot::Side::After)) {
+            spot = {}; // just turned on: right of Start, wherever it was dragged before
+            call(callbacks.moved, spot);
+        }
+        gapWanted = wanted;
+        if (applied != gapApplied || dips != gapDips) {
+            gapApplied = applied;
+            gapDips = dips;
+            gapVerified = false;
+            gapSince = nowMs();
+        }
+        if (tray)
+            requestMeasure(); // a fresh reading decides the side
+    }
 
     // The widest form a stretch `room` wide takes, and its width: the box up
     // to kMaxWidth, else the label form as wide as its label needs, else the
@@ -965,11 +1150,17 @@ struct SearchBox::Impl {
         return labelWidth;
     }
 
-    // The side the box goes on, wanting `before`, and its form there: the
-    // other side only where nothing of it fits on that one.
-    std::optional<Side> sideFor(const Room& room, bool before)
+    // The side the box goes on, wanting `wanted`, and its form there: another
+    // side only where nothing of it fits on that one (the gap right of Start
+    // falls back to before the icons, then after).
+    std::optional<Side> sideFor(const Room& room, Spot::Side wanted)
     {
-        for (const bool side : {before, !before}) {
+        Spot::Side tries[] = {wanted, Spot::Side::Before, Spot::Side::After};
+        if (wanted == Spot::Side::After)
+            std::swap(tries[1], tries[2]);
+        for (const Spot::Side side : tries) {
+            if (side == Spot::Side::AfterStart && !room.haveStartGap)
+                continue;
             if (const std::optional<Shape> shape = shapeFor(room.width(side), room.h))
                 return Side {side, *shape};
         }
@@ -977,23 +1168,21 @@ struct SearchBox::Impl {
     }
 
     // Where `where` puts the box in `room`: its side, as wide as that side
-    // allows, or the other where nothing of it fits there.
+    // allows, or another where nothing of it fits there.
     std::optional<Target> targetIn(const Room& room, const Spot& where)
     {
         const double s = scale();
-        const std::optional<Side> side
-            = sideFor(room, where.side == Spot::Side::Auto ? defaultBefore(room) : where.side == Spot::Side::Before);
+        const std::optional<Side> side = sideFor(room, where.side == Spot::Side::Auto ? defaultSide(room) : where.side);
         if (!side)
             return std::nullopt;
-        const bool before = side->before;
         const double width = side->shape.width;
-        const double from = before ? room.beforeFrom : room.afterFrom;
-        const double to = before ? room.beforeTo : room.afterTo;
+        const double from = room.from(side->side);
+        const double to = room.to(side->side);
         const double offset = std::lround(where.offset * s);
         double x = 0;
-        if (before)
+        if (side->side == Spot::Side::Before) // against the icons: the right end
             x = where.fromIcons ? to - offset - width : from + offset;
-        else
+        else // after the icons, or Start: the left end
             x = where.fromIcons ? from + offset : to - offset - width;
         Target t;
         t.x = std::round(std::clamp(x, from, to - width));
@@ -1010,25 +1199,28 @@ struct SearchBox::Impl {
     {
         const double s = scale();
         const double middle = x + width / 2;
-        bool before = room.haveIcons && middle < room.iconsMiddle;
-        if (const std::optional<Side> side = sideFor(room, before)) {
-            before = side->before;
-            width = side->shape.width;
+        Spot::Side side = sideAt(room, middle);
+        if (side == Spot::Side::AfterStart && !room.haveStartGap)
+            return Spot {Spot::Side::AfterStart}; // by Start, no gap yet: asked for, gone to once there
+        if (const std::optional<Side> fit = sideFor(room, side)) {
+            side = fit->side;
+            width = fit->shape.width;
         }
-        const double from = before ? room.beforeFrom : room.afterFrom;
-        const double to = before ? room.beforeTo : room.afterTo;
+        const double from = room.from(side);
+        const double to = room.to(side);
         width = std::min(width, to - from);
         x = std::clamp(middle - width / 2, from, std::max(from, to - width));
+        const bool before = side == Spot::Side::Before;
         const double fromIcons = before ? to - (x + width) : x - from;
         const double fromFar = before ? x - from : to - (x + width);
         const double snap = kSnap * s;
         Spot where;
-        where.side = before ? Spot::Side::Before : Spot::Side::After;
+        where.side = side;
         where.fromIcons = fromIcons <= fromFar;
         const double offset = std::max(0.0, where.fromIcons ? fromIcons : fromFar);
         where.offset = offset <= snap ? 0 : static_cast<int>(std::lround(offset / s));
-        if (where.fromIcons && where.offset == 0 && before == defaultBefore(room))
-            where.side = Spot::Side::Auto; // the default: keeps to the taskbar's alignment
+        if (where.fromIcons && where.offset == 0 && side == defaultSide(room))
+            where.side = Spot::Side::Auto; // the default: keeps to the taskbar's alignment, and to the gap
         return where;
     }
 
@@ -1118,7 +1310,9 @@ struct SearchBox::Impl {
             return false;
         const double gap = kGap * scale() / 2;
         const auto hits = [&](const RECT& r) { return x < r.right + gap && x + w > r.left - gap; };
-        if (taskbarLayout.icons && hits(*taskbarLayout.icons))
+        const bool inStartGap = taskbarLayout.start && taskbarLayout.afterStart && x >= taskbarLayout.start->right + gap
+            && x + w <= taskbarLayout.afterStart->left - gap;
+        if (taskbarLayout.icons && hits(*taskbarLayout.icons) && !inStartGap)
             return false;
         return std::none_of(taskbarLayout.obstacles.begin(), taskbarLayout.obstacles.end(), hits);
     }
@@ -1414,7 +1608,7 @@ struct SearchBox::Impl {
         if (measureRoom(room) != Fit::Fits)
             return;
         const double middle = pointer.x + (0.5 - grab) * pillW; // the side it is dropped on (spotAt)
-        if (const std::optional<Side> side = sideFor(room, room.haveIcons && middle < room.iconsMiddle)) {
+        if (const std::optional<Side> side = sideFor(room, sideAt(room, middle))) {
             form = side->shape.form; // what it becomes, dropped here
             if (!animations)
                 springW.snap(side->shape.width);
@@ -1444,6 +1638,7 @@ struct SearchBox::Impl {
             return;
         spot = spotAt(room, pillX, pillW);
         call(callbacks.moved, spot);
+        wantGap(room); // dropped beside the icons: the gap closes; by Start: it opens
         const std::optional<Target> t = targetIn(room, spot);
         if (!t) {
             setTarget(std::nullopt);
@@ -1843,7 +2038,11 @@ struct SearchBox::Impl {
             return 0;
         case kReattachMessage:
             self->detach();
+            self->gapApplied = self->gapVerified = false; // the new Explorer has no margin yet (StartGap::reattach)
             self->startAttaching();
+            return 0;
+        case kGapMessage:
+            self->gapReported();
             return 0;
         case kQuitMessage:
             ::PostQuitMessage(0);
@@ -1981,6 +2180,7 @@ struct SearchBox::Impl {
                 if (self->hook)
                     ::UnhookWinEvent(std::exchange(self->hook, nullptr));
                 self->tray = nullptr;
+                self->gapApplied = self->gapVerified = false;
                 self->forget();
                 self->startAttaching();
             }
@@ -2116,6 +2316,28 @@ void SearchBox::reattach()
 {
     if (const HWND helper = m_impl->helper.load())
         ::PostMessageW(helper, kReattachMessage, 0, 0);
+}
+
+void SearchBox::setStartGapWanted(bool on, bool justTurnedOn)
+{
+    {
+        std::lock_guard lock(m_impl->mutex);
+        m_impl->gapWantedShared = on;
+        m_impl->gapFreshShared = on && justTurnedOn;
+    }
+    if (const HWND helper = m_impl->helper.load())
+        ::PostMessageW(helper, kGapMessage, 0, 0);
+}
+
+void SearchBox::setStartGap(bool applied, double dips)
+{
+    {
+        std::lock_guard lock(m_impl->mutex);
+        m_impl->gapAppliedShared = applied;
+        m_impl->gapDipsShared = dips;
+    }
+    if (const HWND helper = m_impl->helper.load())
+        ::PostMessageW(helper, kGapMessage, 0, 0);
 }
 
 std::optional<RECT> SearchBox::rect() const

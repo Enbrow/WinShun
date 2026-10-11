@@ -79,6 +79,9 @@ try {
         # Documents are read by WinShunExtract.exe (src/extract), PDFs with
         # PDFium; their licenses go along.
         Copy-Item "$root\build\$preset\WinShunExtract.exe", "$root\build\$preset\pdfium.dll" $dist
+        # The room right of Start (src/tap): WinShun copies it to ProgramData
+        # and Explorer loads it from there, never from the install folder.
+        Copy-Item "$root\build\$preset\WinShunTap.dll" $dist
         $pdfium = Get-ChildItem "$root\build\$preset\_deps" -Directory -Filter 'pdfium-*' | Sort-Object Name | Select-Object -Last 1
         New-Item -ItemType Directory -Force "$dist\licenses\pdfium" | Out-Null
         Copy-Item "$($pdfium.FullName)\LICENSE" "$dist\licenses\pdfium\LICENSE.txt"

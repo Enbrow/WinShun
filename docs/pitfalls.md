@@ -814,6 +814,26 @@
 - **原因**：Windows 11 的这个函数在显卡被重置（混合显卡的笔记本睡眠后）、远程桌面断开后，可能永远卡在内核里等一个不会来的垂直同步，进程成了结束不掉的僵尸（Zed 编辑器踩过，zed-industries/zed#36934，后来退回 `DwmFlush`）。
 - **做法**：框的动画用一个单独的线程每帧调 `DwmFlush`；它连续几次立刻返回（没有显示器）就每次睡 15 毫秒，不空转（`waitForFrame`）。
 
+### 开始按钮右边让位置：XAML 诊断的几个硬规矩
+
+- **现象**：用 `InitializeXamlDiagnosticsEx` 让 Explorer 加载 WinShunTap.dll（开始按钮右边的空当），几种写法会让 Explorer 直接退出、卡住，或者什么也不发生还报成功。
+- **原因**（读 WinUI 的源码 `DebugTool.cpp`、`LiveVisualTree.cpp` 和 TranslucentTB 的做法得来）：
+  - DLL 路径是相对路径时 Explorer 直接 fail-fast（整个进程退出）。
+  - 同一个线程只能调一次：第二次返回 S_OK，但什么也不做。
+  - `OnVisualTreeChange` 返回失败，运行时枚举现有的树会整个中止，之后再也收不到变化；回调里的 `VisualElement` 字符串是交给我们的，要自己 `SysFreeString`。
+  - `AdviseVisualTreeChange` 在 XAML 线程上调可能卡住，要在自己的线程上调。
+  - 用 `IVisualTreeService::CreateInstance("Windows.UI.Xaml.Thickness", "0,0,N,0")` + `SetProperty` 设 Margin 返回 E_INVALIDARG。
+  - 同一个 Explorer 里只能有一个诊断的使用者（TranslucentTB、Windhawk 的 Taskbar Styler 都是）。
+  - DLL 加载以后卸不掉，直到 Explorer 重启。
+- **做法**：只传绝对路径；每次调用开一个新线程；回调永远返回 S_OK，字符串在作用域结束时释放；工作线程上 advise；设 Margin 用 C++/WinRT 的 `FrameworkElement::Margin`，并且派回 XAML 线程（`DispatcherQueue`）；注入前先查冲突的程序和模块；DLL 复制到 ProgramData 按哈希命名的文件夹再加载，模块钉住（`GET_MODULE_HANDLE_EX_FLAG_PIN`），`DllCanUnloadNow` 返回 S_FALSE。
+- **怎么查**：scratchpad `xamltap/` 的 `TapProbe.exe`（`--status` 读共享内存里 DLL 的状态并用 UI 自动化量开始按钮和下一个图标之间的空当，`--margin N --wait S --clear` 单独试边距）。DLL 的 `OutputDebugString` 用 DebugView 看。
+
+### 脚本里启动了 Win顺，`Start-Process -Wait` 就一直不返回
+
+- **现象**：提权跑测试脚本用 `Start-Process powershell -Verb RunAs -Wait -File test.ps1`，脚本早就跑完了，命令却一直不返回，直到超时。
+- **原因**：`-Wait` 等的是整个进程树，脚本里启动的 Win顺（`--background`）也算，它不退出就一直等。
+- **做法**：会启动 Win顺 的脚本不加 `-Wait`，让脚本把结果写进日志文件，外面轮询日志里的结束标记。
+
 ## 主题和语言
 
 ### 名为 `onXxx` 的属性不随主题变化

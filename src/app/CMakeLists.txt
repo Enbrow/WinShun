@@ -32,6 +32,7 @@ qt_add_executable(WinShun WIN32
     platform/StartMenuTyping.cpp platform/StartMenuTyping.h
     platform/TaskbarSearch.cpp platform/TaskbarSearch.h
     platform/TaskbarSearchBox.cpp platform/TaskbarSearchBox.h
+    platform/TaskbarStartGap.cpp platform/TaskbarStartGap.h
     platform/TextCaret.cpp platform/TextCaret.h
     platform/TextRecognizer.cpp platform/TextRecognizer.h
     platform/VolumeNotifier.cpp platform/VolumeNotifier.h
@@ -195,6 +196,10 @@ target_link_libraries(WinShun PRIVATE
     credui iphlpapi mpr psapi
     mfplat mfreadwrite mfuuid delayimp
     windowsapp) # TextRecognizer: Windows.Media.Ocr, through C++/WinRT from the Windows SDK
+# The gap right of Start (platform/TaskbarStartGap): the channel to WinShunTap.dll
+# (src/tap), the DLL's SHA-256 (bcrypt), its folder's DACL (advapi32).
+target_link_libraries(WinShun PRIVATE wstap_api bcrypt advapi32)
+add_dependencies(WinShun WinShunTap) # built first: it is staged from next to WinShun.exe
 # The execution level (requireAdministrator) comes from app.manifest alone; the
 # linker's own default (asInvoker) would conflict with it. Media Foundation is
 # loaded only when used (SoundClip): Windows N editions do not have it.

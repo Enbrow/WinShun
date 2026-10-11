@@ -1,0 +1,4 @@
+LIBRARY WinShunTap
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

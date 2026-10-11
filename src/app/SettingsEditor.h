@@ -96,6 +96,12 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool taskbarSearchBox READ taskbarSearchBox WRITE setTaskbarSearchBox NOTIFY changed FINAL)
     Q_PROPERTY(bool searchBoxSupported READ searchBoxSupported CONSTANT FINAL)
     Q_PROPERTY(bool searchBoxShown READ searchBoxShown NOTIFY searchBoxShownChanged FINAL)
+    // The box right of Start (taskbar::StartGap): the setting, and how it went
+    // ("off", "attaching", "ready", "applied", "nogap", "conflict",
+    // "incompatible", "failed"; the reason in English, for the details).
+    Q_PROPERTY(bool taskbarStartGap READ taskbarStartGap WRITE setTaskbarStartGap NOTIFY changed FINAL)
+    Q_PROPERTY(QString startGapState READ startGapState NOTIFY startGapStateChanged FINAL)
+    Q_PROPERTY(QString startGapReason READ startGapReason NOTIFY startGapStateChanged FINAL)
     // Read again as the window comes to the front (refreshTaskbarState): the
     // user pins the button and hides Windows' search outside Win顺.
     Q_PROPERTY(bool taskbarButtonPinned READ taskbarButtonPinned NOTIFY taskbarStateChanged FINAL)
@@ -285,6 +291,11 @@ public:
     bool searchBoxSupported() const;
     bool searchBoxShown() const { return m_searchBoxShown; }
     void setSearchBoxShown(bool shown); // set by the app
+    bool taskbarStartGap() const { return m_settings.taskbarStartGap; }
+    void setTaskbarStartGap(bool on);
+    QString startGapState() const { return m_startGapState; }
+    QString startGapReason() const { return m_startGapReason; }
+    void setStartGapState(const QString& state, const QString& reason); // set by the app
     bool taskbarButtonPinned() const { return m_taskbarButtonPinned; }
     bool windowsSearchShown() const { return m_windowsSearchShown; }
     Q_INVOKABLE void refreshTaskbarState();
@@ -412,6 +423,7 @@ signals:
     void winVStateChanged();
     void winSStateChanged();
     void searchBoxShownChanged();
+    void startGapStateChanged();
     void taskbarStateChanged();
     void fileManagersChanged();
     void clipboardCountChanged();
@@ -456,6 +468,8 @@ private:
     bool m_taskbarButtonPinned = false;
     bool m_windowsSearchShown = true;
     bool m_searchBoxShown = false;
+    QString m_startGapState = QStringLiteral("off");
+    QString m_startGapReason;
     QString m_clipboardHotkeyError;
     int m_clipboardCount = 0;
     QPointer<QWindow> m_window;

@@ -6,6 +6,7 @@
 #include "platform/KeyRouter.h"
 #include "platform/TaskbarSearch.h"
 #include "platform/TaskbarSearchBox.h"
+#include "platform/TaskbarStartGap.h"
 
 #include <QDeadlineTimer>
 #include <QElapsedTimer>
@@ -153,6 +154,8 @@ private:
     void applySearchBox();
     void setSearchBoxShown(bool shown); // it is on the taskbar, or not (no room)
     void setSearchBoxWide(bool wide); // the whole box, or its label or icon alone (SearchBox::wide)
+    void applyStartGap(bool boxWas);
+    void setStartGapStatus(const taskbar::StartGap::Status& status);
     void updateSearchBoxLook(); // placeholder, accent
     void searchBoxPressed(const taskbar::SearchBox::Press& press);
     void showLauncherInBox(); // the launcher over the box (or, without one shown, over the taskbar)
@@ -265,6 +268,8 @@ private:
     std::unique_ptr<StartMenuTyping> m_startTyping; // while [Taskbar] StartMenuTyping is on
     std::unique_ptr<taskbar::SearchBox> m_searchBox; // while [Taskbar] SearchBox is on (Windows 11)
     bool m_searchBoxShown = false; // ... and it is on the taskbar
+    std::unique_ptr<taskbar::StartGap> m_startGap; // while [Taskbar] StartGap is on too: the room right of Start
+    taskbar::StartGap::Status m_startGapStatus; // its latest, for the settings page
     // The launcher is open over the box: typing in it when the box is wide
     // (Launcher::inTaskbarBox), else with its own field, the box looking open.
     bool m_launcherOverBox = false;

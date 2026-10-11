@@ -1055,6 +1055,41 @@ Window {
                 }
 
                 SettingRow {
+                    id: startGapRow
+
+                    // Under the box's own switch: the icons moved over for it
+                    // right of Start, where Windows' box sits (StartGap).
+                    readonly property string gapState: window.editor.startGapState
+
+                    shown: taskbarButtonRow.boxes && taskbarButtonRow.boxOn
+                    title: qsTr("放在开始按钮右边")
+                    keywords: qsTr("开始按钮;右边;位置;任务栏;搜索框").split(";")
+                    description: {
+                        if (!window.editor.taskbarStartGap)
+                            return qsTr("和 Windows 自带的搜索框一样，图标往右让出位置")
+                        switch (startGapRow.gapState) {
+                        case "applied":
+                            return qsTr("已放在开始按钮右边")
+                        case "conflict":
+                            return qsTr("另一个改任务栏的工具占着（%1），两者只能用一个")
+                                .arg(window.editor.startGapReason)
+                        case "incompatible":
+                            return qsTr("重启资源管理器后生效")
+                        case "nogap":
+                        case "failed":
+                            return qsTr("没能在开始按钮旁留出位置，先放在原处")
+                        default:
+                            return qsTr("正在留出位置…")
+                        }
+                    }
+
+                    ToggleSwitch {
+                        checked: window.editor.taskbarStartGap
+                        onToggled: (on) => window.editor.taskbarStartGap = on
+                    }
+                }
+
+                SettingRow {
                     title: qsTr("2. 隐藏 Windows 自带的搜索（推荐）")
                     keywords: qsTr("隐藏;任务栏;搜索框;taskbar").split(";")
                     description: taskbarSteps.done[1]

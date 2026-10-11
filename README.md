@@ -140,6 +140,7 @@
 #### 🔎 任务栏搜索框（代替 Windows 搜索）
 
 - 在 Windows 11 任务栏上放 Win顺 自己的搜索框（Windows 10 是固定一个按钮），结果从任务栏上方滑出。
+- 可以像 Windows 自带的搜索框一样放在开始按钮右边，图标往右让出位置（设置里打开，默认关）。
 - 可以接管 `Win+S`，开始菜单里打字也用 Win顺 搜。
 
 #### 🤖 AI 助手（MCP）
@@ -264,7 +265,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Preview**: full text, pictures, HEX / RGB / HSL color values.
   - **Organize**: pins, groups, multi-paste in order, and `Alt+1`…`Alt+9`.
   - **Privacy**: passwords from password managers are not kept, and the history stays on your PC.
-- 🔎 **Taskbar search box (replaces Windows search)**: WinShun's own search box on the Windows 11 taskbar (a pinned button on Windows 10); it can take over `Win+S` and typing in the Start menu.
+- 🔎 **Taskbar search box (replaces Windows search)**: WinShun's own search box on the Windows 11 taskbar (a pinned button on Windows 10), optionally right of Start where Windows' own box sits; it can take over `Win+S` and typing in the Start menu.
 - 🤖 **AI assistants (MCP)**
   - **What**: WinShun is an MCP server. Claude Desktop, Claude Code, Cursor and VS Code connect in one click and search file names, file contents and recent changes.
   - **Safety**: read-only by default, limited to what the AI client may see, with folders kept from AI and a call log.

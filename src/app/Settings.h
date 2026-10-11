@@ -117,6 +117,7 @@ struct Settings {
     bool taskbarWinS = false; // Win+S opens it over the taskbar, instead of Windows' search (see winv::)
     bool taskbarStartTyping = false; // typing in the Start menu searches with Win顺 (StartMenuTyping)
     bool taskbarSearchBox = false; // Win顺's own search box on the taskbar (taskbar::SearchBox)
+    bool taskbarStartGap = false; // ... right of Start, the icons moved over for it (taskbar::StartGap)
 
     // [WebSearch]: keywords the user gives web pages ("gh" opens GitHub, "gh
     // WinShun" searches it; see WebShortcut). At first just one, "winshun".

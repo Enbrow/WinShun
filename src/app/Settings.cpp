@@ -546,8 +546,10 @@ void Settings::load()
     taskbarWinS = readOrDefault(s, u"Taskbar/WinS"_s, d.taskbarWinS);
     taskbarStartTyping = readOrDefault(s, u"Taskbar/StartMenuTyping"_s, d.taskbarStartTyping);
     taskbarSearchBox = readOrDefault(s, u"Taskbar/SearchBox"_s, d.taskbarSearchBox);
+    taskbarStartGap = readOrDefault(s, u"Taskbar/StartGap"_s, d.taskbarStartGap);
 
     webShortcuts = readWebShortcuts(s, d.webShortcuts);
+    fileTypes = readFileTypes(s, d.fileTypes);
 
     shares = readShares(s);
     networkVerifyHours = std::clamp(readOrDefault(s, u"Network/VerifyHours"_s, d.networkVerifyHours), 0, 24 * 7);
@@ -616,7 +618,9 @@ void Settings::save() const
     s.setValue(u"Taskbar/WinS"_s, taskbarWinS);
     s.setValue(u"Taskbar/StartMenuTyping"_s, taskbarStartTyping);
     s.setValue(u"Taskbar/SearchBox"_s, taskbarSearchBox);
+    s.setValue(u"Taskbar/StartGap"_s, taskbarStartGap);
     writeWebShortcuts(s, webShortcuts);
+    writeFileTypes(s, fileTypes);
     writeShares(s, shares);
     s.setValue(u"Network/VerifyHours"_s, networkVerifyHours);
     s.setValue(u"Network/VerifyHoursUnwatched"_s, networkVerifyHoursUnwatched);

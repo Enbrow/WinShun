@@ -26,7 +26,10 @@ namespace ws::taskbar {
 //
 // Placed in a free stretch beside the icons, which UI Automation measures:
 // by default left of them when they are centred (against Start), else right
-// of them; the user drags it to either side (Spot). As wide as that stretch
+// of them; the user drags it to either side (Spot). With the Start gap on
+// (StartGap: a margin on the Start button, made inside Explorer), right of
+// Start where Windows' own box sits: the box says how many DIPs it needs
+// (gapWanted), and goes there once the gap is measured. As wide as that stretch
 // allows, as Windows' own search: the whole box, then its icon and a short
 // label, then its icon alone; typing shows in the whole box only (wide), else
 // the launcher opens over it with its own field. On the other side only where
@@ -61,9 +64,11 @@ public:
     // the widgets, the tray). The default is against the icons, before them
     // when they are centred.
     struct Spot {
-        enum class Side { Auto, Before, After }; // before (left of) or after the icons
+        // Before (left of) or after the icons; AfterStart: in the gap right of
+        // Start (the default while there is one).
+        enum class Side { Auto, Before, After, AfterStart };
         Side side = Side::Auto;
-        bool fromIcons = true; // else from the far end
+        bool fromIcons = true; // else from the far end (AfterStart: from Start, else from the next icon)
         int offset = 0; // logical pixels
     };
     struct Callbacks {
@@ -73,6 +78,8 @@ public:
         std::function<void()> caretMoved; // caret() is somewhere else
         std::function<void(const Spot&)> moved; // dragged somewhere else by the user
         std::function<void(bool wide)> wideChanged; // see wide()
+        std::function<void(double dips)> gapWanted; // the gap right of Start the box's form needs; 0: none (StartGap::set)
+        std::function<void()> gapMissing; // the gap was reported but never measured: fell back (StartGap::noGapSeen)
     };
     // What the launcher's field has while it is open over the box.
     struct Text {
@@ -101,6 +108,8 @@ public:
     void setLook(Look look);
     void setText(Text text);
     void reattach(); // Explorer started again (TaskbarCreated)
+    void setStartGapWanted(bool on, bool justTurnedOn = false); // the setting: ask for the gap right of Start (gapWanted); just turned on: a spot dragged beside the icons is dropped
+    void setStartGap(bool applied, double dips); // what StartGap reports: the margin on the Start button, or not
     std::optional<RECT> rect() const; // where it settles, on the screen, physical pixels; none while not shown
     bool wide() const; // ... as the whole box, which shows what is typed (else its label or icon alone)
     std::optional<RECT> caret() const; // ... the caret while active

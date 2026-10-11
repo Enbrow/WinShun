@@ -1839,6 +1839,38 @@
         <translation>sort;order;folders first;directories</translation>
     </message>
     <message>
+        <source>放在开始按钮右边</source>
+        <translation>Right of the Start button</translation>
+    </message>
+    <message>
+        <source>开始按钮;右边;位置;任务栏;搜索框</source>
+        <translation>start button;right;position;taskbar;search box</translation>
+    </message>
+    <message>
+        <source>和 Windows 自带的搜索框一样，图标往右让出位置</source>
+        <translation>Where Windows’ own search box goes: the icons move over for it</translation>
+    </message>
+    <message>
+        <source>已放在开始按钮右边</source>
+        <translation>Right of the Start button now</translation>
+    </message>
+    <message>
+        <source>另一个改任务栏的工具占着（%1），两者只能用一个</source>
+        <translation>Another taskbar tool (%1) is using this: only one of them can</translation>
+    </message>
+    <message>
+        <source>重启资源管理器后生效</source>
+        <translation>Takes effect after Explorer restarts</translation>
+    </message>
+    <message>
+        <source>没能在开始按钮旁留出位置，先放在原处</source>
+        <translation>Couldn’t make room by the Start button: it stays where it was</translation>
+    </message>
+    <message>
+        <source>正在留出位置…</source>
+        <translation>Making room…</translation>
+    </message>
+    <message>
         <source>文件在前</source>
         <translation>Files first</translation>
     </message>

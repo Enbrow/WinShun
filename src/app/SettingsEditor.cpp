@@ -587,6 +587,23 @@ void SettingsEditor::setTaskbarSearchBox(bool on)
     commit();
 }
 
+void SettingsEditor::setTaskbarStartGap(bool on)
+{
+    if (m_settings.taskbarStartGap == on)
+        return;
+    m_settings.taskbarStartGap = on;
+    commit();
+}
+
+void SettingsEditor::setStartGapState(const QString& state, const QString& reason)
+{
+    if (m_startGapState == state && m_startGapReason == reason)
+        return;
+    m_startGapState = state;
+    m_startGapReason = reason;
+    emit startGapStateChanged();
+}
+
 bool SettingsEditor::searchBoxSupported() const
 {
     return taskbar::SearchBox::supported();
