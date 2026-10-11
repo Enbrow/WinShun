@@ -34,6 +34,11 @@ inline constexpr ULONG_PTR kOwnInput = 0x5753'4B52; // "WSKR"
 // combinations, Alt+Tab, media keys, F keys, other programs' hotkeys. Keys
 // pressed before it started are left alone up to their release.
 //
+// Installed when the window shows, it is the newest hook, called before
+// those of a key remapper (AutoHotkey, PowerToys): a key it wants goes to
+// them first, and is taken only if none of them took it. Their replacement
+// keys come back as keys of their own (GitHub #9).
+//
 // Shift, Ctrl and Alt are passed on too (Alt+Tab, other programs' hotkeys,
 // a Ctrl+click on the window need them), and seen here: the program must
 // not take them for pressed alone. Alt alone opens the menu bar (VS Code's
@@ -88,7 +93,7 @@ private:
     static LRESULT CALLBACK mouseProc(int code, WPARAM wParam, LPARAM lParam);
     static void CALLBACK foregroundProc(HWINEVENTHOOK hook, DWORD event, HWND hwnd, LONG object, LONG child,
                                         DWORD thread, DWORD time);
-    bool handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event); // true: taken
+    LRESULT handleKey(int code, WPARAM message, LPARAM lParam); // the hook's answer: nonzero, taken
     bool handleModifier(bool press, const KBDLLHOOKSTRUCT& event);
     void handleMouse(WPARAM message, const MSLLHOOKSTRUCT& event);
     bool taking() const; // the target in front, the window up and answering

@@ -156,15 +156,15 @@
 #### 📋 剪贴板历史（可以代替 Win+V）
 
 - 复制过的文字、图片和文件都记下来，随时找回。在设置 → **剪贴板** → 快捷键 里打开“用 Win+V 打开”，`Win+V` 出来的就是 Win顺的剪贴板，代替 Windows 自带的；也可以另设一个组合键，或者从托盘菜单打开。
-- 点一条（或选中后按 `Enter`），直接粘贴到打开之前所在的窗口；`Shift+Enter` 粘贴为纯文本。从 Word、网页复制的内容带着原来的格式；复制的文件粘贴到资源管理器里还是文件。
+- 点一条在右边预览它；点这一行的粘贴按钮、双击它，或选中后按 `Enter`，直接粘贴到打开之前所在的窗口；`Shift+Enter` 粘贴为纯文本。从 Word、网页复制的内容带着原来的格式；复制的文件粘贴到资源管理器里还是文件。
 - 剪贴板开在正在打字的地方：输入光标那一行的正下方，左边和光标对齐，不挡住这一行；下面放不下就开在这一行上面。找不到输入光标时（比如焦点不在输入框里），开在鼠标指针处。拖到别处只管这一次，下次照旧开在光标旁边。
 - 剪贴板不抢焦点，和 Windows 自带的一样：原来的程序留在前台，VS Code 的命令面板（`Ctrl+P`）、浏览器地址栏的下拉建议这类一失去焦点就关掉的东西都还开着，粘贴就落在里面。键盘照样操作剪贴板（打字搜索、方向键、`Enter`、`Esc`），点别处或换到别的窗口它就收起。搜索时直接打拼音，不经过输入法；给分组起名字时剪贴板才拿到焦点，可以用输入法打中文。
 - 在 Win顺 自己的输入框里（搜索框、对话框旁的搜索框、设置里的输入框）按 `Win+V`，选中的文字就填回这个框里光标的位置，多行的变成一行，文件填它的路径；`Esc` 不粘贴，回到这个框，原来打的字和选中的部分都还在。剪贴板就在这个框的正下方打开（下面放不下就开在上面），框留在原处、选中的字一直看得见；启动器下面的列表先收起来，点一下搜索框就回去接着搜。
-- **能搜**：边打字边筛选，支持拼音（`hy` 找到“会议”）；`@程序名` 只看从某个程序复制的（`@wx` 只看微信里复制的）。每条右边的眼睛按钮（或 `Alt+P`）在旁边打开预览：这一条的全文、大图或文件清单，还有它从哪个程序复制、什么时候复制的；再点一次或按 `Esc` 收起。
+- **能搜**：边打字边筛选，支持拼音（`hy` 找到“会议”）；`@程序名` 只看从某个程序复制的（`@wx` 只看微信里复制的）。点一条（或按 `Alt+P`；光标在搜索框文字末尾时也可以按 `→`）在旁边打开预览：这一条的全文、大图或文件清单，还有它从哪个程序复制、什么时候复制的；再点这一条、再按一次或按 `Esc` 收起。预览开着时关掉剪贴板，下次打开还开着。
 - **分类**：按 `Tab` 在 全部 / 文本 / 链接 / 图片 / 文件 之间切换。颜色值（`#3B82F6`、`rgba(…)`、`hsl(…)`，带透明度的也认）显示成色块，半透明的一半不透明、一半垫着棋盘格，一眼看出有多透；预览里列出它的 HEX / RGB / HSL 写法（半透明的再加一行 Qt、Android、XAML 用的 `#AARRGGBB`，透明度在前），点一下就复制；复制的图片、视频、PDF 等文件，预览里显示缩略图。
 - **分组**：`Ctrl+P` 固定一条；右键 → 移到新分组，可以建“常用回复”“代码片段”这样的分组。放进分组的内容一直保留，其余的默认保留最近 200 条（内存 16 GB 及以下 100 条）、30 天，可以在设置里改（50 到 300 条）。
 - **多选粘贴**：按住 `Ctrl` 点击，或者 `Shift+↑` `Shift+↓`，选中的每一条都标着序号；按 `Enter` 按这个顺序合在一起，一次粘贴出来。选了一条还能接着搜下一条再选（搜“地址”选一条，再搜“电话”选一条）。中间用什么隔开（换行、空格、逗号、Tab、不分隔），在底栏点一下就能换。选的全是文件时，合成一份文件列表粘贴。
-- **钉住**：点剪贴板窗口右上角的图钉，它就一直浮在最上面，粘贴后、点别处、切换程序都不收起，也不抢焦点：在哪个程序里打字，点一条就粘贴到哪个程序，可以一条接一条地往表格、表单里填。要用键盘挑，再按一次快捷键或点搜索框；`Esc` 把键盘还给原来的程序。再点一下图钉取消钉住，窗口就和平时一样，点别处收起。
+- **钉住**：点剪贴板窗口右上角的图钉，它就一直浮在最上面，粘贴后、点别处、切换程序都不收起，也不抢焦点：在哪个程序里打字，双击一条（或点它的粘贴按钮）就粘贴到哪个程序，可以一条接一条地往表格、表单里填。要用键盘挑，再按一次快捷键或点搜索框；`Esc` 把键盘还给原来的程序。再点一下图钉取消钉住，窗口就和平时一样，点别处收起。
 - 按住 `Alt`，前 9 条标出数字，`Alt+1`～`Alt+9` 直接粘贴；`Delete` 删除一条，删错了（删掉整个分组也一样）按 `Ctrl+Z` 撤销。
 - **隐私**：密码管理器复制的密码不会被记录（它们会声明“不要记录”，和 Windows 自带的剪贴板历史遵守的是同一套规则），也可以在设置里列出不记录的程序，或者在托盘菜单里暂停记录。历史只保存在本机（`%LOCALAPPDATA%\WinShun\clipboard`），不上传。
 - Windows 自带的剪贴板历史是开着的，Win顺的剪贴板历史也默认打开；否则在设置 → 剪贴板里打开。接管 `Win+V` 要重启一次资源管理器（设置里有按钮，也可以等下次登录 Windows 时自动生效）；关掉这项或卸载 Win顺 后，`Win+V` 回到 Windows 自带的剪贴板。Windows 剪贴板面板里的表情符号可以改用 `Win+.` 打开。
@@ -229,7 +229,7 @@
 | `Ctrl+Enter`（在“打开”对话框旁的搜索框里） | 转到选中的文件并直接打开 |
 | `Tab` / `Shift+Tab`（在对话框旁的搜索框里） | 进入选中的文件夹 / 回到上一级 |
 | `Win+S`（在设置里打开后） | 在任务栏上方打开 / 关闭搜索框，代替 Windows 搜索 |
-| `Win+V`（在设置里打开后） | 剪贴板历史：点一条或 `Enter` 粘贴，`Alt+P` 预览，`Shift+Enter` 粘贴为纯文本，`Tab` 切换分类，`Ctrl+P` 固定，`Alt+1`～`Alt+9` 粘贴第几条（设置里可以改成 `Ctrl`）；在 Win顺 自己的输入框里按，粘贴到这个框 |
+| `Win+V`（在设置里打开后） | 剪贴板历史：双击一条、点粘贴按钮或 `Enter` 粘贴，点一条、`Alt+P` 或 `→` 预览，`Shift+Enter` 粘贴为纯文本，`Tab` 切换分类，`Ctrl+P` 固定，`Alt+1`～`Alt+9` 粘贴第几条（设置里可以改成 `Ctrl`）；在 Win顺 自己的输入框里按，粘贴到这个框 |
 
 鼠标也能用：选中或悬停的结果右边有几个按钮：打开所在位置、在终端中打开（cmd，到它所在的文件夹）、复制、复制路径和删除（点两次才删，移到回收站）；应用多一个“以管理员身份运行”。选中了多项时，打开、复制、删除等操作都对全部选中项生效。
 
@@ -301,6 +301,9 @@ Win顺 自己建索引，不需要另装 Everything。文件名、拼音、应�
 
 **双击 Ctrl 和别的软件冲突怎么办？**
 Listary 和 PowerToys 的“查找鼠标”默认也用双击 Ctrl，同时开着两边都会响应。可以在其中一边关掉；或者在设置的“打开 Win顺”页关掉双击 Ctrl，另设一个组合键（如 `Alt+Space`）。
+
+**AutoHotkey 改的键在 Win顺 里不起作用？**
+Win顺 以管理员身份运行（读 NTFS 的文件表需要），Windows 不让普通权限的程序拦截或模拟发给管理员窗口的按键，所以 Win顺 的窗口在前面时，普通权限运行的 AutoHotkey 脚本不起作用。用 AutoHotkey 的 UI Access 模式运行脚本（在脚本上右键 → Run with UI Access），或者以管理员身份运行它。剪贴板开在别的程序上、不拿焦点的时候，改的键照常起作用。
 
 **玩游戏时连按两下 Ctrl（蹲下）会弹出搜索框吗？**
 默认不会。前台程序独占全屏，或者藏起鼠标用来转视角时，双击 Ctrl 不打开搜索框；没被认出来的游戏可以在设置里加进“在这些程序里不响应双击 Ctrl”。游戏里想打开 Win顺，按另设的组合键。
@@ -418,15 +421,16 @@ The interface comes in **English and Simplified Chinese**. It follows the Window
 #### 📋 Clipboard history (can replace Win+V)
 
 - What you copy — text, pictures, files — is kept to come back to. Turn on “Open with Win+V” in Settings → **Clipboard** and `Win+V` opens WinShun's clipboard instead of Windows' own; or set another shortcut, or open it from the tray menu.
-- A click on an entry (or `Enter` on the selected one) pastes it into the window you were in, `Shift+Enter` as plain text. Text from Word or a web page keeps its formatting; copied files paste into Explorer as files.
+- A click on an entry shows it in the preview; its paste button, a double click or `Enter` pastes it into the window you were in, `Shift+Enter` as plain text. Text from Word or a web page keeps its formatting; copied files paste into Explorer as files.
 - It opens where you are typing: right under the line with the text cursor, its left edge at the cursor, never over that line; when there is no room below, above it. When no text cursor can be found (the focus is not in a text field), it opens at the mouse pointer. Dragging it elsewhere holds for that once; next time it opens by the cursor again.
 - Like Windows' own, it does not take the focus: the program you were in stays in front, and what closes without the focus stays open — VS Code's Quick Open (`Ctrl+P`), a browser's address bar suggestions — and takes the paste. The keyboard still works the clipboard (type to search, arrows, `Enter`, `Esc`); a click elsewhere or another window closes it. Search takes the letters as typed (pinyin), not through the input method; naming a group gives it the focus, for the input method.
 - In WinShun's own text boxes (the search bar, the bar by dialogs, the boxes in Settings), `Win+V` pastes the chosen entry into that box at the cursor, several lines made one, a file as its path; `Esc` pastes nothing and goes back to the box, with what you typed and selected intact. The clipboard opens right under that box (above it when there is no room) and the box stays put with its selection in view; the launcher's list folds away first, and a click on the search bar brings it back.
-- Type to filter, pinyin included (`hy` finds 会议); `@name` keeps to what came from one program (`@wx`: WeChat). The eye button on a row (or `Alt+P`) opens a preview beside the list — the whole text, the picture or the file list, and where and when it was copied; click it again or press `Esc` to close it.
+- Type to filter, pinyin included (`hy` finds 会议); `@name` keeps to what came from one program (`@wx`: WeChat). A click on a row (or `Alt+P`; or `→` with the cursor at the end of the search text) opens a preview beside the list — the whole text, the picture or the file list, and where and when it was copied; click the row or press the key again, or press `Esc`, to close it. Left open, it is open again next time.
+- **Words in pictures are searched too**: Windows' own text recognition reads the words in copied pictures (on your PC, nothing goes online); the search finds them, the row shows the part that matched, and the preview lists them under the picture. It needs Windows' text recognition for the language (Settings → Time & language → Language; usually installed with the language).
 - `Tab` switches between All / Text / Links / Pictures / Files. Colour values (`#3B82F6`, `rgba(…)`, `hsl(…)`, with or without alpha) show as swatches, a translucent one half opaque and half over a checkerboard, with their HEX / RGB / HSL notations beside the list (a translucent one also as `#AARRGGBB`, alpha first, as Qt, Android and XAML write it), a click copying one; copied pictures, videos, PDFs and the like show their thumbnails.
 - `Ctrl+P` pins an entry; right-click → Move to a new group makes groups such as “Replies” or “Snippets”. Pinned and grouped entries are kept for good; the rest by default for the latest 200 (100 with 16 GB of memory or less) and 30 days; the settings allow 50 to 300.
 - Pick several with `Ctrl`+click or `Shift+↑` / `Shift+↓`: each shows its number, and `Enter` pastes them as one, in that order, joined by a new line, space, comma, tab or nothing (click the footer to change it). Picks stay while you search for the next one. Files only make one list of files.
-- **Pin** it with the pin at its top right: it then stays on top and open after pasting, clicks elsewhere and switching programs, and never takes the focus, so a click on an entry pastes into whatever program you are typing in, one entry after another. To pick with the keyboard, press the hotkey again or click its search box; `Esc` gives the keyboard back. Click the pin again to unpin: it closes like a menu again.
+- **Pin** it with the pin at its top right: it then stays on top and open after pasting, clicks elsewhere and switching programs, and never takes the focus, so a double click on an entry (or its paste button) pastes into whatever program you are typing in, one entry after another. To pick with the keyboard, press the hotkey again or click its search box; `Esc` gives the keyboard back. Click the pin again to unpin: it closes like a menu again.
 - Hold `Alt` to see the numbers: `Alt+1`…`Alt+9` paste the first nine entries (Settings can make it `Ctrl`). `Delete` removes one and `Ctrl+Z` brings it back (a removed group too).
 - Passwords from password managers are not kept (they mark them the same way for Windows' own clipboard history); programs can be excluded in the settings, and the tray menu pauses the history. It stays on your PC (`%LOCALAPPDATA%\WinShun\clipboard`).
 - On by default if Windows' own clipboard history is on. Taking `Win+V` over takes one restart of File Explorer (a button in the settings, or the next sign-in); turned off again, or with WinShun uninstalled, `Win+V` goes back to Windows. For emoji, use `Win+.`.
@@ -512,6 +516,9 @@ WinShun builds its own index, so Everything is not needed. File names, pinyin, a
 
 **Can it search inside Word, Excel or PDF files?**
 Yes: Word, Excel, PowerPoint, PDF and WPS files, with the page, slide, or sheet and row in the results. Text in scanned PDFs and pictures can't be read.
+
+**AutoHotkey remaps don't work in WinShun?**
+WinShun runs as administrator (reading the NTFS file table needs it), and Windows doesn't let programs with normal rights intercept or send keys meant for an administrator's window. So while a WinShun window is in front, an AutoHotkey script running with normal rights does nothing. Run the script with UI Access (right-click it → Run with UI Access), or as administrator. While the clipboard is open over another program without taking the focus, remapped keys work as usual.
 
 **Will pressing Ctrl twice in a game (to crouch) open the search bar?**
 Not by default. While the program in front has exclusive full screen, or has hidden the mouse pointer to turn the view, pressing Ctrl twice does nothing; add games that are not recognized to "Ignore Ctrl twice in these programs" in Settings. To open WinShun in a game, use a shortcut set in Settings. Listary and PowerToys' Find My Mouse also use Ctrl twice by default; if one of them runs too, turn it off on one side.

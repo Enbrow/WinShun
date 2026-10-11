@@ -672,6 +672,24 @@
 - **原因**：SQLite 删除只把页放进空闲列表，文件不缩，以后插入再用。默认的 `auto_vacuum=NONE` 永远不还给磁盘；大图、长文字删掉后，空页就一直占着。改成 `INCREMENTAL` 再定期 `PRAGMA incremental_vacuum` 也不行：Qt 的 `QSqlQuery::exec` 只走第一步，`next()` 遇到没有结果列的语句直接返回假，不会再往下走，每次只释放一页（`PRAGMA freelist_count` 前后只差 1）。
 - **做法**：`auto_vacuum=FULL`，每次提交时就把空页截掉（`ClipStore::open`，要在 `journal_mode=WAL` 之前设）。已有的库不能只改这个值，得 `VACUUM` 一次才生效：打开后在写库线程上看 `PRAGMA auto_vacuum`，不是 1 就设好再 `VACUUM`（`reclaimSpace`）。`journal_size_limit` 让 WAL 用完截到 1 MB 以内。`tst_clipboard` 的 `removedEntriesFreeTheDisk` 覆盖新库和旧库两种情况。
 
+### 剪贴板开着时，AutoHotkey 改的键不起作用（GitHub #9）
+
+- **现象**：用户用 AutoHotkey 把组合键改成方向键（比如 `CapsLock+J` 当 `↓`），剪贴板在别的程序上开着时不起作用，搜索框里打出的是 `j`。
+- **原因**：低级键盘钩子后装的先调用（`SetWindowsHookEx` 把新钩子插在链头）。`KeyRouter` 在窗口打开时才装，总排在 AutoHotkey 前面；它要的键直接返回 1，后面的钩子根本看不到。
+- **做法**：剪贴板要的键先 `CallNextHookEx` 交给后面的钩子。返回非 0 说明后面有钩子拿走了，就不拿；返回 0 才自己拿下，再返回 1，前台程序照样收不到。拿下的键，它的松开和自动重复也先交给后面的钩子（返回值不管），这样 AutoHotkey 记的按键状态和实际一致（`KeyRouter::handleKey`）。不能按 `LLKHF_INJECTED` 放行：映射出来的 `↓` 正是要剪贴板接住的键（见下面“开始菜单打字”那条）。
+- **实测**（2026-10-11）：两个进程各装一个低级钩子，后装的先调用 `CallNextHookEx`，前一个拿走的键返回 1，没拿的返回 0。前一个钩子在自己的过程里 `SendInput` 发出的替代键，在后装的钩子还停在 `CallNextHookEx` 里时就嵌套进来，比被替代的键先处理完，所以 `CallNextHookEx` 之前不能改任何状态。再用真的 `KeyRouter.cpp` 加一个“J 换成 ↓”的进程测：改前转给剪贴板的是 A、J、B，改后是 A、↓、B，测试窗口一个键也没收到。
+- **另一半不是代码的问题**：Win顺 以管理员身份运行，Windows 不让普通权限的程序拦截或模拟发给管理员窗口的按键（UIPI）。所以启动器、对话框旁的搜索框、拿到焦点的剪贴板在前台时，普通权限的 AutoHotkey 本来就不起作用（AutoHotkey 的 FAQ 写明了）。要让它起作用，用 AutoHotkey 的 “Run with UI Access” 运行脚本，或以管理员身份运行；README 的常见问题里写了。
+
+### 图片里的文字：Windows 自带的文字识别
+
+- **现象和做法**（2026-10-11，GitHub #9，`TextRecognizer`）：
+  - **不打包的程序也能用。** 有资料说 `Windows.Media.Ocr` 只给有 package identity（MSIX 打包）的程序用，本机实测并非如此：Windows PowerShell 5.1 和 C++/WinRT 写的测试程序都能直接调用。
+  - **语言要自己挑。** 这台机器的语言列表英文排第一，`TryCreateFromUserProfileLanguages` 给的是英文识别器，中文全认不出来。做法：先找语言列表里第一个中文、日文或韩文，用装了识别器的同一语言、同一文字（`zh-CN` 在识别器里是 `zh-Hans-CN`）。中文识别器也认英文和数字，反过来不行。这台机器上可用的有 `en-US`、`zh-Hans-CN`、`zh-Hant-HK`。
+  - **中文每个字是一个词。** `OcrLine::Text()` 在字和字之间加空格（“搜 索 剪 贴 板”）。按 `Words()` 自己拼：两边都是中日文字或全角标点就不加空格。
+  - **透明的地方要先铺白底。** 预乘 alpha 的透明像素是黑的，黑字落在上面就认不出来。
+  - **尺寸**：`MaxImageDimension` 这里是 10000（有资料说约 2600）。超过就先缩小。1560×1197 的截图约 110～130 ms，第一张多出建识别器的时间（约 180 ms）。
+  - **存法**：认出的字放在 `clips.ocr` 列，NULL 表示还没读过（读过但没有字是空字符串），这样旧图只补读一次。旧库在打开时 `ALTER TABLE` 加这一列（`tst_clipboard` 的 `picturesWords`）。
+
 ## 任务栏搜索（任务栏按钮、Win+S）
 
 ### Windows 自带的搜索按钮隐藏不了

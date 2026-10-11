@@ -310,6 +310,66 @@ private slots:
         QVERIFY(!QFile::exists(store.imagePath(id))); // nothing refers to it any more
     }
 
+    // The words in a picture (GitHub #9): found by a search, read once.
+    void picturesWords()
+    {
+        QTemporaryDir dir;
+        // A history from before: no column for them yet.
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase(u"QSQLITE"_s, u"old"_s);
+            db.setDatabaseName(dir.filePath(u"clipboard.db"_s));
+            QVERIFY(db.open());
+            QSqlQuery query(db);
+            QVERIFY(query.exec(u"CREATE TABLE clips (id INTEGER PRIMARY KEY AUTOINCREMENT, kind INTEGER NOT NULL, "
+                               u"text TEXT NOT NULL DEFAULT '', length INTEGER NOT NULL DEFAULT 0, html BLOB, rtf BLOB, "
+                               u"hash BLOB NOT NULL, created INTEGER NOT NULL, used INTEGER NOT NULL, "
+                               u"source TEXT NOT NULL DEFAULT '', sourcePath TEXT NOT NULL DEFAULT '', "
+                               u"groupId INTEGER NOT NULL DEFAULT 0, width INTEGER NOT NULL DEFAULT 0, "
+                               u"height INTEGER NOT NULL DEFAULT 0, bytes INTEGER NOT NULL DEFAULT 0)"_s));
+            QVERIFY(query.exec(u"INSERT INTO clips (id, kind, hash, created, used) VALUES (5, 4, 'old', %1, %1)"_s.arg(kStart - 1)));
+        }
+        QSqlDatabase::removeDatabase(u"old"_s);
+        QVERIFY(QDir(dir.path()).mkpath(u"images"_s));
+        QFile file(dir.filePath(u"images/5.png"_s)); // else cleared away as no one's
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.close();
+
+        qint64 id = 0;
+        {
+            ClipStore store(dir.path());
+            QVERIFY(store.open(kStart));
+            QCOMPARE(store.unreadPictures(), std::vector<qint64> {5});
+            ClipCapture image;
+            image.kind = ClipKind::Image;
+            image.png = "png";
+            image.hash = "a";
+            id = store.add(image, kStart);
+            QCOMPARE(store.unreadPictures(), std::vector<qint64> {5}); // its file is still being written
+            store.flush();
+            QCOMPARE(store.unreadPictures(), (std::vector<qint64> {id, 5}));
+            store.setPictureText(id, u"第三季度会议纪要 Q3"_s);
+            store.setPictureText(5, QString()); // read, nothing in it
+            QVERIFY(store.unreadPictures().empty());
+            ClipFilter filter;
+            filter.query = u"会议"_s;
+            QCOMPARE(store.find(filter).size(), std::size_t(1));
+            filter.query = u"hyjy"_s; // by pinyin too
+            QCOMPARE(store.find(filter).size(), std::size_t(1));
+        }
+        ClipStore store(dir.path());
+        QVERIFY(store.open(kStart));
+        QVERIFY(store.unreadPictures().empty()); // not read again
+        QCOMPARE(store.clip(id)->ocr, u"第三季度会议纪要 Q3"_s);
+        // Removed and put back: with its words.
+        std::vector<ClipRecord> removed = store.remove(std::span(&id, 1));
+        store.restore(std::move(removed));
+        QCOMPARE(store.clip(id)->ocr, u"第三季度会议纪要 Q3"_s);
+        QVERIFY(store.clip(id)->read);
+        ClipFilter filter;
+        filter.query = u"Q3"_s;
+        QCOMPARE(store.find(filter).size(), std::size_t(1));
+    }
+
     void removedGroupsComeBack()
     {
         QTemporaryDir dir;

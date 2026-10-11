@@ -165,6 +165,27 @@ Item {
                 }
             }
 
+            Column { // a picture's words, read by Windows: what the search finds it by
+                visible: preview.kind === 4 && (preview.info.words ?? "").length > 0
+                width: parent.width
+                spacing: 4
+
+                Text {
+                    text: qsTr("图中的文字")
+                    color: Theme.faint
+                    font.pixelSize: Theme.fontCaption
+                }
+                Text {
+                    width: parent.width
+                    text: preview.info.words ?? ""
+                    textFormat: Text.PlainText
+                    wrapMode: Text.Wrap
+                    color: Theme.subtext
+                    font.pixelSize: Theme.fontBody
+                    lineHeight: 1.15
+                }
+            }
+
             Image { // the first file's thumbnail, if Explorer has one; never enlarged
                 id: thumbnail
                 readonly property bool shown: (preview.kind === 3 || preview.kind === 2) && status === Image.Ready

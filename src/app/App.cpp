@@ -1868,6 +1868,7 @@ void App::showClipboard()
             // every window: bringToFront closes them.
             keepFocus = target && !win::isShellFlyout(foreground) && startKeyRouting(target);
         }
+        m_clipboard->handlePlaced(); // the preview, if left open: as wide as there is room for here
         // Cloaked until its first frame: Windows would first put up the
         // window as it looked when it was hidden, then our repaint.
         win::setCloaked(m_clipWindow, true);

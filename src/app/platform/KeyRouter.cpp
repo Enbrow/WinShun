@@ -283,8 +283,8 @@ void KeyRouter::checkDrained()
 
 LRESULT CALLBACK KeyRouter::keyboardProc(int code, WPARAM wParam, LPARAM lParam)
 {
-    if (code == HC_ACTION && t_router && t_router->handleKey(wParam, *reinterpret_cast<const KBDLLHOOKSTRUCT*>(lParam)))
-        return 1; // seen by nobody else
+    if (code == HC_ACTION && t_router)
+        return t_router->handleKey(code, wParam, lParam);
     return ::CallNextHookEx(nullptr, code, wParam, lParam);
 }
 
@@ -310,49 +310,65 @@ bool KeyRouter::taking() const
         && !::IsHungAppWindow(m_window);
 }
 
-bool KeyRouter::handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event)
+LRESULT KeyRouter::handleKey(int code, WPARAM message, LPARAM lParam)
 {
+    const KBDLLHOOKSTRUCT& event = *reinterpret_cast<const KBDLLHOOKSTRUCT*>(lParam);
+    // The rest of the chain: the hooks installed before this one (the newest
+    // is called first), then the program. One that takes the key answers
+    // nonzero. A key it sends in its place (a remapper's) comes here at once,
+    // inside this call, ahead of the one it replaces.
+    const auto next = [&] { return ::CallNextHookEx(nullptr, code, message, lParam); };
     if (event.dwExtraInfo == kOwnInput)
-        return false;
+        return next();
     const UINT vk = event.vkCode;
     if (vk >= m_taken.size())
-        return false;
+        return next();
     const bool press = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
-    if (!press) {
-        if (m_taken.test(vk)) {
+    if (m_taken.test(vk) && !(press && m_draining)) {
+        // The release and auto-repeat of a taken key are taken too, wherever
+        // the focus went. The hooks after this one saw its press: they see
+        // these as well (AutoHotkey keeps a key's state from them).
+        next();
+        if (!press) {
             m_taken.reset(vk);
             if (m_draining)
                 checkDrained();
             else
                 m_callbacks.key(translate(event, false, false));
-            return true;
+            return 1;
         }
-        // Its press went to the program: so does its release.
+        const Key key = translate(event, true, true);
+        if (key.modifiers & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier))
+            sendMask();
+        m_callbacks.key(key);
+        return 1;
     }
     if (m_draining)
-        return false;
+        return next();
     if (modifierOf(vk) != Qt::NoModifier)
-        return handleModifier(press, event);
+        return handleModifier(press, event) ? 1 : next();
     if (!press)
-        return false;
-    const bool autoRepeat = m_taken.test(vk); // a taken key stays taken, wherever the focus went
-    if (!autoRepeat) {
-        // Win combinations are Windows' (Win+V again closes the window). A
-        // key down since before the window came (this is its auto-repeat)
-        // goes on to the program up to its release.
-        if (!taking() || held(VK_LWIN) || held(VK_RWIN) || held(static_cast<int>(vk)))
-            return false;
-    }
-    const Key key = translate(event, true, autoRepeat);
-    if (!autoRepeat) {
-        if (!wanted(key, m_numberKeys))
-            return false;
-        m_taken.set(vk);
-    }
+        return next(); // its press went to the program: so does its release
+    // Win combinations are Windows' (Win+V again closes the window). A key
+    // down since before the window came (this is its auto-repeat) goes on to
+    // the program up to its release.
+    if (!taking() || held(VK_LWIN) || held(VK_RWIN) || held(static_cast<int>(vk)))
+        return next();
+    const Key key = translate(event, true, false);
+    if (!wanted(key, m_numberKeys))
+        return next();
+    // A key the window wants goes to the hooks after this one first, as if
+    // the window were an ordinary one in front: a remapper there (AutoHotkey,
+    // PowerToys' Keyboard Manager) turns CapsLock+J into Down. It takes the
+    // J (it answers nonzero), and its Down comes here as a key of its own.
+    // A key it leaves alone is the window's.
+    if (const LRESULT taken = next(); taken != 0)
+        return taken;
+    m_taken.set(vk);
     if (key.modifiers & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier))
         sendMask(); // in place of the key: the modifier was not pressed alone (a double Ctrl neither)
     m_callbacks.key(key);
-    return true;
+    return 1; // the program does not see it
 }
 
 bool KeyRouter::handleModifier(bool press, const KBDLLHOOKSTRUCT& event)

@@ -62,9 +62,26 @@ Clipboard::Clipboard(ClipStore* store, ClipboardWatcher* watcher, QObject* paren
     m_separator = m_store->value(u"separator"_s);
     if (!kSeparators.contains(m_separator))
         m_separator = kSeparators.constFirst();
+    m_previewOpen = m_store->value(u"preview"_s) == u"open"_s;
     m_store->setListener({
         .lost = [this] { historyChanged(); },
-        .pictureSaved = [this](qint64 id) { m_model.pictureSaved(id); }, // the preview follows (dataChanged)
+        .pictureSaved = [this](qint64 id) {
+            m_model.pictureSaved(id); // the preview follows (dataChanged)
+            m_recognizer.read(id, m_store->imagePath(id), true);
+        },
+    });
+    // The words in pictures: kept with them, found by the search.
+    connect(&m_recognizer, &TextRecognizer::done, this, [this](qint64 id, const QString& words, bool ok) {
+        if (!ok)
+            return; // no recognizer, or it failed: read when the app starts again
+        m_store->setPictureText(id, words);
+        m_model.pictureRead(id);
+    });
+    // Those copied before, or before there was this: a little after the start,
+    // out of its way.
+    QTimer::singleShot(20s, this, [this] {
+        for (const qint64 id : m_store->unreadPictures())
+            m_recognizer.read(id, m_store->imagePath(id));
     });
     m_flashTimer.setSingleShot(true);
     m_flashTimer.setInterval(3s);
@@ -134,6 +151,15 @@ void Clipboard::setPinned(bool pinned)
     m_pinned = pinned;
     refreshStatus();
     emit pinnedChanged();
+}
+
+void Clipboard::setPreviewOpen(bool open)
+{
+    if (m_previewOpen == open)
+        return;
+    m_previewOpen = open;
+    m_store->setValue(u"preview"_s, open ? u"open"_s : u"closed"_s);
+    emit previewOpenChanged();
 }
 
 void Clipboard::setField(QQuickItem* field, const QString& name)
@@ -282,7 +308,7 @@ void Clipboard::refreshStatus()
     else if (!m_recording)
         status = tr("没有在记录剪贴板");
     else if (m_pinned && !m_keysRouted)
-        status = tr("已钉住：点一条，粘贴到正在用的程序");
+        status = tr("已钉住：双击一条，粘贴到正在用的程序");
     else if (!m_query.trimmed().isEmpty() || m_category != 0)
         status = tr("%Ln 条", nullptr, m_model.count());
     else
@@ -807,6 +833,7 @@ QVariantMap Clipboard::preview(int row) const
                                                             : QUrl::fromLocalFile(m_store->imagePath(c->id)).toString());
         map.insert(u"width"_s, c->width);
         map.insert(u"height"_s, c->height);
+        map.insert(u"words"_s, c->ocr); // what the search finds it by
         size = u"%1 × %2 · %3"_s.arg(c->width).arg(c->height).arg(
             QLocale().formattedDataSize(c->bytes, 1, QLocale::DataSizeTraditionalFormat));
         break;

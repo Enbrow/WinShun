@@ -164,8 +164,18 @@ QString ClipModel::title(const Clip& clip) const
 {
     const ClipMatcher& matcher = m_matcher;
     switch (clip.kind) {
-    case ClipKind::Image:
-        return tr("图片 %1 × %2").arg(clip.width).arg(clip.height);
+    case ClipKind::Image: {
+        // Found by the words in it: those, from a little before the first match.
+        const QList<std::pair<qsizetype, qsizetype>> spans = matcher.spans(clip.ocr);
+        if (spans.isEmpty())
+            return tr("图片 %1 × %2").arg(clip.width).arg(clip.height);
+        qsizetype first = clip.ocr.size();
+        for (const auto& span : spans)
+            first = std::min(first, span.first);
+        const qsizetype from = std::max<qsizetype>(0, first - kLeadIn);
+        const QString line = (from > 0 ? u"…"_s : QString()) + oneLine(QStringView(clip.ocr).mid(from));
+        return tr("图片：") + highlighted(line, matcher.spans(line), m_highlightColor);
+    }
     case ClipKind::Files: {
         const QStringList files = clip.files();
         QStringList names;
@@ -364,6 +374,13 @@ void ClipModel::pictureSaved(qint64 id)
     const int row = rowOf(id);
     if (row >= 0)
         emit dataChanged(index(row), index(row), {ImageRole});
+}
+
+void ClipModel::pictureRead(qint64 id)
+{
+    const int row = rowOf(id);
+    if (row >= 0)
+        emit dataChanged(index(row), index(row), {TitleRole});
 }
 
 bool ClipModel::isSelected(int row) const

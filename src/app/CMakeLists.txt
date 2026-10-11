@@ -33,6 +33,7 @@ qt_add_executable(WinShun WIN32
     platform/TaskbarSearch.cpp platform/TaskbarSearch.h
     platform/TaskbarSearchBox.cpp platform/TaskbarSearchBox.h
     platform/TextCaret.cpp platform/TextCaret.h
+    platform/TextRecognizer.cpp platform/TextRecognizer.h
     platform/VolumeNotifier.cpp platform/VolumeNotifier.h
     platform/WinV.cpp platform/WinV.h
     platform/WindowEffects.cpp platform/WindowEffects.h
@@ -192,7 +193,8 @@ target_link_libraries(WinShun PRIVATE
     Qt6::Gui Qt6::Qml Qt6::Quick
     comctl32 d2d1 dwmapi dwrite oleacc oleaut32 shcore shell32 shlwapi ole32 user32 uxtheme version winhttp winmm
     credui iphlpapi mpr psapi
-    mfplat mfreadwrite mfuuid delayimp)
+    mfplat mfreadwrite mfuuid delayimp
+    windowsapp) # TextRecognizer: Windows.Media.Ocr, through C++/WinRT from the Windows SDK
 # The execution level (requireAdministrator) comes from app.manifest alone; the
 # linker's own default (asInvoker) would conflict with it. Media Foundation is
 # loaded only when used (SoundClip): Windows N editions do not have it.

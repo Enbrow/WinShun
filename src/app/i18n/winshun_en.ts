@@ -187,6 +187,10 @@
             <numerusform>…%Ln more characters</numerusform>
         </translation>
     </message>
+    <message>
+        <source>图中的文字</source>
+        <translation>Words in the picture</translation>
+    </message>
     <message numerus="yes">
         <source>还有 %Ln 个</source>
         <translation>
@@ -206,12 +210,8 @@
 <context>
     <name>ClipRow</name>
     <message>
-        <source>关闭预览</source>
-        <translation>Close the preview</translation>
-    </message>
-    <message>
-        <source>预览</source>
-        <translation>Preview</translation>
+        <source>粘贴</source>
+        <translation>Paste</translation>
     </message>
     <message>
         <source>取消固定</source>
@@ -333,6 +333,14 @@
     <message>
         <source>分类</source>
         <translation>Category</translation>
+    </message>
+    <message>
+        <source>关闭预览</source>
+        <translation>Close the preview</translation>
+    </message>
+    <message>
+        <source>预览</source>
+        <translation>Preview</translation>
     </message>
     <message>
         <source>点一下换一种：换行、空格、逗号、Tab、不分隔</source>
@@ -2972,6 +2980,10 @@
         <source>图片 %1 × %2</source>
         <translation>Picture %1 × %2</translation>
     </message>
+    <message>
+        <source>图片：</source>
+        <translation>Picture: </translation>
+    </message>
     <message numerus="yes">
         <source>%1 等 %Ln 个文件</source>
         <translation>
@@ -3064,8 +3076,8 @@
         <translation>Clipboard history is off</translation>
     </message>
     <message>
-        <source>已钉住：点一条，粘贴到正在用的程序</source>
-        <translation>Pinned: click an entry to paste it into the program you are using</translation>
+        <source>已钉住：双击一条，粘贴到正在用的程序</source>
+        <translation>Pinned: double-click an entry to paste it into the program you are using</translation>
     </message>
     <message numerus="yes">
         <source>%Ln 条</source>

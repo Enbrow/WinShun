@@ -58,6 +58,7 @@ public:
     void refreshTimes(); // "3 分钟前" moved on
     void retranslate() { refreshTimes(); }
     void pictureSaved(qint64 id); // its file is there now (ClipStore::imagePending)
+    void pictureRead(qint64 id); // the words in it are known now (the preview shows them)
 
     int selectedCount() const { return static_cast<int>(m_selected.size()); }
     Q_INVOKABLE bool isSelected(int row) const;

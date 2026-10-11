@@ -5,9 +5,10 @@ import WinShun
 
 // The clipboard window's page (Win+V, ClipboardWindow.qml): a search field,
 // the categories and groups, the history, hints below; the current entry in
-// full on the right when asked for (a row's preview button, Alt+P). A click
-// on a row pastes it into the program that was in front, as Enter does;
-// Shift+Enter as plain text, Alt+1…9 the first nine rows, Ctrl/Shift pick
+// full on the right when asked for (a click on the row, Alt+P, → at the end
+// of the search), and again the next time if left open. A row's paste
+// button or a double click pastes it into the program that was in front,
+// as Enter does; Shift+Enter as plain text, Alt+1…9 the first nine rows, Ctrl/Shift pick
 // several, Tab switches categories. Opened from a field of Win顺's own (a
 // search box, which it drops down under), it pastes into that field, and Esc
 // goes back to it (Clipboard). Over another program that keeps the focus,
@@ -104,16 +105,25 @@ Item {
     }
 
     // The preview, of the row asked about; asked about the row it shows (or
-    // with nothing to show), it closes.
+    // with nothing to show), it closes. Opened or closed so, it is so the
+    // next time the window opens too (clipboard.previewOpen).
     function togglePreview(index) {
         if (previewOpen && (index === list.currentIndex || index < 0 || index >= list.count)) {
-            previewOpen = false
+            closePreview()
         } else if (index >= 0 && index < list.count) {
             list.currentIndex = index
-            if (!previewOpen)
-                previewOpening()
-            previewOpen = true
+            showPreview()
+            clipboard.previewOpen = true
         }
+    }
+    function showPreview() {
+        if (!previewOpen)
+            previewOpening()
+        previewOpen = true
+    }
+    function closePreview() {
+        previewOpen = false
+        clipboard.previewOpen = false
     }
 
     readonly property ContextMenu contextMenu: menuLoader.item as ContextMenu
@@ -213,6 +223,18 @@ Item {
         case Qt.Key_Up: shift ? extendSelection(-1) : moveSelection(-1); break
         case Qt.Key_PageDown: shift ? extendSelection(rows) : moveSelection(rows); break
         case Qt.Key_PageUp: shift ? extendSelection(-rows) : moveSelection(-rows); break
+        case Qt.Key_Right:
+            // The preview, with the caret at the end of the search (the
+            // arrow would move it nowhere); else the caret moves.
+            if (ctrl || shift || alt || input.selectedText.length > 0 || input.cursorPosition < input.text.length)
+                return
+            togglePreview(list.currentIndex)
+            break
+        case Qt.Key_Left:
+            if (ctrl || shift || alt || !previewOpen || input.text.length > 0)
+                return
+            closePreview()
+            break
         case Qt.Key_Return:
         case Qt.Key_Enter:
             if (!clipboard.recording)
@@ -224,7 +246,7 @@ Item {
             if (selectedCount > 0)
                 clipboard.clearSelection()
             else if (previewOpen)
-                previewOpen = false
+                closePreview()
             else
                 clipboard.dismiss()
             break
@@ -276,9 +298,13 @@ Item {
         function onShown() {
             input.text = ""
             page.selectionAnchor = -1
-            page.previewOpen = false
+            page.previewOpen = false // the list alone as it is put in place ...
             page.selectFirst()
             page.focusSearch()
+        }
+        function onPlaced() { // ... then the preview, if it was left open
+            if (page.clipboard.previewOpen && list.count > 0)
+                page.showPreview()
         }
         function onListChanged() {
             page.selectionAnchor = -1
@@ -465,7 +491,7 @@ Item {
                         width: list.width
                         height: page.rowHeight
                         hint: page.numbersHeld && index < 9 ? index + 1 : 0
-                        previewing: page.previewOpen && clipRow.current
+                        pasteTip: page.pasteLabel
                         // On whole device pixels wherever the list has scrolled
                         // to (see Main.qml).
                         transform: Translate {
@@ -483,11 +509,13 @@ Item {
                             } else if (ctrl) {
                                 page.toggleRow(index)
                             } else {
-                                list.currentIndex = index
-                                page.clipboard.paste(index, false) // a picked row pastes all the picked ones
+                                page.togglePreview(index) // the row shown already: closes
                             }
                         }
-                        onPreviewRequested: (index) => page.togglePreview(index)
+                        onPasteRequested: (index) => {
+                            list.currentIndex = index
+                            page.clipboard.paste(index, false) // a picked row pastes all the picked ones
+                        }
                         onActionRequested: (index, action) => {
                             list.currentIndex = index
                             page.clipboard.trigger(index, action)
@@ -679,10 +707,22 @@ Item {
                                                   || statusLabel.implicitWidth <= footer.width - 18 - 12 - 16 - implicitWidth)
                 opacity: shown ? 1 : 0 // still laid out: its width tells when it fits again
 
-                KeyHint { keys: "Enter"; label: page.pasteLabel }
-                KeyHint { keys: "Shift+Enter"; label: qsTr("纯文本"); visible: !page.intoField && hints.roomy } // text there either way
-                KeyHint { keys: "Esc"; label: qsTr("返回"); visible: page.intoField && hints.roomy }
-                KeyHint { keys: "Tab"; label: qsTr("分类"); visible: page.selectedCount < 2 }
+                // The others, and their gaps: what is left beside them and the status.
+                readonly property real othersWidth: {
+                    const widths = [enterHint, plainHint, backHint, tabHint].filter(h => h.visible).map(h => h.fullWidth)
+                    return widths.reduce((sum, w) => sum + w, 0) + Math.max(0, widths.length - 1) * spacing
+                }
+
+                KeyHint { id: enterHint; keys: "Enter"; label: page.pasteLabel }
+                KeyHint { id: plainHint; keys: "Shift+Enter"; label: qsTr("纯文本"); visible: !page.intoField && hints.roomy } // text there either way
+                KeyHint { id: backHint; keys: "Esc"; label: qsTr("返回"); visible: page.intoField && hints.roomy }
+                KeyHint { id: tabHint; keys: "Tab"; label: qsTr("分类"); visible: page.selectedCount < 2 }
+                KeyHint { // where there is room: beside the list alone there often is not
+                    keys: "→"
+                    label: page.previewOpen ? qsTr("关闭预览") : qsTr("预览")
+                    visible: page.selectedCount === 0
+                             && statusLabel.implicitWidth + 18 + 12 + 16 + hints.othersWidth + hints.spacing + fullWidth <= footer.width
+                }
             }
         }
     }

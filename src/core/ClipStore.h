@@ -53,6 +53,10 @@ struct Clip {
     qint64 bytes = 0; // Image: of its PNG file
     bool html = false; // it has formatted versions to paste
     bool rtf = false;
+    // Image: the words in it (Windows' text recognition), for searching;
+    // `read` once it was looked at, words or none (GitHub #9).
+    QString ocr;
+    bool read = false;
 
     QStringList files() const; // Files, Path: the paths
     bool truncated() const { return textLength > text.size(); }
@@ -216,6 +220,9 @@ public:
     QString imagePath(qint64 id) const;
     // Just copied, its picture still being written: no file at imagePath() yet.
     bool imagePending(qint64 id) const { return m_picturesPending.contains(id); }
+    // Pictures whose words were not read yet, newest first (their files written).
+    std::vector<qint64> unreadPictures() const;
+    void setPictureText(qint64 id, const QString& text); // read: the words in it, maybe none
 
     // Small values kept with the history (the separator for joined pastes).
     QString value(const QString& key) const;

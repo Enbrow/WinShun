@@ -4,9 +4,9 @@ import WinShun
 // One clipboard history entry: what it is (a picture's thumbnail, a file's
 // icon, a colour's swatch, or a sign for text and links), its first line
 // (or where the query matched), where it came from and when. A click
-// pastes it (ClipboardPage.qml). Picked rows show the order they will be
-// pasted in; the current and the hovered row show buttons: preview, pin,
-// delete.
+// shows it in the preview; its paste button or a double click pastes it
+// (ClipboardPage.qml). Picked rows show the order they will be pasted in;
+// the current and the hovered row show buttons: paste, pin, delete.
 Item {
     id: row
 
@@ -23,14 +23,14 @@ Item {
     required property bool pinned
     required property bool missing
     property int hint: 0 // its modifier held: the number that pastes this row (Alt+1...), 0 for none
-    property bool previewing: false // its preview is open beside the list
+    property string pasteTip: qsTr("粘贴") // where the paste button pastes ("粘贴到搜索框")
 
     readonly property bool current: ListView.isCurrentItem
     readonly property int selectedCount: ListView.view ? ListView.view.model.selectedCount : 0
     readonly property bool showActions: (current || area.containsMouse) && hint === 0
 
     signal clicked(int index, int modifiers)
-    signal previewRequested(int index)
+    signal pasteRequested(int index) // its paste button, a double click
     signal menuRequested(int index, point globalPos)
     signal actionRequested(int index, int action)
 
@@ -63,8 +63,9 @@ Item {
         id: iconSlot
         x: 16
         anchors.verticalCenter: parent.verticalCenter
-        width: 32
-        height: 32
+        // Pictures larger: what is in them shows (GitHub #9).
+        width: row.kind === 4 ? 72 : 32
+        height: row.kind === 4 ? 48 : 32
 
         Rectangle { // text and links: a sign on a soft tile
             anchors.fill: parent
@@ -110,22 +111,36 @@ Item {
             opacity: row.missing ? 0.45 : 1
         }
 
-        Rectangle { // pictures: a thumbnail, cut to a square
+        Item { // pictures: a thumbnail, all of it, as large as the slot holds
             anchors.fill: parent
             visible: row.kind === 4
-            radius: 4
-            color: Theme.track
-            clip: true
+
+            Rectangle { // while it loads
+                anchors.fill: parent
+                visible: !thumbnail.ready
+                radius: 4
+                color: Theme.track
+            }
 
             Image {
-                anchors.fill: parent
+                id: thumbnail
+
+                readonly property real dpr: Screen.devicePixelRatio
+                readonly property bool ready: status === Image.Ready && implicitWidth > 0
+
+                // Scaled once, when loaded, to fit the slot (sourceSize: both
+                // set, the aspect kept), then drawn pixel for pixel, on whole
+                // pixels: sharp.
+                x: Math.round((parent.width - width) / 2 * dpr) / dpr
+                y: Math.round((parent.height - height) / 2 * dpr) / dpr
+                width: ready ? implicitWidth / dpr : parent.width
+                height: ready ? implicitHeight / dpr : parent.height
                 source: row.kind === 4 ? row.image : ""
                 // A PNG file: sourceSize is in the image's own pixels.
-                sourceSize.width: Math.round(parent.width * Screen.devicePixelRatio)
-                sourceSize.height: Math.round(parent.height * Screen.devicePixelRatio)
-                fillMode: Image.PreserveAspectCrop
+                sourceSize.width: Math.round(parent.width * dpr)
+                sourceSize.height: Math.round(parent.height * dpr)
                 asynchronous: true
-                smooth: true
+                smooth: false
             }
         }
 
@@ -238,6 +253,10 @@ Item {
             else
                 row.clicked(row.index, mouse.modifiers)
         }
+        onDoubleClicked: (mouse) => {
+            if (mouse.button === Qt.LeftButton && (mouse.modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) === 0)
+                row.pasteRequested(row.index)
+        }
 
         Row {
             id: actions
@@ -248,12 +267,11 @@ Item {
             spacing: 2
 
             RowAction {
-                id: previewAction
-                glyph: "" // View
-                checked: row.previewing
-                tip: row.previewing ? qsTr("关闭预览") : qsTr("预览")
-                tipShortcut: "Alt+P"
-                onClicked: row.previewRequested(row.index)
+                id: pasteAction
+                glyph: "" // Paste
+                tip: row.pasteTip
+                tipShortcut: "Enter"
+                onClicked: row.pasteRequested(row.index)
             }
             RowAction {
                 id: pinAction
@@ -273,7 +291,7 @@ Item {
     }
 
     HoverTip {
-        readonly property RowAction hovered: previewAction.tipWanted ? previewAction
+        readonly property RowAction hovered: pasteAction.tipWanted ? pasteAction
                                            : pinAction.tipWanted ? pinAction
                                            : removeAction.tipWanted ? removeAction : null
         target: hovered

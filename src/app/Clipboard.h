@@ -3,6 +3,7 @@
 #include "ClipModel.h"
 #include "ClipStore.h"
 #include "platform/ClipboardWatcher.h"
+#include "platform/TextRecognizer.h"
 
 #include <QElapsedTimer>
 #include <QObject>
@@ -57,6 +58,8 @@ class Clipboard : public QObject {
     // the hotkey is pressed again or the search field clicked (keysWanted),
     // up to the next paste or Esc. Not while it pastes into a field of Win顺's own.
     Q_PROPERTY(bool pinned READ pinned WRITE setPinned NOTIFY pinnedChanged FINAL)
+    // The preview beside the list (Alt+P, →): as it was left, next time too.
+    Q_PROPERTY(bool previewOpen READ previewOpen WRITE setPreviewOpen NOTIFY previewOpenChanged FINAL)
     Q_PROPERTY(bool recording READ recording NOTIFY stateChanged FINAL) // the history is on (settings)
     Q_PROPERTY(bool paused READ paused NOTIFY stateChanged FINAL) // ... but paused from the tray menu
     Q_PROPERTY(QString shortcut READ shortcut NOTIFY stateChanged FINAL) // what opens it: "Win+V"
@@ -122,6 +125,8 @@ public:
 
     bool pinned() const { return m_pinned; }
     void setPinned(bool pinned);
+    bool previewOpen() const { return m_previewOpen; }
+    void setPreviewOpen(bool open);
 
     void setWindow(QWindow* window) { m_window = window; }
     // The window to paste into: the one in front before the clipboard opened
@@ -135,6 +140,7 @@ public:
     QString fieldName() const { return m_field.item ? m_field.name : QString(); }
     QQuickItem* field() const { return m_field.item; }
     void handleShown();
+    void handlePlaced() { emit placed(); } // after handleShown, put where it opens: the preview may widen it now
     void handleHidden();
     void historyChanged(); // the store changed outside this class (copied, limits, cleared)
     void retranslate();
@@ -180,6 +186,7 @@ signals:
     void activeChanged();
     void keysRoutedChanged();
     void pinnedChanged();
+    void previewOpenChanged();
     void keysWanted(); // pinned, the keys elsewhere: they are wanted here (App)
     void keysReleased(); // pinned, Esc (or the hotkey again): the keys and the focus back to the program (App)
     // The window takes the focus after all (App), from the program that kept
@@ -195,6 +202,7 @@ signals:
     void separatorChanged();
     void undoChanged();
     void shown();
+    void placed();
     void dismissRequested();
     void turnOnRequested();
     void contextMenuKeyPressed(); // Menu key / Shift+F10, while the window is shown
@@ -235,10 +243,12 @@ private:
     ClipStore* m_store;
     ClipboardWatcher* m_watcher;
     ClipModel m_model;
+    TextRecognizer m_recognizer; // the words in pictures, for the search
     QPointer<QWindow> m_window;
     bool m_active = false;
     bool m_keysRouted = false;
     bool m_pinned = false;
+    bool m_previewOpen = false;
     bool m_recording = true;
     bool m_paused = false;
     QString m_shortcut;

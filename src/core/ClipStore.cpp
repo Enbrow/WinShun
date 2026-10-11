@@ -179,8 +179,9 @@ bool ClipMatcher::matches(const Clip& clip) const
         if (!find(term, clip.source, &start, &length))
             return false;
     }
+    const QString& text = clip.kind == ClipKind::Image ? clip.ocr : clip.text; // a picture: the words in it
     for (const Term& term : m_terms) {
-        if (!find(term, clip.text, &start, &length))
+        if (!find(term, text, &start, &length))
             return false;
     }
     return true;
@@ -361,6 +362,17 @@ bool ClipStore::open(qint64 now)
             && run(db, u"INSERT OR IGNORE INTO groups (id, name, position) VALUES (1, '', 0)"_s);
         if (!created)
             return loaded;
+        // The words in pictures (NULL: not read yet), since GitHub #9: added
+        // to a history from before.
+        bool hasOcr = false;
+        QSqlQuery columns(db);
+        columns.prepare(u"PRAGMA table_info(clips)"_s);
+        if (!run(columns, "Reading the columns"))
+            return loaded;
+        while (columns.next())
+            hasOcr = hasOcr || columns.value(1).toString() == u"ocr"_s;
+        if (!hasOcr && !run(db, u"ALTER TABLE clips ADD COLUMN ocr TEXT"_s))
+            return loaded;
 
         QSqlQuery groups(db);
         groups.prepare(u"SELECT id, name FROM groups ORDER BY position, id"_s);
@@ -372,7 +384,7 @@ bool ClipStore::open(qint64 now)
         QSqlQuery clips(db);
         clips.setForwardOnly(true);
         clips.prepare(u"SELECT id, kind, substr(text, 1, %1), length, hash, created, used, source, sourcePath, groupId, "
-                      u"width, height, bytes, html IS NOT NULL, rtf IS NOT NULL FROM clips ORDER BY used DESC, id DESC"_s
+                      u"width, height, bytes, html IS NOT NULL, rtf IS NOT NULL, ocr FROM clips ORDER BY used DESC, id DESC"_s
                 .arg(kTextInMemory));
         if (!run(clips, "Reading the history"))
             return loaded;
@@ -393,6 +405,8 @@ bool ClipStore::open(qint64 now)
             clip.bytes = clips.value(12).toLongLong();
             clip.html = clips.value(13).toBool();
             clip.rtf = clips.value(14).toBool();
+            clip.read = !clips.value(15).isNull();
+            clip.ocr = clips.value(15).toString();
             loaded.clips.push_back(std::move(clip));
         }
         QSqlQuery last(db);
@@ -465,6 +479,32 @@ int ClipStore::groupSize(qint64 id) const
 QString ClipStore::imagePath(qint64 id) const
 {
     return QDir::toNativeSeparators(m_folder + u"/images/%1.png"_s.arg(id));
+}
+
+std::vector<qint64> ClipStore::unreadPictures() const
+{
+    std::vector<qint64> ids;
+    for (const Clip& c : m_clips) {
+        if (c.kind == ClipKind::Image && !c.read && !imagePending(c.id))
+            ids.push_back(c.id);
+    }
+    return ids;
+}
+
+void ClipStore::setPictureText(qint64 id, const QString& words)
+{
+    const auto it = std::ranges::find(m_clips, id, &Clip::id);
+    if (it == m_clips.end() || it->kind != ClipKind::Image)
+        return; // removed meanwhile
+    it->ocr = words;
+    it->read = true;
+    m_writer->post([id, words](QSqlDatabase& db) {
+        QSqlQuery query(db);
+        query.prepare(u"UPDATE clips SET ocr = ? WHERE id = ?"_s);
+        query.addBindValue(text(words));
+        query.addBindValue(id);
+        run(query, "Saving a picture's words");
+    });
 }
 
 void ClipStore::moveToFront(std::size_t index)
@@ -646,7 +686,7 @@ void ClipStore::restore(std::vector<ClipRecord> records)
         db.transaction();
         QSqlQuery query(db);
         query.prepare(u"INSERT OR REPLACE INTO clips (id, kind, text, length, html, rtf, hash, created, used, source, "
-                      u"sourcePath, groupId, width, height, bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"_s);
+                      u"sourcePath, groupId, width, height, bytes, ocr) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"_s);
         for (const ClipRecord& record : records) {
             const Clip& c = record.clip;
             query.addBindValue(c.id);
@@ -664,6 +704,7 @@ void ClipStore::restore(std::vector<ClipRecord> records)
             query.addBindValue(c.width);
             query.addBindValue(c.height);
             query.addBindValue(c.bytes);
+            query.addBindValue(c.read ? QVariant(text(c.ocr)) : QVariant(QMetaType::fromType<QString>()));
             written.push_back(run(query, "Restoring an entry"));
         }
         db.commit();
