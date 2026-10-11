@@ -470,8 +470,8 @@
         <translation>Choose again</translation>
     </message>
     <message>
-        <source>在搜索结果上右键“加入收藏夹”，或点“添加文件夹…”，或把文件、文件夹拖到这里</source>
-        <translation>Right-click a search result → Add to favorites, click “Add folder…”, or drop files and folders here</translation>
+        <source>在搜索结果上右键“加入收藏夹”，或点“添加文件夹”，或把文件、文件夹拖到这里</source>
+        <translation>Right-click a search result → Add to favorites, click “Add folder”, or drop files and folders here</translation>
     </message>
     <message>
         <source>已不存在 · %1</source>
@@ -1098,8 +1098,8 @@
         </translation>
     </message>
     <message>
-        <source>还没有插件：点“添加插件…”，或把插件文件夹、.zip / .wsplugin 拖到这里</source>
-        <translation>No plugins yet: click “Add plugin…”, or drop a plugin folder or a .zip / .wsplugin here</translation>
+        <source>还没有插件：点“添加插件”，或把插件文件夹、.zip / .wsplugin 拖到这里</source>
+        <translation>No plugins yet: click “Add plugin”, or drop a plugin folder or a .zip / .wsplugin here</translation>
     </message>
     <message>
         <source>添加插件</source>
@@ -4597,8 +4597,8 @@
         <translation>Sign-in needed: Windows has no user name and password for %1 yet</translation>
     </message>
     <message>
-        <source>%1 只允许来宾（不用密码）访问，Windows 默认不允许这样连接。请在 %1 上建一个带密码的账户，再点“登录…”；或者请管理员在组策略里启用“不安全的来宾登录”（会降低安全性）</source>
-        <translation>%1 allows guests only (no password), which Windows does not allow by default. Create an account with a password on %1, then click “Sign in…”; or ask your administrator to enable insecure guest logons in Group Policy (less secure)</translation>
+        <source>%1 只允许来宾（不用密码）访问，Windows 默认不允许这样连接。请在 %1 上建一个带密码的账户，再点“登录”；或者请管理员在组策略里启用“不安全的来宾登录”（会降低安全性）</source>
+        <translation>%1 allows guests only (no password), which Windows does not allow by default. Create an account with a password on %1, then click “Sign in”; or ask your administrator to enable insecure guest logons in Group Policy (less secure)</translation>
     </message>
     <message>
         <source>%1 不支持 Windows 要求的 SMB 签名，多见于老 NAS：请升级它的固件，或请管理员调整签名设置</source>

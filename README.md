@@ -194,7 +194,7 @@
 
 #### 🧩 插件
 
-- 插件给搜索框加关键字命令、把结果混进列表：`kill 名字` 列出进程 Enter 结束，`bm 词` 搜浏览器书签，`= 1+2*3`、`12 inch to cm`、`#ff8800`、`ts 1700000000` 直接出结果（计算、换算、颜色、时间戳、UUID、Base64、哈希都在随包的“小工具”里），`tr 句子` 用你自己的 API 翻译。随包的几个在设置 → **插件** 里打开就能用（默认关着）。
+- 插件给搜索框加关键字命令、把结果混进列表：`kill 名字` 列出进程 Enter 结束，`bm 词` 搜浏览器书签，`= 1+2*3`、`12 inch to cm`、`#ff8800`、`ts 1700000000` 直接出结果（计算、换算、颜色、时间戳、UUID、Base64、哈希都在随包的“小工具”里），`tr 句子` 用你自己的 API 翻译。随包的几个在设置 → **插件** 里打开就能用（默认关着）；书签（`bm`）和翻译（`tr`）是用 Python 写的，要先装 Python 3。
 - **三种写法，一份协议**：只写一个 `plugin.json` 的零代码（关键字开网址、开程序、跳文件夹、保存的搜索、固定清单）；任何语言的一次性脚本（查询从环境变量进，打印 JSON 或纯文本行出）；常驻进程（stdio 上一行一条 JSON-RPC，每次几毫秒）。Python、PowerShell、C++ 各有一个单文件的 SDK；在插件页打开“开发者模式”，多出来的 **开发者** 标签里点“新建插件”，按模板连 SDK 一起生成。
 - **安全**：插件永远以你的普通权限运行（Win顺 自己是管理员，插件不是），有内存上限，Win顺 退出时一起结束；要起子进程、读剪贴板的得在清单里声明，打开开关时逐条列出，Windows 能强制的打勾、不能的（联网、读哪些文件）标明“仅声明”。崩了自动重启，连崩就停用，主程序不受影响。
 - **和 AI 一起用**：标明可给 AI 用的插件，在 AI 助手页打开“AI 可以使用插件”后每个命令就是一个 MCP 工具（只能查询；“结束进程”这类动作要另外打开）。
@@ -449,7 +449,7 @@ The interface comes in **English and Simplified Chinese**. It follows the Window
 
 #### 🧩 Plugins
 
-- Plugins add keyword commands to the search box and mix their rows into the list: `kill name` lists processes and Enter ends one, `bm words` searches your browser bookmarks, `= 1+2*3`, `12 inch to cm`, `#ff8800` and `ts 1700000000` answer right in the list (the bundled “Tools” plugin: calculator, units, colours, timestamps, UUIDs, Base64, hashes), `tr sentence` translates with your own API key. The bundled ones are off until you turn them on under Settings → **插件 (Plugins)**.
+- Plugins add keyword commands to the search box and mix their rows into the list: `kill name` lists processes and Enter ends one, `bm words` searches your browser bookmarks, `= 1+2*3`, `12 inch to cm`, `#ff8800` and `ts 1700000000` answer right in the list (the bundled “Tools” plugin: calculator, units, colours, timestamps, UUIDs, Base64, hashes), `tr sentence` translates with your own API key. The bundled ones are off until you turn them on under Settings → **插件 (Plugins)**; bookmarks (`bm`) and translation (`tr`) are written in Python and need Python 3 installed.
 - **Three ways, one protocol**: zero-code (a `plugin.json` alone: a keyword that opens a URL or a program, jumps to a folder, runs a saved search or lists fixed items); a once script in any language (the query comes in environment variables, JSON or plain text lines go out); a resident process (JSON-RPC lines on stdio, milliseconds per query). Small SDKs for Python, PowerShell and C++; turn on “Developer mode” on the Plugins page, and “New plugin” on the **Developer** tab that appears writes a template with one.
 - **Safety**: plugins always run with your normal rights (WinShun is administrator; they are not), under a memory limit, and end with WinShun. Child processes and the clipboard must be declared and are listed when you turn a plugin on; what Windows enforces is ticked, what it cannot (going online, which files are read) is marked as declared only. A crashing plugin restarts, a repeatedly crashing one is turned off; the launcher never waits for one.
 - **With AI**: plugins that offer themselves become MCP tools once “Allow AI to use plugins” is on under AI assistants (queries only; actions such as ending a process need their own switch).

@@ -963,7 +963,7 @@ QString problemText(const ShareIndexer::Status& s)
         return SettingsEditor::tr("需要登录：Windows 还没有 %1 的用户名和密码").arg(host);
     case P::GuestBlocked:
         return SettingsEditor::tr(
-            "%1 只允许来宾（不用密码）访问，Windows 默认不允许这样连接。请在 %1 上建一个带密码的账户，再点“登录…”；"
+            "%1 只允许来宾（不用密码）访问，Windows 默认不允许这样连接。请在 %1 上建一个带密码的账户，再点“登录”；"
             "或者请管理员在组策略里启用“不安全的来宾登录”（会降低安全性）")
             .arg(host);
     case P::Signing:

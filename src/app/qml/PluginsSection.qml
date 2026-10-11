@@ -128,7 +128,7 @@ SettingsSection {
         }
         description: pluginsSection.plugins.count > 0
                      ? qsTr("%n 个；文件夹或 .zip / .wsplugin 拖到这里也能安装", "", pluginsSection.plugins.count)
-                     : qsTr("还没有插件：点“添加插件…”，或把插件文件夹、.zip / .wsplugin 拖到这里")
+                     : qsTr("还没有插件：点“添加插件”，或把插件文件夹、.zip / .wsplugin 拖到这里")
 
         FlatButton {
             id: addButton

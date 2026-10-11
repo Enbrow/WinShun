@@ -1035,7 +1035,7 @@ std::vector<TemplateFile> templateFiles(const QString& kind, const QString& id, 
                                "- 常驻插件：stdio 上 JSON-RPC 2.0，一行一条：`initialize`、`query`（回 `{\"items\": [...]}`）、`action`（回 `{\"effects\": [...]}`）、`settingsChanged`、`shutdown`；可以发 `winshun/tool`、`winshun/log`、`winshun/notify`、`winshun/progress`。SDK 把这些都包好了。\n"
                                "- 一条结果：`{\"id\", \"title\", \"subtitle\", \"icon\", \"score\", \"autocomplete\", \"open\": {\"path\" | \"url\"}, \"copy\", \"actions\", \"valid\", \"data\"}`。\n"
                                "- 图标：`icon.png`（请用 PNG，不支持 SVG）、`ext:pdf`、`file:C:\\\\...`、`glyph:U+E8E5`、`color:#ff8800`。\n"
-                               "- 改了脚本，开发者模式下会自动重新加载；设置 → 插件 → 高级里能看到每一条消息。完整文档：docs/plugins.md。\n"_s;
+                               "- 改了脚本，开发者模式下会自动重新加载；设置 → 插件 → 开发者 → 消息记录里能看到每一条消息。完整文档：docs/plugins.md。\n"_s;
     if (kind == u"powershell") {
         files.push_back({u"plugin.json"_s, manifestText(id, name, u"用 PowerShell 写的常驻插件"_s, u"{\"mode\": \"resident\", \"program\": \"powershell\", \"script\": \"main.ps1\"}"_s)});
         files.push_back({u"main.ps1"_s,

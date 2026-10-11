@@ -93,7 +93,7 @@ SettingsSection {
                 anchors.centerIn: parent
                 width: parent.width - 32
                 horizontalAlignment: Text.AlignHCenter
-                text: qsTr("在搜索结果上右键“加入收藏夹”，或点“添加文件夹…”，或把文件、文件夹拖到这里")
+                text: qsTr("在搜索结果上右键“加入收藏夹”，或点“添加文件夹”，或把文件、文件夹拖到这里")
                 color: Theme.faint
                 font.pixelSize: Theme.fontCaption
                 wrapMode: Text.Wrap
