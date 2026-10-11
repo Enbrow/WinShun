@@ -287,6 +287,18 @@ bool App::start(const StartOptions& options)
     // The software renderer draws a window with an alpha channel as a layered
     // window, which DWM puts no backdrop behind.
     SystemTheme::setBackdropAvailable(m_renderer == u"d3d11" && win::backdropSupported());
+    if (SystemTheme::backdropAvailable()) {
+        // Grey-scale text, not ClearType: a window see-through to Mica has
+        // alpha 0 under its text, and subpixel glyphs blended there come out
+        // with colour fringes, blue and orange the wrong way round (GitHub
+        // #12). Qt draws them only where the ClearType tuner was run
+        // (HKLM Avalon.Graphics\DISPLAY1 PixelStructure). For every window
+        // and from the start: the transparency can be turned on at any
+        // time, and the text items copy the application font when made.
+        QFont font = QGuiApplication::font();
+        font.setStyleStrategy(QFont::StyleStrategy(font.styleStrategy() | QFont::NoSubpixelAntialias));
+        QGuiApplication::setFont(font);
+    }
 
     const QString dataDir = Settings::dataDir();
     QDir().mkpath(dataDir);

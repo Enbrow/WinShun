@@ -243,6 +243,13 @@
 - **做法**：`prepareBackdrop` 设好 `alphaBufferSize(8)` 后，再连上 `colorChanged`，格式里的 alpha 被去掉就加回来（`App.cpp`）。这样格式和交换链一直一致；交换链将来要是重建，也还是带 alpha 的。
 - **实测**（2026-10-09）：启动器开关 5 次，旧版每次 1 行，新版 0 行。
 
+### 透明窗口上的字有蓝橙彩边（GitHub #12）
+
+- **现象**：开着透明效果，搜索框的字边上一圈蓝、橙色，放大看左蓝右橙，和普通 ClearType（左橙右蓝）正好反过来；关掉透明效果就正常。只在部分电脑上出现，开发机上从来看不到。
+- **原因**：Qt 用 FreeType 画字时，只有 `HKLM\SOFTWARE\Microsoft\Avalon.Graphics\DISPLAY1` 下有 `PixelStructure`（跑过 Windows 的“ClearType 文本调谐器”才有）才出子像素字形（`QWindowsScreen::subpixelAntialiasingTypeHint`），控制面板里开着 ClearType 不算。子像素字形的着色器按 R、G、B 各自的覆盖率和目标混合，透明处的目标 alpha 是 0，混出来的颜色和 alpha 对不上，DWM 再叠到 Mica 上就成了反向的彩边。
+- **做法**：能用 Mica 的电脑（`SystemTheme::backdropAvailable`）在建窗口前给应用字体加 `QFont::NoSubpixelAntialias`，所有字都用灰度抗锯齿（`App::start`）。Windows 11 自己的 Mica 界面也是灰度。不按“透明效果”开没开来定：字体在文字项创建时复制一次，之后改应用字体传不到已有的项，而透明效果随时能开。任务栏上的框是 Direct2D 画的，早就用灰度了（`TaskbarSearchBox.cpp`）。
+- **怎么查**：开发机上用环境变量 `QT_SUBPIXEL_AA_TYPE=RGB` 就能复现。2026-10-11 用一个小程序（FreeType、D3D11、NativeTextRendering、同样的字体）截图比过：子像素字在 Mica 上平均色差 21、最大 91，方向反了；在不透明底上是正常的 ClearType；灰度在两种底上都是 0。
+
 ### 软件渲染时没有材质
 
 - 软件渲染器把带 alpha 通道的窗口做成分层窗口，DWM 不在它背后画材质。只在用 D3D11 绘制时启用（`SystemTheme.backdropAvailable`）。
