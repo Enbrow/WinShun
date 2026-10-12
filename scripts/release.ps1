@@ -2,9 +2,9 @@
 .SYNOPSIS
     Package a release: build and deploy (build.ps1 -Deploy), then the
     installer dist\WinShun-<version>-x64-setup.exe (installer\WinShun.iss,
-    Inno Setup 6.5 or later) and dist\SHA256SUMS.txt. With -Publish, also the
-    GitHub release v<version> (gh must be logged in). Only the installer is
-    published: there is no portable zip.
+    Inno Setup 6.5 or later), the portable dist\WinShun-<version>-x64-portable.zip
+    (the same folder) and dist\SHA256SUMS.txt. With -Publish, also the GitHub
+    release v<version> (gh must be logged in).
 
     The version comes from project(VERSION) in CMakeLists.txt; the release
     notes from docs/release-notes/v<version>.md. Their opening paragraph and
@@ -57,12 +57,23 @@ $setup = Join-Path $dist "WinShun-$version-x64-setup.exe"
 if ($LASTEXITCODE -or -not (Test-Path $setup)) { throw 'Inno Setup failed' }
 Write-Host "Packaged $setup"
 
+# The portable copy (GitHub #13): the same folder, unzipped anywhere. Its
+# settings and index are where the installed one keeps them (%APPDATA%,
+# %LOCALAPPDATA%).
+$portable = Join-Path $dist "WinShun-$version-x64-portable.zip"
+Remove-Item $portable -ErrorAction SilentlyContinue
+Compress-Archive -Path (Join-Path $dist 'WinShun') -DestinationPath $portable -CompressionLevel Optimal
+Write-Host "Packaged $portable"
+
 $sums = Join-Path $dist 'SHA256SUMS.txt'
-Set-Content $sums "$((Get-FileHash $setup -Algorithm SHA256).Hash.ToLower())  $(Split-Path $setup -Leaf)" -Encoding ascii -NoNewline
+$lines = foreach ($file in $setup, $portable) {
+    "$((Get-FileHash $file -Algorithm SHA256).Hash.ToLower())  $(Split-Path $file -Leaf)"
+}
+Set-Content $sums ($lines -join "`n") -Encoding ascii -NoNewline
 Get-Content $sums
 
 if ($Publish) {
-    gh release create $tag $setup $sums --repo LingCore/WinShun --title "Win顺 $version" --notes-file $notes --target main
+    gh release create $tag $setup $portable $sums --repo LingCore/WinShun --title "Win顺 $version" --notes-file $notes --target main
     if ($LASTEXITCODE) { throw 'gh release create failed' }
     Write-Host "Published $tag"
 }

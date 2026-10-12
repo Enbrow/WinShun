@@ -175,6 +175,8 @@
 2. 装完托盘里出现 Win顺 的图标，索引几秒就建好。连按两下 Ctrl 开始搜索。
 3. 升级时运行新的安装程序，设置和索引都保留。卸载在 Windows 的“设置 → 应用”里。
 
+不想安装的话，下载 `WinShun-版本号-x64-portable.zip`，解压到任意文件夹，运行里面的 `WinShun.exe` 就行。设置和索引和安装版放在同一个地方（`%APPDATA%\WinShun`、`%LOCALAPPDATA%\WinShun`），不在解压的文件夹里；升级时用新版的文件夹换掉旧的。
+
 系统要求：Windows 10 或 11，64 位。
 
 ### 为什么需要管理员权限
@@ -291,6 +293,8 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 1. Download `WinShun-<version>-x64-setup.exe` from the [Releases page](https://github.com/LingCore/WinShun/releases/latest) and run it. If Windows says “Windows protected your PC”, click **More info → Run anyway**: the app is not code-signed yet.
 2. When the WinShun icon appears in the notification area, it is running; the first index takes a few seconds. Press Ctrl twice and type.
 3. To upgrade, run a newer installer: your settings and index are kept. Uninstall from Windows Settings → Apps.
+
+To skip the installer, download `WinShun-<version>-x64-portable.zip`, unzip it anywhere and run `WinShun.exe` in it. Settings and index live where the installed copy keeps them (`%APPDATA%\WinShun`, `%LOCALAPPDATA%\WinShun`), not in that folder; to upgrade, replace the folder with the newer one.
 
 Requires Windows 10 or 11, 64-bit.
 
