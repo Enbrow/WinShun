@@ -71,7 +71,7 @@ README_WIDTH = 1080
 # 18 images: as many as a Xiaohongshu post takes.
 PAGES = (
     ("01-search", "L-search", "打拼音首字母，[秒找文件]", "ndbg → 年度报告，三百多万个文件几毫秒搜完"),
-    ("02-numbers", "L-numbers", "按住 Ctrl，[数字直达]", "每行标出序号，Ctrl+1～9 打开第几行"),
+    ("02-numbers", "L-numbers", "序号在图标上，[数字直达]", "Ctrl+1～9 打开第几行，不用先按住 Ctrl"),
     ("03-newest", "X-newest", "找[最新的那一版]", "Ctrl+S 按修改时间排，最新的或最早的在前"),
     ("04-content", "L-content", "搜[文件里的文字]", "Word、Excel、PPT、PDF、代码，一起搜"),
     ("05-apps", "L-apps", "应用和设置，[拼音直达]", "guanliqi → 任务管理器、设备管理器……"),
@@ -177,8 +177,8 @@ def main() -> None:
     c.add_argument("folder", nargs="?", default=WORK / "profile")
     c.add_argument("--files", help="the only folder indexed (default: the demo folder)")
     c.add_argument("--recent", nargs="*", help="recently opened, newest first (default: some of the demo folder)")
-    c.add_argument("--number-keys", default="off", choices=("ctrl", "alt", "off"),
-                   help="the launcher's number keys (default: off, so a held Ctrl shows nothing)")
+    c.add_argument("--number-keys", default="ctrl", choices=("ctrl", "alt", "off"),
+                   help="the launcher's number keys (default: ctrl, as WinShun's own; off takes the numbers off the icons)")
     c = commands.add_parser("shoot")
     c.add_argument("-o", "--out", required=True)
     c.add_argument("--delay", type=float, default=0.0, help="seconds to wait first, to bring the window up")

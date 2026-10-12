@@ -205,7 +205,7 @@ def seed_clipboard(folder):
     return len(rows)
 
 
-def make_profile(folder, files, recent, number_keys="off"):
+def make_profile(folder, files, recent, number_keys="ctrl"):
     """A folder for `WinShun.exe --profile <folder>`: this user's settings,
     but nothing indexed outside `files`, no update check, the built-in web
     shortcuts only, no shares, `recent` (paths, newest first) as the recently

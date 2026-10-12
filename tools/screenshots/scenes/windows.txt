@@ -2,8 +2,8 @@
 # D dark; light.txt and dark.txt set it and the theme). The launcher keeps
 # its scope from one opening to the next and starts at 全部 when WinShun
 # starts: this file starts and ends at 全部. Scopes are changed with
-# Shift+Tab (全部 → 内容 → 文件夹 → 文件), since Tab on a folder row goes
-# into the folder. End before each shot, so that the query isn't selected;
+# Shift+Tab (全部 → 内容 → 文件), since Tab on a folder row goes into the
+# folder and in 文件 steps through the kinds. End before each shot, so that the query isn't selected;
 # the agent drops leading spaces, so a space is typed with `tap 20`.
 
 # The clipboard history over Notepad (Win+Alt+V, Alt+P for the preview);
@@ -74,11 +74,9 @@ matte {p}-places
 tap 1B
 sleep 600
 
-# 全部 → 文件
+# 全部 → 文件 (its row of kinds under the box)
 open ndbg
 sleep 800
-chord 10 09
-sleep 400
 chord 10 09
 sleep 400
 chord 10 09
@@ -101,9 +99,7 @@ sleep 1500
 tap 23
 sleep 500
 matte {p}-content
-# 内容 → 文件夹 → 文件 → 全部
-chord 10 09
-sleep 300
+# 内容 → 文件 → 全部
 chord 10 09
 sleep 300
 chord 10 09
