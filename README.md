@@ -125,7 +125,7 @@
 - **对话框旁的搜索框**：输入文件夹或文件名（拼音也行），回车，对话框直接转过去；网页上传文件、WPS 的对话框也认。
 - **`Ctrl+G`**：转到资源管理器、Total Commander 或 Directory Opus 正在显示的文件夹，和 Listary 的同名快捷键一样。
 - **不输入时**：列出打开着的文件夹、刚复制的路径、收藏和最近用过的文件夹。
-- **自动转过去**：可以设成对话框一出现就转到文件管理器的文件夹。
+- **自动转过去**：可以设成对话框一出现就转到文件管理器的文件夹，或者先停在上次的位置，从文件管理器切回来时再转。
 
 #### 📋 剪贴板历史（代替 Win+V）
 
@@ -196,7 +196,7 @@ Listary、PowerToys 的“查找鼠标”默认也用双击 Ctrl，关掉其中�
 Win顺 以管理员身份运行，Windows 不让普通权限的程序拦截发给它的按键。用 AutoHotkey 的 UI Access 模式，或以管理员身份运行脚本。
 
 **占多少内存？索引能不放 C 盘吗？**
-- **内存**：每 100 万个文件约 30 MB，整个程序一般 120～140 MB。
+- **内存**：每 100 万个文件约 30 MB，用着的时候整个程序一般 120～140 MB；不用它一分钟后，任务管理器里降到十几 MB。
 - **索引位置**：在设置 → 高级 → 索引位置里，可以移到其他内置硬盘。
 
 **收费吗？会上传数据吗？**
@@ -262,6 +262,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Search bar**: a search bar under every file dialog; type a name (pinyin too), press Enter, and the dialog goes there.
   - **`Ctrl+G`**: jumps to the folder open in File Explorer, Total Commander or Directory Opus, like Listary.
   - **Suggestions**: open folders, a path you just copied, favorites and recent folders.
+  - **Going there by itself**: optional, as the dialog opens, or only when you come back to it from the file manager.
 - 📋 **Clipboard history (replaces Win+V)**
   - **What**: text, pictures and files, opened with `Win+V` or your own shortcut, by the text cursor, without taking the focus.
   - **Search**: pinyin, `@app` filters, and **words in copied pictures** (Windows' own OCR, on your PC).
@@ -315,7 +316,7 @@ Listary and PowerToys' Find My Mouse use it too: turn it off on one side, or giv
 WinShun runs as administrator, and Windows keeps normal-rights programs from intercepting keys sent to it. Run the script with UI Access, or as administrator.
 
 **Memory? Index location?**
-- **Memory**: about 30 MB of index per million files; the whole app is usually 120–140 MB.
+- **Memory**: about 30 MB of index per million files; the whole app is usually 120–140 MB while in use, and drops to about 15 MB in Task Manager a minute after you stop using it.
 - **Index location**: the index can move to another built-in drive under Settings → Advanced.
 
 **Is it free? Does it collect data?**
