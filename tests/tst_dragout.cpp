@@ -96,6 +96,25 @@ private slots:
         QCOMPARE(preferredEffect(data.Get()), DWORD(DROPEFFECT_COPY));
     }
 
+    void qtImagePath()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QVERIFY(QDir(dir.path()).mkpath(u"图片 export"_s));
+        // Clipboard exports start as Qt paths, including spaces and Unicode.
+        const QString path = dir.filePath(u"图片 export/image_261.png"_s);
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("image bytes");
+        file.close();
+        const auto data = dragout::dataObject({path});
+        QVERIFY(data);
+        QCOMPARE(dropped(data.Get()), QStringList {QDir::toNativeSeparators(path)});
+        QCOMPARE(preferredEffect(data.Get()), DWORD(DROPEFFECT_COPY));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), QByteArray("image bytes")); // data object never changes the source
+    }
+
     void missingOnes()
     {
         QTemporaryDir dir;

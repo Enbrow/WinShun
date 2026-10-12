@@ -3,12 +3,14 @@
 #include "ColorText.h"
 #include "FileIconProvider.h"
 #include "TextField.h"
+#include "platform/DragOut.h"
 #include "platform/Paster.h"
 #include "platform/Shell.h"
 #include "platform/WindowEffects.h"
 
 #include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QCoreApplication>
 #include <QGuiApplication>
@@ -58,6 +60,7 @@ Clipboard::Clipboard(ClipStore* store, ClipboardWatcher* watcher, QObject* paren
     , m_store(store)
     , m_watcher(watcher)
     , m_model(store)
+    , m_dragFiles(QDir::tempPath() + u"/winshun-clipboard-XXXXXX"_s)
 {
     m_separator = m_store->value(u"separator"_s);
     if (!kSeparators.contains(m_separator))
@@ -644,6 +647,38 @@ void Clipboard::copy(int row)
     const QString done = clips.size() > 1 ? tr("已把 %Ln 条合在一起复制", nullptr, static_cast<int>(clips.size()))
                                           : tr("已复制");
     startPaste(std::move(write), Into::Clipboard, std::move(touched), done);
+}
+
+void Clipboard::dragOut(int row)
+{
+    if (m_pasting || m_dragging || !m_window)
+        return;
+    const Clip* clip = m_model.at(row);
+    if (!clip || clip->kind != ClipKind::Image)
+        return;
+    const qint64 id = clip->id;
+    // Wait for a newly captured image, then stage a copy outside the history.
+    // Keep it until shutdown: Explorer can finish copying after OLE returns.
+    const QString original = m_store->payload(id).imagePath;
+    const QString exported = m_dragFiles.filePath(u"image_%1.png"_s.arg(id));
+    if (!m_dragFiles.isValid() || (!QFile::exists(exported) && !QFile::copy(original, exported))) {
+        flash(tr("无法准备要拖出的图片"));
+        return;
+    }
+    const auto hwnd = reinterpret_cast<HWND>(m_window->winId());
+    m_dragging = true;
+    emit focusNeeded(); // stop key routing so OLE receives Escape and Ctrl
+    const auto outcome = dragout::drag({exported}, hwnd, false);
+    // OLE consumes the release; clear Qt's pressed state without pasting.
+    POINT p {};
+    ::GetCursorPos(&p);
+    ::ScreenToClient(hwnd, &p);
+    ::PostMessageW(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(static_cast<short>(p.x), static_cast<short>(p.y)));
+    m_dragging = false;
+    if (outcome == dragout::Outcome::Failed)
+        flash(tr("无法拖出图片"));
+    else if (outcome == dragout::Outcome::Dropped)
+        emit dismissRequested();
 }
 
 void Clipboard::copyText(const QString& text, bool remember)
