@@ -123,10 +123,17 @@ end;
 // --quit through the installed copy, or WM_CLOSE to its message window (a
 // portable copy elsewhere; WinShun 0.2.1 and later). One still running after
 // a while is ended.
+// First the MCP relays (WinShunMcp.exe): an AI client (Claude, Cursor, VS
+// Code) keeps one running for as long as it is open, with Qt6Core.dll and
+// msvcp140.dll from the install folder loaded, so those could not be
+// replaced (DeleteFile, code 5). Ended before WinShun, too: one would start
+// WinShun again through its autostart task when a tool is called.
 procedure CloseWinShun(Exe: String);
 var
   ResultCode, Waited: Integer;
 begin
+  if Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM WinShunMcp.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
+    Sleep(500); // for the files to be let go
   if not WinShunRunning() then
     exit;
   if FileExists(Exe) then
