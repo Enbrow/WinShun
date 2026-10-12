@@ -98,7 +98,8 @@ $allowed = @()
 function WsPid { $p = Get-Process WinShun -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe } | Select-Object -First 1; if ($p) { [uint32]$p.Id } else { 0 } }
 function InFront {
     $pid0 = [A]::Pid([A]::GetForegroundWindow())
-    if ($pid0 -eq (WsPid)) { return $true }
+    # any WinShun of $exe: `open` starts a second one that hands the query over and exits, and WsPid may pick that one
+    if (@(Get-Process WinShun -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe } | ForEach-Object Id) -contains $pid0) { return $true }
     try { $name = (Get-Process -Id $pid0).ProcessName } catch { return $false }
     return $allowed -contains $name
 }

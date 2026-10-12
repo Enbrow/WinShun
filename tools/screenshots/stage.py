@@ -230,6 +230,7 @@ def make_profile(folder, files, recent, number_keys="ctrl"):
     text = ini_set(text, "Update", {"Automatic": "false"})
     text = ini_drop(text, "WebSearch", "Shares")  # one's own sites and shares stay out; the defaults come back
     text = ini_set(text, "Results", {"Sort": "match", "StartList": "recent", "NumberKeys": number_keys})
+    text = ini_set(text, "Launcher", {"DialogAutoJumpAsked": "true"})  # no question under the dialog bar
     (folder / "WinShun" / "WinShun.ini").write_text(text, encoding="utf-8")
     now = int(time.time() * 1000)
     lines = [f"{pathlib.Path(p)}\t1\t{now - i * 7 * 60_000}" for i, p in enumerate(recent)]

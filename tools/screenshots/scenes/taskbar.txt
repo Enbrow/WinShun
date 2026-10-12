@@ -5,8 +5,9 @@
 # another screen or place: find it again, and measure TASKBAR in art.py on
 # the new screen-taskbar.png.
 scene --theme light --wallpaper dawn
-sleep 2500
-clickbox 700 1564
+# the box is placed again after the theme changes
+sleep 6000
+clickbox 560 1564
 sleep 1200
 type ndbg
 sleep 800
