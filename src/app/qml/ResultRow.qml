@@ -259,49 +259,11 @@ Item {
         }
     }
 
-    Loader { // its number on the icon's corner: Ctrl+1 (or Alt+1) opens the row that shows "1"
-        active: row.hint > 0
-        // The digit centred a little inside the icon's top right; on whole
-        // device pixels (the halo is a layer: no blur); not dimmed with the icon.
+    IconNumber { // Ctrl+1 (or Alt+1) opens the row that shows "1"
+        number: row.hint
+        // The digit centred a little inside the icon's top right.
         x: row.onPixel(iconSlot.x + iconSlot.width - 2 - width / 2)
         y: row.onPixel(iconSlot.y + 4 - height / 2)
-        width: 24
-        height: 24
-
-        sourceComponent: Item {
-            id: number
-
-            readonly property font face: Qt.font({ family: "Segoe UI", weight: Font.DemiBold, pixelSize: 20 })
-
-            Item { // a halo of the window's dark (light), so it reads over any icon and on the selected row alike
-                anchors.fill: parent
-                opacity: Theme.dark ? 0.6 : 0.9
-                layer.enabled: true // the copies made one shape first, then faded as one
-
-                Repeater {
-                    model: 17 // itself, then a ring of 16 around it
-
-                    CenteredNumber {
-                        id: copy
-
-                        required property int index
-
-                        text: row.hint
-                        font: number.face
-                        color: Theme.dark ? "black" : "white"
-                        transform: Translate {
-                            x: copy.index > 0 ? 1.5 * Math.cos(copy.index * Math.PI / 8) : 0
-                            y: copy.index > 0 ? 1.5 * Math.sin(copy.index * Math.PI / 8) : 0
-                        }
-                    }
-                }
-            }
-            CenteredNumber {
-                text: row.hint
-                font: number.face
-                color: Theme.text
-            }
-        }
     }
 
     MouseArea {

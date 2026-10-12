@@ -5,7 +5,8 @@ import WinShun
 // icon, a colour's swatch, or a sign for text and links), its first line
 // (or where the query matched), where it came from and when. A click
 // shows it in the preview; its paste button or a double click pastes it
-// (ClipboardPage.qml). Picked rows show the order they will be pasted in;
+// (ClipboardPage.qml). The first nine show on the icon the number that
+// pastes them (Alt+1…); picked rows show the order they will be pasted in;
 // the current and the hovered row show buttons: paste, pin, delete.
 Item {
     id: row
@@ -22,12 +23,12 @@ Item {
     required property string groupName
     required property bool pinned
     required property bool missing
-    property int hint: 0 // its modifier held: the number that pastes this row (Alt+1...), 0 for none
+    property int hint: 0 // the number that pastes this row (Alt+1...), on its icon; 0 for none
     property string pasteTip: qsTr("粘贴") // where the paste button pastes ("粘贴到搜索框")
 
     readonly property bool current: ListView.isCurrentItem
     readonly property int selectedCount: ListView.view ? ListView.view.model.selectedCount : 0
-    readonly property bool showActions: (current || area.containsMouse) && hint === 0
+    readonly property bool showActions: current || area.containsMouse
 
     signal clicked(int index, int modifiers)
     signal pasteRequested(int index) // its paste button, a double click
@@ -63,9 +64,10 @@ Item {
         id: iconSlot
         x: 16
         anchors.verticalCenter: parent.verticalCenter
-        // Pictures larger: what is in them shows (GitHub #9).
-        width: row.kind === 4 ? 72 : 32
-        height: row.kind === 4 ? 48 : 32
+        // Pictures larger, on a taller row (ClipboardPage.pictureRowHeight):
+        // what is in them shows (GitHub #9); 108 x 68 holds a 16:10 screen whole.
+        width: row.kind === 4 ? 108 : 32
+        height: row.kind === 4 ? 68 : 32
 
         Rectangle { // text and links: a sign on a soft tile
             anchors.fill: parent
@@ -172,7 +174,6 @@ Item {
         anchors.leftMargin: 12
         anchors.right: parent.right
         anchors.rightMargin: (row.showActions ? actions.width + actions.anchors.rightMargin
-                              : keycap.visible ? keycap.width + keycap.anchors.rightMargin
                               : badge.visible ? badge.width + badge.anchors.rightMargin : 8) + 8
         spacing: 4
 
@@ -200,7 +201,7 @@ Item {
 
     Rectangle { // in a group: which
         id: badge
-        visible: row.groupName.length > 0 && !row.showActions && row.hint === 0
+        visible: row.groupName.length > 0 && !row.showActions
         anchors.right: parent.right
         anchors.rightMargin: 16
         anchors.verticalCenter: parent.verticalCenter
@@ -233,13 +234,13 @@ Item {
         }
     }
 
-    KeyCap { // the modifier held (Alt): it and this number paste the row
-        id: keycap
-        visible: row.hint > 0
-        anchors.right: parent.right
-        anchors.rightMargin: 16
-        anchors.verticalCenter: parent.verticalCenter
+    IconNumber { // Alt+1 (or Ctrl+1) pastes the row that shows "1"
+        // A little inside the top right of the icon, or of the picture as
+        // drawn (narrower or flatter than its slot), as in the launcher.
+        readonly property bool picture: row.kind === 4 && thumbnail.ready
         number: row.hint
+        x: row.onPixel(iconSlot.x + (picture ? thumbnail.x + thumbnail.width : iconSlot.width) - 2 - width / 2)
+        y: row.onPixel(iconSlot.y + (picture ? thumbnail.y : 0) + 4 - height / 2)
     }
 
     MouseArea {

@@ -661,7 +661,11 @@ void Clipboard::copyText(const QString& text, bool remember)
         write.id = m_store->add(capture, now());
         historyChanged();
     }
-    startPaste(std::move(write), Into::Clipboard, {}, tr("已复制 %1").arg(text));
+    // Named in the status line: its first line, cut short (a picture's words run to many).
+    QString shown = text.section(u'\n', 0, 0).trimmed();
+    if (shown.size() > 40 || shown.size() < text.trimmed().size())
+        shown = shown.left(40) + u'…';
+    startPaste(std::move(write), Into::Clipboard, {}, tr("已复制 %1").arg(shown));
 }
 
 void Clipboard::togglePin(int row)

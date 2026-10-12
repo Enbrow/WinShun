@@ -191,6 +191,14 @@
         <source>图中的文字</source>
         <translation>Words in the picture</translation>
     </message>
+    <message>
+        <source>复制选中</source>
+        <translation>Copy selection</translation>
+    </message>
+    <message>
+        <source>复制文字</source>
+        <translation>Copy text</translation>
+    </message>
     <message numerus="yes">
         <source>还有 %Ln 个</source>
         <translation>
@@ -238,7 +246,62 @@
     </message>
 </context>
 <context>
+    <name>ShortcutsButton</name>
+    <message>
+        <source>快捷键</source>
+        <translation>Shortcuts</translation>
+    </message>
+</context>
+<context>
     <name>ClipboardPage</name>
+    <message>
+        <source>粘贴第几条</source>
+        <translation>Paste row</translation>
+    </message>
+    <message>
+        <source>粘贴为纯文本</source>
+        <translation>Paste as plain text</translation>
+    </message>
+    <message>
+        <source>第几条粘贴为纯文本</source>
+        <translation>Paste that row as plain text</translation>
+    </message>
+    <message>
+        <source>打开或关闭预览</source>
+        <translation>Open or close the preview</translation>
+    </message>
+    <message>
+        <source>上一个分类</source>
+        <translation>Previous category</translation>
+    </message>
+    <message>
+        <source>上下移动，PgUp PgDn 翻页</source>
+        <translation>Move up and down; PgUp PgDn by the page</translation>
+    </message>
+    <message>
+        <source>选中多条，也可 Ctrl+单击、Shift+单击；按选的顺序一起粘贴</source>
+        <translation>Select several, or Ctrl+click, Shift+click; they paste together in the order picked</translation>
+    </message>
+    <message>
+        <source>复制；预览里选中了图中的字时，复制那一段</source>
+        <translation>Copy; with words of a picture selected in the preview, copy those</translation>
+    </message>
+    <message>
+        <source>固定或取消固定</source>
+        <translation>Pin or unpin</translation>
+    </message>
+    <message>
+        <source>删除，Ctrl+Z 撤销</source>
+        <translation>Delete; Ctrl+Z undoes it</translation>
+    </message>
+    <message>
+        <source>右键菜单</source>
+        <translation>Context menu</translation>
+    </message>
+    <message>
+        <source>关闭；选中了多条时先取消选择</source>
+        <translation>Close; with several selected, unselect them first</translation>
+    </message>
     <message>
         <source>搜索剪贴板，支持拼音</source>
         <translation>Search the clipboard</translation>
@@ -2467,8 +2530,8 @@
         <translation>Used to open folders and the folder a file is in</translation>
     </message>
     <message>
-        <source>按 %1+1 粘贴第一条，加按 Shift 粘贴为纯文本</source>
-        <translation>%1+1 pastes the first entry; add Shift to paste it as plain text</translation>
+        <source>前九条的图标上标着序号，按 %1+1 粘贴第一条，加按 Shift 粘贴为纯文本</source>
+        <translation>The first nine show their number on the icon; %1+1 pastes the first entry, add Shift to paste it as plain text</translation>
     </message>
     <message>
         <source>按扩展名列出；Word、PDF 等文档由“搜索文档”负责</source>

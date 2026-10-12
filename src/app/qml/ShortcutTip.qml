@@ -3,16 +3,17 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import WinShun
 
-// The launcher's shortcuts the footer has no room for, shown while the
-// mouse rests on its info button: the keys, and beside them what they do.
+// The shortcuts a footer has no room for, shown while the mouse rests on its
+// info button (ShortcutsButton): the keys, and beside them what they do.
 // A window of its own (as ContextMenu), so it is not cut off by a launcher
 // that is short (nothing typed: just the search box and the footer). It
-// never takes the focus, nor the mouse. `host` is the launcher: the screen
-// area and the native styling of the window (rounded, shadowed).
+// never takes the focus, nor the mouse. `host` is the launcher or the
+// clipboard: the screen area and the native styling of the window (rounded,
+// shadowed).
 Window {
     id: tip
 
-    required property Launcher host
+    required property QtObject host
     // [[keys, what they do], …]
     property var rows: []
 

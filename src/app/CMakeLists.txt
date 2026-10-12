@@ -82,6 +82,8 @@ set(qml_files
     qml/FavoriteForm.qml
     qml/ShareCard.qml
     qml/CenteredNumber.qml
+    qml/IconNumber.qml
+    qml/ShortcutsButton.qml
     qml/KeyCap.qml
     qml/Chip.qml
     qml/HotkeyRecorder.qml

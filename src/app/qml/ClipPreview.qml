@@ -11,7 +11,15 @@ Item {
 
     property var info: ({}) // Clipboard.preview(row)
     property real parentTop // where the parent's top is in the window: to draw on whole device pixels
-    signal copyRequested(string text, bool remember) // one of a colour's notations was clicked
+    signal copyRequested(string text, bool remember) // one of a colour's notations, a picture's words
+
+    // A picture's words: those selected with the mouse, or all of them, copied
+    // as a copy of anyone's (into the history too).
+    readonly property string selectedWords: kind === 4 ? words.selectedText : ""
+    function copyWords() {
+        copyRequested(selectedWords.length > 0 ? selectedWords : words.text, true)
+        words.deselect()
+    }
 
     readonly property int kind: info.kind ?? -1
     readonly property bool hasColors: (info.colors ?? []).length > 0
@@ -170,19 +178,67 @@ Item {
                 width: parent.width
                 spacing: 4
 
-                Text {
-                    text: qsTr("图中的文字")
-                    color: Theme.faint
-                    font.pixelSize: Theme.fontCaption
+                Item {
+                    width: parent.width
+                    height: copyWordsButton.height
+
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: qsTr("图中的文字")
+                        color: Theme.faint
+                        font.pixelSize: Theme.fontCaption
+                    }
+                    Rectangle { // copies the words selected, or all of them
+                        id: copyWordsButton
+                        anchors.right: parent.right
+                        width: copyWordsRow.implicitWidth + 16
+                        height: 26
+                        radius: 6
+                        color: copyWordsArea.containsMouse ? Theme.hover : "transparent"
+
+                        Row {
+                            id: copyWordsRow
+                            anchors.centerIn: parent
+                            spacing: 6
+
+                            Glyph {
+                                anchors.verticalCenter: parent.verticalCenter
+                                glyph: "" // Copy
+                                size: 13
+                                color: Theme.accent
+                            }
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: preview.selectedWords.length > 0 ? qsTr("复制选中") : qsTr("复制文字")
+                                color: Theme.accent
+                                font.pixelSize: Theme.fontCaption
+                            }
+                        }
+                        MouseArea {
+                            id: copyWordsArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: preview.copyWords()
+                        }
+                    }
                 }
-                Text {
+                // Selectable with the mouse, without the focus: the keys
+                // stay in the search field, whose Ctrl+C copies what is
+                // selected here (ClipboardPage), as the button does.
+                TextEdit {
+                    id: words
                     width: parent.width
                     text: preview.info.words ?? ""
-                    textFormat: Text.PlainText
-                    wrapMode: Text.Wrap
+                    textFormat: TextEdit.PlainText
+                    wrapMode: TextEdit.Wrap
+                    readOnly: true
+                    selectByMouse: true
+                    activeFocusOnPress: false
                     color: Theme.subtext
+                    selectionColor: Theme.textSelection
+                    selectedTextColor: Theme.text
                     font.pixelSize: Theme.fontBody
-                    lineHeight: 1.15
                 }
             }
 

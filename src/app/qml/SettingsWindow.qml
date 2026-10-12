@@ -2576,7 +2576,7 @@ Window {
                 SettingRow {
                     title: qsTr("用数字键直接粘贴")
                     keywords: qsTr("快捷键;数字键;序号;Alt+1;Ctrl+1;冲突;hotkey").split(";")
-                    description: qsTr("按 %1+1 粘贴第一条，加按 Shift 粘贴为纯文本")
+                    description: qsTr("前九条的图标上标着序号，按 %1+1 粘贴第一条，加按 Shift 粘贴为纯文本")
                                  .arg(window.editor.clipboardNumberKeys === "ctrl" ? "Ctrl" : "Alt")
 
                     ScopeTabs {

@@ -25,7 +25,8 @@ Item {
 
     signal previewOpening() // just before: the window sizes it (ClipboardWindow.qml)
 
-    readonly property int rowHeight: 60
+    readonly property int rowHeight: 60 // what the window's height is counted in
+    readonly property int pictureRowHeight: 80 // a picture's row: its thumbnail larger (ClipRow)
     // Opened from a field of Win顺's own: Enter pastes there, Esc goes back.
     readonly property bool intoField: clipboard.fieldName.length > 0
     readonly property string pasteLabel: intoField ? qsTr("粘贴到%1").arg(clipboard.fieldName) : qsTr("粘贴")
@@ -48,7 +49,6 @@ Item {
         list.contentY = list.originY - list.topMargin
     }
     function windowHidden() {
-        hideNumbers()
         closeContextMenu()
         menuLoader.active = false
         tabs.stopNaming()
@@ -80,24 +80,14 @@ Item {
         if (list.count > 0)
             selectTo(Math.max(0, Math.min(list.count - 1, list.currentIndex + delta)), false)
     }
-    // The modifier of the number keys held (Clipboard.numberKeys): the first
-    // nine rows show the number that pastes them (Alt+1...). Alt at once;
-    // Ctrl after a moment held alone, as it also picks rows with a click and
-    // starts Ctrl+P, Ctrl+Z.
+    // The number keys (Clipboard.numberKeys): Alt+1... pastes the first nine
+    // rows, whose numbers are on their icons all along (as in the launcher;
+    // shown only while the modifier was held, they swapped the right of
+    // every row).
     readonly property int numberKey: clipboard.numberKeys === "alt" ? Qt.Key_Alt
                                    : clipboard.numberKeys === "ctrl" ? Qt.Key_Control : -1
     readonly property int numberModifier: numberKey === Qt.Key_Alt ? Qt.AltModifier
                                         : numberKey === Qt.Key_Control ? Qt.ControlModifier : -1
-    property bool numbersHeld: false
-    Timer {
-        id: numbersDelay
-        interval: 200 // as in the launcher
-        onTriggered: page.numbersHeld = true
-    }
-    function hideNumbers() {
-        numbersDelay.stop()
-        numbersHeld = false
-    }
 
     // What the keys act on: the picked rows (-1) if any, else the current one.
     function targetRow() {
@@ -141,7 +131,7 @@ Item {
         const fromKeyboard = globalPos === undefined
         if (fromKeyboard) {
             list.positionViewAtIndex(index, ListView.Contain)
-            globalPos = list.currentItem.mapToGlobal(56, rowHeight - 6)
+            globalPos = list.currentItem.mapToGlobal(56, list.currentItem.height - 6)
         }
         menuCategory = -1
         menuLoader.active = true
@@ -195,14 +185,6 @@ Item {
         const ctrl = (event.modifiers & Qt.ControlModifier) !== 0
         const shift = (event.modifiers & Qt.ShiftModifier) !== 0
         const alt = (event.modifiers & Qt.AltModifier) !== 0
-        if (numberKey === Qt.Key_Alt) {
-            numbersHeld = alt && !ctrl
-        } else if (event.key === Qt.Key_Control && numberKey === Qt.Key_Control) {
-            if (!event.isAutoRepeat && !alt && !shift)
-                numbersDelay.restart()
-        } else if (event.key !== Qt.Key_Shift) {
-            hideNumbers() // a key with Ctrl (Shift keeps them: Ctrl+Shift+1 pastes plain text)
-        }
         if (event.key === Qt.Key_Alt) {
             event.accepted = true // alone, it would open the window menu
             return
@@ -253,10 +235,14 @@ Item {
         case Qt.Key_Tab: clipboard.cycleCategory(1); break
         case Qt.Key_Backtab: clipboard.cycleCategory(-1); break
         case Qt.Key_C:
-            // Ctrl+C copies text selected in the field; otherwise the entry.
+            // Ctrl+C copies text selected in the field, or a picture's words
+            // selected in the preview; otherwise the entry.
             if (!ctrl || (input.selectedText.length > 0 && selectedCount === 0))
                 return
-            clipboard.copy(targetRow())
+            if (previewOpen && selectedCount === 0 && preview.selectedWords.length > 0)
+                preview.copyWords()
+            else
+                clipboard.copy(targetRow())
             break
         case Qt.Key_P:
             if (!ctrl)
@@ -379,8 +365,6 @@ Item {
                 onTextChanged: page.clipboard.query = text
                 Keys.onPressed: (event) => page.handleKey(event)
                 Keys.onReleased: (event) => {
-                    if (event.key === page.numberKey)
-                        page.hideNumbers()
                     if (event.key === Qt.Key_Alt)
                         event.accepted = true
                 }
@@ -489,8 +473,8 @@ Item {
                     delegate: ClipRow {
                         id: clipRow
                         width: list.width
-                        height: page.rowHeight
-                        hint: page.numbersHeld && index < 9 ? index + 1 : 0
+                        height: clipRow.kind === 4 ? page.pictureRowHeight : page.rowHeight
+                        hint: page.numberKey >= 0 && index < 9 ? index + 1 : 0
                         pasteTip: page.pasteLabel
                         // On whole device pixels wherever the list has scrolled
                         // to (see Main.qml).
@@ -593,6 +577,7 @@ Item {
             }
 
             ClipPreview {
+                id: preview
                 visible: page.previewOpen
                 onCopyRequested: (text, remember) => page.clipboard.copyText(text, remember)
                 x: listArea.width + 1
@@ -628,8 +613,8 @@ Item {
                 id: statusLabel
                 anchors.left: parent.left
                 anchors.leftMargin: 18
-                anchors.right: hints.shown ? hints.left : parent.right
-                anchors.rightMargin: hints.shown ? 12 : 16
+                anchors.right: hints.shown ? hints.left : infoButton.left
+                anchors.rightMargin: hints.shown ? 12 : 8
                 anchors.verticalCenter: parent.verticalCenter
                 visible: page.selectedCount === 0
                 text: page.clipboard.statusText
@@ -690,39 +675,79 @@ Item {
 
             Row {
                 id: hints
-                anchors.right: parent.right
-                anchors.rightMargin: 16
+                anchors.right: infoButton.left
+                anchors.rightMargin: 8
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 14
 
                 // Room for them all, unless rows are picked: what says so (and
                 // what several are joined with) takes it.
                 readonly property bool roomy: page.selectedCount === 0 || page.previewOpen
+                // Beside the hints: the status's margin and gap, the info button.
+                readonly property real reserved: 18 + 12 + 8 + infoButton.width + infoButton.anchors.rightMargin
                 // Out of the way of a message too long to share the line with
                 // them ("已删除 1 条，按 Ctrl+Z 撤销"), while it shows.
                 // Pinned without the keys: no key does anything here; the
                 // status says what a click does.
                 readonly property bool shown: !(page.clipboard.pinned && !page.clipboard.keysRouted && !page.Window.active)
                                               && (page.selectedCount > 0
-                                                  || statusLabel.implicitWidth <= footer.width - 18 - 12 - 16 - implicitWidth)
+                                                  || statusLabel.implicitWidth <= footer.width - reserved - implicitWidth)
                 opacity: shown ? 1 : 0 // still laid out: its width tells when it fits again
 
-                // The others, and their gaps: what is left beside them and the status.
-                readonly property real othersWidth: {
-                    const widths = [enterHint, plainHint, backHint, tabHint].filter(h => h.visible).map(h => h.fullWidth)
+                // The ones always there, and their gaps; then Tab's and →'s
+                // where there is room beside them and the status (beside the
+                // list alone there often is not). The rest: the info button.
+                readonly property real alwaysWidth: {
+                    const widths = [enterHint, numberHint, backHint].filter(h => h.visible).map(h => h.fullWidth)
                     return widths.reduce((sum, w) => sum + w, 0) + Math.max(0, widths.length - 1) * spacing
                 }
+                readonly property real free: footer.width - reserved - statusLabel.implicitWidth - alwaysWidth
+                readonly property bool tabFits: page.selectedCount < 2 && spacing + tabHint.fullWidth <= free
+                readonly property bool previewFits: page.selectedCount === 0
+                    && (tabFits ? spacing + tabHint.fullWidth : 0) + spacing + previewHint.fullWidth <= free
 
                 KeyHint { id: enterHint; keys: "Enter"; label: page.pasteLabel }
-                KeyHint { id: plainHint; keys: "Shift+Enter"; label: qsTr("纯文本"); visible: !page.intoField && hints.roomy } // text there either way
+                KeyHint { // the numbers on the rows' icons
+                    id: numberHint
+                    visible: page.numberKey >= 0 && hints.roomy
+                    keys: (page.numberKey === Qt.Key_Alt ? "Alt" : "Ctrl") + "+1…9"
+                    label: qsTr("粘贴第几条")
+                }
                 KeyHint { id: backHint; keys: "Esc"; label: qsTr("返回"); visible: page.intoField && hints.roomy }
-                KeyHint { id: tabHint; keys: "Tab"; label: qsTr("分类"); visible: page.selectedCount < 2 }
-                KeyHint { // where there is room: beside the list alone there often is not
+                KeyHint { id: tabHint; keys: "Tab"; label: qsTr("分类"); visible: hints.tabFits }
+                KeyHint {
+                    id: previewHint
                     keys: "→"
                     label: page.previewOpen ? qsTr("关闭预览") : qsTr("预览")
-                    visible: page.selectedCount === 0
-                             && statusLabel.implicitWidth + 18 + 12 + 16 + hints.othersWidth + hints.spacing + fullWidth <= footer.width
+                    visible: hints.previewFits
                 }
+            }
+
+            // The other keys, while the mouse rests on it.
+            ShortcutsButton {
+                id: infoButton
+
+                readonly property string modifier: page.numberKey === Qt.Key_Alt ? "Alt" : "Ctrl"
+
+                host: page.clipboard
+                frame: page.frame
+                anchors.right: parent.right
+                anchors.rightMargin: 6
+                anchors.verticalCenter: parent.verticalCenter
+                shortcuts: (page.intoField ? [] : [["Shift+Enter", qsTr("粘贴为纯文本")]])
+                    .concat(page.numberKey < 0 ? []
+                            : [[modifier + "+Shift+1…9", qsTr("第几条粘贴为纯文本")]])
+                    .concat([
+                        ["→  Alt+P", qsTr("打开或关闭预览")],
+                        ["Shift+Tab", qsTr("上一个分类")],
+                        ["↑ ↓", qsTr("上下移动，PgUp PgDn 翻页")],
+                        ["Shift+↑ ↓", qsTr("选中多条，也可 Ctrl+单击、Shift+单击；按选的顺序一起粘贴")],
+                        ["Ctrl+C", qsTr("复制；预览里选中了图中的字时，复制那一段")],
+                        ["Ctrl+P", qsTr("固定或取消固定")],
+                        ["Delete", qsTr("删除，Ctrl+Z 撤销")],
+                        ["Shift+F10", qsTr("右键菜单")],
+                        ["Esc", qsTr("关闭；选中了多条时先取消选择")]
+                    ])
             }
         }
     }

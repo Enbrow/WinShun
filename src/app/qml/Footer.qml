@@ -271,12 +271,12 @@ Item {
         KeyHint { id: tabHint; visible: label.length > 0; keys: "Tab"; label: hints.keyHints.tab ?? "" }
     }
 
-    // The launcher's other shortcuts, while the mouse rests on it (ShortcutTip).
-    Rectangle {
+    // The launcher's other shortcuts, while the mouse rests on it.
+    ShortcutsButton {
         id: info
 
         readonly property string modifier: footer.launcher.numberKeys === "alt" ? "Alt" : "Ctrl"
-        readonly property var shortcuts: [
+        shortcuts: [
             ["Shift+Tab", qsTr("切换范围：全部、文件、内容")],
             ["↑ ↓", qsTr("上下移动，PgUp PgDn 翻页")],
             ["Shift+↑ ↓", qsTr("选中多行，也可 Ctrl+单击、Shift+单击")],
@@ -291,68 +291,11 @@ Item {
             ["Esc", qsTr("关闭；选中了多行时先取消选择")]
         ])
 
+        host: footer.launcher
+        frame: footer.frame
         anchors.right: clearHistory.visible ? clearHistory.left : parent.right
         anchors.rightMargin: clearHistory.visible ? 2 : 6
         anchors.verticalCenter: parent.verticalCenter
-        width: 32
-        height: 32
-        radius: 4
-        color: infoArea.containsMouse ? Theme.controlHover : "transparent"
-        Accessible.role: Accessible.Button
-        Accessible.name: qsTr("快捷键")
-        Component.onCompleted: footer.frame.addControl(info) // a button, not part of the drag area
-
-        Glyph {
-            anchors.centerIn: parent
-            glyph: "\uE946" // Info
-            size: 16
-            color: infoArea.containsMouse ? Theme.text : Theme.subtext
-        }
-
-        MouseArea {
-            id: infoArea
-            anchors.fill: parent
-            hoverEnabled: true
-            onContainsMouseChanged: {
-                if (containsMouse) {
-                    tipDelay.restart()
-                } else {
-                    tipDelay.stop()
-                    if (tipLoader.item)
-                        (tipLoader.item as ShortcutTip).visible = false
-                }
-            }
-            onClicked: tipDelay.triggered() // at once
-        }
-
-        Timer {
-            id: tipDelay
-            interval: 250 // as HoverTip
-            onTriggered: {
-                if (!infoArea.containsMouse)
-                    return
-                tipLoader.active = true
-                const tip = tipLoader.item as ShortcutTip
-                tip.rows = info.shortcuts
-                tip.popup(info)
-            }
-        }
-
-        Loader { // made when first wanted; gone with the launcher's window (see Main.qml's menu)
-            id: tipLoader
-            active: false
-            sourceComponent: ShortcutTip {
-                host: footer.launcher
-            }
-        }
-
-        Connections { // the launcher hidden: the tip goes too
-            target: footer.Window.window
-            function onVisibleChanged() {
-                if (tipLoader.item && !footer.Window.window.visible)
-                    (tipLoader.item as ShortcutTip).visible = false
-            }
-        }
     }
 
     // Two clicks, as a row's delete button: the first arms it.
