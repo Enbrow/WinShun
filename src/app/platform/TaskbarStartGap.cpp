@@ -6,6 +6,9 @@
 #include <shlobj.h>
 #include <tlhelp32.h>
 
+#include <QDebug>
+#include <QString>
+
 #include <algorithm>
 #include <condition_variable>
 #include <cstdio>
@@ -42,7 +45,7 @@ void trace(const wchar_t* format, ...)
     va_start(args, format);
     std::vswprintf(line, 512, format, args);
     va_end(args);
-    ::OutputDebugStringW((std::wstring(L"[StartGap] ") + line + L"\n").c_str());
+    qWarning().noquote() << "Start gap:" << QString::fromWCharArray(line); // into WinShun.log
 }
 
 std::wstring lower(std::wstring s)

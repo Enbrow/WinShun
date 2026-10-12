@@ -33,6 +33,7 @@
 #include "platform/Credentials.h"
 #include "platform/DialogJump.h"
 #include "platform/Foreground.h"
+#include "platform/IdleTrim.h"
 #include "platform/KeyListener.h"
 #include "platform/MessageWindow.h"
 #include "platform/NetworkNotifier.h"
@@ -324,6 +325,10 @@ bool App::start(const StartOptions& options)
     connect(m_index.get(), &IndexService::sharesChanged, this, &App::refreshShareStatuses);
     // Shares that could not be reached are tried again when the network changes.
     m_network = std::make_unique<NetworkNotifier>([index = m_index.get()] { index->shares().networkChanged(); });
+    m_idleTrim = std::make_unique<IdleTrim>([this] {
+        return !m_index || m_index->state() != IndexService::State::Ready || m_index->isRefreshing()
+            || m_index->readingContent() || m_index->moving();
+    });
     m_apps = std::make_unique<AppCatalog>();
     m_places = std::make_unique<SystemCatalog>();
     m_engine = std::make_unique<SearchEngine>(m_index.get(), m_apps.get(), m_places.get());
@@ -904,6 +909,13 @@ void App::applyTaskbar()
     applySearchBox();
 }
 
+// For the settings page: empty while the box is on the taskbar.
+static QString searchBoxHiddenName(taskbar::SearchBox::Hidden why)
+{
+    static const char* const names[] = {"", "pending", "notaskbar", "unreadable", "offscreen", "vertical", "noroom"};
+    return QString::fromLatin1(names[static_cast<int>(why)]);
+}
+
 void App::applySearchBox()
 {
     const bool wanted = m_settings.taskbarSearchBox && taskbar::SearchBox::supported();
@@ -920,8 +932,8 @@ void App::applySearchBox()
                     emit m_launcher->selectionRequested(anchor, at);
             }, Qt::QueuedConnection);
         };
-        callbacks.shownChanged = [this](bool shown) {
-            QMetaObject::invokeMethod(this, [this, shown] { setSearchBoxShown(shown); }, Qt::QueuedConnection);
+        callbacks.shownChanged = [this](taskbar::SearchBox::Hidden why) {
+            QMetaObject::invokeMethod(this, [this, why] { setSearchBoxShown(why); }, Qt::QueuedConnection);
         };
         callbacks.caretMoved = [this] {
             QMetaObject::invokeMethod(this, [this] {
@@ -949,6 +961,7 @@ void App::applySearchBox()
         };
         m_searchBox = std::make_unique<taskbar::SearchBox>(
             std::move(callbacks), taskbar::SearchBox::Look {}, loadBoxSpot());
+        setSearchBoxShown(taskbar::SearchBox::Hidden::Pending);
         updateSearchBoxLook();
     } else if (!wanted && m_searchBox) {
         if (m_launcher->inTaskbarBox())
@@ -956,7 +969,7 @@ void App::applySearchBox()
         m_startGap.reset(); // the gap closes first
         setStartGapStatus({});
         m_searchBox.reset();
-        setSearchBoxShown(false);
+        setSearchBoxShown(taskbar::SearchBox::Hidden::Pending);
     }
     applyStartGap(boxWas);
 }
@@ -984,25 +997,33 @@ void App::applyStartGap(bool boxWas)
 void App::setStartGapStatus(const taskbar::StartGap::Status& status)
 {
     using State = taskbar::StartGap::State;
+    static const char* const names[] = {"off", "attaching", "ready", "applied", "nogap", "conflict", "incompatible", "failed"};
     if (!m_startGap && status.state != State::Off)
         return; // a late word from one gone since
+    if (status.state != m_startGapStatus.state || status.reason != m_startGapStatus.reason)
+        qWarning().noquote() << "Start gap:" << names[static_cast<int>(status.state)]
+                             << QString::fromStdWString(status.reason) << status.dips << "DIPs";
     m_startGapStatus = status;
     if (m_searchBox)
-        m_searchBox->setStartGap(status.state == State::Applied, status.dips);
+        m_searchBox->setStartGap(status.state == State::Applied, status.dips,
+            status.state == State::NoGapSeen || status.state == State::Conflict || status.state == State::Incompatible
+                || status.state == State::Failed);
     if (m_settingsEditor) {
-        static const char* const names[] = {"off", "attaching", "ready", "applied", "nogap", "conflict", "incompatible", "failed"};
         m_settingsEditor->setStartGapState(QString::fromLatin1(names[static_cast<int>(status.state)]),
             QString::fromStdWString(status.reason));
     }
 }
 
-void App::setSearchBoxShown(bool shown)
+void App::setSearchBoxShown(taskbar::SearchBox::Hidden why)
 {
+    using Hidden = taskbar::SearchBox::Hidden;
     if (!m_searchBox)
-        shown = false; // a late word from a box gone since
+        why = Hidden::Pending; // a late word from a box gone since
+    const bool shown = why == Hidden::None;
     m_searchBoxShown = shown;
+    m_searchBoxHidden = why;
     if (m_settingsEditor)
-        m_settingsEditor->setSearchBoxShown(shown);
+        m_settingsEditor->setSearchBoxShown(searchBoxHiddenName(why));
     if (!shown && m_launcher->inTaskbarBox())
         hideLauncher(); // what is typed there would be out of sight
 }
@@ -1283,7 +1304,7 @@ void App::showSettings()
         applyClipboardHotkeys(); // ... and where Win+V stands
         applyTaskbarHotkeys(); // ... and Win+S
         editor->refreshTaskbarState();
-        editor->setSearchBoxShown(m_searchBoxShown);
+        editor->setSearchBoxShown(searchBoxHiddenName(m_searchBoxHidden));
         setStartGapStatus(m_startGapStatus);
         editor->refreshFileManagers();
         editor->refreshMcpClients();
@@ -1657,6 +1678,7 @@ void App::applyDialogs()
         connect(m_dialogBar.get(), &DialogBar::excludeAppRequested, this, &App::excludeFromDialogBar);
         connect(m_dialogBar.get(), &DialogBar::composingChanged, this, &App::updateNumberKeys);
         connect(m_dialogBar.get(), &DialogBar::settingsRequested, this, [this] { showSettings(); });
+        connect(m_dialogBar.get(), &DialogBar::autoJumpAnswered, this, &App::answerAutoJump);
     } else if (!m_settings.dialogBar && m_dialogBar) {
         delete m_barWindow;
         m_dialogBar.reset();
@@ -1667,6 +1689,7 @@ void App::applyDialogs()
         m_dialogBar->setExcludedApps(m_settings.dialogBarExcludedApps);
         m_dialogBar->setPlace(m_settings.dialogBarPlace);
         m_dialogBar->setResultOptions(m_settings.showModified, m_settings.numberKeys);
+        m_dialogBar->setAskAutoJump(!m_settings.dialogAutoJump && !m_settings.dialogAutoJumpAsked);
     }
 
     const bool followDialogs = m_settings.dialogJump || m_settings.dialogBar || m_settings.dialogAutoJump;
@@ -1699,11 +1722,23 @@ void App::applyDialogs()
     }
     if (m_dialogJump) {
         m_dialogJump->setHotkeyEnabled(m_settings.dialogJump);
-        m_dialogJump->setAutoJump(m_settings.dialogAutoJump);
+        m_dialogJump->setAutoJump(m_settings.dialogAutoJump, m_settings.dialogAutoJumpWhen != u"back");
     }
     // Turned on with a file dialog in front: under it at once.
     if (m_dialogBar && !m_barWindow && m_dialogJump && m_dialogJump->dialog() && createBarWindow())
         m_dialogBar->setDialog(m_dialogJump->dialog());
+}
+
+void App::answerAutoJump(const QString& when)
+{
+    m_settings.dialogAutoJumpAsked = true;
+    m_settings.dialogAutoJump = when == u"open" || when == u"back";
+    if (m_settings.dialogAutoJump)
+        m_settings.dialogAutoJumpWhen = when;
+    m_settings.save();
+    applySettings(false);
+    if (m_settingsEditor)
+        m_settingsEditor->setSettings(m_settings);
 }
 
 void App::excludeFromDialogBar(const QString& app)

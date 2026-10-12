@@ -40,6 +40,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool dialogBar READ dialogBar WRITE setDialogBar NOTIFY changed FINAL)
     Q_PROPERTY(QString dialogBarPlace READ dialogBarPlace WRITE setDialogBarPlace NOTIFY changed FINAL)
     Q_PROPERTY(bool dialogAutoJump READ dialogAutoJump WRITE setDialogAutoJump NOTIFY changed FINAL)
+    Q_PROPERTY(QString dialogAutoJumpWhen READ dialogAutoJumpWhen WRITE setDialogAutoJumpWhen NOTIFY changed FINAL)
     Q_PROPERTY(QStringList dialogBarExcludedApps READ dialogBarExcludedApps NOTIFY changed FINAL)
     // Where folders open (Settings::fileManager), and what there is to choose
     // from: "explorer" and the others installed, looked for again as the
@@ -96,6 +97,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool taskbarSearchBox READ taskbarSearchBox WRITE setTaskbarSearchBox NOTIFY changed FINAL)
     Q_PROPERTY(bool searchBoxSupported READ searchBoxSupported CONSTANT FINAL)
     Q_PROPERTY(bool searchBoxShown READ searchBoxShown NOTIFY searchBoxShownChanged FINAL)
+    Q_PROPERTY(QString searchBoxHidden READ searchBoxHidden NOTIFY searchBoxShownChanged FINAL)
     // The box right of Start (taskbar::StartGap): the setting, and how it went
     // ("off", "attaching", "ready", "applied", "nogap", "conflict",
     // "incompatible", "failed"; the reason in English, for the details).
@@ -188,6 +190,8 @@ public:
     void setDialogBarPlace(const QString& place);
     bool dialogAutoJump() const { return m_settings.dialogAutoJump; }
     void setDialogAutoJump(bool on);
+    QString dialogAutoJumpWhen() const { return m_settings.dialogAutoJumpWhen; }
+    void setDialogAutoJumpWhen(const QString& when); // "open", "back"
     QStringList dialogBarExcludedApps() const { return m_settings.dialogBarExcludedApps; }
     QString fileManager() const { return m_settings.fileManager; }
     void setFileManager(const QString& manager);
@@ -293,8 +297,9 @@ public:
     bool taskbarSearchBox() const { return m_settings.taskbarSearchBox; }
     void setTaskbarSearchBox(bool on);
     bool searchBoxSupported() const;
-    bool searchBoxShown() const { return m_searchBoxShown; }
-    void setSearchBoxShown(bool shown); // set by the app
+    bool searchBoxShown() const { return m_searchBoxHidden.isEmpty(); }
+    QString searchBoxHidden() const { return m_searchBoxHidden; } // why not: "pending", "noroom"... (App)
+    void setSearchBoxShown(const QString& hidden); // set by the app: empty when shown
     bool taskbarStartGap() const { return m_settings.taskbarStartGap; }
     void setTaskbarStartGap(bool on);
     QString startGapState() const { return m_startGapState; }
@@ -480,7 +485,7 @@ private:
     bool m_canRestartExplorer = false;
     bool m_taskbarButtonPinned = false;
     bool m_windowsSearchShown = true;
-    bool m_searchBoxShown = false;
+    QString m_searchBoxHidden = QStringLiteral("pending");
     QString m_startGapState = QStringLiteral("off");
     QString m_startGapReason;
     QString m_clipboardHotkeyError;

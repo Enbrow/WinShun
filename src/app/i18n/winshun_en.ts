@@ -246,13 +246,6 @@
     </message>
 </context>
 <context>
-    <name>ShortcutsButton</name>
-    <message>
-        <source>快捷键</source>
-        <translation>Shortcuts</translation>
-    </message>
-</context>
-<context>
     <name>ClipboardPage</name>
     <message>
         <source>粘贴第几条</source>
@@ -386,10 +379,6 @@
         </translation>
     </message>
     <message>
-        <source>纯文本</source>
-        <translation>Plain text</translation>
-    </message>
-    <message>
         <source>返回</source>
         <translation>Back</translation>
     </message>
@@ -434,6 +423,22 @@
     <message>
         <source>没有找到</source>
         <translation>Nothing found</translation>
+    </message>
+    <message>
+        <source>以后自动转到%1的文件夹？</source>
+        <translation>From now on, go to the folder open in %1 by itself?</translation>
+    </message>
+    <message>
+        <source>打开时就转</source>
+        <translation>As it opens</translation>
+    </message>
+    <message>
+        <source>切回来时再转</source>
+        <translation>When I come back</translation>
+    </message>
+    <message>
+        <source>不用</source>
+        <translation>No</translation>
     </message>
     <message>
         <source>回到“%1”</source>
@@ -638,10 +643,6 @@
     <message>
         <source>关闭；选中了多行时先取消选择</source>
         <translation>Close; with several rows selected, unselect them first</translation>
-    </message>
-    <message>
-        <source>快捷键</source>
-        <translation>Shortcuts</translation>
     </message>
 </context>
 <context>
@@ -1364,13 +1365,6 @@
     </message>
 </context>
 <context>
-    <name>SearchBar</name>
-    <message>
-        <source>文件夹</source>
-        <translation>Folders</translation>
-    </message>
-</context>
-<context>
     <name>SettingRow</name>
     <message>
         <source>打开后可以设置：%1</source>
@@ -1608,6 +1602,34 @@
     <message>
         <source>清除</source>
         <translation>Clear</translation>
+    </message>
+    <message>
+        <source>读不到任务栏上的图标，可能被改任务栏的工具换掉了；详情在 WinShun.log</source>
+        <translation>Can’t read the taskbar’s icons; a taskbar tool may have replaced them. Details are in WinShun.log</translation>
+    </message>
+    <message>
+        <source>没找到任务栏；重启资源管理器后会再放</source>
+        <translation>No taskbar found; it goes on once Explorer is restarted</translation>
+    </message>
+    <message>
+        <source>任务栏收起来了，显示出来时就会放上</source>
+        <translation>The taskbar is hidden; it goes on once the taskbar shows</translation>
+    </message>
+    <message>
+        <source>任务栏在屏幕侧边，放不下搜索框</source>
+        <translation>The taskbar is at a side of the screen; the box doesn’t fit there</translation>
+    </message>
+    <message>
+        <source>正在放到任务栏上…</source>
+        <translation>Going onto the taskbar…</translation>
+    </message>
+    <message>
+        <source>等搜索框放上任务栏</source>
+        <translation>Waiting for the search box to be on the taskbar</translation>
+    </message>
+    <message>
+        <source>搜索框在图标旁边；按住它的图标拖到开始按钮上，图标就会让位</source>
+        <translation>The box is beside the icons; hold its icon and drag it onto Start to make the icons move over</translation>
     </message>
     <message>
         <source>对话框旁的搜索框</source>
@@ -1892,6 +1914,30 @@
     <message>
         <source>自动跳转;跟随;对话框;另存为;资源管理器</source>
         <translation>auto jump;follow;dialog;save as;explorer</translation>
+    </message>
+    <message>
+        <source>什么时候转</source>
+        <translation>When</translation>
+    </message>
+    <message>
+        <source>自动跳转;切回来;上次保存的位置;对话框</source>
+        <translation>auto jump;come back;last location;dialog</translation>
+    </message>
+    <message>
+        <source>对话框先停在 Windows 记住的上次位置，从文件管理器切回来时再转过去</source>
+        <translation>A dialog first opens where Windows left it, and goes there when you come back from the file manager</translation>
+    </message>
+    <message>
+        <source>对话框一出现就转过去</source>
+        <translation>As soon as a dialog opens</translation>
+    </message>
+    <message>
+        <source>打开时</source>
+        <translation>When it opens</translation>
+    </message>
+    <message>
+        <source>切回来时</source>
+        <translation>When you come back</translation>
     </message>
     <message>
         <source>任务栏会闪一下，打开的文件夹窗口会关闭</source>
@@ -2493,8 +2539,8 @@
         <translation>Dialogs</translation>
     </message>
     <message>
-        <source>对话框出现时，自动转到文件管理器当前的文件夹</source>
-        <translation>When a dialog appears, it goes to your file manager’s current folder</translation>
+        <source>不用按 Ctrl+G，对话框自己转到文件管理器当前的文件夹</source>
+        <translation>Without Ctrl+G: file dialogs go to the folder open in the file manager by themselves</translation>
     </message>
     <message>
         <source>已固定，点它就能打开 Win顺</source>
@@ -2707,6 +2753,13 @@
     <message>
         <source>移除</source>
         <translation>Remove</translation>
+    </message>
+</context>
+<context>
+    <name>ShortcutsButton</name>
+    <message>
+        <source>快捷键</source>
+        <translation>Shortcuts</translation>
     </message>
 </context>
 <context>

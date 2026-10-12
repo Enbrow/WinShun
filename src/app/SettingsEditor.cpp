@@ -512,6 +512,15 @@ void SettingsEditor::setDialogAutoJump(bool on)
     if (m_settings.dialogAutoJump == on)
         return;
     m_settings.dialogAutoJump = on;
+    m_settings.dialogAutoJumpAsked = true; // chosen here: not asked under the bar
+    commit();
+}
+
+void SettingsEditor::setDialogAutoJumpWhen(const QString& when)
+{
+    if (m_settings.dialogAutoJumpWhen == when || (when != u"open" && when != u"back"))
+        return;
+    m_settings.dialogAutoJumpWhen = when;
     commit();
 }
 
@@ -610,11 +619,11 @@ bool SettingsEditor::searchBoxSupported() const
     return taskbar::SearchBox::supported();
 }
 
-void SettingsEditor::setSearchBoxShown(bool shown)
+void SettingsEditor::setSearchBoxShown(const QString& hidden)
 {
-    if (m_searchBoxShown == shown)
+    if (m_searchBoxHidden == hidden)
         return;
-    m_searchBoxShown = shown;
+    m_searchBoxHidden = hidden;
     emit searchBoxShownChanged();
 }
 

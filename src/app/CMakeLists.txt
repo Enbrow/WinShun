@@ -19,6 +19,7 @@ qt_add_executable(WinShun WIN32
     platform/FileManagers.cpp platform/FileManagers.h
     platform/Foreground.cpp platform/Foreground.h
     platform/Http.cpp platform/Http.h
+    platform/IdleTrim.cpp platform/IdleTrim.h
     platform/KeyListener.cpp platform/KeyListener.h
     platform/KeyRouter.cpp platform/KeyRouter.h
     platform/MessageWindow.cpp platform/MessageWindow.h

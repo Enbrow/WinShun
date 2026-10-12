@@ -3453,6 +3453,9 @@ int main(int argc, char* argv[])
 
     const bool showTop = args.removeAll(u"--top"_s) > 0; // list the first hits of each query
     const bool check = args.removeAll(u"--check"_s) > 0; // compare with matching every entry
+    // Each query's first run right after the working set is emptied: what a
+    // search costs once Windows has trimmed the index (pages on standby).
+    const bool trim = args.removeAll(u"--trim"_s) > 0;
     int failures = 0;
     ws::WorkerPool pool(ws::WorkerPool::defaultThreadCount());
     const auto lock = index->readLock();
@@ -3460,6 +3463,16 @@ int main(int argc, char* argv[])
         const ws::NameMatcher matcher(ws::parseQuery(q));
         double best = 1e9;
         ws::NameSearchOutput out;
+        if (trim) {
+            ::SetProcessWorkingSetSizeEx(::GetCurrentProcess(), static_cast<SIZE_T>(-1), static_cast<SIZE_T>(-1), 0);
+            PROCESS_MEMORY_COUNTERS_EX counters {.cb = sizeof(counters)};
+            ::GetProcessMemoryInfo(::GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters), sizeof(counters));
+            const double trimmedMB = static_cast<double>(counters.WorkingSetSize) / 1048576.0;
+            timer.restart();
+            out = ws::searchNames(*index, matcher, {.limit = 100}, pool, {});
+            std::printf("%-16s after trim (working set %.1f MB): %6.1f ms\n", qPrintable(q), trimmedMB,
+                static_cast<double>(timer.nsecsElapsed()) / 1e6);
+        }
         for (int run = 0; run < 5; ++run) {
             timer.restart();
             out = ws::searchNames(*index, matcher, {.limit = 100}, pool, {});

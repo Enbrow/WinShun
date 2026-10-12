@@ -39,6 +39,7 @@ class Favorites;
 class SystemCatalog;
 class History;
 class IndexService;
+class IdleTrim;
 class KeyListener;
 class Launcher;
 class MessageWindow;
@@ -152,7 +153,7 @@ private:
     void startMenuTyped(); // typed in the Start menu (StartMenuTyping): the launcher over the taskbar
     // Win顺's own search box on the taskbar ([Taskbar] SearchBox, taskbar::SearchBox).
     void applySearchBox();
-    void setSearchBoxShown(bool shown); // it is on the taskbar, or not (no room)
+    void setSearchBoxShown(taskbar::SearchBox::Hidden why); // it is on the taskbar (None), or why not
     void setSearchBoxWide(bool wide); // the whole box, or its label or icon alone (SearchBox::wide)
     void applyStartGap(bool boxWas);
     void setStartGapStatus(const taskbar::StartGap::Status& status);
@@ -174,6 +175,7 @@ private:
     void applyHotkey();
     void applyDialogs(); // Ctrl+G, the bar and going by themselves in file dialogs
     void excludeFromDialogBar(const QString& app); // "not in this program" from the bar's menu
+    void answerAutoJump(const QString& when); // asked under the bar: "open", "back" or "" (DialogBar::autoJumpAnswered)
     bool createBarWindow();
     void reloadSettings();
     void settingsEdited(const Settings& settings);
@@ -269,6 +271,7 @@ private:
     std::unique_ptr<StartMenuTyping> m_startTyping; // while [Taskbar] StartMenuTyping is on
     std::unique_ptr<taskbar::SearchBox> m_searchBox; // while [Taskbar] SearchBox is on (Windows 11)
     bool m_searchBoxShown = false; // ... and it is on the taskbar
+    taskbar::SearchBox::Hidden m_searchBoxHidden = taskbar::SearchBox::Hidden::Pending; // ... or why not
     std::unique_ptr<taskbar::StartGap> m_startGap; // while [Taskbar] StartGap is on too: the room right of Start
     taskbar::StartGap::Status m_startGapStatus; // its latest, for the settings page
     // The launcher is open over the box: typing in it when the box is wide
@@ -287,6 +290,7 @@ private:
     bool m_updateNotified = false; // the last tray notification announced a new version
     std::unique_ptr<VolumeNotifier> m_volumeNotifier; // after m_messages, whose window it uses
     std::unique_ptr<NetworkNotifier> m_network; // after m_index, whose shares it tells
+    std::unique_ptr<IdleTrim> m_idleTrim; // gives the memory back while nothing is in use
     std::vector<std::wstring> m_sharesBuilding; // being read for the first time: told when done
     std::unique_ptr<KeyListener> m_keyListener; // double Ctrl
     QStringList m_doubleCtrlIgnoredLogged; // "program reason", logged once each: a game gets many

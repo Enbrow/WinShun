@@ -453,6 +453,7 @@ void DialogBar::setDialog(HWND dialog)
     }
     if (!hidden())
         lookAround(); // Explorer may show another folder by now
+    updateAsking();
     follow();
 }
 
@@ -872,8 +873,10 @@ void DialogBar::lookAround()
             m_clipboardIsDir = found.clipboardIsDir;
             if (dialog == m_dialog)
                 m_extensions = found.extensions;
-            if (changed)
+            if (changed) {
                 emit explorerChanged();
+                updateAsking();
+            }
             if (m_query.trimmed().isEmpty() && m_window && m_window->isActive())
                 showSuggestions(true);
         }, Qt::QueuedConnection);
@@ -891,6 +894,37 @@ void DialogBar::chooseExplorer()
 {
     if (!m_explorer.isEmpty())
         goTo(m_explorer.constFirst(), false);
+}
+
+void DialogBar::setAskAutoJump(bool on)
+{
+    if (on == m_askAutoJump)
+        return;
+    m_askAutoJump = on;
+    updateAsking();
+}
+
+void DialogBar::updateAsking()
+{
+    const bool asking = m_askAutoJump && m_dialog && !hidden() && !m_explorer.isEmpty();
+    if (asking == m_asking)
+        return;
+    m_asking = asking;
+    emit askingChanged();
+    if (m_window && m_window->isVisible())
+        place();
+}
+
+void DialogBar::answerAutoJump(const QString& when)
+{
+    if (!m_asking)
+        return;
+    setAskAutoJump(false);
+    emit autoJumpAnswered(when);
+    if (when == u"open")
+        chooseExplorer(); // what it would have done
+    else
+        back(); // the click made the bar active: the dialog has the focus again
 }
 
 void DialogBar::goBack()
@@ -1155,7 +1189,10 @@ void DialogBar::place()
         rows = std::min(wanted, fitAbove);
         above = true;
     }
-    const int list = rows > 0 ? kListChrome + rows * kRowHeight : 0;
+    // The list, or the line that asks (asking): below, else above.
+    const int list = rows > 0 ? kListChrome + rows * kRowHeight : m_asking ? kAskHeight : 0;
+    if (rows == 0 && m_asking)
+        above = barTop + bar + physical(kAskHeight) > work.bottom;
     const int top = above ? barTop - physical(list) : barTop;
     if (rows != m_rows || above != m_listAbove) {
         m_rows = rows;

@@ -10,12 +10,17 @@ import WinShun
 // goes into the folder of a row, Shift+Tab up one. The list opens while the
 // box has the focus; it sits below the box, or above it where there is more
 // room. Right-click or "more": the menus (pin a folder, hide the bar).
+// Once, while the list is closed, a line under the box asks whether dialogs
+// should go to the file manager's folder by themselves (GitHub #14).
 Window {
     id: window
 
     required property DialogBar bar
 
     readonly property int listHeight: bar.rows > 0 ? bar.rows * bar.rowHeight + 9 : 0
+    readonly property bool asking: bar.asking && bar.rows === 0
+    // What is above or below the box: the list, or the line that asks.
+    readonly property int extraHeight: bar.rows > 0 ? listHeight : asking ? bar.askHeight : 0
     readonly property bool typed: bar.query.trim().length > 0
     readonly property ContextMenu contextMenu: menuLoader.item as ContextMenu
     readonly property bool menuOpen: contextMenu !== null && contextMenu.visible
@@ -214,7 +219,7 @@ Window {
 
     Item { // the box
         id: box
-        y: window.bar.listAbove ? window.listHeight : 0
+        y: window.bar.listAbove ? window.extraHeight : 0
         width: window.width
         height: window.bar.barHeight
 
@@ -393,11 +398,74 @@ Window {
     }
 
     Rectangle {
-        visible: window.bar.rows > 0
-        y: window.bar.listAbove ? window.listHeight - 1 : window.bar.barHeight
+        visible: window.bar.rows > 0 || window.asking
+        y: window.bar.listAbove ? window.extraHeight - 1 : window.bar.barHeight
         width: window.width
         height: 1
         color: Theme.divider
+    }
+
+    Item { // asks once: go by itself as a dialog opens, as the user comes back to it, or not
+        id: ask
+        visible: window.asking
+        y: window.bar.listAbove ? 0 : window.bar.barHeight + 1
+        width: window.width
+        height: window.bar.askHeight - 1
+
+        Text {
+            anchors.left: parent.left
+            anchors.leftMargin: 14
+            anchors.right: answers.left
+            anchors.rightMargin: 10
+            anchors.verticalCenter: parent.verticalCenter
+            text: qsTr("以后自动转到%1的文件夹？").arg(window.bar.explorerSource)
+            textFormat: Text.PlainText
+            elide: Text.ElideRight
+            color: Theme.subtext
+            font.pixelSize: Theme.fontCaption
+        }
+
+        Row {
+            id: answers
+            anchors.right: parent.right
+            anchors.rightMargin: 6
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 2
+
+            Repeater {
+                // [what it says, the answer]: the first two turn it on
+                model: [[qsTr("打开时就转"), "open"], [qsTr("切回来时再转"), "back"], [qsTr("不用"), ""]]
+
+                Rectangle {
+                    id: answer
+
+                    required property var modelData
+
+                    width: answerText.implicitWidth + 16
+                    height: 28
+                    radius: 6
+                    color: answerArea.pressed ? Theme.controlPressed : answerArea.containsMouse ? Theme.hover : "transparent"
+                    Accessible.role: Accessible.Button
+                    Accessible.name: answerText.text
+                    Accessible.onPressAction: window.bar.answerAutoJump(answer.modelData[1])
+
+                    Text {
+                        id: answerText
+                        anchors.centerIn: parent
+                        text: answer.modelData[0]
+                        color: answer.modelData[1].length > 0 ? Theme.accent : Theme.subtext
+                        font.pixelSize: Theme.fontCaption
+                    }
+
+                    MouseArea {
+                        id: answerArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onClicked: window.bar.answerAutoJump(answer.modelData[1])
+                    }
+                }
+            }
+        }
     }
 
     ListView {

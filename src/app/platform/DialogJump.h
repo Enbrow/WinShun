@@ -44,9 +44,15 @@ public:
 
     void setHotkeyEnabled(bool on); // Ctrl+G; the dialogs are followed either way
     // On: a dialog goes by itself to the folder shown in the file manager
-    // when it comes up, and when the user comes back to it from the file
-    // manager after going to another folder there (not after just looking).
-    void setAutoJump(bool on) { m_autoJump = on; }
+    // when it comes up (`atOpen`), and when the user comes back to it from
+    // the file manager after going to another folder there (not after just
+    // looking). Not at open: it opens where Windows left it, and goes the
+    // first time the user comes back (after just looking too), then as above.
+    void setAutoJump(bool on, bool atOpen = true)
+    {
+        m_autoJump = on;
+        m_atOpen = atOpen;
+    }
     // Windows of ours that go with the dialog (the bar; the clipboard, opened
     // from the bar or over the dialog): while one is in front, the dialog
     // still counts as in front.
@@ -67,7 +73,7 @@ private:
     void setDialog(HWND dialog, bool fromManager);
     void setRegistered(bool on);
     void noteManager(HWND dialog); // on the worker
-    void autoJump(HWND dialog, bool first); // on the worker
+    void autoJump(HWND dialog, bool first, bool atOpen); // on the worker
 
     Callbacks m_callbacks;
     HWINEVENTHOOK m_foregroundHook = nullptr;
@@ -78,6 +84,7 @@ private:
     bool m_registered = false;
     bool m_warned = false; // about Ctrl+G being taken, once
     bool m_autoJump = false;
+    bool m_atOpen = true;
     HWND m_lastDialog = nullptr; // the file dialog in front last, maybe still open behind others
     // Dialogs a file manager came to the front after (and none of them since).
     std::vector<HWND> m_wentToManager;
@@ -88,6 +95,7 @@ private:
     std::vector<HWND> m_seen; // the dialogs that came up, for setAutoJump
     // On the worker: what the file managers showed when the user left each dialog for one.
     std::vector<std::pair<HWND, std::wstring>> m_leftFor;
+    std::vector<HWND> m_jumped; // on the worker: the dialogs gone to the file manager's folder by themselves
     ComWorker m_worker; // last: done with its task before the members above go
 };
 

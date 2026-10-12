@@ -1018,11 +1018,24 @@ Window {
                         if (!boxes)
                             return pinned ? qsTr("已固定，点它就能打开 Win顺")
                                           : qsTr("点“固定”后选“是”；打开的若是文件夹，右键其中的图标选“固定到任务栏”")
-                        if (boxOn && window.editor.searchBoxShown)
+                        if (!boxOn)
+                            return qsTr("放在任务栏图标旁边，点它直接打字")
+                        switch (window.editor.searchBoxHidden) {
+                        case "":
                             return qsTr("已放好，点它就能打字")
-                        if (boxOn)
+                        case "noroom":
                             return qsTr("任务栏太挤，放不下：取消固定几个图标")
-                        return qsTr("放在任务栏图标旁边，点它直接打字")
+                        case "unreadable":
+                            return qsTr("读不到任务栏上的图标，可能被改任务栏的工具换掉了；详情在 WinShun.log")
+                        case "notaskbar":
+                            return qsTr("没找到任务栏；重启资源管理器后会再放")
+                        case "offscreen":
+                            return qsTr("任务栏收起来了，显示出来时就会放上")
+                        case "vertical":
+                            return qsTr("任务栏在屏幕侧边，放不下搜索框")
+                        default:
+                            return qsTr("正在放到任务栏上…")
+                        }
                     }
                     bodyShown: missing && !taskbarSteps.done[0]
 
@@ -1068,6 +1081,10 @@ Window {
                     description: {
                         if (!window.editor.taskbarStartGap)
                             return qsTr("和 Windows 自带的搜索框一样，图标往右让出位置")
+                        if (startGapRow.gapState === "off" && !window.editor.searchBoxShown)
+                            return qsTr("等搜索框放上任务栏")
+                        if (startGapRow.gapState === "off") // dragged beside the icons: no gap asked for
+                            return qsTr("搜索框在图标旁边；按住它的图标拖到开始按钮上，图标就会让位")
                         switch (startGapRow.gapState) {
                         case "applied":
                             return qsTr("已放在开始按钮右边")
@@ -1244,11 +1261,28 @@ Window {
                 SettingRow {
                     title: qsTr("对话框自动转到文件管理器的文件夹")
                     keywords: qsTr("自动跳转;跟随;对话框;另存为;资源管理器").split(";")
-                    description: qsTr("对话框出现时，自动转到文件管理器当前的文件夹")
+                    unlocks: [dialogAutoJumpWhenRow]
+                    description: qsTr("不用按 Ctrl+G，对话框自己转到文件管理器当前的文件夹")
 
                     ToggleSwitch {
                         checked: window.editor.dialogAutoJump
                         onToggled: (on) => window.editor.dialogAutoJump = on
+                    }
+                }
+
+                SettingRow {
+                    id: dialogAutoJumpWhenRow
+                    shown: window.editor.dialogAutoJump
+                    title: qsTr("什么时候转")
+                    keywords: qsTr("自动跳转;切回来;上次保存的位置;对话框").split(";")
+                    description: window.editor.dialogAutoJumpWhen === "back"
+                                 ? qsTr("对话框先停在 Windows 记住的上次位置，从文件管理器切回来时再转过去")
+                                 : qsTr("对话框一出现就转过去")
+
+                    ScopeTabs {
+                        labels: [qsTr("打开时"), qsTr("切回来时")]
+                        current: window.editor.dialogAutoJumpWhen === "back" ? 1 : 0
+                        onActivated: (index) => window.editor.dialogAutoJumpWhen = index === 1 ? "back" : "open"
                     }
                 }
 

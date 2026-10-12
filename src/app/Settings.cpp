@@ -579,6 +579,11 @@ void Settings::load()
     if (dialogBarPlace != u"below" && dialogBarPlace != u"left" && dialogBarPlace != u"right")
         dialogBarPlace = d.dialogBarPlace;
     dialogAutoJump = readOrDefault(s, u"Launcher/DialogAutoJump"_s, d.dialogAutoJump);
+    dialogAutoJumpWhen = readOrDefault(s, u"Launcher/DialogAutoJumpWhen"_s, d.dialogAutoJumpWhen).trimmed().toLower();
+    if (dialogAutoJumpWhen != u"back")
+        dialogAutoJumpWhen = d.dialogAutoJumpWhen;
+    // Turned on before there was the question: no need to ask.
+    dialogAutoJumpAsked = readOrDefault(s, u"Launcher/DialogAutoJumpAsked"_s, dialogAutoJump);
     dialogBarExcludedApps = readOrDefault(s, u"Launcher/DialogBarExcludedApps"_s, d.dialogBarExcludedApps);
     fileManager = readOrDefault(s, u"Launcher/FileManager"_s, d.fileManager).trimmed().toLower();
     if (fileManager != u"totalcmd" && fileManager != u"dopus")
@@ -704,6 +709,8 @@ void Settings::save() const
     s.setValue(u"Launcher/DialogBar"_s, dialogBar);
     s.setValue(u"Launcher/DialogBarPlace"_s, dialogBarPlace);
     s.setValue(u"Launcher/DialogAutoJump"_s, dialogAutoJump);
+    s.setValue(u"Launcher/DialogAutoJumpWhen"_s, dialogAutoJumpWhen);
+    s.setValue(u"Launcher/DialogAutoJumpAsked"_s, dialogAutoJumpAsked);
     s.setValue(u"Launcher/DialogBarExcludedApps"_s, dialogBarExcludedApps);
     s.setValue(u"Launcher/FileManager"_s, fileManager);
     s.setValue(u"Results/FoldersFirst"_s, foldersFirst);

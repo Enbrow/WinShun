@@ -155,8 +155,10 @@ void DialogJump::setDialog(HWND dialog, bool fromManager)
         const bool first = std::ranges::find(m_seen, dialog) == m_seen.end();
         if (first)
             m_seen.push_back(dialog);
-        if (first || fromManager)
-            m_worker.post([this, dialog, first] { autoJump(dialog, first); });
+        if (fromManager || (first && m_atOpen))
+            m_worker.post([this, dialog, first = first && !fromManager, atOpen = m_atOpen] {
+                autoJump(dialog, first, atOpen);
+            });
     }
 }
 
@@ -187,13 +189,17 @@ void DialogJump::noteManager(HWND dialog)
     m_leftFor.emplace_back(dialog, folders.empty() ? std::wstring() : folders.front().path);
 }
 
-void DialogJump::autoJump(HWND dialog, bool first)
+void DialogJump::autoJump(HWND dialog, bool first, bool atOpen)
 {
     const std::vector<filemanager::Folder> folders = filemanager::openFolders();
     if (folders.empty())
         return;
     const std::wstring& folder = folders.front().path;
-    if (!first) { // back from a file manager: only if it shows another folder than when the user went there
+    std::erase_if(m_jumped, [](HWND jumped) { return !::IsWindow(jumped); });
+    // Back from a file manager: only if it shows another folder than when the
+    // user went there; but not at open, a dialog that has not gone yet goes
+    // anyway (it opened where Windows left it).
+    if (!first && (atOpen || std::ranges::find(m_jumped, dialog) != m_jumped.end())) {
         const auto left = std::ranges::find(m_leftFor, dialog, &decltype(m_leftFor)::value_type::first);
         if (left == m_leftFor.end() || sameFolder(left->second, folder))
             return;
@@ -211,6 +217,8 @@ void DialogJump::autoJump(HWND dialog, bool first)
         qWarning() << "The file dialog did not go to the file manager's folder by itself";
         return;
     }
+    if (std::ranges::find(m_jumped, dialog) == m_jumped.end())
+        m_jumped.push_back(dialog);
     if (m_callbacks.autoJumped)
         m_callbacks.autoJumped(dialog, from);
 }

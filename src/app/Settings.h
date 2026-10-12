@@ -65,6 +65,11 @@ struct Settings {
     bool dialogBar = true; // a search bar under Open and Save dialogs (DialogBar)
     QString dialogBarPlace = QStringLiteral("auto"); // auto | below | left | right: where it goes by the dialog
     bool dialogAutoJump = false; // file dialogs go to the folder open in a file manager by themselves
+    // open | back: as a dialog comes up, or only when the user comes back to
+    // it from the file manager (GitHub #14: it opens where Windows left it).
+    QString dialogAutoJumpWhen = QStringLiteral("open");
+    // The user was asked under the dialog bar whether to go by itself (or set it in Settings): asked once.
+    bool dialogAutoJumpAsked = false;
     QStringList dialogBarExcludedApps; // program files ("notepad.exe") whose file dialogs go without the bar
     // explorer | totalcmd | dopus: where folders open and items are shown
     // (shell::setFileManager); Explorer while the one chosen is not installed.

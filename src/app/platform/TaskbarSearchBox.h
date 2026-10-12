@@ -71,10 +71,20 @@ public:
         bool fromIcons = true; // else from the far end (AfterStart: from Start, else from the next icon)
         int offset = 0; // logical pixels
     };
+    // Why it is not on the taskbar (None while it is).
+    enum class Hidden {
+        None,
+        Pending, // going onto it: the taskbar not found or measured yet
+        NoTaskbar, // no visible taskbar to go onto, after a while
+        Unreadable, // UI Automation does not give its icons (another taskbar, a mod)
+        OffScreen, // not all on its screen: auto-hidden, or sliding
+        Vertical, // at a side of the screen
+        NoRoom, // not even the icon fits beside the icons
+    };
     struct Callbacks {
         std::function<void(const Press&)> pressed;
         std::function<void(int anchor, int at)> dragged; // the button held down, moved: select from anchor
-        std::function<void(bool shown)> shownChanged; // on the taskbar, or not (no room, no taskbar)
+        std::function<void(Hidden why)> shownChanged; // on the taskbar (None), or why not
         std::function<void()> caretMoved; // caret() is somewhere else
         std::function<void(const Spot&)> moved; // dragged somewhere else by the user
         std::function<void(bool wide)> wideChanged; // see wide()
@@ -109,7 +119,9 @@ public:
     void setText(Text text);
     void reattach(); // Explorer started again (TaskbarCreated)
     void setStartGapWanted(bool on, bool justTurnedOn = false); // the setting: ask for the gap right of Start (gapWanted); just turned on: a spot dragged beside the icons is dropped
-    void setStartGap(bool applied, double dips); // what StartGap reports: the margin on the Start button, or not
+    // What StartGap reports: the margin on the Start button, or not; unavailable:
+    // it gave up (a conflict, a failure, the gap never seen), not to be asked for by a drag.
+    void setStartGap(bool applied, double dips, bool unavailable = false);
     std::optional<RECT> rect() const; // where it settles, on the screen, physical pixels; none while not shown
     bool wide() const; // ... as the whole box, which shows what is typed (else its label or icon alone)
     std::optional<RECT> caret() const; // ... the caret while active

@@ -76,7 +76,12 @@ class DialogBar : public QObject {
     Q_PROPERTY(QString browsedFolder READ browsedFolder NOTIFY browsedFolderChanged FINAL)
     Q_PROPERTY(int rows READ rows NOTIFY layoutChanged FINAL) // of the list; 0 while it is closed
     Q_PROPERTY(bool listAbove READ listAbove NOTIFY layoutChanged FINAL)
+    // Whether dialogs should go to the file manager's folder by themselves:
+    // asked once, on a line under the box, while one shows a folder and the
+    // list is closed (setAskAutoJump; answerAutoJump).
+    Q_PROPERTY(bool asking READ asking NOTIFY askingChanged FINAL)
     Q_PROPERTY(int barHeight READ barHeight CONSTANT FINAL)
+    Q_PROPERTY(int askHeight READ askHeight CONSTANT FINAL)
     Q_PROPERTY(int rowHeight READ rowHeight CONSTANT FINAL)
     // As the launcher's (Launcher::showModified, numberKeys, composing).
     Q_PROPERTY(bool showModified READ showModified NOTIFY resultOptionsChanged FINAL)
@@ -88,6 +93,7 @@ public:
     static constexpr int kRowHeight = 52;
     static constexpr int kListChrome = 9; // the divider and the list's margins
     static constexpr int kMaxRows = 5;
+    static constexpr int kAskHeight = 40; // the line under the box that asks (asking)
 
     // The context menus' entries.
     enum Action {
@@ -126,6 +132,7 @@ public:
     void setExcludedApps(const QStringList& apps); // program files ("notepad.exe") whose dialogs go without
     void setPlace(const QString& name); // Settings::dialogBarPlace: "auto", "below", "left", "right"
     void setResultOptions(bool showModified, const QString& numberKeys); // Settings: "ctrl", "alt", "off"
+    void setAskAutoJump(bool on); // not answered yet (Settings::dialogAutoJumpAsked)
     bool showModified() const { return m_showModified; }
     QString numberKeys() const { return m_numberKeys; }
     bool composing() const { return m_composing; }
@@ -162,11 +169,15 @@ public:
     int rows() const { return m_rows; }
     bool listAbove() const { return m_listAbove; }
     int barHeight() const { return kBarHeight; }
+    int askHeight() const { return kAskHeight; }
+    bool asking() const { return m_asking; }
     int rowHeight() const { return kRowHeight; }
 
     Q_INVOKABLE void choose(int row, bool open = false);
     Q_INVOKABLE void chooseExplorer(); // the folder shown in the file manager (as Ctrl+G)
     Q_INVOKABLE void goBack(); // to the folder the dialog showed before it went by itself
+    // The answer to `asking`: "open" (and there now), "back", or "" for no.
+    Q_INVOKABLE void answerAutoJump(const QString& when);
     Q_INVOKABLE void back(); // Esc with nothing typed: the dialog has the focus again
     Q_INVOKABLE void enter(int row); // Tab: the row's path in the box ("D:\Projects\"), listing what it holds
     Q_INVOKABLE void up(); // Shift+Tab: the typed path's folder, then the one above
@@ -193,6 +204,8 @@ signals:
     void contextMenuKeyPressed(); // Menu key / Shift+F10 (arrive as a context-menu event, not a key)
     void resultOptionsChanged();
     void composingChanged();
+    void askingChanged();
+    void autoJumpAnswered(const QString& when); // see answerAutoJump()
     void numberPressed(int number); // 1…9, counted from the first row shown
     void heldKey(int number, bool open); // see holdUntilShown()
 
@@ -204,6 +217,7 @@ private:
     void follow(); // shown under the dialog, or hidden while it is not to be seen
     void makeRoom(); // by the dialog, as it first shows: for the bar and the list
     void place();
+    void updateAsking();
     void relist(); // for the query: suggestions, a folder's contents or the search's results
     void search();
     void browse(const pathtext::TypedPath& typed); // in the background
@@ -247,6 +261,8 @@ private:
     bool m_showModified = true;
     QString m_numberKeys = QStringLiteral("ctrl");
     bool m_composing = false;
+    bool m_askAutoJump = false;
+    bool m_asking = false;
     QString m_browsed; // see browsedFolder
     std::atomic<int> m_listings {0}; // the newest browse() wins
     bool m_nothingFound = false;
