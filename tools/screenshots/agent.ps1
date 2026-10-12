@@ -12,6 +12,7 @@
 #   tap <vk> | down <vk> | up <vk> | chord <mod vk> <vk> | type <text> (ASCII; other text: clip + Ctrl+V)
 #   clickfg <dx> <dy> (physical px from the front window's frame) | clickb <dx> <up from bottom>
 #   clickws <x> <y> (on a window of WinShun's) | clickbox <x> <y> (on its taskbar box) | wheel <dx> <dy> <delta>
+#   dragws <x1> <y1> <x2> <y2> (left button held from one point to the other, both on a window of WinShun's)
 #   shot <name> (the front window) | shotabs <name> <x> <y> <w> <h>        -> work\shots\<name>.png
 #   matte <name> [winshun] (cut out by shots.py shoot)                      -> work\shots\<name>.png
 #   scene [--theme light|dark] [--wallpaper NAME] | restore
@@ -53,6 +54,10 @@ public static class A {
     }
     public static void Wheel(int delta) {
         var i = new INPUT[1]; i[0].type = 0; i[0].mi.dwFlags = 0x800; i[0].mi.data = (uint)delta;
+        SendInput(1, i, Marshal.SizeOf(typeof(INPUT)));
+    }
+    public static void Button(bool up) {
+        var i = new INPUT[1]; i[0].type = 0; i[0].mi.dwFlags = up ? 4u : 2u;
         SendInput(1, i, Marshal.SizeOf(typeof(INPUT)));
     }
     public static void Click() {
@@ -160,6 +165,19 @@ function RunLines($lines) {
                 [A]::SetCursorPos($x, $y) | Out-Null; Start-Sleep -Milliseconds 120
                 if ([A]::Pid([A]::RootAt($x, $y)) -ne (WsPid)) { throw "click at $x,$y would land on another program" }
                 [A]::Click()
+            }
+            'dragws' { # absolute physical px, both ends on a window of WinShun's own (text selected with the mouse)
+                $p = $arg -split '\s+'; $x1 = [int]$p[0]; $y1 = [int]$p[1]; $x2 = [int]$p[2]; $y2 = [int]$p[3]
+                foreach ($q in @(@($x2, $y2), @($x1, $y1))) {
+                    if ([A]::Pid([A]::RootAt($q[0], $q[1])) -ne (WsPid)) { throw "drag at $($q[0]),$($q[1]) would land on another program" }
+                }
+                [A]::SetCursorPos($x1, $y1) | Out-Null; Start-Sleep -Milliseconds 120
+                [A]::Button($false)
+                for ($k = 1; $k -le 12; $k++) {
+                    [A]::SetCursorPos([int]($x1 + ($x2 - $x1) * $k / 12), [int]($y1 + ($y2 - $y1) * $k / 12)) | Out-Null
+                    Start-Sleep -Milliseconds 20
+                }
+                [A]::Button($true)
             }
             'clickbox' { # absolute physical px, on WinShun's search box in the taskbar
                 $p = $arg -split '\s+'; $x = [int]$p[0]; $y = [int]$p[1]
