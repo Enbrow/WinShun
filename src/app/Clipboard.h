@@ -10,7 +10,6 @@
 #include <QPointer>
 #include <QQuickItem>
 #include <QRectF>
-#include <QTemporaryDir>
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
@@ -105,6 +104,7 @@ public:
     Q_ENUM(Action)
 
     Clipboard(ClipStore* store, ClipboardWatcher* watcher, QObject* parent = nullptr);
+    ~Clipboard() override;
 
     bool active() const { return m_active; }
     void setActive(bool active);
@@ -254,7 +254,10 @@ private:
     ClipModel m_model;
     TextRecognizer m_recognizer; // the words in pictures, for the search
     QPointer<QWindow> m_window;
-    QTemporaryDir m_dragFiles; // exported copies, retained until shutdown for asynchronous drop targets
+    // Pictures dragged out, copied here first (a folder each, by id): kept
+    // until the app ends, as the program dropped on may copy them later.
+    // Made on the first drag; what a crash left is removed at the start.
+    QString m_dragFolder;
     bool m_dragging = false;
     bool m_active = false;
     bool m_keysRouted = false;

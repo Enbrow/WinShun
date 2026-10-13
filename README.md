@@ -134,6 +134,7 @@
 - **怎么粘贴**：双击或 `Enter` 粘贴，`Shift+Enter` 粘贴为纯文本，`Alt+1`～`9` 直接粘贴第几条（序号标在图标上）。
 - **能搜**：拼音搜索，`@wx` 只看微信里复制的；**图片里的字也能搜**（Windows 自带的文字识别 OCR，在本机，不联网）。
 - **预览**：全文、大图、颜色值的 HEX / RGB / HSL。
+- **拖出图片**：按住一张图片拖到文件夹里，就存成 PNG 文件。
 - **整理**：固定、分组、多选按顺序合并粘贴，钉住后可以一条接一条地往表格里填。
 - **隐私**：密码管理器复制的密码不记录，历史只存在本机。
 
@@ -267,6 +268,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **What**: text, pictures and files, opened with `Win+V` or your own shortcut, by the text cursor, without taking the focus.
   - **Search**: pinyin, `@app` filters, and **words in copied pictures** (Windows' own OCR, on your PC).
   - **Preview**: full text, pictures, HEX / RGB / HSL color values.
+  - **Drag pictures out**: hold a picture and drop it on a folder to save it as a PNG file.
   - **Organize**: pins, groups, multi-paste in order, and `Alt+1`…`Alt+9`.
   - **Privacy**: passwords from password managers are not kept, and the history stays on your PC.
 - 🔎 **Taskbar search box (replaces Windows search)**: WinShun's own search box on the Windows 11 taskbar (a pinned button on Windows 10), optionally right of Start where Windows' own box sits; it can take over `Win+S` and typing in the Start menu.

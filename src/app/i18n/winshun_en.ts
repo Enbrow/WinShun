@@ -3299,6 +3299,10 @@
 <context>
     <name>ws::Clipboard</name>
     <message>
+        <source>剪贴板图片</source>
+        <translation>Clipboard image</translation>
+    </message>
+    <message>
         <source>无法准备要拖出的图片</source>
         <translation>Cannot prepare the image for dragging</translation>
     </message>

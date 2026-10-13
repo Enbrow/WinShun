@@ -60,8 +60,9 @@ Clipboard::Clipboard(ClipStore* store, ClipboardWatcher* watcher, QObject* paren
     , m_store(store)
     , m_watcher(watcher)
     , m_model(store)
-    , m_dragFiles(QDir::tempPath() + u"/winshun-clipboard-XXXXXX"_s)
+    , m_dragFolder(store->folder() + u"/dragged"_s)
 {
+    QDir(m_dragFolder).removeRecursively();
     m_separator = m_store->value(u"separator"_s);
     if (!kSeparators.contains(m_separator))
         m_separator = kSeparators.constFirst();
@@ -657,6 +658,11 @@ void Clipboard::copy(int row)
     startPaste(std::move(write), Into::Clipboard, std::move(touched), done);
 }
 
+Clipboard::~Clipboard()
+{
+    QDir(m_dragFolder).removeRecursively();
+}
+
 void Clipboard::dragOut(int row)
 {
     if (m_pasting || m_dragging || !m_window)
@@ -665,11 +671,13 @@ void Clipboard::dragOut(int row)
     if (!clip || clip->kind != ClipKind::Image)
         return;
     const qint64 id = clip->id;
-    // Wait for a newly captured image, then stage a copy outside the history.
-    // Keep it until shutdown: Explorer can finish copying after OLE returns.
+    // Wait for a newly captured image, then stage a copy outside the history,
+    // named for when it was copied: "剪贴板图片 2026-10-12 14.32.05.png".
     const QString original = m_store->payload(id).imagePath;
-    const QString exported = m_dragFiles.filePath(u"image_%1.png"_s.arg(id));
-    if (!m_dragFiles.isValid() || (!QFile::exists(exported) && !QFile::copy(original, exported))) {
+    const QString folder = m_dragFolder + u'/' + QString::number(id);
+    const QString exported = folder + u'/' + tr("剪贴板图片") + u' '
+        + QDateTime::fromMSecsSinceEpoch(clip->created).toString(u"yyyy-MM-dd HH.mm.ss"_s) + u".png"_s;
+    if (!QFile::exists(exported) && (!QDir().mkpath(folder) || !QFile::copy(original, exported))) {
         flash(tr("无法准备要拖出的图片"));
         return;
     }

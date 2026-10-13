@@ -218,6 +218,7 @@ public:
 
     ClipPayload payload(qint64 id) const; // with the picture's file there
     QString imagePath(qint64 id) const;
+    QString folder() const { return m_folder; } // the history's files are in it
     // Just copied, its picture still being written: no file at imagePath() yet.
     bool imagePending(qint64 id) const { return m_picturesPending.contains(id); }
     // Pictures whose words were not read yet, newest first (their files written).
