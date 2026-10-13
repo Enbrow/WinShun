@@ -2219,6 +2219,8 @@ void App::uncloakClipboard()
 
 void App::hideClipboard(bool launcherToo)
 {
+    if (m_clipboard->dragging())
+        return;
     if (m_clipboard->pinned() && m_clipWindow && m_clipWindow->isVisible() && !m_clipPrewarming.load()) {
         releaseClipboard(false); // clicked elsewhere, another program in front, the launcher opened
         return;

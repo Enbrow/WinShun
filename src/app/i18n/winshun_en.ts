@@ -3299,6 +3299,14 @@
 <context>
     <name>ws::Clipboard</name>
     <message>
+        <source>无法准备要拖出的图片</source>
+        <translation>Cannot prepare the image for dragging</translation>
+    </message>
+    <message>
+        <source>无法拖出图片</source>
+        <translation>Could not drag the image</translation>
+    </message>
+    <message>
         <source>已复制。那个窗口没有回到前面，请自己按 Ctrl+V 粘贴</source>
         <translation>Copied. That window did not come back to the front: press Ctrl+V there</translation>
     </message>

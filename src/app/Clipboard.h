@@ -10,6 +10,7 @@
 #include <QPointer>
 #include <QQuickItem>
 #include <QRectF>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
@@ -154,6 +155,9 @@ public:
     Q_INVOKABLE void paste(int row, bool plainText);
     Q_INVOKABLE void quickPaste(int number, bool plainText); // Alt+1 ... Alt+9: the nth row
     Q_INVOKABLE void copy(int row);
+    // An image exported as a PNG file; its history entry remains unchanged.
+    Q_INVOKABLE void dragOut(int row);
+    bool dragging() const { return m_dragging; } // do not hide the window during OLE's modal loop
     // A colour's other notation, as a new entry unless it would not read back
     // as that colour (#AARRGGBB).
     Q_INVOKABLE void copyText(const QString& text, bool remember);
@@ -250,6 +254,8 @@ private:
     ClipModel m_model;
     TextRecognizer m_recognizer; // the words in pictures, for the search
     QPointer<QWindow> m_window;
+    QTemporaryDir m_dragFiles; // exported copies, retained until shutdown for asynchronous drop targets
+    bool m_dragging = false;
     bool m_active = false;
     bool m_keysRouted = false;
     bool m_pinned = false;

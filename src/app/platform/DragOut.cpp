@@ -1,5 +1,7 @@
 #include "DragOut.h"
 
+#include <QDir>
+
 #include <shellapi.h>
 #include <shlobj.h>
 
@@ -63,10 +65,12 @@ ComPtr<IDataObject> dataObject(const QStringList& paths)
     IdLists lists;
     QStringList found;
     for (const QString& path : paths) {
+        // Qt paths use '/', which the shell rejects with E_INVALIDARG.
+        const QString nativePath = QDir::toNativeSeparators(path);
         PIDLIST_ABSOLUTE item = nullptr;
-        if (SUCCEEDED(::SHParseDisplayName(reinterpret_cast<const wchar_t*>(path.utf16()), nullptr, &item, 0, nullptr))) {
+        if (SUCCEEDED(::SHParseDisplayName(reinterpret_cast<const wchar_t*>(nativePath.utf16()), nullptr, &item, 0, nullptr))) {
             lists.items.push_back(item);
-            found.append(path);
+            found.append(nativePath);
         }
     }
     if (lists.items.empty())
@@ -92,13 +96,14 @@ ComPtr<IDataObject> dataObject(const QStringList& paths)
     return data;
 }
 
-Outcome drag(const QStringList& paths, HWND source)
+Outcome drag(const QStringList& paths, HWND source, bool allowLink)
 {
     const ComPtr<IDataObject> data = dataObject(paths);
     if (!data)
         return Outcome::Failed;
     DWORD effect = DROPEFFECT_NONE;
-    const HRESULT hr = ::SHDoDragDrop(source, data.Get(), nullptr, DROPEFFECT_COPY | DROPEFFECT_LINK, &effect);
+    const DWORD allowed = DROPEFFECT_COPY | (allowLink ? DROPEFFECT_LINK : 0);
+    const HRESULT hr = ::SHDoDragDrop(source, data.Get(), nullptr, allowed, &effect);
     if (hr == DRAGDROP_S_DROP)
         return effect != DROPEFFECT_NONE ? Outcome::Dropped : Outcome::Cancelled;
     return hr == DRAGDROP_S_CANCEL ? Outcome::Cancelled : Outcome::Failed;

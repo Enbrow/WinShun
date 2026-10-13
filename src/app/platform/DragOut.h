@@ -26,7 +26,8 @@ enum class Outcome { Dropped, Cancelled, Failed };
 // calling thread, which pumps its messages meanwhile (the GUI thread, with
 // the button down). Copy or link, never move: dropped on a folder of the same
 // disk, Explorer would otherwise move the user's file away. With the shell's
-// drag image, the items' thumbnails and their count.
-Outcome drag(const QStringList& paths, HWND source);
+// drag image, the items' thumbnails and their count. Set allowLink to false
+// for temporary exports: a shortcut would break when the export is removed.
+Outcome drag(const QStringList& paths, HWND source, bool allowLink = true);
 
 } // namespace ws::dragout

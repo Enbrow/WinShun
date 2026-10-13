@@ -32,6 +32,7 @@ Item {
 
     signal clicked(int index, int modifiers)
     signal pasteRequested(int index) // its paste button, a double click
+    signal dragRequested(int index)
     signal menuRequested(int index, point globalPos)
     signal actionRequested(int index, int action)
 
@@ -245,16 +246,37 @@ Item {
 
     MouseArea {
         id: area
+        // Real mouse drags export images; touch still scrolls the list.
+        property point pressedAt: Qt.point(0, 0)
+        property bool draggedOut: false
         anchors.fill: parent
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onPressed: (mouse) => {
+            draggedOut = false
+            pressedAt = Qt.point(mouse.x, mouse.y)
+            preventStealing = row.kind === 4 && mouse.button === Qt.LeftButton
+                              && mouse.source === Qt.MouseEventNotSynthesized
+        }
+        onPositionChanged: (mouse) => {
+            if (!pressed || !preventStealing || draggedOut || !(mouse.buttons & Qt.LeftButton))
+                return
+            if (Math.hypot(mouse.x - pressedAt.x, mouse.y - pressedAt.y) < Application.styleHints.startDragDistance)
+                return
+            draggedOut = true
+            row.dragRequested(row.index)
+        }
         onClicked: (mouse) => {
+            if (draggedOut)
+                return
             if (mouse.button === Qt.RightButton)
                 row.menuRequested(row.index, area.mapToGlobal(mouse.x, mouse.y))
             else
                 row.clicked(row.index, mouse.modifiers)
         }
         onDoubleClicked: (mouse) => {
+            if (draggedOut)
+                return
             if (mouse.button === Qt.LeftButton && (mouse.modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) === 0)
                 row.pasteRequested(row.index)
         }

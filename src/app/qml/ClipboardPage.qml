@@ -481,6 +481,7 @@ Item {
                         height: clipRow.kind === 4 ? page.pictureRowHeight : page.rowHeight
                         hint: page.numberKey >= 0 && index < 9 && page.numberUsable(index + 1) ? index + 1 : 0
                         pasteTip: page.pasteLabel
+                        onDragRequested: (index) => page.clipboard.dragOut(index)
                         // On whole device pixels wherever the list has scrolled
                         // to (see Main.qml).
                         transform: Translate {
