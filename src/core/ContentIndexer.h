@@ -78,6 +78,17 @@ public:
     void setOptions(Options options);
     void wake(); // documents turned dirty: read them again a little later
     bool reading() const noexcept { return m_reading.load(); } // files are being read now
+    // Of the files the pass under way looks at: how many it has done, of how many.
+    struct Progress {
+        std::size_t done = 0;
+        std::size_t total = 0;
+    };
+    Progress progress() const noexcept { return {m_passDone.load(), m_passTotal.load()}; }
+    // The search box is open: the user may search again any moment, and a
+    // search reads the files it needs itself, best with the disks to itself.
+    // No file is started (nor segments merged) meanwhile, nor for a few
+    // seconds after it closed. Any thread.
+    void setSearchBoxOpen(bool open) noexcept;
     // Documents found to be copies of others (the same bytes) and not read
     // again, all told.
     std::size_t copies() const noexcept { return m_copies.load(); }
@@ -106,9 +117,16 @@ public:
         std::optional<doctext::DocText> document; // ... and as read, for a search to look through
         bool large = false; // Empty for having more bytes than the limit (a search counts those)
     };
+    // A file on a hard disk: a document is read through once, in order,
+    // before the extractor jumps about in it. `quiet` (someone uses the
+    // computer): at very low I/O priority, after whatever else wants the disk.
+    struct HardDisk {
+        bool on = false;
+        bool quiet = false;
+    };
     // A document (isDocumentPath) goes to `documents`; without it, it is skipped.
     static FileText readFile(std::wstring_view path, std::int64_t maxBytes, const std::function<bool()>& cancelled,
-        DocExtractor* documents = nullptr);
+        DocExtractor* documents = nullptr, HardDisk disk = {});
     static std::optional<std::uint32_t> stampOf(std::wstring_view path); // size and time only
     // A content search's read of a file: `scanner` looks for its phrase while
     // the whole file is read for the index (the rest of it after a match).
@@ -176,6 +194,11 @@ private:
     bool m_paused = false;
     std::atomic<bool> m_interrupt {false}; // checked before each file
     std::atomic<bool> m_reading {false};
+    bool searchBoxHolds() const noexcept;
+    std::atomic<bool> m_searchBoxOpen {false};
+    std::atomic<std::int64_t> m_searchBoxClosed {0}; // steady clock, ms
+    std::atomic<std::size_t> m_passDone {0};
+    std::atomic<std::size_t> m_passTotal {0};
     std::atomic<std::size_t> m_copies {0};
     // Files read lately, and when: one that keeps changing (a log being
     // written) is read at most every Timing::cooldown; meanwhile searches

@@ -1148,6 +1148,10 @@ void IndexService::prewarm(std::stop_token stop)
     const auto cancelled = [&] { return stop.stop_requested() || m_moving.load(); };
     if (cancelled())
         return; // a move asks again once it is done
+    if (m_contentIndexer->reading()) {
+        prewarmSoon(kPrewarmAfterStart); // not beside the files being read: on a hard disk both would seek
+        return;
+    }
     QString folder;
     {
         const std::lock_guard files(m_filesMutex);

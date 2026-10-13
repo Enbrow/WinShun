@@ -27,7 +27,10 @@ constexpr auto kRetryDelay = 1min; // after a pass was cut short
 constexpr auto kLookAround = 250ms; // a pass looks at merges due, the power and the user this often
 constexpr std::size_t kMergeAfter = 1024; // files read (by passes or searches) before the segments become one
 constexpr int kHardDiskReads = 2; // files read from one hard disk at once: more would make its heads jump about
+// ... while someone uses the computer: one, at very low I/O priority (HardDisk::quiet)
+constexpr int kHardDiskReadsQuiet = 1;
 constexpr DWORD kAwayAfterMs = 2 * 60 * 1000;
+constexpr auto kAfterSearchBox = std::chrono::seconds(5); // closed, before files are read again: searching again
 constexpr std::size_t kChunkBytes = ContentScanner::kChunkBytes;
 
 // How many files are read at once. Opening one costs the antivirus several
@@ -55,6 +58,10 @@ bool batterySaverOn()
 // in its own process, which the indexer's background priority does not reach.
 bool userAway()
 {
+    // For testing (wsbench --service --content while typing): WINSHUN_USER=present or away.
+    wchar_t forced[16] {};
+    if (::GetEnvironmentVariableW(L"WINSHUN_USER", forced, 16) > 0)
+        return std::wstring_view(forced) == L"away";
     LASTINPUTINFO input {sizeof input, 0};
     SYSTEM_POWER_STATUS power {};
     QUERY_USER_NOTIFICATION_STATE state {};
@@ -510,6 +517,22 @@ int ContentIndexer::documentProcesses() noexcept
     return std::clamp(static_cast<int>(std::thread::hardware_concurrency()) / 4, 2, 8);
 }
 
+void ContentIndexer::setSearchBoxOpen(bool open) noexcept
+{
+    if (!open)
+        m_searchBoxClosed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+    m_searchBoxOpen = open;
+}
+
+bool ContentIndexer::searchBoxHolds() const noexcept
+{
+    if (m_searchBoxOpen.load())
+        return true;
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    return now - std::chrono::milliseconds(m_searchBoxClosed.load()) < kAfterSearchBox;
+}
+
 bool ContentIndexer::pass(const Options& options, std::stop_token stop)
 {
     const auto index = m_source.index();
@@ -542,6 +565,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
         std::atomic<int> room = std::numeric_limits<int>::max();
         std::atomic<std::size_t> next {0};
         std::atomic<int> reading {0};
+        bool hardDisk = false;
     };
     std::deque<Queue> queues; // keeps their places as more are added
     std::vector<Queue*> hardDiskQueue(volumes.size(), nullptr);
@@ -560,7 +584,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
                 continue;
             }
             Queue& q = queues.emplace_back();
-            q.room = kHardDiskReads;
+            q.hardDisk = true;
             hardDiskQueue[v] = &q;
             disks.emplace_back(p.disk, &q);
         }
@@ -570,6 +594,13 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
     // once those are done or nobody does: documents read beside the other
     // files leave none to read at the end (wsbench --service --content).
     bool away = userAway(); // nobody at the computer (the coordinator's, from here on)
+    std::atomic<bool> awayNow {away}; // the same, for the readers
+    // A hard disk is all the user's while they are at the computer: one file
+    // at a time, at very low I/O priority (readFile, HardDisk::quiet), so
+    // Windows serves every other program's reads first. Nobody there: two.
+    const auto hardDiskRoom = [](bool away) { return away ? kHardDiskReads : kHardDiskReadsQuiet; };
+    for (Queue& q : queues)
+        q.room = hardDiskRoom(away);
     Queue& documents = queues.emplace_back();
     documents.room = away ? documentProcesses() : std::max(1, documentProcesses() / 2);
     Queue& others = queues.emplace_back();
@@ -591,6 +622,8 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
     const int readerThreads = static_cast<int>(std::min(work.size() - documents.files.size(),
         static_cast<std::size_t>(readers(true))));
 
+    m_passDone = 0;
+    m_passTotal = work.size();
     m_reading = true;
     const struct Done {
         std::atomic<bool>& flag;
@@ -640,7 +673,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
         return nullptr;
     };
     // Reads one file into the index; false when the index has no room left.
-    const auto read = [&](const Work& w, std::wstring& path) {
+    const auto read = [&](const Work& w, std::wstring& path, bool hardDisk) {
         if (m_content->knows(w.entry))
             return true; // a search read it meanwhile (Intake)
         {
@@ -667,15 +700,44 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
             bool added = false;
             ~Report() { copies.done(entry, added); }
         } report {copies, w.entry};
+        const HardDisk disk {.on = hardDisk, .quiet = hardDisk && !awayNow.load()};
+        // Quiet: the thread's own I/O at background priority too, which is
+        // how the antivirus's scan of the file as it is opened goes after
+        // the user's reads as well (on a solid-state disk that only made
+        // reading 5-15 times slower). Not while handing over to the index,
+        // whose lock others wait for.
+        struct Background {
+            bool on = false;
+            explicit Background(bool quiet) { begin(quiet); }
+            void begin(bool quiet)
+            {
+                if (quiet && !on)
+                    on = ::SetThreadPriority(::GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
+            }
+            void end()
+            {
+                if (std::exchange(on, false))
+                    ::SetThreadPriority(::GetCurrentThread(), THREAD_MODE_BACKGROUND_END);
+            }
+            ~Background() { end(); }
+        } background(disk.quiet);
         const std::optional<FileStamp> file = w.document ? statOf(path) : std::nullopt;
         const std::optional<Copies::Original> original
             = file && file->size > 0 && static_cast<std::int64_t>(file->size) <= maxBytes
             ? copies.find(w.entry, path, file->size, file->stamp, cancelled)
             : std::nullopt;
-        if (original && m_content->addCopy(w.entry, original->entry, original->stamp, file->stamp, since)) {
-            ++m_copies;
-        } else {
-            const FileText text = readFile(path, maxBytes, cancelled, &m_documents);
+        bool copied = false;
+        if (original) {
+            background.end();
+            copied = m_content->addCopy(w.entry, original->entry, original->stamp, file->stamp, since);
+            if (copied)
+                ++m_copies;
+            else
+                background.begin(disk.quiet);
+        }
+        if (!copied) {
+            const FileText text = readFile(path, maxBytes, cancelled, &m_documents, disk);
+            background.end();
             if (text.outcome == Outcome::Skipped)
                 return true;
             if (!m_content->add(
@@ -701,8 +763,8 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
                 waitOn(gate, 1s);
                 continue;
             }
-            if (m_content->searching()) {
-                waitOn(gate, 100ms); // it opens files meanwhile
+            if (m_content->searching() || searchBoxHolds()) {
+                waitOn(gate, 100ms); // it opens files meanwhile, or may any moment
                 continue;
             }
             // Announced before looking at `hold`: a merge waits for it.
@@ -717,8 +779,9 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
                 waitOn(room, 100ms); // the files left wait for a hard disk or an extractor
                 continue;
             }
-            if (!read(*w, path))
+            if (!read(*w, path, from->hardDisk))
                 full = true;
+            ++m_passDone;
             from->reading.fetch_sub(1);
             busy.fetch_sub(1);
             if (from->room.load() != std::numeric_limits<int>::max())
@@ -748,8 +811,13 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
             } else {
                 if (++ticks % 8 == 0) { // whether someone is at the computer, every 2 s
                     away = userAway();
+                    awayNow = away;
                     const int now = readers(away);
                     letGo = now > allowed.exchange(now);
+                    for (Queue& q : queues) {
+                        if (q.hardDisk && hardDiskRoom(away) > q.room.exchange(hardDiskRoom(away)))
+                            letGo = true;
+                    }
                 }
                 // Only documents left, or nobody at the computer: every
                 // extractor process.
@@ -757,7 +825,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
                                                                      : std::max(1, documentProcesses() / 2);
                 if (processes > documents.room.exchange(processes))
                     letGo = true;
-                if (!m_content->searching()) {
+                if (!m_content->searching() && !searchBoxHolds()) {
                     if (m_content->needsFullMerge() || m_content->needsTextCompaction()) {
                         // Merging everything (or rewriting the text file)
                         // cannot take in documents added meanwhile: the files
@@ -819,10 +887,11 @@ void ContentIndexer::tidy(std::size_t added)
 
 namespace {
 
-// Opens a file to read it for the index, at low I/O priority, and puts its
-// stamp in `out`. Invalid when it is not to be read: out.outcome is Empty
-// when there is nothing to find in it, Skipped when it may be read later.
-win32::UniqueHandle openText(std::wstring_view path, std::int64_t maxBytes, ContentIndexer::FileText& out)
+// Opens a file to read it for the index, at low I/O priority (very low when
+// `quiet`), and puts its stamp in `out`. Invalid when it is not to be read:
+// out.outcome is Empty when there is nothing to find in it, Skipped when it
+// may be read later.
+win32::UniqueHandle openText(std::wstring_view path, std::int64_t maxBytes, ContentIndexer::FileText& out, bool quiet)
 {
     win32::UniqueHandle file(::CreateFileW(win32::longPath(path).c_str(), GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN,
@@ -849,28 +918,42 @@ win32::UniqueHandle openText(std::wstring_view path, std::int64_t maxBytes, Cont
         out.large = size.QuadPart > 0;
         return {};
     }
+    // On the file object: the extractor's reads through a copy of the handle have it too.
     FILE_IO_PRIORITY_HINT_INFO hint {};
-    hint.PriorityHint = IoPriorityHintLow;
+    hint.PriorityHint = quiet ? IoPriorityHintVeryLow : IoPriorityHintLow;
     ::SetFileInformationByHandle(file.get(), FileIoPriorityHintInfo, &hint, sizeof hint);
     return file;
 }
 
 } // namespace
 
-ContentIndexer::FileText ContentIndexer::readFile(
-    std::wstring_view path, std::int64_t maxBytes, const std::function<bool()>& cancelled, DocExtractor* documents)
+ContentIndexer::FileText ContentIndexer::readFile(std::wstring_view path, std::int64_t maxBytes,
+    const std::function<bool()>& cancelled, DocExtractor* documents, HardDisk disk)
 {
     FileText out;
     const bool document = isDocumentPath(path);
     if (document && !documents)
         return out;
-    const win32::UniqueHandle file = openText(path, maxBytes, out);
+    const win32::UniqueHandle file = openText(path, maxBytes, out, disk.quiet);
     if (!file.valid())
         return out;
 
     if (document) {
         LARGE_INTEGER size {};
         ::GetFileSizeEx(file.get(), &size);
+        if (disk.on) {
+            // Into the file cache in one go: the extractor reads a PDF's
+            // cross-reference table at the end first, then its objects all
+            // over, and on a hard disk every jump is a seek.
+            thread_local std::vector<char> through;
+            through.resize(1 << 20);
+            DWORD got = 0;
+            while (!cancelled() && ::ReadFile(file.get(), through.data(), static_cast<DWORD>(through.size()), &got, nullptr)
+                && got > 0) {
+            }
+            if (cancelled())
+                return out;
+        }
         DocExtractor::Result read = documents->extract(file.get(), static_cast<std::uint64_t>(size.QuadPart), cancelled);
         if (read.retry)
             return out;
@@ -928,7 +1011,7 @@ ContentIndexer::Scanned ContentIndexer::scanFile(std::wstring_view path, std::in
     const ContentScanner& scanner, const std::function<bool()>& cancelled)
 {
     Scanned out;
-    const win32::UniqueHandle file = openText(path, maxBytes, out.text);
+    const win32::UniqueHandle file = openText(path, maxBytes, out.text, false); // a search: the user waits for it
     if (!file.valid())
         return out;
     // The scanner reads through this, which hands the bytes to the collector

@@ -3012,6 +3012,14 @@
         </translation>
     </message>
     <message>
+        <source>，这一轮读到 %1 / %2</source>
+        <translation>, this round %1 / %2</translation>
+    </message>
+    <message>
+        <source>正在建立内容索引 %1 / %2</source>
+        <translation>Building the content index %1 / %2</translation>
+    </message>
+    <message>
         <source>文件索引一建好，就开始建立</source>
         <translation>Starts building as soon as the file index is ready</translation>
     </message>

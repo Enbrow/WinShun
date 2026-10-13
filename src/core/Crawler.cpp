@@ -68,6 +68,16 @@ VolumePlacement placementOf(std::wstring_view root)
             nullptr)
         && bytes >= sizeof penalty)
         p.seeks = penalty.IncursSeekPenalty;
+    // For testing on a machine without one: WINSHUN_SPINNING=D:,E: counts
+    // those volumes as on a hard disk.
+    wchar_t spinning[256] {};
+    if (!p.seeks && ::GetEnvironmentVariableW(L"WINSHUN_SPINNING", spinning, 256) > 0 && root.size() >= 2) {
+        const std::wstring_view listed(spinning);
+        for (std::size_t at = 0; (at = listed.find(L':', at)) != std::wstring_view::npos; ++at) {
+            if (at > 0 && std::towupper(listed[at - 1]) == std::towupper(root[0]))
+                p.seeks = true;
+        }
+    }
     return p;
 }
 

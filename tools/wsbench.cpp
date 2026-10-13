@@ -56,7 +56,11 @@
 //                      the content indexer reading every file a content search
 //                      looks in (the settings in WinShun.ini); how long it took;
 //                      --from: starting from a copy of an index folder D (the
-//                      first run after an upgrade)
+//                      first run after an upgrade); --box: the search box
+//                      open from 20 s to 40 s into reading (nothing is read
+//                      then, nor 5 s after). WINSHUN_SPINNING=C:,D: counts
+//                      volumes as hard disks, WINSHUN_USER=present|away fixes
+//                      whether someone is at the computer.
 //   wsbench [snapshot] --extract [--threads N] [--memory] [--sandbox [--background]] [--dump] [path ...]
 //                      reads documents (Word, Excel, PowerPoint, PDF) as the
 //                      extractor does, in this process: the files or folders
@@ -853,6 +857,9 @@ int runServiceContent(const QStringList& args)
     t.start();
     double readyMs = 0;
     double startedMs = 0; // the content indexer began reading
+    // --box: the search box open from 20 s to 40 s after reading began (ContentIndexer::setSearchBoxOpen).
+    const bool box = args.contains(u"--box"_s);
+    int boxState = 0; // 0 not yet, 1 open, 2 closed again
     int idlePolls = 0;
     CpuTimes cpuAtStart;
     std::size_t lastDocuments = 0;
@@ -870,13 +877,20 @@ int runServiceContent(const QStringList& args)
             cpuAtStart = cpuTimes();
             std::printf("  %6.1f s  content indexing started\n", startedMs / 1000);
         }
+        if (box && startedMs > 0 && boxState < 2 && msSince(t) - startedMs >= (boxState == 0 ? 20000 : 40000)) {
+            service.contentIndexer()->setSearchBoxOpen(boxState == 0);
+            std::printf("  %6.1f s  search box %s, %zu files read this pass\n", msSince(t) / 1000,
+                boxState == 0 ? "opened" : "closed", service.contentIndexer()->progress().done);
+            ++boxState;
+        }
         const ws::ContentIndex::Stats stats = service.contentIndex()->stats();
         if (msSince(t) - lastReport >= 10000 && startedMs > 0) {
             LASTINPUTINFO input {sizeof input, 0};
             ::GetLastInputInfo(&input);
-            std::printf("  %6.1f s  %zu files (%.0f a second), %zu documents' text; last input %lu s ago\n",
+            std::printf("  %6.1f s  %zu files (%.0f a second; %zu read this pass), %zu documents' text; last input %lu s ago\n",
                 msSince(t) / 1000, stats.documents,
-                static_cast<double>(stats.documents - lastDocuments) * 1000.0 / (msSince(t) - lastReport), stats.texts,
+                static_cast<double>(stats.documents - lastDocuments) * 1000.0 / (msSince(t) - lastReport),
+                service.contentIndexer()->progress().done, stats.texts,
                 (::GetTickCount() - input.dwTime) / 1000);
             lastDocuments = stats.documents;
             lastReport = msSince(t);

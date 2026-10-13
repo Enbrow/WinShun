@@ -106,6 +106,7 @@ QList<std::pair<QString, QString>> favoriteKeywords(const Favorites& favorites)
 enum TrayCommand {
     ShowCommand = 1,
     IndexInfo,
+    ContentInfo,
     RebuildCommand,
     AutostartCommand,
     SettingsCommand,
@@ -1404,7 +1405,10 @@ void App::refreshContentIndexStatus()
         const ContentIndex::Stats stats = m_index->contentIndex()->stats();
         const int files = static_cast<int>(stats.documents);
         if (m_index->readingContent())
-            status = tr("正在建立索引… 已收录 %Ln 个文件", nullptr, files);
+            status = tr("正在建立索引… 已收录 %Ln 个文件", nullptr, files)
+                + tr("，这一轮读到 %1 / %2")
+                      .arg(QLocale().toString(static_cast<qulonglong>(m_index->contentIndexer()->progress().done)),
+                          QLocale().toString(static_cast<qulonglong>(m_index->contentIndexer()->progress().total)));
         else if (stats.documents == 0)
             status = tr("文件索引一建好，就开始建立");
         else
@@ -2424,6 +2428,17 @@ void App::showTrayMenu()
         {RestartCommand, tr("重新启动")},
         {QuitCommand, tr("退出")},
     };
+    // Files being read for the content index: how far (the disk is busy meanwhile).
+    if (ready && m_index->readingContent()) {
+        const ContentIndexer::Progress progress = m_index->contentIndexer()->progress();
+        const auto at = std::ranges::find_if(items, [](const shell::MenuItem& i) { return i.id == IndexInfo; });
+        items.insert(at + 1,
+            {ContentInfo,
+                tr("正在建立内容索引 %1 / %2")
+                    .arg(QLocale().toString(static_cast<qulonglong>(progress.done)),
+                        QLocale().toString(static_cast<qulonglong>(progress.total))),
+                false, false});
+    }
     if (m_updater->available() && !m_updater->skipped()) // at the top, where it is seen
         items.insert(items.begin(),
             {{UpdateCommand, tr("Win顺 %1 可以更新了…").arg(m_updater->availableVersion())}, shell::MenuItem::separator()});

@@ -716,6 +716,7 @@ bool Launcher::holdUntilShown(int action, int number)
 
 void Launcher::handleShown()
 {
+    m_index->contentIndexer()->setSearchBoxOpen(true); // the files it searches are read before the indexer's
     m_statusPoll.start();
     m_apps->refresh(); // reads the list again only if apps were installed or removed
     m_places->refresh(); // ... if Windows was updated or its language changed
@@ -783,6 +784,7 @@ void Launcher::retranslate()
 
 void Launcher::handleHidden()
 {
+    m_index->contentIndexer()->setSearchBoxOpen(false);
     m_results.setSelection({});
     m_held.reset();
     m_statusPoll.stop();
