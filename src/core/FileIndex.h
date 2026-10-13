@@ -187,6 +187,11 @@ public:
     };
     MemoryUse memoryUse() const noexcept;
 
+    // Brings the pages a name search reads (entries, times, names) back into
+    // the working set after it was emptied (IdleTrim), so the search that
+    // follows does not take them one fault at a time. Caller holds a read lock.
+    void warm() const noexcept;
+
     std::size_t chunkCount() const noexcept { return m_chunks.size(); }
     std::span<const Entry> chunk(std::size_t index) const noexcept;
     const std::vector<EntryId>& roots() const noexcept { return m_roots; }

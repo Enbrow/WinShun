@@ -325,10 +325,19 @@ bool App::start(const StartOptions& options)
     connect(m_index.get(), &IndexService::sharesChanged, this, &App::refreshShareStatuses);
     // Shares that could not be reached are tried again when the network changes.
     m_network = std::make_unique<NetworkNotifier>([index = m_index.get()] { index->shares().networkChanged(); });
-    m_idleTrim = std::make_unique<IdleTrim>([this] {
-        return !m_index || m_index->state() != IndexService::State::Ready || m_index->isRefreshing()
-            || m_index->readingContent() || m_index->moving();
+    m_idleTrim = std::make_unique<IdleTrim>([this]() -> const char* {
+        if (!m_index || m_index->state() != IndexService::State::Ready)
+            return "loading";
+        if (m_index->isRefreshing())
+            return "catching up";
+        if (m_index->readingContent())
+            return "reading content";
+        if (m_index->moving())
+            return "moving";
+        return nullptr;
     });
+    // Loaded, caught up, done reading: emptied now, not at the next recheck.
+    connect(m_index.get(), &IndexService::stateChanged, m_idleTrim.get(), &IdleTrim::poke);
     m_apps = std::make_unique<AppCatalog>();
     m_places = std::make_unique<SystemCatalog>();
     m_engine = std::make_unique<SearchEngine>(m_index.get(), m_apps.get(), m_places.get());
@@ -1894,6 +1903,14 @@ void App::showLauncher(const QString& query, const std::optional<taskbar::Spot>&
 {
     if (!m_window)
         return;
+    if (m_idleTrim->takeTrimmed() && m_index->index()) {
+        // The index's pages back while the window comes up, before the first
+        // search needs them (IdleTrim, FileIndex::warm).
+        std::thread([index = m_index->index()] {
+            const auto lock = index->longReadLock();
+            index->warm();
+        }).detach();
+    }
     hideClipboard(false); // from under its search box: searching again
     m_boxPressGrace.stop();
     m_launcherShown.start();

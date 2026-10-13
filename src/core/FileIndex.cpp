@@ -11,6 +11,8 @@
 #include <cwctype>
 #include <tuple>
 
+#include <windows.h>
+
 namespace ws {
 
 namespace {
@@ -132,6 +134,28 @@ FileIndex::MemoryUse FileIndex::memoryUse() const noexcept
         use.childTables += (table.buckets.capacity() + table.previous.capacity()) * sizeof(EntryId);
     use.intern = m_intern.capacity() * sizeof(std::uint64_t);
     return use;
+}
+
+void FileIndex::warm() const noexcept
+{
+    std::vector<WIN32_MEMORY_RANGE_ENTRY> ranges;
+    ranges.reserve(m_chunks.size() * 2 + m_names.size());
+    for (const auto& chunk : m_chunks)
+        ranges.push_back({chunk.get(), kChunkSize * sizeof(Entry)});
+    for (const auto& chunk : m_times)
+        ranges.push_back({chunk.get(), kChunkSize * sizeof(FileTime)});
+    for (const auto& chunk : m_names)
+        ranges.push_back({chunk.get(), kNameChunkSize});
+    // Pages written out to the pagefile: read in large requests, not one by
+    // one. Those on the standby list it leaves alone: the touches below map them.
+    ::PrefetchVirtualMemory(::GetCurrentProcess(), ranges.size(), ranges.data(), 0);
+    char sink = 0;
+    for (const WIN32_MEMORY_RANGE_ENTRY& range : ranges) {
+        const auto* p = static_cast<const volatile char*>(range.VirtualAddress);
+        for (std::size_t at = 0; at < range.NumberOfBytes; at += 4096)
+            sink ^= p[at];
+    }
+    static_cast<void>(sink);
 }
 
 EntryId FileIndex::allocate()
