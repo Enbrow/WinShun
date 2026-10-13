@@ -9,6 +9,7 @@
 #include <bitset>
 #include <functional>
 #include <thread>
+#include <unordered_map>
 
 namespace ws {
 
@@ -99,6 +100,7 @@ private:
     bool taking() const; // the target in front, the window up and answering
     void checkDrained();
     Key translate(const KBDLLHOOKSTRUCT& event, bool press, bool autoRepeat) const;
+    bool heldAsHotkey(const Key& key); // router thread
 
     const HWND m_target;
     const HWND m_window;
@@ -106,6 +108,7 @@ private:
     const DWORD m_process;
     Callbacks m_callbacks;
     std::bitset<256> m_taken; // keys held whose press was taken; only touched on the router thread
+    std::unordered_map<UINT, bool> m_hotkeys; // heldAsHotkey's answers by chord; router thread
     std::atomic<bool> m_draining {false}; // takes effect at once, from the GUI thread
     std::atomic<DWORD> m_threadId {0};
     std::atomic<bool> m_active {false};

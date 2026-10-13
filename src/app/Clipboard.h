@@ -66,6 +66,9 @@ class Clipboard : public QObject {
     // The modifier that pastes the nth row with a digit: "alt", "ctrl", or ""
     // for none (Settings::clipboardNumberKeys).
     Q_PROPERTY(QString numberKeys READ numberKeys NOTIFY numberKeysChanged FINAL)
+    // Bits 1 << n of the digits n left to another program's global hotkey
+    // (NumberKeys::heldMask): their rows carry no number.
+    Q_PROPERTY(int numberKeysLeft READ numberKeysLeft NOTIFY numberKeysChanged FINAL)
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged FINAL)
     Q_PROPERTY(int category READ category WRITE setCategory NOTIFY categoryChanged FINAL)
     // [{title, group (id, 0 for the kinds), size (entries in a group)}]
@@ -112,6 +115,8 @@ public:
     QString shortcut() const { return m_shortcut; }
     QString numberKeys() const { return m_numberKeys; }
     void setNumberKeys(const QString& keys); // "alt", "ctrl" or "off"
+    int numberKeysLeft() const { return static_cast<int>(m_numberKeysLeft); }
+    void setNumberKeysLeft(unsigned digits);
     QString query() const { return m_query; }
     void setQuery(const QString& query);
     int category() const { return m_category; }
@@ -253,6 +258,7 @@ private:
     bool m_paused = false;
     QString m_shortcut;
     QString m_numberKeys = QStringLiteral("alt");
+    unsigned m_numberKeysLeft = 0;
     QString m_query;
     int m_category = 0;
     qint64 m_categoryGroup = 0; // the group the category tab is, kept when groups come and go

@@ -88,6 +88,14 @@ std::vector<int> NumberKeys::heldAsHotkeys(Modifier modifier)
     return held;
 }
 
+unsigned NumberKeys::heldMask(Modifier modifier)
+{
+    unsigned mask = 0;
+    for (const int n : heldAsHotkeys(modifier))
+        mask |= 1u << n;
+    return mask;
+}
+
 int NumberKeys::numberOf(UINT vk) const noexcept
 {
     if (vk >= '1' && vk <= '9')
@@ -112,7 +120,7 @@ bool NumberKeys::handle(WPARAM message, const KBDLLHOOKSTRUCT& event)
     if (m_taken.test(vk))
         return true; // held down: its auto-repeat
     const int number = numberOf(vk);
-    if (number == 0 || m_composing.load())
+    if (number == 0 || m_composing.load() || (m_leave.load() & (1u << number)))
         return false;
     const bool ctrl = held(VK_CONTROL);
     const bool alt = held(VK_MENU);

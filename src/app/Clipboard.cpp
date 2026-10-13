@@ -189,6 +189,14 @@ void Clipboard::setNumberKeys(const QString& keys)
     emit numberKeysChanged();
 }
 
+void Clipboard::setNumberKeysLeft(unsigned digits)
+{
+    if (digits == m_numberKeysLeft)
+        return;
+    m_numberKeysLeft = digits;
+    emit numberKeysChanged();
+}
+
 void Clipboard::setState(bool recording, bool paused, const QString& shortcut)
 {
     if (m_recording == recording && m_paused == paused && m_shortcut == shortcut)

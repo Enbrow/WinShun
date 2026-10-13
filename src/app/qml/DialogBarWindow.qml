@@ -102,13 +102,18 @@ Window {
         numbersDelay.stop()
         showNumbers = false
     }
+    // As the launcher's (Main.qml): a digit another program holds is its.
+    function numberUsable(number) {
+        return number >= 1 && (bar.numberKeysLeft & (1 << number)) === 0
+    }
     function numberOf(index) {
+        const number = index - firstShownRow + 1
         return showNumbers && list.visible && index >= firstShownRow && index <= lastShownRow
-            ? index - firstShownRow + 1 : 0
+            && numberUsable(number) ? number : 0
     }
     function openNumber(number) {
         const row = firstShownRow + number - 1
-        if (number < 1 || row > lastShownRow || !list.visible)
+        if (!numberUsable(number) || row > lastShownRow || !list.visible)
             return
         hideNumbers()
         list.currentIndex = row

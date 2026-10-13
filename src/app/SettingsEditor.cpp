@@ -195,8 +195,9 @@ namespace {
 
 // What the user should know of the number keys `keys` ("ctrl", "alt"):
 // those another program holds as global hotkeys, and those that are one of
-// Win顺's own shortcuts. `whose`: whose they are when.
-QString describeNumberKeys(const QString& keys, const Settings& settings, const QString& whose)
+// Win顺's own shortcuts. Win顺 leaves both alone (NumberKeys::leave,
+// KeyRouter::heldAsHotkey), and their rows carry no number.
+QString describeNumberKeys(const QString& keys, const Settings& settings)
 {
     if (keys != u"ctrl" && keys != u"alt")
         return {};
@@ -217,9 +218,10 @@ QString describeNumberKeys(const QString& keys, const Settings& settings, const 
     }
     QStringList parts;
     if (!others.isEmpty())
-        parts.append(SettingsEditor::tr("%1 也是别的程序的快捷键：%2。").arg(others.join(SettingsEditor::tr("、")), whose));
+        parts.append(SettingsEditor::tr("%1 是别的程序的快捷键，留给它用，对应的行不标序号。")
+                         .arg(others.join(SettingsEditor::tr("、"))));
     if (!own.isEmpty())
-        parts.append(SettingsEditor::tr("%1 是你给 Win顺 设的快捷键，在这里按它不再打开或关闭窗口，建议换一个。")
+        parts.append(SettingsEditor::tr("%1 是你给 Win顺 设的快捷键，按它仍是打开或关闭窗口，对应的行不标序号。")
                          .arg(own.join(SettingsEditor::tr("、"))));
     return parts.join(u' ');
 }
@@ -228,10 +230,8 @@ QString describeNumberKeys(const QString& keys, const Settings& settings, const 
 
 void SettingsEditor::refreshNumberKeys()
 {
-    const QString launcher = describeNumberKeys(
-        m_settings.numberKeys, m_settings, tr("搜索框在前面时归 Win顺"));
-    const QString clipboard = describeNumberKeys(m_settings.clipboardNumberKeys, m_settings,
-        tr("剪贴板在别的程序上打开时归 Win顺，从 Win顺 自己的搜索框打开时归那个程序"));
+    const QString launcher = describeNumberKeys(m_settings.numberKeys, m_settings);
+    const QString clipboard = describeNumberKeys(m_settings.clipboardNumberKeys, m_settings);
     if (launcher == m_numberKeysNote && clipboard == m_clipboardNumberKeysNote)
         return;
     m_numberKeysNote = launcher;

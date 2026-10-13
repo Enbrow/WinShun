@@ -4814,20 +4814,12 @@
         <translation>, </translation>
     </message>
     <message>
-        <source>%1 也是别的程序的快捷键：%2。</source>
-        <translation>%1 are also shortcuts of another program: %2.</translation>
+        <source>%1 是别的程序的快捷键，留给它用，对应的行不标序号。</source>
+        <translation>%1 are shortcuts of another program: left to it, so those rows carry no number.</translation>
     </message>
     <message>
-        <source>%1 是你给 Win顺 设的快捷键，在这里按它不再打开或关闭窗口，建议换一个。</source>
-        <translation>%1 is a shortcut you set for WinShun: pressed here, it no longer opens or closes a window. Better choose another.</translation>
-    </message>
-    <message>
-        <source>搜索框在前面时归 Win顺</source>
-        <translation>WinShun’s while its search box is in front</translation>
-    </message>
-    <message>
-        <source>剪贴板在别的程序上打开时归 Win顺，从 Win顺 自己的搜索框打开时归那个程序</source>
-        <translation>WinShun’s while the clipboard is open over another program, that program’s when it is opened from a WinShun search box</translation>
+        <source>%1 是你给 Win顺 设的快捷键，按它仍是打开或关闭窗口，对应的行不标序号。</source>
+        <translation>%1 is a shortcut you set for WinShun: it still opens or closes a window, so that row carries no number.</translation>
     </message>
     <message>
         <source>%1 等</source>

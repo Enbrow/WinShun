@@ -86,6 +86,10 @@ Item {
     // every row).
     readonly property int numberKey: clipboard.numberKeys === "alt" ? Qt.Key_Alt
                                    : clipboard.numberKeys === "ctrl" ? Qt.Key_Control : -1
+    // A digit another program holds as a global hotkey is its (Clipboard.numberKeysLeft): no number for that row.
+    function numberUsable(number) {
+        return (clipboard.numberKeysLeft & (1 << number)) === 0
+    }
     readonly property int numberModifier: numberKey === Qt.Key_Alt ? Qt.AltModifier
                                         : numberKey === Qt.Key_Control ? Qt.ControlModifier : -1
 
@@ -191,7 +195,8 @@ Item {
         }
         const others = (event.modifiers & ~(Qt.ShiftModifier | Qt.KeypadModifier)) !== numberModifier
         if (numberModifier >= 0 && !others && event.key >= Qt.Key_1 && event.key <= Qt.Key_9) {
-            clipboard.quickPaste(event.key - Qt.Key_0, shift)
+            if (numberUsable(event.key - Qt.Key_0))
+                clipboard.quickPaste(event.key - Qt.Key_0, shift)
             event.accepted = true
             return
         }
@@ -474,7 +479,7 @@ Item {
                         id: clipRow
                         width: list.width
                         height: clipRow.kind === 4 ? page.pictureRowHeight : page.rowHeight
-                        hint: page.numberKey >= 0 && index < 9 ? index + 1 : 0
+                        hint: page.numberKey >= 0 && index < 9 && page.numberUsable(index + 1) ? index + 1 : 0
                         pasteTip: page.pasteLabel
                         // On whole device pixels wherever the list has scrolled
                         // to (see Main.qml).

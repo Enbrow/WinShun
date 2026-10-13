@@ -355,7 +355,7 @@ LRESULT KeyRouter::handleKey(int code, WPARAM message, LPARAM lParam)
     if (!taking() || held(VK_LWIN) || held(VK_RWIN) || held(static_cast<int>(vk)))
         return next();
     const Key key = translate(event, true, false);
-    if (!wanted(key, m_numberKeys))
+    if (!wanted(key, m_numberKeys) || heldAsHotkey(key))
         return next();
     // A key the window wants goes to the hooks after this one first, as if
     // the window were an ordinary one in front: a remapper there (AutoHotkey,
@@ -369,6 +369,34 @@ LRESULT KeyRouter::handleKey(int code, WPARAM message, LPARAM lParam)
         sendMask(); // in place of the key: the modifier was not pressed alone (a double Ctrl neither)
     m_callbacks.key(key);
     return 1; // the program does not see it
+}
+
+// A chord with Ctrl or Alt that another program holds as a global hotkey
+// (RegisterHotKey refuses it; or one of Win顺's own) is that program's:
+// PixPin's Ctrl+1 and up, with the clipboard's number keys set to Ctrl.
+// Asked once per chord while the window is up: a few microseconds.
+bool KeyRouter::heldAsHotkey(const Key& key)
+{
+    UINT modifiers = 0;
+    if (key.modifiers.testFlag(Qt::ControlModifier))
+        modifiers |= MOD_CONTROL;
+    if (key.modifiers.testFlag(Qt::AltModifier))
+        modifiers |= MOD_ALT;
+    if (modifiers == 0)
+        return false; // typing, moving: a hotkey on those would leave nothing to type with anyway
+    if (key.modifiers.testFlag(Qt::ShiftModifier))
+        modifiers |= MOD_SHIFT;
+    const UINT chord = modifiers << 16 | key.vk;
+    if (const auto it = m_hotkeys.find(chord); it != m_hotkeys.end())
+        return it->second;
+    constexpr int kProbeId = 0xBF01; // a thread's own hotkey ids go up to 0xBFFF
+    bool held = false;
+    if (::RegisterHotKey(nullptr, kProbeId, modifiers | MOD_NOREPEAT, key.vk))
+        ::UnregisterHotKey(nullptr, kProbeId); // free: let go at once
+    else
+        held = ::GetLastError() == ERROR_HOTKEY_ALREADY_REGISTERED;
+    m_hotkeys.emplace(chord, held);
+    return held;
 }
 
 bool KeyRouter::handleModifier(bool press, const KBDLLHOOKSTRUCT& event)

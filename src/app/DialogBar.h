@@ -86,6 +86,7 @@ class DialogBar : public QObject {
     // As the launcher's (Launcher::showModified, numberKeys, composing).
     Q_PROPERTY(bool showModified READ showModified NOTIFY resultOptionsChanged FINAL)
     Q_PROPERTY(QString numberKeys READ numberKeys NOTIFY resultOptionsChanged FINAL)
+    Q_PROPERTY(int numberKeysLeft READ numberKeysLeft NOTIFY resultOptionsChanged FINAL)
     Q_PROPERTY(bool composing READ composing WRITE setComposing NOTIFY composingChanged FINAL)
 
 public:
@@ -135,6 +136,8 @@ public:
     void setAskAutoJump(bool on); // not answered yet (Settings::dialogAutoJumpAsked)
     bool showModified() const { return m_showModified; }
     QString numberKeys() const { return m_numberKeys; }
+    int numberKeysLeft() const { return static_cast<int>(m_numberKeysLeft); }
+    void setNumberKeysLeft(unsigned digits);
     bool composing() const { return m_composing; }
     void setComposing(bool composing);
     // Ctrl+n (or Alt+n): the nth row shown takes the dialog there
@@ -260,6 +263,7 @@ private:
     std::optional<std::pair<int, bool>> m_held; // holdUntilShown(): number, open
     bool m_showModified = true;
     QString m_numberKeys = QStringLiteral("ctrl");
+    unsigned m_numberKeysLeft = 0;
     bool m_composing = false;
     bool m_askAutoJump = false;
     bool m_asking = false;

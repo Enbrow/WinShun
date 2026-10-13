@@ -625,6 +625,14 @@ void DialogBar::setResultOptions(bool showModified, const QString& numberKeys)
     emit resultOptionsChanged();
 }
 
+void DialogBar::setNumberKeysLeft(unsigned digits)
+{
+    if (digits == m_numberKeysLeft)
+        return;
+    m_numberKeysLeft = digits;
+    emit resultOptionsChanged();
+}
+
 void DialogBar::setComposing(bool composing)
 {
     if (composing == m_composing)

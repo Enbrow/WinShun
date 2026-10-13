@@ -93,6 +93,9 @@ class Launcher : public QObject {
     // The modifier that opens the nth row shown with a digit: "ctrl", "alt",
     // or "" for none (Settings::numberKeys).
     Q_PROPERTY(QString numberKeys READ numberKeys NOTIFY resultOptionsChanged FINAL)
+    // Bits 1 << n of the digits n left to another program's global hotkey
+    // (NumberKeys::heldMask): their rows carry no number.
+    Q_PROPERTY(int numberKeysLeft READ numberKeysLeft NOTIFY resultOptionsChanged FINAL)
     // The search box has an input method's composition: its keys are the
     // input method's (NumberKeys takes no digits meanwhile).
     Q_PROPERTY(bool composing READ composing WRITE setComposing NOTIFY composingChanged FINAL)
@@ -253,6 +256,8 @@ public:
     Q_INVOKABLE void switchOrder();
     bool showModified() const { return m_showModified; }
     QString numberKeys() const { return m_numberKeys; }
+    int numberKeysLeft() const { return static_cast<int>(m_numberKeysLeft); }
+    void setNumberKeysLeft(unsigned digits);
     bool composing() const { return m_composing; }
     void setComposing(bool composing);
     bool inTaskbarBox() const { return m_inTaskbarBox; }
@@ -514,6 +519,7 @@ private:
     StartList m_startList = RecentlyOpened;
     bool m_showModified = true;
     QString m_numberKeys = QStringLiteral("ctrl");
+    unsigned m_numberKeysLeft = 0;
     bool m_composing = false;
     bool m_inTaskbarBox = false;
     std::optional<std::pair<int, int>> m_held; // holdUntilShown(): action, number

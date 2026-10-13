@@ -11,11 +11,12 @@
 namespace ws {
 
 // Ctrl+1…9 (or Alt+1…9) on Win顺's own search boxes, taken from the
-// keyboard before anything else acts on them. Other programs often hold
-// these as global hotkeys (PixPin takes Ctrl+1 and up), and Windows hands a
-// global hotkey to its program before the window in front sees the key; a
-// low-level keyboard hook comes before both, and one set later before the
-// hooks set earlier (AutoHotkey's, Listary's).
+// keyboard before anything else acts on them: a low-level keyboard hook
+// comes before the window in front, and one set later before the hooks set
+// earlier (AutoHotkey's, Listary's). Except the digits another program holds
+// as global hotkeys (PixPin takes Ctrl+1 and up; Windows hands a global
+// hotkey to its program before the window in front sees the key): those
+// are left to it (leave()), and their rows carry no number.
 //
 // It lives only while one of `windows` is in front (the app makes it and
 // lets it go as they are activated), on a thread of its own, and takes only
@@ -44,6 +45,10 @@ public:
     // for the settings to name. Hooks other programs keep (AutoHotkey's) do
     // not show. GUI thread.
     static std::vector<int> heldAsHotkeys(Modifier modifier);
+    // The same as bits: 1 << n for each digit n held.
+    static unsigned heldMask(Modifier modifier);
+    // Digits (heldMask) passed on untouched, to whoever holds them. Any thread.
+    void leave(unsigned digits) noexcept { m_leave.store(digits); }
     // The text field in front has an input method's composition: its keys
     // are the input method's.
     void setComposing(bool composing) noexcept { m_composing.store(composing); }
@@ -58,6 +63,7 @@ private:
     std::function<void(HWND, int)> m_onNumber;
     std::bitset<256> m_taken; // keys held whose press was taken; only touched on the hook's thread
     std::atomic<bool> m_composing {false};
+    std::atomic<unsigned> m_leave {0};
     std::atomic<DWORD> m_threadId {0};
     std::atomic<bool> m_active {false};
     std::jthread m_thread;

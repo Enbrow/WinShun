@@ -343,19 +343,24 @@ Window {
     // the rows' icons all along: shown only while the modifier was held,
     // they came late (after a wait, so that Ctrl+C and the like would not
     // flash them) and swapped the right of every row. The keys themselves
-    // come from NumberKeys (before other programs' hotkeys), or here when it
-    // is not running.
+    // come from NumberKeys (before other programs' hooks; a digit another
+    // program holds as a global hotkey stays its), or here when it is not running.
     readonly property int numberKey: launcher.numberKeys === "ctrl" ? Qt.Key_Control
                                    : launcher.numberKeys === "alt" ? Qt.Key_Alt : -1
     readonly property int firstShownRow: Math.max(0, Math.floor((list.contentY + rowHeight / 2) / rowHeight))
     readonly property int lastShownRow: Math.min(list.count - 1, firstShownRow + 8,
                                                  Math.floor((list.contentY + list.height - rowHeight / 2) / rowHeight))
+    // A digit another program holds as a global hotkey is its (Launcher.numberKeysLeft): no number for that row.
+    function numberUsable(number) {
+        return number >= 1 && (launcher.numberKeysLeft & (1 << number)) === 0
+    }
     function numberOf(index) {
-        return numberKey >= 0 && index >= firstShownRow && index <= lastShownRow ? index - firstShownRow + 1 : 0
+        const number = index - firstShownRow + 1
+        return numberKey >= 0 && index >= firstShownRow && index <= lastShownRow && numberUsable(number) ? number : 0
     }
     function openNumber(number) {
         const row = firstShownRow + number - 1
-        if (number < 1 || row > lastShownRow)
+        if (!numberUsable(number) || row > lastShownRow)
             return
         window.launcher.clearSelection() // that row alone
         list.currentIndex = row

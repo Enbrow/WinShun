@@ -1810,6 +1810,12 @@ void App::updateNumberKeys()
             windows.push_back(reinterpret_cast<HWND>(window->winId()));
     }
     const bool alt = m_settings.numberKeys == u"alt";
+    // Asked again each time, as programs start and end: digits another
+    // program holds as global hotkeys stay its (PixPin's Ctrl+1…), as do Win顺's own.
+    const unsigned left = NumberKeys::heldMask(alt ? NumberKeys::Modifier::Alt : NumberKeys::Modifier::Ctrl);
+    m_launcher->setNumberKeysLeft(left);
+    if (m_dialogBar)
+        m_dialogBar->setNumberKeysLeft(left);
     if (!m_numberKeys || windows != m_numberWindows || alt != m_numberKeysAlt) {
         m_numberKeys.reset(); // the one hook at a time
         auto keys = std::make_unique<NumberKeys>(windows, alt ? NumberKeys::Modifier::Alt : NumberKeys::Modifier::Ctrl,
@@ -1826,6 +1832,7 @@ void App::updateNumberKeys()
         m_numberWindows = std::move(windows);
         m_numberKeysAlt = alt;
     }
+    m_numberKeys->leave(left);
     m_numberKeys->setComposing(launcherInFront ? m_launcher->composing() : m_dialogBar->composing());
 }
 
@@ -1960,6 +1967,12 @@ void App::showClipboard()
 {
     if (!m_clipWindow && !createClipWindow())
         return;
+    // Digits another program holds as global hotkeys stay its (KeyRouter
+    // passes them on): their rows carry no number.
+    if (m_settings.clipboardNumberKeys != u"off") {
+        m_clipboard->setNumberKeysLeft(NumberKeys::heldMask(
+            m_settings.clipboardNumberKeys == u"ctrl" ? NumberKeys::Modifier::Ctrl : NumberKeys::Modifier::Alt));
+    }
     if (m_keyRouter) // up already, over the program that keeps the focus
         return;
     if (m_clipboard->pinned() && m_clipWindow->isVisible() && !m_clipPrewarming.load()) {

@@ -614,6 +614,14 @@ void Launcher::setResultOptions(KindOrder kindOrder, bool showModified, const QS
         search();
 }
 
+void Launcher::setNumberKeysLeft(unsigned digits)
+{
+    if (digits == m_numberKeysLeft)
+        return;
+    m_numberKeysLeft = digits;
+    emit resultOptionsChanged();
+}
+
 void Launcher::setSort(Sort sort)
 {
     if (sort == m_sort)
