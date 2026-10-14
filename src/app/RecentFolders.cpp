@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <string>
+#include <string_view>
 
 using Microsoft::WRL::ComPtr;
 using namespace Qt::StringLiterals;
@@ -113,6 +114,11 @@ QStringList recent(const QStringList& history, int max)
         if (!folder.isEmpty() && !ours.contains(folder, Qt::CaseInsensitive))
             ours.append(folder);
     }
+    // For screenshots on a profile (tools/screenshots): WINSHUN_RECENT=own
+    // leaves out Windows' list, which is this user's and not the profile's.
+    wchar_t only[8] {};
+    if (::GetEnvironmentVariableW(L"WINSHUN_RECENT", only, 8) > 0 && std::wstring_view(only) == L"own")
+        return ours;
     return interleaved(windowsRecentFolders(max, drives), ours, max);
 }
 
