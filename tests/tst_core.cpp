@@ -2662,6 +2662,18 @@ private slots:
         QVERIFY(crawler.isExcludedPath(L"\\\\nas\\docs\\private\\b.txt"));
     }
 
+    // A whole drive excluded (GitHub #17): "X:\" in the settings is "X:" here.
+    void driveExcludedPath()
+    {
+        const Crawler crawler(CrawlRules {{L"X:", L"C:\\skip"}, {}, {}, {}});
+        QVERIFY(crawler.isExcludedDir(L"X:", L"X:"));
+        QVERIFY(crawler.isExcludedPath(L"X:"));
+        QVERIFY(crawler.isExcludedPath(L"x:\\a\\b.txt"));
+        QVERIFY(crawler.isExcludedPath(L"C:\\skip\\b.txt"));
+        QVERIFY(!crawler.isExcludedPath(L"C:\\a\\b.txt"));
+        QVERIFY(!crawler.isExcludedPath(L"Y:\\a"));
+    }
+
     // A sync that defers removals keeps what is gone until told; a folder
     // that cannot be read keeps what it had.
     void syncDefersRemovals()

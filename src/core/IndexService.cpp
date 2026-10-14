@@ -71,6 +71,12 @@ bool isUnder(std::wstring_view path, std::wstring_view dir)
         && win32::equalsIgnoreCase(path.substr(0, dir.size()), dir);
 }
 
+// "C:", as Settings::crawlRules() writes a drive's root.
+bool isDriveRoot(std::wstring_view path)
+{
+    return path.size() == 2 && path[1] == L':';
+}
+
 int crawlThreads()
 {
     return std::clamp(static_cast<int>(std::thread::hardware_concurrency()), 2, 8);
@@ -398,6 +404,11 @@ void IndexService::run(std::stop_token stop, Pass pass)
         else
             gone.push_back(root);
     }
+    // A whole drive excluded ("X:\" in the list, GitHub #17: a cloud drive
+    // mounted as a local disk) is not a volume of ours: its root and entries
+    // go below like those of a drive taken out, and come back when it is
+    // excluded no more.
+    std::erase_if(volumes, [&](const VolumeInfo& v) { return crawler->isExcludedDir(v.root, v.root); });
     std::sort(volumes.begin(), volumes.end(), [](const VolumeInfo& a, const VolumeInfo& b) { return a.root < b.root; });
     const auto isSuspended = [&](const VolumeInfo& v) { return contains(suspended, v.root) && !contains(gone, v.root); };
 
@@ -601,8 +612,9 @@ IndexService::RuleChange IndexService::applyRuleChanges(
     std::vector<Freed> freed;
     for (const std::wstring& path : freedPaths) {
         // Still left out by another rule; or on a share, which its own
-        // indexer walks again (a probe here could wait on an offline server).
-        if (crawler.isExcludedPath(path) || unc::isUnc(path))
+        // indexer walks again (a probe here could wait on an offline server);
+        // or a whole drive, which comes back as a volume (run()).
+        if (crawler.isExcludedPath(path) || unc::isUnc(path) || isDriveRoot(path))
             continue;
         Freed f {path, probePath(path)};
         if (f.probe.attributes == INVALID_FILE_ATTRIBUTES || !(f.probe.attributes & FILE_ATTRIBUTE_DIRECTORY))

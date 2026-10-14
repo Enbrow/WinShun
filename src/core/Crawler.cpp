@@ -165,7 +165,14 @@ bool Crawler::isExcludedPath(std::wstring_view fullPath) const
 {
     // Check every ancestor folder ("C:\a", "C:\a\b", ...) and the path itself;
     // on a share, from the folders in it on ("\\nas\docs\a", ...).
-    std::size_t start = unc::isUnc(fullPath) ? unc::shareRoot(fullPath).size() : fullPath.find(L'\\');
+    const bool share = unc::isUnc(fullPath);
+    std::size_t start = share ? unc::shareRoot(fullPath).size() : fullPath.find(L'\\');
+    // A whole drive ("C:") excluded.
+    if (!share) {
+        const std::wstring_view drive = fullPath.substr(0, start);
+        if (drive.size() == 2 && drive[1] == L':' && isExcludedDir(drive, drive))
+            return true;
+    }
     if (start >= fullPath.size())
         return false;
     while (start != std::wstring_view::npos) {

@@ -798,10 +798,16 @@ CrawlRules Settings::crawlRules() const
         if (!p.trimmed().isEmpty())
             rules.excludedPaths.push_back(normalizePath(p));
     }
-    // Our own files churn constantly.
-    rules.excludedPaths.push_back(normalizePath(dataDir()));
+    // Our own files churn constantly. Not when they are a drive's root (an
+    // empty drive chosen for the index): that would leave the whole drive out.
+    const auto ownFolder = [&](const QString& folder) {
+        std::wstring path = normalizePath(folder);
+        if (!(path.size() == 2 && path[1] == L':'))
+            rules.excludedPaths.push_back(std::move(path));
+    };
+    ownFolder(dataDir());
     if (!indexFolder.isEmpty())
-        rules.excludedPaths.push_back(normalizePath(indexDir()));
+        ownFolder(indexDir());
     for (const QString& n : excludedNames) {
         if (!n.trimmed().isEmpty())
             rules.excludedNames.push_back(normalizeName(n));

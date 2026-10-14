@@ -46,6 +46,11 @@
 //                      run does, into a temporary folder; prints which volumes
 //                      are being read as that changes, then whether each path
 //                      given is in the index
+//   wsbench --exclude-drive P: [Q: ...]
+//                      (as administrator) builds the index into a temporary
+//                      folder, then excludes those whole drives, includes them
+//                      again, and loads the index from its snapshot both ways;
+//                      checks each step for P:\wsexclude\marker.txt
 //   wsbench --service --documents [query ...]
 //                      (as administrator) the same, then the content indexer
 //                      reads every document (through WinShunExtract.exe; copies
@@ -745,6 +750,86 @@ int runService(const QStringList& paths)
     }
     service.shutdown();
     return 0;
+}
+
+// A whole drive excluded (GitHub #17): the index built with the settings'
+// rules, then these drives excluded, excluded no more, and the index loaded
+// again from its snapshot with them excluded. After each step: whether each
+// drive is a volume of the index and has its root and a file in it.
+int runExcludeDrives(const QStringList& drives)
+{
+    QTemporaryDir dir;
+    ws::Settings settings;
+    settings.load();
+    ws::IndexService::Options options;
+    options.rules = settings.crawlRules();
+    options.content.enabled = false;
+    ws::IndexService::Options excluding = options;
+    for (const QString& d : drives)
+        excluding.rules.excludedPaths.push_back(d.left(2).toUpper().toStdWString());
+
+    int failures = 0;
+    const auto settle = [](ws::IndexService& service) {
+        QElapsedTimer t;
+        t.start();
+        // A pass launched just now may not have begun refreshing yet.
+        while (t.elapsed() < 500 || service.state() != ws::IndexService::State::Ready || service.isRefreshing())
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        return t.elapsed();
+    };
+    const auto check = [&](ws::IndexService& service, const char* step, bool wanted) {
+        const std::vector<std::wstring> roots = service.volumeRoots();
+        const auto index = service.index();
+        for (const QString& d : drives) {
+            const std::wstring root = d.left(2).toUpper().toStdWString();
+            const bool volume = std::any_of(roots.begin(), roots.end(),
+                [&](const std::wstring& r) { return ws::win32::equalsIgnoreCase(r, root); });
+            bool entry = false, file = false;
+            {
+                const auto lock = index->readLock();
+                entry = index->findPath(root) != ws::kNoEntry;
+                file = index->findPath(root + L"\\wsexclude\\marker.txt") != ws::kNoEntry;
+            }
+            const bool ok = volume == wanted && entry == wanted && file == wanted;
+            failures += ok ? 0 : 1;
+            std::printf("  %-34s %s  volume %d  root %d  file %d  %s\n", step, qPrintable(d.left(2)), volume, entry,
+                file, ok ? "ok" : "WRONG");
+        }
+    };
+    {
+        ws::IndexService service(dir.path(), options);
+        service.start();
+        std::printf("built in %lld ms\n", static_cast<long long>(settle(service)));
+        check(service, "built, nothing excluded", true);
+        service.setOptions(excluding);
+        settle(service);
+        check(service, "drives excluded", false);
+        service.setOptions(options);
+        settle(service);
+        check(service, "excluded no more", true);
+        service.setOptions(excluding);
+        settle(service);
+        check(service, "excluded again", false);
+        service.shutdown(); // saves the snapshot
+    }
+    {
+        // Started with them included: the snapshot (without them) is loaded
+        // and the drives read again.
+        ws::IndexService service(dir.path(), options);
+        service.start();
+        settle(service);
+        check(service, "restarted, included", true);
+        service.shutdown();
+    }
+    {
+        ws::IndexService service(dir.path(), excluding);
+        service.start();
+        settle(service);
+        check(service, "restarted, excluded", false);
+        service.shutdown();
+    }
+    std::printf(failures == 0 ? "PASS\n" : "FAIL: %d wrong\n", failures);
+    return failures == 0 ? 0 : 1;
 }
 
 // As the app: the index built into a temporary folder, then the content
@@ -3507,6 +3592,8 @@ int main(int argc, char* argv[])
             return runServiceContent(args);
         return runService(args);
     }
+    if (args.removeAll(u"--exclude-drive"_s) > 0)
+        return runExcludeDrives(args);
     QString path = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + u"/WinShun/index.bin"_s;
     if (!args.isEmpty() && args.first().endsWith(u".bin"))
         path = args.takeFirst();
