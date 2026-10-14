@@ -176,7 +176,7 @@
 2. 装完托盘里出现 Win顺 的图标，索引几秒就建好。连按两下 Ctrl 开始搜索。
 3. 升级时运行新的安装程序，设置和索引都保留。卸载在 Windows 的“设置 → 应用”里。
 
-不想安装的话，下载 `WinShun-版本号-x64-portable.zip`，解压到任意文件夹，运行里面的 `WinShun.exe` 就行。设置和索引和安装版放在同一个地方（`%APPDATA%\WinShun`、`%LOCALAPPDATA%\WinShun`），不在解压的文件夹里；升级时用新版的文件夹换掉旧的。
+不想安装的话，下载 `WinShun-版本号-x64-portable.zip`，解压到任意文件夹，运行里面的 `WinShun.exe` 就行。设置、记录、剪贴板历史和索引都存在它旁边的 `data` 文件夹里，整个文件夹可以拷到 U 盘或别的电脑；第一次启动时，这台电脑上原来的设置和数据（`%APPDATA%\WinShun`、`%LOCALAPPDATA%\WinShun`）会复制过来，原处的不动。升级时把新版解压到同一个位置覆盖，`data` 留着。删掉 `data` 文件夹（先退出 Win顺），就和安装版一样存在原来的地方。
 
 系统要求：Windows 10 或 11，64 位。
 
@@ -297,7 +297,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 2. When the WinShun icon appears in the notification area, it is running; the first index takes a few seconds. Press Ctrl twice and type.
 3. To upgrade, run a newer installer: your settings and index are kept. Uninstall from Windows Settings → Apps.
 
-To skip the installer, download `WinShun-<version>-x64-portable.zip`, unzip it anywhere and run `WinShun.exe` in it. Settings and index live where the installed copy keeps them (`%APPDATA%\WinShun`, `%LOCALAPPDATA%\WinShun`), not in that folder; to upgrade, replace the folder with the newer one.
+To skip the installer, download `WinShun-<version>-x64-portable.zip`, unzip it anywhere and run `WinShun.exe` in it. Settings, history, clipboard and index are kept in the `data` folder beside it, so the whole folder can go on a USB stick or another PC; on the first start, what this PC already has (`%APPDATA%\WinShun`, `%LOCALAPPDATA%\WinShun`) is copied in, the originals left in place. To upgrade, unzip the newer one over it and keep `data`. Without the `data` folder (quit WinShun first), it keeps them where the installed copy does.
 
 Requires Windows 10 or 11, 64-bit.
 

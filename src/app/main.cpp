@@ -114,6 +114,14 @@ int main(int argc, char* argv[])
         }
         ::LocalFree(wide);
     }
+    // A portable copy: everything in the "data" folder beside the program.
+    bool portable = false;
+    if (ws::Settings::profile().isEmpty()) {
+        const QString folder = ws::Settings::portableFolder();
+        portable = !folder.isEmpty();
+        if (portable)
+            ws::Settings::useProfile(folder);
+    }
     const bool preview = ws::preview::wanted(wideArgs);
     if (preview)
         ws::preview::prepare(wideArgs);
@@ -212,6 +220,8 @@ int main(int argc, char* argv[])
     }
     if (parser.isSet(quit))
         return 0; // nothing running
+    if (portable)
+        ws::copyIntoPortable(); // its first start: what the usual places hold
     g_defaultHandler = qInstallMessageHandler(logToFile); // the running copy only
 
     applyUiFont(); // the UI font (see above)

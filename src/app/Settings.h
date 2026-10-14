@@ -210,6 +210,10 @@ struct Settings {
     // of their own (tools/make_screenshots.py). Before anything reads them.
     static void useProfile(const QString& folder);
     static QString profile(); // empty without --profile
+    // A portable copy (GitHub #19): "data" beside WinShun.exe, when that
+    // folder exists, else empty. Used as the profile; works before
+    // QCoreApplication exists.
+    static QString portableFolder();
     static bool windowsClipboardHistory(); // Windows' own clipboard history is on (Settings > System > Clipboard)
     static bool hasClipboardSettings(); // the file has a [Clipboard] section: written by a version with the clipboard history
     static QString resolveLanguage(const QString& language); // "system" -> zh with a Chinese Windows, else en

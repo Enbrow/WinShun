@@ -69,9 +69,18 @@ void logLine(const char* format, ...)
 }
 
 // %LOCALAPPDATA%\WinShun\mcp-tools.json: the tools Win顺 last listed, for
-// answering tools/list while it is not running.
+// answering tools/list while it is not running. In a portable copy, in the
+// "data" folder beside the program (Settings::portableFolder).
 QString cachePath()
 {
+    wchar_t exe[MAX_PATH * 2] = {};
+    const DWORD length = ::GetModuleFileNameW(nullptr, exe, static_cast<DWORD>(std::size(exe)));
+    if (length > 0 && length < std::size(exe)) {
+        const QString portable = QFileInfo(QString::fromWCharArray(exe, static_cast<qsizetype>(length))).absolutePath()
+            + u"/data"_s;
+        if (QFileInfo(portable).isDir())
+            return QDir::toNativeSeparators(portable + u"/mcp-tools.json"_s);
+    }
     const QString local = qEnvironmentVariable("LOCALAPPDATA");
     if (local.isEmpty())
         return {};

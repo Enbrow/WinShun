@@ -456,6 +456,17 @@ QString Settings::profile()
     return g_profile;
 }
 
+QString Settings::portableFolder()
+{
+    wchar_t exe[MAX_PATH * 2] = {};
+    const DWORD length = ::GetModuleFileNameW(nullptr, exe, static_cast<DWORD>(std::size(exe)));
+    if (length == 0 || length >= std::size(exe))
+        return {};
+    const QString folder = QFileInfo(QString::fromWCharArray(exe, static_cast<qsizetype>(length))).absolutePath()
+        + u"/data"_s;
+    return QFileInfo(folder).isDir() ? QDir::toNativeSeparators(folder) : QString();
+}
+
 QString Settings::dataDir()
 {
     if (!g_profile.isEmpty())

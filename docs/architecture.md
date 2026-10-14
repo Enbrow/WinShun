@@ -467,7 +467,7 @@ ctest --preset asan                            # 单元测试，越界读写当�
 build\asan\wsfuzz.exe -max_total_time=300      # 用随机数据测 5 分钟
 ```
 
-命令行参数：`--background`（启动时不显示窗口，开机启动用的就是它）、`--toggle`、`--query <文字>`、`--settings`（打开设置窗口）、`--quit`。不在帮助里列出的 `--profile <文件夹>`：设置和所有数据（索引、历史、剪贴板）都放在这个文件夹里，给截图用（`tools/screenshots/`），重启时带着它。
+命令行参数：`--background`（启动时不显示窗口，开机启动用的就是它）、`--toggle`、`--query <文字>`、`--settings`（打开设置窗口）、`--quit`。不在帮助里列出的 `--profile <文件夹>`：设置和所有数据（索引、历史、剪贴板）都放在这个文件夹里，给截图用（`tools/screenshots/`），重启时带着它。便携版（GitHub #19）走的是同一条路：`WinShun.exe` 旁边有 `data` 文件夹、又没给 `--profile` 时，就把它当 profile（`Settings::portableFolder`，在读任何设置之前，所以 UAC 重开、开机启动都不用带参数）；设置文件在 `data\WinShun\WinShun.ini`。第一次启动（`data` 里还没有设置文件）时，拿到单实例锁之后（别的 Win顺 没在运行，文件都关着）把 `%APPDATA%\WinShun\WinShun.ini` 和 `%LOCALAPPDATA%\WinShun` 复制进去（`copyIntoPortable`，不复制日志和 Qt 的缓存文件夹；复制不搬走，安装版可能还在用）。复制放在单实例锁之后，比读渲染方式（`storedRenderer`）晚，所以便携版第一次启动用的是默认渲染方式，下次起才按复制来的设置；别为这个把复制挪到锁前面，那时别的 Win顺 可能正开着这些文件。MCP 中转（`WinShunMcp.exe`）找 `mcp-tools.json` 时也先看自己旁边的 `data`。发布脚本给便携 zip 加上 `data\README.txt`，安装包里没有这个文件夹。
 
 ## 已知限制和后续可做的
 

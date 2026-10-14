@@ -9,4 +9,12 @@ namespace ws {
 // new logon task. Runs before anything reads the settings; a no-op afterwards.
 void migrateFromQuickFind();
 
+// A portable copy (Settings::portableFolder) started for the first time:
+// the settings and data in the usual places (%APPDATA%\WinShun,
+// %LOCALAPPDATA%\WinShun) are copied into its folder, so switching to it
+// loses nothing: history, clipboard, favorites, the index. Copied, not
+// moved: an installed copy may still use them. Run while no other copy is
+// running (their files are closed); a no-op once the folder has settings.
+void copyIntoPortable();
+
 } // namespace ws

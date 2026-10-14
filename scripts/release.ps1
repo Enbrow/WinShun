@@ -57,12 +57,20 @@ $setup = Join-Path $dist "WinShun-$version-x64-setup.exe"
 if ($LASTEXITCODE -or -not (Test-Path $setup)) { throw 'Inno Setup failed' }
 Write-Host "Packaged $setup"
 
-# The portable copy (GitHub #13): the same folder, unzipped anywhere. Its
-# settings and index are where the installed one keeps them (%APPDATA%,
-# %LOCALAPPDATA%).
+# The portable copy (GitHub #13): the same folder, unzipped anywhere, with a
+# "data" folder beside the program, where it then keeps its settings and
+# index (GitHub #19, Settings::portableFolder) instead of %APPDATA% and
+# %LOCALAPPDATA%. Staged, so the deployed folder stays an installed one.
 $portable = Join-Path $dist "WinShun-$version-x64-portable.zip"
 Remove-Item $portable -ErrorAction SilentlyContinue
-Compress-Archive -Path (Join-Path $dist 'WinShun') -DestinationPath $portable -CompressionLevel Optimal
+$stage = Join-Path ([IO.Path]::GetTempPath()) "WinShun-portable-$version"
+if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+New-Item -ItemType Directory $stage | Out-Null
+Copy-Item (Join-Path $dist 'WinShun') $stage -Recurse
+New-Item -ItemType Directory (Join-Path $stage 'WinShun\data') | Out-Null
+Copy-Item (Join-Path $root 'installer\portable-data-README.txt') (Join-Path $stage 'WinShun\data\README.txt')
+Compress-Archive -Path (Join-Path $stage 'WinShun') -DestinationPath $portable -CompressionLevel Optimal
+Remove-Item $stage -Recurse -Force
 Write-Host "Packaged $portable"
 
 $sums = Join-Path $dist 'SHA256SUMS.txt'
