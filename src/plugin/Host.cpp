@@ -1484,7 +1484,7 @@ void Host::preload()
     }
 }
 
-void Host::shutdown()
+void Host::shutdown(bool grace)
 {
     if (m_shuttingDown)
         return;
@@ -1498,7 +1498,7 @@ void Host::shutdown()
             p->backoff.stop();
             p->debounce.stop();
             dropInflight(*p, false);
-            if (p->phase == Plugin::Phase::Ready && p->session) {
+            if (grace && p->phase == Plugin::Phase::Ready && p->session) {
                 ++waiting;
                 p->phase = Plugin::Phase::ShuttingDown;
                 p->session->request(u"shutdown"_s, {}, [&waiting](const jsonrpc::Message&) { --waiting; });

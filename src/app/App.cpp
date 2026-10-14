@@ -476,7 +476,19 @@ bool App::start(const StartOptions& options)
         });
     };
     callbacks.commandReceived = [this](const QString& command) { handleCommand(command); };
-    callbacks.sessionEnding = [this] { m_index->shutdown(); }; // save the index before Windows ends us
+    // Windows ends us right after this returns, or a few seconds in: the
+    // clipboard history and the index saved first. Past those seconds its
+    // "preventing shutdown" screen says why rather than a bare name.
+    callbacks.sessionEnding = [this] {
+        const HWND window = m_messages ? m_messages->hwnd() : nullptr;
+        if (window)
+            ::ShutdownBlockReasonCreate(window, reinterpret_cast<LPCWSTR>(tr("正在保存文件索引").utf16()));
+        if (m_clipStore)
+            m_clipStore->flush(); // what was copied just now
+        m_index->shutdown();
+        if (window)
+            ::ShutdownBlockReasonDestroy(window);
+    };
     callbacks.deviceChange = [this](WPARAM event, LPARAM data) -> LRESULT {
         return m_volumeNotifier ? m_volumeNotifier->handle(event, data) : TRUE;
     };
@@ -1221,13 +1233,15 @@ void App::restartExplorer()
     m_restartingExplorer = true;
     // Seconds of waiting for Explorer to end and to start again: not on the
     // GUI thread.
-    std::thread([self = QPointer<App>(this)] {
+    if (m_explorerRestart.joinable())
+        m_explorerRestart.join(); // the last one, over already
+    m_explorerRestart = std::jthread([self = QPointer<App>(this)] {
         const bool back = winv::restartExplorer();
         QMetaObject::invokeMethod(qApp, [self, back] {
             if (self)
                 self->explorerRestarted(back);
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void App::explorerRestarted(bool back)
@@ -2688,9 +2702,11 @@ void App::createPluginHost()
             m_pluginHost->preload();
     });
     // On the way out: shutdown requests, two seconds, then the job ends them.
+    // Not the two seconds when Windows ends the session (Qt says aboutToQuit
+    // then too): they are the seconds the index needs to be saved.
     connect(qApp, &QCoreApplication::aboutToQuit, this, [this] {
         if (m_pluginHost)
-            m_pluginHost->shutdown();
+            m_pluginHost->shutdown(::GetSystemMetrics(SM_SHUTTINGDOWN) == 0);
     });
 }
 

@@ -146,19 +146,25 @@ void ShareIndexer::launch(Share& share)
     share.thread = std::jthread([this, &share](std::stop_token stop) { run(stop, share); });
 }
 
+void ShareIndexer::requestStop()
+{
+    std::lock_guard lock(m_mutex);
+    m_stopped = true;
+    for (auto& s : m_shares)
+        s->thread.request_stop();
+    for (auto& s : m_retired)
+        s->thread.request_stop();
+}
+
 void ShareIndexer::stop()
 {
-    std::vector<std::unique_ptr<Share>> all;
     {
         std::lock_guard lock(m_mutex);
-        if (m_stopped)
+        if (m_joined)
             return;
-        m_stopped = true;
-        for (auto& s : m_shares)
-            s->thread.request_stop();
-        for (auto& s : m_retired)
-            s->thread.request_stop();
+        m_joined = true;
     }
+    requestStop();
     // Joined without the lock: the threads take it on their way out.
     for (auto& s : m_shares) {
         if (s->thread.joinable())

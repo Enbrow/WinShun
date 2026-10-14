@@ -348,6 +348,8 @@ bool Lister::fail(unsigned long error, bool atRoot)
 bool Lister::operator()(const Crawler::Root& dir, DirListing& out)
 {
     out.clear();
+    if (m_stopPass.stop_requested())
+        return false; // no new wait on the server once the pass is stopped (WinShun quitting)
     const bool atRoot = win32::equalsIgnoreCase(dir.path, m_root);
     std::wstring path = win32::longPath(dir.path);
     if (atRoot)
@@ -364,6 +366,8 @@ bool Lister::operator()(const Crawler::Root& dir, DirListing& out)
     // asked for. No file ids either: they mean nothing on a share.
     FILE_INFO_BY_HANDLE_CLASS request = m_options.shortNames ? FileIdBothDirectoryRestartInfo : FileFullDirectoryRestartInfo;
     for (;;) {
+        if (m_stopPass.stop_requested())
+            return false;
         if (!::GetFileInformationByHandleEx(h.get(), request, out.readBuffer.data(), bytes)) {
             const DWORD error = ::GetLastError();
             if (error != ERROR_NO_MORE_FILES)

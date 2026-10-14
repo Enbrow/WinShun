@@ -340,7 +340,11 @@ void IndexService::shutdown()
         m_prewarmer.join();
     }
     m_contentIndexer->stop();
-    m_shares->stop();
+    // Network shares stop where they are but are waited for only after the
+    // save: one may be waiting on a server that went away, and at the end of
+    // the session Windows gives us only seconds. Saving with them still
+    // running is what the periodic save does anyway.
+    m_shares->requestStop();
     stopWorker();
     m_watcher.reset();
     if (m_pendingSave.valid())
@@ -349,6 +353,7 @@ void IndexService::shutdown()
         m_dirty = true;
     if (m_dirty)
         saveSnapshot();
+    m_shares->stop();
 }
 
 void IndexService::stopWorker()

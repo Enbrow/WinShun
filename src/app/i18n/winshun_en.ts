@@ -2985,6 +2985,10 @@
         <translation>WinShun is running in the background</translation>
     </message>
     <message>
+        <source>正在保存文件索引</source>
+        <translation>Saving the file index</translation>
+    </message>
+    <message>
         <source>双击 Ctrl 打开搜索。首次运行需要一点时间建立文件索引。</source>
         <translation>Press Ctrl twice to search. The first run takes a moment to build the file index.</translation>
     </message>

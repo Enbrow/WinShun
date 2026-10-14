@@ -1246,6 +1246,12 @@
 - **原因**：`NetworkNotifier` 直接调用了 `NotifyNetworkConnectivityHintChange`，它在 iphlpapi.dll 里，Windows 10 2004（19041）才有。LTSC 2019 是 1809（17763），LTSC 2016 是 1607。静态导入的函数缺一个，加载器就拒绝启动整个程序。`_WIN32_WINNT=0x0A00` 挡不住它，因为 SDK 头文件里所有 Windows 10 版本都算 0x0A00。
 - **做法**：比 1809 新的 API 用 `GetProcAddress` 取，取不到就跳过（这里少了连通性提示，网卡和地址变化照样报）。发布前用 `dumpbin /imports` 过一遍自己的 exe 和 dll，看有没有新加的系统函数；Qt 6 本身最低就是 1809。
 
+### 退出时等网络共享的线程：先存索引，再等；别用 `CancelSynchronousIo` 去催
+
+- **现象**：退出（包括关机、注销）时 `IndexService::shutdown` 先 join 共享线程再存索引。NAS 断电或断网时，线程卡在 `CreateFileW`/读目录上，要等 Windows 的 SMB 超时（几十秒），关机时 Windows 只给几秒，索引来不及存（2026-10-13 审查发现）。
+- **试过的路**：在 join 时对卡住的线程反复 `CancelSynchronousIo`。实测（匿名管道上一个同步 `ReadFile`，scratchpad `cancelio/`）：30 次里 24 次是**调用 `CancelSynchronousIo` 的线程自己**卡在内核 `ZwCancelSynchronousIoFile` 里，被取消的线程还在 `ZwReadFile`。它要等那个 IRP 完成才返回，IRP 不响应取消就一直等。SMB 上管不管用这台机器测不了。要是放在 stop 回调里，会在请求停止的线程（退出时就是界面线程，还持着 ShareIndexer 的锁）上卡住，正好卡在存索引之前。
+- **做法**：`ShareIndexer::requestStop()` 只请求停止；`IndexService::shutdown` 存完索引再 `m_shares->stop()` 去 join（周期保存本来就是共享线程照跑时存的）。`share::Lister` 在停止后不再发新的网络调用。剩下的：服务器正好断在一次调用中途时，存完索引后退出仍要等那一次超时。别在界面线程或持锁时调 `CancelSynchronousIo`。
+
 ## 搜索线程卡住（结果变灰）
 
 ### 结果全是灰的：新的搜索在等一个盘回答

@@ -98,6 +98,7 @@ public:
     ShareIndexer& operator=(const ShareIndexer&) = delete;
 
     void start();
+    void requestStop(); // the threads stop where they are, waits for nothing (stop() waits)
     void stop(); // waits for the threads; idempotent
     void setOptions(Options options);
 
@@ -140,6 +141,7 @@ private:
     Clock::time_point m_networkChangedAt {};
     bool m_started = false;
     bool m_stopped = false;
+    bool m_joined = false; // stop() has run
 
     std::mutex m_watchMutex; // one setRoots() at a time
     std::unique_ptr<ChangeWatcher> m_watcher;

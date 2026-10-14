@@ -21,6 +21,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 class QQmlApplicationEngine;
@@ -261,6 +262,9 @@ private:
     std::optional<bool> m_winSApplied; // the Win+S switch, likewise
     bool m_winSRegistryFailed = false;
     bool m_restartingExplorer = false;
+    // restartExplorer's waiting, waited for on exit: quitting between ending
+    // Explorer and starting it again would leave no taskbar.
+    std::jthread m_explorerRestart;
     win32::UniqueHandle m_taskbarEvent; // set by the taskbar button (WinShunSearch.exe)
     std::unique_ptr<QWinEventNotifier> m_taskbarNotifier; // waits on it; goes first
     QElapsedTimer m_launcherHidden; // since the launcher last went away

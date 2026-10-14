@@ -103,7 +103,7 @@ public:
     std::uint64_t callCommand(const QString& pluginId, const QString& commandId, const QString& text, int limit, CommandReply reply);
     void cancelCommand(std::uint64_t callId); // the reply is not given
     void preload(); // starts the resident plugins that want starting early (eager)
-    void shutdown(); // on exit: shutdown requests, two seconds, then everything ends
+    void shutdown(bool grace = true); // on exit: shutdown requests, two seconds (not without grace), then everything ends
     // Ends a plugin's processes (before its folder is replaced or removed):
     // the resident one is asked to shut down, once ones are ended. It comes
     // back when next asked for. stateChanged() follows as they go.
