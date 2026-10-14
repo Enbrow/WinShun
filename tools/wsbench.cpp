@@ -104,6 +104,14 @@
 //                      settings page would); --action runs that action on
 //                      the first item of the first answer and prints the
 //                      effects
+//   wsbench --semantic [--setting KEY=VALUE ...] [--data FOLDER] [--wait S] [--settle S] [--no-start] ["QUERY" ...]
+//                      the 按意思找 plugin (winshun.semantic) over a copy of
+//                      the index and the content index, its settings from
+//                      --setting (provider=ollama, model=…, apiKey=…): shows
+//                      its first row, says yes to it (unless --no-start),
+//                      follows the indexing for up to S seconds (default
+//                      900), then asks each QUERY. --data keeps its vectors
+//                      in FOLDER for the next run
 //   wsbench --launcher-sim [--plugins DIR] [--index FOLDER] [--key-ms N] ["TEXT" ...]
 //                      the launcher's list without the launcher: each TEXT
 //                      typed key by key (N ms apart, default 80) over a copy
@@ -148,6 +156,7 @@
 #include "Snapshot.h"
 #include "SystemCatalog.h"
 #include "TextUtil.h"
+#include "Tools.h"
 #include "platform/PaddleOcr.h"
 #include "Unc.h"
 #include "WebShortcut.h"
@@ -3122,6 +3131,213 @@ int runMcpHost(QStringList args)
     return 0;
 }
 
+// ---- winshun.semantic end to end (--semantic) ------------------------------------
+
+// The 按意思找 plugin as the app runs it, over a copy of the index (and the
+// content index): its tools answered by plugin::Tools, its settings from
+// --setting. Shows the first row ("开始建立语义索引" with the estimate),
+// says yes to it, follows the indexing until it is done, then asks each
+// QUERY and prints the files found with the time each took.
+int runSemantic(QStringList args)
+{
+    QJsonObject pluginSettings;
+    for (qsizetype at = args.indexOf(u"--setting"_s); at >= 0 && at + 1 < args.size(); at = args.indexOf(u"--setting"_s)) {
+        const QString pair = args[at + 1];
+        if (const qsizetype eq = pair.indexOf(u'='); eq > 0)
+            pluginSettings.insert(pair.left(eq), pair.mid(eq + 1));
+        args.remove(at, 2);
+    }
+    QString pluginsDir = QCoreApplication::applicationDirPath() + u"/plugins"_s;
+    if (const qsizetype at = args.indexOf(u"--plugins"_s); at >= 0 && at + 1 < args.size()) {
+        pluginsDir = QDir(args[at + 1]).absolutePath();
+        args.remove(at, 2);
+    }
+    QString dataRoot; // --data: kept between runs (the vectors need not be made again)
+    if (const qsizetype at = args.indexOf(u"--data"_s); at >= 0 && at + 1 < args.size()) {
+        dataRoot = QDir(args[at + 1]).absolutePath();
+        args.remove(at, 2);
+    }
+    int waitSec = 900;
+    if (const qsizetype at = args.indexOf(u"--wait"_s); at >= 0 && at + 1 < args.size()) {
+        waitSec = std::max(10, args[at + 1].toInt());
+        args.remove(at, 2);
+    }
+    int settleSec = 0; // --settle: files made since the index was saved get read first
+    if (const qsizetype at = args.indexOf(u"--settle"_s); at >= 0 && at + 1 < args.size()) {
+        settleSec = std::max(0, args[at + 1].toInt());
+        args.remove(at, 2);
+    }
+    const bool yes = args.removeAll(u"--no-start"_s) == 0;
+    const QStringList queries = args;
+
+    ws::Settings settings;
+    settings.load();
+    QTemporaryDir temp;
+    const QString indexFolder = temp.path() + u"/index"_s;
+    {
+        const QString from = QDir::fromNativeSeparators(settings.indexDir());
+        QDir().mkpath(indexFolder + u"/content"_s);
+        if (!QFile::copy(from + u"/index.bin"_s, indexFolder + u"/index.bin"_s)) {
+            std::printf("no index at %s\n", qUtf8Printable(QDir::toNativeSeparators(from)));
+            return 1;
+        }
+        for (const QFileInfo& file : QDir(from + u"/content"_s).entryInfoList(QDir::Files))
+            QFile::copy(file.filePath(), indexFolder + u"/content/"_s + file.fileName());
+    }
+    ws::IndexService::Options options;
+    options.rules = settings.crawlRules();
+    options.rescanOnStartup = false;
+    options.content.enabled = settings.contentIndex;
+    options.content.extensions = settings.contentExtensions;
+    options.content.documents = settings.contentDocuments;
+    options.content.sizeLimits = settings.contentSizeLimits();
+    ws::IndexService service(indexFolder, options);
+    service.start();
+    QElapsedTimer timer;
+    timer.start();
+    while (service.state() != ws::IndexService::State::Ready && timer.elapsed() < 120000)
+        QCoreApplication::processEvents(QEventLoop::AllEvents | QEventLoop::WaitForMoreEvents, 100);
+    std::printf("index %s: %zu items in %.1f s\n", service.state() == ws::IndexService::State::Ready ? "ready" : "NOT ready",
+        service.itemCount(), msSince(timer) / 1000);
+    for (timer.start(); timer.elapsed() < settleSec * 1000;)
+        QCoreApplication::processEvents(QEventLoop::AllEvents | QEventLoop::WaitForMoreEvents, 100);
+
+    ws::mcp::Services services;
+    services.index = &service;
+    services.version = QStringLiteral(WINSHUN_VERSION "-bench");
+    services.log = [](const QString& line) {
+        if (qEnvironmentVariableIsSet("WSBENCH_VERBOSE")
+            || (!line.contains(u" list_documents ") && !line.contains(u" read_file_text ") && !line.contains(u" index_status ")))
+            std::printf("  tool: %s\n", qUtf8Printable(line));
+    };
+    ws::plugin::Tools tools(std::move(services), nullptr, nullptr);
+    ws::mcp::Policy policy;
+    policy.contentExtensions = settings.contentExtensions;
+    policy.contentSizeLimits = settings.contentSizeLimits();
+    policy.contentDocuments = settings.contentDocuments;
+    tools.setPolicy(policy);
+
+    ws::plugin::Host::Options pluginOptions;
+    pluginOptions.userPluginDir = temp.path() + u"/plugins"_s;
+    pluginOptions.bundledPluginDir = pluginsDir;
+    pluginOptions.dataRoot = dataRoot.isEmpty() ? temp.path() + u"/data"_s : dataRoot;
+    pluginOptions.logPath = temp.path() + u"/plugins.log"_s;
+    pluginOptions.runnerExe = QCoreApplication::applicationDirPath() + u"/WinShunPluginHost.exe"_s;
+    pluginOptions.version = QStringLiteral(WINSHUN_VERSION "-bench");
+    ws::plugin::Host host(pluginOptions);
+    host.setToolBridge(ws::plugin::toolBridge(&tools.host()));
+    const QString id = u"winshun.semantic"_s;
+    host.setEnabled(id, true);
+    host.setPluginSettings(id, pluginSettings);
+    QObject::connect(&host, &ws::plugin::Host::logged, [](const QString& line) { std::printf("  plugins.log: %s\n", qUtf8Printable(line)); });
+
+    std::uint64_t nextId = 1;
+    const auto ask = [&](const QString& text, double* took = nullptr) {
+        const std::uint64_t queryId = nextId++;
+        ws::plugin::Items found;
+        bool done = false;
+        QElapsedTimer t;
+        t.start();
+        const auto results = QObject::connect(&host, &ws::plugin::Host::results,
+            [&](std::uint64_t q, const QString&, const QString&, const ws::plugin::Items& items, bool partial, bool replace) {
+                if (q != queryId)
+                    return;
+                if (replace)
+                    found.clear();
+                found += items;
+                done = done || !partial;
+            });
+        const auto failed = QObject::connect(&host, &ws::plugin::Host::queryFailed, [&](std::uint64_t q, const QString&, const QString& why) {
+            if (q == queryId) {
+                std::printf("  query \"%s\" failed: %s\n", qUtf8Printable(text), qUtf8Printable(why));
+                done = true;
+            }
+        });
+        host.query(text, ws::Scope::All, queryId);
+        const QDeadlineTimer deadline(20000);
+        while (!done && !deadline.hasExpired())
+            QCoreApplication::processEvents(QEventLoop::AllEvents | QEventLoop::WaitForMoreEvents, 50);
+        QObject::disconnect(results);
+        QObject::disconnect(failed);
+        if (took)
+            *took = msSince(t);
+        return found;
+    };
+    const auto first = [](const ws::plugin::Items& items) {
+        return items.isEmpty() ? u"(nothing)"_s : items.first().title + u" | "_s + items.first().subtitle;
+    };
+
+    // The first row, until the plugin has counted the files.
+    ws::plugin::Items status;
+    timer.restart();
+    QString last;
+    for (;;) {
+        double took = 0;
+        status = ask(u"? "_s, &took);
+        if (qEnvironmentVariableIsSet("WSBENCH_VERBOSE"))
+            std::printf("  ask: %lld items, %.0f ms\n", static_cast<long long>(status.size()), took);
+        if (first(status) != last) {
+            last = first(status);
+            std::printf("%6.1f s  %s\n", msSince(timer) / 1000, qUtf8Printable(last));
+        }
+        if (status.isEmpty() || status.first().id != u"status"_s || timer.elapsed() > waitSec * 1000LL)
+            break;
+        const QDeadlineTimer pause(2000);
+        while (!pause.hasExpired())
+            QCoreApplication::processEvents(QEventLoop::AllEvents | QEventLoop::WaitForMoreEvents, 100);
+    }
+    if (!status.isEmpty() && status.first().id == u"start"_s && yes) {
+        bool done = false;
+        const auto finished = QObject::connect(&host, &ws::plugin::Host::actionDone,
+            [&](std::uint64_t, const ws::plugin::Effects&, bool ok, const QString& error) {
+                std::printf("start: %s\n", ok ? "ok" : qUtf8Printable(error));
+                done = true;
+            });
+        host.action(nextId++, id, u"find"_s, u"start"_s, status.first(), u"? "_s);
+        const QDeadlineTimer deadline(10000);
+        while (!done && !deadline.hasExpired())
+            QCoreApplication::processEvents(QEventLoop::AllEvents | QEventLoop::WaitForMoreEvents, 50);
+        QObject::disconnect(finished);
+        // Following the indexing.
+        timer.restart();
+        while (timer.elapsed() < waitSec * 1000LL) {
+            status = ask(u"? "_s);
+            if (first(status) != last) {
+                last = first(status);
+                std::printf("%6.1f s  %s\n", msSince(timer) / 1000, qUtf8Printable(last));
+            }
+            if (status.isEmpty() || status.first().id != u"status"_s || status.first().title.contains(u"已就绪"_s)
+                || status.first().title.contains(u"ready"_s))
+                break;
+            const QDeadlineTimer pause(3000);
+            while (!pause.hasExpired())
+                QCoreApplication::processEvents(QEventLoop::AllEvents | QEventLoop::WaitForMoreEvents, 100);
+        }
+    }
+    for (const QString& q : queries) {
+        double took = 0;
+        const ws::plugin::Items items = ask(u"? "_s + q, &took);
+        std::printf("\n? %s  (%.0f ms)\n", qUtf8Printable(q), took);
+        for (qsizetype i = 0; i < items.size() && i < 10; ++i)
+            std::printf("  %2lld. %s\n      %s\n", static_cast<long long>(i + 1), qUtf8Printable(items[i].open.target.isEmpty() ? items[i].title : items[i].open.target),
+                qUtf8Printable(items[i].subtitle.left(120)));
+    }
+    const ws::plugin::Host::State state = host.state(id);
+    std::printf("\nplugin state %d, pid %lu%s\n", static_cast<int>(state.status), static_cast<unsigned long>(state.pid),
+        state.error.isEmpty() ? "" : qUtf8Printable(u" ("_s + state.error + u")"_s));
+    if (state.pid != 0) {
+        const HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, state.pid);
+        PROCESS_MEMORY_COUNTERS_EX memory {};
+        if (process && ::GetProcessMemoryInfo(process, reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory), sizeof memory))
+            std::printf("plugin memory: private %.1f MB, working set %.1f MB\n", memory.PrivateUsage / 1048576.0, memory.WorkingSetSize / 1048576.0);
+        if (process)
+            ::CloseHandle(process);
+    }
+    host.shutdown();
+    service.shutdown();
+    return 0;
+}
+
 // ---- sites' icons (--site-icon) -----------------------------------------------
 
 // Fetches each home page's icon as Win顺 does (siteicons::fetchNow): which
@@ -3271,6 +3487,10 @@ int main(int argc, char* argv[])
     }
     if (args.contains(u"--plugin"_s))
         return runPlugin(args);
+    if (args.contains(u"--semantic"_s)) {
+        args.removeAll(u"--semantic"_s);
+        return runSemantic(args);
+    }
     if (args.contains(u"--extract"_s)) {
         QStringList paths = args;
         if (const qsizetype at = paths.indexOf(u"--threads"_s); at >= 0)

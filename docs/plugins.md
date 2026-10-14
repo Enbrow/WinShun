@@ -8,7 +8,7 @@ Win顺 的插件给搜索框加关键字命令、把结果混进列表。它们*
 | **一次性脚本**（`once`） | 任何语言；查询从环境变量进，结果打印到 stdout | 几十行的小工具，偶尔用 |
 | **常驻**（`resident`） | 任何语言；stdio 上一行一条 JSON-RPC | 每键都查的、要缓存的、PowerShell（它冷启动慢） |
 
-随 Win顺 装好的插件在 `<安装目录>\plugins\`（默认全部关着，设置 → 插件 里打开）：`winshun.tools`（计算器、单位换算、颜色、时间戳、UUID、Base64、哈希；C++）、`winshun.kill`（结束进程；PowerShell）、`winshun.bookmarks`（浏览器书签；Python 一次性）、`winshun.translate`（翻译；Python 常驻，要自己填 API 密钥）、`winshun.web` 和 `winshun.go`（零代码）。每个都是一份能跑的示例，文件夹里有 README。
+随 Win顺 装好的插件在 `<安装目录>\plugins\`（默认全部关着，设置 → 插件 里打开）：`winshun.tools`（计算器、单位换算、颜色、时间戳、UUID、Base64、哈希；C++）、`winshun.kill`（结束进程；PowerShell）、`winshun.bookmarks`（浏览器书签；Python 一次性）、`winshun.translate`（翻译；Python 常驻，要自己填 API 密钥）、`winshun.semantic`（按意思找：`? 一句话` 按文档讲的内容找文件，用你选的嵌入模型——本机的 Ollama 或云服务的密钥；C++ 常驻，用 `winshun:content` 拿 Win顺 已经读出的文字）、`winshun.web` 和 `winshun.go`（零代码）。每个都是一份能跑的示例，文件夹里有 README。
 
 English version: [plugins.en.md](plugins.en.md).
 
@@ -197,7 +197,7 @@ Win顺 → 插件：
 {"jsonrpc":"2.0","method":"winshun/progress","params":{"queryId":17,"text":"正在读书签…"}}   "正在等…"那行的文字
 ```
 
-`winshun/tool` 和 Win顺 给 AI 的 MCP 工具同名同参数：`search_files`、`search_content`、`recent_files`、`list_folder`、`get_file_info`、`open_item`、`show_in_folder`、`clipboard_history`、`clipboard_get`、`index_status`；按 manifest 的权限放行（`winshun:search`、`winshun:open`、`clipboard:read`；`index_status` 总可以）。结果和 MCP 的 `structuredContent` 一样。
+`winshun/tool` 和 Win顺 给 AI 的 MCP 工具同名同参数：`search_files`、`search_content`、`recent_files`、`list_folder`、`get_file_info`、`open_item`、`show_in_folder`、`clipboard_history`、`clipboard_get`、`read_file_text`、`index_status`，另有只给插件的 `list_documents`（内容索引里有文字的文件，分页，带一个文件变了就变的 `stamp`）；按 manifest 的权限放行（`winshun:search`、`winshun:open`、`clipboard:read`；`read_file_text` 和 `list_documents` 要 `winshun:content`；`index_status` 总可以）。结果和 MCP 的 `structuredContent` 一样。
 
 超时：每次查询一个计时器（`timeoutMs`），到点这次的结果作废；常驻插件连续 3 次超时当挂死，结束后退避重启（1 → 5 → 30 秒）；5 分钟内崩 3 次就停用，卡片上红字说明。空闲 `idleExitSec` 后收到 `shutdown`。每条响应最多 200 条结果，一行最多 16 MB。
 
@@ -238,6 +238,7 @@ manifest 的 `permissions` 是数组：`["processes", "clipboard:read", {"files:
 | `clipboard:read` / `clipboard:write` | 直接读写剪贴板 | **是** | 作业的 UI 限制；没有时 `GetClipboardData` 返回空（读到空或抛异常） |
 | `ui` | 开自己的窗口、找别的窗口 | 部分 | 没有时作业限制桌面和 USER 句柄 |
 | `winshun:search` / `winshun:open` / `winshun:history` | 调 Win顺 的工具 | **是** | `winshun/tool` 按权限放行 |
+| `winshun:content` | 读 Win顺 从文档和文本文件里取出的文字（`list_documents`、`read_file_text`） | **是** | `winshun/tool` 按权限放行；不用自己解析 Word、PDF，也不用再读一遍硬盘 |
 | `files:write` | 写你的文件 | 只在 `strict` 下 | `strict` 写不了用户目录，只能写 `<id>.data`；`normal` 和你自己一样能写，**只是声明** |
 | `files:read` | 读哪些文件 | **否** | 只是告诉用户它读什么（中完整性本来就能读） |
 | `network` | 联网 | **否** | Win顺 挡不住；卡片上写"Win顺 不能阻止它联网" |

@@ -25,12 +25,15 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <list>
 #include <memory>
 #include <optional>
+#include <thread>
 #include <vector>
 
 namespace ws {
 
+class DocExtractor;
 class IndexService;
 class SearchEngine;
 
@@ -40,6 +43,7 @@ namespace mcp {
 struct Policy {
     bool allowOpen = false; // open_item, show_in_folder
     bool allowClipboard = false; // clipboard_history, clipboard_get
+    bool allowDocuments = false; // list_documents: for plugins (winshun:content), not AI clients
     QStringList excludedPaths; // folders AI never sees (%VARS% expanded by setPolicy)
     bool content = true; // search_content: off with the launcher's content search
     QStringList contentExtensions; // as the launcher's content search
@@ -176,6 +180,8 @@ private:
     void clipboardHistory(const std::shared_ptr<Call>& call);
     void clipboardGet(const std::shared_ptr<Call>& call);
     void indexStatus(const std::shared_ptr<Call>& call);
+    void readFileText(const std::shared_ptr<Call>& call);
+    void listDocuments(const std::shared_ptr<Call>& call);
 
     const Tool* find(const QString& name) const; // among the host's own and the external ones
 
@@ -187,8 +193,10 @@ private:
     WorkerPool m_pool {WorkerPool::defaultThreadCount()}; // recent_files scans the index
     std::deque<std::shared_ptr<Call>> m_queue; // searches waiting for the engine
     std::unique_ptr<Active> m_active; // the search running on the engine
-    std::vector<std::shared_ptr<Call>> m_others; // calls under way that need no engine (opening)
+    std::vector<std::shared_ptr<Call>> m_others; // calls under way that need no engine (opening, reading)
     QTimer m_contentTimeout;
+    std::unique_ptr<DocExtractor> m_extractor; // read_file_text: documents the content index has no text of
+    std::list<std::jthread> m_reads; // last: stopped and joined before the rest goes
 };
 
 } // namespace mcp

@@ -4543,6 +4543,10 @@
         <translation>Read the recently opened items</translation>
     </message>
     <message>
+        <source>读 Win顺 从文档和文本文件里取出的文字</source>
+        <translation>Read the text WinShun took out of documents and text files</translation>
+    </message>
+    <message>
         <source>写文件</source>
         <translation>Write files</translation>
     </message>

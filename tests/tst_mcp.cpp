@@ -4,6 +4,7 @@
 // Win顺 there and away; and the plugins' commands as tools (plugin::AiBridge).
 
 #include "AiBridge.h"
+#include "ContentScanner.h"
 #include "FileIndex.h"
 #include "Host.h"
 #include "IndexService.h"
@@ -468,7 +469,7 @@ private slots:
     {
         Fixture f;
         QStringList expected {u"search_files"_s, u"search_content"_s, u"recent_files"_s, u"list_folder"_s,
-            u"get_file_info"_s, u"index_status"_s};
+            u"get_file_info"_s, u"index_status"_s, u"read_file_text"_s};
         QCOMPARE(f.host->toolNames(), expected);
         QCOMPARE(f.host->known(u"open_item"_s), ToolHost::Known::Off);
         QCOMPARE(f.host->known(u"nothing"_s), ToolHost::Known::No);
@@ -527,7 +528,7 @@ private slots:
 
         reply = s.exchange(requestLine(12, u"tools/list"_s));
         QVERIFY(reply);
-        QCOMPARE(parseObject(*reply).value(u"result"_s).toObject().value(u"tools"_s).toArray().size(), 6);
+        QCOMPARE(parseObject(*reply).value(u"result"_s).toObject().value(u"tools"_s).toArray().size(), 7);
         reply = s.exchange(requestLine(13, u"prompts/list"_s));
         QVERIFY(reply && parseObject(*reply).value(u"result"_s).toObject().value(u"prompts"_s).toArray().isEmpty());
         reply = s.exchange(requestLine(14, u"nothing/here"_s));
@@ -799,6 +800,60 @@ private slots:
         out = outcomeOf(*reply);
         QVERIFY(out.isError);
         QVERIFY2(out.text.contains(u"is a file"), qPrintable(out.text));
+    }
+
+    void readFileText()
+    {
+        Fixture f;
+        f.write(u"utf8.txt"_s, QByteArray("\xEF\xBB\xBF") + u"第一行\r\n报告 report\r\n"_s.toUtf8(), 1'700'000'000);
+        f.write(u"gbk.txt"_s, QByteArray("\xB1\xA8\xB8\xE6\n"), 1'700'000'000); // 报告 in GBK
+        f.write(u"utf16.txt"_s, QByteArray("\xFF\xFE", 2) + QByteArray(reinterpret_cast<const char*>(u"报告"), 4), 1'700'000'000);
+        f.write(u"tool.exe"_s, QByteArray("MZ\0\0\x90\0", 6), 1'700'000'000);
+        f.write(u"long.txt"_s, QByteArray(2500, 'a'), 1'700'000'000);
+        f.write(u"empty.txt"_s, QByteArray(), 1'700'000'000);
+        f.write(u"private\\p.txt"_s, "secret", 1'700'000'000);
+        Policy policy = f.host->policy();
+        policy.excludedPaths = {f.root + u"\\private"_s};
+        f.host->setPolicy(policy);
+        Session s(f.server.get());
+        QVERIFY(s.initialize());
+
+        const auto read = [&](int id, const QString& name, QJsonObject more = {}) {
+            more.insert(u"path"_s, f.root + u"\\"_s + name);
+            const auto reply = s.exchange(callLine(id, u"read_file_text"_s, more), 20000);
+            return reply ? outcomeOf(*reply) : Outcome {};
+        };
+        Outcome out = read(2, u"utf8.txt"_s);
+        QVERIFY2(!out.isError, qPrintable(out.text));
+        QCOMPARE(out.structured.value(u"text"_s).toString(), u"第一行\n报告 report\n"_s); // no BOM, no CR
+        QCOMPARE(out.structured.value(u"kind"_s).toString(), u"text"_s);
+        QVERIFY(!out.structured.contains(u"next_offset"_s));
+        if (ContentScanner::legacyCodePage() == 936) // as the content search reads it: in the system's code page
+            QCOMPARE(read(3, u"gbk.txt"_s).structured.value(u"text"_s).toString(), u"报告\n"_s);
+        QCOMPARE(read(4, u"utf16.txt"_s).structured.value(u"text"_s).toString(), u"报告"_s);
+        out = read(5, u"tool.exe"_s);
+        QVERIFY(out.isError);
+        QVERIFY2(out.text.contains(u"not a text file"), qPrintable(out.text));
+
+        // A long text in parts.
+        out = read(6, u"long.txt"_s, {{u"max_chars"_s, 1000}});
+        QCOMPARE(out.structured.value(u"text"_s).toString().size(), 1000);
+        QCOMPARE(out.structured.value(u"chars"_s).toInt(), 2500);
+        QCOMPARE(out.structured.value(u"next_offset"_s).toInt(), 1000);
+        out = read(7, u"long.txt"_s, {{u"max_chars"_s, 1000}, {u"offset"_s, 2000}});
+        QCOMPARE(out.structured.value(u"text"_s).toString().size(), 500);
+        QVERIFY(!out.structured.contains(u"next_offset"_s));
+        out = read(8, u"empty.txt"_s);
+        QVERIFY(!out.isError);
+        QVERIFY(out.structured.contains(u"note"_s));
+
+        out = read(9, u"missing.txt"_s);
+        QVERIFY(out.isError);
+        QVERIFY2(out.text.contains(u"no such file"), qPrintable(out.text));
+        QVERIFY(read(10, u""_s).isError); // the folder itself
+        out = read(11, u"private\\p.txt"_s);
+        QVERIFY(out.isError);
+        QVERIFY2(out.text.contains(u"not visible to AI"), qPrintable(out.text));
     }
 
     void recentAndFolder()
@@ -1098,7 +1153,7 @@ private slots:
 
         reply = relay.exchange(requestLine(2, u"tools/list"_s));
         QVERIFY(reply);
-        QCOMPARE(parseObject(*reply).value(u"result"_s).toObject().value(u"tools"_s).toArray().size(), 6);
+        QCOMPARE(parseObject(*reply).value(u"result"_s).toObject().value(u"tools"_s).toArray().size(), 7);
         // The session has the relay's own token (ImpersonateNamedPipeClient);
         // that what its user cannot list stays out of the results is
         // relayRestricted()'s check.

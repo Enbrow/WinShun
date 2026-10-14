@@ -50,6 +50,8 @@ std::optional<Permission> permissionFor(const QString& tool)
         return Permission::WinshunOpen;
     if (tool == u"clipboard_history" || tool == u"clipboard_get")
         return Permission::ClipboardRead;
+    if (tool == u"read_file_text" || tool == u"list_documents")
+        return Permission::WinshunContent;
     if (tool == u"index_status")
         return std::nullopt;
     return Permission::WinshunHistory; // unknown names: the strictest, and the bridge says "unknown" anyway

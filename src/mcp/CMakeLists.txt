@@ -21,7 +21,7 @@ qt_add_library(wsmcp STATIC
     PipeServer.cpp PipeServer.h
     Visibility.cpp Visibility.h
 )
-target_link_libraries(wsmcp PUBLIC wscore wsmcp_proto)
+target_link_libraries(wsmcp PUBLIC wscore wsmcp_proto PRIVATE user32) # user32: GetLastInputInfo
 
 # WinShunMcp.exe: the stdio relay the AI clients run (see relay/main.cpp).
 # A console program, as MCP's stdio transport wants; runs as the invoker, not

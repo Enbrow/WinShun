@@ -7,6 +7,7 @@ Rectangle {
 
     property string text
     property string glyph
+    property string trailingGlyph // after the text (a drop-down's chevron)
     property bool highlighted: false
     property bool flat: false // no background until hovered
     readonly property color foreground: highlighted ? Theme.accentText : Theme.text
@@ -46,6 +47,13 @@ Rectangle {
             text: button.text
             color: button.foreground
             font.pixelSize: Theme.fontBody
+        }
+        Glyph {
+            anchors.verticalCenter: parent.verticalCenter
+            visible: button.trailingGlyph.length > 0
+            glyph: button.trailingGlyph
+            size: 10
+            color: button.foreground
         }
     }
 

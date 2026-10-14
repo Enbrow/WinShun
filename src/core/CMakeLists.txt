@@ -15,6 +15,7 @@ qt_add_library(wscore STATIC
     DoubleTapDetector.h
     Favorites.cpp Favorites.h
     FileIndex.cpp FileIndex.h
+    FileText.cpp FileText.h
     GameGuard.h
     History.cpp History.h
     IndexFolder.cpp IndexFolder.h

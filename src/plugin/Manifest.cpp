@@ -36,6 +36,7 @@ constexpr Named kPermissions[] = {
     {Permission::WinshunSearch, u"winshun:search"},
     {Permission::WinshunOpen, u"winshun:open"},
     {Permission::WinshunHistory, u"winshun:history"},
+    {Permission::WinshunContent, u"winshun:content"},
     {Permission::FilesRead, u"files:read"},
 };
 

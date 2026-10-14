@@ -1,6 +1,9 @@
 #include "McpTools.h"
 
+#include "DocExtractor.h"
+#include "Documents.h"
 #include "FileIndex.h"
+#include "FileText.h"
 #include "IndexService.h"
 #include "SearchEngine.h"
 #include "Visibility.h"
@@ -17,6 +20,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <limits>
 #include <string>
 #include <unordered_map>
 
@@ -41,6 +45,11 @@ constexpr int kDefaultTimeoutMs = 5000;
 constexpr int kMinTimeoutMs = 500;
 constexpr int kMaxTimeoutMs = 30000;
 constexpr int kSnippetChars = 300;
+constexpr int kDefaultTextChars = 20000;
+constexpr int kMinTextChars = 1000;
+constexpr int kMaxTextChars = 100000;
+constexpr int kDefaultDocuments = 1000;
+constexpr int kMaxDocuments = 5000;
 constexpr int kContentThreads = 8;
 
 // ---- JSON Schema ------------------------------------------------------------
@@ -327,7 +336,7 @@ QString stateName(IndexService::State state)
 // ---- the host ---------------------------------------------------------------
 
 struct ToolHost::Tool {
-    enum class Gate { None, Open, Clipboard };
+    enum class Gate { None, Open, Clipboard, Documents };
     QString name;
     QString title;
     QString description;
@@ -348,7 +357,9 @@ struct ToolHost::Tool {
     {
         if (external)
             return offered;
-        return offered && (gate == Gate::None || (gate == Gate::Open && policy.allowOpen) || (gate == Gate::Clipboard && policy.allowClipboard));
+        return offered
+            && (gate == Gate::None || (gate == Gate::Open && policy.allowOpen) || (gate == Gate::Clipboard && policy.allowClipboard)
+                || (gate == Gate::Documents && policy.allowDocuments));
     }
 
     QJsonObject json() const
@@ -658,13 +669,17 @@ QString ToolHost::instructions()
            "inside text files and documents (Word, Excel, PowerPoint, PDF). search_files finds by name in "
            "milliseconds; search_content looks inside files (slower, returns partial results with complete=false when "
            "its timeout runs out); recent_files lists what changed lately; list_folder and get_file_info look around; "
-           "index_status says whether the index is ready.\n"
+           "read_file_text reads one file's whole text; index_status says whether the index is ready.\n"
            "search_files query syntax: words must all match (in the name, or in a parent folder's name); Chinese "
            "names also match pinyin initials or full pinyin (bg, baogao or ndbg for 年度报告); \"quoted phrase\"; "
            "!word excludes; *.pdf and ? wildcards; ext:pdf,docx keeps only those extensions; folder\\name needs a "
            "parent folder containing 'folder'; a full path such as D:\\Projects\\report lists that folder's matches "
            "first. Results are ranked: exact names, the user's own files and recently opened items first, system "
            "and program folders last.\n"
+           "Users often describe a file by what it is about rather than by its words. When a search finds nothing or "
+           "not the right file, search again with synonyms, related or broader terms, shorter word stems, and both "
+           "Chinese and English (报销 → 费用, 差旅, reimbursement); look at likely candidates with read_file_text "
+           "before telling the user which file it is.\n"
            "Paths are Windows paths; show them to the user as they are. Keep limits small (20–50) unless more is "
            "needed. Tools that open files or read the clipboard history are listed only when the user allowed them "
            "in Win顺's settings."_s;
@@ -953,6 +968,51 @@ void ToolHost::addTools()
     status.annotations = annotations(true, true);
     status.run = [this](const std::shared_ptr<Call>& call) { indexStatus(call); };
     m_tools.push_back(std::move(status));
+
+    Tool text;
+    text.name = u"read_file_text"_s;
+    text.title = u"Read the text of a file"_s;
+    text.description = u"The text of one file: a document's (Word, Excel, PowerPoint, PDF, WPS) as Win顺 read it out, "
+                       "with [page N], [slide N] and [sheet Name] lines where those begin, or a text file's (txt, md, "
+                       "csv, code…). Use it to see what a file found by search_files or search_content says. A long "
+                       "text comes in parts: pass next_offset as offset for the next one."_s;
+    text.inputSchema = object({{u"path"_s, typed("string", u"Full path of the file"_s)},
+                                  {u"offset"_s, integer(u"Where to start, in characters"_s, 0, std::numeric_limits<int>::max(), 0)},
+                                  {u"max_chars"_s, integer(u"Characters at most"_s, kMinTextChars, kMaxTextChars, kDefaultTextChars)}},
+        {u"path"_s});
+    text.outputSchema = object({{u"path"_s, typed("string", u"The file"_s)},
+        {u"kind"_s, choice(u"A document or a text file"_s, {u"document"_s, u"text"_s}, u"text"_s)},
+        {u"text"_s, typed("string", u"The text from offset"_s)}, {u"chars"_s, typed("integer", u"Length of the whole text"_s)},
+        {u"offset"_s, typed("integer", u"Where this part starts"_s)},
+        {u"next_offset"_s, typed("integer", u"Where the rest starts; absent at the end"_s)},
+        {u"cut"_s, typed("boolean", u"The file holds more than Win顺 reads (16 MB of text)"_s)},
+        {u"note"_s, typed("string", u"Why the text is empty, when it is"_s)}});
+    text.annotations = annotations(true, true);
+    text.run = [this](const std::shared_ptr<Call>& call) { readFileText(call); };
+    m_tools.push_back(std::move(text));
+
+    Tool docs;
+    docs.name = u"list_documents"_s;
+    docs.title = u"Files with text in the content index"_s;
+    docs.description = u"Every file whose text the content index holds (documents and text files), in a stable order, a "
+                       "page at a time: pass next_cursor as cursor for the next page. Each comes with a stamp that "
+                       "changes when the file does, so a reader can tell what to read again with read_file_text."_s;
+    docs.inputSchema = object({{u"folders"_s, array(typed("string", u"Full path"_s), u"Only under these folders; default: all"_s)},
+        {u"extensions"_s, array(typed("string", u"Extension without the dot, e.g. docx"_s), u"Only these extensions"_s)},
+        {u"include_system"_s, boolean(u"Also system, program and tool folders"_s, false)},
+        {u"cursor"_s, integer(u"Where to go on from: next_cursor of the page before"_s, 0, std::numeric_limits<int>::max(), 0)},
+        {u"limit"_s, integer(u"How many at most"_s, 1, kMaxDocuments, kDefaultDocuments)}});
+    docs.outputSchema = object({{u"items"_s, array(object({{u"path"_s, typed("string", u"Full Windows path"_s)},
+                                                        {u"kind"_s, typed("string", u"document or text"_s)},
+                                                        {u"stamp"_s, typed("integer", u"Changes when the file changes"_s)}}),
+                                    u"The files"_s)},
+        {u"returned"_s, typed("integer", u"How many items"_s)},
+        {u"next_cursor"_s, typed("integer", u"For the next page; absent after the last"_s)},
+        {u"reading"_s, typed("boolean", u"The content index is still reading files: more may come"_s)}});
+    docs.annotations = annotations(true, true);
+    docs.gate = Tool::Gate::Documents;
+    docs.run = [this](const std::shared_ptr<Call>& call) { listDocuments(call); };
+    m_tools.push_back(std::move(docs));
 }
 
 void ToolHost::searchFiles(const std::shared_ptr<Call>& call)
@@ -1372,6 +1432,165 @@ void ToolHost::clipboardGet(const std::shared_ptr<Call>& call)
     finish(call, {{{u"id"_s, id}, {u"text"_s, text->left(maxChars)}, {u"chars"_s, text->size()}, {u"truncated"_s, text->size() > maxChars}}});
 }
 
+void ToolHost::readFileText(const std::shared_ptr<Call>& call)
+{
+    Args args(call->arguments);
+    const QString given = args.string(u"path"_s, true).trimmed();
+    const int offset = args.integer(u"offset"_s, 0, 0, std::numeric_limits<int>::max());
+    const int maxChars = args.integer(u"max_chars"_s, kDefaultTextChars, kMinTextChars, kMaxTextChars);
+    if (!args.error().isEmpty())
+        return finish(call, {{}, true, args.error()});
+    if (given.isEmpty())
+        return finish(call, {{}, true, u"path is empty"_s});
+    if (excluded(given))
+        return finish(call, {{}, true, u"This path is not visible to AI (excluded in Win顺's settings)."_s});
+    const QString path = nativePath(given);
+    // Only what the caller could read itself; the rest is, to it, not there.
+    Visibility view(call->token);
+    const bool readable = view.sees(path) && view.canRead(path);
+    call->checked(view);
+    if (!readable)
+        return finish(call, {{}, true, u"There is no such file: "_s + path});
+
+    if (!m_extractor)
+        m_extractor = std::make_unique<DocExtractor>(1, DocExtractor::Priority::Normal);
+    filetext::Sources sources {m_services.index->index(), m_services.index->contentIndex(), m_extractor.get()};
+    const std::int64_t maxBytes = m_policy.contentSizeLimits.of(path.toStdWString());
+    m_others.push_back(call);
+    // The disk and the extractor: on a thread of its own, back here with the text.
+    const auto at = m_reads.emplace(m_reads.end());
+    *at = std::jthread([this, call, at, path, sources, maxBytes, offset, maxChars](std::stop_token stop) {
+        filetext::Result read = filetext::read(path.toStdWString(), sources, maxBytes, [&stop] { return stop.stop_requested(); });
+        if (stop.stop_requested())
+            return;
+        QMetaObject::invokeMethod(this, [this, call, at, path, read = std::move(read), offset, maxChars] {
+            m_reads.erase(at);
+            if (std::ranges::find(m_others, call) == m_others.end())
+                return; // cancelled
+            std::erase(m_others, call);
+            using filetext::Status;
+            switch (read.status) {
+            case Status::Ok:
+                break;
+            case Status::Missing:
+                return finish(call, {{}, true, u"There is no such file: "_s + path});
+            case Status::Folder:
+                return finish(call, {{}, true, u"This is a folder; list it with list_folder."_s});
+            case Status::NotText:
+                return finish(call, {{}, true, u"This is not a text file or a document Win顺 can read."_s});
+            case Status::TooLarge:
+                return finish(call, {{}, true, u"The file is larger than Win顺's size limit for its kind (Settings → content search)."_s});
+            case Status::CloudOnly:
+                return finish(call, {{}, true, u"This is a cloud file that is not on this PC; reading it would download it. The user can open it to download it first."_s});
+            case Status::Unreadable:
+                return finish(call, {{}, true, u"The file could not be read (in use, no access, or damaged)."_s});
+            }
+            const qsizetype chars = read.text.size();
+            const qsizetype from = std::min<qsizetype>(offset, chars);
+            qsizetype to = std::min<qsizetype>(from + maxChars, chars);
+            if (to < chars && to > from && read.text.at(to - 1).isHighSurrogate())
+                --to; // not half a character
+            QJsonObject out {{u"path"_s, path}, {u"kind"_s, read.document ? u"document"_s : u"text"_s},
+                {u"text"_s, read.text.mid(from, to - from)}, {u"chars"_s, chars}, {u"offset"_s, from}, {u"cut"_s, read.cut}};
+            if (to < chars)
+                out.insert(u"next_offset"_s, to);
+            if (chars == 0)
+                out.insert(u"note"_s, read.document ? u"No text in it: a scanned document (pictures of pages), or only pictures."_s
+                                                    : u"The file is empty."_s);
+            finish(call, {out});
+        }, Qt::QueuedConnection);
+    });
+}
+
+void ToolHost::listDocuments(const std::shared_ptr<Call>& call)
+{
+    Args args(call->arguments);
+    const QStringList folderArgs = args.strings(u"folders"_s);
+    const QStringList extensions = args.strings(u"extensions"_s);
+    const bool system = args.boolean(u"include_system"_s, false);
+    const int cursor = args.integer(u"cursor"_s, 0, 0, std::numeric_limits<int>::max());
+    const int limit = args.integer(u"limit"_s, kDefaultDocuments, 1, kMaxDocuments);
+    if (!args.error().isEmpty())
+        return finish(call, {{}, true, args.error()});
+    const auto content = m_services.index->contentIndex();
+    if (!content || !m_services.index->contentIndexer()->enabled())
+        return finish(call, {{}, true, u"The content index is off: the user can turn it on in Win顺's settings (文件内容)."_s});
+    std::vector<QString> folders; // case-folded, with a trailing separator
+    for (const QString& folder : folderArgs) {
+        QString f = nativePath(folder).toCaseFolded();
+        if (f.isEmpty())
+            continue;
+        if (!f.endsWith(u'\\'))
+            f.append(u'\\');
+        folders.push_back(f);
+    }
+    std::vector<std::string> wanted; // extensions, lower case, without the dot
+    for (QString ext : extensions) {
+        while (ext.startsWith(u'.'))
+            ext.remove(0, 1);
+        if (!ext.isEmpty())
+            wanted.push_back(ext.toLower().toStdString());
+    }
+
+    struct Row {
+        QString path;
+        std::uint32_t stamp;
+        bool document;
+    };
+    std::vector<Row> rows;
+    std::optional<EntryId> next;
+    const std::vector<ContentIndex::DocInfo> documents = content->documents(); // ascending by entry
+    {
+        const auto index = m_services.index->index();
+        const auto lock = index->readLock();
+        auto it = std::ranges::lower_bound(documents, static_cast<EntryId>(cursor), {}, &ContentIndex::DocInfo::entry);
+        for (; it != documents.end(); ++it) {
+            if (std::ssize(rows) >= limit) {
+                next = it->entry;
+                break;
+            }
+            // One being read again has no current text yet: it comes in a later listing.
+            if (it->need != ContentIndex::Need::None || it->entry >= index->slotCount())
+                continue;
+            const Entry& e = index->entry(it->entry);
+            if (e.isDeleted() || e.isDir() || (!system && (e.flags & EntryFlag::LowPriority)))
+                continue;
+            if (!wanted.empty()) {
+                std::size_t extLength = 0;
+                const std::string_view name = index->fileName(e, extLength);
+                if (extLength == 0)
+                    continue;
+                std::string ext(name.substr(name.size() - extLength));
+                std::ranges::transform(ext, ext.begin(), [](char ch) { return static_cast<char>(std::tolower(static_cast<unsigned char>(ch))); });
+                if (std::ranges::find(wanted, ext) == wanted.end())
+                    continue;
+            }
+            QString path = index->path(it->entry);
+            if (!folders.empty()) {
+                const QString folded = path.toCaseFolded();
+                if (std::ranges::none_of(folders, [&](const QString& f) { return folded.startsWith(f); }))
+                    continue;
+            }
+            const bool document = isDocumentPath(path.toStdWString());
+            rows.push_back({std::move(path), it->stamp, document});
+        }
+    }
+    // What the caller could not read is, to it, not there.
+    Visibility view(call->token);
+    QJsonArray items;
+    for (const Row& row : rows) {
+        if (excluded(row.path) || !view.sees(row.path) || !view.canRead(row.path))
+            continue;
+        items.push_back(QJsonObject {{u"path"_s, row.path}, {u"kind"_s, row.document ? u"document"_s : u"text"_s},
+            {u"stamp"_s, static_cast<qint64>(row.stamp)}});
+    }
+    call->checked(view);
+    QJsonObject out {{u"items"_s, items}, {u"returned"_s, items.size()}, {u"reading"_s, m_services.index->readingContent()}};
+    if (next)
+        out.insert(u"next_cursor"_s, static_cast<qint64>(*next));
+    finish(call, {out});
+}
+
 void ToolHost::indexStatus(const std::shared_ptr<Call>& call)
 {
     IndexService* service = m_services.index;
@@ -1401,8 +1620,16 @@ void ToolHost::indexStatus(const std::shared_ptr<Call>& call)
     const QJsonObject ai {{u"open_allowed"_s, m_policy.allowOpen && m_services.open != nullptr},
         {u"clipboard_allowed"_s, m_policy.allowClipboard && m_services.clipboard != nullptr},
         {u"excluded_folders"_s, static_cast<qint64>(m_excluded.size())}};
-    finish(call, {{{u"running"_s, true}, {u"connected"_s, true}, {u"version"_s, m_services.version}, {u"index"_s, index},
-        {u"content_index"_s, content}, {u"ai"_s, ai}}});
+    QJsonObject out {{u"running"_s, true}, {u"connected"_s, true}, {u"version"_s, m_services.version}, {u"index"_s, index},
+        {u"content_index"_s, content}, {u"ai"_s, ai}};
+    if (m_policy.allowDocuments) {
+        // For a plugin that works in the background (winshun.semantic with a
+        // model on this computer): whether the user is at the computer.
+        LASTINPUTINFO input {sizeof input, 0};
+        if (::GetLastInputInfo(&input))
+            out.insert(u"user_idle_seconds"_s, static_cast<qint64>((::GetTickCount() - input.dwTime) / 1000));
+    }
+    finish(call, {out});
 }
 
 } // namespace ws::mcp

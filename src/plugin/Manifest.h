@@ -43,6 +43,7 @@ enum class Permission : std::uint32_t {
     WinshunOpen = 1u << 7,
     WinshunHistory = 1u << 8,
     FilesRead = 1u << 9,
+    WinshunContent = 1u << 10,
 };
 
 struct Permissions {

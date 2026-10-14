@@ -8,7 +8,7 @@ Plugins add keyword commands to the search box and mix their rows into the list.
 | **Once** (a process per query) | any language; the query comes in environment variables, the rows go to stdout | small tools, used now and then |
 | **Resident** | any language; JSON-RPC lines on stdio | anything queried on every key, anything with state, PowerShell (slow to start) |
 
-The plugins that come with Win顺 are in `<install dir>\plugins\` (all off until you turn them on under Settings → Plugins): `winshun.tools` (calculator, units, colours, timestamps, UUIDs, Base64, hashes; C++), `winshun.kill` (end a process; PowerShell), `winshun.bookmarks` (browser bookmarks; Python, once), `winshun.translate` (translation with your own API key; Python, resident), `winshun.web` and `winshun.go` (zero-code). Each is a working example with a README.
+The plugins that come with Win顺 are in `<install dir>\plugins\` (all off until you turn them on under Settings → Plugins): `winshun.tools` (calculator, units, colours, timestamps, UUIDs, Base64, hashes; C++), `winshun.kill` (end a process; PowerShell), `winshun.bookmarks` (browser bookmarks; Python, once), `winshun.translate` (translation with your own API key; Python, resident), `winshun.semantic` (search by meaning: `? a sentence` finds documents by what they are about, with the embedding model you pick — Ollama on this PC or a cloud service's key; C++, resident, takes the text Win顺 already read through `winshun:content`), `winshun.web` and `winshun.go` (zero-code). Each is a working example with a README.
 
 The Chinese version, [plugins.md](plugins.md), is the reference; this one follows it.
 
@@ -195,7 +195,7 @@ Plugin → Win顺:
 {"jsonrpc":"2.0","method":"winshun/progress","params":{"queryId":17,"text":"Reading bookmarks…"}}   the "waiting…" line
 ```
 
-`winshun/tool` takes the same names and arguments as Win顺's MCP tools: `search_files`, `search_content`, `recent_files`, `list_folder`, `get_file_info`, `open_item`, `show_in_folder`, `clipboard_history`, `clipboard_get`, `index_status`; gated by the manifest's permissions (`winshun:search`, `winshun:open`, `clipboard:read`; `index_status` always). The result is the MCP `structuredContent`.
+`winshun/tool` takes the same names and arguments as Win顺's MCP tools: `search_files`, `search_content`, `recent_files`, `list_folder`, `get_file_info`, `open_item`, `show_in_folder`, `clipboard_history`, `clipboard_get`, `read_file_text`, `index_status`, and, for plugins only, `list_documents` (the files whose text the content index holds, a page at a time, each with a `stamp` that changes when the file does); gated by the manifest's permissions (`winshun:search`, `winshun:open`, `clipboard:read`; `winshun:content` for `read_file_text` and `list_documents`; `index_status` always). The result is the MCP `structuredContent`.
 
 Timeouts: one timer per query (`timeoutMs`); a late answer is dropped. A resident plugin that misses three in a row is restarted with backoff (1 → 5 → 30 s); three crashes in five minutes turn it off, with the reason on its card. After `idleExitSec` it gets `shutdown`. At most 200 rows per answer, 16 MB per line.
 
@@ -236,6 +236,7 @@ Effects (an action's answer, in order): `hide` (default), `keep`, `setQuery {tex
 | `clipboard:read` / `clipboard:write` | the clipboard directly | **yes** | job UI restrictions; `GetClipboardData` returns nothing without it |
 | `ui` | own windows, other windows | partly | without it the job restricts the desktop and USER handles |
 | `winshun:search` / `winshun:open` / `winshun:history` | Win顺's tools | **yes** | `winshun/tool` is gated |
+| `winshun:content` | the text Win顺 took out of documents and text files (`list_documents`, `read_file_text`) | **yes** | `winshun/tool` is gated; no Word or PDF parsing of its own, and the disk is not read again |
 | `files:write` | writing your files | `strict` only | `strict` cannot write your folders, only `<id>.data`; `normal` writes as you do: **declared only** |
 | `files:read` | which files it reads | **no** | a declaration for the user (medium integrity reads anyway) |
 | `network` | going online | **no** | Win顺 cannot stop it; the card says so |

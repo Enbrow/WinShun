@@ -452,6 +452,8 @@ QVariantList PluginSettings::permissionRows(const QString& id) const
         row(u"winshun:open"_s, tr("让 Win顺 打开文件和网址（以普通权限）"), true);
     if (m.permissions.has(P::WinshunHistory))
         row(u"winshun:history"_s, tr("读最近打开的项目"), true);
+    if (m.permissions.has(P::WinshunContent))
+        row(u"winshun:content"_s, tr("读 Win顺 从文档和文本文件里取出的文字"), true);
     if (m.permissions.has(P::FilesWrite))
         row(u"files:write"_s, tr("写文件"), strict, strict ? tr("严格沙箱：只能写它自己的数据文件夹") : tr("和你自己一样能写"));
     if (m.permissions.has(P::FilesRead))
@@ -1256,6 +1258,10 @@ void PluginSettings::loadPreview()
         c.settings = {QVariantMap {{u"key"_s, u"apiKey"_s}, {u"type"_s, u"password"_s}, {u"title"_s, tr("API 密钥")}, {u"hint"_s, tr("存在 Windows 凭据管理器里，不写进设置文件")}, {u"value"_s, QString()}, {u"set"_s, true}},
             QVariantMap {{u"key"_s, u"engine"_s}, {u"type"_s, u"choice"_s}, {u"title"_s, tr("用哪家")}, {u"hint"_s, QString()}, {u"value"_s, u"deepl"_s},
                 {u"options"_s, QStringList {u"DeepL"_s, u"Google"_s, u"百度"_s}}, {u"optionValues"_s, QStringList {u"deepl"_s, u"google"_s, u"baidu"_s}}, {u"optionIndex"_s, 0}},
+            // Too long to stand side by side: one button and a menu (PluginCard's choiceControl).
+            QVariantMap {{u"key"_s, u"style"_s}, {u"type"_s, u"choice"_s}, {u"title"_s, u"译文风格"_s}, {u"hint"_s, QString()}, {u"value"_s, u"free"_s},
+                {u"options"_s, QStringList {u"直译（逐句对照，保留原文的句子结构和专有名词）"_s, u"意译（读起来像母语写的；长句会拆开重排）"_s, u"术语表优先（按你的术语表翻，其余意译）"_s}},
+                {u"optionValues"_s, QStringList {u"literal"_s, u"free"_s, u"glossary"_s}}, {u"optionIndex"_s, 1}},
             QVariantMap {{u"key"_s, u"target"_s}, {u"type"_s, u"text"_s}, {u"title"_s, tr("目标语言")}, {u"hint"_s, tr("例如 zh、en、ja")}, {u"value"_s, u"zh"_s}},
             QVariantMap {{u"key"_s, u"cache"_s}, {u"type"_s, u"folder"_s}, {u"title"_s, tr("缓存文件夹")}, {u"hint"_s, QString()}, {u"value"_s, u"D:\\翻译缓存"_s}}};
         c.hasReadme = true;

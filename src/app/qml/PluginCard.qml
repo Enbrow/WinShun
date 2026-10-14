@@ -644,11 +644,52 @@ Rectangle {
                             }
                             Component {
                                 id: choiceControl
-                                ScopeTabs {
-                                    labels: settingRow.modelData.options ?? []
-                                    current: settingRow.modelData.optionIndex ?? 0
-                                    onActivated: (index) => card.plugins.setSettingValue(card.pluginId, settingRow.modelData.key,
-                                                                                         settingRow.modelData.optionValues[index])
+                                // Side by side while they fit beside the title; else
+                                // one button with the chosen one's short name (what
+                                // comes before its "（…）") and a menu of them all.
+                                Item {
+                                    id: choice
+
+                                    readonly property var labels: settingRow.modelData.options ?? []
+                                    readonly property int index: settingRow.modelData.optionIndex ?? 0
+                                    readonly property bool fits: tabs.implicitWidth <= settingRow.width - settingTitle.implicitWidth - 24
+
+                                    function choose(index) {
+                                        card.plugins.setSettingValue(card.pluginId, settingRow.modelData.key,
+                                                                     settingRow.modelData.optionValues[index])
+                                    }
+                                    function shortName(label) {
+                                        return String(label ?? "").split("（")[0].split(" (")[0].trim()
+                                    }
+
+                                    implicitWidth: fits ? tabs.implicitWidth : menuButton.implicitWidth
+                                    implicitHeight: fits ? tabs.implicitHeight : menuButton.implicitHeight
+
+                                    ScopeTabs {
+                                        id: tabs
+                                        visible: choice.fits
+                                        labels: choice.labels
+                                        current: choice.index
+                                        onActivated: (index) => choice.choose(index)
+                                    }
+                                    FlatButton {
+                                        id: menuButton
+                                        visible: !choice.fits
+                                        implicitHeight: 32
+                                        text: choice.shortName(choice.labels[choice.index])
+                                        trailingGlyph: String.fromCharCode(0xE70D) // ChevronDown
+                                        onClicked: choiceMenu.open = !choiceMenu.open
+
+                                        DropMenu {
+                                            id: choiceMenu
+                                            anchor: menuButton
+                                            entries: choice.labels.map((label, i) => ({
+                                                text: label,
+                                                glyph: i === choice.index ? String.fromCharCode(0xE73E) : "" // CheckMark
+                                            }))
+                                            onActivated: (index) => choice.choose(index)
+                                        }
+                                    }
                                 }
                             }
                             Component {

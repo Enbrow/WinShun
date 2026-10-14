@@ -51,6 +51,14 @@ qt_add_executable(tst_tools tst_tools.cpp
 target_include_directories(tst_tools PRIVATE ${PROJECT_SOURCE_DIR}/src/tools-plugin)
 target_link_libraries(tst_tools PRIVATE winshun_options Qt6::Test bcrypt)
 
+# winshun.semantic's pieces (src/semantic-plugin), built in again: passages,
+# the vector store, the model services' settings.
+qt_add_executable(tst_semantic tst_semantic.cpp
+    ${PROJECT_SOURCE_DIR}/src/semantic-plugin/Chunker.cpp ${PROJECT_SOURCE_DIR}/src/semantic-plugin/Store.cpp
+    ${PROJECT_SOURCE_DIR}/src/semantic-plugin/Embedder.cpp)
+target_include_directories(tst_semantic PRIVATE ${PROJECT_SOURCE_DIR}/src/semantic-plugin ${PROJECT_SOURCE_DIR}/src/plugins-sdk)
+target_link_libraries(tst_semantic PRIVATE winshun_options Qt6::Test winhttp)
+
 # The plugin system (src/plugin): manifests, items, zero-code, the catalog,
 # and plugin processes started through the runner WinShunPluginHost.exe,
 # played by plugin_fake.exe (no Qt, as a plugin would be); both paths are
@@ -74,6 +82,7 @@ add_test(NAME tst_dragout COMMAND tst_dragout)
 add_test(NAME tst_siteicon COMMAND tst_siteicon)
 add_test(NAME tst_ocr COMMAND tst_ocr)
 add_test(NAME tst_tools COMMAND tst_tools)
+add_test(NAME tst_semantic COMMAND tst_semantic)
 add_test(NAME tst_mcp COMMAND tst_mcp)
 add_test(NAME tst_plugin COMMAND tst_plugin)
 # Let ctest find the Qt DLLs without a deploy step.
