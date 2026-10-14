@@ -10,7 +10,7 @@
 #   # comment | run <file> | let <name> <value> ({name} in later lines becomes the value) | sleep <ms> | exit
 #   open <query> | settings | allow <process name>
 #   tap <vk> | down <vk> | up <vk> | chord <mod vk> <vk> | type <text> (ASCII; other text: clip + Ctrl+V)
-#   clickfg <dx> <dy> (physical px from the front window's frame) | clickb <dx> <up from bottom>
+#   clickfg <dx> <dy> (physical px from the front window's frame) | clickb <dx> <up from bottom> | dblclickb (the same, twice)
 #   clickws <x> <y> (on a window of WinShun's) | clickbox <x> <y> (on its taskbar box) | wheel <dx> <dy> <delta>
 #   dragws <x1> <y1> <x2> <y2> (left button held from one point to the other, both on a window of WinShun's)
 #   shot <name> (the front window) | shotabs <name> <x> <y> <w> <h>        -> work\shots\<name>.png
@@ -18,6 +18,7 @@
 #   scene [--theme light|dark] [--wallpaper NAME] | restore
 #   profile start | profile stop (WinShun on work\profile, made afresh; then the user's own again)
 #   notepad <file> | paint <file> (files of this folder) | explorer open <folder of the demo> | explorer close
+#   explorer place <x> <y> <w> <h> (the demo's Explorer windows restored and moved there, physical px)
 #   canceldialogs | clip <text> | clipfile <path>
 param([string]$Scene, [string]$Exe) # Exe: another WinShun.exe than dist's (a build under test)
 $ErrorActionPreference = 'Stop'
@@ -67,6 +68,8 @@ public static class A {
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string cls, string title);
     [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint msg, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+    [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int ht, bool repaint);
     public static uint Pid(IntPtr h) { uint p; GetWindowThreadProcessId(h, out p); return p; }
     public static RECT Frame(IntPtr h) { RECT r; DwmGetWindowAttribute(h, 9, out r, 16); return r; }
     public static IntPtr RootAt(int x, int y) { var p = new POINT(); p.X = x; p.Y = y; return GetAncestor(WindowFromPoint(p), 2); }
@@ -152,14 +155,15 @@ function RunLines($lines) {
                 if ($m -eq 0x11 -and $k -ge 0x31 -and $k -le 0x33) { throw 'never Ctrl+1/2/3 here' }
                 Guard; [A]::Key($m, $false); [A]::Key($k, $false); [A]::Key($k, $true); [A]::Key($m, $true)
             }
-            { $_ -eq 'clickfg' -or $_ -eq 'clickb' } {
+            { $_ -in 'clickfg', 'clickb', 'dblclickb' } {
                 Guard
                 $p = $arg -split '\s+'; $h = [A]::GetForegroundWindow(); $r = [A]::Frame($h)
                 $x = $r.L + [int]$p[0]
-                $y = if ($a[0] -eq 'clickb') { $r.B - [int]$p[1] } else { $r.T + [int]$p[1] }
+                $y = if ($a[0] -eq 'clickfg') { $r.T + [int]$p[1] } else { $r.B - [int]$p[1] }
                 [A]::SetCursorPos($x, $y) | Out-Null; Start-Sleep -Milliseconds 120
                 if ([A]::RootAt($x, $y) -ne $h) { throw "click at $x,$y would land on another window" }
                 Guard; [A]::Click()
+                if ($a[0] -eq 'dblclickb') { Start-Sleep -Milliseconds 90; [A]::Click() }
             }
             'clickws' { # absolute physical px, on a window of WinShun's own (the bar by a dialog)
                 $p = $arg -split '\s+'; $x = [int]$p[0]; $y = [int]$p[1]
@@ -222,8 +226,11 @@ function RunLines($lines) {
                 if ($arg -eq 'start') {
                     # made again each time: the demo dates counted from now, the clipboard history filled in
                     Shots profile $profileDir @more
+                    # the recent folders of the profile's history only, not Windows' (this user's)
+                    $env:WINSHUN_RECENT = 'own'
                     StartWs @('--profile', "`"$profileDir`"")
-                } elseif ($arg -eq 'stop') { StartWs @() } else { throw "profile what? '$arg'" }
+                } elseif ($arg -eq 'stop') { Remove-Item Env:WINSHUN_RECENT -ErrorAction SilentlyContinue; StartWs @() }
+                else { throw "profile what? '$arg'" }
             }
             'notepad' { # Notepad on a file of this folder (made if missing), which then counts as "in front"
                 $f = Local $arg
@@ -240,6 +247,16 @@ function RunLines($lines) {
                 if ($p[0] -eq 'open') {
                     if (-not $p[1].StartsWith($demo)) { throw 'explorer only on the demo folder' }
                     Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$($p[1])`""; Start-Sleep -Milliseconds 2000
+                } elseif ($p[0] -eq 'place') { # <x> <y> <w> <h>, physical px: the demo's Explorer windows, not maximized
+                    $q = $p[1] -split '\s+'
+                    foreach ($w in @((New-Object -ComObject Shell.Application).Windows())) {
+                        try { $path = $w.Document.Folder.Self.Path } catch { continue }
+                        if (-not $path.StartsWith($demo)) { continue }
+                        $h = [IntPtr]$w.HWND
+                        [A]::ShowWindow($h, 9) | Out-Null # SW_RESTORE
+                        [A]::MoveWindow($h, [int]$q[0], [int]$q[1], [int]$q[2], [int]$q[3], $true) | Out-Null
+                    }
+                    Start-Sleep -Milliseconds 600
                 } else {
                     foreach ($w in @((New-Object -ComObject Shell.Application).Windows())) {
                         try { if ($w.Document.Folder.Self.Path.StartsWith($demo)) { $w.Quit() } } catch {}

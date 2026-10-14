@@ -231,6 +231,11 @@ def make_profile(folder, files, recent, number_keys="ctrl"):
     text = ini_drop(text, "WebSearch", "Shares")  # one's own sites and shares stay out; the defaults come back
     text = ini_set(text, "Results", {"Sort": "match", "StartList": "recent", "NumberKeys": number_keys})
     text = ini_set(text, "Launcher", {"DialogAutoJumpAsked": "true"})  # no question under the dialog bar
+    # Search by meaning on the demo folder, with this user's model service (and
+    # its key, in Windows' credentials); its vectors are the profile's own.
+    text = ini_set(text, "Plugin.winshun.semantic", {"Enabled": "true", "Confirmed": "winshun:content, network",
+                                                     "Setting.folders": str(pathlib.Path(files)).replace("\\", "\\\\"),
+                                                     "Setting.types": "notes"})
     (folder / "WinShun" / "WinShun.ini").write_text(text, encoding="utf-8")
     now = int(time.time() * 1000)
     lines = [f"{pathlib.Path(p)}\t1\t{now - i * 7 * 60_000}" for i, p in enumerate(recent)]

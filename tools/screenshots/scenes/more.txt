@@ -1,0 +1,75 @@
+# The README's pictures that the post has no room for (shots.py README_ONLY),
+# light: search by meaning, the content search in one folder, the menu on a
+# double-click in an Explorer folder, the appearance settings. Search by
+# meaning takes this user's model service and key from their settings (the
+# profile points it at the demo folder): its index is built here, a few
+# files' text sent to that service. Explorer windows of one's own: close them
+# first, the menu lists the open ones. WinShun is left off: start it again by
+# hand if it was running.
+# Run elevated: tools\screenshots\agent.ps1 scenes\more.txt
+profile start
+# the demo folder indexed, and its documents read
+sleep 35000
+scene --theme light --wallpaper dawn
+sleep 2500
+
+# Search by meaning: its index built first (Enter on 开始建立语义索引), then a
+# sentence whose words the document doesn't have (it says 费用申请).
+open x
+sleep 300
+tap 08
+type ?
+tap 20
+sleep 2500
+tap 0D
+sleep 20000
+tap 1B
+sleep 600
+open x
+sleep 300
+tap 08
+type ?
+tap 20
+type 去年报销的规定
+sleep 6000
+tap 23
+sleep 500
+matte L-semantic
+tap 1B
+sleep 600
+
+# The content search in one folder: the words (no rows in 全部, so Tab can't
+# go into a folder), 全部 → 文件 → 内容, then the folder's name and a slash.
+open x
+sleep 300
+tap 08
+type 第三季度销售额
+sleep 600
+tap 09
+sleep 300
+tap 09
+sleep 600
+tap 23
+tap 20
+type 财务/
+sleep 1500
+matte L-content-folder
+# 内容 → 全部
+tap 09
+sleep 300
+tap 1B
+sleep 600
+
+# The appearance settings (the second page), closed with Alt+F4.
+settings
+sleep 1200
+clickfg 120 252
+sleep 1000
+matte L-appearance
+chord 12 73
+sleep 500
+
+run scenes\foldermenu.txt
+
+restore
+quit

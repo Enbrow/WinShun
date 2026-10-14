@@ -1,0 +1,19 @@
+# The menu on a double-click in the blank space of an Explorer folder (under
+# the files), from more.txt; WinShun on the profile already. Explorer stays in
+# front, the menu by it. The window not maximized (clear of the taskbar), in
+# the middle of this 2560x1600 screen; maximized again before it closes, as
+# Explorer remembers that for the next window.
+allow explorer
+explorer open F:\Win顺演示\会议纪要
+sleep 1500
+explorer place 560 230 1440 1000
+clickb 700 420
+sleep 600
+dblclickb 700 420
+sleep 1500
+matte L-foldermenu
+tap 1B
+sleep 500
+chord 5B 26
+sleep 500
+explorer close

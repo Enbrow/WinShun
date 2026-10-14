@@ -87,6 +87,14 @@ PAGES = (
     ("16-dark", "D-clipboard", "深色模式，[一样好看]", "跟随系统切换浅色、深色，Win11 云母效果", "silk"),
 )
 TASKBAR_PAGE = ("13-taskbar", "L-taskbar", "screen-taskbar", "任务栏上的[搜索框]", "点一下就搜，结果从任务栏上方滑出来")
+# The README's pictures that the post (18 at most) has no room for: file
+# (docs/images/<file>.jpg), shot, title, subtitle.
+README_ONLY = (
+    ("semantic", "L-semantic", "记不得原词，[按意思找]", "? 去年报销的规定 → 差旅费用管理办法，用你选的模型"),
+    ("folder", "L-content-folder", "只搜[一个文件夹]里的字", "第三季度销售额 财务/ → 只在“财务”里找"),
+    ("foldermenu", "L-foldermenu", "资源管理器里，[双击空白处]", "收藏的、最近的、开着的文件夹，一下就到"),
+    ("appearance", "L-appearance", "外观[随你调]", "主题、透明效果、界面大小，任务栏图标可换单色"),
+)
 ENDING_PAGE = "17-follow"  # who made it, where to get it, follow
 
 # Covers: file, shot, preset, background.
@@ -113,6 +121,8 @@ def jobs(sets, shots, out):
         file, launcher, screen, title, subtitle = TASKBAR_PAGE
         found.append(("taskbar", (shot(launcher), shot(screen), title, subtitle, "square"), named(file)))
         found.append(("cover", (shot("L-search"), "square", "letters"), images / "cover.jpg"))
+        for file, name, title, subtitle in README_ONLY:
+            found.append(("compose", (shot(name), "square", "letters", title, subtitle), images / f"{file}.jpg"))
     for kind, preset, folder in (("pages", "xhs", "pages"), ("square", "square", "pages-square")):
         if kind in sets:
             for file, name, title, subtitle, *bg in PAGES:
