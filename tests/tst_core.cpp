@@ -1184,6 +1184,81 @@ private slots:
         QCOMPARE(path.matchPath(u"D:\\Other\\notes.txt"_s, false), -1);
     }
 
+    // Folders named among the words of a content search (ContentFolderSpec).
+    void contentFolderSpecs()
+    {
+        using Spec = ws::ContentFolderSpec;
+        const auto split = [](const QString& text) { return ws::splitContentQuery(text); };
+        const auto names = [](const QString& typed, QStringList n) { return Spec {typed, {}, std::move(n)}; };
+
+        ws::ContentQuery q = split(u"年度报告 abc/"_s);
+        QCOMPARE(q.words, u"年度报告"_s);
+        QCOMPARE(q.folders, (std::vector<Spec> {names(u"abc/"_s, {u"abc"_s})}));
+        q = split(u"abc\\ 年度报告"_s); // first, with a backslash
+        QCOMPARE(q.words, u"年度报告"_s);
+        QCOMPARE(q.folders, (std::vector<Spec> {names(u"abc\\"_s, {u"abc"_s})}));
+        const QString wide = u"年度报告 工作"_s + QChar(0xFF0F) + u"abc"_s + QChar(0xFF0F); // as a Chinese layout types /
+        q = split(wide);
+        QCOMPARE(q.words, u"年度报告"_s);
+        QCOMPARE(q.folders.size(), std::size_t {1});
+        QCOMPARE(q.folders[0].names, (QStringList {u"工作"_s, u"abc"_s}));
+        q = split(u"年度报告 2025 工作/abc/"_s);
+        QCOMPARE(q.words, u"年度报告 2025"_s);
+        QCOMPARE(q.folders, (std::vector<Spec> {names(u"工作/abc/"_s, {u"工作"_s, u"abc"_s})}));
+
+        // "/abc": only last, after something to find.
+        q = split(u"年度报告 /abc"_s);
+        QCOMPARE(q.words, u"年度报告"_s);
+        QCOMPARE(q.folders, (std::vector<Spec> {names(u"/abc"_s, {u"abc"_s})}));
+        q = split(u"/abc 年度报告"_s);
+        QCOMPARE(q.words, u"/abc 年度报告"_s);
+        QVERIFY(q.folders.empty());
+        QCOMPARE(split(u"/usr"_s).words, u"/usr"_s);
+        QVERIFY(split(u"/usr"_s).folders.empty());
+        QVERIFY(split(u"GET /api/users"_s).folders.empty()); // more than one name: a route
+        // A folder alone: where to look, nothing to find yet.
+        q = split(u"abc/"_s);
+        QVERIFY(q.words.isEmpty());
+        QCOMPARE(q.folders, (std::vector<Spec> {names(u"abc/"_s, {u"abc"_s})}));
+
+        // Paths, spaces and all, up to "\ ".
+        q = split(u"D:\\My Files\\ 报告 2025"_s);
+        QCOMPARE(q.words, u"报告 2025"_s);
+        QCOMPARE(q.folders, (std::vector<Spec> {{u"D:\\My Files\\"_s, u"D:\\My Files"_s, {}}}));
+        q = split(u"报告 D:/Projects/"_s);
+        QCOMPARE(q.words, u"报告"_s);
+        QCOMPARE(q.folders.size(), std::size_t {1});
+        QCOMPARE(q.folders[0].path, u"D:\\Projects"_s);
+        q = split(u"\"D:\\My Files\\\" \"年度 报告\""_s);
+        QCOMPARE(q.words, u"\"年度 报告\""_s);
+        QCOMPARE(q.folders.size(), std::size_t {1});
+        QCOMPARE(q.folders[0].path, u"D:\\My Files"_s);
+        QCOMPARE(split(u"D:\\ 报告"_s).folders[0].path, u"D:\\"_s);
+        // A folder whose name looks like code is still a folder; code after it stays one phrase.
+        q = split(u"C:\\Program Files (x86)\\Steam\\ 存档 2025"_s);
+        QCOMPARE(q.words, u"存档 2025"_s);
+        QCOMPARE(q.folders, (std::vector<Spec> {{u"C:\\Program Files (x86)\\Steam\\"_s, u"C:\\Program Files (x86)\\Steam"_s, {}}}));
+        q = split(u" D:\\src [old]\\ if (a == b)"_s);
+        QCOMPARE(q.words, u"if (a == b)"_s);
+        QCOMPARE(q.folders, (std::vector<Spec> {{u"D:\\src [old]\\"_s, u"D:\\src [old]"_s, {}}}));
+        QCOMPARE(split(u"x = 1; D:\\a\\"_s).words, u"x = 1; D:\\a\\"_s); // code first: all of it
+        QCOMPARE(split(u"\\\\nas\\docs\\ 报告"_s).folders[0].path, u"\\\\nas\\docs"_s);
+        qputenv("WS_TEST_HOME", "C:\\Users\\me");
+        QCOMPARE(split(u"%WS_TEST_HOME%\\Documents\\ 报告"_s).folders[0].path, u"C:\\Users\\me\\Documents"_s);
+        qunsetenv("WS_TEST_HOME");
+        q = split(u"D:\\Projects\\rep"_s); // a path being typed: no folder said
+        QCOMPARE(q.words, u"D:\\Projects\\rep"_s);
+        QVERIFY(q.folders.empty());
+
+        // Not folders: what the search finds as it is.
+        for (const QString& text : {u"printf(\"a/\")"_s, u"x = a/ b;"_s, u"see http://x.com/"_s, u"\"abc/\" 报告"_s,
+                 u"!tmp/ 报告"_s, u"*.log/ x"_s, u"a/../ x"_s, u"报告"_s}) {
+            q = split(text);
+            QVERIFY2(q.folders.empty(), qPrintable(text));
+            QCOMPARE(q.words, text);
+        }
+    }
+
     void matcherTermsInFolders()
     {
         QCOMPARE(ws::queryWords(u"  报告 \"annual plan\"\tx "_s), (QStringList {u"报告"_s, u"annual plan"_s, u"x"_s}));

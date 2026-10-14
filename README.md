@@ -97,6 +97,7 @@
   - 纯文本：txt、md、log、csv、json、代码等；
   - 文档：**Word、Excel、PowerPoint、PDF、WPS**，结果里显示第几页、第几张幻灯片或哪个表的第几行。
 - **怎么找**：可以写多个词、用引号找整个短语，结果按相关度排。
+- **只搜某个文件夹**：词后面加文件夹名和斜杠，`年度报告 abc/` 只在叫 abc 的文件夹里找（`/abc` 放在最后也行，`工作/abc/` 只要“工作”里的那个）；同名的文件夹都搜，搜索框下面列出它们，`Shift+Tab` 挑其中一个。也可以点下面的收藏文件夹，或在结果的文件夹上右键“在此文件夹中搜内容”。
 - **编码和速度**：自动识别 UTF-8、UTF-16、GBK 编码；有内容索引，几十万个文件也很快。超过大小上限的、系统目录里的、类型没列出的文件默认不搜，搜完会告诉你各有几个，点一下就临时把它们也搜了。
 - **安全**：文档由一个权限受限的独立进程读取。
 
@@ -165,7 +166,8 @@
 | `Enter` / `Ctrl+Enter` / `Ctrl+Shift+Enter` | 打开 / 打开所在文件夹 / 以管理员身份运行 |
 | `Ctrl+C` / `Ctrl+Shift+C` | 复制文件 / 复制路径 |
 | `Ctrl+1`～`Ctrl+9` | 打开第几行（图标上的数字） |
-| `Tab` / `Shift+Tab` | 切换范围：全部 / 文件 / 内容；在 **文件** 里 `Tab` 切换类型 |
+| `Tab` | 切换范围：全部 / 文件 / 内容 |
+| `Shift+Tab` | 在 **文件** 里切换类型，在 **内容** 里切换文件夹 |
 | `Ctrl+S` | 最匹配 → 最新在前 → 最早在前 |
 | `Ctrl+G`（对话框里） | 转到文件管理器正在显示的文件夹 |
 | `Win+V` / `Win+S`（设置里打开后） | 剪贴板历史 / 任务栏上方的搜索框 |
@@ -249,6 +251,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Query syntax**: `"exact phrase"`, `!exclude`, `!node_modules\`, wildcards `*` `?`, `ext:pdf,docx`, `folder\name`, and paths (`D:\My Files\`, `tools/out/`).
 - 📄 **Full-text search**
   - **What**: the **Content** scope searches inside txt, md, logs, source code and **Word, Excel, PowerPoint, PDF and WPS** files, showing the page, slide or sheet and row.
+  - **In one folder**: add a folder's name and a slash, `annual report abc/`, to search only in folders named abc (`/abc` last works too; `work/abc/` takes the one in work); folders of the same name are all searched and listed under the box, `Shift+Tab` picks one. Or pick a favorite folder there, or right-click a folder in the results → Search contents in this folder.
   - **How**: ranked by relevance, with a content index for speed; UTF-8, UTF-16 and GBK are detected. Files over the size limit, in system folders or of unlisted text types are skipped; the list says how many of each, and one click searches them too.
   - **Safety**: documents are read by a separate process with restricted rights.
 - 🚀 **Apps and settings**
@@ -286,7 +289,8 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 | `Enter` / `Ctrl+Enter` / `Ctrl+Shift+Enter` | Open / show in folder / run as administrator |
 | `Ctrl+C` / `Ctrl+Shift+C` | Copy the file / copy its path |
 | `Ctrl+1`…`Ctrl+9` | Open the nth row (the number on its icon) |
-| `Tab` / `Shift+Tab` | Switch scope: All / Files / Content; in **Files**, `Tab` steps through the kinds |
+| `Tab` | Switch scope: All / Files / Content |
+| `Shift+Tab` | In **Files**, step through the kinds; in **Content**, through the folders |
 | `Ctrl+S` | Best match → newest first → oldest first |
 | `Ctrl+G` (in a file dialog) | Go to the folder shown in your file manager |
 | `Win+V` / `Win+S` (once turned on) | Clipboard history / search above the taskbar |

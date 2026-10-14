@@ -217,6 +217,10 @@ Launcher::Launcher(IndexService* index, AppCatalog* apps, SystemCatalog* places,
     connect(m_engine, &SearchEngine::contentResults, this, &Launcher::onContentResults);
     connect(m_engine, &SearchEngine::contentProgress, this, &Launcher::onContentProgress);
     connect(m_engine, &SearchEngine::contentLeftOut, this, &Launcher::onContentLeftOut);
+    connect(m_engine, &SearchEngine::contentScope, this, &Launcher::onContentScope);
+    connect(this, &Launcher::folderChipsChanged, this, &Launcher::refreshKeyHints); // Tab: 换个文件夹, or none to go to
+    connect(this, &Launcher::queryChanged, this, &Launcher::folderChipsChanged); // a folder typed, or no longer
+    connect(this, &Launcher::scopeChanged, this, &Launcher::folderChipsChanged);
     connect(m_engine, &SearchEngine::removableDrives, this, &Launcher::onRemovableDrives);
     connect(m_engine, &SearchEngine::driveResults, this, &Launcher::onDriveResults);
     connect(m_engine, &SearchEngine::driveProgress, this, &Launcher::onDriveProgress);
@@ -448,6 +452,8 @@ void Launcher::searchLeftOut(const QString& kind)
         request.contentInLowPriority = m_contentInLowPriority;
         request.contentThreads = kContentThreads; // asked for: many files at once (each open mostly waits for the antivirus)
         request.maxContentResults = kPage * m_pages;
+        if (m_scope == Content)
+            setContentPlace(request); // those parts where the scan looked
         if (kind == kLargeHint) {
             request.contentSet = SearchEngine::ContentSet::Given;
             request.contentOnly = m_leftOut.large;
@@ -537,6 +543,8 @@ QString Launcher::placeholder() const
     case Folders:
         return tr("搜索文件夹");
     case Content:
+        if (!m_contentFolder.isEmpty())
+            return tr("搜索 %1 里的文字").arg(folderLabel(m_contentFolder));
         if (m_contentDocuments)
             return tr("搜索 Word、Excel、PDF 和 %1 等文件中的文字").arg(u'.' + m_contentExtensions.first());
         return m_contentExtensions.size() > kShownExtensions ? tr("搜索 %1 等文件中的文字").arg(shownExtensions())
@@ -550,6 +558,10 @@ void Launcher::setContentOptions(
     bool enabled, QStringList extensions, const ContentSizeLimits& sizeLimits, bool inLowPriority, bool documents)
 {
     const bool wasEnabled = std::exchange(m_contentEnabled, enabled);
+    if (!enabled) {
+        m_contentFolder.clear();
+        m_contentPick = {};
+    }
     m_contentInLowPriority = inLowPriority;
     m_contentDocuments = documents;
     for (QString& ext : extensions) {
@@ -588,6 +600,7 @@ void Launcher::setFavorites(Favorites* favorites)
     if (favorites) {
         connect(favorites, &Favorites::changed, this, [this] {
             emit favoritesChanged();
+            emit folderChipsChanged();
             if (m_window && m_window->isVisible() && !m_keyword && m_scope != Content)
                 search(); // the rows refreshed in place: 收藏 comes or goes
         });
@@ -819,6 +832,7 @@ void Launcher::search(bool more)
     const QString keywordKey = keyword ? keyword->pluginId + u'/' + keyword->commandId : QString();
     m_refresh = m_haveResults && !m_replacePending && text == m_shownText && m_scope == m_shownScope
         && fileExtensions() == m_shownExtensions && rankBy() == m_shownRankBy && m_kindOrder == m_shownKindOrder && keywordKey == m_shownKeyword
+        && (m_scope != Content || (m_contentFolder == m_shownContentFolder && pickKey(m_contentPick) == m_shownPick))
         && (!text.isEmpty() || m_startList == m_shownStartList);
     m_replacePending = !m_refresh;
     // A page more of what is listed, or (anything else asking again) the
@@ -925,6 +939,8 @@ void Launcher::showRows(SearchResults rows, QStringList highlights)
     m_shownStartList = m_startList;
     m_shownKindOrder = m_kindOrder;
     m_shownKeyword = m_keyword ? m_keyword->pluginId + u'/' + m_keyword->commandId : QString();
+    m_shownContentFolder = m_contentFolder;
+    m_shownPick = pickKey(m_contentPick);
     m_haveResults = true;
     if (m_replacePending) {
         m_replacePending = false;
@@ -988,6 +1004,7 @@ void Launcher::startContentSearch()
         // files at once (each open mostly waits for the antivirus).
         request.contentInLowPriority = m_contentInLowPriority;
         request.contentThreads = kContentThreads;
+        setContentPlace(request);
     } else {
         // 全部 looks in your own files on its own, gently.
         request.contentThreads = std::clamp(static_cast<int>(std::thread::hardware_concurrency()) / 2, 2, 6);
@@ -1507,6 +1524,294 @@ void Launcher::setFileChoice(const QString& choice)
     }
 }
 
+namespace {
+
+constexpr QStringView kAllChip = u"all"; // every folder the name typed stands for
+constexpr QStringView kPinPrefix = u"pin:"; // a folder chosen: m_contentFolder
+constexpr QStringView kPickPrefix = u"pick:"; // one of those the name typed stands for: m_contentPick
+constexpr QStringView kMissingChip = u"missing"; // a place not in the index: nothing to choose
+constexpr QStringView kTypedChip = u"typed"; // a folder typed, not made out yet
+constexpr QStringView kFolderDot = u"#E8B84A"; // as the strip's 文件夹 in 文件
+
+// The last few names of each path, as many as tell them apart (up to
+// three): "项目\abc", "备份\abc".
+QStringList shortLabels(const QStringList& paths)
+{
+    QList<QStringList> parts;
+    for (const QString& path : paths)
+        parts.append(path.split(u'\\', Qt::SkipEmptyParts));
+    const auto label = [&](qsizetype i, qsizetype names) {
+        const QStringList& p = parts[i];
+        if (p.isEmpty())
+            return paths[i];
+        const qsizetype n = std::min(names, p.size());
+        QString text = p.sliced(p.size() - n).join(u'\\');
+        return n == 1 && p.size() == 1 ? text + u'\\' : text; // "D:\"
+    };
+    QStringList labels;
+    for (qsizetype i = 0; i < paths.size(); ++i) {
+        qsizetype names = 1;
+        for (; names < 3; ++names) {
+            const QString mine = label(i, names);
+            bool same = false;
+            for (qsizetype j = 0; j < paths.size() && !same; ++j)
+                same = j != i && label(j, names).compare(mine, Qt::CaseInsensitive) == 0;
+            if (!same)
+                break;
+        }
+        labels.append(label(i, names));
+    }
+    return labels;
+}
+
+} // namespace
+
+QString Launcher::folderLabel(const QString& path)
+{
+    return shortLabels({path}).value(0, path);
+}
+
+QString Launcher::pickKey(const SearchEngine::Request::ContentPick& pick)
+{
+    return pick.folder.isEmpty() ? QString() : pick.typed + u'\n' + pick.folder;
+}
+
+void Launcher::setContentPlace(SearchEngine::Request& request) const
+{
+    if (!m_contentFolder.isEmpty())
+        request.contentFolders = {m_contentFolder};
+    request.contentPick = m_contentPick;
+}
+
+const ContentScope::Place* Launcher::typedPlace() const
+{
+    if (m_scope != Content)
+        return nullptr;
+    const ContentQuery typed = splitContentQuery(m_query.trimmed());
+    if (typed.folders.empty())
+        return nullptr;
+    for (const ContentScope::Place& place : m_contentScope.places) {
+        if (place.typed == typed.folders.front().typed)
+            return &place;
+    }
+    return nullptr;
+}
+
+void Launcher::onContentScope(quint64 id, const ContentScope& scope)
+{
+    if (id != m_requestId || scope == m_contentScope)
+        return;
+    m_contentScope = scope;
+    // The name picked from is no longer typed: the pick goes with it.
+    if (!m_contentPick.folder.isEmpty()
+        && std::ranges::none_of(scope.places, [&](const ContentScope::Place& p) { return p.typed == m_contentPick.typed; }))
+        m_contentPick = {};
+    emit folderChipsChanged();
+}
+
+QVariantList Launcher::folderChips() const
+{
+    QVariantList chips;
+    const auto chip = [&](QStringView key, const QString& name, const QString& tip, bool folder) {
+        chips.append(QVariantMap {{u"type"_s, key.toString()}, {u"name"_s, name}, {u"tip"_s, tip},
+            {u"dot"_s, folder ? kFolderDot.toString() : QString()}});
+    };
+    if (m_scope != Content)
+        return chips;
+    // A folder named among the words: that one, or the ones it stands for.
+    const ContentQuery typed = splitContentQuery(m_query.trimmed());
+    if (!typed.folders.empty()) {
+        const ContentFolderSpec& spec = typed.folders.front();
+        const QString label = spec.path.isEmpty() ? spec.names.join(u'\\') : spec.path;
+        const ContentScope::Place* place = typedPlace();
+        if (!place) {
+            chip(kTypedChip, label, spec.path.isEmpty() ? tr("名字是 %1 的文件夹").arg(label) : label, true);
+            return chips;
+        }
+        using Status = ContentScope::Status;
+        switch (place->status) {
+        case Status::NotFound:
+            chip(kMissingChip, tr("%1 不在索引里").arg(label), tr("这个文件夹不存在、被排除在索引之外，或在没有收录的磁盘上"), false);
+            return chips;
+        case Status::OnShare:
+            chip(kMissingChip, tr("%1 在网络共享上").arg(label), tr("网络共享上的文件不搜内容"), false);
+            return chips;
+        case Status::Words:
+            break; // no folder so named: what was typed is among the words, the strip as without it
+        case Status::Searched: {
+            const QStringList labels = shortLabels(place->folders);
+            if (place->count > 1) {
+                const QString all = place->approximate ? tr("名字含 %1 的 %Ln 个文件夹", nullptr, place->count).arg(label)
+                                                       : tr("所有 %1 · %Ln", nullptr, place->count).arg(label);
+                const QString tip = place->approximate ? tr("没有名字正好是 %1 的文件夹，这些名字里含有它").arg(label)
+                    : place->count > place->folders.size()
+                    ? tr("在名字是 %1 的 %Ln 个文件夹里都搜（下面列出前 %2 个）", nullptr, place->count).arg(label).arg(place->folders.size())
+                    : tr("在名字是 %1 的 %Ln 个文件夹里都搜", nullptr, place->count).arg(label);
+                chip(kAllChip, all, tip, false);
+            }
+            for (qsizetype i = 0; i < place->folders.size(); ++i)
+                chip(kPickPrefix.toString() + place->folders[i], labels[i], place->folders[i], true);
+            return chips;
+        }
+        }
+    }
+    chip(QString(), tr("不限"), tr("在所有文件里搜"), false);
+    const auto add = [&](const QString& path, const QString& name) {
+        chip(kPinPrefix.toString() + path, name, path, true);
+    };
+    if (!m_contentFolder.isEmpty() && (!m_favorites || indexOfFavorite(m_favorites->items(), m_contentFolder) < 0))
+        add(m_contentFolder, folderLabel(m_contentFolder)); // chosen from a row: first, after 不限
+    if (m_favorites) {
+        for (const Favorite& f : m_favorites->items()) {
+            if (f.kind == Favorite::Kind::Folder)
+                add(f.path, f.name.isEmpty() ? folderLabel(f.path) : f.name);
+        }
+    }
+    return chips;
+}
+
+QString Launcher::folderChip() const
+{
+    if (m_scope != Content)
+        return {};
+    if (const ContentScope::Place* place = typedPlace()) {
+        using Status = ContentScope::Status;
+        if (place->status == Status::NotFound || place->status == Status::OnShare)
+            return kMissingChip.toString();
+        if (place->status == Status::Searched) {
+            if (!place->chosen.isEmpty())
+                return kPickPrefix.toString() + place->chosen;
+            return place->count > 1 || place->folders.isEmpty() ? kAllChip.toString() : kPickPrefix.toString() + place->folders.first();
+        }
+    } else if (!splitContentQuery(m_query.trimmed()).folders.empty()) {
+        return kTypedChip.toString();
+    }
+    return m_contentFolder.isEmpty() ? QString() : kPinPrefix.toString() + m_contentFolder;
+}
+
+QString Launcher::folderHint() const
+{
+    if (m_scope != Content)
+        return {};
+    if (const ContentScope::Place* place = typedPlace()) {
+        if (place->status == ContentScope::Status::Searched)
+            return place->count > 1 ? tr("Shift+Tab 选其中一个") : QString();
+        if (place->status == ContentScope::Status::Words) { // "/usr": searched for as it is
+            QString name = place->typed;
+            name.removeIf([](QChar c) { return c == u'/' || c == u'\\' || c == QChar(0xFF0F) || c == QChar(0xFF3C); });
+            return tr("没有叫 %1 的文件夹，当作文字搜").arg(name);
+        }
+    }
+    if (!splitContentQuery(m_query.trimmed()).folders.empty())
+        return {};
+    return tr("或在词后加“文件夹名/”");
+}
+
+QString Launcher::contentWords() const
+{
+    if (typedPlace())
+        return m_contentScope.words;
+    return splitContentQuery(m_query.trimmed()).words;
+}
+
+QString Launcher::contentWhere() const
+{
+    // A name no folder has (Words): where the folder chosen, if any, says.
+    if (const ContentScope::Place* place = typedPlace(); place && place->status != ContentScope::Status::Words) {
+        if (place->status != ContentScope::Status::Searched)
+            return {};
+        if (!place->chosen.isEmpty())
+            return folderLabel(place->chosen);
+        if (place->count == 1 && !place->folders.isEmpty())
+            return folderLabel(place->folders.first());
+        return place->typed;
+    }
+    if (!whereMissing().isEmpty())
+        return {};
+    return m_contentFolder.isEmpty() ? QString() : folderLabel(m_contentFolder);
+}
+
+// The folder chosen (not typed), as the last scan made it out: gone since, say.
+static const ContentScope::Place* givenPlace(const ContentScope& scope, const QString& folder)
+{
+    if (folder.isEmpty())
+        return nullptr;
+    for (const ContentScope::Place& place : scope.places) {
+        if (place.typed.isEmpty())
+            return &place;
+    }
+    return nullptr;
+}
+
+QString Launcher::whereMissing() const
+{
+    const ContentScope::Place* place = typedPlace();
+    if (place && place->status == ContentScope::Status::Words)
+        place = nullptr;
+    if (!place && m_scope == Content
+        && std::ranges::none_of(m_contentScope.places, [](const ContentScope::Place& p) {
+               return !p.typed.isEmpty() && p.status != ContentScope::Status::Words;
+           }))
+        place = givenPlace(m_contentScope, m_contentFolder);
+    if (!place || (place->status != ContentScope::Status::NotFound && place->status != ContentScope::Status::OnShare))
+        return {};
+    return place->folders.value(0, place->typed);
+}
+
+void Launcher::chooseFolderChip(const QString& key)
+{
+    if (key == kAllChip) {
+        m_contentPick = {};
+    } else if (key.startsWith(kPickPrefix)) {
+        const ContentQuery typed = splitContentQuery(m_query.trimmed());
+        if (typed.folders.empty())
+            return;
+        m_contentPick = {typed.folders.front().typed, key.mid(kPickPrefix.size())};
+    } else if (key.isEmpty() || key.startsWith(kPinPrefix)) {
+        m_contentFolder = key.mid(kPinPrefix.size());
+    } else {
+        return; // a place not there, one not made out yet: nothing to choose
+    }
+    emit folderChipsChanged();
+    emit scopeChanged(); // the placeholder names the folder
+    m_results.setSelection({});
+    m_held.reset();
+    if (m_scope != Content) {
+        setScope(Content);
+        return;
+    }
+    refreshKeyHints();
+    search(); // the rows stay until the new ones come (see setScope)
+}
+
+void Launcher::cycleFolderChip(int delta)
+{
+    QStringList keys;
+    for (const QVariant& c : folderChips()) {
+        const QString key = c.toMap()[u"type"_s].toString();
+        if (key != kMissingChip && key != kTypedChip)
+            keys.append(key);
+    }
+    if (keys.size() < 2)
+        return; // no folder to go to
+    const auto count = keys.size();
+    const qsizetype at = std::max<qsizetype>(0, keys.indexOf(folderChip()));
+    chooseFolderChip(keys[((at + delta) % count + count) % count]);
+}
+
+bool Launcher::clearContentWords()
+{
+    if (m_scope != Content || m_contentFolder.isEmpty() || m_query.trimmed().isEmpty())
+        return false;
+    setQuery(QString());
+    return true;
+}
+
+void Launcher::editFolderChips()
+{
+    emit favoriteSettingsRequested(QString());
+}
+
 void Launcher::dismiss()
 {
     emit dismissRequested();
@@ -1625,6 +1930,27 @@ void Launcher::perform(const SearchResult& result, Action action)
     }
     if (needsFile && r.offline)
         m_index->shares().networkChanged(); // it answers again: its share is back
+    if (action == SearchInFolder) {
+        if (!r.isDir)
+            return;
+        // 内容 there, the box emptied for what to find in it.
+        m_contentFolder = r.path;
+        m_contentPick = {};
+        m_results.setSelection({});
+        if (!m_query.isEmpty()) {
+            m_query.clear();
+            emit queryChanged();
+        }
+        if (m_scope != Content) {
+            setScope(Content);
+        } else {
+            refreshKeyHints();
+            search();
+        }
+        emit scopeChanged(); // the placeholder names the folder
+        emit folderChipsChanged();
+        return;
+    }
     if (needsFile && !QFileInfo::exists(r.path)) {
         if (action == Recycle)
             m_results.remove(r.path);
@@ -2263,6 +2589,8 @@ QVariantList Launcher::menuItems(int row) const
     items.append(entry(Open, r->isDir ? tr("打开文件夹") : tr("打开"), u"Enter"_s, r->isDir ? u"\uE838"_s : u"\uE8E5"_s));
     items.append(entry(Reveal, tr("打开所在位置"), u"Ctrl+Enter"_s, u"\uE8DA"_s));
     items.append(entry(OpenTerminal, tr("在终端中打开"), QString(), u"\uE756"_s)); // CommandPrompt
+    if (r->isDir && m_contentEnabled && !r->path.startsWith(u"\\\\"_s)) // shares: contents are not read there
+        items.append(entry(SearchInFolder, tr("在此文件夹中搜内容"), QString(), u"\uE721"_s)); // Search
     if (!r->isDir && shell::canRunAsAdministrator(r->path))
         items.append(entry(RunAsAdmin, tr("以管理员身份运行"), u"Ctrl+Shift+Enter"_s, u"\uE7EF"_s));
     items.append(separator);

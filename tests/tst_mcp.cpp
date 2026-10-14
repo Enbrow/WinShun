@@ -669,6 +669,138 @@ private slots:
         QVERIFY2(out.text.contains(u"turned off"), qPrintable(out.text));
     }
 
+    // Content search in some folders: named among the words ("第三季度 abc/")
+    // or given (folders), every folder so named, system folders only when
+    // nothing else is so named, and nowhere else.
+    void searchContentInFolders()
+    {
+        Fixture f;
+        const QByteArray text = QByteArrayLiteral("第三季度销售额 123 万");
+        f.write(u"项目\\abc\\报告.txt"_s, text, 1'700'000'000);
+        f.write(u"备份\\abc\\报告.txt"_s, text, 1'700'000'000);
+        f.write(u"其他\\报告.txt"_s, text, 1'700'000'000);
+        f.write(u"其他\\abcdef\\报告.txt"_s, text, 1'700'000'000);
+        f.subfolder(u"tools\\abc"_s, 1'700'000'000);
+        f.subfolder(u"tools\\only"_s, 1'700'000'000);
+        {
+            const auto index = f.service->index();
+            const auto lock = index->writeLock();
+            for (const QString& folder : {u"tools"_s, u"tools\\abc"_s, u"tools\\only"_s})
+                index->setFlags(index->findPath((f.root + u'\\' + folder).toStdWString()),
+                    static_cast<std::uint8_t>(EntryFlag::Directory | EntryFlag::LowPriority));
+        }
+        f.write(u"tools\\abc\\报告.txt"_s, text, 1'700'000'000, EntryFlag::LowPriority);
+        f.write(u"tools\\only\\报告.txt"_s, text, 1'700'000'000, EntryFlag::LowPriority);
+        const QString sep = u"\\"_s;
+        const auto in = [&](const QString& relative) { return f.root + sep + relative + sep + u"报告.txt"_s; };
+
+        // Straight to the engine: where it says it looks, and what it finds.
+        const auto search = [&](SearchEngine::Request request) {
+            request.scope = Scope::Content;
+            request.contentExtensions = {u"txt"_s};
+            request.contentDocuments = false;
+            QSignalSpy scopes(f.engine.get(), &SearchEngine::contentScope);
+            QSignalSpy results(f.engine.get(), &SearchEngine::contentResults);
+            QSignalSpy progress(f.engine.get(), &SearchEngine::contentProgress);
+            const quint64 id = f.engine->submit(std::move(request));
+            const auto finished = [&] {
+                return std::ranges::any_of(progress, [&](const QList<QVariant>& p) { return p[0].toULongLong() == id && p[3].toBool(); });
+            };
+            if (!QTest::qWaitFor(finished, 20000))
+                return std::pair {ContentScope {}, QStringList {u"(timed out)"_s}};
+            QStringList paths;
+            for (const QList<QVariant>& r : results) {
+                for (const SearchResult& hit : r[1].value<SearchResults>())
+                    paths.append(hit.path);
+            }
+            paths.sort();
+            return std::pair {scopes.isEmpty() ? ContentScope {} : scopes.last()[1].value<ContentScope>(), paths};
+        };
+        const auto sorted = [](QStringList list) {
+            list.sort();
+            return list;
+        };
+
+        SearchEngine::Request request;
+        request.text = u"第三季度 abc/"_s;
+        auto [scope, found] = search(request);
+        QCOMPARE(found, sorted({in(u"项目\\abc"_s), in(u"备份\\abc"_s)})); // not tools\abc: a program folder
+        QCOMPARE(scope.words, u"第三季度"_s);
+        QCOMPARE(scope.places.size(), std::size_t {1});
+        QCOMPARE(scope.places[0].typed, u"abc/"_s);
+        QCOMPARE(scope.places[0].status, ContentScope::Status::Searched);
+        QCOMPARE(scope.places[0].count, 2);
+        QVERIFY(!scope.places[0].approximate);
+        // One of them picked.
+        request.contentPick = {u"abc/"_s, scope.places[0].folders[1]};
+        std::tie(scope, found) = search(request);
+        QCOMPARE(found, QStringList {scope.places[0].folders[1] + u"\\报告.txt"_s});
+        QCOMPARE(scope.places[0].chosen, request.contentPick.folder);
+        QCOMPARE(scope.places[0].count, 2); // still told of both, for the chips
+
+        // A folder in a folder; "/name" last; only program folders so named: those.
+        request = {};
+        request.text = u"第三季度 项目/abc/"_s;
+        QCOMPARE(search(request).second, QStringList {in(u"项目\\abc"_s)});
+        request.text = u"第三季度 /only"_s;
+        QCOMPARE(search(request).second, QStringList {in(u"tools\\only"_s)});
+        // None named just so: those whose names hold it.
+        request.text = u"第三季度 abcd/"_s;
+        std::tie(scope, found) = search(request);
+        QCOMPARE(found, QStringList {in(u"其他\\abcdef"_s)});
+        QVERIFY(scope.places[0].approximate);
+        // None at all: it is something to find ("/nosuch" is not in the file).
+        request.text = u"第三季度 /nosuch"_s;
+        std::tie(scope, found) = search(request);
+        QVERIFY(found.isEmpty());
+        QCOMPARE(scope.places[0].status, ContentScope::Status::Words);
+        QCOMPARE(scope.words, u"第三季度 /nosuch"_s);
+        // ... and searched for as such, everywhere: a file that has it is found.
+        f.write(u"路由\\接口.txt"_s, QByteArrayLiteral("第三季度 GET nosuchfolder/ 200"), 1'700'000'000);
+        request.text = u"第三季度 nosuchfolder/"_s;
+        std::tie(scope, found) = search(request);
+        QCOMPARE(found, QStringList {f.root + u"\\路由\\接口.txt"_s});
+        QCOMPARE(scope.places[0].status, ContentScope::Status::Words);
+        // A path: that folder alone; one not in the index: nowhere.
+        request.text = f.root + u"\\其他\\ 第三季度"_s;
+        QCOMPARE(search(request).second, sorted({in(u"其他"_s), in(u"其他\\abcdef"_s)}));
+        request.text = f.root + u"\\不在\\ 第三季度"_s;
+        std::tie(scope, found) = search(request);
+        QVERIFY(found.isEmpty());
+        QCOMPARE(scope.places[0].status, ContentScope::Status::NotFound);
+        // Given (a folder chosen in the launcher, or by AI); typed ones go first.
+        request.text = u"第三季度"_s;
+        request.contentFolders = {f.root + u"\\备份"_s};
+        QCOMPARE(search(request).second, QStringList {in(u"备份\\abc"_s)});
+        request.text = u"第三季度 项目/"_s;
+        QCOMPARE(search(request).second, QStringList {in(u"项目\\abc"_s)});
+        // A program folder given: read all the same.
+        request.text = u"第三季度"_s;
+        request.contentFolders = {f.root + u"\\tools"_s};
+        QCOMPARE(search(request).second, sorted({in(u"tools\\abc"_s), in(u"tools\\only"_s)}));
+
+        // Through MCP: folders.
+        Session s(f.server.get());
+        QVERIFY(s.initialize());
+        auto reply = s.exchange(callLine(2, u"search_content"_s,
+                                    {{u"query"_s, u"第三季度"_s}, {u"folders"_s, QJsonArray {f.root + u"\\项目"_s, f.root + u"\\备份\\"_s}}}),
+            20000);
+        QVERIFY(reply);
+        Outcome out = outcomeOf(*reply);
+        QVERIFY2(!out.isError, qPrintable(out.text));
+        QCOMPARE(out.structured.value(u"returned"_s).toInt(), 2);
+        reply = s.exchange(callLine(3, u"search_content"_s, {{u"query"_s, u"第三季度"_s}, {u"folders"_s, QJsonArray {f.root + u"\\不在"_s}}}), 20000);
+        QVERIFY(reply);
+        out = outcomeOf(*reply);
+        QVERIFY(out.isError);
+        QVERIFY2(out.text.contains(u"not in the index"), qPrintable(out.text));
+        reply = s.exchange(callLine(4, u"search_content"_s, {{u"query"_s, u"第三季度"_s}, {u"folders"_s, QJsonArray {in(u"其他"_s)}}}), 20000);
+        QVERIFY(reply);
+        out = outcomeOf(*reply);
+        QVERIFY(out.isError);
+        QVERIFY2(out.text.contains(u"is a file"), qPrintable(out.text));
+    }
+
     void recentAndFolder()
     {
         Fixture f;

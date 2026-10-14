@@ -277,7 +277,7 @@ Item {
 
         readonly property string modifier: footer.launcher.numberKeys === "alt" ? "Alt" : "Ctrl"
         shortcuts: [
-            ["Shift+Tab", qsTr("切换范围：全部、文件、内容")],
+            ["Shift+Tab", qsTr("在“文件”里切换类型，在“内容”里换个文件夹")],
             ["↑ ↓", qsTr("上下移动，PgUp PgDn 翻页")],
             ["Shift+↑ ↓", qsTr("选中多行，也可 Ctrl+单击、Shift+单击")],
             ["Ctrl+Shift+Enter", qsTr("以管理员身份运行")],

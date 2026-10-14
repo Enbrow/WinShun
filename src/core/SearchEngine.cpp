@@ -31,7 +31,10 @@
 #include <cstring>
 #include <deque>
 #include <limits>
+#include <functional>
 #include <optional>
+#include <ranges>
+#include <tuple>
 #include <unordered_map>
 #include <variant>
 
@@ -433,6 +436,186 @@ private:
     std::array<Slot, 4096> m_cache {};
 };
 
+// The folders a content search looks in (ContentScope), and of those the
+// system, program and tool folders, named all the same (their files are read).
+struct ScopeFolders {
+    std::vector<EntryId> folders; // sorted
+    std::vector<EntryId> aside; // sorted
+};
+
+// Whether entries lie under one of some folders (ScopeFolders), and under
+// one of the aside ones; cached by parent folder, as UnderFolder.
+class UnderFolders {
+public:
+    enum class Where : std::uint8_t { Outside, Inside, InsideAside };
+
+    UnderFolders(const FileIndex& index, const ScopeFolders& scope)
+        : m_index(index)
+        , m_scope(scope)
+    {
+        m_cache.fill({kNoEntry, Where::Outside});
+    }
+    Where operator()(EntryId id)
+    {
+        const EntryId parent = m_index.entry(id).parent;
+        if (parent == kNoEntry)
+            return Where::Outside;
+        Slot& slot = m_cache[parent & (m_cache.size() - 1)];
+        if (slot.parent != parent) {
+            Where where = Where::Outside;
+            for (EntryId cur = parent; cur != kNoEntry; cur = m_index.entry(cur).parent) {
+                if (std::ranges::binary_search(m_scope.folders, cur)) { // the innermost says
+                    where = std::ranges::binary_search(m_scope.aside, cur) ? Where::InsideAside : Where::Inside;
+                    break;
+                }
+            }
+            slot = {parent, where};
+        }
+        return slot.where;
+    }
+
+private:
+    struct Slot {
+        EntryId parent;
+        Where where;
+    };
+    const FileIndex& m_index;
+    const ScopeFolders& m_scope;
+    std::array<Slot, 4096> m_cache {};
+};
+
+// Folders one name may stand for: a name as common as "src" stands for
+// thousands on a developer's PC, and all of them are looked in.
+constexpr std::size_t kScopeFolders = 100'000;
+constexpr std::size_t kScopeApproximate = 200; // ... when none is named just so
+
+// What a folder named among the words, or given, stands for (ContentScope).
+// Caller holds index.readLock().
+ContentScope::Place resolvePlace(const FileIndex& index, const ContentFolderSpec& spec,
+    const SearchEngine::Request& request, WorkerPool& pool, const std::function<bool()>& isCancelled,
+    ScopeFolders& scope)
+{
+    using Status = ContentScope::Status;
+    ContentScope::Place place;
+    place.typed = spec.typed;
+    std::vector<EntryId> ids;
+    if (!spec.path.isEmpty()) {
+        const EntryId id = index.findPath(spec.path.toStdWString());
+        if (id == kNoEntry || index.entry(id).isDeleted() || !index.entry(id).isDir()) {
+            place.status = Status::NotFound;
+            place.folders = {spec.path};
+            return place;
+        }
+        ids.push_back(id);
+    } else {
+        std::vector<std::string> names;
+        for (const QString& name : spec.names)
+            names.push_back(wtf8::fromUtf16(wtf8::view(name)));
+        ids = findRelativePath(index, names, true, kScopeFolders, pool, isCancelled);
+        if (ids.empty()) {
+            // None named just so: those whose names hold it, or sound so
+            // (pinyin), in folders whose names hold the rest.
+            QueryTerm term;
+            term.text = text::foldAscii(names.back());
+            for (std::size_t i = 0; i + 1 < names.size(); ++i)
+                term.ancestors.push_back(text::foldAscii(names[i]));
+            ParsedQuery query;
+            query.terms.push_back(std::move(term));
+            const NameSearchOutput out = searchNames(index, NameMatcher(query),
+                {.limit = kScopeApproximate, .foldersOnly = true}, pool, isCancelled);
+            for (const NameHit& hit : out.hits)
+                ids.push_back(hit.id);
+            place.approximate = !ids.empty();
+        }
+        if (ids.empty()) {
+            place.status = Status::Words;
+            return place;
+        }
+        // Your own folders so named, not those in program folders and
+        // node_modules alike, unless only those are (or those are asked for).
+        const auto aside = [&](EntryId id) { return (index.entry(id).flags & EntryFlag::LowPriority) != 0; };
+        if (!request.contentInLowPriority && !std::ranges::all_of(ids, aside))
+            std::erase_if(ids, aside);
+    }
+    const auto remote = [&](EntryId id) { return (index.entry(id).flags & EntryFlag::Remote) != 0; };
+    if (std::ranges::all_of(ids, remote)) {
+        place.status = Status::OnShare;
+        for (const EntryId id : ids | std::views::take(ContentScope::kListed))
+            place.folders.append(QString::fromStdWString(index.wpath(id)));
+        place.count = static_cast<int>(ids.size());
+        return place;
+    }
+    std::erase_if(ids, remote);
+
+    // Your own first, then elsewhere, hidden ones, system and program
+    // folders; the shallowest first in each.
+    const EntryId profile = index.findPath(win32::expandEnvironment(L"%USERPROFILE%"));
+    UnderFolder inProfile(index, profile);
+    const auto rank = [&](EntryId id) {
+        const Entry& e = index.entry(id);
+        const int kind = (e.flags & EntryFlag::LowPriority) ? 3
+            : (e.flags & EntryFlag::Hidden)                  ? 2
+            : (id == profile || inProfile(id))               ? 0
+                                                             : 1;
+        return std::tuple {kind, index.depth(id), id};
+    };
+    std::vector<std::tuple<int, int, EntryId>> ranked;
+    ranked.reserve(ids.size());
+    for (const EntryId id : ids)
+        ranked.push_back(rank(id));
+    std::ranges::sort(ranked);
+    place.count = static_cast<int>(ranked.size());
+    for (const auto& [kind, depth, id] : ranked | std::views::take(ContentScope::kListed))
+        place.folders.append(QString::fromStdWString(index.wpath(id)));
+
+    // One of them picked (Tab along them): that one alone.
+    if (!request.contentPick.folder.isEmpty() && request.contentPick.typed == spec.typed) {
+        const EntryId picked = index.findPath(request.contentPick.folder.toStdWString());
+        if (std::ranges::find(ids, picked) != ids.end()) {
+            ids = {picked};
+            place.chosen = QString::fromStdWString(index.wpath(picked));
+        }
+    }
+    for (const EntryId id : ids) {
+        scope.folders.push_back(id);
+        if (index.entry(id).flags & EntryFlag::LowPriority)
+            scope.aside.push_back(id);
+    }
+    return place;
+}
+
+// Where a content search looks (ContentScope), and what for. The folders
+// typed go before those given. Caller holds index.readLock().
+ContentScope resolveScope(const FileIndex& index, const SearchEngine::Request& request, WorkerPool& pool,
+    const std::function<bool()>& isCancelled, ScopeFolders& scope)
+{
+    ContentScope out;
+    const ContentQuery typed = splitContentQuery(request.text);
+    out.words = typed.words;
+    for (const ContentFolderSpec& spec : typed.folders) {
+        ContentScope::Place place = resolvePlace(index, spec, request, pool, isCancelled, scope);
+        if (place.status == ContentScope::Status::Words) // "abc/" is what to find, then
+            out.words = out.words.isEmpty() ? spec.typed : out.words + u' ' + spec.typed;
+        out.places.push_back(std::move(place));
+    }
+    const bool typedSome = std::ranges::any_of(
+        out.places, [](const ContentScope::Place& p) { return p.status != ContentScope::Status::Words; });
+    if (!typedSome) {
+        for (const QString& folder : request.contentFolders) {
+            ContentFolderSpec given;
+            given.path = pathtext::pathFromText(folder);
+            if (given.path.isEmpty())
+                given.path = folder;
+            out.places.push_back(resolvePlace(index, given, request, pool, isCancelled, scope));
+        }
+    }
+    std::ranges::sort(scope.folders);
+    scope.folders.erase(std::ranges::unique(scope.folders).begin(), scope.folders.end());
+    std::ranges::sort(scope.aside);
+    scope.aside.erase(std::ranges::unique(scope.aside).begin(), scope.aside.end());
+    return out;
+}
+
 // Recently opened items that match jump to the top (at most a few).
 // Returns how many did.
 qsizetype promoteHistory(
@@ -695,6 +878,7 @@ SearchEngine::SearchEngine(IndexService* index, AppCatalog* apps, SystemCatalog*
 {
     qRegisterMetaType<ws::SearchResults>();
     qRegisterMetaType<ws::ContentLeftOut>();
+    qRegisterMetaType<ws::ContentScope>();
     qRegisterMetaType<ws::RemovableDrives>();
     m_worker = std::jthread([this](std::stop_token stop) { workerLoop(stop); });
 }
@@ -1251,10 +1435,30 @@ void SearchEngine::runContentSearch(const Job& job)
     QElapsedTimer timer;
     timer.start();
     const Request& request = job.request;
-    const QStringList terms = contentTerms(request.text);
     const bool byTime = request.rankBy != RankBy::Match;
     emit resultsReady(job.id, {}, 0, 0);
-    if (terms.isEmpty()) {
+    if (request.text.trimmed().isEmpty()) {
+        emit contentProgress(job.id, 0, 0, true);
+        return;
+    }
+    const auto index = m_index->index();
+    // Where it looks, and what for: "年度报告 abc/" in the folders named abc.
+    // Named, and none found there (a path not in the index, one on a
+    // share): nowhere, not everywhere.
+    ScopeFolders scope;
+    ContentScope where;
+    {
+        const auto lock = index->readLock();
+        where = resolveScope(*index, request, m_pool, [&] { return isStale(job.id); }, scope);
+    }
+    if (isStale(job.id))
+        return;
+    emit contentScope(job.id, where);
+    // A name no folder has is among the words (Status::Words): no scope of its own.
+    const bool scoped = request.contentSet != ContentSet::Given
+        && std::ranges::any_of(where.places, [](const ContentScope::Place& p) { return p.status != ContentScope::Status::Words; });
+    const QStringList terms = contentTerms(where.words);
+    if (terms.isEmpty() || (scoped && scope.folders.empty())) {
         emit contentProgress(job.id, 0, 0, true);
         return;
     }
@@ -1285,7 +1489,6 @@ void SearchEngine::runContentSearch(const Job& job)
         = request.contentDocuments ? request.contentExtensions + documentExtensions() : request.contentExtensions;
     const ContentFilter filter {ExtensionFilter(set == ContentSet::OtherTypes ? otherTypes.extensions() : listed),
         request.contentInLowPriority || set == ContentSet::LowPriority};
-    const auto index = m_index->index();
     const auto content = m_index->contentIndex();
     const ContentIndex::SearchGuard searching(content.get()); // the content indexer waits meanwhile
     std::vector<Candidate> candidates;
@@ -1350,13 +1553,19 @@ void SearchEngine::runContentSearch(const Job& job)
             if (isStale(job.id))
                 return;
             UnderFolder inProfile(*index, profile);
+            UnderFolders inScope(*index, scope);
             const auto first = static_cast<EntryId>(c << FileIndex::kChunkBits);
             auto k = static_cast<std::size_t>(std::lower_bound(lookup.known.begin(), lookup.known.end(), first,
                 [](std::uint32_t known, EntryId id) { return (known & ~kMatch) < id; }) - lookup.known.begin());
             const auto entries = index->chunk(c);
             for (std::size_t i = 0; i < entries.size(); ++i) {
                 const Entry& e = entries[i];
-                if (set == ContentSet::LowPriority && !(e.flags & EntryFlag::LowPriority))
+                // Outside the folders named: neither read nor counted as passed over.
+                const auto within = scoped ? inScope(static_cast<EntryId>(first + i)) : UnderFolders::Where::Inside;
+                if (within == UnderFolders::Where::Outside)
+                    continue;
+                const bool aside = within == UnderFolders::Where::InsideAside; // a system folder named: read
+                if (set == ContentSet::LowPriority && (aside || !(e.flags & EntryFlag::LowPriority)))
                     continue; // only those: the rest were read
                 std::string_view name;
                 std::size_t extLength = 0;
@@ -1364,11 +1573,13 @@ void SearchEngine::runContentSearch(const Job& job)
                 case ContentVerdict::Never:
                     continue;
                 case ContentVerdict::LowPriority:
+                    if (aside)
+                        break;
                     ++lowPriorityOf[c];
                     continue;
                 case ContentVerdict::OtherType:
                     // Of a kind the one-off over them would read: where this scan looks.
-                    if (set == ContentSet::Listed && (filter.includeLowPriority || !(e.flags & EntryFlag::LowPriority))) {
+                    if (set == ContentSet::Listed && (filter.includeLowPriority || aside || !(e.flags & EntryFlag::LowPriority))) {
                         if (const int t = otherTypes.indexOf(name, extLength); t >= 0) {
                             if (otherTypesOf[c].empty())
                                 otherTypesOf[c].assign(otherTypes.count(), 0);

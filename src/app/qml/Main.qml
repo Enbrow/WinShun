@@ -145,12 +145,22 @@ Window {
     }
 
     // Nothing found: under the search box, or in the list area at full height.
-    readonly property string emptyTitle: contentMode
+    readonly property string emptyTitle: contentMode && launcher.whereMissing.length > 0
+        ? qsTr("%1 不在索引里，没法在里面搜").arg(launcher.whereMissing)
+        : contentMode && launcher.contentWhere.length > 0 && launcher.contentWords.length === 0
+        ? qsTr("在 %1 里搜：接着输入要找的文字").arg(launcher.contentWhere)
+        : contentMode && launcher.contentWhere.length > 0
+        ? qsTr("%1 里没有 %2包含“%3”").arg(launcher.contentWhere).arg(launcher.contentFilesLabel)
+                                      .arg(launcher.contentWords.replace(/\s+/g, " "))
+        : contentMode
         ? qsTr("没有 %1包含“%2”").arg(launcher.contentFilesLabel).arg(shownQuery)
         : launcher.pluginKeyword.length > 0 ? qsTr("%1 没有找到“%2”").arg(launcher.pluginLabel).arg(shownQuery)
         : qsTr("没有找到“%1”").arg(shownQuery)
-    readonly property string emptyHint: contentMode ? qsTr("按 Tab 回到文件名搜索")
-        : typeStrip.shown ? qsTr("按 Tab 换个类型，Shift+Tab 切换范围")
+    readonly property string emptyHint: contentMode && launcher.contentWhere.length > 0
+        ? qsTr("按 Shift+Tab 换个文件夹，Tab 切换范围")
+        : contentMode && launcher.folderChips.length > 1 ? qsTr("按 Shift+Tab 只搜某个文件夹，Tab 切换范围")
+        : contentMode ? qsTr("按 Tab 回到文件名搜索")
+        : typeStrip.shown ? qsTr("按 Shift+Tab 换个类型，Tab 切换范围")
         : launcher.pluginKeyword.length > 0 ? qsTr("按 Esc 清空关键字后面的文字")
         : launcher.searchesContent ? qsTr("文件名和 %1的内容里都没有").arg(launcher.contentFilesLabel)
         : launcher.contentEnabled ? qsTr("按 Tab 切换范围，或搜索文件内容")
@@ -479,10 +489,11 @@ Window {
             break
         }
         case Qt.Key_Escape:
-            // In a plugin's keyword mode, first the words after the keyword go; then the window.
+            // In a plugin's keyword mode, first the words after the keyword go;
+            // in 内容 in a folder chosen, the words (the folder stays); then the window.
             if (selectedCount > 0)
                 window.launcher.clearSelection()
-            else if (!window.launcher.clearToKeyword())
+            else if (!window.launcher.clearToKeyword() && !window.launcher.clearContentWords())
                 window.launcher.dismiss()
             break
         case Qt.Key_Tab:
@@ -503,8 +514,13 @@ Window {
             window.launcher.switchOrder()
             break
         case Qt.Key_Backtab:
-            if (window.launcher.pluginKeyword.length === 0)
-                window.launcher.cycleScope(-1)
+            // Along the strip under the box: in 文件 the kinds, in 内容 the folders.
+            if (window.launcher.pluginKeyword.length > 0 || !typeStrip.shown)
+                break
+            if (typeStrip.folders)
+                window.launcher.cycleFolderChip(1)
+            else
+                window.launcher.cycleFileType(1)
             break
         case Qt.Key_C:
             // Ctrl+C copies selected text in the box; otherwise the file itself
@@ -608,7 +624,8 @@ Window {
             width: parent.width
             launcher: window.launcher
             frame: window.frame
-            shown: (window.launcher.scope === Launcher.Files || window.launcher.scope === Launcher.Folders)
+            shown: (window.launcher.scope === Launcher.Files || window.launcher.scope === Launcher.Folders
+                    || window.launcher.scope === Launcher.Content)
                    && !window.clipboardBelow
         }
 

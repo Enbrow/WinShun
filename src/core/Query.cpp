@@ -77,6 +77,212 @@ QStringList contentTerms(const QString& text)
     return {trimmed};
 }
 
+namespace {
+
+constexpr QChar kWideSlash(0xFF0F); // ／, as a Chinese keyboard layout types /
+constexpr QChar kWideBackslash(0xFF3C); // ＼
+
+bool isScopeSeparator(QChar c)
+{
+    return c == u'/' || c == u'\\' || c == kWideSlash || c == kWideBackslash;
+}
+
+// A name a folder can have (as Windows allows them, and no "." or "..").
+bool isFolderName(QStringView name)
+{
+    if (name.isEmpty() || name == u"." || name == u".." || name.front().isSpace() || name.back().isSpace())
+        return false;
+    return std::ranges::all_of(name, [](QChar c) { return c.unicode() >= 32 && !QStringView(u"<>\"|?*:/\\").contains(c); });
+}
+
+// "工作/abc/" -> {"工作", "abc"}; empty when a part is no folder's name.
+QStringList folderNames(QStringView text)
+{
+    QStringList names;
+    qsizetype from = 0;
+    for (qsizetype i = 0; i <= text.size(); ++i) {
+        if (i < text.size() && !isScopeSeparator(text[i]))
+            continue;
+        const QStringView part = text.sliced(from, i - from);
+        from = i + 1;
+        if (part.isEmpty())
+            continue;
+        if (!isFolderName(part))
+            return {};
+        names.append(part.toString());
+    }
+    return names;
+}
+
+// A word as queryWords() takes it, and where it is in the text.
+struct Piece {
+    qsizetype start;
+    qsizetype end;
+    bool quoted;
+};
+
+std::vector<Piece> pieces(const QString& text)
+{
+    std::vector<Piece> found;
+    bool quoted = false;
+    qsizetype start = -1;
+    bool hadQuote = false;
+    for (qsizetype i = 0; i <= text.size(); ++i) {
+        const bool atEnd = i == text.size();
+        if (!atEnd && text[i] == u'"') {
+            quoted = !quoted;
+            hadQuote = true;
+            if (start < 0)
+                start = i;
+            continue;
+        }
+        if (atEnd || (!quoted && text[i].isSpace())) {
+            if (start >= 0)
+                found.push_back({start, i, hadQuote});
+            start = -1;
+            hadQuote = false;
+            continue;
+        }
+        if (start < 0)
+            start = i;
+    }
+    return found;
+}
+
+// A path from a drive or share starting at `from` ("D:\My Files\ 报告",
+// "\\nas\docs\", "%USERPROFILE%\Documents\", or quoted), up to the first
+// separator followed by a space or the end: no name starts with a space, and
+// the path is to a folder. How long it is, or 0.
+qsizetype folderPathAt(const QString& text, qsizetype from, QString& path)
+{
+    const QStringView rest = QStringView(text).sliced(from);
+    const auto separatorEnds = [&](qsizetype i) {
+        return isScopeSeparator(rest[i]) && (i + 1 == rest.size() || rest[i + 1].isSpace());
+    };
+    if (rest.startsWith(u'"')) {
+        const qsizetype close = rest.indexOf(u'"', 1);
+        if (close < 2 || !isScopeSeparator(rest[close - 1]) || (close + 1 < rest.size() && !rest[close + 1].isSpace()))
+            return 0;
+        path = pathtext::pathFromText(rest.sliced(1, close - 1).toString());
+        return path.isEmpty() ? 0 : close + 1;
+    }
+    const bool drive = rest.size() >= 3 && rest[0].isLetter() && rest[0].unicode() < 128 && rest[1] == u':'
+        && isScopeSeparator(rest[2]);
+    if (!drive && !rest.startsWith(u"\\\\") && !rest.startsWith(u'%'))
+        return 0;
+    for (qsizetype i = 2; i < rest.size(); ++i) {
+        if (rest[i] == u'"')
+            return 0;
+        if (separatorEnds(i)) {
+            QString typed = rest.first(i + 1).toString();
+            typed.replace(kWideSlash, u'/').replace(kWideBackslash, u'\\');
+            path = pathtext::pathFromText(typed);
+            return path.isEmpty() ? 0 : i + 1;
+        }
+    }
+    return 0;
+}
+
+} // namespace
+
+ContentQuery splitContentQuery(const QString& text)
+{
+    ContentQuery query;
+    if (text.trimmed().isEmpty()) {
+        query.words = text;
+        return query;
+    }
+    if (looksLikeCode(text.trimmed())) {
+        // A folder first is where to look, whatever its name has in it
+        // ("D:\Program Files (x86)\ 词", as Explorer's "search here" types it);
+        // only the rest may be code.
+        qsizetype lead = 0;
+        while (text[lead].isSpace())
+            ++lead;
+        QString path;
+        const qsizetype length = folderPathAt(text, lead, path);
+        if (length == 0) {
+            query.words = text;
+            return query;
+        }
+        const QString rest = text.sliced(lead + length);
+        if (looksLikeCode(rest.trimmed())) {
+            query.folders.push_back({text.sliced(lead, length), path, {}});
+            query.words = rest.trimmed();
+            return query;
+        }
+        // Words after it: on below, as for any folder.
+    }
+    // The words, with what names a folder taken out: the stretches kept.
+    QString words;
+    qsizetype kept = 0;
+    const auto takeOut = [&](qsizetype start, qsizetype end) {
+        words += QStringView(text).sliced(kept, start - kept);
+        words += u' ';
+        kept = end;
+    };
+
+    // Paths first: theirs may have spaces in them.
+    std::vector<std::pair<qsizetype, qsizetype>> paths;
+    for (qsizetype i = 0; i < text.size(); ++i) {
+        if (i > 0 && !text[i - 1].isSpace())
+            continue;
+        QString path;
+        if (const qsizetype length = folderPathAt(text, i, path); length > 0) {
+            query.folders.push_back({text.sliced(i, length), path, {}});
+            paths.push_back({i, i + length});
+            i += length - 1;
+        }
+    }
+    const std::vector<Piece> found = pieces(text);
+    // The last word that is not a path: the only place for "/abc".
+    const Piece* last = nullptr;
+    for (const Piece& p : found) {
+        if (std::ranges::none_of(paths, [&](const auto& span) { return p.start >= span.first && p.start < span.second; }))
+            last = &p;
+    }
+    qsizetype others = 0; // the words that stay words
+    std::vector<std::pair<const Piece*, QStringList>> named;
+    for (const Piece& p : found) {
+        if (std::ranges::any_of(paths, [&](const auto& span) { return p.start >= span.first && p.start < span.second; }))
+            continue;
+        const QStringView word = QStringView(text).sliced(p.start, p.end - p.start);
+        const bool plain = !p.quoted && !word.startsWith(u'!') && !word.contains(u'*') && !word.contains(u'?')
+            && !word.startsWith(u"ext:", Qt::CaseInsensitive);
+        QStringList names;
+        if (plain && isScopeSeparator(word.back()))
+            names = folderNames(word);
+        else if (plain && &p == last && word.size() > 1 && (word.front() == u'/' || word.front() == kWideSlash)
+            && std::ranges::none_of(word.sliced(1), isScopeSeparator))
+            names = folderNames(word.sliced(1));
+        if (names.isEmpty())
+            ++others;
+        else
+            named.push_back({&p, std::move(names)});
+    }
+    // "/abc" alone is something to find ("/usr"), not where to look.
+    if (others == 0 && !named.empty() && !isScopeSeparator(QStringView(text).sliced(named.back().first->end - 1).front()))
+        named.pop_back();
+
+    // Taken out in the order they are in the text.
+    std::vector<std::pair<qsizetype, qsizetype>> spans = paths;
+    for (const auto& [p, names] : named) {
+        query.folders.push_back({text.sliced(p->start, p->end - p->start), {}, names});
+        spans.push_back({p->start, p->end});
+    }
+    std::ranges::sort(spans);
+    std::ranges::stable_sort(query.folders, {}, [&](const ContentFolderSpec& f) { return text.indexOf(f.typed); });
+    for (const auto& [start, end] : spans)
+        takeOut(start, end);
+    if (query.folders.empty()) {
+        query.words = text;
+        return query;
+    }
+    words += QStringView(text).sliced(kept);
+    query.words = words.trimmed();
+    return query;
+}
+
 ParsedQuery parseQuery(const QString& text)
 {
     ParsedQuery q;

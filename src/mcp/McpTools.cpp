@@ -799,7 +799,8 @@ void ToolHost::addTools()
         {{u"query"_s, typed("string", u"Words that must all occur, a \"quoted phrase\", or a line of code"_s)},
             {u"limit"_s, integer(u"How many matching files at most"_s, 1, kMaxContent, kDefaultContent)},
             {u"timeout_ms"_s, integer(u"How long to search before returning what was found"_s, kMinTimeoutMs, kMaxTimeoutMs, kDefaultTimeoutMs)},
-            {u"include_system"_s, boolean(u"Also look in system, program and tool folders (node_modules, .git…)"_s, false)}},
+            {u"include_system"_s, boolean(u"Also look in system, program and tool folders (node_modules, .git…)"_s, false)},
+            {u"folders"_s, array(typed("string", u"Full path"_s), u"Only in these folders and the folders in them; default: everywhere. A folder named is searched even if it is a system or program folder."_s)}},
         {u"query"_s});
     content.outputSchema = object({{u"items"_s, array(object({{u"path"_s, typed("string", u"Full Windows path"_s)},
                                                            {u"name"_s, typed("string", u"File name"_s)},
@@ -989,12 +990,31 @@ void ToolHost::searchContent(const std::shared_ptr<Call>& call)
     const int limit = args.integer(u"limit"_s, kDefaultContent, 1, kMaxContent);
     const int timeout = args.integer(u"timeout_ms"_s, kDefaultTimeoutMs, kMinTimeoutMs, kMaxTimeoutMs);
     const bool system = args.boolean(u"include_system"_s, false);
+    QStringList folders = args.strings(u"folders"_s);
     if (!args.error().isEmpty())
         return finish(call, {{}, true, args.error()});
     if (query.isEmpty())
         return finish(call, {{}, true, u"query is empty"_s});
     if (!m_policy.content)
         return finish(call, {{}, true, u"File content search is turned off in WinShun's settings"_s});
+    folders.removeIf([](const QString& folder) { return folder.trimmed().isEmpty(); });
+    if (!folders.isEmpty()) {
+        const auto index = m_services.index->index();
+        const auto lock = index->readLock();
+        for (QString& folder : folders) {
+            folder = folder.trimmed();
+            if (excluded(folder))
+                return finish(call, {{}, true, u"This folder is not visible to AI (excluded in Win顺's settings): "_s + folder});
+            const EntryId id = index->findPath(indexPath(folder));
+            if (id == kNoEntry)
+                return finish(call, {{}, true, u"The folder is not in the index: it may not exist, be excluded from indexing, or be on a drive that is not indexed. Check it with get_file_info: "_s + folder});
+            if (!index->entry(id).isDir())
+                return finish(call, {{}, true, u"The path is a file, not a folder: "_s + folder});
+            if (index->entry(id).flags & EntryFlag::Remote)
+                return finish(call, {{}, true, u"The folder is on a network share: Win顺 does not read file contents there. "_s + folder});
+            folder = QString::fromStdWString(index->wpath(id));
+        }
+    }
 
     SearchEngine::Request request;
     request.text = query;
@@ -1005,6 +1025,7 @@ void ToolHost::searchContent(const std::shared_ptr<Call>& call)
     request.contentInLowPriority = system || m_policy.contentInLowPriority;
     request.maxContentResults = limit + 10;
     request.contentThreads = kContentThreads;
+    request.contentFolders = std::move(folders);
     m_active->content = true;
     m_active->limit = limit;
     m_active->requestId = m_services.engine->submit(std::move(request));

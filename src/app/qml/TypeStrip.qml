@@ -5,8 +5,11 @@ import WinShun
 
 // Under the search box in 文件: the kinds of file it narrows to, as chips
 // (不限, 文件夹, then 文档, 图片… as the settings have them), and + for the
-// settings. Tab goes along them (Launcher.cycleFileType), a chip's tooltip
-// lists its extensions. It opens and closes by its height (`shown`), the
+// settings. Shift+Tab goes along them (Launcher.cycleFileType), a chip's tooltip
+// lists its extensions. In 内容 the folders it looks in instead
+// (Launcher.folderChips: 不限 and the favorite folders, or those a folder
+// named among the words stands for), + for the favorites, and after them a
+// few words on naming one (Launcher.folderHint). It opens and closes by its height (`shown`), the
 // chips coming down from under the search box; the window keeps room for
 // all of it meanwhile (see Main.qml), so only the rows below it move. Too
 // many for the width, they scroll, the current one kept in view and + after them. The rest
@@ -20,11 +23,14 @@ Item {
 
     readonly property int fullHeight: Theme.stripHeight // 界面大小
     readonly property int targetHeight: shown ? fullHeight : 0
-    // The chip that is current, as Launcher.chooseFileType takes it.
-    readonly property int current: launcher.scope === Launcher.Folders ? -2 : launcher.fileType
+    readonly property bool folders: launcher.scope === Launcher.Content
+    // The chip that is current, as Launcher.chooseFileType (or chooseFolderChip) takes it.
+    readonly property var current: folders ? launcher.folderChip
+                                   : launcher.scope === Launcher.Folders ? -2 : launcher.fileType
     // A dot for each, by place (any number of kinds of the user's own).
     readonly property var dotColors: ["#4F9DFF", "#3FBF7F", "#A57CFF", "#FF8A5C", "#C9953A", "#7B8CFF", "#2FBFB4", "#E07BD0"]
-    readonly property var chips: {
+    readonly property var chips: folders ? launcher.folderChips : fileChips
+    readonly property var fileChips: {
         const list = [{ type: -1, name: qsTr("不限"), tip: qsTr("所有文件和文件夹"), dot: "" },
                       { type: -2, name: qsTr("文件夹"), tip: qsTr("只找文件夹"), dot: "#E8B84A" }]
         const types = launcher.fileTypes
@@ -91,13 +97,14 @@ Item {
     }
     NumberAnimation { id: slide; target: view; property: "contentX"; duration: 150; easing.type: Easing.OutCubic }
     onCurrentChanged: Qt.callLater(reveal)
+    onChipsChanged: Qt.callLater(reveal)
 
     Flickable {
         id: view
         x: 12
         // Comes down from under the search box as the strip opens.
         y: strip.height - strip.fullHeight
-        width: Math.min(contentWidth, strip.width - 24 - 4 - edit.width) // + stays in view
+        width: Math.min(contentWidth, strip.width - 24 - 4 - edit.width - hint.room) // + stays in view
         height: strip.fullHeight - 6
         contentWidth: row.width
         contentHeight: height
@@ -168,7 +175,8 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: strip.launcher.chooseFileType(chip.modelData.type)
+                        onClicked: strip.folders ? strip.launcher.chooseFolderChip(chip.modelData.type)
+                                                 : strip.launcher.chooseFileType(chip.modelData.type)
                     }
                 }
             }
@@ -178,7 +186,7 @@ Item {
     Rectangle { // the kinds and their extensions, in the settings
         id: edit
 
-        readonly property string tip: qsTr("添加或修改类型")
+        readonly property string tip: strip.folders ? qsTr("收藏常搜的文件夹，它们会出现在这里") : qsTr("添加或修改类型")
         readonly property bool tipWanted: editArea.containsMouse
 
         x: view.x + view.width + 4
@@ -203,8 +211,23 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: strip.launcher.editFileTypes()
+            onClicked: strip.folders ? strip.launcher.editFolderChips() : strip.launcher.editFileTypes()
         }
+    }
+
+    Text { // 内容: how to name a folder, where there is room for it after +
+        id: hint
+        // Its room, whole pixels; none when it would push the chips into scrolling.
+        readonly property int room: shown ? Math.ceil(implicitWidth) + 8 : 0
+        readonly property bool shown: strip.folders && text.length > 0
+                                      && view.contentWidth + Math.ceil(implicitWidth) + 8 <= strip.width - 24 - 4 - edit.width
+        x: edit.x + edit.width + 8
+        y: strip.onPixel(edit.y + (edit.height - height) / 2)
+        visible: shown
+        opacity: view.opacity
+        text: strip.launcher.folderHint
+        color: Theme.subtext
+        font.pixelSize: Theme.uiCaption
     }
 
     HoverTip {

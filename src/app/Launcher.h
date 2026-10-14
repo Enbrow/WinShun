@@ -129,11 +129,27 @@ class Launcher : public QObject {
     Q_PROPERTY(QString pluginWaiting READ pluginWaiting NOTIFY statusChanged FINAL)
     // Its user keeps favorites (Favorites): listed first with nothing typed.
     Q_PROPERTY(bool hasFavorites READ hasFavorites NOTIFY favoritesChanged FINAL)
+    // 内容 in some folders, as the strip under the search box shows it (in
+    // place of the kinds of 文件): [{type, name, tip, dot}], `type` the key
+    // chooseFolderChip takes. With a folder named among the words ("报告
+    // abc/"): every folder so named ("所有 abc · 3"), then each of them;
+    // otherwise 不限, the favorite folders, the folder chosen. folderChip:
+    // the current one's key. folderHint: a few words after them, how to
+    // name one.
+    Q_PROPERTY(QVariantList folderChips READ folderChips NOTIFY folderChipsChanged FINAL)
+    Q_PROPERTY(QString folderChip READ folderChip NOTIFY folderChipsChanged FINAL)
+    Q_PROPERTY(QString folderHint READ folderHint NOTIFY folderChipsChanged FINAL)
+    // 内容: the words looked for, without the folders named among them, and
+    // where it looks ("abc", "D:\Projects"; empty: everywhere), for the
+    // empty state; whereMissing: that place is not in the index (or on a share).
+    Q_PROPERTY(QString contentWords READ contentWords NOTIFY folderChipsChanged FINAL)
+    Q_PROPERTY(QString contentWhere READ contentWhere NOTIFY folderChipsChanged FINAL)
+    Q_PROPERTY(QString whereMissing READ whereMissing NOTIFY folderChipsChanged FINAL)
 
 public:
     // As ws::Scope. 文件夹 is shown within 文件, as a chip of its strip
-    // (chooseFileType): Tab goes 全部, 文件, 内容 (cycleScope), and in 文件
-    // through the strip (cycleFileType).
+    // (chooseFileType): Tab goes 全部, 文件, 内容 (cycleScope), Shift+Tab
+    // through the strip under the box (cycleFileType, cycleFolderChip).
     enum Scope { All, Files, Content, Folders };
     Q_ENUM(Scope)
     // Alternate: Shift+Enter, a plugin row's third action (Open elsewhere).
@@ -157,6 +173,7 @@ public:
         FavoriteFolder,
         EditFavorite,
         OpenTerminal,
+        SearchInFolder, // 内容 in a folder's row (the strip shows it chosen)
         PluginAction = 100
     };
     Q_ENUM(Action)
@@ -312,6 +329,20 @@ public:
     // (不限). Set after setFileTypes; in 文件 it applies at once.
     QString fileChoice() const;
     void setFileChoice(const QString& choice);
+    QVariantList folderChips() const;
+    QString folderChip() const;
+    QString folderHint() const;
+    QString contentWords() const;
+    QString contentWhere() const;
+    QString whereMissing() const;
+    // A chip of the strip in 内容 (folderChips): searched there.
+    Q_INVOKABLE void chooseFolderChip(const QString& key);
+    // Shift+Tab in 内容: the next folder chip, round; nothing with none to go to.
+    Q_INVOKABLE void cycleFolderChip(int delta);
+    Q_INVOKABLE void editFolderChips(); // the strip's +: the favorites, where the folders come from
+    // Esc in 内容 with a folder chosen: the words go, the folder stays
+    // (true); nothing to clear: false, and Esc closes the window.
+    Q_INVOKABLE bool clearContentWords();
     Q_INVOKABLE void dismiss();
 
 signals:
@@ -356,6 +387,7 @@ signals:
     // (the list moved it down).
     void betterFirstRow();
     void pluginChanged();
+    void folderChipsChanged();
 
 private:
     class ModelSink; // the result model as plugin::Merge sees it
@@ -415,6 +447,13 @@ private:
     void onContentResults(quint64 id, const SearchResults& results);
     void onContentProgress(quint64 id, int scanned, int total, bool finished);
     void onContentLeftOut(quint64 id, const ContentLeftOut& leftOut);
+    void onContentScope(quint64 id, const ContentScope& scope);
+    // A content request where the strip in 内容 says to look (m_contentFolder, m_contentPick).
+    void setContentPlace(SearchEngine::Request& request) const;
+    // The scan's report on the folders typed, if it is for the text there is (else none yet).
+    const ContentScope::Place* typedPlace() const;
+    static QString folderLabel(const QString& path); // its last names, "项目\abc"
+    static QString pickKey(const SearchEngine::Request::ContentPick& pick); // for m_shownPick; empty: none
     void onRemovableDrives(quint64 id, const RemovableDrives& drives);
     void onDriveResults(quint64 id, const SearchResults& results);
     void onDriveProgress(quint64 id, int seen, bool finished);
@@ -506,6 +545,16 @@ private:
     static QString fileTypeKey(const FileType& type); // as fileChoice names it
     int fileTypeIndex(const QString& key) const; // -1: none
     QStringList fileExtensions() const; // the kind chosen's, in 文件; none otherwise
+    // 内容 in a folder chosen (a chip, a folder's row: SearchInFolder), as a
+    // full path; empty: everywhere. Kept while the app runs, as the kind of
+    // file is. A folder named among the words goes first (ContentFolderSpec).
+    QString m_contentFolder;
+    // One of the folders a name typed stands for, Tab along them ("abc/":
+    // 所有 abc, D:\工作\abc, E:\备份\abc).
+    SearchEngine::Request::ContentPick m_contentPick;
+    ContentScope m_contentScope; // as the last content scan made it out (onContentScope)
+    QString m_shownContentFolder; // what the rows are for, as m_shownText
+    QString m_shownPick;
 
     bool m_recordHistory = true;
     KindOrder m_kindOrder = KindOrder::FilesFirst;

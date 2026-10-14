@@ -45,6 +45,35 @@ struct ContentLeftOut {
     friend bool operator==(const ContentLeftOut&, const ContentLeftOut&) = default;
 };
 
+// Where a content search looks, as it made out the folders named among its
+// words (ContentFolderSpec: "年度报告 abc/") or given (Request::contentFolders),
+// told before it reads anything (SearchEngine::contentScope). No places:
+// everywhere the settings say.
+struct ContentScope {
+    enum class Status : std::uint8_t {
+        Searched, // its folders are looked in
+        NotFound, // a path that is not in the index (not there, left out, a drive not indexed)
+        OnShare, // on a network share: contents are not read there
+        Words, // no folder so named: what was typed is among the words instead
+    };
+    struct Place {
+        QString typed; // as typed ("abc/", "D:\My Files\"); empty for one given
+        Status status = Status::Searched;
+        // The folders it stands for, your own first, then the shallowest (the
+        // first kListed of `count`); the one chosen (Request::contentPick), if
+        // one was, alone.
+        QStringList folders;
+        int count = 0;
+        QString chosen; // the folder looked in when one of several was picked; empty: all of them
+        bool approximate = false; // none named just so: those whose names hold it (or sound so)
+        friend bool operator==(const Place&, const Place&) = default;
+    };
+    static constexpr qsizetype kListed = 50;
+    std::vector<Place> places;
+    QString words; // what it looks for, after the folders came out
+    friend bool operator==(const ContentScope&, const ContentScope&) = default;
+};
+
 // A removable drive (a USB stick, a memory card) with media in it that the
 // index leaves out (Settings: includeRemovableDrives), as a name search
 // found it (SearchEngine::removableDrives). The launcher offers to walk it
@@ -111,6 +140,17 @@ public:
         // out for being over the size limit, ContentLeftOut::large, asked for
         // after all). The limits given still apply: the caller raises them.
         QStringList contentOnly;
+        // Content: only in these folders (full paths) and the folders in them,
+        // unless the text names folders of its own (ContentFolderSpec), which
+        // go first. A folder named so is looked in even if it is a system,
+        // program or tool folder.
+        QStringList contentFolders;
+        // A folder named as typed (ContentFolderSpec::typed: "abc/") that
+        // stands for several, and the one of them to look in alone.
+        struct ContentPick {
+            QString typed;
+            QString folder;
+        } contentPick;
         // 全部: a keyword typed first puts its page or search on top; names find them too.
         WebShortcuts web;
         // Listed first with nothing typed, the first few that match first
@@ -136,6 +176,8 @@ signals:
     // the contentProgress that says it finished. The launcher offers each
     // part (Request::contentSet).
     void contentLeftOut(quint64 requestId, const ws::ContentLeftOut& leftOut);
+    // A content scan, before it reads anything: where it looks.
+    void contentScope(quint64 requestId, const ws::ContentScope& scope);
     // After a name search's resultsReady, when something was typed and the
     // list is all there is (fewer than Request::limit): the removable drives
     // the index leaves out (none: an empty list). The launcher offers to
@@ -182,4 +224,5 @@ private:
 } // namespace ws
 
 Q_DECLARE_METATYPE(ws::ContentLeftOut)
+Q_DECLARE_METATYPE(ws::ContentScope)
 Q_DECLARE_METATYPE(ws::RemovableDrive)

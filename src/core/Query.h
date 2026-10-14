@@ -51,6 +51,30 @@ bool looksLikeCode(QStringView text);
 // (printf("%d", *p)).
 QStringList contentTerms(const QString& text);
 
+// A folder a content search is to look in, named among its words.
+//
+//   年度报告 abc/        in every folder named abc (a full-width ／ or a \ will do)
+//   年度报告 工作/abc/   ... named abc in a folder named 工作
+//   年度报告 /abc        the same as abc/, but only as the last word, after others
+//   D:\My Files\ 报告    in that folder (spaces and all, up to "\ "), or "%USERPROFILE%\Documents\"
+//   "D:\My Files\" 报告  the same, quoted
+struct ContentFolderSpec {
+    QString typed; // as it was typed: "abc/", "/abc", "D:\My Files\"
+    QString path; // from a drive or share, normalized ("D:\My Files", "D:\"); else empty, and:
+    QStringList names; // the folder's name and those it is in, outermost first ("工作", "abc")
+    friend bool operator==(const ContentFolderSpec&, const ContentFolderSpec&) = default;
+};
+
+struct ContentQuery {
+    QString words; // the rest: what to find in the files (contentTerms)
+    std::vector<ContentFolderSpec> folders;
+};
+
+// What a content search was typed as: its words, and the folders named
+// among them (ContentFolderSpec). A line of code is all words: "a/" or
+// "/usr/bin" in it are what it says.
+ContentQuery splitContentQuery(const QString& text);
+
 ParsedQuery parseQuery(const QString& text);
 
 // The query read aloud: each term with Chinese characters as pinyin

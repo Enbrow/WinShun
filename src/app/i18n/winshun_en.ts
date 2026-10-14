@@ -621,8 +621,8 @@
         <translation>Clear</translation>
     </message>
     <message>
-        <source>切换范围：全部、文件、内容</source>
-        <translation>Switch scope: All, Files, Content</translation>
+        <source>在“文件”里切换类型，在“内容”里换个文件夹</source>
+        <translation>In Files, switch the type; in Content, the folder</translation>
     </message>
     <message>
         <source>上下移动，PgUp PgDn 翻页</source>
@@ -810,12 +810,32 @@
         <translation>“%2” was not found in %1</translation>
     </message>
     <message>
+        <source>%1 不在索引里，没法在里面搜</source>
+        <translation>%1 is not in the index, so it cannot be searched</translation>
+    </message>
+    <message>
+        <source>在 %1 里搜：接着输入要找的文字</source>
+        <translation>Searching in %1: type what to find</translation>
+    </message>
+    <message>
+        <source>%1 里没有 %2包含“%3”</source>
+        <translation>No %2 in %1 contain “%3”</translation>
+    </message>
+    <message>
         <source>%1 没有找到“%2”</source>
         <translation>%1 found nothing for “%2”</translation>
     </message>
     <message>
         <source>没有找到“%1”</source>
         <translation>Nothing found for “%1”</translation>
+    </message>
+    <message>
+        <source>按 Shift+Tab 换个文件夹，Tab 切换范围</source>
+        <translation>Shift+Tab for another folder, Tab to switch scope</translation>
+    </message>
+    <message>
+        <source>按 Shift+Tab 只搜某个文件夹，Tab 切换范围</source>
+        <translation>Shift+Tab to search one folder only, Tab to switch scope</translation>
     </message>
     <message>
         <source>按 Tab 回到文件名搜索</source>
@@ -2539,8 +2559,8 @@
         <translation>Notes the text in files in the background, which makes searches much faster. NTFS disks only; takes about 100–200 MB</translation>
     </message>
     <message>
-        <source>在搜索框按 Tab 切换“全部”“文件”“内容”；在“文件”里 Tab 切换文件类型，Shift+Tab 切换范围。</source>
-        <translation>Press Tab in the search box to switch between All, Files and Content; in Files, Tab switches the type of file and Shift+Tab the scope.</translation>
+        <source>在搜索框按 Tab 切换“全部”“文件”“内容”；Shift+Tab 在“文件”里切换文件类型，在“内容”里切换文件夹。</source>
+        <translation>Press Tab in the search box to switch between All, Files and Content; Shift+Tab switches the type of file in Files, the folder in Content.</translation>
     </message>
     <message>
         <source>在搜索框的“更多”菜单里添加</source>
@@ -2814,6 +2834,10 @@
     <message>
         <source>添加或修改类型</source>
         <translation>Add or change types</translation>
+    </message>
+    <message>
+        <source>收藏常搜的文件夹，它们会出现在这里</source>
+        <translation>Add the folders you search often to Favorites: they show up here</translation>
     </message>
 </context>
 <context>
@@ -3993,6 +4017,10 @@
         <translation>Search files and folders</translation>
     </message>
     <message>
+        <source>搜索 %1 里的文字</source>
+        <translation>Search text in %1</translation>
+    </message>
+    <message>
         <source>搜索 %1 等文件中的文字</source>
         <translation>Search %1 files…</translation>
     </message>
@@ -4178,6 +4206,10 @@
         <translation>Waiting for %1…</translation>
     </message>
     <message>
+        <source>在此文件夹中搜内容</source>
+        <translation>Search contents in this folder</translation>
+    </message>
+    <message>
         <source>%1：%2</source>
         <translation>%1: %2</translation>
     </message>
@@ -4227,6 +4259,78 @@
     <message>
         <source>进入文件夹</source>
         <translation>Go into folder</translation>
+    </message>
+    <message>
+        <source>名字是 %1 的文件夹</source>
+        <translation>Folders named %1</translation>
+    </message>
+    <message>
+        <source>%1 不在索引里</source>
+        <translation>%1 is not in the index</translation>
+    </message>
+    <message>
+        <source>这个文件夹不存在、被排除在索引之外，或在没有收录的磁盘上</source>
+        <translation>This folder does not exist, is excluded from the index, or is on a drive that is not indexed</translation>
+    </message>
+    <message>
+        <source>%1 在网络共享上</source>
+        <translation>%1 is on a network share</translation>
+    </message>
+    <message>
+        <source>网络共享上的文件不搜内容</source>
+        <translation>Contents of files on network shares are not searched</translation>
+    </message>
+    <message numerus="yes">
+        <source>名字含 %1 的 %Ln 个文件夹</source>
+        <translation>
+            <numerusform>%Ln folder with %1 in its name</numerusform>
+            <numerusform>%Ln folders with %1 in their names</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>所有 %1 · %Ln</source>
+        <translation>
+            <numerusform>All %1 · %Ln</numerusform>
+            <numerusform>All %1 · %Ln</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>没有名字正好是 %1 的文件夹，这些名字里含有它</source>
+        <translation>No folder is named exactly %1; these have it in their names</translation>
+    </message>
+    <message numerus="yes">
+        <source>在名字是 %1 的 %Ln 个文件夹里都搜（下面列出前 %2 个）</source>
+        <translation>
+            <numerusform>Searches the %Ln folder named %1 (the first %2 listed)</numerusform>
+            <numerusform>Searches all %Ln folders named %1 (the first %2 listed)</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>在名字是 %1 的 %Ln 个文件夹里都搜</source>
+        <translation>
+            <numerusform>Searches the %Ln folder named %1</numerusform>
+            <numerusform>Searches all %Ln folders named %1</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>不限</source>
+        <translation>Any</translation>
+    </message>
+    <message>
+        <source>在所有文件里搜</source>
+        <translation>Search all files</translation>
+    </message>
+    <message>
+        <source>Shift+Tab 选其中一个</source>
+        <translation>Shift+Tab to pick one</translation>
+    </message>
+    <message>
+        <source>没有叫 %1 的文件夹，当作文字搜</source>
+        <translation>No folder named %1: searched as text</translation>
+    </message>
+    <message>
+        <source>或在词后加“文件夹名/”</source>
+        <translation>or add “folder/” after the words</translation>
     </message>
     <message>
         <source>“%1” 已不存在；右键可从收藏夹移除</source>
