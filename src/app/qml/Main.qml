@@ -69,9 +69,42 @@ Window {
     // What was typed, on one line to show it (with a line break in it, it
     // would spread over the window).
     readonly property string shownQuery: trimmedQuery.replace(/\s+/g, " ")
-    // After the list area has closed (see settleRows), not while it is held open.
-    readonly property bool showEmptyState: trimmedQuery.length > 0 && list.count === 0 && !launcher.searching
-                                           && shownRows === 0
+    // After the list area has closed (see settleRows), not while it is held
+    // open. Set in settleEmpty, with what it says (emptyShown*): it stays as
+    // it is while the next search runs, as the rows do (Launcher.stale), and
+    // goes when that one has rows or has found nothing too. Taken away as the
+    // search started (Tab from 内容 back to 全部), the window shrank to the
+    // search box and grew again for the rows a frame later.
+    property bool showEmptyState: false
+    property string emptyShownTitle
+    property string emptyShownHint
+    property var emptyShownHints: []
+    property bool dimEmpty: false // held long enough to notice (as dimRows): it is the last query's
+    function settleEmpty() {
+        if (trimmedQuery.length > 0 && list.count === 0 && !launcher.searching && shownRows === 0) {
+            emptyShownTitle = emptyTitle
+            emptyShownHint = emptyHint
+            emptyShownHints = hints
+            showEmptyState = true
+            emptyDimDelay.stop()
+            dimEmpty = false
+        } else if (showEmptyState && trimmedQuery.length > 0 && list.count === 0 && launcher.searching) {
+            if (!dimEmpty && !emptyDimDelay.running)
+                emptyDimDelay.start()
+        } else {
+            showEmptyState = false
+            emptyDimDelay.stop()
+            dimEmpty = false
+        }
+    }
+    Timer {
+        id: emptyDimDelay
+        interval: 250 // as dimDelay
+        onTriggered: window.dimEmpty = true
+    }
+    onTrimmedQueryChanged: Qt.callLater(settleRows)
+    onEmptyTitleChanged: Qt.callLater(settleRows)
+    onEmptyHintChanged: Qt.callLater(settleRows)
 
     // What the search behind the rows passed over (Launcher.leftOutHints:
     // files over the size limit, system folders, other kinds of text, a USB
@@ -105,6 +138,7 @@ Window {
             launcher.searchLeftOut(hints[index].kind)
     }
     onHintsChanged: {
+        Qt.callLater(settleRows) // what the empty state lists
         // Changed under the keyboard (one taken up: it alone, running; done:
         // the rest, or none): the hint in the same place, or, none left, the
         // first row the one taken up brought in (they go after the last
@@ -189,7 +223,7 @@ Window {
             font.pixelSize: Theme.uiBody
         }
         Repeater { // what the search passed over, each with its action (as after the last row; ↓ ↑ and Enter too)
-            model: window.hints
+            model: window.emptyShownHints
 
             delegate: Item {
                 id: emptyHint
@@ -253,11 +287,15 @@ Window {
         } else if (!shrinkGrace.running) {
             shrinkGrace.start()
         }
+        settleEmpty() // in the same go: no frame with both the rows and the empty state
     }
     Timer {
         id: shrinkGrace
         interval: 2000 // a content scan's first matches often take over a second
-        onTriggered: window.shownRows = Math.min(window.launcher.results.count, window.fitRows)
+        onTriggered: {
+            window.shownRows = Math.min(window.launcher.results.count, window.fitRows)
+            window.settleEmpty()
+        }
     }
     onFitRowsChanged: { // the window was put somewhere else
         shownRows = Math.min(shownRows, fitRows) // no room for them: at once
@@ -947,8 +985,9 @@ Window {
                 anchors.centerIn: parent
                 width: parent.width - 80
                 visible: window.fullHeight && window.showEmptyState
-                title: window.emptyTitle
-                hint: window.emptyHint
+                title: window.emptyShownTitle
+                hint: window.emptyShownHint
+                opacity: window.dimEmpty ? 0.45 : 1
             }
 
             Text { // at full height, nothing typed and nothing opened yet (under the apps, if any)
@@ -973,8 +1012,9 @@ Window {
                 id: emptyBelow
                 anchors.centerIn: parent
                 width: parent.width - 80
-                title: window.emptyTitle
-                hint: window.emptyHint
+                title: window.emptyShownTitle
+                hint: window.emptyShownHint
+                opacity: window.dimEmpty ? 0.45 : 1
             }
         }
 

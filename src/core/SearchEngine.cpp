@@ -1826,7 +1826,8 @@ void SearchEngine::runContentSearch(const Job& job)
 
         // The first matches go out once they fill the window or 50 ms have
         // passed (a new query's rows replace the last one's with them: one
-        // row alone would flash), the rest every 100 ms.
+        // row alone would flash), or, later than that, as soon as there is
+        // one (not at the next 100 ms tick); the rest every 100 ms.
         const auto start = std::chrono::steady_clock::now();
         bool first = true;
         for (;;) {
@@ -1840,7 +1841,7 @@ void SearchEngine::runContentSearch(const Job& job)
                     std::lock_guard batchLock(batchMutex);
                     ready = static_cast<std::size_t>(batch.size());
                 }
-                if (ready < kFirstContentBatch && std::chrono::steady_clock::now() - start < 50ms)
+                if (ready == 0 || (ready < kFirstContentBatch && std::chrono::steady_clock::now() - start < 50ms))
                     continue;
                 first = false;
             }

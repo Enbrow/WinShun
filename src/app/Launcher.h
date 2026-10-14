@@ -579,6 +579,7 @@ private:
     QString m_status;
     QString m_flash;
     QTimer m_contentDebounce;
+    bool m_contentAtOnce = false; // search(): the text is the one shown, no pause in typing to wait for
     QTimer m_flashTimer;
     QTimer m_statusPoll;
     // A new query's rows a while in coming: the status says so, not the last

@@ -835,6 +835,9 @@ void Launcher::search(bool more)
         && (m_scope != Content || (m_contentFolder == m_shownContentFolder && pickKey(m_contentPick) == m_shownPick))
         && (!text.isEmpty() || m_startList == m_shownStartList);
     m_replacePending = !m_refresh;
+    // The text is the one shown (another scope, order, kind of file): nobody
+    // is typing, so a content scan starts at once, without waiting for a pause.
+    m_contentAtOnce = m_refresh || text == m_shownText;
     // A page more of what is listed, or (anything else asking again) the
     // pages there are; a new list starts with one.
     m_loadingMore = more && m_refresh;
@@ -898,6 +901,8 @@ void Launcher::search(bool more)
                 }
             }
             startContentSearch(); // at once: nobody is typing
+        } else if (m_contentAtOnce) {
+            startContentSearch(); // switched to 内容 with the text as it was
         } else {
             m_contentDebounce.start();
         }
@@ -1102,7 +1107,7 @@ void Launcher::onResults(quint64 id, const SearchResults& results, qint64 total,
     // and the name search must finish first. Before the rows change, so the
     // view knows more are on the way and does not shrink in between.
     if (m_withContent) {
-        if (m_refresh)
+        if (m_refresh || m_contentAtOnce)
             startContentSearch();
         else
             m_contentDebounce.start();
