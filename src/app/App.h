@@ -63,6 +63,9 @@ class ToolHost;
 struct Policy;
 struct Services;
 }
+namespace ntfs {
+class ServiceVolumeAccess;
+}
 namespace plugin {
 class AiBridge;
 class Host;
@@ -79,6 +82,7 @@ public:
         bool background = false; // start in the tray without showing the window
         QString query;
         bool settings = false; // open the settings window
+        QString settingsAt; // there (SettingsWindow.showPlace), after a restart from the settings
     };
 
     App();
@@ -98,8 +102,13 @@ public:
     void showSettings();
     void showUpdate(); // the settings window with the update dialog
     // Set by "重新启动" in the tray menu or the settings window: the command
-    // line for the new copy, which main() starts once this one has let go.
+    // line for the new copy, which main() starts once this one has let go,
+    // and what it runs with: as this one, as administrator (UAC asks once:
+    // the 管理员直读 mode chosen, GitHub #21), or with the user's normal
+    // rights (that mode left while running elevated).
+    enum class Elevation { Same, Elevated, Unelevated };
     std::optional<QStringList> restartArguments() const { return m_restartArguments; }
+    Elevation restartElevation() const { return m_restartElevation; }
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -180,7 +189,21 @@ private:
     void reloadSettings();
     void settingsEdited(const Settings& settings);
     void showTrayMenu();
-    void restart(const QStringList& arguments);
+    void restart(const QStringList& arguments, Elevation elevation = Elevation::Same);
+    // 索引方式 (Settings::indexAccess, GitHub #21): where the volumes are
+    // read from, the index service looked for again while it is wanted and
+    // not there, the autostart task's run level kept with the mode.
+    void applyAutostartLevel(); // at start: the task's run level follows the mode (and an old elevated task sets the mode, portable)
+    // Rewrites the task (`task`: whether it runs Win顺 elevated, as read)
+    // when that is not the mode's level, where this process may.
+    void reconcileAutostart(const std::optional<bool>& task);
+    void applyIndexAccess(); // the setting changed: restart with other rights, or switch in place
+    void startServiceRetry(); // every 2 s for 30 s after start, then every 5 min
+    void probeService(); // on a thread of its own; serviceProbed() on the GUI thread
+    void serviceProbed(std::shared_ptr<ntfs::ServiceVolumeAccess> service, bool reached);
+    void refreshIndexAccess(); // shown in the settings window
+    QString serviceProblem() const; // why the index service is not in use, for the user
+    void installIndexService(bool install); // WinShunService.exe --install / --uninstall, elevated (a portable copy)
     void applyTheme();
     void applyAppearance(); // the chosen theme and language
     QString trayTooltip() const;
@@ -226,6 +249,17 @@ private:
     std::unique_ptr<History> m_history;
     std::unique_ptr<Favorites> m_favorites; // the launcher's and the dialog bar's
     std::unique_ptr<IndexService> m_index;
+    // The index service (GitHub #21): wanted by the mode, so looked for
+    // while not in use; the probe's thread goes before the index does.
+    bool m_serviceWanted = false;
+    QString m_serviceWhy; // why the last look found it unusable (English, from the pipe client)
+    QTimer m_serviceRetry;
+    QElapsedTimer m_serviceRetrySince; // the 30 s of frequent tries after start
+    std::atomic<bool> m_serviceProbing {false};
+    std::jthread m_serviceProbe;
+    bool m_accessTakenFromTask = false; // the mode was taken over from an old elevated task: said in the settings
+    QString m_serviceMessage; // ... and how installing or uninstalling the service went
+    bool m_serviceBusy = false; // WinShunService.exe --install / --uninstall running
     QString m_indexDir; // where the index files are, '/' separated
     QString m_indexFolder; // the [Index] Folder setting m_indexDir stands for
     QString m_indexMoveFolder; // ... and the one being moved to
@@ -334,6 +368,7 @@ private:
     QString m_language; // resolved: zh or en
     QTranslator m_translator; // English; the source strings are Chinese
     std::optional<QStringList> m_restartArguments;
+    Elevation m_restartElevation = Elevation::Same;
 
     QFileSystemWatcher m_settingsWatcher;
     QTimer m_settingsReload;

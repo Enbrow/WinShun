@@ -131,7 +131,7 @@ struct IndexService::Followed {
     std::int64_t usn = 0; // the next record to read
     std::shared_ptr<FileIndex> index;
     std::shared_ptr<const Crawler> crawler; // the applier's rules
-    std::unique_ptr<ntfs::JournalReader> reader;
+    std::unique_ptr<ntfs::JournalSource> reader;
     std::unique_ptr<UsnApplier> applier;
     std::vector<ntfs::UsnRecord> records; // of the last read
     bool reading = false;
@@ -143,6 +143,7 @@ IndexService::IndexService(QString folder, Options options, QObject* parent)
     , m_options(std::move(options))
     , m_folder(QDir::cleanPath(QDir::fromNativeSeparators(folder)))
 {
+    m_access.store(m_options.volumeAccess ? m_options.volumeAccess : std::make_shared<ntfs::DirectVolumeAccess>());
     m_crawler.store(std::make_shared<const Crawler>(m_options.rules));
     m_index.store(std::make_shared<FileIndex>());
     m_content = std::make_shared<ContentIndex>(indexfolder::contentPath(m_folder));
@@ -203,6 +204,9 @@ std::size_t IndexService::itemCount() const
 
 void IndexService::start()
 {
+    // Set once: a pass cut short and planned again (a drive plugged in, the
+    // settings edited) waits only for what is left of the time.
+    m_accessDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(m_options.accessWaitMs);
     launch(Pass::Startup);
     m_shares->start();
     m_saveTimer.start();
@@ -248,6 +252,26 @@ void IndexService::setOptions(Options options)
     launch(Pass::Volumes);
 }
 
+void IndexService::setVolumeAccess(std::shared_ptr<ntfs::VolumeAccess> access)
+{
+    if (m_stopped || !access)
+        return;
+    {
+        // Under the mutex, or the worker could look (nothing yet) and then
+        // block just as this is stored and told.
+        const std::lock_guard lock(m_accessMutex);
+        m_access.store(std::move(access));
+    }
+    m_accessCv.notify_all();
+    // A worker waiting in awaitAccess() goes on with it, its pass intact. Any
+    // other is in a pass planned without it: planned again. (The worker
+    // clears the flag before it loads the access, and the store came before
+    // this look: whichever way they interleave, the new access is used, or
+    // the pass is relaunched.)
+    if (!m_accessAwaited.load())
+        launch(Pass::Volumes);
+}
+
 void IndexService::suspendVolume(const std::wstring& root)
 {
     if (m_stopped)
@@ -260,10 +284,11 @@ void IndexService::suspendVolume(const std::wstring& root)
     }
     // The worker may hold the volume's MFT or change journal open, the
     // watcher its root folder, the content indexer a file: all let go
-    // before this returns.
+    // before this returns. What the index service opened for us, too.
     stopWorker();
     ensureWatcher();
     m_contentIndexer->interrupt();
+    m_access.load()->closeVolume(root);
     m_volumesTimer.start(); // the other volumes carry on in a moment
 }
 
@@ -444,6 +469,19 @@ void IndexService::run(std::stop_token stop, Pass pass)
             snapshotRules = std::move(contents->rules);
             timesMissing = !contents->times;
             setState(State::Ready);
+            // The volumes and their journal positions are known from here
+            // on. A pass launched before this one is through (a drive
+            // plugged in, the settings edited, the index service
+            // connecting; see awaitAccess) plans from them: planned from
+            // nothing, it would take every root for a drive that is gone.
+            // (timesMissing is not kept: such a snapshot is from before
+            // 0.5, and a pass cut short reads the times the next time the
+            // MFT is read.)
+            std::lock_guard lock(m_journalMutex);
+            m_volumes = volumes;
+            m_journals = journals;
+            if (snapshotRules && !(*snapshotRules == crawler->rules()) && !m_rulesBefore)
+                m_rulesBefore = *snapshotRules; // the rules were edited while we were not running
         } else {
             m_content->restore({}, 0); // clears out segment files nothing refers to
             setState(State::Building);
@@ -463,16 +501,23 @@ void IndexService::run(std::stop_token stop, Pass pass)
         dropStaleRoots(*index, volumes, known);
     }
 
+    // With no way to the journals yet, the index service may be on its way
+    // (Options::accessWaitMs): waited for, so that no volume loses its place.
+    awaitAccess(stop, volumes, journals, known);
+    if (stop.stop_requested())
+        return; // planned again by whoever stopped us, from what is stored
+
     // NTFS volumes follow their change journal from where the index left
     // off. When the journal no longer reaches back that far, the MFT is read
     // again; the journal then replays what changed during the read.
     std::vector<std::size_t> toSync;
     std::vector<std::size_t> walkLater;
     std::vector<std::optional<ntfs::JournalInfo>> journalInfo(volumes.size());
+    const std::shared_ptr<ntfs::VolumeAccess> access = m_access.load();
     for (std::size_t i = 0; i < volumes.size(); ++i) {
         if (isSuspended(volumes[i]))
             continue;
-        journalInfo[i] = volumes[i].ntfs ? ntfs::queryJournal(volumes[i].root) : std::nullopt;
+        journalInfo[i] = volumes[i].ntfs ? access->queryJournal(volumes[i].root, volumes[i].serial) : std::nullopt;
         if (const auto& journal = journalInfo[i]) {
             const JournalPosition& p = journals[i];
             const bool current = known[i] && p.journalId == journal->id && p.usn >= journal->firstUsn
@@ -486,20 +531,25 @@ void IndexService::run(std::stop_token stop, Pass pass)
                 toSync.push_back(i); // the journal then goes on from where the snapshot left off
             }
         } else {
+            // Followed through its journal until now (the snapshot's position,
+            // with no way to the journal any more): what changed since is in
+            // no position of ours, so it is walked whatever the rescan
+            // setting (which is about the disks that have no journal) says.
+            const bool wasFollowed = known[i] && journals[i].journalId != 0;
             journals[i] = {};
             const bool walkNow = !known[i] || pass == Pass::Full || pass == Pass::Walked || timesMissing
                 || contains(rewalk, volumes[i].root);
             if (walkNow)
                 toSync.push_back(i);
-            else if (pass == Pass::Startup && m_options.rescanOnStartup)
+            else if (pass == Pass::Startup && (m_options.rescanOnStartup || wasFollowed))
                 walkLater.push_back(i); // let login settle first
         }
     }
     bool listChanged = false;
     {
         std::lock_guard lock(m_journalMutex);
-        listChanged = m_volumes.size() != volumes.size()
-            || !std::equal(m_volumes.begin(), m_volumes.end(), volumes.begin(),
+        listChanged = previous.size() != volumes.size()
+            || !std::equal(previous.begin(), previous.end(), volumes.begin(),
                 [](const VolumeInfo& a, const VolumeInfo& b) { return a.root == b.root; });
         m_volumes = volumes;
         m_journals = journals;
@@ -513,8 +563,6 @@ void IndexService::run(std::stop_token stop, Pass pass)
         std::erase_if(m_rewalk, [&](const std::wstring& root) {
             return std::none_of(volumes.begin(), volumes.end(), [&](const VolumeInfo& v) { return v.root == root; });
         });
-        if (snapshotRules && !(*snapshotRules == crawler->rules()) && !m_rulesBefore)
-            m_rulesBefore = std::move(snapshotRules); // the rules were edited while we were not running
         if (pass == Pass::Full)
             m_rulesBefore.reset(); // every volume is read with the current rules
     }
@@ -585,6 +633,23 @@ void IndexService::run(std::stop_token stop, Pass pass)
             startFollowing(i); // replays the changes made while the MFT was read
     }
     followJournals(stop, followed, std::move(walkLater));
+}
+
+void IndexService::awaitAccess(std::stop_token stop, const std::vector<VolumeInfo>& volumes,
+    const std::vector<JournalPosition>& journals, const std::vector<bool>& known)
+{
+    const auto readsJournals = [this] { return m_access.load()->kind() != ntfs::VolumeAccess::Kind::None; };
+    if (readsJournals() || std::chrono::steady_clock::now() >= m_accessDeadline)
+        return;
+    bool atStake = false; // a volume followed so far, which a pass without the journals would walk
+    for (std::size_t i = 0; i < volumes.size() && !atStake; ++i)
+        atStake = known[i] && volumes[i].ntfs && journals[i].journalId != 0;
+    if (!atStake)
+        return;
+    std::unique_lock lock(m_accessMutex);
+    m_accessAwaited = true;
+    m_accessCv.wait_until(lock, stop, m_accessDeadline, readsJournals);
+    m_accessAwaited = false; // before the access is loaded (setVolumeAccess relies on that order)
 }
 
 IndexService::RuleChange IndexService::applyRuleChanges(
@@ -798,10 +863,12 @@ bool IndexService::syncFromMft(
     if (lowPriority)
         ::SetThreadPriority(::GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
     MftTree tree;
-    std::wstring error;
-    const bool read = tree.read(volume.root, *index, stop, &error, [&](std::uint64_t done, std::uint64_t total) {
-        setReadingPercent(volume.root, total > 0 ? static_cast<int>(std::min(done, total) * 100 / total) : -1);
-    });
+    std::wstring error = L"no way to the MFT";
+    const std::unique_ptr<ntfs::RecordSource> source = m_access.load()->openMft(volume.root, volume.serial, lowPriority);
+    const bool read = source
+        && tree.read(*source, *index, stop, &error, [&](std::uint64_t done, std::uint64_t total) {
+               setReadingPercent(volume.root, total > 0 ? static_cast<int>(std::min(done, total) * 100 / total) : -1);
+           });
     setReadingPercent(volume.root, -1); // the index is built from it now
     if (lowPriority)
         ::SetThreadPriority(::GetCurrentThread(), THREAD_MODE_BACKGROUND_END);
@@ -830,10 +897,10 @@ std::unique_ptr<IndexService::Followed> IndexService::follow(std::size_t volume)
     f->usn = position.usn;
     f->index = m_index.load();
     f->crawler = crawler();
-    f->reader = std::make_unique<ntfs::JournalReader>(v.root, position.journalId);
+    f->reader = m_access.load()->openJournal(v.root, v.serial, position.journalId);
     f->applier = std::make_unique<UsnApplier>(*f->index, *f->crawler, toUtf8(v.root),
         [content = m_content](std::span<const EntryId> written) { content->markChanged(written); });
-    return f->reader->valid() ? std::move(f) : nullptr;
+    return f->reader && f->reader->valid() ? std::move(f) : nullptr;
 }
 
 // Applies the read started on f. False when the journal lost track of the
@@ -882,7 +949,7 @@ void IndexService::recover(std::unique_ptr<Followed>& f, std::stop_token stop)
     }
     if (!driveLetterExists(v.root))
         return; // pulled out without ejecting: refreshVolumes() drops it
-    const auto journal = ntfs::queryJournal(v.root);
+    const auto journal = m_access.load()->queryJournal(v.root, v.serial);
     {
         std::lock_guard lock(m_journalMutex);
         m_journals[volume] = journal ? JournalPosition {journal->id, journal->nextUsn} : JournalPosition {};

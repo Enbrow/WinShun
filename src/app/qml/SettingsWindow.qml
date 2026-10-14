@@ -290,6 +290,18 @@ Window {
     function showClipboardPage() { showPage(clipboardPage) } // App::showClipboardSettings
     function showWebPage() { showPage(webPage) } // App::showWebSettings
     function showFileTypesPage() { goTo(fileTypesRow) } // App::showFileTypeSettings: the launcher strip's +
+    // Win顺 restarted from here (App::restart, --settings-at): back where it
+    // was, "page,tab"; after 索引方式 changed the rights it runs with, that row.
+    function place() { return currentPage + "," + currentTab }
+    function showPlace(where) {
+        if (where === "indexAccess") {
+            goTo(indexAccessRow)
+            return
+        }
+        const at = String(where).split(",").map(Number)
+        if (at.length === 2 && at.every(Number.isInteger) && at[0] >= 0 && at[0] < pageTabs.length)
+            showPage(at[0], at[1])
+    }
     function showFavoritesPage(path) { // App::showFavoriteSettings: that favorite's form open
         showPage(favoritesPage)
         favoritesSection.edit(path)
@@ -1651,6 +1663,105 @@ Window {
                     ToggleSwitch {
                         checked: window.editor.rescanOnStartup
                         onToggled: (on) => window.editor.rescanOnStartup = on
+                    }
+                }
+
+                SettingRow {
+                    id: indexAccessRow
+
+                    // How NTFS disks are read (GitHub #21): the choices, 管理员直读
+                    // only on an administrator's account (it means nothing elsewhere).
+                    readonly property var modes: window.editor.isAdministrator
+                                                 ? ["auto", "service", "direct", "walk"]
+                                                 : ["auto", "service", "walk"]
+                    readonly property var modeLabels: ({
+                        "auto": qsTr("自动（推荐）"),
+                        "service": qsTr("索引服务"),
+                        "direct": qsTr("管理员直读"),
+                        "walk": qsTr("遍历")
+                    })
+                    readonly property string chosen: window.editor.indexAccess
+
+                    title: qsTr("索引方式")
+                    keywords: qsTr("索引服务;管理员;权限;UAC;MFT;主文件表;遍历;服务;index service;administrator").split(";")
+                    description: {
+                        let what
+                        switch (chosen) {
+                        case "service":
+                            what = qsTr("通过索引服务读取磁盘的主文件表和变更日志，Win顺 以普通权限运行")
+                            break
+                        case "direct":
+                            what = qsTr("Win顺 以管理员身份运行，自己读取主文件表和变更日志；开机自启也以管理员身份")
+                            break
+                        case "walk":
+                            what = qsTr("不需要任何权限，逐个文件夹遍历，建索引慢一些")
+                            break
+                        default:
+                            what = qsTr("以管理员身份运行时直接读取，否则通过索引服务；没有服务就遍历文件夹")
+                        }
+                        return what + "\n" + window.editor.indexAccessStatus
+                    }
+
+                    FlatButton {
+                        // 管理员直读 asked for while running with normal rights, or a
+                        // portable copy wanting the MFT read this once: UAC asks once.
+                        visible: window.editor.isAdministrator && !window.editor.isElevated
+                                 && (window.editor.isPortable || indexAccessRow.chosen === "direct")
+                        text: qsTr("以管理员身份重新启动")
+                        onClicked: window.editor.restartAsAdministrator()
+                    }
+
+                    body: [
+                        ScopeTabs {
+                            labels: indexAccessRow.modes.map(mode => indexAccessRow.modeLabels[mode])
+                            current: Math.max(0, indexAccessRow.modes.indexOf(indexAccessRow.chosen))
+                            onActivated: (index) => window.editor.indexAccess = indexAccessRow.modes[index]
+                        },
+                        Text { // worth reading, nothing wrong
+                            visible: window.editor.indexAccessNote.length > 0
+                            width: parent.width
+                            text: window.editor.indexAccessNote
+                            textFormat: Text.PlainText
+                            color: Theme.subtext
+                            font.pixelSize: Theme.fontCaption
+                            wrapMode: Text.Wrap
+                        }
+                    ]
+                }
+
+                SettingRow {
+                    id: indexServiceRow
+
+                    // A portable copy has no installer to register the service:
+                    // done from here, as administrator (UAC asks once).
+                    shown: window.editor.isPortable
+                    title: qsTr("便携版的索引服务")
+                    keywords: qsTr("便携;安装服务;卸载服务;索引服务;portable;service").split(";")
+                    description: window.editor.indexServiceInstalled
+                                 ? qsTr("已安装 Windows 服务“Win顺 索引服务”，它替普通权限的 Win顺 读取主文件表")
+                                 : qsTr("安装一个 Windows 服务，替普通权限的 Win顺 读取主文件表，建索引快得多；需要管理员权限一次")
+                    bodyShown: window.editor.indexServiceMessage.length > 0
+
+                    FlatButton {
+                        visible: !window.editor.indexServiceInstalled
+                        text: qsTr("安装索引服务…")
+                        enabled: !window.editor.indexServiceBusy
+                        onClicked: window.editor.installIndexService()
+                    }
+                    FlatButton {
+                        visible: window.editor.indexServiceInstalled
+                        text: qsTr("卸载索引服务")
+                        enabled: !window.editor.indexServiceBusy
+                        onClicked: window.editor.uninstallIndexService()
+                    }
+
+                    body: Text {
+                        width: parent.width
+                        text: window.editor.indexServiceMessage
+                        textFormat: Text.PlainText
+                        color: Theme.subtext
+                        font.pixelSize: Theme.fontCaption
+                        wrapMode: Text.Wrap
                     }
                 }
             }

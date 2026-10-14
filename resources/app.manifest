@@ -21,10 +21,12 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
-        <!-- Always elevated, so indexing can use admin-only NTFS APIs (MFT,
-             change journal). Files opened from the launcher still start with
-             normal user rights, through Explorer (see shell::open). -->
-        <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
+        <!-- The user's normal rights (GitHub #21). The administrator-only
+             NTFS reads (MFT, change journal) are done by the index service,
+             WinShunService.exe (src/service), over a pipe; without it the
+             volumes are walked. Started elevated (the "管理员直读" mode's
+             logon task, "run as administrator"), it reads them itself. -->
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
       </requestedPrivileges>
     </security>
   </trustInfo>

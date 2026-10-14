@@ -182,10 +182,14 @@
 
 系统要求：Windows 10 或 11，64 位。
 
-### 为什么需要管理员权限
+### 管理员权限
 
-- **为什么要**：读 NTFS 主文件表（MFT）和 USN 变更日志，才能几秒建好索引、实时跟上改动。开机自启用的是最高权限的计划任务，所以开机不弹 UAC。
-- **打开的东西仍是普通权限**：从 Win顺 打开的文件和应用都以普通权限运行，只有 `Ctrl+Shift+Enter` 才以管理员身份运行。
+- **平时不用**：Win顺 以普通权限运行。安装版带一个很小的“Win顺 索引服务”，由它读 NTFS 主文件表（MFT）和 USN 变更日志，所以照样几秒建好索引、实时跟上改动。安装时要管理员同意一次，之后登录和打开都不弹 UAC。
+- **能看到哪些文件**：和 Everything 一样，索引里有整块盘的文件名，包括这台电脑上其他用户的；没有权限的文件照样打不开。
+- **便携版**：默认一个个文件夹走一遍来建索引，第一次慢一些，之后实时跟上改动。在设置 → 索引方式里可以装上索引服务，或以管理员身份重新启动。
+- **管理员直读**：管理员账户可以在设置 → 索引方式里选“管理员直读”，像旧版一样整个程序以管理员身份运行、直接读盘。
+- **以管理员身份运行的程序**：Windows 不让普通权限的程序往它们里面打字。往这样的窗口里粘贴时，Win顺 只复制，提示你按 `Ctrl+V`；对话框旁的搜索框也不出现在这些程序上。
+- **打开的东西是普通权限**：从 Win顺 打开的文件和应用都以普通权限运行，只有 `Ctrl+Shift+Enter` 才以管理员身份运行。
 
 ### 常见问题
 
@@ -196,7 +200,7 @@ Win顺 自己建索引，不用装 Everything。文件名、拼音、应用和�
 Listary、PowerToys 的“查找鼠标”默认也用双击 Ctrl，关掉其中一边就行。也可以在 Win顺 里改用别的组合键。游戏全屏、藏起鼠标时，Win顺 默认不响应双击 Ctrl。
 
 **AutoHotkey 改的键在 Win顺 里不起作用？**
-Win顺 以管理员身份运行，Windows 不让普通权限的程序拦截发给它的按键。用 AutoHotkey 的 UI Access 模式，或以管理员身份运行脚本。
+选了“管理员直读”时，Win顺 以管理员身份运行，Windows 不让普通权限的程序拦截发给它的按键。换回别的索引方式，或用 AutoHotkey 的 UI Access 模式、以管理员身份运行脚本。
 
 **占多少内存？索引能不放 C 盘吗？**
 - **内存**：每 100 万个文件约 30 MB，用着的时候整个程序一般 120～140 MB；不用它一分钟后，任务管理器里降到十几 MB。
@@ -305,9 +309,13 @@ To skip the installer, download `WinShun-<version>-x64-portable.zip`, unzip it a
 
 Requires Windows 10 or 11, 64-bit.
 
-### Why administrator rights
+### Administrator rights
 
-- **Why**: reading the NTFS master file table (MFT) and change journal (USN) indexes millions of files in seconds and follows changes live. A scheduled task with highest privileges starts it at login without a UAC prompt.
+- **Not needed day to day**: WinShun runs with your normal rights. The installed version comes with a small “WinShun Index Service” that reads the NTFS master file table (MFT) and change journal (USN) for it, so millions of files are still indexed in seconds and changes followed live. An administrator approves the install once; after that there is no UAC prompt at login or when you open it.
+- **Which files you see**: as with Everything, the index holds the file names of whole drives, other users' on this PC included; files you have no rights to still won't open.
+- **Portable version**: by default it walks the folders one by one, so the first index is slower; changes are followed live after that. Settings → Index access can install the index service or restart it as administrator.
+- **Direct as administrator**: on an administrator account, Settings → Index access → “Direct (administrator)” runs the whole app as administrator and reads the drives itself, as earlier versions did.
+- **Programs running as administrator**: Windows doesn't let normal-rights programs type into them. Pasting into such a window only copies, and WinShun tells you to press `Ctrl+V`; the search bar beside file dialogs doesn't appear on them either.
 - **What you open is not elevated**: files and apps you open from WinShun run with your normal rights; only `Ctrl+Shift+Enter` runs one as administrator.
 
 ### FAQ
@@ -319,7 +327,7 @@ WinShun builds its own index, so Everything is not needed. File names, pinyin, a
 Listary and PowerToys' Find My Mouse use it too: turn it off on one side, or give WinShun another shortcut. Full-screen games and games that hide the mouse are ignored by default.
 
 **AutoHotkey remaps don't work in WinShun?**
-WinShun runs as administrator, and Windows keeps normal-rights programs from intercepting keys sent to it. Run the script with UI Access, or as administrator.
+With “Direct (administrator)” chosen, WinShun runs as administrator, and Windows keeps normal-rights programs from intercepting keys sent to it. Pick another index access, or run the script with UI Access or as administrator.
 
 **Memory? Index location?**
 - **Memory**: about 30 MB of index per million files; the whole app is usually 120–140 MB while in use, and drops to about 15 MB in Task Manager a minute after you stop using it.

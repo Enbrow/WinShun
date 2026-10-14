@@ -50,6 +50,12 @@ struct PlaceInfo {
 
 using PlaceList = std::vector<PlaceInfo>;
 
+// The user is an administrator, even when Win顺 runs with the user's normal
+// rights: an elevated token, a split one (UAC's filtered half), or a full
+// one in the Administrators group (UAC off). Decides whether "run as
+// administrator" means anything here (the 管理员直读 mode, GitHub #21).
+bool userIsAdministrator();
+
 // "winshun-place:<key>": stands for a place in History.
 QString placePath(const QString& key);
 bool isPlacePath(QStringView path) noexcept;

@@ -50,6 +50,22 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QStringList fileManagers READ fileManagers NOTIFY fileManagersChanged FINAL)
     Q_PROPERTY(bool includeRemovableDrives READ includeRemovableDrives WRITE setIncludeRemovableDrives NOTIFY changed FINAL)
     Q_PROPERTY(bool rescanOnStartup READ rescanOnStartup WRITE setRescanOnStartup NOTIFY changed FINAL)
+    // 索引方式 (Settings::indexAccess, GitHub #21): auto | service | direct |
+    // walk, and, as the app has it (setIndexAccessState): the way in use
+    // (direct | service | walk) and what it says, notes worth reading, what
+    // this copy and account can offer (direct wants an administrator; the
+    // service's install buttons are a portable copy's), and how installing
+    // or uninstalling the service goes.
+    Q_PROPERTY(QString indexAccess READ indexAccess WRITE setIndexAccess NOTIFY changed FINAL)
+    Q_PROPERTY(QString indexAccessEffective READ indexAccessEffective NOTIFY indexAccessStateChanged FINAL)
+    Q_PROPERTY(QString indexAccessStatus READ indexAccessStatus NOTIFY indexAccessStateChanged FINAL)
+    Q_PROPERTY(QString indexAccessNote READ indexAccessNote NOTIFY indexAccessStateChanged FINAL)
+    Q_PROPERTY(bool isAdministrator READ isAdministrator NOTIFY indexAccessStateChanged FINAL)
+    Q_PROPERTY(bool isElevated READ isElevated NOTIFY indexAccessStateChanged FINAL)
+    Q_PROPERTY(bool isPortable READ isPortable NOTIFY indexAccessStateChanged FINAL)
+    Q_PROPERTY(bool indexServiceInstalled READ indexServiceInstalled NOTIFY indexAccessStateChanged FINAL)
+    Q_PROPERTY(bool indexServiceBusy READ indexServiceBusy NOTIFY indexAccessStateChanged FINAL)
+    Q_PROPERTY(QString indexServiceMessage READ indexServiceMessage NOTIFY indexAccessStateChanged FINAL)
     Q_PROPERTY(QStringList excludedPaths READ excludedPaths NOTIFY changed FINAL) // expanded, for display
     Q_PROPERTY(QStringList excludedNames READ excludedNames NOTIFY changed FINAL)
     Q_PROPERTY(bool contentSearch READ contentSearch WRITE setContentSearch NOTIFY changed FINAL)
@@ -205,6 +221,35 @@ public:
     void setIncludeRemovableDrives(bool on);
     bool rescanOnStartup() const { return m_settings.rescanOnStartup; }
     void setRescanOnStartup(bool on);
+    QString indexAccess() const { return m_settings.indexAccess; }
+    void setIndexAccess(const QString& mode); // "auto", "service", "direct" (administrators only), "walk"
+    struct IndexAccessState {
+        QString effective; // direct | service | walk: the way in use
+        QString status; // what is in use, or why not what was asked for, said for the user
+        QString note; // worth reading: the mode taken from an old task, the task's level not the mode's ...
+        bool elevated = false; // Win顺 runs as administrator now
+        bool administrator = false; // the account is an administrator's (direct means something)
+        bool portable = false; // a portable copy: the service is installed from here
+        bool serviceInstalled = false;
+        bool serviceBusy = false; // --install / --uninstall running
+        QString serviceMessage; // how the last install or uninstall went
+        bool operator==(const IndexAccessState&) const = default;
+    };
+    void setIndexAccessState(const IndexAccessState& state); // set by the app
+    QString indexAccessEffective() const { return m_indexAccessState.effective; }
+    QString indexAccessStatus() const { return m_indexAccessState.status; }
+    QString indexAccessNote() const { return m_indexAccessState.note; }
+    bool isAdministrator() const { return m_indexAccessState.administrator; }
+    bool isElevated() const { return m_indexAccessState.elevated; }
+    bool isPortable() const { return m_indexAccessState.portable; }
+    bool indexServiceInstalled() const { return m_indexAccessState.serviceInstalled; }
+    bool indexServiceBusy() const { return m_indexAccessState.serviceBusy; }
+    QString indexServiceMessage() const { return m_indexAccessState.serviceMessage; }
+    // The app restarts Win顺 as administrator (UAC asks once), installs or
+    // uninstalls the index service (WinShunService.exe, elevated, UAC once).
+    Q_INVOKABLE void restartAsAdministrator() { emit elevatedRestartRequested(); }
+    Q_INVOKABLE void installIndexService() { emit indexServiceInstallRequested(true); }
+    Q_INVOKABLE void uninstallIndexService() { emit indexServiceInstallRequested(false); }
     QStringList excludedPaths() const;
     QStringList excludedNames() const { return m_settings.excludedNames; }
     bool contentSearch() const { return m_settings.contentSearch; }
@@ -474,6 +519,9 @@ signals:
     void mcpStatusChanged();
     void mcpClientsChanged();
     void mcpMessageChanged();
+    void indexAccessStateChanged();
+    void elevatedRestartRequested();
+    void indexServiceInstallRequested(bool install); // false: uninstall
 
 private:
     friend class PluginSettings; // edits m_settings' plugin sections and commits
@@ -491,6 +539,7 @@ private:
     int m_siteIconsArrived = 0;
     QString m_contentIndexStatus;
     IndexFolderState m_indexFolderState;
+    IndexAccessState m_indexAccessState;
     QStringList m_fileManagers {QStringLiteral("explorer")};
     bool m_recordingHotkey = false;
     QString m_winVState = QStringLiteral("off");

@@ -27,6 +27,7 @@
 #include "SystemCatalog.h"
 #include "TextUtil.h"
 #include "Unc.h"
+#include "VolumeProtocol.h"
 #include "WebShortcut.h"
 #include "Win32Util.h"
 #include "Writer.h"
@@ -2228,6 +2229,257 @@ private slots:
         buffer.resize(buffer.size() - 4); // the last record cut short
         records.clear();
         QCOMPARE(ntfs::parseUsnRecords(buffer, records), std::int64_t {-1});
+    }
+
+    // The index service's wire format (VolumeProtocol.h): each payload comes
+    // back as it went; one cut short, or with a name running past its end,
+    // or a root that is no drive, is refused; a frame too long is refused
+    // by its header alone; bytes a later version adds at the end are left alone.
+    void volumeProtocol()
+    {
+        using namespace volproto;
+        const auto payloadOf = [](std::span<const std::byte> frame) { return frame.subspan(Writer::kHeaderBytes); };
+        const auto header = [](std::span<const std::byte> frame, Type& type, std::uint32_t& length) {
+            return parseHeader(frame.first<8>(), type, length);
+        };
+        Type type {};
+        std::uint32_t length = 0;
+
+        Hello hello;
+        hello.minor = 7;
+        hello.version[0] = 1;
+        hello.version[1] = 2;
+        hello.version[2] = 3;
+        hello.pid = 4242;
+        Writer w;
+        encode(w, hello);
+        std::span<const std::byte> frame = w.finish(Type::Hello);
+        QVERIFY(header(frame, type, length));
+        QCOMPARE(type, Type::Hello);
+        QCOMPARE(std::size_t {length}, frame.size() - Writer::kHeaderBytes);
+        Hello back;
+        QVERIFY(decode(payloadOf(frame), back));
+        QCOMPARE(back.major, kMajor);
+        QCOMPARE(back.minor, std::uint16_t {7});
+        QCOMPARE(back.version[2], std::uint16_t {3});
+        QCOMPARE(back.pid, std::uint32_t {4242});
+        QVERIFY(!decode(payloadOf(frame).first(payloadOf(frame).size() - 1), back)); // cut short
+        std::vector<std::byte> longer(payloadOf(frame).begin(), payloadOf(frame).end());
+        longer.push_back(std::byte {0x99});
+        QVERIFY(decode(longer, back)); // a later minor's field: ignored
+
+        w.reset();
+        encode(w, OpenMft {L"d:", 0xCAFEBABE, true});
+        frame = w.finish(Type::OpenMft);
+        OpenMft open;
+        QVERIFY(header(frame, type, length) && type == Type::OpenMft);
+        QVERIFY(decode(payloadOf(frame), open));
+        QCOMPARE(open.root, std::wstring(L"d:"));
+        QCOMPARE(open.serial, std::uint32_t {0xCAFEBABE});
+        QVERIFY(open.lowPriority);
+        for (const wchar_t* bad : {L"D:\\", L"DD", L"", L"\\\\?\\D:", L"1:"}) {
+            w.reset();
+            encode(w, OpenMft {bad, 0, false});
+            QVERIFY2(!decode(payloadOf(w.finish(Type::OpenMft)), open), qPrintable(QString::fromWCharArray(bad)));
+        }
+        // A name whose length runs past the payload.
+        w.reset();
+        w.u16(2);
+        w.u16(u'D');
+        QVERIFY(!decode(payloadOf(w.finish(Type::OpenMft)), open));
+        // A frame longer than any read: refused by the header.
+        w.reset();
+        w.u32(0);
+        frame = w.finish(Type::OpenMft);
+        std::vector<std::byte> tooLong(frame.begin(), frame.end());
+        const std::uint32_t huge = kMaxPayloadBytes + 1;
+        std::memcpy(tooLong.data(), &huge, 4);
+        QVERIFY(!header(tooLong, type, length));
+
+        w.reset();
+        encode(w, MftInfo {{4096, 65536, 4096}, 123456789, 123456789ull * 4096});
+        MftInfo info;
+        QVERIFY(decode(payloadOf(w.finish(Type::MftInfo)), info));
+        QCOMPARE(info.geometry.sectorSize, 4096u);
+        QCOMPARE(info.geometry.clusterSize, 65536u);
+        QCOMPARE(info.geometry.recordSize, 4096u);
+        QCOMPARE(info.recordCount, std::uint64_t {123456789});
+        QCOMPARE(info.validBytes, 123456789ull * 4096);
+
+        w.reset();
+        encode(w, MftDone {1, L"reading the MFT failed, error 1117"});
+        MftDone done;
+        QVERIFY(decode(payloadOf(w.finish(Type::MftDone)), done));
+        QCOMPARE(done.status, 1u);
+        QCOMPARE(done.error, std::wstring(L"reading the MFT failed, error 1117"));
+
+        w.reset();
+        encode(w, QueryJournal {L"E:", 77});
+        QueryJournal query;
+        QVERIFY(decode(payloadOf(w.finish(Type::QueryJournal)), query));
+        QCOMPARE(query.root, std::wstring(L"E:"));
+        QCOMPARE(query.serial, 77u);
+
+        w.reset();
+        encode(w, ntfs::JournalInfo {0x0123456789ABCDEFull, -5, 1ll << 40});
+        ntfs::JournalInfo journal;
+        QVERIFY(decode(payloadOf(w.finish(Type::JournalInfo)), journal));
+        QCOMPARE(journal.id, 0x0123456789ABCDEFull);
+        QCOMPARE(journal.firstUsn, std::int64_t {-5});
+        QCOMPARE(journal.nextUsn, std::int64_t {1} << 40);
+
+        w.reset();
+        encode(w, FollowJournal {L"C:", 1, 2});
+        FollowJournal follow;
+        QVERIFY(decode(payloadOf(w.finish(Type::FollowJournal)), follow));
+        QCOMPARE(follow.root, std::wstring(L"C:"));
+        QCOMPARE(follow.serial, 1u);
+        QCOMPARE(follow.journalId, std::uint64_t {2});
+
+        w.reset();
+        encode(w, Read {-1, true});
+        Read read;
+        QVERIFY(decode(payloadOf(w.finish(Type::Read)), read));
+        QCOMPARE(read.usn, std::int64_t {-1});
+        QVERIFY(read.wait);
+
+        w.reset();
+        encode(w, JournalLost {1181});
+        JournalLost lost;
+        QVERIFY(decode(payloadOf(w.finish(Type::JournalLost)), lost));
+        QCOMPARE(lost.error, 1181u);
+
+        w.reset();
+        encode(w, CloseVolume {L"F:"});
+        CloseVolume close;
+        QVERIFY(decode(payloadOf(w.finish(Type::CloseVolume)), close));
+        QCOMPARE(close.root, std::wstring(L"F:"));
+
+        w.reset();
+        encode(w, Closed {3});
+        Closed closed;
+        QVERIFY(decode(payloadOf(w.finish(Type::Closed)), closed));
+        QCOMPARE(closed.closed, 3u);
+
+        w.reset();
+        encode(w, Error {5, L"拒绝访问"});
+        Error error;
+        QVERIFY(decode(payloadOf(w.finish(Type::Error)), error));
+        QCOMPARE(error.code, 5u);
+        QCOMPARE(error.message, std::wstring(L"拒绝访问"));
+
+        w.reset();
+        encode(w, HelloRefused {static_cast<std::uint32_t>(Refusal::TooManyConnections)});
+        HelloRefused refused;
+        QVERIFY(decode(payloadOf(w.finish(Type::HelloRefused)), refused));
+        QCOMPARE(refused.reason, 2u);
+
+        w.reset();
+        HelloOk ok;
+        ok.capabilities = 0x80000001;
+        encode(w, ok);
+        HelloOk okBack;
+        QVERIFY(decode(payloadOf(w.finish(Type::HelloOk)), okBack));
+        QCOMPARE(okBack.capabilities, 0x80000001u);
+        QVERIFY(decode({}, okBack) == false);
+    }
+
+    // An MFT block as the service streams it: records parsed from the
+    // builder's bytes, written, read back the same, record by record; a
+    // free record, one that is no record, an extension record. Then the
+    // block mangled every way a bad service could: refused whole.
+    void volumeProtocolBlock()
+    {
+        using namespace volproto;
+        RecordBuilder b(0x0003); // in use, folder
+        b.standardInformation(FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_ARCHIVE);
+        b.fileName(0x0002'0000'0000'04D2ull, u"Long name 中文", 1);
+        const std::u16string longName(255, u'x');
+        b.fileName(0x0001'0000'0000'0309ull, longName, 0);
+        // Each record's bytes stay: the parsed names point into them.
+        std::vector<std::byte> folderBytes = b.finish();
+        ntfs::FileRecord folder;
+        QVERIFY(ntfs::parseFileRecord(folderBytes.data(), folderBytes.size(), folder));
+        RecordBuilder unused(0x0000);
+        unused.fileName(5, u"deleted.txt", 1);
+        std::vector<std::byte> freeBytes = unused.finish();
+        ntfs::FileRecord free;
+        QVERIFY(ntfs::parseFileRecord(freeBytes.data(), freeBytes.size(), free));
+        RecordBuilder extension(0x0001, 0x0003'0000'0000'002Aull);
+        extension.fileName(5, u"link.txt", 0);
+        std::vector<std::byte> extBytes = extension.finish();
+        ntfs::FileRecord ext;
+        QVERIFY(ntfs::parseFileRecord(extBytes.data(), extBytes.size(), ext));
+
+        BlockWriter bw;
+        bw.begin(1000);
+        bw.add(folder, true);
+        bw.add(free, true);
+        bw.add(folder, false); // garbage on the volume
+        bw.add(ext, true);
+        QCOMPARE(bw.count(), 4u);
+        const std::span<const std::byte> frame = bw.finish(12345);
+        Type type {};
+        std::uint32_t length = 0;
+        QVERIFY(parseHeader(frame.first<8>(), type, length));
+        QCOMPARE(type, Type::MftBlock);
+        const std::vector<std::byte> payload(frame.begin() + Writer::kHeaderBytes, frame.end());
+        QCOMPARE(std::size_t {length}, payload.size());
+
+        BlockReader br;
+        QVERIFY(br.load(std::vector<std::byte>(payload)));
+        QCOMPARE(br.firstRecord(), 1000u);
+        QCOMPARE(br.count(), 4u);
+        QCOMPARE(br.bytesDone(), std::uint64_t {12345});
+        ntfs::FileRecord out;
+        QVERIFY(br.record(0, out));
+        QVERIFY(out.inUse && out.directory && !out.hasAttributeList);
+        QCOMPARE(out.baseRecord, 0u);
+        QCOMPARE(out.attributes, std::uint32_t {FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_ARCHIVE});
+        QCOMPARE(out.modified, folder.modified);
+        QCOMPARE(out.names.size(), std::size_t {2});
+        QCOMPARE(out.names[0].parent, 0x0002'0000'0000'04D2ull);
+        QCOMPARE(std::u16string(out.names[0].name), std::u16string(u"Long name 中文"));
+        QCOMPARE(std::u16string(out.names[1].name), longName);
+        QVERIFY(br.record(1, out));
+        QVERIFY(!out.inUse && out.names.empty());
+        QVERIFY(!br.record(2, out));
+        QVERIFY(br.record(3, out));
+        QVERIFY(out.inUse);
+        QCOMPARE(out.baseRecord, 42u);
+        QCOMPARE(out.names.size(), std::size_t {1});
+        QCOMPARE(std::u16string(out.names[0].name), std::u16string(u"link.txt"));
+        QVERIFY(!br.record(4, out)); // past the end
+
+        // Mangled: each refused whole, and the reader keeps nothing.
+        const auto refused = [&](std::vector<std::byte> bad, const char* what) {
+            BlockReader r;
+            QVERIFY2(!r.load(std::move(bad)), what);
+            QCOMPARE(r.count(), 0u);
+        };
+        std::vector<std::byte> bad = payload;
+        put<std::uint32_t>(bad, 4, 5); // one record more than there is
+        refused(bad, "count past the end");
+        bad = payload;
+        bad.pop_back(); // the last name cut short
+        refused(bad, "cut short");
+        bad = payload;
+        bad.push_back(std::byte {0}); // a byte after the last record
+        refused(bad, "trailing bytes");
+        bad = payload;
+        bad[16] = std::byte {3}; // a record kind that does not exist
+        refused(bad, "unknown kind");
+        bad = payload;
+        bad[16 + 1 + 4 + 4 + 8 + 1] = std::byte {5}; // the folder says five names, has two
+        refused(bad, "names past the end");
+        bad = payload;
+        put<std::uint16_t>(bad, 16 + 1 + 4 + 4 + 8 + 1 + 1 + 8, 0); // an empty name
+        refused(bad, "empty name");
+        refused({}, "nothing at all");
+        bad.assign(16, std::byte {0}); // an empty block is fine
+        BlockReader empty;
+        QVERIFY(empty.load(std::move(bad)));
+        QCOMPARE(empty.count(), 0u);
     }
 
     void usnApply()

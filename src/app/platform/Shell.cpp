@@ -1,10 +1,12 @@
 #include "Shell.h"
 
 #include "FileManagers.h"
+#include "Integrity.h"
 #include "SystemCatalog.h"
 #include "Win32Util.h"
 
 #include <QClipboard>
+#include <QDebug>
 #include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -237,11 +239,21 @@ bool executeWithShellToken(const std::wstring& file, const std::wstring& args, c
     return startWithShellToken(std::move(command), dir).valid();
 }
 
-// Starts `file` with the user's normal rights, never elevated: through
-// Explorer, else with the desktop shell's token, waiting a few seconds for
-// a shell while Explorer restarts. False when neither works.
+// Starts `file` with the user's normal rights, never elevated. Win顺 not
+// elevated: ShellExecute, as any program. Elevated: through Explorer, else
+// with the desktop shell's token, waiting a few seconds for a shell while
+// Explorer restarts. False when neither works.
 bool executeUnelevated(const std::wstring& file, const std::wstring& args, const std::wstring& dir)
 {
+    if (!integrity::processElevated()) {
+        SHELLEXECUTEINFOW sei {sizeof(SHELLEXECUTEINFOW)};
+        sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_LOG_USAGE;
+        sei.lpFile = file.c_str();
+        sei.lpParameters = args.empty() ? nullptr : args.c_str();
+        sei.lpDirectory = dir.empty() ? nullptr : dir.c_str();
+        sei.nShow = SW_SHOWNORMAL;
+        return ::ShellExecuteExW(&sei);
+    }
     for (int attempt = 0; attempt < 10; ++attempt) {
         if (attempt > 0)
             ::Sleep(300);
@@ -251,15 +263,25 @@ bool executeUnelevated(const std::wstring& file, const std::wstring& args, const
     return false;
 }
 
-bool executeAsAdministrator(const std::wstring& file, const std::wstring& dir)
+// Starts `file` as administrator: UAC asks, unless Win顺 is elevated already.
+// `process`, when wanted, gets a handle to wait on (null if the shell made
+// no process of its own for it). False when it did not start: the prompt
+// declined (ERROR_CANCELLED), or the file missing.
+bool executeAsAdministrator(
+    const std::wstring& file, const std::wstring& args, const std::wstring& dir, win32::UniqueHandle* process = nullptr)
 {
     SHELLEXECUTEINFOW sei {sizeof(SHELLEXECUTEINFOW)};
-    sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_LOG_USAGE;
+    sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_LOG_USAGE | (process ? SEE_MASK_NOCLOSEPROCESS : 0);
     sei.lpVerb = L"runas";
     sei.lpFile = file.c_str();
+    sei.lpParameters = args.empty() ? nullptr : args.c_str();
     sei.lpDirectory = dir.empty() ? nullptr : dir.c_str();
     sei.nShow = SW_SHOWNORMAL;
-    return ::ShellExecuteExW(&sei);
+    if (!::ShellExecuteExW(&sei))
+        return false;
+    if (process)
+        *process = win32::UniqueHandle(sei.hProcess);
+    return true;
 }
 
 } // namespace
@@ -276,7 +298,7 @@ void open(const QString& path, bool asAdministrator, std::function<void(bool)> d
         = info.isDir() && !asAdministrator ? g_fileManager.load() : filemanager::Kind::Explorer;
     runOnShellThread([file = native.toStdWString(), dir = workDir.toStdWString(), asAdministrator, manager,
                          done = std::move(done)] {
-        const bool ok = asAdministrator ? executeAsAdministrator(file, dir)
+        const bool ok = asAdministrator ? executeAsAdministrator(file, {}, dir)
             : (manager != filemanager::Kind::Explorer && filemanager::openFolder(manager, file))
                 || executeUnelevated(file, {}, dir);
         if (done)
@@ -332,9 +354,33 @@ void launchApp(const QString& launchPath, bool asAdministrator, std::function<vo
     runOnShellThread([target = launchPath.toStdWString(), asAdministrator, done = std::move(done)] {
         // Store apps refuse to start from an elevated process; Explorer can
         // start them. "runas" is the app's own verb, as in the Start menu.
-        const bool ok = asAdministrator ? executeAsAdministrator(target, {}) : executeUnelevated(target, {}, {});
+        const bool ok = asAdministrator ? executeAsAdministrator(target, {}, {}) : executeUnelevated(target, {}, {});
         if (done)
             done(ok);
+    });
+}
+
+bool startElevated(const std::wstring& program, const std::wstring& args, const std::wstring& cwd)
+{
+    return executeAsAdministrator(program, args, cwd);
+}
+
+void runElevated(const std::wstring& program, const std::wstring& args,
+    std::function<void(std::optional<unsigned long>)> done)
+{
+    runOnShellThread([program, args, done = std::move(done)] {
+        win32::UniqueHandle process;
+        std::optional<unsigned long> code;
+        if (executeAsAdministrator(program, args, {}, &process)) {
+            DWORD exitCode = 0;
+            // Long enough for the user to answer UAC and the service to start.
+            if (process.valid() && ::WaitForSingleObject(process.get(), 120'000) == WAIT_OBJECT_0
+                && ::GetExitCodeProcess(process.get(), &exitCode))
+                code = exitCode;
+            else
+                code = static_cast<unsigned long>(-1); // still running, or no process to wait on
+        }
+        done(code);
     });
 }
 
@@ -425,7 +471,17 @@ win32::UniqueHandle startUnelevated(const std::wstring& program, const std::wstr
     std::wstring command = L'"' + program + L'"';
     if (!args.empty())
         command += L' ' + args;
-    return startWithShellToken(std::move(command), cwd);
+    if (integrity::processElevated())
+        return startWithShellToken(std::move(command), cwd);
+    // Not elevated: our own rights are the user's (CreateProcessWithTokenW
+    // needs a privilege only administrators have, error 1314).
+    STARTUPINFOW startup {sizeof(STARTUPINFOW)};
+    PROCESS_INFORMATION started {};
+    if (!::CreateProcessW(program.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr,
+            cwd.empty() ? nullptr : cwd.c_str(), &startup, &started))
+        return {};
+    ::CloseHandle(started.hThread);
+    return win32::UniqueHandle(started.hProcess);
 }
 
 void recycle(const QStringList& paths, HWND owner, std::function<void(bool)> done)
@@ -648,10 +704,12 @@ namespace autostart {
 
 namespace {
 
-// Windows skips Run-key entries of programs that need elevation, so autostart
-// is a logon task that runs with highest privileges (no UAC prompt). Older
-// versions, still called QuickFind, used a Run-key value and later a logon
-// task of that name; migrateFromQuickFind() moves either over.
+// Autostart is a logon task: it can start Win顺 elevated without a UAC
+// prompt (the 管理员直读 mode, GitHub #21; Windows skips Run-key entries of
+// programs that need elevation), and the taskbar button and the MCP relay
+// start Win顺 by running it. Older versions, still called QuickFind, used a
+// Run-key value and later a logon task of that name; migrateFromQuickFind()
+// moves either over.
 constexpr auto kRunKey = "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 constexpr wchar_t kTaskName[] = L"WinShun";
 constexpr wchar_t kOldTaskName[] = L"QuickFind";
@@ -694,8 +752,15 @@ void removeRunKey()
     run.remove(QStringView(kOldRunValue).toString());
 }
 
-// The program the autostart task starts; nothing without an enabled task.
-std::optional<std::wstring> taskPath()
+// The autostart task as registered: the program it starts, and whether it
+// starts it elevated. Nothing without an enabled task (or one that cannot
+// be read: another user's, registered by the installer of old).
+struct Task {
+    std::wstring path;
+    bool elevated = false;
+};
+
+std::optional<Task> readTask()
 {
     const ComScope com;
     ComPtr<ITaskService> service;
@@ -706,18 +771,33 @@ std::optional<std::wstring> taskPath()
     ComPtr<IActionCollection> actions;
     ComPtr<IAction> action;
     ComPtr<IExecAction> exec;
+    ComPtr<IPrincipal> principal;
+    TASK_RUNLEVEL_TYPE level = TASK_RUNLEVEL_LUA;
     Bstr path;
     if (!folder || FAILED(folder->GetTask(Bstr(kTaskName), &task)) || FAILED(task->get_Enabled(&enabled)) || !enabled
         || FAILED(task->get_Definition(&definition)) || FAILED(definition->get_Actions(&actions))
         || FAILED(actions->get_Item(1, &action)) || FAILED(action.As(&exec)) || FAILED(exec->get_Path(path.out())) || !path)
         return std::nullopt;
-    return std::wstring(path);
+    if (SUCCEEDED(definition->get_Principal(&principal)) && principal)
+        principal->get_RunLevel(&level);
+    return Task {std::wstring(path), level == TASK_RUNLEVEL_HIGHEST};
+}
+
+std::optional<std::wstring> taskPath()
+{
+    const std::optional<Task> task = readTask();
+    return task ? std::optional(task->path) : std::nullopt;
 }
 
 bool startsThisCopy(const std::optional<std::wstring>& path)
 {
     return path && ::_wcsicmp(path->c_str(), exePath().c_str()) == 0; // a copy elsewhere (another build) does not count
 }
+
+// What writeTask() puts for the run level (setElevated); the user's normal
+// rights until told otherwise, so that whatever runs before the settings
+// are read (migrateFromQuickFind) can write it.
+std::atomic<bool> g_elevated {false};
 
 // isEnabled() answers from here: asking Task Scheduler takes 30 ms or more
 // the first time (its client loads and connects), too long for the tray
@@ -765,6 +845,24 @@ void adoptIfOrphaned()
         g_enabled = startsThisCopy(path); // known from the start
 }
 
+void setElevated(bool elevated)
+{
+    g_elevated = elevated;
+}
+
+bool elevated()
+{
+    return g_elevated;
+}
+
+std::optional<bool> taskElevated()
+{
+    const std::optional<Task> task = readTask();
+    if (!task || !startsThisCopy(task->path))
+        return std::nullopt;
+    return task->elevated;
+}
+
 namespace {
 
 void writeTask(bool enabled)
@@ -781,6 +879,11 @@ void writeTask(bool enabled)
     }
 
     const std::wstring user = currentUser();
+    // Asked for by a process without administrator rights, the highest level
+    // would be refused outright: the task is written with normal rights
+    // instead, so that there is one, and the copy that runs elevated raises
+    // it when it next starts (App::reconcileAutostart).
+    const bool highest = g_elevated && integrity::processElevated();
     ComPtr<ITaskDefinition> definition;
     ComPtr<IPrincipal> principal;
     ComPtr<ITriggerCollection> triggers;
@@ -791,11 +894,12 @@ void writeTask(bool enabled)
     ComPtr<IExecAction> exec;
     if (FAILED(service->NewTask(0, &definition)) || FAILED(definition->get_Principal(&principal))
         || FAILED(principal->put_LogonType(TASK_LOGON_INTERACTIVE_TOKEN))
-        || FAILED(principal->put_RunLevel(TASK_RUNLEVEL_HIGHEST)) || FAILED(definition->get_Triggers(&triggers))
-        || FAILED(triggers->Create(TASK_TRIGGER_LOGON, &trigger)) || FAILED(trigger.As(&logon))
-        || FAILED(logon->put_UserId(Bstr(user.c_str()))) || FAILED(definition->get_Actions(&actions))
-        || FAILED(actions->Create(TASK_ACTION_EXEC, &action)) || FAILED(action.As(&exec))
-        || FAILED(exec->put_Path(Bstr(exePath().c_str()))) || FAILED(exec->put_Arguments(Bstr(L"--background"))))
+        || FAILED(principal->put_RunLevel(highest ? TASK_RUNLEVEL_HIGHEST : TASK_RUNLEVEL_LUA))
+        || FAILED(definition->get_Triggers(&triggers)) || FAILED(triggers->Create(TASK_TRIGGER_LOGON, &trigger))
+        || FAILED(trigger.As(&logon)) || FAILED(logon->put_UserId(Bstr(user.c_str())))
+        || FAILED(definition->get_Actions(&actions)) || FAILED(actions->Create(TASK_ACTION_EXEC, &action))
+        || FAILED(action.As(&exec)) || FAILED(exec->put_Path(Bstr(exePath().c_str())))
+        || FAILED(exec->put_Arguments(Bstr(L"--background"))))
         return;
     ComPtr<IRegistrationInfo> info;
     if (SUCCEEDED(definition->get_RegistrationInfo(&info)))
@@ -814,9 +918,14 @@ void writeTask(bool enabled)
     userId.bstrVal = ::SysAllocString(user.c_str());
     VARIANT none {};
     ComPtr<IRegisteredTask> registered;
-    folder->RegisterTaskDefinition(Bstr(kTaskName), definition.Get(), TASK_CREATE_OR_UPDATE, userId, none,
-        TASK_LOGON_INTERACTIVE_TOKEN, none, &registered);
+    const HRESULT hr = folder->RegisterTaskDefinition(Bstr(kTaskName), definition.Get(), TASK_CREATE_OR_UPDATE,
+        userId, none, TASK_LOGON_INTERACTIVE_TOKEN, none, &registered);
     ::VariantClear(&userId);
+    // Refused to a process that is not elevated when it asks for the highest
+    // level (E_ACCESSDENIED), and for a task another user registered.
+    if (FAILED(hr))
+        qWarning("WinShun: cannot register the autostart task (%s, 0x%08lx)", highest ? "elevated" : "normal rights",
+            static_cast<unsigned long>(hr));
 }
 
 } // namespace

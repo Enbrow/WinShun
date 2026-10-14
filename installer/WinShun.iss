@@ -35,8 +35,9 @@ VersionInfoProductName={#AppName} · WinShun
 VersionInfoDescription={#AppName} Setup
 VersionInfoCompany=LingCore
 
-; WinShun runs as administrator (it reads the NTFS master file table), so it
-; is installed for all users under Program Files.
+; Installed for all users under Program Files: the index service (which
+; reads the NTFS master file tables for WinShun, GitHub #21) is registered
+; once, by this installer; WinShun itself runs with the user's normal rights.
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -84,6 +85,9 @@ chinesesimplified.SearchShortcut=Win顺 搜索
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
+; Everything build.ps1 -Deploy put in dist\WinShun, the index service
+; WinShunService.exe (src/service) among them: it is stopped in
+; PrepareToInstall before the files are replaced, and registered again in [Run].
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
@@ -94,17 +98,28 @@ Name: "{autoprograms}\{cm:SearchShortcut}"; Filename: "{app}\WinShunSearch.exe";
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Run]
-; As the installer runs (elevated), so there is no UAC prompt.
-; An autostart set up earlier (a portable copy) now starts this copy.
-Filename: "{app}\{#AppExe}"; Parameters: "--take-autostart"; Flags: runhidden waituntilterminated runascurrentuser
+; The index service (GitHub #21): registered as the service "WinShun"
+; (LocalSystem, automatic start) and started, by the installer's own
+; (elevated) rights; installed again, it is pointed at the new files.
+Filename: "{app}\WinShunService.exe"; Parameters: "--install"; Flags: runhidden waituntilterminated runascurrentuser
+; WinShunTap.dll (the room right of Start) copied to {commonappdata}\WinShun\tap,
+; writable by administrators only: WinShun cannot do that with normal rights.
+Filename: "{app}\{#AppExe}"; Parameters: "--stage-tap"; Flags: runhidden waituntilterminated runascurrentuser
+; The rest as the user who started Setup, with normal rights (runasoriginaluser):
+; WinShun runs so, and its autostart task and settings are that user's, not
+; the administrator's who answered UAC for a standard user (GitHub #21).
+; An autostart set up earlier (a portable copy, the version before) now
+; starts this copy; PrepareToInstall removed this copy's old task, which
+; may have been that administrator's (--had-autostart: write one anyway).
+Filename: "{app}\{#AppExe}"; Parameters: "--take-autostart {code:TakeAutostartArgs}"; Flags: runhidden waituntilterminated runasoriginaluser
 ; Started at once, in the tray, while the last page is up: the first start of
 ; new files is slow (the antivirus reads each one: seconds, tens of them at
 ; times), and nothing would show for that long after Finish. Finish then has the running
 ; copy put up its search box, at once (the second start hands it "show"), or,
 ; unticked, has it quit (CurStepChanged). Not runhidden: a hidden start would
 ; hide the first window it shows later on.
-Filename: "{app}\{#AppExe}"; Parameters: "--background"; Flags: nowait runascurrentuser
-Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent runascurrentuser
+Filename: "{app}\{#AppExe}"; Parameters: "--background"; Flags: nowait runasoriginaluser
+Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [Code]
 const
@@ -165,27 +180,69 @@ begin
     Exec(ExpandConstant('{app}\{#AppExe}'), '--quit', '', SW_HIDE, ewNoWait, ResultCode);
 end;
 
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+// Stops the index service (the service "WinShun"), so that its file can be
+// replaced; waits up to 15 s for it to stop. [Run] starts it again from the
+// new files. Nothing to do when it is not installed (a first install).
+procedure StopIndexService();
+var
+  ResultCode, Waited: Integer;
 begin
-  // The installed copy if there is one; a portable copy is ended.
-  CloseWinShun(ExpandConstant('{app}\{#AppExe}'));
-  Result := '';
+  if not Exec(ExpandConstant('{sys}\sc.exe'), 'stop WinShun', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    exit;
+  if ResultCode <> 0 then
+    exit; // not installed (1060), or not running (1062)
+  Waited := 0;
+  while (Waited < 15000) and Exec(ExpandConstant('{cmd}'), '/C sc query WinShun | find "STOPPED"', '', SW_HIDE,
+          ewWaitUntilTerminated, ResultCode) and (ResultCode <> 0) do
+  begin
+    Sleep(500);
+    Waited := Waited + 500;
+  end;
 end;
 
 // Its autostart: the logon task WinShun creates itself. Only when it starts
-// this copy; a portable copy elsewhere keeps its own.
-procedure RemoveAutostart();
+// this copy; a portable copy elsewhere keeps its own. True when one went.
+function RemoveAutostart(): Boolean;
 var
   Listing: AnsiString;
   ListFile: String;
   ResultCode: Integer;
 begin
+  Result := False;
   ListFile := AddBackslash(GetTempDir()) + 'WinShun-task.txt';
   if Exec(ExpandConstant('{cmd}'), '/C schtasks /Query /TN WinShun /V /FO LIST > "' + ListFile + '"', '',
        SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) and LoadStringFromFile(ListFile, Listing) then
     if Pos(Lowercase(ExpandConstant('{app}\{#AppExe}')), Lowercase(String(Listing))) > 0 then
-      Exec(ExpandConstant('{sys}\schtasks.exe'), '/Delete /TN WinShun /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      Result := Exec(ExpandConstant('{sys}\schtasks.exe'), '/Delete /TN WinShun /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
+        and (ResultCode = 0);
   DeleteFile(ListFile);
+end;
+
+var
+  HadAutostart: Boolean;
+
+// For [Run]: --take-autostart writes the task whether or not one is left
+// when PrepareToInstall removed this copy's.
+function TakeAutostartArgs(Param: String): String;
+begin
+  if HadAutostart then
+    Result := '--had-autostart'
+  else
+    Result := '';
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  // The installed copy if there is one; a portable copy is ended.
+  CloseWinShun(ExpandConstant('{app}\{#AppExe}'));
+  StopIndexService();
+  // This copy's autostart task of old (GitHub #21): registered elevated by
+  // the version before, and by whoever answered UAC then, which for a
+  // standard user was an administrator, whose task that user can neither
+  // read nor replace. Removed here (elevated); [Run] has the user who
+  // started Setup write their own, with normal rights.
+  HadAutostart := RemoveAutostart();
+  Result := '';
 end;
 
 // Win+V back to Windows' clipboard history, and Win+S (with Win+Shift+S) to
@@ -258,11 +315,15 @@ begin
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
 begin
   // Once the user has confirmed, before the files go.
   if CurUninstallStep = usUninstall then
   begin
     CloseWinShun(ExpandConstant('{app}\{#AppExe}'));
+    // The index service: stopped and removed (while its file is still there).
+    Exec(ExpandConstant('{app}\WinShunService.exe'), '--uninstall', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     RemoveAutostart();
     GiveBackKey('Clipboard', 'WinV', 'V');
     GiveBackKey('Taskbar', 'WinS', 'S');

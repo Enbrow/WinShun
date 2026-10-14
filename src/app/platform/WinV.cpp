@@ -1,5 +1,6 @@
 #include "WinV.h"
 
+#include "Integrity.h"
 #include "Win32Util.h"
 
 #include <windows.h>
@@ -100,6 +101,16 @@ bool startShell(HANDLE token)
     const std::wstring exe = std::wstring(windows) + L"\\explorer.exe";
     PROCESS_INFORMATION started {};
     STARTUPINFOW startup {sizeof startup};
+    // Not elevated, our own rights are the user's (and CreateProcessWithTokenW
+    // is refused: it needs SeImpersonatePrivilege).
+    if (!integrity::processElevated()) {
+        std::wstring command = L"\"" + exe + L"\"";
+        if (!::CreateProcessW(exe.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr, windows, &startup, &started))
+            return false;
+        ::CloseHandle(started.hThread);
+        ::CloseHandle(started.hProcess);
+        return true;
+    }
     // Needs the Secondary Logon service, which can be turned off.
     if (token && ::CreateProcessWithTokenW(token, 0, exe.c_str(), nullptr, 0, nullptr, windows, &startup, &started)) {
         ::CloseHandle(started.hThread);

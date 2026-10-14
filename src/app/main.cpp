@@ -3,8 +3,10 @@
 #include "Migration.h"
 #include "Preview.h"
 #include "Settings.h"
+#include "SystemCatalog.h"
 #include "platform/MessageWindow.h"
 #include "platform/Shell.h"
+#include "platform/TaskbarStartGap.h"
 
 #include <QClipboard>
 #include <QCommandLineParser>
@@ -95,6 +97,43 @@ void applyUiFont()
     QGuiApplication::setFont(font);
 }
 
+// The arguments as one command line (CreateProcess, ShellExecute): quoted
+// where they have spaces (a --profile folder), quotes escaped.
+std::wstring commandLine(const QStringList& arguments)
+{
+    QString line;
+    for (const QString& argument : arguments) {
+        if (!line.isEmpty())
+            line += u' ';
+        if (argument.isEmpty() || argument.contains(u' ') || argument.contains(u'"') || argument.contains(u'\t'))
+            line += u'"' + QString(argument).replace(u'"', u"\\\""_s) + u'"';
+        else
+            line += argument;
+    }
+    return line.toStdWString();
+}
+
+// Starts the new copy once this one has let go (see main): as this one ran,
+// as administrator (UAC asks; declined, as this one ran, so that Win顺 is
+// back at all), or with the user's normal rights (through the desktop
+// shell's token while this one is elevated; without a shell, as this one
+// ran, and the log says so).
+void startAgain(const QStringList& arguments, ws::App::Elevation elevation)
+{
+    const QString exe = QCoreApplication::applicationFilePath();
+    const std::wstring program = QDir::toNativeSeparators(exe).toStdWString();
+    const std::wstring folder = QDir::toNativeSeparators(QCoreApplication::applicationDirPath()).toStdWString();
+    if (elevation == ws::App::Elevation::Elevated && ws::shell::startElevated(program, commandLine(arguments), folder))
+        return;
+    if (elevation == ws::App::Elevation::Unelevated) {
+        if (ws::shell::startUnelevated(program, commandLine(arguments), folder).valid())
+            return;
+        qWarning() << "Restart: no shell to start Win顺 with normal rights; started as before";
+    }
+    if (!QProcess::startDetached(exe, arguments))
+        qWarning() << "Restart: could not start" << exe;
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -115,6 +154,10 @@ int main(int argc, char* argv[])
         }
         ::LocalFree(wide);
     }
+    // --stage-tap: WinShunTap.dll put where Explorer may load it from, by the
+    // installer (elevated); nothing else is started (no Qt, no window).
+    if (wideArgs.contains(u"--stage-tap"_s))
+        return ws::taskbar::stageTap();
     // A portable copy: everything in the "data" folder beside the program.
     bool portable = false;
     if (ws::Settings::profile().isEmpty()) {
@@ -187,23 +230,45 @@ int main(int argc, char* argv[])
     const QCommandLineOption settings(u"settings"_s, u"Open the settings window."_s);
     const QCommandLineOption takeAutostart(u"take-autostart"_s,
         u"If WinShun starts at login, start this copy instead, then exit (run by the installer)."_s);
+    // With --take-autostart: the installer removed this copy's task (it may
+    // have been another user's: the administrator who answered UAC for a
+    // standard user's install), so one is written whether or not one is left.
+    QCommandLineOption hadAutostart(u"had-autostart"_s, u"With --take-autostart: there was an autostart task."_s);
+    hadAutostart.setFlags(QCommandLineOption::HiddenFromHelp);
+    // With --settings, after a restart from them: where they were (App::restart).
+    QCommandLineOption settingsAt(u"settings-at"_s, u"With --settings: open them there."_s, u"place"_s);
+    settingsAt.setFlags(QCommandLineOption::HiddenFromHelp);
     QCommandLineOption profile(u"profile"_s, u"Keep the settings and data in this folder."_s, u"folder"_s);
     profile.setFlags(QCommandLineOption::HiddenFromHelp); // read above
-    parser.addOptions({background, toggle, query, quit, settings, takeAutostart, profile});
+    parser.addOptions({background, toggle, query, quit, settings, settingsAt, takeAutostart, hadAutostart, profile});
     parser.process(app);
 
     // The installer, once it has installed this copy: an autostart set up by
-    // a portable copy now starts it. Through the Task Scheduler API like the
-    // switch in the app; schtasks /Change would ask for the user's password.
+    // a portable copy (or the version before) now starts it. Through the
+    // Task Scheduler API like the switch in the app; schtasks /Change would
+    // ask for the user's password. Run as the user who started Setup, with
+    // normal rights (GitHub #21): the task is theirs and runs Win顺 so (a
+    // process without administrator rights may not register a task that has
+    // them: writeTask). The 管理员直读 mode's elevated task is written again
+    // by the copy that runs as administrator, when it next starts.
     if (parser.isSet(takeAutostart)) {
-        if (ws::autostart::isSetUp())
+        if (ws::autostart::isSetUp() || parser.isSet(hadAutostart)) {
+            ws::Settings stored;
+            stored.load();
+            ws::autostart::setElevated(stored.indexAccess == u"direct" && ws::userIsAdministrator());
             ws::autostart::setEnabled(true);
+        }
         return 0;
     }
 
     // Single instance: hand the request to the copy that is already running.
+    // An elevated copy's opens to one that is not (measured 2026-10-14); should
+    // it ever be closed to it, access denied means one runs as well. The
+    // command gets through to an elevated copy too (MessageWindow lets
+    // WM_COPYDATA in).
     const HANDLE instanceMutex = ::CreateMutexW(nullptr, FALSE, L"Local\\WinShun.Instance");
-    if (instanceMutex && ::GetLastError() == ERROR_ALREADY_EXISTS) {
+    const DWORD mutexError = ::GetLastError();
+    if ((instanceMutex && mutexError == ERROR_ALREADY_EXISTS) || (!instanceMutex && mutexError == ERROR_ACCESS_DENIED)) {
         QString command = u"show"_s;
         if (parser.isSet(quit))
             command = u"quit"_s;
@@ -216,7 +281,8 @@ int main(int argc, char* argv[])
         else if (parser.isSet(background))
             return 0;
         ws::MessageWindow::sendToRunningInstance(command);
-        ::CloseHandle(instanceMutex);
+        if (instanceMutex)
+            ::CloseHandle(instanceMutex);
         return 0;
     }
     if (parser.isSet(quit))
@@ -230,23 +296,27 @@ int main(int argc, char* argv[])
 
     int code = 1;
     std::optional<QStringList> restart;
+    ws::App::Elevation elevation = ws::App::Elevation::Same;
     {
         ws::App application;
         ws::App::StartOptions options;
         options.background = parser.isSet(background);
         options.query = parser.value(query);
         options.settings = parser.isSet(settings);
+        options.settingsAt = parser.value(settingsAt);
         if (application.start(options))
             code = QGuiApplication::exec();
         restart = application.restartArguments();
+        elevation = application.restartElevation();
         if (restart && !ws::Settings::profile().isEmpty())
             *restart << u"--profile"_s << ws::Settings::profile();
     } // the index is saved here, while we still own the instance mutex
     if (instanceMutex)
         ::CloseHandle(instanceMutex);
     // Only now, or the new copy would find the mutex taken and just hand us a
-    // command. It inherits our elevation, so no UAC prompt.
-    if (restart && !QProcess::startDetached(QCoreApplication::applicationFilePath(), *restart))
-        qWarning() << "Restart: could not start" << QCoreApplication::applicationFilePath();
+    // command. It runs with whatever rights this one had (no UAC prompt),
+    // unless the 索引方式 setting asked for others (App::Elevation).
+    if (restart)
+        startAgain(*restart, elevation);
     return code;
 }

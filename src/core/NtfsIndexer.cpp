@@ -42,11 +42,10 @@ template <typename T> auto parentRange(const std::vector<T>& v, std::uint32_t pa
 // ---- MftTree ------------------------------------------------------------------
 
 bool MftTree::read(
-    std::wstring_view root, FileIndex& index, std::stop_token stop, std::wstring* error, const Progress& progress)
+    ntfs::RecordSource& reader, FileIndex& index, std::stop_token stop, std::wstring* error, const Progress& progress)
 {
     m_folders.clear();
     m_files.clear();
-    ntfs::MftReader reader(root);
     const auto failed = [&] {
         if (error)
             *error = reader.valid() ? L"stopped" : reader.error();

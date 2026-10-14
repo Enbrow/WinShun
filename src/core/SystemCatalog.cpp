@@ -29,6 +29,23 @@ using namespace Qt::StringLiterals;
 
 namespace ws {
 
+bool userIsAdministrator()
+{
+    HANDLE token = nullptr;
+    if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token))
+        return false;
+    const win32::UniqueHandle owned(token);
+    TOKEN_ELEVATION_TYPE type = TokenElevationTypeDefault;
+    DWORD size = 0;
+    if (::GetTokenInformation(token, TokenElevationType, &type, sizeof type, &size) && type != TokenElevationTypeDefault)
+        return true;
+    BYTE sid[SECURITY_MAX_SID_SIZE];
+    DWORD sidSize = sizeof sid;
+    BOOL member = FALSE;
+    return ::CreateWellKnownSid(WinBuiltinAdministratorsSid, nullptr, sid, &sidSize)
+        && ::CheckTokenMembership(nullptr, sid, &member) && member;
+}
+
 namespace {
 
 constexpr QStringView kPathPrefix = u"winshun-place:";
@@ -224,7 +241,7 @@ bool conditionHolds(const QString& condition)
         SYSTEM_POWER_STATUS power {};
         holds = ::GetSystemPowerStatus(&power) && power.BatteryFlag != 128 && power.BatteryFlag != 255; // has a battery
     } else if (test == u"IsUserAdmin") {
-        holds = true; // WinShun runs elevated: the user is an administrator
+        holds = userIsAdministrator();
     } else {
         return false; // offline files, IrDA, Mobility Center ...: mostly gone
     }

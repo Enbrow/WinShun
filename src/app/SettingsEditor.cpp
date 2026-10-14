@@ -350,6 +350,24 @@ void SettingsEditor::setRescanOnStartup(bool on)
     commit();
 }
 
+void SettingsEditor::setIndexAccess(const QString& mode)
+{
+    if (mode == m_settings.indexAccess || (mode != u"auto" && mode != u"service" && mode != u"direct" && mode != u"walk"))
+        return;
+    if (mode == u"direct" && !m_indexAccessState.administrator)
+        return; // not offered: the row leaves it out
+    m_settings.indexAccess = mode;
+    commit(); // the app restarts Win顺 with other rights, or switches in place (App::applyIndexAccess)
+}
+
+void SettingsEditor::setIndexAccessState(const IndexAccessState& state)
+{
+    if (m_indexAccessState == state)
+        return;
+    m_indexAccessState = state;
+    emit indexAccessStateChanged();
+}
+
 QStringList SettingsEditor::excludedPaths() const
 {
     QStringList paths;

@@ -116,6 +116,15 @@ struct Settings {
     QStringList excludedNames;
     bool includeRemovableDrives = false;
     bool rescanOnStartup = true;
+    // auto | service | direct | walk: where NTFS volumes are read from
+    // (GitHub #21; App::volumeAccessFor). auto: directly when running as
+    // administrator, else through the index service (WinShunService.exe)
+    // once it answers, else by walking the folders. direct (管理员直读) has
+    // Win顺 itself run as administrator: its logon task runs elevated and
+    // the setting restarts it so, which only means something on an
+    // administrator's account; service and walk never read the volumes
+    // themselves, and the task runs with the user's normal rights.
+    QString indexAccess = QStringLiteral("auto");
     // Where the index files (index.bin, content\) are kept, '/' separated;
     // %VARS% are expanded. Empty: dataDir(), the default.
     QString indexFolder;

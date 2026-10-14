@@ -30,6 +30,7 @@ qt_add_library(wscore STATIC
     Release.cpp Release.h
     SearchEngine.cpp SearchEngine.h
     SearchTypes.h
+    ServiceVolumeAccess.cpp ServiceVolumeAccess.h
     SettingsMatch.cpp SettingsMatch.h
     ShareIndexer.cpp ShareIndexer.h
     ShareLister.cpp ShareLister.h
@@ -37,6 +38,7 @@ qt_add_library(wscore STATIC
     SystemCatalog.cpp SystemCatalog.h
     TextUtil.cpp TextUtil.h
     Unc.cpp Unc.h
+    VolumeProtocol.cpp VolumeProtocol.h
     WebShortcut.cpp WebShortcut.h
     Win32Util.cpp Win32Util.h
     WorkerPool.cpp WorkerPool.h

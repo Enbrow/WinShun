@@ -4,6 +4,7 @@
 #include "FileIconProvider.h"
 #include "TextField.h"
 #include "platform/DragOut.h"
+#include "platform/Integrity.h"
 #include "platform/Paster.h"
 #include "platform/Shell.h"
 #include "platform/WindowEffects.h"
@@ -545,6 +546,13 @@ void Clipboard::onWritten(bool ok)
     if (!m_pasteWindow) {
         m_pasting = false;
         flash(tr("已复制。没有找到要粘贴进去的窗口，可以自己按 Ctrl+V"));
+        return;
+    }
+    // An elevated program while Win顺 is not: Windows drops the keys Win顺
+    // would press there (UIPI), SendInput says nothing. The user presses them.
+    if (integrity::higherThanOurs(m_pasteWindow)) {
+        m_pasting = false;
+        flash(tr("已复制。那个程序以管理员身份运行，Win顺 没法替它粘贴：回到它那里按 Ctrl+V"));
         return;
     }
     // Pinned, it stays up: a joined paste's picks go, the next click is one

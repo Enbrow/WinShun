@@ -1,5 +1,7 @@
 #include "TaskbarStartGap.h"
 
+#include "Integrity.h"
+
 #include <aclapi.h>
 #include <bcrypt.h>
 #include <sddl.h>
@@ -135,7 +137,10 @@ bool protect(const std::wstring& dir)
 // The DLL next to the exe, copied to %ProgramData%\WinShun\tap\<hash>\ (never
 // loaded from the install folder: the deploy script renames files there, and
 // Explorer would hold them). What is there already is trusted by its hash,
-// not by being there.
+// not by being there. Making the folder and securing it takes administrator
+// rights, which Win顺 no longer runs with (GitHub #21): the installer does
+// it, running `WinShun.exe --stage-tap` elevated (stageTap), as does a copy
+// that runs elevated itself; one with the user's normal rights only checks.
 std::optional<std::wstring> stage(std::wstring& why)
 {
     const std::wstring source = exeDir() + L"\\WinShunTap.dll";
@@ -150,16 +155,24 @@ std::optional<std::wstring> stage(std::wstring& why)
         return std::nullopt;
     }
     const std::wstring tap = base + L"\\WinShun\\tap";
-    ::CreateDirectoryW((base + L"\\WinShun").c_str(), nullptr);
-    ::CreateDirectoryW(tap.c_str(), nullptr);
-    if (!protect(tap)) {
-        why = L"could not secure " + tap;
-        return std::nullopt;
+    const bool elevated = integrity::processElevated();
+    if (elevated) {
+        ::CreateDirectoryW((base + L"\\WinShun").c_str(), nullptr);
+        ::CreateDirectoryW(tap.c_str(), nullptr);
+        if (!protect(tap)) {
+            why = L"could not secure " + tap;
+            return std::nullopt;
+        }
     }
     const std::wstring dir = tap + L"\\" + hash;
     const std::wstring target = dir + L"\\WinShunTap.dll";
     if (sha256Prefix(target) == hash)
         return target;
+    if (!elevated) {
+        why = L"WinShunTap.dll is not staged for Explorer under " + tap
+            + L" (the installer does that; a portable copy once it runs as administrator)";
+        return std::nullopt;
+    }
     ::CreateDirectoryW(dir.c_str(), nullptr);
     if (!::CopyFileW(source.c_str(), target.c_str(), FALSE) || sha256Prefix(target) != hash) {
         why = L"could not copy the DLL to " + dir;
@@ -167,6 +180,19 @@ std::optional<std::wstring> stage(std::wstring& why)
     }
     return target;
 }
+
+} // namespace
+
+int stageTap()
+{
+    std::wstring why;
+    if (stage(why))
+        return 0;
+    std::fwprintf(stderr, L"%ls\n", why.c_str());
+    return 1;
+}
+
+namespace {
 
 std::vector<std::wstring> conflicts(DWORD explorerPid)
 {

@@ -66,6 +66,7 @@ qt_add_executable(WinShun WIN32
     platform/Foreground.cpp platform/Foreground.h
     platform/Http.cpp platform/Http.h
     platform/IdleTrim.cpp platform/IdleTrim.h
+    platform/Integrity.cpp platform/Integrity.h
     platform/KeyListener.cpp platform/KeyListener.h
     platform/KeyRouter.cpp platform/KeyRouter.h
     platform/MessageWindow.cpp platform/MessageWindow.h
@@ -256,9 +257,10 @@ target_link_libraries(WinShun PRIVATE
 # (src/tap), the DLL's SHA-256 (bcrypt), its folder's DACL (advapi32).
 target_link_libraries(WinShun PRIVATE wstap_api bcrypt advapi32 miniz) # miniz: settings backups (BackupFiles)
 add_dependencies(WinShun WinShunTap) # built first: it is staged from next to WinShun.exe
-# The execution level (requireAdministrator) comes from app.manifest alone; the
-# linker's own default (asInvoker) would conflict with it. Media Foundation is
-# loaded only when used (SoundClip): Windows N editions do not have it.
+# The execution level (asInvoker, since 0.8.0) comes from app.manifest alone,
+# with the rest of the manifest; the linker's own UAC fragment would be a
+# second one. Media Foundation is loaded only when used (SoundClip): Windows
+# N editions do not have it.
 target_link_options(WinShun PRIVATE /MANIFESTUAC:NO /DELAYLOAD:mfplat.dll /DELAYLOAD:mfreadwrite.dll)
 
 # UI font files, loaded from fonts\ next to the exe (see main.cpp).

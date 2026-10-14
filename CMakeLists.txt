@@ -49,6 +49,7 @@ add_subdirectory(src/semantic-plugin)
 add_subdirectory(src/tap)
 add_subdirectory(src/app)
 add_subdirectory(src/stub)
+add_subdirectory(src/service)
 
 # The plugins that come with Win顺 (plugins/, docs/plugins.md), staged next
 # to the build's WinShun.exe the way the installer lays them out: each

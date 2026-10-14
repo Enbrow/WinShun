@@ -153,6 +153,7 @@
 #include "PathText.h"
 #include "Query.h"
 #include "SearchEngine.h"
+#include "ServiceVolumeAccess.h"
 #include "Settings.h"
 #include "ShareIndexer.h"
 #include "ShareLister.h"
@@ -268,7 +269,8 @@ bool buildFromMft(ws::FileIndex& index, const ws::Crawler& crawler, const std::w
     t.start();
     ws::MftTree tree;
     std::wstring error;
-    if (!tree.read(root, index, {}, &error)) {
+    ws::ntfs::MftReader reader(root);
+    if (!tree.read(reader, index, {}, &error)) {
         std::printf("  MFT read failed: %s\n", narrow(ws::wtf8::view(error)).c_str());
         return false;
     }
@@ -711,6 +713,20 @@ int runService(const QStringList& paths)
     ws::IndexService::Options options;
     options.rules = settings.crawlRules();
     options.content.enabled = false;
+    // WINSHUN_ACCESS=service: the volumes through the index service (a
+    // `WinShunService.exe --console --pipe NAME` with WINSHUN_PIPE=NAME),
+    // as a Win顺 with the user's normal rights reads them; this needs no
+    // administrator then.
+    if (qEnvironmentVariable("WINSHUN_ACCESS") == u"service"_s) {
+        auto access = std::make_shared<ws::ntfs::ServiceVolumeAccess>();
+        if (!access->probe()) {
+            std::printf("index service: %s\n", narrow(ws::wtf8::view(access->lastError())).c_str());
+            return 1;
+        }
+        std::printf("through the index service %s on %s\n", narrow(ws::wtf8::view(access->serviceVersion())).c_str(),
+            narrow(ws::wtf8::view(access->pipeName())).c_str());
+        options.volumeAccess = access;
+    }
     ws::IndexService service(dir.path(), options); // the index files in the temporary folder
     QElapsedTimer t;
     t.start();

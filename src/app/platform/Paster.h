@@ -3,8 +3,8 @@
 #include <windows.h>
 
 // Pasting into another program the way the user would: bring its window back
-// to the front and press its paste keys there (SendInput). Win顺 runs as
-// administrator, so the keys reach elevated programs too.
+// to the front and press its paste keys there (SendInput). Elevated programs
+// get them only while Win顺 is elevated too (integrity::higherThanOurs).
 namespace ws::paste {
 
 // Whether Shift, Ctrl, Alt or a Windows key is held down right now. A paste

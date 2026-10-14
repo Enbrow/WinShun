@@ -2,6 +2,7 @@
 
 #include "FileDialog.h"
 #include "FileManagers.h"
+#include "Integrity.h"
 #include "PathText.h"
 
 #include <QDebug>
@@ -101,6 +102,12 @@ void DialogJump::follow(HWND foreground)
         m_worker.post([this, dialog = m_lastDialog] { noteManager(dialog); });
     }
     const bool fromManager = std::erase(m_wentToManager, foreground) > 0;
+    // An elevated program's dialog while Win顺 is not: Windows refuses the
+    // messages and keys that would take it to a folder (UIPI).
+    if (integrity::higherThanOurs(foreground)) {
+        setDialog(nullptr, false);
+        return;
+    }
     const bool fileDialog = filedialog::kind(foreground) != filedialog::Kind::None;
     setDialog(fileDialog ? foreground : nullptr, fromManager);
     if (fileDialog)

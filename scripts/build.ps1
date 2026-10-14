@@ -73,6 +73,8 @@ try {
         Copy-Item "$root\build\$preset\WinShunMcp.exe" $dist
         # Plugin processes are started by WinShunPluginHost.exe (src/plugin/runner), with the user's normal rights.
         Copy-Item "$root\build\$preset\WinShunPluginHost.exe" $dist
+        # The index service (src/service): reads the MFT and change journals for a Win顺 with normal rights.
+        Copy-Item "$root\build\$preset\WinShunService.exe" $dist
         # The plugins that come with Win顺 (plugins\, staged by the build with
         # their SDK files and WinShunTools.exe): installed off by default.
         Copy-Item "$root\build\$preset\plugins" "$dist\plugins" -Recurse

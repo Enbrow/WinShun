@@ -1791,3 +1791,83 @@
 - **忙完立刻清空**：索引加载、追赶日志、读内容、搬家时不清空，每 15 秒再看一次；`IndexService::stateChanged` 一来（加载完、追赶完）就在 5 秒后清空，不必等下一次检查。实测（`--background` 启动，2026-10-12）：启动 20 秒后 217 → 2 MB。
 - **后台工作会把页面带回来**：内容索引启动 30 秒后的第一轮、之后每 15 分钟一轮和文件变动后的一轮，`findWork` 都要走遍整个文件索引，约 90 MB 回到工作集。所以闲着时每 30 秒查一次，超过 32 MB 就再清空（查一次只读一个数）；之前每 2 分钟一次，启动后会有 2 分钟停在约 100 MB。
 - **测试时用 `--background` 启动**：不带参数启动 WinShun.exe 会打开搜索框，算在用，不会清空。开机自启和安装程序都带 `--background`。
+
+## 权限分离（GitHub #21）
+
+### 普通权限的进程碰不到管理员窗口：键、钩子、消息都过不去
+
+- **现象**：Win顺 不提权运行时，管理员身份的程序（以管理员身份打开的命令提示符、注册表编辑器）在前面时，往里粘贴没反应，剪贴板窗口的键盘接管也没反应。
+- **原因**：UIPI。2026-10-14 用 scratchpad `uipi` 探针实测（管理员窗口在前，按键由管理员进程注入）：普通进程收不到键盘和鼠标 Raw Input、收不到低级钩子事件、收不到 `RegisterHotKey` 热键；`AttachThreadInput` 失败（1314），`WM_COPYDATA` 被挡（5），`SendInput` 往里送键不报错但对方收不到。可以的：`OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `OpenProcessToken(TOKEN_QUERY)` 读对方完整性级别（0x3000）、`SetForegroundWindow`、进程外 WinEvent `EVENT_SYSTEM_FOREGROUND`。
+- **做法**：`platform/Integrity` 的 `higherThanOurs(hwnd)`：Win顺 自己提权时总是 false；读不出的当成更高。剪贴板不对这种窗口接管键盘（`App::startKeyRouting` 返回 false，窗口自己拿焦点），粘贴只复制并提示“回到它那里按 Ctrl+V”（`Clipboard::onWritten`），对话框栏不贴这种程序的文件对话框（`DialogJump`）。
+- **还没量的**：用户亲手按的键（不是注入的）在管理员窗口在前时，普通进程的低级钩子和 `RegisterHotKey` 收不收得到。探针的对照组没做成（普通进程的窗口抢不到前台），要人按。
+
+### 不提权时启动程序：别再借资源管理器的令牌
+
+- **现象**：提权时用来“以普通权限打开”的 `CreateProcessWithTokenW`（借资源管理器的令牌）在普通进程里失败，错误 1314（缺 `SeImpersonatePrivilege`）。
+- **做法**：`integrity::processElevated()` 为 false 时直接 `ShellExecuteExW` / `CreateProcessW`，本来就是用户的权限（`Shell.cpp` 的 `executeUnelevated`、`startUnelevated`，`WinV.cpp` 的 `startShell`）。Ctrl+Shift+Enter 仍走 `runas`，实测启动出的进程是 High（0x3000）。
+
+### 普通权限读不了 MFT 和 USN 日志
+
+- **现象**：普通进程能以访问权限 0 打开 `\\.\C:`，`IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS`、`IOCTL_STORAGE_QUERY_PROPERTY`（寻道惩罚）都行；但 `FSCTL_GET_NTFS_VOLUME_DATA`、`FSCTL_QUERY_USN_JOURNAL` 失败（1），`GENERIC_READ` 打开卷、打开 `\\?\C:\$MFT` 被拒（5）。
+- **做法**：查不到日志时 `IndexService` 本来就把卷当普通卷：遍历建索引，用 `ReadDirectoryChangesW` 跟变化。2026-10-14 实测不提权（`__COMPAT_LAYER=RunAsInvoker`，只留 D 盘）：遍历建好索引，启动后新建的文件马上搜得到，打开的程序是 Medium。要读 MFT 就得有提权的部分（计划中的索引服务）。
+
+### 测不提权的 Win顺：配置在 `<profile>\WinShun\WinShun.ini`
+
+- **现象**：`--profile F:\x` 启动前把 `F:\x\WinShun.ini` 写好排除盘，结果它照样遍历所有盘。
+- **原因**：`--profile` 把 APPDATA 和 LOCALAPPDATA 都指到那个文件夹，设置文件在 `F:\x\WinShun\WinShun.ini`，索引在 `F:\x\index.bin`。
+- **另外**：`ExplorerMenu` 默认开，测试副本一启动就把右键“在 Win顺 里搜索”改指向它自己；测试时在 `[Launcher]` 写 `ExplorerMenu=false`，测完让 dist 最后一个启动。管理员副本的单实例互斥量 `Local\WinShun.Instance` 普通进程能打开（得到 `ERROR_ALREADY_EXISTS`），所以两者不会同时跑；但第二个副本发给管理员副本的 `WM_COPYDATA` 被挡，命令（显示、--query）会丢。
+
+### 索引服务：`DisconnectNamedPipe` 会丢掉客户端还没读走的数据
+
+- **现象**：服务给客户端发完 `VolumeLost` 就断开连接，客户端有时收不到它，只看到管道断了，当成“服务没了”去重连。
+- **原因**：`DisconnectNamedPipe` 把管道里还没被读走的数据丢掉。
+- **做法**：断开前先 `FlushFileBuffers`（对服务端的管道句柄它会等到客户端把数据读完），再 `DisconnectNamedPipe`。代价：客户端一直不读，这个线程就挂在那里（不占卷句柄，只占这个进程的连接额度）。
+
+### 几个线程同时连索引服务：`ERROR_PIPE_BUSY`，一个盘悄悄退回遍历
+
+- **现象**：不提权的 `wsbench --service` 走服务建索引，C:、E:、F: 都从 MFT 读了，D: 却是遍历的；日志里只有一句 `cannot read the MFT of D:: cannot open the pipe (error 231)`——而且 Qt 的警告在没有控制台窗口的进程里默认走 `OutputDebugString`，`2>&1` 看不到，要设 `QT_FORCE_STDERR_LOGGING=1`。
+- **原因**：`syncWithDisk` 给每块盘一条线程，四条线程同一毫秒各开一条连接；服务端 `PIPE_UNLIMITED_INSTANCES`，但任一时刻只有一个实例在听，接受一个之后才建下一个。客户端原来只试两次：`CreateFile` 忙 → `WaitNamedPipe` 说有空 → 再 `CreateFile` 又被别的线程抢走 → 放弃。
+- **做法**：客户端在 2 秒期限内反复 `WaitNamedPipe` + `CreateFile`（`connectSession`），忙是瞬时的，四条连接都能进去。测试里的 `RawClient` 同样要处理。
+
+### 索引服务的测试在 C: 上跑：等“有新记录”的读马上就回来
+
+- **现象**：`tst_service` 原先假设 `start(usn, true)` 之后 300 ms 内没动静、杀掉服务后第一次 `finish()` 一定是空的，在 C: 上全不成立。
+- **原因**：C: 上别的程序一直在写（浏览器、日志、Windows 自己），`FSCTL_READ_USN_JOURNAL` 带 `BytesToWaitFor=1` 立刻就完成；两次读 MFT 之间也有几条记录变了。
+- **做法**：测试按“循环读，直到出现我写的那个名字”写（`readUntil`），MFT 对比允许万分之一的记录不同（实测 C: 两次读相隔 2.5 秒差 4 条，D: 差 0 条）；`WINSHUN_TEST_VOLUME=D:` 指定一个安静的盘。
+
+### 卷不靠特权打开：去掉全部特权照样读 MFT
+
+- **现象 / 做法**：`WinShunService.exe --console --no-privileges` 先用 `AdjustTokenPrivileges(SE_PRIVILEGE_REMOVED)` 去掉除 `SeChangeNotifyPrivilege` 外的全部特权再服务；对它跑 `tst_service`（D:，2026-10-14）：MFT 430080 条记录和直读逐条一致，日志照常跟踪。所以服务的 `SERVICE_CONFIG_REQUIRED_PRIVILEGES_INFO` 只留 `SeChangeNotifyPrivilege`。实测是以管理员身份，走的是卷 DACL 里 Administrators 那条；装成服务后是 SYSTEM，走 SYSTEM 那条，同理。
+
+### 同名的 `Read`：`ntfs::Read` 和 `volproto::Read`
+
+- **现象**：在 `namespace ws::ntfs` 里 `using namespace volproto` 之后写 `Read read {usn, wait}`，编译器选了 Ntfs.h 里 MFT 的 `Read`（一次读的偏移和长度），报一长串 `encode` 不匹配。
+- **做法**：写全 `volproto::Read`。
+
+### 复用 `Writer` 发第二条消息，前一条的字段还在里面
+
+- **现象**：客户端报 “the index service sent a malformed end”：`MftDone` 解不出来。
+- **原因**：服务端用发 `MftInfo` 的那个 `Writer` 直接 `encode` 了 `MftDone`，没有 `reset()`。
+- **做法**：`reset()`，或者新建一个。解码端的长度检查把它当畸形帧拒掉了，正是它该做的。
+
+### `wsbench --mft` 从 Temp 下运行：“test folder missing from the index”
+
+- **现象**：放在 scratchpad（`%LOCALAPPDATA%\Temp` 下）里的 wsbench 跑 `--mft`，末尾的变更日志自测报 test folder missing。
+- **原因**：自测用 exe 旁边的 `usn-selftest` 文件夹，而 Temp 在排除规则里。重构前后一样，和改动无关；从别的目录运行就好。
+
+### 普通权限改不了“以最高权限运行”的计划任务，连改回普通都不行
+
+- **现象**：界面改成 `asInvoker` 后，自启动任务的运行级别要按模式写（管理员直读 `HIGHEST`，其余 `LUA`）；普通权限的进程写 `HIGHEST` 被拒，连把提权时注册的旧任务改成 `LUA` 或删掉也被拒（都是 `E_ACCESSDENIED`，2026-10-14 用 `Register-ScheduledTask`/`Unregister-ScheduledTask` 实测）。读得到（`RunLevel=Highest`）。普通进程给自己注册交互式、只在自己登录时触发的 `LUA` 任务可以，删自己注册的也可以。另外 `schtasks /Create /SC ONLOGON` 不带 `/RU` 时对普通进程连 `LIMITED` 都拒绝（任何人登录都触发，算管理员的事），COM 的 `ILogonTrigger::put_UserId` 指定自己就行。
+- **做法**：运行级别只由提权的那份写（`App::reconcileAutostart`：不提权就不碰，提权的那份启动时按模式改，登录时正是旧的 `HIGHEST` 任务把它提权起来，改完下次登录就是普通权限）。安装程序 `PrepareToInstall`（提权）先删掉指向本安装目录的旧任务——报告者的场景里它是答 UAC 的那个管理员注册的，普通用户读不了也盖不掉——再以原始用户（`runasoriginaluser`）跑 `--take-autostart --had-autostart` 重新注册一个普通权限的。
+
+### 启动 pass 还没存下卷列表就被打断，所有盘的条目都会被删
+
+- **现象**：`IndexService` 加载完快照、还在规划（现在还要等索引服务最多 30 秒）时来了一次 `Pass::Volumes`（插 U 盘、改设置、服务连上），新 pass 从 `m_volumes`（空）算 `known`，`dropStaleRoots` 把快照里每个盘的根都当成“已拔掉的盘”删掉，整个索引重建。以前这个窗口只有加载快照的那一秒，等服务之后有 30 秒，撞上的概率大得多。
+- **做法**：快照一加载完就把 `m_volumes`/`m_journals`（快照里的日志位置）存进成员，再等、再规划；被打断后的 pass 从这些位置规划，走日志追赶，不会重读。`volumesChanged` 改成和 pass 开始时拿到的 `previous` 比（早存之后再和 `m_volumes` 比就永远“没变”）。`tst_service` 的 `indexServiceComesLate`/`indexServiceNeverComes` 盯着这条：服务在窗口内连上不读 MFT、伪造的文件夹还在；没连上就遍历、之后连上读一次 MFT。
+
+### 从 bash 起的 pwsh 里跑 ninja：“F:/??????/src/core”
+
+- **现象**：`cmake --build` 在 Bash 工具里经 `pwsh -Command` 跑，ninja 报 `FindFirstFileExA(F:/??????/src/core): 文件名、目录名或卷标语法不正确`。
+- **原因**：ninja 在 Windows 上用 ANSI 版 API，源目录的中文按当时控制台的代码页转换，bash 起的子进程代码页不是 936/65001，中文全成了 `?`。
+- **做法**：构建从 PowerShell 工具（或项目的 `scripts/build.ps1`）起，不经 bash。
+

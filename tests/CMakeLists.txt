@@ -6,6 +6,15 @@ target_link_libraries(tst_core PRIVATE wscore wsextract miniz Qt6::Test)
 qt_add_executable(tst_clipboard tst_clipboard.cpp)
 target_link_libraries(tst_clipboard PRIVATE wscore Qt6::Test)
 
+# The index service (src/service) through its pipe client (ServiceVolumeAccess),
+# started as `WinShunService.exe --console --pipe <random>` on a real volume
+# (as administrator): the MFT the same as read directly, the journal
+# followed, volumes let go of, the service gone and back, the handshake.
+qt_add_executable(tst_service tst_service.cpp)
+target_link_libraries(tst_service PRIVATE wscore Qt6::Test)
+target_compile_definitions(tst_service PRIVATE WINSHUN_SERVICE_EXE="$<TARGET_FILE:WinShunService>")
+add_dependencies(tst_service WinShunService)
+
 # The favorites: their file, the store, and the search's list with nothing typed.
 qt_add_executable(tst_favorites tst_favorites.cpp)
 target_link_libraries(tst_favorites PRIVATE wscore Qt6::Test)
@@ -81,6 +90,7 @@ target_compile_definitions(tst_plugin PRIVATE
 add_dependencies(tst_plugin WinShunPluginHost plugin_fake)
 
 add_test(NAME tst_core COMMAND tst_core)
+add_test(NAME tst_service COMMAND tst_service)
 add_test(NAME tst_clipboard COMMAND tst_clipboard)
 add_test(NAME tst_favorites COMMAND tst_favorites)
 add_test(NAME tst_color COMMAND tst_color)
@@ -93,5 +103,5 @@ add_test(NAME tst_semantic COMMAND tst_semantic)
 add_test(NAME tst_mcp COMMAND tst_mcp)
 add_test(NAME tst_plugin COMMAND tst_plugin)
 # Let ctest find the Qt DLLs without a deploy step.
-set_tests_properties(tst_core tst_clipboard tst_favorites tst_color tst_dragout tst_siteicon tst_tools tst_mcp tst_plugin PROPERTIES
+set_tests_properties(tst_core tst_service tst_clipboard tst_favorites tst_backup tst_color tst_dragout tst_siteicon tst_ocr tst_tools tst_semantic tst_mcp tst_plugin PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")

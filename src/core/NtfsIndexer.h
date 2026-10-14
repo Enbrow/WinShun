@@ -23,9 +23,10 @@ public:
     // How far a read got: bytes of the MFT, of all.
     using Progress = std::function<void(std::uint64_t done, std::uint64_t total)>;
 
-    // Reads the volume's MFT. Names go straight into the index's name storage
-    // (keep interning on until the sync is done); the caller holds no lock.
-    bool read(std::wstring_view root, FileIndex& index, std::stop_token stop, std::wstring* error = nullptr,
+    // Reads the volume's MFT from `source` (the volume, or the index
+    // service). Names go straight into the index's name storage (keep
+    // interning on until the sync is done); the caller holds no lock.
+    bool read(ntfs::RecordSource& source, FileIndex& index, std::stop_token stop, std::wstring* error = nullptr,
         const Progress& progress = {});
 
     // Crawler::Lister for one folder (Root::record).

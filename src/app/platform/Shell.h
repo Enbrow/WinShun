@@ -9,6 +9,7 @@
 #include <windows.h>
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -31,11 +32,20 @@ void revealInExplorer(const QString& path);
 // (Settings::fileManager): Explorer at first. Explorer takes over when the
 // one chosen does not start.
 void setFileManager(filemanager::Kind kind);
-// Starts `program` with the user's normal rights (the desktop shell's), never
-// elevated, for a program to wait for (see filemanager); the others start
-// through open() and run(). `cwd`: its working folder; empty for ours.
-// Invalid when no shell runs to take them from.
+// Starts `program` with the user's normal rights (the desktop shell's while
+// Win顺 is elevated, its own otherwise), never elevated, for a program to
+// wait for (see filemanager); the others start through open() and run().
+// `cwd`: its working folder; empty for ours. Invalid when Win顺 is elevated
+// and no shell runs to take them from.
 win32::UniqueHandle startUnelevated(const std::wstring& program, const std::wstring& args, const std::wstring& cwd = {});
+// Starts `program` as administrator (UAC asks, unless Win顺 is elevated
+// already), without waiting: false when it did not start (the prompt
+// declined, say). `cwd` as above.
+bool startElevated(const std::wstring& program, const std::wstring& args, const std::wstring& cwd = {});
+// The same, waited for on a worker thread: `done` runs there with its exit
+// code, or nothing when it did not start (WinShunService.exe --install).
+void runElevated(const std::wstring& program, const std::wstring& args,
+    std::function<void(std::optional<unsigned long>)> done);
 void openUrl(const QString& url); // https:, mailto: ...
 // A command prompt (cmd.exe; in Windows Terminal when that is the default)
 // in `folder`, with the user's normal rights. On a network share, pushd
@@ -94,6 +104,15 @@ bool isEnabled();
 void refresh(); // reads the task again, in the background (changed outside WinShun?)
 bool isSetUp(); // enabled for any copy of WinShun, this one or another
 void setEnabled(bool enabled);
+// Whether the task written from now on starts Win顺 elevated (the 管理员直读
+// mode on an administrator's account, GitHub #21) or with the user's normal
+// rights (at first). Only an elevated process can register the former:
+// Windows refuses it to the others, as it would be a way around UAC.
+void setElevated(bool elevated);
+bool elevated();
+// Whether the task that starts this copy runs it elevated; nothing without
+// an enabled one of this copy's (App::start compares it with the mode).
+std::optional<bool> taskElevated();
 // The task still starts a program that is gone (the portable copy, after
 // installing with Setup): point it at this one. A copy that still exists
 // elsewhere keeps it.

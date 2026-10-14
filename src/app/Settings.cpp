@@ -644,6 +644,9 @@ void Settings::load()
     excludedNames = readOrDefault(s, u"Index/ExcludedNames"_s, d.excludedNames);
     includeRemovableDrives = readOrDefault(s, u"Index/IncludeRemovableDrives"_s, d.includeRemovableDrives);
     rescanOnStartup = readOrDefault(s, u"Index/RescanOnStartup"_s, d.rescanOnStartup);
+    indexAccess = readOrDefault(s, u"Index/Access"_s, d.indexAccess).trimmed().toLower();
+    if (indexAccess != u"service" && indexAccess != u"direct" && indexAccess != u"walk")
+        indexAccess = d.indexAccess;
     indexFolder = readOrDefault(s, u"Index/Folder"_s, d.indexFolder).trimmed();
 
     contentSearch = readOrDefault(s, u"Content/Enabled"_s, d.contentSearch);
@@ -747,6 +750,7 @@ void Settings::save() const
     s.setValue(u"Index/ExcludedNames"_s, excludedNames);
     s.setValue(u"Index/IncludeRemovableDrives"_s, includeRemovableDrives);
     s.setValue(u"Index/RescanOnStartup"_s, rescanOnStartup);
+    s.setValue(u"Index/Access"_s, indexAccess);
     s.setValue(u"Index/Folder"_s, indexFolder);
     s.setValue(u"Content/Enabled"_s, contentSearch);
     s.setValue(u"Content/Extensions"_s, contentExtensions);

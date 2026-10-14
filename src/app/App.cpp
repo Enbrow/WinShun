@@ -21,6 +21,7 @@
 #include "PluginSettings.h"
 #include "SearchEngine.h"
 #include "Secrets.h"
+#include "ServiceVolumeAccess.h"
 #include "SettingsEditor.h"
 #include "SystemCatalog.h"
 #include "SystemTheme.h"
@@ -35,6 +36,7 @@
 #include "platform/DialogJump.h"
 #include "platform/Foreground.h"
 #include "platform/IdleTrim.h"
+#include "platform/Integrity.h"
 #include "platform/KeyListener.h"
 #include "platform/MessageWindow.h"
 #include "platform/NetworkNotifier.h"
@@ -54,6 +56,7 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QInputMethod>
@@ -107,6 +110,7 @@ QList<std::pair<QString, QString>> favoriteKeywords(const Favorites& favorites)
 enum TrayCommand {
     ShowCommand = 1,
     IndexInfo,
+    AccessInfo, // the index service wanted and not reached: walking meanwhile
     ContentInfo,
     RebuildCommand,
     AutostartCommand,
@@ -132,6 +136,56 @@ IndexService::Options indexOptions(const Settings& settings)
     options.content.documents = settings.contentDocuments;
     options.shares = settings.shareOptions();
     return options;
+}
+
+// The index service (GitHub #21) comes up a moment after the user's Win顺 at
+// login: the index waits this long for it (IndexService::Options::accessWaitMs)
+// rather than walk a volume whose journal position it has, looking every
+// kServiceRetry meanwhile, and every kServiceRecheck after that (the service
+// installed later, stopped and started again).
+constexpr auto kServiceWait = 30s;
+constexpr auto kServiceRetry = 2s;
+constexpr auto kServiceRecheck = 5min;
+
+// Where the index reads NTFS volumes from (Settings::indexAccess, GitHub
+// #21): the volumes themselves when running as administrator (unless told
+// service or walk), else the index service (WinShunService.exe) when it
+// answers, else nowhere: the volumes are walked and watched. `wantsService`:
+// the service would be used, so it is looked for again while it is not
+// (App::startServiceRetry); a portable copy too, for one installed from its
+// settings. WINSHUN_PIPE names another pipe, for tests with
+// `WinShunService.exe --console --pipe NAME`.
+struct AccessChoice {
+    std::shared_ptr<ntfs::VolumeAccess> access;
+    bool wantsService = false;
+    QString why; // the service wanted and not used: why (English, from the pipe client)
+};
+
+AccessChoice chooseVolumeAccess(const QString& mode)
+{
+    AccessChoice choice;
+    const bool elevated = integrity::processElevated();
+    if (elevated && mode != u"service" && mode != u"walk") {
+        choice.access = std::make_shared<ntfs::DirectVolumeAccess>();
+        return choice;
+    }
+    if (mode == u"walk") {
+        choice.access = std::make_shared<ntfs::NoVolumeAccess>();
+        return choice;
+    }
+    // auto and service; direct too while not running as administrator (the
+    // settings offer the restart), rather than nothing.
+    choice.wantsService = true;
+    auto service = std::make_shared<ntfs::ServiceVolumeAccess>();
+    if (service->probe()) {
+        choice.access = std::move(service);
+        return choice;
+    }
+    choice.why = QString::fromStdWString(service->lastError());
+    qWarning("WinShun: the index service is not used: %ls (pipe %ls)", service->lastError().c_str(),
+        service->pipeName().c_str());
+    choice.access = std::make_shared<ntfs::NoVolumeAccess>();
+    return choice;
 }
 
 // '/' separated and cleaned, as IndexService keeps it.
@@ -262,6 +316,8 @@ App::App()
     m_contentStatusTimer.setInterval(2s);
     connect(&m_contentStatusTimer, &QTimer::timeout, this, &App::refreshContentIndexStatus);
     connect(&m_contentStatusTimer, &QTimer::timeout, this, &App::refreshShareStatuses); // counts while reading
+    m_serviceRetry.setSingleShot(true); // serviceProbed() starts the next
+    connect(&m_serviceRetry, &QTimer::timeout, this, &App::probeService);
 }
 
 App::~App()
@@ -280,6 +336,7 @@ bool App::start(const StartOptions& options)
     // Updated from a version without the clipboard history: tell about it once.
     const bool clipboardIsNew = !firstRun && !Settings::hasClipboardSettings();
     m_settings.load();
+    applyAutostartLevel(); // may set the mode (an old elevated task): before the index is made
     applyAppearance(); // before any window: the first frame is already in the chosen theme and language
     m_renderer = Settings::resolveRenderer(m_settings.renderer);
     if (m_renderer == u"software")
@@ -316,7 +373,16 @@ bool App::start(const StartOptions& options)
     });
     // Sites' icons: fetched when a row of theirs is first shown, not before.
     siteicons::setFolder(dataDir + u"\\icons\\web"_s);
-    m_index = std::make_unique<IndexService>(startIndexFolder(), indexOptions(m_settings));
+    IndexService::Options indexStart = indexOptions(m_settings);
+    {
+        AccessChoice choice = chooseVolumeAccess(m_settings.indexAccess);
+        m_serviceWanted = choice.wantsService;
+        m_serviceWhy = choice.why;
+        if (m_serviceWanted && choice.access->kind() == ntfs::VolumeAccess::Kind::None)
+            indexStart.accessWaitMs = static_cast<int>(std::chrono::milliseconds(kServiceWait).count()); // on its way, maybe
+        indexStart.volumeAccess = std::move(choice.access);
+    }
+    m_index = std::make_unique<IndexService>(startIndexFolder(), std::move(indexStart));
     connect(m_index.get(), &IndexService::moveProgress, this, [this](int percent) {
         m_indexMoveProgress = percent;
         refreshIndexFolder();
@@ -349,7 +415,9 @@ bool App::start(const StartOptions& options)
     connect(m_launcher.get(), &Launcher::dismissRequested, this, &App::hideLauncher);
     connect(m_launcher.get(), &Launcher::openFailed, this, [this](const QString& name) {
         m_messages->showNotification(tr("没有打开“%1”").arg(name),
-            tr("找不到资源管理器，没法用普通权限打开它。请稍后再试，或按 Ctrl+Shift+Enter 以管理员身份运行。"));
+            integrity::processElevated()
+                ? tr("找不到资源管理器，没法用普通权限打开它。请稍后再试，或按 Ctrl+Shift+Enter 以管理员身份运行。")
+                : tr("Windows 没能打开它。请稍后再试，或按 Ctrl+Shift+Enter 以管理员身份运行。"));
     });
     connect(m_launcher.get(), &Launcher::namesShown, this, [this] {
         if (m_revealing)
@@ -536,6 +604,12 @@ bool App::start(const StartOptions& options)
     connect(&m_settingsWatcher, &QFileSystemWatcher::fileChanged, this, [this] { m_settingsReload.start(); });
 
     m_index->start();
+    if (m_serviceWanted) {
+        if (m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None)
+            startServiceRetry(); // the index waits for it meanwhile (accessWaitMs)
+        else
+            m_serviceRetry.start(kServiceRecheck); // in use: looked at now and then, in case it goes away
+    }
     m_apps->refresh(true); // in the background; about half a second
     m_places->refresh(true); // likewise
 
@@ -544,8 +618,13 @@ bool App::start(const StartOptions& options)
         // Autostart is on by default; the settings switch turns it off for good
         // (the settings file exists from now on, so this runs once).
         autostart::setEnabled(true);
-        m_messages->showNotification(
-            tr("Win顺已在后台运行"), tr("双击 Ctrl 打开搜索。首次运行需要一点时间建立文件索引。"));
+        // A portable copy walks the folders (no UAC, like Everything's): the
+        // settings offer the index service and running as administrator.
+        const bool walking = !Settings::portableFolder().isEmpty()
+            && m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None;
+        m_messages->showNotification(tr("Win顺已在后台运行"),
+            walking ? tr("双击 Ctrl 打开搜索。便携版按文件夹遍历建立索引；要快一些，可以在设置里安装索引服务，或以管理员身份运行。")
+                    : tr("双击 Ctrl 打开搜索。首次运行需要一点时间建立文件索引。"));
     } else if (clipboardIsNew) {
         m_messages->showNotification(tr("Win顺 现在有剪贴板历史了"),
             m_settings.clipboard ? tr("复制过的文字、图片和文件都能找回来。点这里设置用 Win+V 打开它。")
@@ -555,9 +634,11 @@ bool App::start(const StartOptions& options)
     } else if (!m_indexFolderProblem.isEmpty()) {
         m_messages->showNotification(tr("索引位置"), m_indexFolderProblem);
     }
-    if (options.settings)
+    if (options.settings) {
         showSettings();
-    else if (!options.background || !options.query.isEmpty())
+        if (m_settingsWindow && !options.settingsAt.isEmpty())
+            QMetaObject::invokeMethod(m_settingsWindow, "showPlace", Q_ARG(QVariant, QVariant(options.settingsAt)));
+    } else if (!options.background || !options.query.isEmpty())
         showLauncher(options.query);
     QTimer::singleShot(1s, this, &App::prewarmLauncher);
     QTimer::singleShot(1500ms, this, &App::prewarmClipboard);
@@ -1279,17 +1360,23 @@ void App::reloadSettings()
     fresh.load();
     if (fresh == m_settings)
         return; // our own save from the settings window
+    const bool accessChanged = fresh.indexAccess != m_settings.indexAccess;
     m_settings = fresh;
     applySettings(false);
     if (m_settingsEditor)
         m_settingsEditor->setSettings(m_settings);
+    if (accessChanged)
+        applyIndexAccess();
 }
 
 void App::settingsEdited(const Settings& settings)
 {
+    const bool accessChanged = settings.indexAccess != m_settings.indexAccess;
     m_settings = settings;
     applySettings(false);
     m_backup->soon();
+    if (accessChanged)
+        applyIndexAccess();
 }
 
 void App::showSettings()
@@ -1334,6 +1421,9 @@ void App::showSettings()
         connect(editor, &SettingsEditor::shareAcceptRequested, this,
             [this](const QString& path) { m_index->shares().acceptMissing(path.toStdWString()); });
         connect(editor, &SettingsEditor::signInRequested, this, [this](const QString& path) { signInToServer(path); });
+        connect(editor, &SettingsEditor::elevatedRestartRequested, this,
+            [this] { restart({u"--settings"_s, u"--settings-at"_s, u"indexAccess"_s}, Elevation::Elevated); });
+        connect(editor, &SettingsEditor::indexServiceInstallRequested, this, &App::installIndexService);
         editor->plugins()->setLocale(m_language);
         editor->plugins()->setHost(m_pluginHost.get());
         editor->favorites()->setCatalogs(m_apps.get(), m_places.get());
@@ -1349,6 +1439,9 @@ void App::showSettings()
         editor->refreshFileManagers();
         editor->refreshMcpClients();
         refreshMcpStatus();
+        refreshIndexAccess();
+        if (m_serviceWanted && m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None)
+            probeService(); // installed meanwhile? Looked for now, not in five minutes
 
         prepareBackdrop(window);
         window->create();
@@ -2048,6 +2141,10 @@ bool App::clipboardInCharge() const
 
 bool App::startKeyRouting(HWND target)
 {
+    // An elevated program while Win顺 is not: Windows keeps the keys typed
+    // there from the hook (UIPI). The clipboard takes the focus instead.
+    if (integrity::higherThanOurs(target))
+        return false;
     const std::uint64_t run = ++m_keyRouterRun;
     // From the router's thread, in order; a key still on its way when the
     // routing has ended goes nowhere.
@@ -2437,6 +2534,11 @@ void App::showTrayMenu()
                         QLocale().toString(static_cast<qulonglong>(progress.total))),
                 false, false});
     }
+    // The index service not reached (GitHub #21): said here, the reason in the settings.
+    if (m_serviceWanted && m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None) {
+        const auto at = std::ranges::find_if(items, [](const shell::MenuItem& i) { return i.id == IndexInfo; });
+        items.insert(at + 1, {AccessInfo, tr("索引服务未连接，正在遍历文件夹"), false, false});
+    }
     if (m_updater->available() && !m_updater->skipped()) // at the top, where it is seen
         items.insert(items.begin(),
             {{UpdateCommand, tr("Win顺 %1 可以更新了…").arg(m_updater->availableVersion())}, shell::MenuItem::separator()});
@@ -2493,10 +2595,232 @@ void App::showTrayMenu()
     }
 }
 
-void App::restart(const QStringList& arguments)
+void App::restart(const QStringList& arguments, Elevation elevation)
 {
     m_restartArguments = arguments;
+    m_restartElevation = elevation;
+    // From the settings: they open again where they were.
+    if (arguments.contains(u"--settings"_s) && !arguments.contains(u"--settings-at"_s) && m_settingsWindow
+        && m_settingsWindow->isVisible()) {
+        QVariant place;
+        if (QMetaObject::invokeMethod(m_settingsWindow, "place", Q_RETURN_ARG(QVariant, place)) && place.isValid())
+            *m_restartArguments << u"--settings-at"_s << place.toString();
+    }
     QGuiApplication::quit();
+}
+
+// ---- 索引方式: how the volumes are read (GitHub #21) --------------------------
+
+void App::applyAutostartLevel()
+{
+    const std::optional<bool> task = autostart::taskElevated();
+    // A portable copy upgraded in place: its task from before 0.8.0 runs it
+    // elevated at login, while a double click runs it with normal rights now
+    // (the manifest's asInvoker), with another way to the volumes and other
+    // folders seen. The old way is kept, as the mode, said so in the
+    // settings; another mode chosen rewrites the task. An installed copy's
+    // task is rewritten by the installer (--take-autostart).
+    if (task == true && m_settings.indexAccess == u"auto" && !Settings::portableFolder().isEmpty()) {
+        m_settings.indexAccess = u"direct"_s;
+        m_settings.save();
+        m_accessTakenFromTask = true; // worded in refreshIndexAccess, once the language is applied
+    }
+    autostart::setElevated(m_settings.indexAccess == u"direct" && userIsAdministrator());
+    reconcileAutostart(task);
+}
+
+void App::reconcileAutostart(const std::optional<bool>& task)
+{
+    const bool want = autostart::elevated();
+    if (!task || *task == want)
+        return;
+    // Only an elevated process may: a task that runs elevated is refused to
+    // one with normal rights even to make it run with those (or to delete
+    // it; measured 2026-10-14, pitfalls), and one may not raise a task
+    // either. The elevated copy does it as it starts: at login, by the very
+    // task, or restarted as administrator from the settings.
+    if (!integrity::processElevated())
+        return;
+    qWarning("WinShun: the autostart task now starts Win顺 %s", want ? "as administrator" : "with normal rights");
+    autostart::setEnabled(true);
+}
+
+void App::applyIndexAccess()
+{
+    const bool elevated = integrity::processElevated();
+    const bool wantElevated = m_settings.indexAccess == u"direct" && userIsAdministrator();
+    autostart::setElevated(wantElevated);
+    if (wantElevated && !elevated) {
+        // Only an elevated process may register the task so: the copy started
+        // as administrator does, as it starts. UAC asks once.
+        restart({u"--settings"_s, u"--settings-at"_s, u"indexAccess"_s}, Elevation::Elevated);
+        return;
+    }
+    reconcileAutostart(autostart::taskElevated()); // elevated, this copy may write either level
+    if (!wantElevated && elevated) {
+        restart({u"--settings"_s, u"--settings-at"_s, u"indexAccess"_s}, Elevation::Unelevated); // the user's normal rights, as the task has it now
+        return;
+    }
+    // The same rights as before: the way to the volumes changes in place.
+    AccessChoice choice = chooseVolumeAccess(m_settings.indexAccess);
+    m_serviceWanted = choice.wantsService;
+    m_serviceWhy = choice.why;
+    const bool none = choice.access->kind() == ntfs::VolumeAccess::Kind::None;
+    m_index->setVolumeAccess(std::move(choice.access));
+    m_serviceRetry.stop();
+    if (m_serviceWanted) {
+        if (none)
+            startServiceRetry();
+        else
+            m_serviceRetry.start(kServiceRecheck);
+    }
+    refreshIndexAccess();
+}
+
+void App::startServiceRetry()
+{
+    m_serviceRetrySince.start();
+    m_serviceRetry.start(kServiceRetry);
+}
+
+void App::probeService()
+{
+    if (m_serviceProbing.exchange(true))
+        return; // the last look is not back yet
+    if (m_serviceProbe.joinable())
+        m_serviceProbe.join(); // done: its outcome was handled (or dropped) on this thread
+    // Not on the GUI thread: connecting waits for an instance of the pipe
+    // (2 s at most) when every one is taken.
+    m_serviceProbe = std::jthread([this] {
+        auto service = std::make_shared<ntfs::ServiceVolumeAccess>();
+        const bool reached = service->probe();
+        QMetaObject::invokeMethod(
+            this, [this, service = std::move(service), reached] { serviceProbed(service, reached); },
+            Qt::QueuedConnection);
+    });
+}
+
+void App::serviceProbed(std::shared_ptr<ntfs::ServiceVolumeAccess> service, bool reached)
+{
+    m_serviceProbing = false;
+    if (!m_serviceWanted || !m_index)
+        return;
+    if (reached) {
+        // Not in use yet (it came up after us), or in use but failing of late
+        // (away for a while: its journals were given up, those volumes
+        // walked): taken from now on, the walked volumes read from their MFT.
+        const auto inUse = std::dynamic_pointer_cast<ntfs::ServiceVolumeAccess>(m_index->volumeAccess());
+        if (!inUse || !inUse->lastError().empty()) {
+            qWarning("WinShun: the index service (%ls) is used from now on", service->serviceVersion().c_str());
+            m_index->setVolumeAccess(service);
+        }
+        m_serviceWhy.clear();
+    } else {
+        m_serviceWhy = QString::fromStdWString(service->lastError());
+    }
+    const bool none = m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None;
+    const bool soon = none && m_serviceRetrySince.isValid()
+        && m_serviceRetrySince.elapsed() < std::chrono::milliseconds(kServiceWait).count();
+    m_serviceRetry.start(soon ? kServiceRetry : kServiceRecheck);
+    refreshIndexAccess();
+}
+
+QString App::serviceProblem() const
+{
+    if (m_serviceWhy.contains(u"not running")) {
+        return ntfs::ServiceVolumeAccess::installed()
+            ? tr("索引服务没有运行（Windows 服务“WinShun”已停止或被禁用）")
+            : tr("没有安装索引服务");
+    }
+    if (m_serviceWhy.contains(u"another version"))
+        return tr("索引服务的版本和 Win顺 不配，请重新运行安装程序");
+    return m_serviceWhy;
+}
+
+void App::refreshIndexAccess()
+{
+    if (!m_settingsEditor)
+        return;
+    SettingsEditor::IndexAccessState state;
+    const ntfs::VolumeAccess::Kind kind = m_index->volumeAccessKind();
+    state.elevated = integrity::processElevated();
+    state.administrator = userIsAdministrator();
+    state.portable = !Settings::portableFolder().isEmpty();
+    state.serviceInstalled = ntfs::ServiceVolumeAccess::installed();
+    state.serviceBusy = m_serviceBusy;
+    state.serviceMessage = m_serviceMessage;
+    switch (kind) {
+    case ntfs::VolumeAccess::Kind::Direct:
+        state.effective = u"direct"_s;
+        state.status = tr("现在：以管理员身份直接读取磁盘的主文件表和变更日志");
+        break;
+    case ntfs::VolumeAccess::Kind::Service: {
+        state.effective = u"service"_s;
+        const auto service = std::dynamic_pointer_cast<ntfs::ServiceVolumeAccess>(m_index->volumeAccess());
+        const QString version = service ? QString::fromStdWString(service->serviceVersion()) : QString();
+        state.status = version.isEmpty() ? tr("现在：通过索引服务读取磁盘的主文件表和变更日志")
+                                         : tr("现在：通过索引服务读取磁盘的主文件表和变更日志（服务版本 %1）").arg(version);
+        break;
+    }
+    case ntfs::VolumeAccess::Kind::None:
+        state.effective = u"walk"_s;
+        state.status = m_serviceWanted ? tr("现在：按文件夹遍历，因为%1").arg(serviceProblem())
+                                       : tr("现在：按文件夹遍历，不读取主文件表");
+        break;
+    }
+    QStringList notes;
+    if (m_settings.indexAccess == u"direct" && !state.elevated) {
+        notes << (state.administrator ? tr("“管理员直读”要以管理员身份运行；这次是以普通权限启动的，点“以管理员身份重新启动”。")
+                                      : tr("这个账户不是管理员，“管理员直读”在这里没有意义，请改选别的方式。"));
+    }
+    if (m_accessTakenFromTask)
+        notes << tr("升级前开机自启是以管理员身份运行的，所以记成了“管理员直读”；改选别的方式，开机自启就改用普通权限。");
+    if (const std::optional<bool> task = autostart::taskElevated(); task && *task != autostart::elevated()) {
+        // Written by the elevated copy only (reconcileAutostart).
+        notes << (*task ? tr("开机自启的任务还在以管理员身份启动 Win顺：下次登录由它启动时会改成普通权限。")
+                        : tr("开机自启的任务还在以普通权限启动 Win顺：以管理员身份重新启动后会改过来。"));
+    }
+    state.note = notes.join(u'\n');
+    m_settingsEditor->setIndexAccessState(state);
+}
+
+void App::installIndexService(bool install)
+{
+    if (m_serviceBusy)
+        return;
+    const QString exe = QDir::toNativeSeparators(QCoreApplication::applicationDirPath() + u"/WinShunService.exe"_s);
+    if (!QFile::exists(exe)) {
+        m_serviceMessage = tr("Win顺 旁边没有 WinShunService.exe");
+        refreshIndexAccess();
+        return;
+    }
+    m_serviceBusy = true;
+    m_serviceMessage = install ? tr("正在安装索引服务…") : tr("正在卸载索引服务…");
+    refreshIndexAccess();
+    // Registered from where this copy is: moved, it has to be installed again.
+    shell::runElevated(exe.toStdWString(), install ? L"--install" : L"--uninstall",
+        [this, install](std::optional<unsigned long> code) {
+            QMetaObject::invokeMethod(
+                this,
+                [this, install, code] {
+                    m_serviceBusy = false;
+                    if (!code) {
+                        m_serviceMessage = tr("没有进行：需要管理员权限（在 UAC 里选“是”）");
+                    } else if (*code != 0) {
+                        m_serviceMessage = (install ? tr("安装索引服务失败（错误 %1）") : tr("卸载索引服务失败（错误 %1）"))
+                                               .arg(*code);
+                    } else if (install) {
+                        m_serviceMessage = tr("索引服务已安装并启动。移动了 Win顺 的文件夹后要重新安装。");
+                        probeService(); // taken into use as soon as it answers
+                    } else {
+                        m_serviceMessage = tr("索引服务已卸载。");
+                        if (m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::Service)
+                            m_index->setVolumeAccess(std::make_shared<ntfs::NoVolumeAccess>()); // walked and watched from here on
+                    }
+                    refreshIndexAccess();
+                },
+                Qt::QueuedConnection);
+        });
 }
 
 // ---- AI 助手: the MCP server --------------------------------------------------

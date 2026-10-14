@@ -2187,6 +2187,118 @@
         <translation>quick access;go to often;shortcuts</translation>
     </message>
     <message>
+        <source>界面大小</source>
+        <translation>Size</translation>
+    </message>
+    <message>
+        <source>缩放;大小;字号;字体大小;行高;紧凑;宽松;scale;size;zoom;font</source>
+        <translation>scale;size;zoom;font;text size;row height;compact;roomy;density</translation>
+    </message>
+    <message>
+        <source>搜索框、剪贴板和对话框旁搜索框的文字和行高；设置窗口不变</source>
+        <translation>Text and row height of the search box, the clipboard and the search bar by file dialogs; this window stays as it is</translation>
+    </message>
+    <message>
+        <source>紧凑</source>
+        <translation>Compact</translation>
+    </message>
+    <message>
+        <source>标准</source>
+        <translation>Standard</translation>
+    </message>
+    <message>
+        <source>宽松</source>
+        <translation>Roomy</translation>
+    </message>
+    <message>
+        <source>任务栏图标</source>
+        <translation>Taskbar icon</translation>
+    </message>
+    <message>
+        <source>托盘;通知区域;单色;黑白;彩色;图标;tray;icon</source>
+        <translation>tray;notification area;monochrome;mono;colour;color;icon</translation>
+    </message>
+    <message>
+        <source>通知区域和任务栏搜索框里的 Win顺 图标。单色随任务栏的浅色、深色变成黑或白，和系统图标一致</source>
+        <translation>WinShun&apos;s icon in the notification area and the taskbar search box. Monochrome turns black or white with the taskbar&apos;s light or dark mode, like Windows&apos; own icons</translation>
+    </message>
+    <message>
+        <source>彩色</source>
+        <translation>Colour</translation>
+    </message>
+    <message>
+        <source>单色</source>
+        <translation>Monochrome</translation>
+    </message>
+    <message>
+        <source>自动（推荐）</source>
+        <translation>Automatic (recommended)</translation>
+    </message>
+    <message>
+        <source>索引服务</source>
+        <translation>Index service</translation>
+    </message>
+    <message>
+        <source>管理员直读</source>
+        <translation>Direct (administrator)</translation>
+    </message>
+    <message>
+        <source>遍历</source>
+        <translation>Walk folders</translation>
+    </message>
+    <message>
+        <source>索引方式</source>
+        <translation>Index access</translation>
+    </message>
+    <message>
+        <source>索引服务;管理员;权限;UAC;MFT;主文件表;遍历;服务;index service;administrator</source>
+        <translation>index service;administrator;rights;elevation;UAC;MFT;master file table;walk;service</translation>
+    </message>
+    <message>
+        <source>通过索引服务读取磁盘的主文件表和变更日志，Win顺 以普通权限运行</source>
+        <translation>The index service reads the disks' master file tables and change journals; WinShun runs with your normal rights</translation>
+    </message>
+    <message>
+        <source>Win顺 以管理员身份运行，自己读取主文件表和变更日志；开机自启也以管理员身份</source>
+        <translation>WinShun runs as administrator and reads the master file tables and change journals itself; it starts at login as administrator too</translation>
+    </message>
+    <message>
+        <source>不需要任何权限，逐个文件夹遍历，建索引慢一些</source>
+        <translation>No rights needed: the folders are walked one by one, which builds the index more slowly</translation>
+    </message>
+    <message>
+        <source>以管理员身份运行时直接读取，否则通过索引服务；没有服务就遍历文件夹</source>
+        <translation>Read directly when running as administrator, else through the index service; without the service, the folders are walked</translation>
+    </message>
+    <message>
+        <source>以管理员身份重新启动</source>
+        <translation>Restart as administrator</translation>
+    </message>
+    <message>
+        <source>便携版的索引服务</source>
+        <translation>Index service for the portable copy</translation>
+    </message>
+    <message>
+        <source>便携;安装服务;卸载服务;索引服务;portable;service</source>
+        <translation>portable;install service;uninstall service;index service</translation>
+    </message>
+    <message>
+        <source>已安装 Windows 服务“Win顺 索引服务”，它替普通权限的 Win顺 读取主文件表</source>
+        <translation>The Windows service "WinShun Index Service" is installed: it reads the master file tables for a WinShun running with normal rights</translation>
+    </message>
+    <message>
+        <source>安装一个 Windows 服务，替普通权限的 Win顺 读取主文件表，建索引快得多；需要管理员权限一次</source>
+        <translation>Installs a Windows service that reads the master file tables for a WinShun running with normal rights, which builds the index much faster; asks for administrator rights once</translation>
+    </message>
+    <message>
+        <source>安装索引服务…</source>
+        <translation>Install the index service…</translation>
+    </message>
+    <message>
+        <source>卸载索引服务</source>
+        <translation>Uninstall the index service</translation>
+    </message>
+    <message>
         <source>只收录文件名和文件夹名，搜索和本机文件一样快，不读取文件内容。服务器离线时，收录过的照样能搜到。</source>
         <translation>Only the names of files and folders are read: they are searched as fast as your own files, and no file is opened. While a server is offline, what was read from it can still be searched.</translation>
     </message>
@@ -3127,6 +3239,18 @@
         <source>文件索引一建好，就开始建立</source>
         <translation>Starts building as soon as the file index is ready</translation>
     </message>
+    <message>
+        <source>Windows 没能打开它。请稍后再试，或按 Ctrl+Shift+Enter 以管理员身份运行。</source>
+        <translation>Windows could not open it. Try again later, or press Ctrl+Shift+Enter to run it as administrator.</translation>
+    </message>
+    <message>
+        <source>双击 Ctrl 打开搜索。便携版按文件夹遍历建立索引；要快一些，可以在设置里安装索引服务，或以管理员身份运行。</source>
+        <translation>Press Ctrl twice to search. A portable copy builds its index by walking the folders; for a faster one, install the index service from the settings, or run as administrator.</translation>
+    </message>
+    <message>
+        <source>用 Win顺 搜索此处</source>
+        <translation>Search here with WinShun</translation>
+    </message>
     <message numerus="yes">
         <source>已收录 %Ln 个文件，占用 %1 磁盘空间</source>
         <translation>
@@ -3195,6 +3319,94 @@
     <message>
         <source>剪贴板历史</source>
         <translation>Clipboard history</translation>
+    </message>
+    <message>
+        <source>索引服务未连接，正在遍历文件夹</source>
+        <translation>Index service not connected; walking the folders</translation>
+    </message>
+    <message>
+        <source>升级前开机自启是以管理员身份运行的，所以记成了“管理员直读”；改选别的方式，开机自启就改用普通权限。</source>
+        <translation>Before the update WinShun started at login as administrator, so the mode was set to Direct (administrator); choose another and the login start switches to normal rights.</translation>
+    </message>
+    <message>
+        <source>索引服务没有运行（Windows 服务“WinShun”已停止或被禁用）</source>
+        <translation>the index service is not running (the Windows service "WinShun" is stopped or disabled)</translation>
+    </message>
+    <message>
+        <source>没有安装索引服务</source>
+        <translation>the index service is not installed</translation>
+    </message>
+    <message>
+        <source>索引服务的版本和 Win顺 不配，请重新运行安装程序</source>
+        <translation>the index service's version does not match WinShun's; run the installer again</translation>
+    </message>
+    <message>
+        <source>现在：以管理员身份直接读取磁盘的主文件表和变更日志</source>
+        <translation>Now: reading the disks' master file tables and change journals directly, as administrator</translation>
+    </message>
+    <message>
+        <source>现在：通过索引服务读取磁盘的主文件表和变更日志</source>
+        <translation>Now: reading the disks' master file tables and change journals through the index service</translation>
+    </message>
+    <message>
+        <source>现在：通过索引服务读取磁盘的主文件表和变更日志（服务版本 %1）</source>
+        <translation>Now: reading the disks' master file tables and change journals through the index service (service version %1)</translation>
+    </message>
+    <message>
+        <source>现在：按文件夹遍历，因为%1</source>
+        <translation>Now: walking the folders, because %1</translation>
+    </message>
+    <message>
+        <source>现在：按文件夹遍历，不读取主文件表</source>
+        <translation>Now: walking the folders; the master file tables are not read</translation>
+    </message>
+    <message>
+        <source>“管理员直读”要以管理员身份运行；这次是以普通权限启动的，点“以管理员身份重新启动”。</source>
+        <translation>Direct (administrator) needs WinShun to run as administrator; this time it started with normal rights. Click "Restart as administrator".</translation>
+    </message>
+    <message>
+        <source>这个账户不是管理员，“管理员直读”在这里没有意义，请改选别的方式。</source>
+        <translation>This account is not an administrator's, so Direct (administrator) means nothing here; choose another mode.</translation>
+    </message>
+    <message>
+        <source>开机自启的任务还在以管理员身份启动 Win顺：下次登录由它启动时会改成普通权限。</source>
+        <translation>The login task still starts WinShun as administrator: the next time it does, the task is changed to normal rights.</translation>
+    </message>
+    <message>
+        <source>开机自启的任务还在以普通权限启动 Win顺：以管理员身份重新启动后会改过来。</source>
+        <translation>The login task still starts WinShun with normal rights: it is changed once WinShun is restarted as administrator.</translation>
+    </message>
+    <message>
+        <source>Win顺 旁边没有 WinShunService.exe</source>
+        <translation>There is no WinShunService.exe next to WinShun</translation>
+    </message>
+    <message>
+        <source>正在安装索引服务…</source>
+        <translation>Installing the index service…</translation>
+    </message>
+    <message>
+        <source>正在卸载索引服务…</source>
+        <translation>Uninstalling the index service…</translation>
+    </message>
+    <message>
+        <source>没有进行：需要管理员权限（在 UAC 里选“是”）</source>
+        <translation>Not done: administrator rights are needed (choose Yes in the UAC prompt)</translation>
+    </message>
+    <message>
+        <source>安装索引服务失败（错误 %1）</source>
+        <translation>Installing the index service failed (error %1)</translation>
+    </message>
+    <message>
+        <source>卸载索引服务失败（错误 %1）</source>
+        <translation>Uninstalling the index service failed (error %1)</translation>
+    </message>
+    <message>
+        <source>索引服务已安装并启动。移动了 Win顺 的文件夹后要重新安装。</source>
+        <translation>The index service is installed and running. After moving WinShun's folder, install it again.</translation>
+    </message>
+    <message>
+        <source>索引服务已卸载。</source>
+        <translation>The index service is uninstalled.</translation>
     </message>
     <message>
         <source>插件已停用</source>
@@ -3538,6 +3750,10 @@
     <message>
         <source>已复制。没有找到要粘贴进去的窗口，可以自己按 Ctrl+V</source>
         <translation>Copied. No window to paste into: press Ctrl+V where you want it</translation>
+    </message>
+    <message>
+        <source>已复制。那个程序以管理员身份运行，Win顺 没法替它粘贴：回到它那里按 Ctrl+V</source>
+        <translation>Copied. That program runs as administrator, so WinShun cannot paste into it: go back to it and press Ctrl+V</translation>
     </message>
     <message>
         <source>%1里只能粘贴文字</source>

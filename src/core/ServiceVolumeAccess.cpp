@@ -1,0 +1,526 @@
+#include "ServiceVolumeAccess.h"
+
+#include "VolumeProtocol.h"
+
+#include <QtGlobal>
+
+#include <windows.h>
+
+#include <atomic>
+#include <cstdlib>
+#include <iterator>
+#include <utility>
+
+namespace ws::ntfs {
+
+namespace {
+
+using namespace volproto;
+
+constexpr DWORD kConnectWaitMs = 2000; // for an instance of the pipe, when every one is taken
+constexpr DWORD kReplyMs = 10'000; // for an answer the service gives at once
+constexpr DWORD kOpenMs = 60'000; // for MftInfo: the service reads record 0 and the bitmap first
+constexpr DWORD kBlockMs = 120'000; // for the next MftBlock (a 4 MB read at low priority on a busy hard disk)
+constexpr DWORD kCloseMs = 2000; // for Closed
+std::atomic<long long> g_reconnectMs {30'000};
+
+std::wstring describe(const wchar_t* what, DWORD error)
+{
+    return std::wstring(what) + L" (error " + std::to_wstring(error) + L")";
+}
+
+// Connects to the service and shakes hands, within `timeoutMs` for each
+// step (a healthy service answers in microseconds; the GUI thread asks with
+// a short one). Nothing when it is not there, or refuses us; `error` says which.
+std::optional<Channel> connectSession(
+    const std::wstring& pipeName, std::wstring& error, std::wstring* version = nullptr, DWORD timeoutMs = kReplyMs)
+{
+    const std::wstring path = fullPipePath(pipeName);
+    HANDLE pipe = INVALID_HANDLE_VALUE;
+    const ULONGLONG deadline = ::GetTickCount64() + std::min(kConnectWaitMs, timeoutMs);
+    for (;;) {
+        // Identification only: the service may ask who we are, not act as us.
+        pipe = ::CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+            FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, nullptr);
+        if (pipe != INVALID_HANDLE_VALUE)
+            break;
+        const DWORD code = ::GetLastError();
+        // Every instance taken: the service makes the next one right after
+        // accepting a client, so this passes in a moment. WaitNamedPipe says
+        // when one is free, but another thread of ours may take it first:
+        // keep trying until the deadline.
+        const ULONGLONG now = ::GetTickCount64();
+        if (code != ERROR_PIPE_BUSY || now >= deadline) {
+            error = describe(code == ERROR_FILE_NOT_FOUND ? L"the index service is not running" : L"cannot open the pipe", code);
+            return std::nullopt;
+        }
+        if (!::WaitNamedPipeW(path.c_str(), static_cast<DWORD>(deadline - now)))
+            ::Sleep(20);
+    }
+    DWORD mode = PIPE_READMODE_BYTE | PIPE_WAIT;
+    ::SetNamedPipeHandleState(pipe, &mode, nullptr, nullptr);
+    Channel channel(pipe);
+    Hello hello;
+    hello.version[0] = WINSHUN_VERSION_MAJOR;
+    hello.version[1] = WINSHUN_VERSION_MINOR;
+    hello.version[2] = WINSHUN_VERSION_PATCH;
+    hello.pid = ::GetCurrentProcessId();
+    Writer w;
+    encode(w, hello);
+    Type type {};
+    std::vector<std::byte> payload;
+    if (!channel.write(w.finish(Type::Hello), timeoutMs) || !channel.read(type, payload, timeoutMs)) {
+        error = describe(L"the index service did not answer", channel.lastError());
+        return std::nullopt;
+    }
+    if (type == Type::HelloRefused) {
+        HelloRefused refused;
+        decode(payload, refused);
+        error = refused.reason == static_cast<std::uint32_t>(Refusal::Protocol)
+            ? L"the index service speaks another version of the protocol: run the installer again"
+            : L"the index service refused the connection (reason " + std::to_wstring(refused.reason) + L")";
+        return std::nullopt;
+    }
+    HelloOk ok;
+    if (type != Type::HelloOk || !decode(payload, ok)) {
+        error = L"the index service answered something else";
+        return std::nullopt;
+    }
+    if (ok.major != kMajor) {
+        error = L"the index service speaks protocol " + std::to_wstring(ok.major) + L", this program "
+            + std::to_wstring(kMajor) + L": run the installer again";
+        return std::nullopt;
+    }
+    if (version)
+        *version = std::to_wstring(ok.version[0]) + L"." + std::to_wstring(ok.version[1]) + L"."
+            + std::to_wstring(ok.version[2]);
+    return channel;
+}
+
+// The service's reply to a request that has one: the frame, or an error
+// message for anything else.
+bool ask(Channel& channel, std::span<const std::byte> request, Type wanted, std::vector<std::byte>& payload,
+    DWORD timeoutMs, std::wstring& error)
+{
+    Type type {};
+    if (!channel.write(request, kReplyMs) || !channel.read(type, payload, timeoutMs)) {
+        error = describe(L"the index service's connection broke", channel.lastError());
+        return false;
+    }
+    if (type == wanted)
+        return true;
+    if (type == Type::Error) {
+        Error e;
+        if (decode(payload, e))
+            error = e.message + L" (error " + std::to_wstring(e.code) + L")";
+        else
+            error = L"the index service refused the request";
+        return false;
+    }
+    if (type == Type::MftDone) {
+        MftDone done;
+        error = decode(payload, done) ? done.error : L"the MFT could not be read";
+        return false;
+    }
+    error = L"the index service answered with frame " + std::to_wstring(static_cast<unsigned>(type));
+    return false;
+}
+
+// ---- the MFT, block by block --------------------------------------------------------
+
+class PipeRecordSource final : public RecordSource {
+public:
+    PipeRecordSource(Channel&& channel, const MftInfo& info)
+        : m_channel(std::move(channel))
+        , m_info(info)
+    {
+    }
+    explicit PipeRecordSource(std::wstring error)
+        : m_error(std::move(error))
+    {
+    }
+
+    bool valid() const noexcept override { return m_error.empty(); }
+    const std::wstring& error() const noexcept override { return m_error; }
+    std::uint64_t recordCount() const noexcept override { return m_info.recordCount; }
+    std::uint64_t bytes() const noexcept override { return m_info.validBytes; }
+    std::uint64_t bytesDone() const noexcept override { return m_done ? m_info.validBytes : m_block.bytesDone(); }
+
+    bool next() override
+    {
+        if (!valid() || m_done)
+            return false;
+        Type type {};
+        std::vector<std::byte> payload;
+        if (!m_channel.read(type, payload, kBlockMs)) {
+            m_error = describe(L"the index service's connection broke", m_channel.lastError());
+            return false;
+        }
+        switch (type) {
+        case Type::MftBlock:
+            if (!m_block.load(std::move(payload))) {
+                m_error = L"the index service sent a malformed block";
+                return false;
+            }
+            return true;
+        case Type::MftDone: {
+            MftDone done;
+            if (!decode(payload, done)) {
+                m_error = L"the index service sent a malformed end";
+            } else if (done.status == static_cast<std::uint32_t>(MftStatus::Done)) {
+                m_done = true;
+            } else if (done.status == static_cast<std::uint32_t>(MftStatus::VolumeLost)) {
+                m_error = L"the index service let go of the volume";
+            } else {
+                m_error = done.error.empty() ? L"the index service could not read the MFT" : done.error;
+            }
+            return false;
+        }
+        case Type::VolumeLost:
+            m_error = L"the index service let go of the volume";
+            return false;
+        default:
+            m_error = L"the index service answered with frame " + std::to_wstring(static_cast<unsigned>(type));
+            return false;
+        }
+    }
+    std::uint32_t firstRecord() const noexcept override { return m_block.firstRecord(); }
+    std::size_t blockRecords() const noexcept override { return m_block.count(); }
+    bool parse(std::size_t i, FileRecord& out) override { return m_block.record(i, out); }
+
+private:
+    Channel m_channel;
+    MftInfo m_info;
+    BlockReader m_block;
+    std::wstring m_error;
+    bool m_done = false;
+};
+
+// ---- a journal followed -------------------------------------------------------------
+
+class PipeJournalSource final : public JournalSource {
+public:
+    PipeJournalSource(std::wstring pipeName, std::wstring_view root, std::uint32_t serial, std::uint64_t journalId)
+        : m_pipeName(std::move(pipeName))
+        , m_root(root)
+        , m_serial(serial)
+        , m_journalId(journalId)
+        , m_fallbackEvent(::CreateEventW(nullptr, TRUE, FALSE, nullptr))
+    {
+        m_valid = m_fallbackEvent && connect();
+    }
+
+    ~PipeJournalSource() override
+    {
+        cancel();
+        if (m_fallbackEvent)
+            ::CloseHandle(m_fallbackEvent);
+    }
+
+    bool valid() const noexcept override { return m_valid; }
+    void* event() const noexcept override { return m_channel.valid() ? m_channel.event() : m_fallbackEvent; }
+
+    void start(std::int64_t usn, bool wait) override
+    {
+        cancel();
+        m_usn = usn;
+        ::ResetEvent(m_fallbackEvent);
+        if (!m_channel.valid() && !m_lost && !connect()) {
+            ::SetEvent(m_fallbackEvent); // finish() tries again later, or gives up
+            return;
+        }
+        if (m_lost) {
+            ::SetEvent(m_fallbackEvent);
+            return;
+        }
+        const volproto::Read read {usn, wait}; // not ntfs::Read, the MFT's
+        Writer w;
+        encode(w, read);
+        if (!m_channel.write(w.finish(Type::Read), kReplyMs) || !m_channel.beginRead()) {
+            m_channel.close();
+            ::SetEvent(m_fallbackEvent);
+            return;
+        }
+        m_pending = true;
+    }
+
+    bool finish(std::vector<UsnRecord>& records, std::int64_t& nextUsn) override
+    {
+        records.clear();
+        if (m_lost)
+            return false;
+        if (!m_pending)
+            return retryLater(nextUsn); // start() could not ask: the service was away
+        m_pending = false;
+        Type type {};
+        std::vector<std::byte> payload;
+        if (!m_channel.finishRead(type, payload, kReplyMs)) {
+            m_channel.close();
+            return retryLater(nextUsn);
+        }
+        switch (type) {
+        case Type::UsnBatch: {
+            m_buffer = std::move(payload);
+            const std::int64_t next = parseUsnRecords(m_buffer, records);
+            if (next < 0) {
+                records.clear();
+                qWarning("WinShun: the index service sent a malformed journal batch for %ls", m_root.c_str());
+                m_channel.close();
+                return retryLater(nextUsn);
+            }
+            m_lostSince.reset();
+            nextUsn = next;
+            return true;
+        }
+        case Type::JournalLost: {
+            JournalLost lost;
+            decode(payload, lost);
+            qWarning("WinShun: the change journal of %ls is lost (error %lu, from the index service)", m_root.c_str(),
+                static_cast<unsigned long>(lost.error));
+            m_lost = true;
+            return false;
+        }
+        case Type::VolumeLost:
+        case Type::Error:
+            m_lost = true;
+            return false;
+        case Type::Cancelled: // a stray one: nothing new
+            nextUsn = m_usn;
+            return true;
+        default:
+            m_channel.close();
+            return retryLater(nextUsn);
+        }
+    }
+
+    void cancel() override
+    {
+        if (!m_pending)
+            return;
+        m_pending = false;
+        // The service answers Cancelled, after the batch if the read had
+        // just completed: read up to it, so the next reply is the next read's.
+        Writer w;
+        if (!m_channel.write(w.finish(Type::Cancel), kReplyMs)) {
+            m_channel.close();
+            return;
+        }
+        for (int frames = 0; frames < 4; ++frames) {
+            Type type {};
+            std::vector<std::byte> payload;
+            if (!m_channel.finishRead(type, payload, kCloseMs)) {
+                m_channel.close();
+                return;
+            }
+            if (type == Type::Cancelled)
+                return;
+            if (type == Type::JournalLost || type == Type::VolumeLost || type == Type::Error)
+                m_lost = true;
+            if (!m_channel.beginRead()) {
+                m_channel.close();
+                return;
+            }
+        }
+        m_channel.close(); // never came: start over
+    }
+
+private:
+    // Connects and asks to follow the journal. False with m_lost set when
+    // the service says it cannot be followed; false without when the
+    // service is not there.
+    bool connect()
+    {
+        std::wstring error;
+        std::optional<Channel> channel = connectSession(m_pipeName, error);
+        if (!channel)
+            return false;
+        FollowJournal follow {m_root, m_serial, m_journalId};
+        Writer w;
+        encode(w, follow);
+        std::vector<std::byte> payload;
+        Type type {};
+        if (!channel->write(w.finish(Type::FollowJournal), kReplyMs) || !channel->read(type, payload, kReplyMs))
+            return false;
+        if (type == Type::Following) {
+            m_channel = std::move(*channel);
+            return true;
+        }
+        if (type == Type::Error) {
+            Error e;
+            decode(payload, e);
+            qWarning("WinShun: the index service cannot follow the journal of %ls: %ls (error %lu)", m_root.c_str(),
+                e.message.c_str(), static_cast<unsigned long>(e.code));
+            m_lost = true;
+        }
+        return false;
+    }
+
+    // The service is away: as if nothing new happened, until the window is over.
+    bool retryLater(std::int64_t& nextUsn)
+    {
+        const auto now = std::chrono::steady_clock::now();
+        if (!m_lostSince) {
+            m_lostSince = now;
+            qWarning("WinShun: the index service's connection for %ls broke; reconnecting", m_root.c_str());
+        } else if (now - *m_lostSince > std::chrono::milliseconds(g_reconnectMs.load())) {
+            qWarning("WinShun: the index service did not come back for %ls: reading the volume again", m_root.c_str());
+            m_lost = true;
+            return false;
+        }
+        nextUsn = m_usn;
+        return true;
+    }
+
+    std::wstring m_pipeName;
+    std::wstring m_root;
+    std::uint32_t m_serial;
+    std::uint64_t m_journalId;
+    HANDLE m_fallbackEvent; // event() while there is no connection: set, so finish() is asked
+    Channel m_channel;
+    std::vector<std::byte> m_buffer; // the last batch: records point into it
+    std::int64_t m_usn = 0; // of the last start()
+    bool m_valid = false;
+    bool m_pending = false;
+    bool m_lost = false; // the service said so (or never came back)
+    std::optional<std::chrono::steady_clock::time_point> m_lostSince; // the connection broke then
+};
+
+} // namespace
+
+// ---- ServiceVolumeAccess ----------------------------------------------------------
+
+ServiceVolumeAccess::ServiceVolumeAccess(std::wstring pipeName)
+    : m_pipeName(std::move(pipeName))
+{
+}
+
+std::wstring ServiceVolumeAccess::defaultPipeName()
+{
+    wchar_t name[256] {};
+    const DWORD n = ::GetEnvironmentVariableW(kPipeEnvironment, name, static_cast<DWORD>(std::size(name)));
+    if (n > 0 && n < std::size(name))
+        return std::wstring(name, n);
+    return kPipeName;
+}
+
+bool ServiceVolumeAccess::installed()
+{
+    // Connecting and asking a service's status is open to every user.
+    const SC_HANDLE manager = ::OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (!manager)
+        return false;
+    const SC_HANDLE service = ::OpenServiceW(manager, kServiceName, SERVICE_QUERY_STATUS);
+    if (service)
+        ::CloseServiceHandle(service);
+    ::CloseServiceHandle(manager);
+    return service != nullptr;
+}
+
+bool ServiceVolumeAccess::probe()
+{
+    std::wstring error;
+    std::wstring version;
+    if (!connectSession(m_pipeName, error, &version, kCloseMs)) { // the GUI thread asks at start
+        noteError(std::move(error));
+        return false;
+    }
+    const std::lock_guard lock(m_mutex);
+    m_serviceVersion = std::move(version);
+    m_lastError.clear();
+    return true;
+}
+
+std::wstring ServiceVolumeAccess::serviceVersion() const
+{
+    const std::lock_guard lock(m_mutex);
+    return m_serviceVersion;
+}
+
+std::wstring ServiceVolumeAccess::lastError() const
+{
+    const std::lock_guard lock(m_mutex);
+    return m_lastError;
+}
+
+void ServiceVolumeAccess::noteError(std::wstring error)
+{
+    const std::lock_guard lock(m_mutex);
+    m_lastError = std::move(error);
+}
+
+std::unique_ptr<RecordSource> ServiceVolumeAccess::openMft(std::wstring_view root, std::uint32_t serial, bool lowPriority)
+{
+    std::wstring error;
+    std::optional<Channel> channel = connectSession(m_pipeName, error);
+    if (!channel) {
+        noteError(error);
+        return std::make_unique<PipeRecordSource>(std::move(error));
+    }
+    OpenMft open {std::wstring(root), serial, lowPriority};
+    Writer w;
+    encode(w, open);
+    std::vector<std::byte> payload;
+    MftInfo info;
+    if (!ask(*channel, w.finish(Type::OpenMft), Type::MftInfo, payload, kOpenMs, error) || !decode(payload, info)) {
+        if (error.empty())
+            error = L"the index service sent a malformed MftInfo";
+        return std::make_unique<PipeRecordSource>(std::move(error));
+    }
+    return std::make_unique<PipeRecordSource>(std::move(*channel), info);
+}
+
+std::optional<JournalInfo> ServiceVolumeAccess::queryJournal(std::wstring_view root, std::uint32_t serial)
+{
+    std::wstring error;
+    std::optional<Channel> channel = connectSession(m_pipeName, error);
+    if (!channel) {
+        noteError(error);
+        return std::nullopt;
+    }
+    QueryJournal query {std::wstring(root), serial};
+    Writer w;
+    encode(w, query);
+    std::vector<std::byte> payload;
+    JournalInfo info;
+    if (!ask(*channel, w.finish(Type::QueryJournal), Type::JournalInfo, payload, kReplyMs, error)
+        || !decode(payload, info)) {
+        qWarning("WinShun: the index service has no change journal for %ls: %ls", std::wstring(root).c_str(),
+            error.c_str());
+        return std::nullopt;
+    }
+    return info;
+}
+
+std::unique_ptr<JournalSource> ServiceVolumeAccess::openJournal(
+    std::wstring_view root, std::uint32_t serial, std::uint64_t journalId)
+{
+    return std::make_unique<PipeJournalSource>(m_pipeName, root, serial, journalId);
+}
+
+void ServiceVolumeAccess::closeVolume(std::wstring_view root)
+{
+    // On the GUI thread, while Windows waits to eject: 2 s at most, all in.
+    std::wstring error;
+    std::optional<Channel> channel = connectSession(m_pipeName, error, nullptr, kCloseMs);
+    if (!channel)
+        return; // not running: it holds nothing
+    CloseVolume close {std::wstring(root)};
+    Writer w;
+    encode(w, close);
+    std::vector<std::byte> payload;
+    if (!ask(*channel, w.finish(Type::CloseVolume), Type::Closed, payload, kCloseMs, error))
+        qWarning("WinShun: the index service did not confirm letting go of %ls: %ls", std::wstring(root).c_str(),
+            error.c_str());
+}
+
+std::chrono::milliseconds ServiceVolumeAccess::reconnectWindow() noexcept
+{
+    return std::chrono::milliseconds(g_reconnectMs.load());
+}
+
+void ServiceVolumeAccess::setReconnectWindow(std::chrono::milliseconds window) noexcept
+{
+    g_reconnectMs = window.count();
+}
+
+} // namespace ws::ntfs

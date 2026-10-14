@@ -5,6 +5,7 @@
 #include "ContentIndexer.h"
 #include "Crawler.h"
 #include "FileIndex.h"
+#include "Ntfs.h"
 #include "ShareIndexer.h"
 
 #include <QObject>
@@ -61,6 +62,20 @@ public:
         int rescanDelayMs = 15000;
         ContentIndexer::Options content;
         ShareIndexer::Options shares;
+        // Where NTFS volumes' MFT records and change journals come from:
+        // the volumes themselves (empty: DirectVolumeAccess, administrator
+        // rights), the index service, or nowhere (every volume walked and
+        // watched). Taken at construction; setOptions() leaves it as it is,
+        // setVolumeAccess() replaces it.
+        std::shared_ptr<ntfs::VolumeAccess> volumeAccess;
+        // With no way to the journals (NoVolumeAccess) and a snapshot that
+        // followed NTFS volumes through theirs, the passes wait this long
+        // after start() for setVolumeAccess() before treating those volumes
+        // as walked: the index service comes up a moment after the user's
+        // Win顺 at login, and a volume walked meanwhile would have lost its
+        // journal position (a whole MFT read once the service is there,
+        // instead of catching up). 0: not at all.
+        int accessWaitMs = 0;
     };
 
     // `folder` holds the index files (indexfolder), or will.
@@ -73,6 +88,12 @@ public:
     // dropped, folders no longer excluded are walked. Only a folder name that
     // is no longer excluded (it could be anywhere) takes reading every volume.
     void setOptions(Options options);
+    // Another way to the volumes from now on (the index service connected,
+    // or went away for good; the mode was changed): NTFS volumes are
+    // planned again (Pass::Volumes). A volume followed through its journal
+    // goes on from its position; a walked one is read from its MFT when the
+    // new access can. GUI thread.
+    void setVolumeAccess(std::shared_ptr<ntfs::VolumeAccess> access);
     void shutdown(); // stops threads, saves the snapshot; idempotent
 
     // Moves the index files to `folder`, in the background: searches go on,
@@ -106,6 +127,9 @@ public:
     // Content searches hand it what they read (ContentIndexer::Intake).
     ContentIndexer* contentIndexer() const noexcept { return m_contentIndexer.get(); }
     State state() const noexcept { return m_state.load(); }
+    ntfs::VolumeAccess::Kind volumeAccessKind() const noexcept { return m_access.load()->kind(); }
+    // The one in use (a ServiceVolumeAccess says the service's version, or why not).
+    std::shared_ptr<ntfs::VolumeAccess> volumeAccess() const { return m_access.load(); }
     ShareIndexer& shares() const noexcept { return *m_shares; }
     bool isRefreshing() const noexcept { return m_refreshing.load(); }
     std::size_t itemCount() const;
@@ -141,6 +165,11 @@ private:
     void run(std::stop_token stop, Pass pass);
     RuleChange applyRuleChanges(const CrawlRules& before, const Crawler& crawler, std::stop_token stop);
     bool syncWithDisk(std::stop_token stop, const std::vector<std::size_t>& which);
+    // Waits (until the deadline Options::accessWaitMs set, or the stop) for
+    // an access that reads the journals, when there is none and a volume
+    // would lose its journal position without one (see Options).
+    void awaitAccess(std::stop_token stop, const std::vector<VolumeInfo>& volumes,
+        const std::vector<JournalPosition>& journals, const std::vector<bool>& known);
     void setReading(const std::wstring& root, bool reading);
     void setReadingPercent(const std::wstring& root, int percent);
     bool syncFromMft(const VolumeInfo& volume, EntryId root, const Crawler& crawler, bool lowPriority,
@@ -173,6 +202,14 @@ private:
     void notifyLater();
 
     Options m_options;
+    // Never null; replaced whole by setVolumeAccess(). Each use loads it: a
+    // worker thread may be in a pass while it is replaced (the pass is
+    // stopped right after, and planned again).
+    std::atomic<std::shared_ptr<ntfs::VolumeAccess>> m_access;
+    std::chrono::steady_clock::time_point m_accessDeadline {}; // until when awaitAccess() waits (start())
+    std::mutex m_accessMutex; // guards the wait below against a lost wake-up
+    std::condition_variable_any m_accessCv;
+    std::atomic<bool> m_accessAwaited {false}; // the worker is in awaitAccess(): told, not relaunched
     std::atomic<std::shared_ptr<const Crawler>> m_crawler; // replaced whole when the rules change
     std::atomic<std::shared_ptr<FileIndex>> m_index;
     std::atomic<State> m_state {State::Idle};

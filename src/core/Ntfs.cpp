@@ -916,16 +916,29 @@ void JournalReader::start(std::int64_t usn, bool wait)
     ::SetEvent(m_event); // finish() reports the error
 }
 
-bool JournalReader::finish(std::vector<UsnRecord>& records, std::int64_t& nextUsn)
+bool JournalReader::finishRaw(std::span<const std::byte>& data)
 {
-    records.clear();
-    if (!m_pending)
+    data = {};
+    if (!m_pending) {
+        if (m_startError)
+            ::SetLastError(m_startError);
         return false;
+    }
     m_pending = false;
     DWORD bytes = 0;
     if (!::GetOverlappedResult(m_volume, m_overlapped.get(), &bytes, TRUE))
         return false;
-    const std::int64_t next = parseUsnRecords({reinterpret_cast<const std::byte*>(m_buffer.data()), bytes}, records);
+    data = {reinterpret_cast<const std::byte*>(m_buffer.data()), bytes};
+    return true;
+}
+
+bool JournalReader::finish(std::vector<UsnRecord>& records, std::int64_t& nextUsn)
+{
+    records.clear();
+    std::span<const std::byte> data;
+    if (!finishRaw(data))
+        return false;
+    const std::int64_t next = parseUsnRecords(data, records);
     if (next < 0)
         return false;
     nextUsn = next;
@@ -940,6 +953,28 @@ void JournalReader::cancel()
     DWORD ignored = 0;
     ::GetOverlappedResult(m_volume, m_overlapped.get(), &ignored, TRUE);
     m_pending = false;
+}
+
+// ---- DirectVolumeAccess ----------------------------------------------------------
+
+std::unique_ptr<RecordSource> DirectVolumeAccess::openMft(std::wstring_view root, std::uint32_t, bool)
+{
+    return std::make_unique<MftReader>(root);
+}
+
+std::optional<JournalInfo> DirectVolumeAccess::queryJournal(std::wstring_view root, std::uint32_t)
+{
+    return ntfs::queryJournal(root);
+}
+
+std::unique_ptr<JournalSource> DirectVolumeAccess::openJournal(
+    std::wstring_view root, std::uint32_t, std::uint64_t journalId)
+{
+    return std::make_unique<JournalReader>(root, journalId);
+}
+
+void DirectVolumeAccess::closeVolume(std::wstring_view)
+{
 }
 
 } // namespace ws::ntfs
