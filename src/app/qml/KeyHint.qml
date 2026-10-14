@@ -15,7 +15,7 @@ Row {
     Rectangle {
         anchors.verticalCenter: parent.verticalCenter
         width: keyText.implicitWidth + 10
-        height: 22
+        height: Theme.keycapHeight
         radius: 4
         color: Theme.keycap
         border.width: 1
@@ -26,7 +26,7 @@ Row {
             anchors.centerIn: parent
             text: hint.keys
             color: Theme.subtext
-            font.pixelSize: Theme.fontCaption
+            font.pixelSize: Theme.uiCaption
         }
     }
 
@@ -35,6 +35,6 @@ Row {
         anchors.verticalCenter: parent.verticalCenter
         text: hint.label
         color: Theme.faint
-        font.pixelSize: Theme.fontBody
+        font.pixelSize: Theme.uiBody
     }
 }

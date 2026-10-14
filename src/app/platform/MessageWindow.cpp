@@ -1,5 +1,7 @@
 #include "MessageWindow.h"
 
+#include "MonoLogo.h"
+
 #include <QDeadlineTimer>
 #include <QStringList>
 
@@ -50,9 +52,35 @@ MessageWindow::MessageWindow(Callbacks callbacks)
     ::ChangeWindowMessageFilterEx(m_hwnd, m_taskbarCreated, MSGFLT_ALLOW, nullptr);
     m_powerNotify = ::RegisterSuspendResumeNotification(m_hwnd, DEVICE_NOTIFY_WINDOW_HANDLE);
 
+    loadIcon();
+}
+
+void MessageWindow::loadIcon()
+{
+    if (m_icon)
+        ::DestroyIcon(m_icon);
+    // The tray's icons are at the system's scaling (it changes only when the user signs in again).
     const UINT dpi = ::GetDpiForSystem();
-    m_icon = static_cast<HICON>(::LoadImageW(instance, kAppIconResource, IMAGE_ICON,
-        ::GetSystemMetricsForDpi(SM_CXSMICON, dpi), ::GetSystemMetricsForDpi(SM_CYSMICON, dpi), LR_DEFAULTCOLOR));
+    const int size = ::GetSystemMetricsForDpi(SM_CXSMICON, dpi);
+    m_icon = m_mono ? monologo::icon(size, monologo::taskbarInk())
+                    : static_cast<HICON>(::LoadImageW(::GetModuleHandleW(nullptr), kAppIconResource, IMAGE_ICON, size,
+                          ::GetSystemMetricsForDpi(SM_CYSMICON, dpi), LR_DEFAULTCOLOR));
+}
+
+void MessageWindow::setTrayIconMono(bool mono)
+{
+    if (m_mono == mono)
+        return;
+    m_mono = mono;
+    loadIcon();
+    if (!m_trayVisible)
+        return;
+    NOTIFYICONDATAW nid {sizeof(NOTIFYICONDATAW)};
+    nid.hWnd = m_hwnd;
+    nid.uID = kTrayId;
+    nid.uFlags = NIF_ICON;
+    nid.hIcon = m_icon;
+    ::Shell_NotifyIconW(NIM_MODIFY, &nid);
 }
 
 MessageWindow::~MessageWindow()
@@ -251,6 +279,12 @@ LRESULT MessageWindow::handle(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
     }
     switch (msg) {
+    case WM_SETTINGCHANGE: // the taskbar light or dark, high contrast: the one-colour icon in its new ink
+        if (m_mono) {
+            m_mono = false;
+            setTrayIconMono(true);
+        }
+        return ::DefWindowProcW(m_hwnd, msg, wParam, lParam);
     case WM_QUERYENDSESSION:
         return TRUE;
     case WM_ENDSESSION:

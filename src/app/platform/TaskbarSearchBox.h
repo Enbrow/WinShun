@@ -105,6 +105,7 @@ public:
         std::wstring placeholder;
         std::wstring label; // short, where the box is narrow: "搜索"
         COLORREF accent = RGB(0x00, 0x67, 0xC0); // under selected text
+        bool monoIcon = false; // Win顺's icon in the taskbar's text colour (monologo), not its own colours
     };
 
     // The callbacks run on the box's own thread.

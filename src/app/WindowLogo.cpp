@@ -1,6 +1,7 @@
 #include "WindowLogo.h"
 
 #include "Placement.h"
+#include "SystemTheme.h"
 
 #include <commctrl.h>
 #include <dwmapi.h>
@@ -26,11 +27,10 @@ struct WindowLogo::Hook {
     }
 };
 
-WindowLogo::WindowLogo(QWindow* window, int rowHeight)
+WindowLogo::WindowLogo(QWindow* window)
     : QObject(window)
     , m_window(window)
     , m_hwnd(reinterpret_cast<HWND>(window->winId()))
-    , m_rowHeight(rowHeight)
 {
     ::SetWindowSubclass(m_hwnd, &Hook::proc, 0, reinterpret_cast<DWORD_PTR>(this));
     connect(window, &QWindow::visibleChanged, this, [this](bool visible) {
@@ -90,7 +90,7 @@ void WindowLogo::place()
     ::OffsetRect(&host, -offset.x(), -offset.y());
     const qreal opacity = m_placement ? std::clamp(m_placement->slideOpacity(), 0.0, 1.0) : 1.0;
     const auto under = reinterpret_cast<HWND>(m_placement ? m_placement->slideUnder() : 0);
-    const RECT row {host.left, host.top, host.right, host.top + qRound(m_rowHeight * scale)};
+    const RECT row {host.left, host.top, host.right, host.top + qRound(SystemTheme::headerHeight() * scale)};
     using Edge = win::PeekingLogo::Edge;
     m_logo.show(host, row, info.rcWork, m_avoid ? &*m_avoid : nullptr, scale,
         {Edge::Top, Edge::Left, Edge::Right, Edge::Bottom}, {offset.x(), offset.y()}, BYTE(qRound(opacity * 255)),

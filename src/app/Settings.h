@@ -102,6 +102,8 @@ struct Settings {
     QString theme = QStringLiteral("system"); // system | light | dark
     QString language = QStringLiteral("system"); // system | zh | en
     QString transparency; // off | on: Mica behind the windows, where Windows 11 has it; defaults() picks by memory
+    QString taskbarIcon = QStringLiteral("color"); // color | mono: the tray's and the taskbar box's icon (monologo)
+    QString uiSize = QStringLiteral("standard"); // compact | standard | roomy: type and row heights (uisize::)
 
     // [Update]
     bool autoUpdate = true; // look for new versions on GitHub (see Updater)

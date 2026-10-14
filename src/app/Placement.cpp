@@ -1,10 +1,13 @@
 #include "Placement.h"
 
+#include "SystemTheme.h"
+
 #include <QEasingCurve>
 #include <QGuiApplication>
 #include <QScreen>
 #include <QSettings>
 #include <QSignalBlocker>
+#include <QTimer>
 #include <QWindow>
 
 #include <windows.h>
@@ -29,7 +32,6 @@ constexpr int kBoxGap = 4; // logical pixels, between a box and the window attac
 constexpr int kTaskbarGap = 12;
 // The launcher's search box (SearchBar.qml): by a taskbar on the left or
 // right, it is level with the button.
-constexpr int kHeaderHeight = 64;
 
 // The scale Qt draws at on a monitor.
 qreal scaleOf(HMONITOR monitor, qreal fallback)
@@ -296,6 +298,12 @@ void Placement::setRoomNeeded(int height)
     emit roomNeededChanged();
 }
 
+void Placement::resized()
+{
+    if (m_window && m_window->isVisible())
+        QTimer::singleShot(0, this, &Placement::refit); // once QML has given it its new height
+}
+
 void Placement::setAnchorWidth(int width)
 {
     if (m_anchorWidth == width)
@@ -409,7 +417,7 @@ QPoint Placement::settleByTaskbar(QScreen* screen)
     case taskbar::Edge::Right:
         setRoom(area.height() - 2 * kTaskbarGap);
         return {alongX(m_taskbar->edge == taskbar::Edge::Left ? bar.right() + 1 + kTaskbarGap : bar.left() - kTaskbarGap - width),
-            alongY(at.y() - kHeaderHeight / 2)};
+            alongY(at.y() - SystemTheme::headerHeight() / 2)};
     }
     return m_window->position();
 }

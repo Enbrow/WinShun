@@ -41,8 +41,6 @@ constexpr int kMinWidth = 480;
 constexpr int kSideWidth = 480; // beside the dialog
 constexpr int kMinDialogHeight = 400; // made shorter down to this (logical pixels), then moved up
 constexpr int kMinDialogWidth = 640; // made narrower down to this, then moved aside
-// The bar and a full list.
-constexpr int kPanelHeight = DialogBar::kBarHeight + DialogBar::kListChrome + DialogBar::kMaxRows * DialogBar::kRowHeight;
 constexpr int kMaxExplorer = 5; // suggestions of each kind
 constexpr int kMaxRecent = 10;
 constexpr int kMaxListed = 200; // of a folder whose path is typed
@@ -101,7 +99,7 @@ bool fitsBy(const Placing& at, DialogBar::Place side)
     case DialogBar::Place::Right:
         return at.frame.right + qRound((kGap + kSideWidth) * scale) <= at.work.right;
     default:
-        return at.frame.bottom + qRound((kGap + kPanelHeight) * scale) <= at.work.bottom;
+        return at.frame.bottom + qRound((kGap + DialogBar::panelHeight()) * scale) <= at.work.bottom;
     }
 }
 
@@ -298,6 +296,7 @@ DialogBar::DialogBar(SearchEngine* engine, History* history, Favorites* favorite
     , m_favorites(favorites)
     , m_mover(std::move(mover))
 {
+    s_instance = this;
     if (m_favorites) {
         connect(m_favorites, &Favorites::changed, this, [this] {
             if (!m_window || !m_window->isVisible())
@@ -334,7 +333,11 @@ DialogBar::DialogBar(SearchEngine* engine, History* history, Favorites* favorite
     });
 }
 
-DialogBar::~DialogBar() = default;
+DialogBar::~DialogBar()
+{
+    if (s_instance == this)
+        s_instance = nullptr;
+}
 
 void DialogBar::setWindow(QQuickWindow* window)
 {
@@ -544,7 +547,7 @@ void DialogBar::makeRoom()
     const bool resizable = ::GetWindowLongPtrW(m_dialog, GWL_STYLE) & WS_THICKFRAME;
     // A logical pixel more than fitsBy() wants: a dialog unaware of DPI
     // comes out a physical pixel off what it is given.
-    const int below = physical(kGap + kPanelHeight + 1);
+    const int below = physical(kGap + panelHeight() + 1);
     const int beside = physical(kGap + kSideWidth + 1);
     RECT to = frame;
     if (side == Place::Below) {
@@ -1145,6 +1148,19 @@ void DialogBar::showLogo()
 // below, else over its top edge. Beside it: level with its top, or higher
 // where the list would not fit below. The list, while the bar has the focus,
 // opens below, or above where there is more room.
+void DialogBar::setUiSize(const QString& size)
+{
+    const uisize::Metrics metrics = uisize::metrics(size);
+    if (metrics.barHeight == s_metrics.barHeight && metrics.barRow == s_metrics.barRow)
+        return;
+    s_metrics = metrics;
+    if (s_instance) {
+        emit s_instance->metricsChanged();
+        s_instance->m_roomMade.clear(); // made for the old height
+        s_instance->place();
+    }
+}
+
 void DialogBar::place()
 {
     if (!m_window || !m_dialog)
@@ -1162,7 +1178,7 @@ void DialogBar::place()
 
     m_side = sideFor(*at, m_place, m_side);
     const int gap = physical(kGap);
-    const int bar = physical(kBarHeight);
+    const int bar = physical(s_metrics.barHeight);
     int width = 0;
     int x = 0;
     int barTop = 0;
@@ -1176,11 +1192,11 @@ void DialogBar::place()
         width = std::min<int>(physical(kSideWidth), work.right - work.left);
         x = std::clamp<int>(m_side == Place::Right ? frame.right + gap : frame.left - gap - width, work.left,
             work.right - width);
-        barTop = std::max<int>(work.top, std::min<int>(frame.top, work.bottom - physical(kPanelHeight)));
+        barTop = std::max<int>(work.top, std::min<int>(frame.top, work.bottom - physical(panelHeight())));
     }
 
     const int wanted = m_window->isActive() && !m_listHeld ? std::min(m_results.count(), kMaxRows) : 0;
-    const auto fit = [](int room) { return std::max(0, (room - kListChrome) / kRowHeight); };
+    const auto fit = [](int room) { return std::max(0, (room - kListChrome) / s_metrics.barRow); };
     const int fitBelow = fit(logical(work.bottom - barTop - bar));
     const int fitAbove = fit(logical(barTop - work.top));
     int rows = std::min(wanted, fitBelow);
@@ -1190,9 +1206,9 @@ void DialogBar::place()
         above = true;
     }
     // The list, or the line that asks (asking): below, else above.
-    const int list = rows > 0 ? kListChrome + rows * kRowHeight : m_asking ? kAskHeight : 0;
+    const int list = rows > 0 ? kListChrome + rows * s_metrics.barRow : m_asking ? s_metrics.askHeight : 0;
     if (rows == 0 && m_asking)
-        above = barTop + bar + physical(kAskHeight) > work.bottom;
+        above = barTop + bar + physical(s_metrics.askHeight) > work.bottom;
     const int top = above ? barTop - physical(list) : barTop;
     if (rows != m_rows || above != m_listAbove) {
         m_rows = rows;
@@ -1203,7 +1219,7 @@ void DialogBar::place()
     // scaled. Qt rounds the position and the size to physical pixels each,
     // which may put an edge a pixel past the work area's: moved in by one.
     QRect geometry(origin.x() + qRound((x - origin.x()) / scale), origin.y() + qRound((top - origin.y()) / scale),
-        qRound(width / scale), kBarHeight + list);
+        qRound(width / scale), s_metrics.barHeight + list);
     const auto start = [scale](int from, int at) { return from + qRound((at - from) * scale); };
     const auto end = [&](int from, int at, int size) { return start(from, at) + qRound(size * scale); };
     for (int i = 0; i < 2 && end(origin.x(), geometry.x(), geometry.width()) > work.right; ++i)
@@ -1219,7 +1235,7 @@ void DialogBar::place()
     const int boxTop = start(origin.y(), geometry.y() + (above ? list : 0));
     m_logoHost = {left, start(origin.y(), geometry.y()), end(origin.x(), geometry.x(), geometry.width()),
         end(origin.y(), geometry.y(), geometry.height())};
-    m_logoRow = {left, boxTop, m_logoHost.right, boxTop + physical(kBarHeight)};
+    m_logoRow = {left, boxTop, m_logoHost.right, boxTop + physical(s_metrics.barHeight)};
     m_logoWork = work;
     m_logoAvoid = frame;
     m_logoScale = scale;

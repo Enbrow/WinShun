@@ -96,7 +96,7 @@ Item {
                             width: 48 // "ARGB" and a gap
                             text: notation.modelData.label
                             color: Theme.faint
-                            font.pixelSize: Theme.fontCaption
+                            font.pixelSize: Theme.uiCaption
                         }
                         Text {
                             anchors.left: notationLabel.right
@@ -107,7 +107,7 @@ Item {
                             textFormat: Text.PlainText
                             elide: Text.ElideRight
                             color: Theme.text
-                            font.pixelSize: Theme.fontBody
+                            font.pixelSize: Theme.uiBody
                         }
                         Glyph {
                             id: copyGlyph
@@ -137,7 +137,7 @@ Item {
                 textFormat: Text.PlainText
                 wrapMode: Text.WrapAnywhere
                 color: preview.kind === 1 ? Theme.accent : Theme.text
-                font.pixelSize: Theme.fontBody
+                font.pixelSize: Theme.uiBody
                 lineHeight: 1.15
             }
 
@@ -145,7 +145,7 @@ Item {
                 visible: preview.kind <= 2 && (preview.info.more ?? 0) > 0
                 text: qsTr("…还有 %Ln 字", "", preview.info.more ?? 0)
                 color: Theme.faint
-                font.pixelSize: Theme.fontCaption
+                font.pixelSize: Theme.uiCaption
             }
 
             Image { // a picture, as large as fits
@@ -186,7 +186,7 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         text: qsTr("图中的文字")
                         color: Theme.faint
-                        font.pixelSize: Theme.fontCaption
+                        font.pixelSize: Theme.uiCaption
                     }
                     Rectangle { // copies the words selected, or all of them
                         id: copyWordsButton
@@ -211,7 +211,7 @@ Item {
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: preview.selectedWords.length > 0 ? qsTr("复制选中") : qsTr("复制文字")
                                 color: Theme.accent
-                                font.pixelSize: Theme.fontCaption
+                                font.pixelSize: Theme.uiCaption
                             }
                         }
                         MouseArea {
@@ -238,7 +238,7 @@ Item {
                     color: Theme.subtext
                     selectionColor: Theme.textSelection
                     selectedTextColor: Theme.text
-                    font.pixelSize: Theme.fontBody
+                    font.pixelSize: Theme.uiBody
                 }
             }
 
@@ -285,7 +285,7 @@ Item {
                         required property var modelData
 
                         width: parent.width
-                        height: 40
+                        height: Theme.fileRowHeight
 
                         Image {
                             id: fileIcon
@@ -311,7 +311,7 @@ Item {
                                 textFormat: Text.PlainText
                                 elide: Text.ElideMiddle
                                 color: file.modelData.missing ? Theme.faint : Theme.text
-                                font.pixelSize: Theme.fontBody
+                                font.pixelSize: Theme.uiBody
                                 font.strikeout: file.modelData.missing
                             }
                             Text {
@@ -320,7 +320,7 @@ Item {
                                 textFormat: Text.PlainText
                                 elide: Text.ElideMiddle
                                 color: Theme.faint
-                                font.pixelSize: Theme.fontCaption
+                                font.pixelSize: Theme.uiCaption
                             }
                         }
                     }
@@ -330,7 +330,7 @@ Item {
                     visible: preview.kind === 3 && (preview.info.more ?? 0) > 0
                     text: qsTr("还有 %Ln 个", "", preview.info.more ?? 0)
                     color: Theme.faint
-                    font.pixelSize: Theme.fontCaption
+                    font.pixelSize: Theme.uiCaption
                 }
             }
         }
@@ -382,7 +382,7 @@ Item {
                 textFormat: Text.PlainText
                 elide: Text.ElideRight
                 color: Theme.subtext
-                font.pixelSize: Theme.fontCaption
+                font.pixelSize: Theme.uiCaption
             }
         }
 
@@ -392,7 +392,7 @@ Item {
             textFormat: Text.PlainText
             elide: Text.ElideRight
             color: Theme.faint
-            font.pixelSize: Theme.fontCaption
+            font.pixelSize: Theme.uiCaption
         }
 
         Text {
@@ -404,7 +404,7 @@ Item {
             textFormat: Text.PlainText
             wrapMode: Text.Wrap
             color: Theme.faint
-            font.pixelSize: Theme.fontCaption
+            font.pixelSize: Theme.uiCaption
         }
     }
 }

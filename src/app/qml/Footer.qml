@@ -17,7 +17,7 @@ Item {
     required property Launcher launcher
     required property WindowFrame frame
 
-    implicitHeight: 42
+    implicitHeight: Theme.footerHeight // 界面大小
 
     // The divider shows work only once it has lasted a moment, so brief
     // work does not make it blink.
@@ -126,7 +126,7 @@ Item {
         text: footer.launcher.statusText
         textFormat: Text.PlainText // may name a file
         color: Theme.subtext
-        font.pixelSize: Theme.fontBody
+        font.pixelSize: Theme.uiBody
         elide: Text.ElideRight
     }
 
@@ -156,7 +156,7 @@ Item {
         Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             width: chips.implicitWidth + 4
-            height: 28
+            height: Theme.chipHeight
             radius: 6
             color: Theme.track
 
@@ -177,7 +177,7 @@ Item {
                         readonly property bool active: index === choices.current
 
                         width: Math.ceil(label.implicitWidth) + 16 // whole pixels: the labels after it stay sharp
-                        height: 24
+                        height: Theme.chipHeight - 4
                         radius: 4
                         color: active ? Theme.chipActive : area.containsMouse ? Theme.chipHover : "transparent"
                         border.width: active ? 1 : 0
@@ -191,7 +191,7 @@ Item {
                             anchors.centerIn: parent
                             text: chip.modelData
                             color: chip.active || area.containsMouse ? Theme.text : Theme.subtext
-                            font.pixelSize: Theme.fontCaption
+                            font.pixelSize: Theme.uiCaption
                             font.weight: chip.active ? Font.DemiBold : Font.Normal
                         }
 
@@ -262,7 +262,7 @@ Item {
 
         TextMetrics {
             id: statusMetrics
-            font.pixelSize: Theme.fontBody
+            font.pixelSize: Theme.uiBody
             text: footer.launcher.statusText
         }
 

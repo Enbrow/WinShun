@@ -25,7 +25,7 @@ Item {
 
     signal previewOpening() // just before: the window sizes it (ClipboardWindow.qml)
 
-    readonly property int rowHeight: 60 // what the window's height is counted in
+    readonly property int rowHeight: Theme.rowHeight // what the window's height is counted in
     readonly property int pictureRowHeight: 80 // a picture's row: its thumbnail larger (ClipRow)
     // Opened from a field of Win顺's own: Enter pastes there, Esc goes back.
     readonly property bool intoField: clipboard.fieldName.length > 0
@@ -334,7 +334,7 @@ Item {
         Item { // header: drags the window, except for the field
             id: header
             width: parent.width
-            height: 64
+            height: Theme.headerHeight
 
             Component.onCompleted: {
                 page.frame.addDragArea(header)
@@ -348,7 +348,7 @@ Item {
                 anchors.leftMargin: 20
                 anchors.verticalCenter: parent.verticalCenter
                 glyph: "" // Paste
-                size: 22
+                size: Theme.searchIconSize
             }
 
             TextInput {
@@ -364,7 +364,7 @@ Item {
                 cursorVisible: activeFocus || page.clipboard.keysRouted
                 clip: true
                 color: Theme.text
-                font.pixelSize: Theme.fontSearch
+                font.pixelSize: Theme.uiSearch
                 selectByMouse: true
                 selectionColor: Theme.textSelection
                 selectedTextColor: Theme.text
@@ -426,7 +426,7 @@ Item {
                     anchors.centerIn: parent
                     text: qsTr("已暂停记录")
                     color: Theme.accent
-                    font.pixelSize: Theme.fontCaption
+                    font.pixelSize: Theme.uiCaption
                 }
             }
         }
@@ -547,7 +547,7 @@ Item {
                         textFormat: Text.PlainText
                         elide: Text.ElideMiddle // a long query keeps its end and the quotes
                         color: Theme.subtext
-                        font.pixelSize: Theme.fontTitle
+                        font.pixelSize: Theme.uiTitle
                     }
                     Text {
                         width: parent.width
@@ -560,7 +560,7 @@ Item {
                             : (parent.category.group ?? 0) > 0 ? qsTr("在条目上点右键，选“移到…”放进来；放进分组的内容不会过期")
                             : qsTr("按 Tab 看看别的分类")
                         color: Theme.faint
-                        font.pixelSize: Theme.fontBody
+                        font.pixelSize: Theme.uiBody
                     }
                     Item {
                         width: 1
@@ -604,7 +604,7 @@ Item {
         Item { // footer: status or how picked rows are joined, and key hints; drags the window
             id: footer
             width: parent.width
-            implicitHeight: 42
+            implicitHeight: Theme.footerHeight
             height: implicitHeight
 
             Component.onCompleted: {
@@ -629,7 +629,7 @@ Item {
                 text: page.clipboard.statusText
                 textFormat: Text.PlainText
                 color: Theme.subtext
-                font.pixelSize: Theme.fontBody
+                font.pixelSize: Theme.uiBody
                 elide: Text.ElideRight
             }
 
@@ -645,7 +645,7 @@ Item {
                     text: page.selectedCount === 1 ? qsTr("已选 1 条，Esc 取消选择")
                                                    : qsTr("已选 %Ln 条，合在一起，用", "", page.selectedCount)
                     color: Theme.subtext
-                    font.pixelSize: Theme.fontBody
+                    font.pixelSize: Theme.uiBody
                 }
                 Rectangle {
                     id: separatorChip
@@ -663,7 +663,7 @@ Item {
                         anchors.centerIn: parent
                         text: page.clipboard.separatorName
                         color: Theme.text
-                        font.pixelSize: Theme.fontCaption
+                        font.pixelSize: Theme.uiCaption
                     }
                     MouseArea {
                         id: separatorArea
@@ -678,7 +678,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("隔开")
                     color: Theme.subtext
-                    font.pixelSize: Theme.fontBody
+                    font.pixelSize: Theme.uiBody
                 }
             }
 

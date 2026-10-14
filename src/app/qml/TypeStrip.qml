@@ -18,7 +18,7 @@ Item {
     required property WindowFrame frame
     property bool shown: false
 
-    readonly property int fullHeight: 40
+    readonly property int fullHeight: Theme.stripHeight // 界面大小
     readonly property int targetHeight: shown ? fullHeight : 0
     // The chip that is current, as Launcher.chooseFileType takes it.
     readonly property int current: launcher.scope === Launcher.Folders ? -2 : launcher.fileType
@@ -134,8 +134,8 @@ Item {
 
                     // Whole pixels: a half one would leave the labels after it blurred.
                     width: (modelData.dot.length > 0 ? 10 + 8 + 6 : 12) + Math.ceil(label.implicitWidth) + 12
-                    height: 28
-                    radius: 14
+                    height: Theme.chipHeight
+                    radius: height / 2
                     color: active ? Theme.chipActive : area.containsMouse ? Theme.chipHover : "transparent"
                     border.width: active ? 1 : 0
                     border.color: Theme.chipBorder
@@ -159,7 +159,7 @@ Item {
                         y: strip.onPixel((chip.height - height) / 2)
                         text: chip.modelData.name
                         color: chip.active || area.containsMouse ? Theme.text : Theme.subtext
-                        font.pixelSize: Theme.fontCaption
+                        font.pixelSize: Theme.uiCaption
                         font.weight: chip.active ? Font.DemiBold : Font.Normal
                     }
 
@@ -183,9 +183,9 @@ Item {
 
         x: view.x + view.width + 4
         y: view.y + row.y
-        width: 28
-        height: 28
-        radius: 14
+        width: Theme.chipHeight
+        height: Theme.chipHeight
+        radius: height / 2
         opacity: view.opacity
         color: editArea.pressed ? Theme.controlPressed : editArea.containsMouse ? Theme.chipHover : "transparent"
         Accessible.role: Accessible.Button

@@ -5,6 +5,7 @@
 #include "PathText.h"
 #include "ResultModel.h"
 #include "SearchTypes.h"
+#include "UiSize.h"
 #include "platform/ComWorker.h"
 #include "platform/FileDialog.h"
 #include "platform/FileManagers.h"
@@ -80,20 +81,23 @@ class DialogBar : public QObject {
     // asked once, on a line under the box, while one shows a folder and the
     // list is closed (setAskAutoJump; answerAutoJump).
     Q_PROPERTY(bool asking READ asking NOTIFY askingChanged FINAL)
-    Q_PROPERTY(int barHeight READ barHeight CONSTANT FINAL)
-    Q_PROPERTY(int askHeight READ askHeight CONSTANT FINAL)
-    Q_PROPERTY(int rowHeight READ rowHeight CONSTANT FINAL)
-    // As the launcher's (Launcher::showModified, numberKeys, composing).
+    // As 界面大小 says (uisize::Metrics).
+    Q_PROPERTY(int barHeight READ barHeight NOTIFY metricsChanged FINAL)
+    Q_PROPERTY(int askHeight READ askHeight NOTIFY metricsChanged FINAL)
+    Q_PROPERTY(int rowHeight READ rowHeight NOTIFY metricsChanged FINAL)
+    // As the launcher's (Launcher::showModified, numberKeys).
     Q_PROPERTY(bool showModified READ showModified NOTIFY resultOptionsChanged FINAL)
     Q_PROPERTY(QString numberKeys READ numberKeys NOTIFY resultOptionsChanged FINAL)
     Q_PROPERTY(int numberKeysLeft READ numberKeysLeft NOTIFY resultOptionsChanged FINAL)
 
 public:
-    static constexpr int kBarHeight = 44; // logical pixels
-    static constexpr int kRowHeight = 52;
-    static constexpr int kListChrome = 9; // the divider and the list's margins
+    static constexpr int kListChrome = 9; // the divider and the list's margins (logical pixels)
     static constexpr int kMaxRows = 5;
-    static constexpr int kAskHeight = 40; // the line under the box that asks (asking)
+    // The heights of the box, a row and the line under the box that asks
+    // (asking), in logical pixels: as 界面大小 says. One bar, one size.
+    static const uisize::Metrics& metrics() { return s_metrics; }
+    static int panelHeight() { return s_metrics.barHeight + kListChrome + kMaxRows * s_metrics.barRow; } // with a full list
+    static void setUiSize(const QString& size); // the bar there is placed again
 
     // The context menus' entries.
     enum Action {
@@ -168,10 +172,10 @@ public:
     QString browsedFolder() const { return m_browsed; }
     int rows() const { return m_rows; }
     bool listAbove() const { return m_listAbove; }
-    int barHeight() const { return kBarHeight; }
-    int askHeight() const { return kAskHeight; }
+    int barHeight() const { return s_metrics.barHeight; }
+    int askHeight() const { return s_metrics.askHeight; }
     bool asking() const { return m_asking; }
-    int rowHeight() const { return kRowHeight; }
+    int rowHeight() const { return s_metrics.barRow; }
 
     Q_INVOKABLE void choose(int row, bool open = false);
     Q_INVOKABLE void chooseExplorer(); // the folder shown in the file manager (as Ctrl+G)
@@ -192,6 +196,7 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 signals:
+    void metricsChanged();
     void queryChanged();
     void explorerChanged();
     void originChanged();
@@ -209,6 +214,8 @@ signals:
     void heldKey(int number, bool open); // see holdUntilShown()
 
 private:
+    static inline uisize::Metrics s_metrics = uisize::metrics(uisize::Size::Standard);
+    static inline DialogBar* s_instance = nullptr; // the one there is, to place again
     void showWindow();
     void hideWindow();
     void uncloak(); // its first frame is up: shown, and the logo with it

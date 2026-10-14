@@ -454,6 +454,22 @@ void SettingsEditor::setTransparency(const QString& transparency)
     commit();
 }
 
+void SettingsEditor::setTaskbarIcon(const QString& style)
+{
+    if (m_settings.taskbarIcon == style)
+        return;
+    m_settings.taskbarIcon = style;
+    commit();
+}
+
+void SettingsEditor::setUiSize(const QString& size)
+{
+    if (m_settings.uiSize == size || (size != u"compact" && size != u"standard" && size != u"roomy"))
+        return;
+    m_settings.uiSize = size;
+    commit();
+}
+
 void SettingsEditor::setRecordHistory(bool on)
 {
     if (m_settings.recordHistory == on)

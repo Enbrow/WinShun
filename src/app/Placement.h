@@ -117,6 +117,9 @@ public:
 
     // Glides back to the home spot and stays there from now on.
     Q_INVOKABLE void moveHome();
+    // Its rows and type changed size (界面大小): a window up now (the
+    // clipboard, pinned) is fitted on its screen again.
+    void resized();
     // From the right edge of the part the spot is for (anchorWidth) to that
     // of the work area, logical pixels: how much wider the window can get
     // without moving.

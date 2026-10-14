@@ -1432,6 +1432,31 @@ Window {
                 }
 
                 SettingRow {
+                    title: qsTr("界面大小")
+                    keywords: qsTr("缩放;大小;字号;字体大小;行高;紧凑;宽松;scale;size;zoom;font").split(";")
+                    description: qsTr("搜索框、剪贴板和对话框旁搜索框的文字和行高；设置窗口不变")
+
+                    ScopeTabs {
+                        readonly property var sizes: ["compact", "standard", "roomy"]
+                        labels: [qsTr("紧凑"), qsTr("标准"), qsTr("宽松")]
+                        current: Math.max(0, sizes.indexOf(window.editor.uiSize))
+                        onActivated: (index) => window.editor.uiSize = sizes[index]
+                    }
+                }
+
+                SettingRow {
+                    title: qsTr("任务栏图标")
+                    keywords: qsTr("托盘;通知区域;单色;黑白;彩色;图标;tray;icon").split(";")
+                    description: qsTr("通知区域和任务栏搜索框里的 Win顺 图标。单色随任务栏的浅色、深色变成黑或白，和系统图标一致")
+
+                    ScopeTabs {
+                        labels: [qsTr("彩色"), qsTr("单色")]
+                        current: window.editor.taskbarIcon === "mono" ? 1 : 0
+                        onActivated: (index) => window.editor.taskbarIcon = index === 1 ? "mono" : "color"
+                    }
+                }
+
+                SettingRow {
                     title: qsTr("语言")
                     keywords: qsTr("中文;英文;简体;language").split(";")
                     description: qsTr("“跟随系统”时按 Windows 的语言显示中文或英文")

@@ -248,7 +248,7 @@ Window {
             focus: true
             clip: true
             color: Theme.text
-            font.pixelSize: Theme.fontBody
+            font.pixelSize: Theme.uiBody
             selectByMouse: true
             selectionColor: Theme.textSelection
             selectedTextColor: Theme.text
@@ -290,7 +290,7 @@ Window {
                 rightPadding: 8
                 text: qsTr("没有找到")
                 color: Theme.faint
-                font.pixelSize: Theme.fontCaption
+                font.pixelSize: Theme.uiCaption
             }
 
             Rectangle {
@@ -326,13 +326,13 @@ Window {
                         textFormat: Text.PlainText
                         elide: Text.ElideMiddle
                         color: Theme.text
-                        font.pixelSize: Theme.fontCaption
+                        font.pixelSize: Theme.uiCaption
                     }
                     Rectangle { // the key that does the same; not where the box would be too short (beside the dialog)
                         visible: !chip.toOrigin && window.width >= 560
                         anchors.verticalCenter: parent.verticalCenter
                         width: keyText.implicitWidth + 10
-                        height: 20
+                        height: Theme.keycapHeight - 2
                         radius: 4
                         color: Theme.keycap
                         border.width: 1
@@ -343,7 +343,7 @@ Window {
                             anchors.centerIn: parent
                             text: "Ctrl+G"
                             color: Theme.subtext
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.uiSmall
                         }
                     }
                 }
@@ -427,7 +427,7 @@ Window {
             textFormat: Text.PlainText
             elide: Text.ElideRight
             color: Theme.subtext
-            font.pixelSize: Theme.fontCaption
+            font.pixelSize: Theme.uiCaption
         }
 
         Row {
@@ -447,7 +447,7 @@ Window {
                     required property var modelData
 
                     width: answerText.implicitWidth + 16
-                    height: 28
+                    height: Theme.chipHeight
                     radius: 6
                     color: answerArea.pressed ? Theme.controlPressed : answerArea.containsMouse ? Theme.hover : "transparent"
                     Accessible.role: Accessible.Button
@@ -459,7 +459,7 @@ Window {
                         anchors.centerIn: parent
                         text: answer.modelData[0]
                         color: answer.modelData[1].length > 0 ? Theme.accent : Theme.subtext
-                        font.pixelSize: Theme.fontCaption
+                        font.pixelSize: Theme.uiCaption
                     }
 
                     MouseArea {

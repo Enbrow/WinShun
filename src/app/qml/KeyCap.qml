@@ -12,17 +12,18 @@ Rectangle {
     property string keys
     property bool taken: false
 
-    width: 26
-    height: 26
+    width: Math.max(height, Math.ceil(label.implicitWidth) + 12)
+    height: Theme.keycapHeight + 4
     radius: 6
     color: Theme.track
     border.width: 1
     border.color: Theme.chipBorder
 
     CenteredNumber {
-        text: cap.number
-        color: Theme.text
-        font.pixelSize: Theme.fontBody
+        id: label
+        text: cap.keys
+        color: cap.taken ? Theme.faint : Theme.text
+        font.pixelSize: Theme.uiBody
         font.weight: Font.DemiBold
         font.strikeout: cap.taken
     }

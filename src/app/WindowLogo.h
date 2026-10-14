@@ -24,9 +24,9 @@ class Placement;
 // taskbar the window comes out from.
 class WindowLogo : public QObject {
 public:
-    // `rowHeight`: logical pixels, the box at the top of the window; at a
-    // side, the logo is level with its middle.
-    WindowLogo(QWindow* window, int rowHeight); // a child of `window`, its native handle created
+    // At a side, the logo is level with the middle of the box at the top of
+    // the window (SystemTheme::headerHeight, as 界面大小 says).
+    explicit WindowLogo(QWindow* window); // a child of `window`, its native handle created
     ~WindowLogo() override;
 
     void follow(Placement* placement); // the window's: its slides
@@ -43,7 +43,6 @@ private:
     QPointer<QWindow> m_window;
     QPointer<Placement> m_placement;
     HWND m_hwnd = nullptr; // m_window's, subclassed
-    int m_rowHeight;
     bool m_shown = false;
     std::optional<RECT> m_avoid;
     win::PeekingLogo m_logo;

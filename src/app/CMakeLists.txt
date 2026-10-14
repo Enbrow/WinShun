@@ -69,6 +69,7 @@ qt_add_executable(WinShun WIN32
     platform/KeyListener.cpp platform/KeyListener.h
     platform/KeyRouter.cpp platform/KeyRouter.h
     platform/MessageWindow.cpp platform/MessageWindow.h
+    platform/MonoLogo.cpp platform/MonoLogo.h
     platform/NetworkNotifier.cpp platform/NetworkNotifier.h
     platform/NumberKeys.cpp platform/NumberKeys.h
     platform/Paster.cpp platform/Paster.h
@@ -206,6 +207,7 @@ qt_add_qml_module(WinShun
         SettingsSearch.cpp SettingsSearch.h
         SoundClip.cpp SoundClip.h
         SystemTheme.cpp SystemTheme.h
+        UiSize.h
         Updater.cpp Updater.h
         WindowFrame.cpp WindowFrame.h
 )

@@ -36,6 +36,9 @@ public:
 
     void showTrayIcon(const QString& tooltip);
     void setTrayTooltip(const QString& tooltip); // the language changed
+    // The tray icon in one colour, the taskbar's (monologo), or Win顺's own
+    // colours; the one-colour icon follows the taskbar's light or dark mode.
+    void setTrayIconMono(bool mono);
     void showNotification(const QString& title, const QString& text);
 
     bool registerHotkey(int id, const QString& shortcut); // "Alt+Space", "Ctrl+Shift+F"
@@ -50,10 +53,12 @@ private:
     LRESULT handle(UINT msg, WPARAM wParam, LPARAM lParam);
     bool addTrayIcon();
     void removeTrayIcon();
+    void loadIcon(); // m_icon, as m_mono says
 
     Callbacks m_callbacks;
     HWND m_hwnd = nullptr;
     HICON m_icon = nullptr;
+    bool m_mono = false;
     HPOWERNOTIFY m_powerNotify = nullptr; // so that resuming is told on every kind of standby
     QString m_tooltip;
     bool m_trayVisible = false;

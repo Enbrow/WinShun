@@ -575,7 +575,7 @@ bool App::createWindow()
     m_launcher->setWindow(m_window);
     m_placement->setWindow(m_window);
     m_frame->setWindow(m_window);
-    m_launcherLogo = new WindowLogo(m_window, 64); // the search box's height (SearchBar.qml)
+    m_launcherLogo = new WindowLogo(m_window);
     m_launcherLogo->follow(m_placement.get());
     m_searchField = m_window->findChild<QQuickItem*>(u"searchField"_s);
     if (m_searchField)
@@ -652,7 +652,7 @@ bool App::createClipWindow()
     m_clipboard->setWindow(window);
     m_clipPlacement->setWindow(window);
     m_clipFrame->setWindow(window);
-    m_clipLogo = new WindowLogo(window, 64); // its search box's height (ClipboardPage.qml)
+    m_clipLogo = new WindowLogo(window);
     connect(window, &QWindow::activeChanged, this, [this] {
         // Clicking elsewhere or switching apps hides it, like a menu. Not at
         // once: on the way to another window of ours (the field it goes back
@@ -738,6 +738,13 @@ void App::applyTheme()
 // Theme and language take effect at once, in every window, without a restart.
 void App::applyAppearance()
 {
+    // 界面大小: QML follows SystemTheme; the bar by file dialogs is placed by its heights.
+    if (SystemTheme::uiSize() != m_settings.uiSize) {
+        SystemTheme::setUiSize(m_settings.uiSize);
+        DialogBar::setUiSize(m_settings.uiSize);
+        if (m_clipPlacement)
+            m_clipPlacement->resized();
+    }
     SystemTheme::setBackdropOn(m_settings.transparency == u"on"); // Mica stays set up behind, covered when off
     // Unknown follows Windows. Everything else reads the scheme from the style
     // hints and listens to colorSchemeChanged (see applyTheme, SystemTheme).
@@ -796,6 +803,9 @@ void App::applySettings(bool initial)
     applyDialogs();
     applyClipboard();
     applyTaskbar();
+    // The tray's icon and the taskbar box's: Win顺's colours, or the taskbar's one.
+    m_messages->setTrayIconMono(m_settings.taskbarIcon == u"mono");
+    updateSearchBoxLook();
     applyMcp();
     for (const auto& [kind, name] : filemanager::kSettingNames) {
         if (m_settings.fileManager == QLatin1StringView(name))
@@ -1061,6 +1071,7 @@ void App::updateSearchBoxLook()
     look.placeholder = (typing ? m_launcher->placeholder() : tr("搜索应用和文件")).toStdWString();
     look.label = tr("搜索").toStdWString();
     look.accent = RGB(accent.red(), accent.green(), accent.blue());
+    look.monoIcon = m_settings.taskbarIcon == u"mono";
     m_searchBox->setLook(std::move(look));
 }
 

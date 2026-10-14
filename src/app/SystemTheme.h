@@ -32,6 +32,10 @@ class SystemTheme : public QObject, public QAbstractNativeEventFilter {
     Q_PROPERTY(bool materials READ materials NOTIFY changed FINAL)
     // Windows rounds the corners of our windows (11 or later).
     Q_PROPERTY(bool roundedCorners READ roundedCorners CONSTANT FINAL)
+    // How large the launcher and the clipboard are drawn (界面大小: compact,
+    // standard, roomy; see uisize::), and its header's height, as C++ places by.
+    Q_PROPERTY(QString uiSize READ uiSize NOTIFY uiSizeChanged FINAL)
+    Q_PROPERTY(int headerHeight READ headerHeight NOTIFY uiSizeChanged FINAL)
 
 public:
     explicit SystemTheme(QObject* parent = nullptr);
@@ -50,9 +54,13 @@ public:
     static void setBackdropAvailable(bool on) { s_backdropAvailable = on; } // before the first window
     static bool backdrop() { return s_backdropAvailable && s_backdropOn; }
     static void setBackdropOn(bool on);
+    static QString uiSize() { return s_uiSize; }
+    static int headerHeight();
+    static void setUiSize(const QString& size);
 
 signals:
     void changed();
+    void uiSizeChanged(); // not changed(): the colours stay
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -61,6 +69,7 @@ protected:
 private:
     static inline bool s_backdropAvailable = false;
     static inline bool s_backdropOn = true;
+    static inline QString s_uiSize = QStringLiteral("standard");
     static inline SystemTheme* s_instance = nullptr; // the QML singleton
     QString m_iconFont;
 };

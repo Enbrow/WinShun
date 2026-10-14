@@ -100,7 +100,7 @@ Item {
                 textFormat: Text.StyledText
                 elide: Text.ElideRight
                 color: Theme.text
-                font.pixelSize: Theme.fontBody
+                font.pixelSize: Theme.uiBody
             }
 
             Text { // when it was last written; left out where the bar is narrow
@@ -112,7 +112,7 @@ Item {
                 text: row.modified
                 textFormat: Text.PlainText
                 color: Theme.faint
-                font.pixelSize: Theme.fontCaption
+                font.pixelSize: Theme.uiCaption
             }
         }
         Text {
@@ -122,7 +122,7 @@ Item {
             elide: Text.ElideMiddle
             maximumLineCount: 1
             color: Theme.subtext
-            font.pixelSize: Theme.fontCaption
+            font.pixelSize: Theme.uiCaption
         }
     }
 
@@ -144,7 +144,7 @@ Item {
         y: row.onPixel((row.height - height) / 2)
         text: row.tag
         color: Theme.faint
-        font.pixelSize: Theme.fontCaption
+        font.pixelSize: Theme.uiCaption
     }
 
     MouseArea {

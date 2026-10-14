@@ -171,7 +171,7 @@ Item {
                 textFormat: Text.StyledText
                 elide: Text.ElideRight
                 color: Theme.text
-                font.pixelSize: Theme.fontTitle
+                font.pixelSize: Theme.uiTitle
             }
 
             Text { // content search: where the file lives, next to its name
@@ -184,7 +184,7 @@ Item {
                 textFormat: Text.PlainText
                 elide: Text.ElideMiddle
                 color: Theme.faint
-                font.pixelSize: Theme.fontBody
+                font.pixelSize: Theme.uiBody
             }
         }
 
@@ -200,7 +200,7 @@ Item {
             elide: row.contentMode || marked ? Text.ElideRight : Text.ElideMiddle
             maximumLineCount: 1
             color: Theme.subtext
-            font.pixelSize: Theme.fontBody
+            font.pixelSize: Theme.uiBody
         }
     }
 
@@ -216,9 +216,7 @@ Item {
         text: row.modified
         textFormat: Text.PlainText
         color: Theme.faint
-        font.pixelSize: Theme.fontBody
-
-        HoverHandler { id: dateHover }
+        font.pixelSize: Theme.uiBody
     }
 
     Text {
@@ -235,7 +233,7 @@ Item {
             : row.favorite ? (row.favoriteKeyword.length > 0 ? qsTr("收藏 · %1").arg(row.favoriteKeyword) : qsTr("收藏"))
             : row.recent ? qsTr("最近") : ""
         color: Theme.faint
-        font.pixelSize: Theme.fontBody
+        font.pixelSize: Theme.uiBody
     }
 
     Rectangle {
@@ -245,8 +243,8 @@ Item {
         anchors.rightMargin: 16
         anchors.verticalCenter: parent.verticalCenter
         width: badgeText.implicitWidth + 16
-        height: 24
-        radius: 12
+        height: Theme.badgeHeight
+        radius: height / 2
         color: Theme.badge
 
         Text {
@@ -257,7 +255,7 @@ Item {
                 : row.favorite ? (row.favoriteKeyword.length > 0 ? qsTr("收藏 · %1").arg(row.favoriteKeyword) : qsTr("收藏"))
                 : row.recent ? qsTr("最近") : row.web ? qsTr("网页") : row.place ? qsTr("系统") : qsTr("应用")
             color: Theme.accent
-            font.pixelSize: Theme.fontCaption
+            font.pixelSize: Theme.uiCaption
         }
     }
 

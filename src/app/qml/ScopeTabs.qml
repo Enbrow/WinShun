@@ -35,8 +35,15 @@ Rectangle {
     // the launcher slid in.
     function onPixel(v) { return Math.round(v * Screen.devicePixelRatio) / Screen.devicePixelRatio }
 
+    // In the launcher: as large as 界面大小 says (Theme.tabHeight); in the
+    // settings window, as the rest there.
+    property bool scaled: false
+    readonly property int tabHeight: scaled ? Theme.tabHeight : 32
+    readonly property int bodySize: scaled ? Theme.uiBody : Theme.fontBody
+    readonly property int captionSize: scaled ? Theme.uiCaption : Theme.fontCaption
+
     implicitWidth: row.implicitWidth + 6
-    implicitHeight: 38
+    implicitHeight: tabHeight + 6
     radius: 8
     color: Theme.track
 
@@ -65,7 +72,7 @@ Rectangle {
                 readonly property int labelWidth: Math.ceil(label.implicitWidth) + 24
 
                 width: labelWidth + (open ? sub.fullWidth : 0) + (pluginOpen ? pluginSub.fullWidth : 0)
-                height: 32
+                height: tabs.tabHeight
                 radius: 6
                 clip: true
                 color: active ? Theme.chipActive : area.containsMouse ? Theme.chipHover : "transparent"
@@ -80,7 +87,7 @@ Rectangle {
                     text: tab.modelData
                     // The smaller tab (or the plugin's chip) current: this one is the way back to the whole.
                     color: tab.active && !tab.subCurrent && !tab.pluginOpen ? Theme.text : Theme.subtext
-                    font.pixelSize: Theme.fontBody
+                    font.pixelSize: tabs.bodySize
                     font.weight: tab.active ? Font.DemiBold : Font.Normal
                 }
 
@@ -121,7 +128,7 @@ Rectangle {
                         anchors.leftMargin: 2
                         anchors.verticalCenter: parent.verticalCenter
                         width: Math.ceil(subText.implicitWidth) + 16
-                        height: 24
+                        height: tabs.tabHeight - 8
                         radius: 4
                         color: tab.subCurrent ? Theme.accentFill : subArea.containsMouse ? Theme.chipHover : "transparent"
 
@@ -131,7 +138,7 @@ Rectangle {
                             y: tabs.onPixel((subChip.height - height) / 2)
                             text: tabs.subLabel
                             color: tab.subCurrent ? Theme.accentText : subArea.containsMouse ? Theme.text : Theme.subtext
-                            font.pixelSize: Theme.fontCaption
+                            font.pixelSize: tabs.captionSize
                             font.weight: tab.subCurrent ? Font.DemiBold : Font.Normal
                         }
 
@@ -175,7 +182,7 @@ Rectangle {
                         anchors.leftMargin: 2
                         anchors.verticalCenter: parent.verticalCenter
                         width: 8 + pluginIconSlot.width + 6 + Math.ceil(pluginText.implicitWidth) + 8
-                        height: 24
+                        height: tabs.tabHeight - 8
                         radius: 4
                         color: Theme.accentFill
 
@@ -209,7 +216,7 @@ Rectangle {
                             y: tabs.onPixel((pluginChip.height - height) / 2)
                             text: tabs.pluginLabel
                             color: Theme.accentText
-                            font.pixelSize: Theme.fontCaption
+                            font.pixelSize: tabs.captionSize
                             font.weight: Font.DemiBold
                         }
 

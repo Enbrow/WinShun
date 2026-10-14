@@ -128,6 +128,8 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY changed FINAL)
     Q_PROPERTY(QString language READ language WRITE setLanguage NOTIFY changed FINAL)
     Q_PROPERTY(QString transparency READ transparency WRITE setTransparency NOTIFY changed FINAL)
+    Q_PROPERTY(QString taskbarIcon READ taskbarIcon WRITE setTaskbarIcon NOTIFY changed FINAL) // color | mono
+    Q_PROPERTY(QString uiSize READ uiSize WRITE setUiSize NOTIFY changed FINAL) // compact | standard | roomy
     Q_PROPERTY(bool autoUpdate READ autoUpdate WRITE setAutoUpdate NOTIFY changed FINAL)
     Q_PROPERTY(bool restartRequired READ restartRequired NOTIFY changed FINAL)
     Q_PROPERTY(bool isDefault READ isDefault NOTIFY changed FINAL)
@@ -225,6 +227,10 @@ public:
     void setLanguage(const QString& language);
     QString transparency() const { return m_settings.transparency; }
     void setTransparency(const QString& transparency);
+    QString taskbarIcon() const { return m_settings.taskbarIcon; }
+    void setTaskbarIcon(const QString& style);
+    QString uiSize() const { return m_settings.uiSize; }
+    void setUiSize(const QString& size);
     bool autoUpdate() const { return m_settings.autoUpdate; }
     void setAutoUpdate(bool on);
     bool restartRequired() const { return Settings::resolveRenderer(m_settings.renderer) != m_runningRenderer; }

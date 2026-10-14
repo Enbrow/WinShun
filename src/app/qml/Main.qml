@@ -19,7 +19,7 @@ Window {
     // The clipboard dropped down under the search box (see above).
     readonly property bool clipboardBelow: clipboard.active && clipboard.field === searchBar.field
 
-    readonly property int rowHeight: 60
+    readonly property int rowHeight: Theme.rowHeight // 界面大小
     readonly property int maxRows: 8
     readonly property int minRows: 3 // the window settles no lower than these fit below
     // Everything but the rows: header, the strip of kinds of file, divider,
@@ -83,7 +83,7 @@ Window {
     // shows how far it is; Enter or a click on it stops it.
     readonly property var hints: launcher.leftOutHints
     readonly property bool showHints: hints.length > 0 && list.count > 0
-    readonly property int hintHeight: 36
+    readonly property int hintHeight: Theme.hintRowHeight
     // Room for the rows after the last result: when every result is shown
     // without scrolling (else they come into view at the end), and the window
     // keeps its own height (at the taskbar the list area is as tall as it gets).
@@ -122,7 +122,7 @@ Window {
     // Nothing is named as typed, and these rows sound like it: a heading over
     // them (Launcher.approximateHeading), above the list so the rows stay
     // where the number keys count them.
-    readonly property int headingHeight: launcher.approximateHeading.length > 0 && list.count > 0 ? 28 : 0
+    readonly property int headingHeight: launcher.approximateHeading.length > 0 && list.count > 0 ? Theme.labelRowHeight : 0
     // Opened from the taskbar (its button, Win+S), the window stands on the
     // taskbar: the list area keeps the height of all the rows that fit, so
     // the search box stays where it is as results come and go.
@@ -168,7 +168,7 @@ Window {
             text: parent.title
             textFormat: Text.PlainText // holds what was typed
             color: Theme.subtext
-            font.pixelSize: Theme.fontTitle
+            font.pixelSize: Theme.uiTitle
         }
         Text {
             width: parent.width
@@ -176,7 +176,7 @@ Window {
             elide: Text.ElideRight
             text: parent.hint
             color: Theme.faint
-            font.pixelSize: Theme.fontBody
+            font.pixelSize: Theme.uiBody
         }
         Repeater { // what the search passed over, each with its action (as after the last row; ↓ ↑ and Enter too)
             model: window.hints
@@ -191,7 +191,7 @@ Window {
 
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: hintLine.width + 24
-                height: 28
+                height: Theme.labelRowHeight
                 Accessible.role: Accessible.Button
                 Accessible.name: modelData.text + " " + modelData.action
 
@@ -207,17 +207,17 @@ Window {
                     Text {
                         text: emptyHint.modelData.text
                         color: Theme.faint
-                        font.pixelSize: Theme.fontBody
+                        font.pixelSize: Theme.uiBody
                     }
                     Text {
                         text: " · "
                         color: Theme.faint
-                        font.pixelSize: Theme.fontBody
+                        font.pixelSize: Theme.uiBody
                     }
                     Text { // the action: accent words on the plain background, as a link
                         text: emptyHint.modelData.action
                         color: Theme.accent
-                        font.pixelSize: Theme.fontBody
+                        font.pixelSize: Theme.uiBody
                     }
                 }
                 MouseArea {
@@ -637,7 +637,7 @@ Window {
                 text: window.launcher.approximateHeading
                 textFormat: Text.PlainText // holds what was typed
                 color: Theme.subtext
-                font.pixelSize: Theme.fontCaption
+                font.pixelSize: Theme.uiCaption
             }
 
             Column { // the apps opened most (showHome), over the recent ones
@@ -648,11 +648,11 @@ Window {
 
                 Text {
                     x: 20
-                    height: 28
+                    height: Theme.labelRowHeight
                     verticalAlignment: Text.AlignVCenter
                     text: qsTr("常用应用")
                     color: Theme.subtext
-                    font.pixelSize: Theme.fontCaption
+                    font.pixelSize: Theme.uiCaption
                 }
 
                 Row {
@@ -720,7 +720,7 @@ Window {
                                 text: tile.modelData.name
                                 textFormat: Text.PlainText
                                 color: Theme.text
-                                font.pixelSize: Theme.fontCaption
+                                font.pixelSize: Theme.uiCaption
                                 elide: Text.ElideRight
                                 wrapMode: Text.Wrap
                                 maximumLineCount: 2
@@ -738,14 +738,14 @@ Window {
 
                 Text {
                     x: 20
-                    height: 28
+                    height: Theme.labelRowHeight
                     verticalAlignment: Text.AlignVCenter
                     visible: list.count > 0
                     text: window.launcher.hasFavorites
                           ? (window.launcher.startList === Launcher.RecentlyModified ? qsTr("收藏和最近修改") : qsTr("收藏和最近"))
                           : (window.launcher.startList === Launcher.RecentlyModified ? qsTr("最近修改") : qsTr("最近"))
                     color: Theme.subtext
-                    font.pixelSize: Theme.fontCaption
+                    font.pixelSize: Theme.uiCaption
                 }
             }
 
@@ -823,7 +823,7 @@ Window {
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: hintRow.modelData.text
                                 color: Theme.subtext
-                                font.pixelSize: Theme.fontBody
+                                font.pixelSize: Theme.uiBody
                                 elide: Text.ElideRight
                             }
                             Text { // the action: accent words on the plain background, as a link; right, as the rows' labels
@@ -833,7 +833,7 @@ Window {
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: hintRow.modelData.action
                                 color: Theme.accent
-                                font.pixelSize: Theme.fontBody
+                                font.pixelSize: Theme.uiBody
                             }
                             MouseArea {
                                 id: hintArea
@@ -923,7 +923,7 @@ Window {
                 Behavior on opacity { NumberAnimation { duration: 100 } }
                 text: keywordMode ? window.launcher.pluginWaiting : qsTr("正在搜索文件内容…")
                 color: Theme.faint
-                font.pixelSize: Theme.fontBody
+                font.pixelSize: Theme.uiBody
             }
 
             EmptyState { // at full height, in the list area
@@ -942,7 +942,7 @@ Window {
                 visible: window.fullHeight && window.trimmedQuery.length === 0 && list.count === 0
                 text: qsTr("输入名称或拼音，搜索文件、应用和设置")
                 color: Theme.faint
-                font.pixelSize: Theme.fontBody
+                font.pixelSize: Theme.uiBody
                 wrapMode: Text.Wrap
             }
         }

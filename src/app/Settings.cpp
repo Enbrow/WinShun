@@ -624,6 +624,12 @@ void Settings::load()
     transparency = readOrDefault(s, u"Appearance/Transparency"_s, d.transparency).trimmed().toLower();
     // It used to be a switch: "false" was turned off by hand, "true" was mostly
     // the default written back.
+    taskbarIcon = readOrDefault(s, u"Appearance/TaskbarIcon"_s, d.taskbarIcon).trimmed().toLower();
+    if (taskbarIcon != u"mono")
+        taskbarIcon = d.taskbarIcon;
+    uiSize = readOrDefault(s, u"Appearance/UiSize"_s, d.uiSize).trimmed().toLower();
+    if (uiSize != u"compact" && uiSize != u"roomy")
+        uiSize = d.uiSize;
     if (transparency == u"false" || transparency == u"true") {
         transparency = transparency == u"false" ? u"off"_s : d.transparency;
         s.setValue(u"Appearance/Transparency"_s, transparency);
@@ -732,6 +738,8 @@ void Settings::save() const
     s.setValue(u"Appearance/Theme"_s, theme);
     s.setValue(u"Appearance/Language"_s, language);
     s.setValue(u"Appearance/Transparency"_s, transparency);
+    s.setValue(u"Appearance/TaskbarIcon"_s, taskbarIcon);
+    s.setValue(u"Appearance/UiSize"_s, uiSize);
     s.setValue(u"Update/Automatic"_s, autoUpdate);
     s.setValue(u"Index/ExcludedPaths"_s, excludedPaths);
     s.setValue(u"Index/ExcludedNames"_s, excludedNames);

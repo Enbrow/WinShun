@@ -1,5 +1,7 @@
 #include "TaskbarSearchBox.h"
 
+#include "MonoLogo.h"
+
 #include <ole2.h> // before uiautomation.h: WIN32_LEAN_AND_MEAN leaves it out of windows.h
 
 #include <d2d1.h>
@@ -687,6 +689,7 @@ struct SearchBox::Impl {
     UINT formatDpi = 0;
     ComPtr<ID2D1Bitmap> icon;
     UINT iconDpi = 0;
+    std::optional<COLORREF> iconInk; // one colour (monoIcon): this one; else its own colours
     HDC memory = nullptr;
     HBITMAP bitmap = nullptr;
     HGDIOBJ oldBitmap = nullptr;
@@ -1930,14 +1933,33 @@ struct SearchBox::Impl {
         format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
-    // Win顺's icon at its exact size (the .ico has 16 to 48 in steps).
+    // In one colour: the taskbar's text's (white on dark, near black on
+    // light), or high contrast's.
+    std::optional<COLORREF> wantedInk() const
+    {
+        if (!drawnLook.monoIcon)
+            return std::nullopt;
+        return highContrast ? ::GetSysColor(COLOR_WINDOWTEXT) : dark ? RGB(0xFF, 0xFF, 0xFF) : RGB(0x1B, 0x1B, 0x1B);
+    }
+
+    // Win顺's icon at its exact size (the .ico has 16 to 48 in steps), or
+    // drawn in one colour.
     void ensureIcon()
     {
-        if (icon && iconDpi == dpi)
+        const std::optional<COLORREF> ink = wantedInk();
+        if (icon && iconDpi == dpi && iconInk == ink)
             return;
         icon.Reset();
         iconDpi = dpi;
+        iconInk = ink;
         const int px = static_cast<int>(std::lround(kIconSize * dpi / 96.0));
+        if (ink) {
+            const QImage image = monologo::image(px, QColor(GetRValue(*ink), GetGValue(*ink), GetBValue(*ink)));
+            renderTarget->CreateBitmap(D2D1::SizeU(px, px), image.constBits(), static_cast<UINT32>(image.bytesPerLine()),
+                D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)),
+                &icon);
+            return;
+        }
         const auto handle = static_cast<HICON>(
             ::LoadImageW(::GetModuleHandleW(nullptr), L"IDI_ICON1", IMAGE_ICON, px, px, LR_DEFAULTCOLOR));
         if (!handle)

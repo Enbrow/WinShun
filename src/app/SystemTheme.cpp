@@ -1,5 +1,6 @@
 #include "SystemTheme.h"
 
+#include "UiSize.h"
 #include "platform/WindowEffects.h"
 
 #include <QEvent>
@@ -51,6 +52,20 @@ void SystemTheme::setBackdropOn(bool on)
     s_backdropOn = on;
     if (s_instance)
         emit s_instance->changed();
+}
+
+int SystemTheme::headerHeight()
+{
+    return uisize::metrics(s_uiSize).header;
+}
+
+void SystemTheme::setUiSize(const QString& size)
+{
+    if (s_uiSize == size)
+        return;
+    s_uiSize = size;
+    if (s_instance)
+        emit s_instance->uiSizeChanged();
 }
 
 bool SystemTheme::dark() const

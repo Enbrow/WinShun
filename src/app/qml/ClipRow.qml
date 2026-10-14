@@ -188,7 +188,7 @@ Item {
             elide: Text.ElideRight
             maximumLineCount: 1
             color: row.missing ? Theme.subtext : Theme.text
-            font.pixelSize: Theme.fontTitle
+            font.pixelSize: Theme.uiTitle
         }
 
         Text {
@@ -198,7 +198,7 @@ Item {
             elide: Text.ElideRight
             maximumLineCount: 1
             color: Theme.subtext
-            font.pixelSize: Theme.fontCaption
+            font.pixelSize: Theme.uiCaption
         }
     }
 
@@ -209,8 +209,8 @@ Item {
         anchors.rightMargin: 16
         anchors.verticalCenter: parent.verticalCenter
         width: badgeRow.implicitWidth + 16
-        height: 24
-        radius: 12
+        height: Theme.badgeHeight
+        radius: height / 2
         color: Theme.badge
 
         Row {
@@ -232,7 +232,7 @@ Item {
                 elide: Text.ElideRight
                 width: Math.min(implicitWidth, 96)
                 color: Theme.accent
-                font.pixelSize: Theme.fontCaption
+                font.pixelSize: Theme.uiCaption
             }
         }
     }

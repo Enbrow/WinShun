@@ -29,7 +29,7 @@ Item {
     }
     function stopNaming() { naming = false }
 
-    implicitHeight: 44
+    implicitHeight: Theme.tabsHeight
 
     Flickable {
         id: flick
@@ -68,8 +68,8 @@ Item {
                     readonly property bool active: index === tabs.clipboard.category
 
                     width: content.implicitWidth + 24
-                    height: 30
-                    radius: 15
+                    height: Theme.chipHeight + 2
+                    radius: height / 2
                     color: active ? Theme.chipActive : area.containsMouse ? Theme.chipHover : Theme.track
                     border.width: active ? 1 : 0
                     border.color: Theme.chipBorder
@@ -92,7 +92,7 @@ Item {
                             text: chip.modelData.title
                             textFormat: Text.PlainText
                             color: chip.active ? Theme.text : Theme.subtext
-                            font.pixelSize: Theme.fontCaption + 1
+                            font.pixelSize: Theme.uiTab
                             font.weight: chip.active ? Font.DemiBold : Font.Normal
                         }
                     }
@@ -116,8 +116,8 @@ Item {
             Rectangle { // naming a group
                 visible: tabs.naming
                 width: Math.max(120, field.contentWidth + 28)
-                height: 30
-                radius: 15
+                height: Theme.chipHeight + 2
+                radius: height / 2
                 color: Theme.inputFocused
                 border.width: 1
                 border.color: Theme.accent
@@ -130,7 +130,7 @@ Item {
                     verticalAlignment: TextInput.AlignVCenter
                     clip: true
                     color: Theme.text
-                    font.pixelSize: Theme.fontCaption + 1
+                    font.pixelSize: Theme.uiTab
                     selectByMouse: true
                     selectionColor: Theme.textSelection
                     selectedTextColor: Theme.text
@@ -162,9 +162,9 @@ Item {
             Rectangle { // + : a new group
                 id: addChip
                 visible: !tabs.naming
-                width: 30
-                height: 30
-                radius: 15
+                width: height
+                height: Theme.chipHeight + 2
+                radius: height / 2
                 color: addArea.containsMouse ? Theme.chipHover : "transparent"
 
                 Glyph {

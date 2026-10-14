@@ -52,7 +52,7 @@ Item {
         function onSelectionRequested(anchor, position) { input.select(anchor, position) }
     }
 
-    implicitHeight: 64
+    implicitHeight: Theme.headerHeight // 界面大小
 
     Component.onCompleted: {
         frame.addDragArea(bar)
@@ -116,7 +116,7 @@ Item {
         y: bar.onPixel((bar.height - height) / 2)
         glyph: bar.launcher.scope === Launcher.Content ? "" // Document
              : "" // Search
-        size: 22
+        size: Theme.searchIconSize
     }
 
     TextInput {
@@ -130,7 +130,7 @@ Item {
         focus: true
         clip: true
         color: Theme.text
-        font.pixelSize: Theme.fontSearch
+        font.pixelSize: Theme.uiSearch
         selectByMouse: true
         selectionColor: Theme.textSelection
         selectedTextColor: Theme.text
@@ -194,6 +194,7 @@ Item {
 
     ScopeTabs {
         id: tabs
+        scaled: true
         anchors.right: parent.right
         anchors.rightMargin: 12
         anchors.leftMargin: 16
