@@ -10,6 +10,7 @@
 #include <QPointer>
 #include <QQuickItem>
 #include <QRectF>
+#include <QSet>
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
@@ -253,6 +254,7 @@ private:
     ClipboardWatcher* m_watcher;
     ClipModel m_model;
     TextRecognizer m_recognizer; // the words in pictures, for the search
+    QSet<qint64> m_rereading; // read by another recognizer before: once all are back, it is noted
     QPointer<QWindow> m_window;
     // Pictures dragged out, copied here first (a folder each, by id): kept
     // until the app ends, as the program dropped on may copy them later.

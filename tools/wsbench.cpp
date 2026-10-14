@@ -148,6 +148,7 @@
 #include "Snapshot.h"
 #include "SystemCatalog.h"
 #include "TextUtil.h"
+#include "platform/PaddleOcr.h"
 #include "Unc.h"
 #include "WebShortcut.h"
 #include "Win32Util.h"
@@ -162,6 +163,7 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QStandardPaths>
@@ -3164,6 +3166,57 @@ int runSiteIcon(QStringList args)
     return 0;
 }
 
+// ---- the words in pictures (--ocr) ---------------------------------------------
+
+// Reads pictures as the clipboard history does (PaddleOcr, models and
+// onnxruntime.dll next to wsbench): the words and the time of each, then the
+// median and the slowest. Folders: their .png and .jpg files.
+int runOcr(QStringList args)
+{
+    int threads = 4;
+    if (const qsizetype at = args.indexOf(u"--threads"_s); at >= 0 && at + 1 < args.size()) {
+        threads = args[at + 1].toInt();
+        args.remove(at, 2);
+    }
+    const bool quiet = args.removeAll(u"--quiet"_s) > 0; // the times only
+    QStringList files;
+    for (const QString& arg : std::as_const(args)) {
+        if (QFileInfo(arg).isDir()) {
+            for (const QFileInfo& f : QDir(arg).entryInfoList({u"*.png"_s, u"*.jpg"_s}, QDir::Files, QDir::Name))
+                files.append(f.filePath());
+        } else {
+            files.append(arg);
+        }
+    }
+    if (files.isEmpty()) {
+        std::printf("wsbench --ocr <picture or folder>... [--threads N] [--quiet]\n");
+        return 1;
+    }
+    QElapsedTimer t;
+    t.start();
+    QString error;
+    const std::unique_ptr<ws::PaddleOcr> ocr = ws::PaddleOcr::load(QCoreApplication::applicationDirPath(), threads, &error);
+    if (!ocr) {
+        std::printf("Not loaded: %ls\n", qUtf16Printable(error));
+        return 1;
+    }
+    std::printf("Loaded in %.0f ms, %d threads\n", msSince(t), threads);
+    std::vector<double> times;
+    for (const QString& file : std::as_const(files)) {
+        const QImage image(file);
+        t.start();
+        QStringList lines;
+        const bool ok = ocr->read(image, &lines, &error);
+        times.push_back(msSince(t));
+        std::printf("%ls\t%dx%d\t%.0f ms\t%ls\n", qUtf16Printable(QFileInfo(file).fileName()), image.width(), image.height(),
+            times.back(), qUtf16Printable(!ok ? u"FAILED: "_s + error : quiet ? QString() : lines.join(u" | "_s)));
+    }
+    std::ranges::sort(times);
+    std::printf("%zu pictures: median %.0f ms, 90%% %.0f ms, slowest %.0f ms, all %.1f s\n", times.size(),
+        times[times.size() / 2], times[times.size() * 9 / 10], times.back(), std::accumulate(times.begin(), times.end(), 0.0) / 1000);
+    return 0;
+}
+
 int main(int argc, char* argv[])
 {
     QCoreApplication app(argc, argv);
@@ -3175,6 +3228,10 @@ int main(int argc, char* argv[])
         _wfreopen_s(&reopened, reinterpret_cast<const wchar_t*>(args[at + 1].utf16()), L"w", stdout);
         std::setvbuf(stdout, nullptr, _IONBF, 0); // keep what was written if it crashes
         args.remove(at, 2);
+    }
+    if (args.contains(u"--ocr"_s)) {
+        args.removeAll(u"--ocr"_s);
+        return runOcr(args);
     }
     if (args.contains(u"--site-icon"_s)) {
         args.removeAll(u"--site-icon"_s);

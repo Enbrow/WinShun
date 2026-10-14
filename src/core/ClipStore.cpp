@@ -481,12 +481,16 @@ QString ClipStore::imagePath(qint64 id) const
     return QDir::toNativeSeparators(m_folder + u"/images/%1.png"_s.arg(id));
 }
 
-std::vector<qint64> ClipStore::unreadPictures() const
+std::vector<qint64> ClipStore::unreadPictures(bool all) const
 {
     std::vector<qint64> ids;
-    for (const Clip& c : m_clips) {
-        if (c.kind == ClipKind::Image && !c.read && !imagePending(c.id))
-            ids.push_back(c.id);
+    for (const bool read : {false, true}) {
+        if (read && !all)
+            break;
+        for (const Clip& c : m_clips) {
+            if (c.kind == ClipKind::Image && c.read == read && !imagePending(c.id))
+                ids.push_back(c.id);
+        }
     }
     return ids;
 }

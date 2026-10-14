@@ -87,6 +87,15 @@ try {
         Copy-Item "$($pdfium.FullName)\LICENSE" "$dist\licenses\pdfium\LICENSE.txt"
         Copy-Item "$($pdfium.FullName)\licenses\*" "$dist\licenses\pdfium"
         Copy-Item "$root\third_party\miniz\LICENSE" "$dist\licenses\miniz.txt"
+        # The words in pictures (platform/PaddleOcr): ONNX Runtime and the
+        # PP-OCRv6 tiny models, with their licenses.
+        Copy-Item "$root\build\$preset\onnxruntime.dll" $dist
+        Copy-Item "$root\build\$preset\ocr" "$dist\ocr" -Recurse
+        $ort = Get-ChildItem "$root\build\$preset\_deps" -Directory -Filter 'onnxruntime-win-x64-*' | Sort-Object Name | Select-Object -Last 1
+        New-Item -ItemType Directory -Force "$dist\licenses\onnxruntime" | Out-Null
+        Copy-Item "$($ort.FullName)\LICENSE" "$dist\licenses\onnxruntime\LICENSE.txt"
+        Copy-Item "$($ort.FullName)\ThirdPartyNotices.txt" "$dist\licenses\onnxruntime"
+        Copy-Item "$root\third_party\ppocr\LICENSE" "$dist\licenses\paddleocr.txt"
         # Only what the app uses: no shader compilers (software renderer), no
         # QML debugger, network, TLS or SVG plugins, and of the database
         # drivers only SQLite (the clipboard history).
@@ -96,9 +105,10 @@ try {
             --exclude-plugins qsqlibase,qsqlmimer,qsqloci,qsqlodbc,qsqlpsql `
             "--$preset" "$dist\WinShun.exe"
         if ($LASTEXITCODE) { throw 'windeployqt failed' }
-        # App-local C++ runtime, so users need no VC++ redistributable installed.
+        # App-local C++ runtime, so users need no VC++ redistributable installed
+        # (msvcp140_1: onnxruntime.dll).
         $crt = Join-Path $env:VCToolsRedistDir 'x64\Microsoft.VC143.CRT'
-        foreach ($dll in 'msvcp140.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
+        foreach ($dll in 'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
             Copy-Item (Join-Path $crt $dll) $dist
         }
         Write-Host "Deployed to $dist"

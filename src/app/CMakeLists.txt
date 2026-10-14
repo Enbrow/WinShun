@@ -1,3 +1,49 @@
+# The words in pictures (platform/PaddleOcr): PP-OCRv6 tiny (PaddleOCR,
+# Apache-2.0; ONNX from RapidOCR) run by ONNX Runtime (MIT), both downloaded
+# once per build folder. onnxruntime.dll goes next to the programs and the
+# models into ocr\; the app loads the DLL itself by its full path (Windows
+# has an older onnxruntime.dll in System32), so it only needs the headers.
+set(ORT_VERSION 1.30.0)
+set(ORT_SHA256 c6ba983baf5681af108599675d2a89c2d145512d02de28aed0bff177cd0ba949)
+set(ORT_DIR "${CMAKE_BINARY_DIR}/_deps/onnxruntime-win-x64-${ORT_VERSION}" CACHE INTERNAL "")
+if(NOT EXISTS "${ORT_DIR}/lib/onnxruntime.dll")
+    set(archive "${CMAKE_BINARY_DIR}/_deps/onnxruntime-win-x64-${ORT_VERSION}.zip")
+    file(DOWNLOAD
+        "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-win-x64-${ORT_VERSION}.zip"
+        "${archive}" EXPECTED_HASH SHA256=${ORT_SHA256} STATUS status)
+    list(GET status 0 code)
+    if(NOT code EQUAL 0)
+        message(FATAL_ERROR "Could not download ONNX Runtime: ${status}")
+    endif()
+    file(ARCHIVE_EXTRACT INPUT "${archive}" DESTINATION "${CMAKE_BINARY_DIR}/_deps")
+    file(REMOVE "${archive}")
+endif()
+add_library(onnxruntime_headers INTERFACE IMPORTED GLOBAL)
+set_target_properties(onnxruntime_headers PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${ORT_DIR}/include")
+file(COPY "${ORT_DIR}/lib/onnxruntime.dll" DESTINATION "${CMAKE_BINARY_DIR}")
+
+set(ocr_models
+    "det/PP-OCRv6_det_tiny.onnx|f42c0fbd294d95eac1a550e131b277dac97462c8025fa4b6c3cec1b7894bd3d5"
+    "rec/PP-OCRv6_rec_tiny.onnx|e16e242de5937ad92609223f19bc2aff3727ee40b095f996907c24749bad251b")
+set(OCR_MODEL_FILES "" CACHE INTERNAL "")
+foreach(model IN LISTS ocr_models)
+    string(REPLACE "|" ";" model "${model}")
+    list(GET model 0 path)
+    list(GET model 1 hash)
+    get_filename_component(name "${path}" NAME)
+    set(file "${CMAKE_BINARY_DIR}/ocr/${name}")
+    if(NOT EXISTS "${file}")
+        file(DOWNLOAD "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv6/${path}"
+            "${file}" EXPECTED_HASH SHA256=${hash} STATUS status)
+        list(GET status 0 code)
+        if(NOT code EQUAL 0)
+            file(REMOVE "${file}")
+            message(FATAL_ERROR "Could not download ${name}: ${status}")
+        endif()
+    endif()
+    set(OCR_MODEL_FILES "${OCR_MODEL_FILES};${file}" CACHE INTERNAL "")
+endforeach()
+
 qt_add_executable(WinShun WIN32
     main.cpp
     App.cpp App.h
@@ -35,6 +81,7 @@ qt_add_executable(WinShun WIN32
     platform/TaskbarSearchBox.cpp platform/TaskbarSearchBox.h
     platform/TaskbarStartGap.cpp platform/TaskbarStartGap.h
     platform/TextCaret.cpp platform/TextCaret.h
+    platform/PaddleOcr.cpp platform/PaddleOcr.h
     platform/TextRecognizer.cpp platform/TextRecognizer.h
     platform/VolumeNotifier.cpp platform/VolumeNotifier.h
     platform/WinV.cpp platform/WinV.h
@@ -200,7 +247,8 @@ target_link_libraries(WinShun PRIVATE
     comctl32 d2d1 dwmapi dwrite oleacc oleaut32 shcore shell32 shlwapi ole32 user32 uxtheme version winhttp winmm
     credui iphlpapi mpr psapi
     mfplat mfreadwrite mfuuid delayimp
-    windowsapp) # TextRecognizer: Windows.Media.Ocr, through C++/WinRT from the Windows SDK
+    windowsapp # TextRecognizer: Windows.Media.Ocr, through C++/WinRT from the Windows SDK
+    onnxruntime_headers) # PaddleOcr
 # The gap right of Start (platform/TaskbarStartGap): the channel to WinShunTap.dll
 # (src/tap), the DLL's SHA-256 (bcrypt), its folder's DACL (advapi32).
 target_link_libraries(WinShun PRIVATE wstap_api bcrypt advapi32)
@@ -221,4 +269,6 @@ add_custom_command(TARGET WinShun POST_BUILD
     VERBATIM)
 
 install(TARGETS WinShun RUNTIME DESTINATION .)
+install(FILES "${ORT_DIR}/lib/onnxruntime.dll" DESTINATION .)
+install(FILES ${OCR_MODEL_FILES} DESTINATION ocr)
 install(FILES ${font_files} DESTINATION fonts)

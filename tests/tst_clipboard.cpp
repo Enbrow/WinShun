@@ -348,8 +348,10 @@ private slots:
             store.flush();
             QCOMPARE(store.unreadPictures(), (std::vector<qint64> {id, 5}));
             store.setPictureText(id, u"第三季度会议纪要 Q3"_s);
+            QCOMPARE(store.unreadPictures(true), (std::vector<qint64> {5, id})); // unread first, then the read ones
             store.setPictureText(5, QString()); // read, nothing in it
             QVERIFY(store.unreadPictures().empty());
+            QCOMPARE(store.unreadPictures(true), (std::vector<qint64> {id, 5})); // all, to read again
             ClipFilter filter;
             filter.query = u"会议"_s;
             QCOMPARE(store.find(filter).size(), std::size_t(1));

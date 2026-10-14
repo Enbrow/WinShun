@@ -20,6 +20,11 @@ qt_add_executable(tst_siteicon tst_siteicon.cpp ${PROJECT_SOURCE_DIR}/src/app/Si
 target_include_directories(tst_siteicon PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(tst_siteicon PRIVATE Qt6::Gui Qt6::Test)
 
+# The words in pictures: PP-OCRv6 through ONNX Runtime, the real models.
+qt_add_executable(tst_ocr tst_ocr.cpp ${PROJECT_SOURCE_DIR}/src/app/platform/PaddleOcr.cpp)
+target_include_directories(tst_ocr PRIVATE ${PROJECT_SOURCE_DIR}/src/app/platform)
+target_link_libraries(tst_ocr PRIVATE winshun_options Qt6::Gui Qt6::Test onnxruntime_headers)
+
 # What a drop target gets when results are dragged out of Win顺.
 qt_add_executable(tst_dragout tst_dragout.cpp ${PROJECT_SOURCE_DIR}/src/app/platform/DragOut.cpp)
 target_include_directories(tst_dragout PRIVATE ${PROJECT_SOURCE_DIR}/src/app/platform)
@@ -67,6 +72,7 @@ add_test(NAME tst_favorites COMMAND tst_favorites)
 add_test(NAME tst_color COMMAND tst_color)
 add_test(NAME tst_dragout COMMAND tst_dragout)
 add_test(NAME tst_siteicon COMMAND tst_siteicon)
+add_test(NAME tst_ocr COMMAND tst_ocr)
 add_test(NAME tst_tools COMMAND tst_tools)
 add_test(NAME tst_mcp COMMAND tst_mcp)
 add_test(NAME tst_plugin COMMAND tst_plugin)

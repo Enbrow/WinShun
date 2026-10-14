@@ -10,6 +10,9 @@
 
 #include "TextRecognizer.h"
 
+#include "PaddleOcr.h"
+
+#include <QCoreApplication>
 #include <QDebug>
 #include <QImage>
 #include <QPainter>
@@ -17,6 +20,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cstring>
 #include <string_view>
 
@@ -85,6 +89,23 @@ OcrEngine pickEngine()
     return available.Size() > 0 ? OcrEngine::TryCreateFromLanguage(available.GetAt(0)) : OcrEngine {nullptr};
 }
 
+// Japanese or Korean before any Chinese in the user's languages: read by
+// Windows' recognizer, PP-OCRv6 tiny reads neither.
+bool japaneseOrKoreanFirst()
+{
+    try {
+        for (const winrt::hstring& tag : winrt::Windows::System::UserProfile::GlobalizationPreferences::Languages()) {
+            const std::wstring_view t = tag;
+            if (t.starts_with(L"zh"))
+                return false;
+            if (t.starts_with(L"ja") || t.starts_with(L"ko"))
+                return true;
+        }
+    } catch (const winrt::hresult_error&) {
+    }
+    return false;
+}
+
 // The picture as the recognizer takes it, no larger than it can read.
 SoftwareBitmap loadBitmap(const QString& file, int maxSide)
 {
@@ -113,6 +134,7 @@ SoftwareBitmap loadBitmap(const QString& file, int maxSide)
 
 TextRecognizer::TextRecognizer(QObject* parent)
     : QObject(parent)
+    , m_paddle(PaddleOcr::installed(QCoreApplication::applicationDirPath()) && !japaneseOrKoreanFirst())
     , m_thread([this](std::stop_token stop) { work(stop); })
 {
 }
@@ -141,12 +163,22 @@ void TextRecognizer::read(qint64 id, const QString& imageFile, bool next)
     m_wake.notify_one();
 }
 
+QString TextRecognizer::engine() const
+{
+    return m_paddle ? u"ppocr-v6-tiny"_s : u"windows"_s;
+}
+
 void TextRecognizer::work(const std::stop_token& stop)
 {
-    // A picture takes a tenth of a second or so (1560 × 1197 px: 107 ms).
+    // A screenshot takes a few tenths of a second by PP-OCRv6 (1902 × 1316 px:
+    // ~0.7 s), a tenth by Windows' recognizer (1560 × 1197 px: 107 ms).
     ::SetThreadPriority(::GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
     {
+        const QString folder = QCoreApplication::applicationDirPath();
+        // Its own threads besides this one: up to 4, half the processors.
+        const int threads = std::clamp(static_cast<int>(std::thread::hardware_concurrency()) / 2, 1, 4);
+        std::unique_ptr<PaddleOcr> paddle;
         OcrEngine engine {nullptr};
         bool none = false; // no recognizer, found in this batch
         for (;;) {
@@ -154,6 +186,7 @@ void TextRecognizer::work(const std::stop_token& stop)
             {
                 std::unique_lock lock(m_mutex);
                 if (m_jobs.empty()) { // done for now: let go of the recognizer, look again next time
+                    paddle.reset();
                     engine = nullptr;
                     none = false;
                 }
@@ -164,6 +197,26 @@ void TextRecognizer::work(const std::stop_token& stop)
             }
             QString words;
             bool ok = true;
+            if (m_paddle && !paddle) {
+                QString error;
+                paddle = PaddleOcr::load(folder, threads, &error);
+                if (!paddle) {
+                    qWarning().noquote() << "Text recognition: PP-OCRv6 did not load, Windows' instead:" << error;
+                    m_paddle = false;
+                }
+            }
+            if (paddle) {
+                QStringList lines;
+                QString error;
+                if (paddle->read(QImage(job.file), &lines, &error)) {
+                    words = lines.join(u'\n');
+                } else {
+                    qWarning().noquote() << "Text recognition failed:" << error;
+                    ok = false;
+                }
+                emit done(job.id, words, ok);
+                continue;
+            }
             try {
                 if (!engine && !none) {
                     engine = pickEngine();

@@ -221,8 +221,9 @@ public:
     QString folder() const { return m_folder; } // the history's files are in it
     // Just copied, its picture still being written: no file at imagePath() yet.
     bool imagePending(qint64 id) const { return m_picturesPending.contains(id); }
-    // Pictures whose words were not read yet, newest first (their files written).
-    std::vector<qint64> unreadPictures() const;
+    // Pictures whose words were not read yet, newest first (their files
+    // written); with `all`, then those read already too.
+    std::vector<qint64> unreadPictures(bool all = false) const;
     void setPictureText(qint64 id, const QString& text); // read: the words in it, maybe none
 
     // Small values kept with the history (the separator for joined pastes).

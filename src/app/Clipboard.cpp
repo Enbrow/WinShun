@@ -80,12 +80,22 @@ Clipboard::Clipboard(ClipStore* store, ClipboardWatcher* watcher, QObject* paren
             return; // no recognizer, or it failed: read when the app starts again
         m_store->setPictureText(id, words);
         m_model.pictureRead(id);
+        if (m_rereading.remove(id) && m_rereading.isEmpty())
+            m_store->setValue(u"recognizer"_s, m_recognizer.engine());
     });
     // Those copied before, or before there was this: a little after the start,
-    // out of its way.
+    // out of its way. All of them when they were read by another recognizer
+    // (Windows' before 0.7.4), those not read yet first.
     QTimer::singleShot(20s, this, [this] {
-        for (const qint64 id : m_store->unreadPictures())
+        const bool again = m_store->value(u"recognizer"_s) != m_recognizer.engine();
+        const std::vector<qint64> ids = m_store->unreadPictures(again);
+        if (again && ids.empty())
+            m_store->setValue(u"recognizer"_s, m_recognizer.engine());
+        for (const qint64 id : ids) {
+            if (again)
+                m_rereading.insert(id);
             m_recognizer.read(id, m_store->imagePath(id));
+        }
     });
     m_flashTimer.setSingleShot(true);
     m_flashTimer.setInterval(3s);
