@@ -365,13 +365,23 @@ bool ClipStore::open(qint64 now)
         // The words in pictures (NULL: not read yet), since GitHub #9: added
         // to a history from before.
         bool hasOcr = false;
+        bool hasRank = false;
         QSqlQuery columns(db);
         columns.prepare(u"PRAGMA table_info(clips)"_s);
         if (!run(columns, "Reading the columns"))
             return loaded;
-        while (columns.next())
+        while (columns.next()) {
             hasOcr = hasOcr || columns.value(1).toString() == u"ocr"_s;
+            hasRank = hasRank || columns.value(1).toString() == u"rank"_s;
+        }
+        columns.finish();
         if (!hasOcr && !run(db, u"ALTER TABLE clips ADD COLUMN ocr TEXT"_s))
+            return loaded;
+        // A group's own order: added to a history from before, in the order
+        // its entries were listed then (newest first).
+        if (!hasRank
+            && !(run(db, u"ALTER TABLE clips ADD COLUMN rank INTEGER NOT NULL DEFAULT 0"_s)
+                 && run(db, u"UPDATE clips SET rank = -used WHERE groupId != 0"_s)))
             return loaded;
 
         QSqlQuery groups(db);
@@ -384,7 +394,7 @@ bool ClipStore::open(qint64 now)
         QSqlQuery clips(db);
         clips.setForwardOnly(true);
         clips.prepare(u"SELECT id, kind, substr(text, 1, %1), length, hash, created, used, source, sourcePath, groupId, "
-                      u"width, height, bytes, html IS NOT NULL, rtf IS NOT NULL, ocr FROM clips ORDER BY used DESC, id DESC"_s
+                      u"width, height, bytes, html IS NOT NULL, rtf IS NOT NULL, ocr, rank FROM clips ORDER BY used DESC, id DESC"_s
                 .arg(kTextInMemory));
         if (!run(clips, "Reading the history"))
             return loaded;
@@ -407,6 +417,7 @@ bool ClipStore::open(qint64 now)
             clip.rtf = clips.value(14).toBool();
             clip.read = !clips.value(15).isNull();
             clip.ocr = clips.value(15).toString();
+            clip.rank = clips.value(16).toLongLong();
             loaded.clips.push_back(std::move(clip));
         }
         QSqlQuery last(db);
@@ -690,7 +701,7 @@ void ClipStore::restore(std::vector<ClipRecord> records)
         db.transaction();
         QSqlQuery query(db);
         query.prepare(u"INSERT OR REPLACE INTO clips (id, kind, text, length, html, rtf, hash, created, used, source, "
-                      u"sourcePath, groupId, width, height, bytes, ocr) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"_s);
+                      u"sourcePath, groupId, width, height, bytes, ocr, rank) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"_s);
         for (const ClipRecord& record : records) {
             const Clip& c = record.clip;
             query.addBindValue(c.id);
@@ -709,6 +720,7 @@ void ClipStore::restore(std::vector<ClipRecord> records)
             query.addBindValue(c.height);
             query.addBindValue(c.bytes);
             query.addBindValue(c.read ? QVariant(text(c.ocr)) : QVariant(QMetaType::fromType<QString>()));
+            query.addBindValue(c.rank);
             written.push_back(run(query, "Restoring an entry"));
         }
         db.commit();
@@ -780,24 +792,85 @@ void ClipStore::setGroup(std::span<const qint64> ids, qint64 groupId)
 {
     if (!m_open || (groupId != 0 && !group(groupId)))
         return;
-    std::vector<qint64> moved;
+    // Into a group: at its top, in the order given.
+    qint64 top = 0;
+    for (const Clip& c : m_clips) {
+        if (c.group == groupId)
+            top = std::min(top, c.rank);
+    }
+    std::vector<std::pair<qint64, qint64>> moved; // id, rank
+    qint64 rank = top - static_cast<qint64>(ids.size());
     for (const qint64 id : ids) {
         auto it = std::ranges::find(m_clips, id, &Clip::id);
-        if (it == m_clips.end())
+        if (it == m_clips.end() || it->group == groupId)
             continue;
         it->group = groupId;
-        moved.push_back(id);
+        it->rank = groupId == 0 ? 0 : rank++;
+        moved.emplace_back(id, it->rank);
     }
     if (moved.empty())
         return;
     m_writer->post([moved, groupId](QSqlDatabase& db) {
         db.transaction();
         QSqlQuery query(db);
-        query.prepare(u"UPDATE clips SET groupId = ? WHERE id = ?"_s);
-        for (const qint64 id : moved) {
+        query.prepare(u"UPDATE clips SET groupId = ?, rank = ? WHERE id = ?"_s);
+        for (const auto& [id, rank] : moved) {
             query.addBindValue(groupId);
+            query.addBindValue(rank);
             query.addBindValue(id);
             run(query, "Moving an entry");
+        }
+        db.commit();
+    });
+}
+
+std::vector<qint64> ClipStore::groupOrder(qint64 groupId) const
+{
+    std::vector<const Clip*> members;
+    for (const Clip& c : m_clips) {
+        if (c.group == groupId && groupId != 0)
+            members.push_back(&c);
+    }
+    std::ranges::stable_sort(members, {}, &Clip::rank);
+    std::vector<qint64> ids;
+    ids.reserve(members.size());
+    for (const Clip* c : members)
+        ids.push_back(c->id);
+    return ids;
+}
+
+void ClipStore::moveInGroup(qint64 id, qint64 target)
+{
+    const Clip* moving = clip(id);
+    const Clip* to = clip(target);
+    if (!m_open || !moving || !to || id == target || moving->group == 0 || moving->group != to->group)
+        return;
+    std::vector<qint64> order = groupOrder(moving->group);
+    const auto from = std::ranges::find(order, id);
+    const auto at = std::ranges::find(order, target);
+    // Up: into the target's place, it and those after it one down; down:
+    // into its place, it and those before it one up.
+    if (from < at)
+        std::rotate(from, from + 1, at + 1);
+    else
+        std::rotate(at, from, from + 1);
+    // Renumbered 0, 1, 2…: groups are small.
+    std::vector<std::pair<qint64, qint64>> ranks; // id, rank
+    for (std::size_t i = 0; i < order.size(); ++i) {
+        auto it = std::ranges::find(m_clips, order[i], &Clip::id);
+        if (it->rank != static_cast<qint64>(i)) {
+            it->rank = static_cast<qint64>(i);
+            ranks.emplace_back(order[i], it->rank);
+        }
+    }
+    m_writer->post([ranks](QSqlDatabase& db) {
+        db.transaction();
+        QSqlQuery query(db);
+        query.prepare(u"UPDATE clips SET rank = ? WHERE id = ?"_s);
+        for (const auto& [id, rank] : ranks) {
+            query.addBindValue(rank);
+            query.addBindValue(id);
+            run(query, "Ordering a group");
         }
         db.commit();
     });
@@ -981,6 +1054,17 @@ std::vector<int> ClipStore::find(const ClipFilter& filter) const
         }
         if (shown && (matcher.empty() || matcher.matches(c)))
             rows.push_back(static_cast<int>(i));
+    }
+    // A group's entries in their own order; with pinnedFirst, those in
+    // "固定" so before the rest (newest first, as they are in clips()).
+    const auto rank = [this](int row) { return m_clips[static_cast<std::size_t>(row)].rank; };
+    if (filter.category == Category::Group) {
+        std::ranges::stable_sort(rows, {}, rank);
+    } else if (filter.pinnedFirst) {
+        const auto rest = std::ranges::stable_partition(rows, [this](int row) {
+            return m_clips[static_cast<std::size_t>(row)].group == kPinned;
+        });
+        std::ranges::stable_sort(rows.begin(), rest.begin(), {}, rank);
     }
     return rows;
 }

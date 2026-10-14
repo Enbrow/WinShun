@@ -20,7 +20,13 @@ Rectangle {
     readonly property color foreground: danger ? Theme.accentText : checked ? Theme.accent
                                         : area.containsMouse ? Theme.text : Theme.subtext
 
+    // A handle to drag (a clipboard row in its group's order): held, every
+    // move of the mouse is told, in this button's coordinates.
+    property bool draggable: false
+    readonly property bool held: area.pressed
+
     signal clicked()
+    signal dragMoved(point position)
 
     implicitWidth: text.length > 0 ? content.implicitWidth + 20 : 32
     implicitHeight: 32
@@ -57,8 +63,18 @@ Rectangle {
 
         anchors.fill: parent
         hoverEnabled: true
+        preventStealing: button.draggable // the list does not scroll under a drag
         onPressed: used = true
         onContainsMouseChanged: if (!containsMouse) used = false
         onClicked: button.clicked()
+        onPositionChanged: (mouse) => {
+            if (button.draggable && pressed)
+                button.dragMoved(Qt.point(mouse.x, mouse.y))
+        }
+
+        Binding on cursorShape { // the other buttons keep the cursor they have
+            when: button.draggable
+            value: area.pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+        }
     }
 }

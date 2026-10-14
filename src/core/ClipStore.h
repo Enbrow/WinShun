@@ -48,6 +48,9 @@ struct Clip {
     QString source; // the program it was copied from ("微信") ...
     QString sourcePath; // ... and its file
     qint64 group = 0; // 0: none (it expires); else a ClipGroup, kept for good
+    // Its place among its group's entries, smallest first (the user's order:
+    // pasting or copying it again does not move it there). Unused out of groups.
+    qint64 rank = 0;
     int width = 0; // Image, in pixels
     int height = 0;
     qint64 bytes = 0; // Image: of its PNG file
@@ -115,6 +118,9 @@ struct ClipFilter {
     Category category = Category::All;
     qint64 group = 0; // Category::Group
     QString query; // words that must all occur; "@name" is the program it came from
+    // The entries in "固定" first, in their own order, then the rest newest
+    // first (not for a group: its entries are in their own order anyway).
+    bool pinnedFirst = false;
 };
 
 // Finds the words of a query in entries: as written (ignoring case), and
@@ -207,7 +213,11 @@ public:
     std::vector<ClipRecord> remove(std::span<const qint64> ids);
     void restore(std::vector<ClipRecord> records);
     void discardImages(std::span<const qint64> ids); // of entries no longer in the history
-    void setGroup(std::span<const qint64> ids, qint64 group); // 0: out of any group
+    void setGroup(std::span<const qint64> ids, qint64 group); // 0: out of any group; into one: at its top
+    // Moves an entry of a group to where `target`, of the same group, is
+    // (before it moving up, after it moving down); the rest keep their order.
+    void moveInGroup(qint64 id, qint64 target);
+    std::vector<qint64> groupOrder(qint64 group) const; // its entries' ids, in their order
     qint64 addGroup(const QString& name); // 0 if it could not be saved
     void renameGroup(qint64 id, const QString& name);
     // A group and its entries; not the built-in one. Their pictures stay
@@ -230,7 +240,8 @@ public:
     QString value(const QString& key) const;
     void setValue(const QString& key, const QString& value);
 
-    // Indexes into clips() of the entries to list, newest first.
+    // Indexes into clips() of the entries to list: newest first; a group's
+    // in their order (and "固定"'s first with pinnedFirst).
     std::vector<int> find(const ClipFilter& filter) const;
 
 private:

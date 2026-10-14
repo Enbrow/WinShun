@@ -36,7 +36,13 @@ public:
         GroupRole, // the group's name, "" if none
         PinnedRole, // in "固定"
         MissingRole, // files and paths: the (first) file is gone
+        MovableRole, // can be moved in its group's own order (a drag, Ctrl+Up/Down)
+        AfterPinnedRole, // the first row after those in "固定" listed first: a line above it
     };
+
+    // Which rows can be moved in their group's order: none (a search, the
+    // list newest first), all (a group's tab), or those in "固定" (listed first).
+    enum class Movable { None, All, Pinned };
 
     explicit ClipModel(const ClipStore* store, QObject* parent = nullptr);
 
@@ -55,6 +61,13 @@ public:
     // Picked entries stay picked while they are in the history, listed or
     // not: pick one, search for the next, pick that too.
     void setRows(const std::vector<int>& rows, const QString& query);
+    // How the next setRows() is listed: "固定" first, which rows can move.
+    void setOrdering(bool pinnedFirst, Movable movable)
+    {
+        m_pinnedFirst = pinnedFirst;
+        m_movable = movable;
+    }
+    bool movable(int row) const;
     void refreshTimes(); // "3 分钟前" moved on
     void retranslate() { refreshTimes(); }
     void pictureSaved(qint64 id); // its file is there now (ClipStore::imagePending)
@@ -86,6 +99,7 @@ private:
     QString groupName(qint64 group) const;
     bool fileMissing(const Clip& clip) const;
     void selectionEdited(); // repaints the numbers
+    bool moveOne(const std::vector<qint64>& ids); // m_ids to `ids` as one row moved (signalled); else false
 
     const ClipStore* m_store;
     std::vector<qint64> m_ids; // of the rows
@@ -94,6 +108,8 @@ private:
     ClipMatcher m_matcher {QString()}; // of m_query, for the titles
     QList<qint64> m_selected; // ids, in the order picked
     QColor m_highlightColor {0x00, 0x5F, 0xB8};
+    bool m_pinnedFirst = false;
+    Movable m_movable = Movable::None;
     qint64 m_now = 0; // what "3 分钟前" is counted from
     mutable QHash<QString, bool> m_missing; // path -> gone, while the rows stay
 };

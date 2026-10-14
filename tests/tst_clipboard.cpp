@@ -182,6 +182,73 @@ private slots:
         QCOMPARE(matcher.spans(line), (QList<std::pair<qsizetype, qsizetype>> {{4, 2}, {8, 2}}));
     }
 
+    // "固定" listed first in its own order (pinnedFirst), a group in its own
+    // order, moved by the user; pasting or copying again does not move them.
+    void pinnedFirstAndOwnOrder()
+    {
+        QTemporaryDir dir;
+        using Category = ClipFilter::Category;
+        qint64 a = 0, b = 0, c = 0;
+        {
+            ClipStore store(dir.path());
+            QVERIFY(store.open(kStart));
+            a = store.add(text(u"甲"_s), kStart);
+            b = store.add(text(u"乙"_s), kStart + 1);
+            c = store.add(text(u"丙"_s), kStart + 2);
+            store.add(text(u"丁"_s), kStart + 3);
+            store.add(text(u"https://example.com"_s), kStart + 4);
+            // Pinned one by one: each at the top of "固定".
+            store.setGroup(std::span(&a, 1), ClipStore::kPinned);
+            store.setGroup(std::span(&c, 1), ClipStore::kPinned);
+            QCOMPARE(texts(store, store.find({})), (QStringList {u"https://example.com"_s, u"丁"_s, u"丙"_s, u"乙"_s, u"甲"_s}));
+            ClipFilter first;
+            first.pinnedFirst = true;
+            QCOMPARE(texts(store, store.find(first)), (QStringList {u"丙"_s, u"甲"_s, u"https://example.com"_s, u"丁"_s, u"乙"_s}));
+            // Pasting one keeps it in its place among the pinned.
+            store.touch(a, kStart + 5);
+            QCOMPARE(texts(store, store.find(first)), (QStringList {u"丙"_s, u"甲"_s, u"https://example.com"_s, u"丁"_s, u"乙"_s}));
+            QCOMPARE(texts(store, store.find({Category::Group, ClipStore::kPinned, {}})), (QStringList {u"丙"_s, u"甲"_s}));
+            // Moved down below 甲, then a third one pinned on top.
+            store.moveInGroup(c, a);
+            QCOMPARE(texts(store, store.find({Category::Group, ClipStore::kPinned, {}})), (QStringList {u"甲"_s, u"丙"_s}));
+            store.setGroup(std::span(&b, 1), ClipStore::kPinned);
+            QCOMPARE(store.groupOrder(ClipStore::kPinned), (std::vector<qint64> {b, a, c}));
+            store.moveInGroup(c, b); // up, to the top
+            QCOMPARE(store.groupOrder(ClipStore::kPinned), (std::vector<qint64> {c, b, a}));
+            store.moveInGroup(c, a); // down, to the end
+            QCOMPARE(store.groupOrder(ClipStore::kPinned), (std::vector<qint64> {b, a, c}));
+            // A category: its pinned ones first; a search keeps them first too.
+            first.category = Category::Links;
+            QCOMPARE(texts(store, store.find(first)), (QStringList {u"https://example.com"_s}));
+            first.category = Category::All;
+            first.query = u"丙"_s;
+            QCOMPARE(texts(store, store.find(first)), (QStringList {u"丙"_s}));
+            // Out of the group and back: at its top again.
+            store.setGroup(std::span(&c, 1), 0);
+            store.setGroup(std::span(&c, 1), ClipStore::kPinned);
+            QCOMPARE(store.groupOrder(ClipStore::kPinned), (std::vector<qint64> {c, b, a}));
+        }
+        {
+            ClipStore store(dir.path()); // the order is kept
+            QVERIFY(store.open(kStart + 6));
+            QCOMPARE(store.groupOrder(ClipStore::kPinned), (std::vector<qint64> {c, b, a}));
+        }
+        // A history from before the order was kept: its groups' entries keep
+        // the order they were listed in, newest first.
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase(u"QSQLITE"_s, u"old"_s);
+            db.setDatabaseName(dir.path() + u"/clipboard.db"_s);
+            QVERIFY(db.open());
+            QSqlQuery query(db);
+            QVERIFY(query.exec(u"ALTER TABLE clips DROP COLUMN rank"_s));
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(u"old"_s);
+        ClipStore store(dir.path());
+        QVERIFY(store.open(kStart + 7));
+        QCOMPARE(store.groupOrder(ClipStore::kPinned), (std::vector<qint64> {a, c, b})); // a pasted last
+    }
+
     void persistsAndRestores()
     {
         QTemporaryDir dir;

@@ -226,6 +226,10 @@
         <translation>Paste</translation>
     </message>
     <message>
+        <source>拖动调整顺序</source>
+        <translation>Drag to reorder</translation>
+    </message>
+    <message>
         <source>取消固定</source>
         <translation>Unpin</translation>
     </message>
@@ -243,6 +247,14 @@
     <message>
         <source>分组名称</source>
         <translation>Group name</translation>
+    </message>
+    <message>
+        <source>固定的排在最前（可拖动调整顺序）。点一下改为全部按时间</source>
+        <translation>Pinned items first (drag to reorder). Click to list everything by time</translation>
+    </message>
+    <message>
+        <source>全部按时间排列。点一下让固定的排在最前</source>
+        <translation>Everything by time. Click to put pinned items first</translation>
     </message>
     <message>
         <source>新建分组：放进分组的内容不会过期</source>
@@ -3323,6 +3335,14 @@
         <translation>Copied. That window did not come back to the front: press Ctrl+V there</translation>
     </message>
     <message>
+        <source>固定的内容排在最前</source>
+        <translation>Pinned items first</translation>
+    </message>
+    <message>
+        <source>全部按时间排列，最新的在前</source>
+        <translation>Everything by time, newest first</translation>
+    </message>
+    <message>
         <source>全部</source>
         <translation>All</translation>
     </message>
@@ -3539,6 +3559,14 @@
     <message>
         <source>取消固定</source>
         <translation>Unpin</translation>
+    </message>
+    <message>
+        <source>上移</source>
+        <translation>Move up</translation>
+    </message>
+    <message>
+        <source>下移</source>
+        <translation>Move down</translation>
     </message>
     <message>
         <source>移到“%1”</source>

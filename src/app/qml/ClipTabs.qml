@@ -35,7 +35,7 @@ Item {
         id: flick
         anchors.fill: parent
         anchors.leftMargin: 14
-        anchors.rightMargin: 14
+        anchors.rightMargin: 14 + orderChip.width + 6
         contentWidth: row.implicitWidth
         contentHeight: height
         flickableDirection: Flickable.HorizontalFlick
@@ -183,6 +183,42 @@ Item {
                 }
             }
         }
+    }
+
+    // How the list is ordered: "固定" first (in its own order), or all newest
+    // first (Clipboard.pinnedFirst). A group's tab has its own order either way.
+    Rectangle {
+        id: orderChip
+        anchors.right: parent.right
+        anchors.rightMargin: 14
+        anchors.verticalCenter: parent.verticalCenter
+        width: height
+        height: Theme.chipHeight + 2
+        radius: height / 2
+        color: tabs.clipboard.pinnedFirst ? Theme.chipActive : orderArea.containsMouse ? Theme.chipHover : "transparent"
+        border.width: tabs.clipboard.pinnedFirst ? 1 : 0
+        border.color: Theme.chipBorder
+
+        Glyph {
+            anchors.centerIn: parent
+            glyph: "" // Sort
+            size: 14
+            color: tabs.clipboard.pinnedFirst ? Theme.accent : orderArea.containsMouse ? Theme.text : Theme.subtext
+        }
+
+        MouseArea {
+            id: orderArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: tabs.clipboard.pinnedFirst = !tabs.clipboard.pinnedFirst
+        }
+    }
+
+    HoverTip {
+        target: orderArea.containsMouse ? orderChip : null
+        text: tabs.clipboard.pinnedFirst ? qsTr("固定的排在最前（可拖动调整顺序）。点一下改为全部按时间")
+                                         : qsTr("全部按时间排列。点一下让固定的排在最前")
     }
 
     function ensureVisible(item) {

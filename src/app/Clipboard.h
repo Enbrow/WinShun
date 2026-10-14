@@ -61,6 +61,10 @@ class Clipboard : public QObject {
     Q_PROPERTY(bool pinned READ pinned WRITE setPinned NOTIFY pinnedChanged FINAL)
     // The preview beside the list (Alt+P, →): as it was left, next time too.
     Q_PROPERTY(bool previewOpen READ previewOpen WRITE setPreviewOpen NOTIFY previewOpenChanged FINAL)
+    // The entries in "固定" listed before the rest, in their own order (the
+    // switch at the end of the tabs): what is kept at hand stays at the top,
+    // on the same Alt+number. Off: newest first, as Windows lists them.
+    Q_PROPERTY(bool pinnedFirst READ pinnedFirst WRITE setPinnedFirst NOTIFY pinnedFirstChanged FINAL)
     Q_PROPERTY(bool recording READ recording NOTIFY stateChanged FINAL) // the history is on (settings)
     Q_PROPERTY(bool paused READ paused NOTIFY stateChanged FINAL) // ... but paused from the tray menu
     Q_PROPERTY(QString shortcut READ shortcut NOTIFY stateChanged FINAL) // what opens it: "Win+V"
@@ -98,6 +102,8 @@ public:
         Reveal,
         OpenImage,
         Remove,
+        MoveUp, // in its group's own order (ClipModel::movable)
+        MoveDown,
         RenameGroup, // on a category tab
         RemoveGroup,
         MoveToGroup = 1000, // + the group's id
@@ -134,6 +140,8 @@ public:
     void setPinned(bool pinned);
     bool previewOpen() const { return m_previewOpen; }
     void setPreviewOpen(bool open);
+    bool pinnedFirst() const { return m_pinnedFirst; }
+    void setPinnedFirst(bool on);
 
     void setWindow(QWindow* window) { m_window = window; }
     // The window to paste into: the one in front before the clipboard opened
@@ -166,6 +174,10 @@ public:
     Q_INVOKABLE void remove(int row);
     Q_INVOKABLE void undo();
     Q_INVOKABLE void moveToGroup(int row, qint64 group);
+    // A row of a group, in the group's own order, to where row `to` is (a
+    // drag, Ctrl+↑/↓); both must be movable and of the same group.
+    Q_INVOKABLE bool canMove(int from, int to) const;
+    Q_INVOKABLE void moveRow(int from, int to);
     Q_INVOKABLE qint64 addGroup(const QString& name); // 0 if empty or not saved
     Q_INVOKABLE void renameGroup(qint64 group, const QString& name);
 
@@ -197,6 +209,7 @@ signals:
     void keysRoutedChanged();
     void pinnedChanged();
     void previewOpenChanged();
+    void pinnedFirstChanged();
     void keysWanted(); // pinned, the keys elsewhere: they are wanted here (App)
     void keysReleased(); // pinned, Esc (or the hotkey again): the keys and the focus back to the program (App)
     // The window takes the focus after all (App), from the program that kept
@@ -265,6 +278,7 @@ private:
     bool m_keysRouted = false;
     bool m_pinned = false;
     bool m_previewOpen = false;
+    bool m_pinnedFirst = false;
     bool m_recording = true;
     bool m_paused = false;
     QString m_shortcut;

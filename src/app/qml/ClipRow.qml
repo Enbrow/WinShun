@@ -23,6 +23,8 @@ Item {
     required property string groupName
     required property bool pinned
     required property bool missing
+    required property bool movable // in its group's own order: a handle to drag, Ctrl+Up/Down
+    required property bool afterPinned // the first after those in "固定" listed first
     property int hint: 0 // the number that pastes this row (Alt+1...), on its icon; 0 for none
     property string hintModifier: "Alt" // ... with this held
     property bool hintTaken: false // another program holds that chord as a global hotkey: shown struck through
@@ -30,11 +32,13 @@ Item {
 
     readonly property bool current: ListView.isCurrentItem
     readonly property int selectedCount: ListView.view ? ListView.view.model.selectedCount : 0
-    readonly property bool showActions: current || area.containsMouse
+    readonly property bool showActions: current || area.containsMouse || moveAction.held
 
     signal clicked(int index, int modifiers)
     signal pasteRequested(int index) // its paste button, a double click
     signal dragRequested(int index)
+    signal moveRequested(int from, int to) // its handle dragged over row `to`
+    signal moveHeld(bool held) // its handle pressed, let go
     signal menuRequested(int index, point globalPos)
     signal actionRequested(int index, int action)
 
@@ -51,6 +55,14 @@ Item {
         radius: 6
         color: row.order > 0 || (row.current && row.selectedCount === 0) ? Theme.selection
                : area.containsMouse ? Theme.hover : "transparent"
+    }
+
+    Rectangle { // "固定" listed first: a line where the rest begin
+        visible: row.afterPinned
+        x: 16
+        width: parent.width - 32
+        height: 1
+        color: Theme.divider
     }
 
     Rectangle { // accent pill on the current row
@@ -293,6 +305,27 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 2
 
+            RowAction { // dragged up or down: to another place in its group
+                id: moveAction
+                visible: row.movable
+                draggable: true
+                glyph: "" // GripperBarHorizontal
+                tip: qsTr("拖动调整顺序")
+                tipShortcut: "Ctrl+↑/↓"
+                onHeldChanged: row.moveHeld(held)
+                onDragMoved: (position) => {
+                    const view = row.ListView.view
+                    if (!view)
+                        return
+                    const p = moveAction.mapToItem(view.contentItem, position.x, position.y)
+                    const to = view.indexAt(row.width / 2, p.y)
+                    const over = to >= 0 && to !== row.index ? view.itemAtIndex(to) : null
+                    // Only where the mouse would be on this row once moved:
+                    // rows of other heights (pictures) would swap it back.
+                    if (over && (to > row.index ? p.y >= over.y + over.height - row.height : p.y < over.y + row.height))
+                        row.moveRequested(row.index, to)
+                }
+            }
             RowAction {
                 id: pasteAction
                 glyph: "" // Paste
@@ -318,7 +351,8 @@ Item {
     }
 
     HoverTip {
-        readonly property RowAction hovered: pasteAction.tipWanted ? pasteAction
+        readonly property RowAction hovered: moveAction.tipWanted ? moveAction
+                                           : pasteAction.tipWanted ? pasteAction
                                            : pinAction.tipWanted ? pinAction
                                            : removeAction.tipWanted ? removeAction : null
         readonly property bool onKeys: !hovered && iconNumber.taken && area.containsMouse // (a hover handler under the area gets no hover)

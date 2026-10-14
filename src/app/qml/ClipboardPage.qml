@@ -206,6 +206,19 @@ Item {
             event.accepted = true
             return
         }
+        // Ctrl+↑/↓: the current row up or down in its group's own order
+        // ("固定" listed first, a group's tab), where it can move. At the end
+        // of its group it stays put; rows that never move just go up or down.
+        if (ctrl && !shift && !alt && selectedCount === 0 && (event.key === Qt.Key_Up || event.key === Qt.Key_Down)
+                && list.currentItem?.movable) {
+            const to = list.currentIndex + (event.key === Qt.Key_Up ? -1 : 1)
+            if (clipboard.canMove(list.currentIndex, to)) {
+                clipboard.moveRow(list.currentIndex, to)
+                list.positionViewAtIndex(list.currentIndex, ListView.Contain)
+            }
+            event.accepted = true
+            return
+        }
         switch (event.key) {
         case Qt.Key_Down: shift ? extendSelection(1) : moveSelection(1); break
         case Qt.Key_Up: shift ? extendSelection(-1) : moveSelection(-1); break
@@ -470,6 +483,19 @@ Item {
                     boundsBehavior: Flickable.StopAtBounds
                     highlightMoveDuration: 0
                     reuseItems: true
+                    // A row moved in its group's order (Ctrl+↑/↓, dragged)
+                    // slides there, and the ones it passes make way.
+                    // Not under a drag: the rows are where they go at once,
+                    // for the next one to be found under the mouse.
+                    property bool dragging: false
+                    move: Transition {
+                        enabled: SystemTheme.animations && !list.dragging
+                        NumberAnimation { property: "y"; duration: 150; easing.type: Easing.OutCubic }
+                    }
+                    moveDisplaced: Transition {
+                        enabled: SystemTheme.animations && !list.dragging
+                        NumberAnimation { property: "y"; duration: 150; easing.type: Easing.OutCubic }
+                    }
                     onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
                     onCountChanged: {
                         if (count > 0 && (currentIndex < 0 || currentIndex >= count))
@@ -485,6 +511,11 @@ Item {
                         hintTaken: clipRow.hint > 0 && !page.numberUsable(clipRow.hint)
                         pasteTip: page.pasteLabel
                         onDragRequested: (index) => page.clipboard.dragOut(index)
+                        onMoveHeld: (held) => list.dragging = held
+                        onMoveRequested: (from, to) => {
+                            list.currentIndex = from
+                            page.clipboard.moveRow(from, to)
+                        }
                         // On whole device pixels wherever the list has scrolled
                         // to (see Main.qml).
                         transform: Translate {

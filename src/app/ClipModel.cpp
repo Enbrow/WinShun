@@ -113,6 +113,8 @@ QHash<int, QByteArray> ClipModel::roleNames() const
         {GroupRole, "groupName"},
         {PinnedRole, "pinned"},
         {MissingRole, "missing"},
+        {MovableRole, "movable"},
+        {AfterPinnedRole, "afterPinned"},
     };
 }
 
@@ -155,6 +157,12 @@ QVariant ClipModel::data(const QModelIndex& index, int role) const
         return c->group == ClipStore::kPinned;
     case MissingRole:
         return fileMissing(*c);
+    case MovableRole:
+        return movable(index.row());
+    case AfterPinnedRole: {
+        const Clip* above = at(index.row() - 1);
+        return m_pinnedFirst && c->group != ClipStore::kPinned && above && above->group == ClipStore::kPinned;
+    }
     default:
         return {};
     }
@@ -327,7 +335,11 @@ void ClipModel::setRows(const std::vector<int>& rows, const QString& query)
     std::vector<qint64> keptAfter;
     std::copy_if(m_ids.begin(), m_ids.end(), std::back_inserter(keptBefore), [&](qint64 id) { return wanted.contains(id); });
     std::copy_if(ids.begin(), ids.end(), std::back_inserter(keptAfter), [&](qint64 id) { return had.contains(id); });
-    if (keptBefore != keptAfter) {
+    if (keptBefore != keptAfter && wanted == had && moveOne(ids)) {
+        // One entry moved (dragged, pasted to the top): the others stay put
+        // with their delegates; the view slides it there.
+        emit dataChanged(index(0), index(count() - 1));
+    } else if (keptBefore != keptAfter) {
         beginResetModel();
         m_ids = std::move(ids);
         m_missing.clear();
@@ -359,6 +371,40 @@ void ClipModel::setRows(const std::vector<int>& rows, const QString& query)
         emit selectionChanged();
     if (count() != before)
         emit countChanged();
+}
+
+bool ClipModel::movable(int row) const
+{
+    const Clip* c = at(row);
+    return c && c->group != 0
+        && (m_movable == Movable::All || (m_movable == Movable::Pinned && c->group == ClipStore::kPinned));
+}
+
+bool ClipModel::moveOne(const std::vector<qint64>& ids)
+{
+    if (ids.size() != m_ids.size())
+        return false;
+    const auto first = std::ranges::mismatch(m_ids, ids).in1;
+    if (first == m_ids.end())
+        return false;
+    const auto i = first - m_ids.begin();
+    // The last place they differ.
+    auto j = static_cast<std::ptrdiff_t>(ids.size()) - 1;
+    while (m_ids[static_cast<std::size_t>(j)] == ids[static_cast<std::size_t>(j)])
+        --j;
+    const auto from = m_ids.begin() + i;
+    const auto to = m_ids.begin() + j;
+    if (std::equal(from + 1, to + 1, ids.begin() + i)) { // the one at i went down to j
+        beginMoveRows({}, static_cast<int>(i), static_cast<int>(i), {}, static_cast<int>(j) + 1);
+        std::rotate(from, from + 1, to + 1);
+    } else if (std::equal(from, to, ids.begin() + i + 1)) { // the one at j came up to i
+        beginMoveRows({}, static_cast<int>(j), static_cast<int>(j), {}, static_cast<int>(i));
+        std::rotate(from, to, to + 1);
+    } else {
+        return false;
+    }
+    endMoveRows();
+    return true;
 }
 
 void ClipModel::refreshTimes()

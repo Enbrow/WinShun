@@ -67,6 +67,7 @@ Clipboard::Clipboard(ClipStore* store, ClipboardWatcher* watcher, QObject* paren
     if (!kSeparators.contains(m_separator))
         m_separator = kSeparators.constFirst();
     m_previewOpen = m_store->value(u"preview"_s) == u"open"_s;
+    m_pinnedFirst = m_store->value(u"order"_s) == u"pinnedFirst"_s;
     m_store->setListener({
         .lost = [this] { historyChanged(); },
         .pictureSaved = [this](qint64 id) {
@@ -174,6 +175,18 @@ void Clipboard::setPreviewOpen(bool open)
     m_previewOpen = open;
     m_store->setValue(u"preview"_s, open ? u"open"_s : u"closed"_s);
     emit previewOpenChanged();
+}
+
+void Clipboard::setPinnedFirst(bool on)
+{
+    if (m_pinnedFirst == on)
+        return;
+    m_pinnedFirst = on;
+    m_store->setValue(u"order"_s, on ? u"pinnedFirst"_s : u"newest"_s);
+    emit pinnedFirstChanged();
+    refresh();
+    emit listChanged();
+    flash(on ? tr("固定的内容排在最前") : tr("全部按时间排列，最新的在前"));
 }
 
 void Clipboard::setField(QQuickItem* field, const QString& name)
@@ -312,7 +325,16 @@ void Clipboard::refresh()
         }
     }
     const Category& category = list[static_cast<std::size_t>(std::clamp(m_category, 0, static_cast<int>(list.size()) - 1))];
-    m_model.setRows(m_store->find({category.kind, category.group, m_query.trimmed()}), m_query.trimmed());
+    const QString query = m_query.trimmed();
+    // A group's own order is set by moving its rows, but not in a search:
+    // where a row would go among the others is not to be seen there.
+    const bool group = category.kind == ClipFilter::Category::Group;
+    m_model.setOrdering(m_pinnedFirst && !group,
+        !query.isEmpty() ? ClipModel::Movable::None
+            : group      ? ClipModel::Movable::All
+            : m_pinnedFirst ? ClipModel::Movable::Pinned
+                            : ClipModel::Movable::None);
+    m_model.setRows(m_store->find({category.kind, category.group, query, m_pinnedFirst}), query);
     refreshStatus();
 }
 
@@ -743,6 +765,21 @@ void Clipboard::togglePin(int row)
     flash(pinned ? tr("已取消固定") : tr("已固定，不会过期"));
 }
 
+bool Clipboard::canMove(int from, int to) const
+{
+    const Clip* a = m_model.at(from);
+    const Clip* b = m_model.at(to);
+    return a && b && from != to && m_model.movable(from) && m_model.movable(to) && a->group == b->group;
+}
+
+void Clipboard::moveRow(int from, int to)
+{
+    if (!canMove(from, to))
+        return;
+    m_store->moveInGroup(m_model.idAt(from), m_model.idAt(to));
+    refresh(); // the row slides there (ClipModel), still the current one
+}
+
 void Clipboard::moveToGroup(int row, qint64 group)
 {
     const std::vector<const Clip*> clips = targets(row);
@@ -988,6 +1025,10 @@ QVariantList Clipboard::menuItems(int row) const
     items.append(separator);
     const bool pinned = std::all_of(clips.begin(), clips.end(), [](const Clip* c) { return c->group == ClipStore::kPinned; });
     items.append(entry(Pin, pinned ? tr("取消固定") : tr("固定"), u"Ctrl+P"_s, pinned ? u""_s : u""_s));
+    if (!many && canMove(row, row - 1))
+        items.append(entry(MoveUp, tr("上移"), u"Ctrl+↑"_s, u""_s));
+    if (!many && canMove(row, row + 1))
+        items.append(entry(MoveDown, tr("下移"), u"Ctrl+↓"_s, u""_s));
     for (const ClipGroup& g : m_store->groups()) {
         if (g.id == ClipStore::kPinned)
             continue;
@@ -1045,6 +1086,12 @@ void Clipboard::trigger(int row, int action)
         break;
     case LeaveGroup:
         moveToGroup(row, 0);
+        break;
+    case MoveUp:
+        moveRow(row, row - 1);
+        break;
+    case MoveDown:
+        moveRow(row, row + 1);
         break;
     case Remove:
         remove(row);
