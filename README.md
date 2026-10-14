@@ -118,6 +118,7 @@
 - **插件**：
   - 随包的小工具：`= 1+2*3` 计算器、`12 inch to cm` 单位换算、`#ff8800` 颜色，还有时间戳、UUID、Base64、哈希；
   - `kill` 结束进程，`bm` 搜浏览器书签，`tr` 翻译；
+  - **按意思找**（默认关）：`? 去年报销的规定` 也能找到写着“差旅费用申请”的文档。用你选的模型：本机的 Ollama、LM Studio 什么都不上传；硅基流动、百炼、OpenAI 等填自己的密钥，第一次计算前告诉你要发出去多少字，你按回车才开始。见 [plugins/winshun.semantic](plugins/winshun.semantic/README.md)；
   - 自己写插件：零代码的 `plugin.json`、任意语言的脚本或常驻进程都行，附 Python / PowerShell / C++ SDK；
   - 插件以普通权限、限内存运行。见 [docs/plugins.md](docs/plugins.md)。
 
@@ -128,20 +129,21 @@
 - **不输入时**：列出打开着的文件夹、刚复制的路径、收藏和最近用过的文件夹。
 - **自动转过去**：可以设成对话框一出现就转到文件管理器的文件夹，或者先停在上次的位置，从文件管理器切回来时再转。
 
-#### 🗂️ 双击空白处的文件夹菜单
+#### 🗂️ 资源管理器里：双击空白处、右键搜索此处
 
-- 在资源管理器或桌面的空白处双击，弹出收藏的、最近的、别的窗口里开着的文件夹，选一个就在这个窗口里转过去（桌面上开新窗口），和 Listary 一样；还能在当前文件夹里搜、把它加进收藏。
+- **双击空白处**：在资源管理器或桌面的空白处双击，弹出收藏的、最近的、别的窗口里开着的文件夹，选一个就在这个窗口里转过去（桌面上开新窗口），和 Listary 一样；还能在当前文件夹里搜、把它加进收藏。
 - 菜单不抢焦点，方向键、回车、Esc、首字母都能用；点别处或再双击就关。Listary 在运行时让给它。
+- **右键“用 Win顺 搜索此处”**：文件夹、文件夹的空白处和磁盘的右键菜单里都有（Windows 11 在“显示更多选项”里），搜索框带着这个文件夹打开，接着打字就在里面找。设置里可以关。
 
 #### 📋 剪贴板历史（代替 Win+V）
 
 - **记什么**：复制过的文字、图片、文件都记下来。
 - **怎么打开**：`Win+V` 或自设的快捷键；开在输入光标旁，不抢焦点。
 - **怎么粘贴**：双击或 `Enter` 粘贴，`Shift+Enter` 粘贴为纯文本，`Alt+1`～`9` 直接粘贴第几条（序号标在图标上）。
-- **能搜**：拼音搜索，`@wx` 只看微信里复制的；**图片里的字也能搜**（Windows 自带的文字识别 OCR，在本机，不联网）。
+- **能搜**：拼音搜索，`@wx` 只看微信里复制的；**图片里的字也能搜**（PaddleOCR 文字识别，在本机，不联网，截图里的数字和小字也认得准）。
 - **预览**：全文、大图、颜色值的 HEX / RGB / HSL。
 - **拖出图片**：按住一张图片拖到文件夹里，就存成 PNG 文件。
-- **整理**：固定、分组、多选按顺序合并粘贴，钉住后可以一条接一条地往表格里填。
+- **整理**：固定、分组、多选按顺序合并粘贴，钉住后可以一条接一条地往表格里填；固定的可以排在最前，顺序可以拖动或用 `Ctrl+↑`/`↓` 自己排。
 - **隐私**：密码管理器复制的密码不记录，历史只存在本机。
 
 #### 🔎 任务栏搜索框（代替 Windows 搜索）
@@ -161,8 +163,9 @@
 
 #### 🎨 外观和设置
 
-- **外观**：浅色、深色跟随系统，Windows 11 云母（Mica）效果和圆角；图标在 150% 缩放下也清晰。
+- **外观**：浅色、深色跟随系统，Windows 11 云母（Mica）效果和圆角；图标在 150% 缩放下也清晰。界面大小有紧凑、标准、宽松三档，托盘和任务栏的图标可以换成单色。
 - **设置**：可以搜索（`Ctrl+F`，`kjj` 找到“快捷键”），改了立即生效。
+- **备份**：设置 → 高级里选一个文件夹（放在同步盘里就是云备份），设置、收藏、对话框的固定项、自己加的网页图标和插件会自动备份，保留最近 10 份，随时恢复。
 - **更新**：有新版本时在托盘提醒，Win顺 不会自己下载、替换程序文件。
 
 | 按键 | 作用 |
@@ -212,7 +215,7 @@ Listary、PowerToys 的“查找鼠标”默认也用双击 Ctrl，关掉其中�
 - **索引位置**：在设置 → 高级 → 索引位置里，可以移到其他内置硬盘。
 
 **收费吗？会上传数据吗？**
-完全免费，MIT 开源。只在两种时候联网：到 GitHub 检查新版本（可以关掉），第一次显示某个网页搜索时取一次那个网站的图标。索引和历史只存在本机（`%LOCALAPPDATA%\WinShun`）。
+完全免费，MIT 开源。只在这些时候联网：到 GitHub 检查新版本（可以关掉）；第一次显示某个网页搜索或书签时取一次那个网站的图标；你自己打开“按意思找”插件并选了云服务时，把文档的文字发给你选的服务商。索引和历史只存在本机（`%LOCALAPPDATA%\WinShun`）。
 
 ### 反馈
 
@@ -270,29 +273,32 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 - ⭐ **Favorites**: right-click → Add to favorites. They come first when the box is empty; give one a keyword to open it, and `Tab` searches inside a favorite folder.
 - 🧩 **Plugins**
   - **Bundled**: `= 1+2*3`, `12 inch to cm`, `#ff8800`, timestamps, UUID, Base64, hashes; `kill` processes, `bm` browser bookmarks, `tr` translation.
+  - **Search by meaning** (off by default): `? last year's expense rules` finds a document that says “travel cost requests”. It uses the model you pick: Ollama or LM Studio on your PC uploads nothing; for SiliconFlow, Model Studio, OpenAI and others you enter your own key, and before the first run it says how much text would be sent and waits for your Enter. See [plugins/winshun.semantic](plugins/winshun.semantic/README.md).
   - **Your own**: zero-code `plugin.json`, scripts in any language, or resident processes, with SDKs for Python, PowerShell and C++. Plugins run with normal rights under a memory limit. See [docs/plugins.en.md](docs/plugins.en.md).
 - 📂 **Open / Save dialogs**
   - **Search bar**: a search bar under every file dialog; type a name (pinyin too), press Enter, and the dialog goes there.
   - **`Ctrl+G`**: jumps to the folder open in File Explorer, Total Commander or Directory Opus, like Listary.
   - **Suggestions**: open folders, a path you just copied, favorites and recent folders.
   - **Going there by itself**: optional, as the dialog opens, or only when you come back to it from the file manager.
-- 🗂️ **Folder menu on a double click**
-  - Double-click the blank space of a File Explorer folder or of the desktop: favorite, recent and open folders; pick one and the same window goes there (the desktop opens a new one), like Listary. Also: search this folder, add it to the favorites.
+- 🗂️ **In File Explorer: a double click, a right-click**
+  - **Folder menu**: double-click the blank space of a File Explorer folder or of the desktop: favorite, recent and open folders; pick one and the same window goes there (the desktop opens a new one), like Listary. Also: search this folder, add it to the favorites.
   - It never takes the focus: arrows, Enter, Esc and first letters work; a click elsewhere or another double click closes it. It stays out of the way while Listary runs.
+  - **“Search here with WinShun”** on the right-click menu of folders, a folder's blank space and drives (under “Show more options” on Windows 11): the search window opens with that folder typed. It can be turned off.
 - 📋 **Clipboard history (replaces Win+V)**
   - **What**: text, pictures and files, opened with `Win+V` or your own shortcut, by the text cursor, without taking the focus.
-  - **Search**: pinyin, `@app` filters, and **words in copied pictures** (Windows' own OCR, on your PC).
+  - **Search**: pinyin, `@app` filters, and **words in copied pictures** (PaddleOCR text recognition, on your PC and offline, good with numbers and small print in screenshots).
   - **Preview**: full text, pictures, HEX / RGB / HSL color values.
   - **Drag pictures out**: hold a picture and drop it on a folder to save it as a PNG file.
-  - **Organize**: pins, groups, multi-paste in order, and `Alt+1`…`Alt+9`.
+  - **Organize**: pins, groups, multi-paste in order, and `Alt+1`…`Alt+9`; pinned items can come first, and the order is yours to drag or move with `Ctrl+↑`/`↓`.
   - **Privacy**: passwords from password managers are not kept, and the history stays on your PC.
 - 🔎 **Taskbar search box (replaces Windows search)**: WinShun's own search box on the Windows 11 taskbar (a pinned button on Windows 10), optionally right of Start where Windows' own box sits; it can take over `Win+S` and typing in the Start menu.
 - 🤖 **AI assistants (MCP)**
   - **What**: WinShun is an MCP server. Claude Desktop, Claude Code, Cursor and VS Code connect in one click and search file names, file contents and recent changes.
   - **Safety**: read-only by default, limited to what the AI client may see, with folders kept from AI and a call log.
 - 🎨 **Looks and settings**
-  - **Looks**: light and dark themes following Windows, Windows 11 Mica and rounded corners, sharp icons at any scaling.
+  - **Looks**: light and dark themes following Windows, Windows 11 Mica and rounded corners, sharp icons at any scaling; compact, standard or roomy sizes, and a monochrome tray and taskbar icon if you like.
   - **Settings**: searchable (`Ctrl+F`).
+  - **Backup**: choose a folder under Settings → Advanced (a synced folder makes it a cloud backup); settings, favorites, dialog pins, your own web icons and plugins are backed up as they change, the last 10 kept, ready to restore.
   - **Updates**: announced in the tray; WinShun never replaces its own files.
 
 | Key | Action |
@@ -342,7 +348,7 @@ With “Direct (administrator)” chosen, WinShun runs as administrator, and Win
 - **Index location**: the index can move to another built-in drive under Settings → Advanced.
 
 **Is it free? Does it collect data?**
-Free and MIT-licensed. It goes online only to check GitHub for new versions (you can turn that off) and to fetch a web shortcut's icon once. The index and history stay on your PC (`%LOCALAPPDATA%\WinShun`).
+Free and MIT-licensed. It goes online only to check GitHub for new versions (you can turn that off), to fetch a web shortcut's or bookmark's site icon once, and, if you turn on the “Search by meaning” plugin with a cloud service, to send document text to the service you chose. The index and history stay on your PC (`%LOCALAPPDATA%\WinShun`).
 
 ### Feedback
 
@@ -378,4 +384,5 @@ WinShun is released under the [MIT License](LICENSE). Copyright © 2026 LingCore
 随附的第三方内容按各自的许可使用，不在 MIT 许可范围内 · Bundled third-party content keeps its own license:
 
 - `resources/fonts/` 阿里巴巴普惠体 3.0 · Alibaba PuHuiTi 3.0 — © Alibaba Group，按其免费商用授权随程序附带 · redistributed under its free commercial-use terms.
+- 图片文字识别 · Text recognition — [ONNX Runtime](https://github.com/microsoft/onnxruntime)（MIT）和 · and [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) 的 PP-OCRv6 模型 · models（Apache-2.0），见 · see `third_party/ppocr/LICENSE`；安装后在 · installed in `licenses\`。
 - 拼音读音数据 · Pinyin data — [pinyin-data](https://github.com/mozillazg/pinyin-data)，MIT，见 · see `tools/data/pinyin-data-LICENSE.txt`。常用字的读音以其中的《通用规范汉字字典》（2013）数据为准。
