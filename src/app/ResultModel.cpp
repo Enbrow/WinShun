@@ -162,7 +162,10 @@ ResultModel::ResultModel(QObject* parent)
     connect(siteicons::notifier(), &siteicons::Notifier::fetched, this, [this](const QString& site) {
         for (int row = 0; row < count(); ++row) {
             const SearchResult* r = at(row);
-            if (r && r->isWeb() && siteIconKey(r->icon) == site)
+            const bool shows = r
+                && ((r->isWeb() && siteIconKey(r->icon) == site)
+                    || (r->plugin && r->plugin->icon.startsWith(u"site:") && siteIconKey(r->plugin->icon.mid(5)) == site));
+            if (shows)
                 emit dataChanged(index(row), index(row), {IconRole});
         }
     });

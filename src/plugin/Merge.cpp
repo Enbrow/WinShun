@@ -29,6 +29,7 @@ QString iconText(const IconSpec& spec)
     case IconSpec::Kind::Color: return u"color:"_s + spec.value;
     case IconSpec::Kind::Data: return spec.value; // the whole data: URL
     case IconSpec::Kind::PluginFile: return spec.value;
+    case IconSpec::Kind::Site: return u"site:"_s + spec.value;
     }
     return {};
 }

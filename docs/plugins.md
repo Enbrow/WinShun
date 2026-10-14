@@ -225,7 +225,7 @@ effects（动作的回答，按顺序执行）：`hide`（收起窗口，默认�
 
 ### 图标
 
-`icon.png`（插件文件夹里的 PNG / JPG / ICO，相对路径；深色主题优先 `icon.dark.png`）、`ext:pdf`（扩展名的图标）、`file:C:\…`（某个文件的图标）、`app:<AUMID>`、`glyph:U+E8E5`（Segoe Fluent Icons 字形）、`color:#ff8800`（色块）、`data:image/png;base64,…`（≤ 64 KB）。插件文件夹以外的路径不认，SVG 不认。
+`icon.png`（插件文件夹里的 PNG / JPG / ICO，相对路径；深色主题优先 `icon.dark.png`）、`ext:pdf`（扩展名的图标）、`file:C:\…`（某个文件的图标）、`app:<AUMID>`、`glyph:U+E8E5`（Segoe Fluent Icons 字形）、`color:#ff8800`（色块）、`data:image/png;base64,…`（≤ 64 KB）、`site:https://…`（网站自己的图标，和浏览器地址栏左边那个一样：Win顺 只向该网站首页取一次、存在本地、一个月更新；没取到前显示浏览器图标；网址的路径部分不会发出去）。插件文件夹以外的路径不认，SVG 不认。
 
 ## 权限
 

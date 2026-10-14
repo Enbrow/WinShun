@@ -2,6 +2,7 @@
 
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QUrl>
 
 #include <algorithm>
 
@@ -25,6 +26,7 @@ IconSpec parseIcon(const QString& text)
         {u"glyph:", IconSpec::Kind::Glyph},
         {u"color:", IconSpec::Kind::Color},
         {u"data:", IconSpec::Kind::Data},
+        {u"site:", IconSpec::Kind::Site},
     };
     for (const Prefix& p : kPrefixes) {
         if (text.startsWith(QStringView(p.prefix), Qt::CaseInsensitive)) {
@@ -35,6 +37,19 @@ IconSpec parseIcon(const QString& text)
                 if (!value.startsWith(u"image/"_s) || value.size() > 64 * 1024 * 4 / 3 + 64)
                     return spec; // not an image, or more than 64 KB of it
                 spec.value = text; // the whole data: URL
+            } else if (p.kind == IconSpec::Kind::Site) {
+                // Only the site: its icon comes from its home page, and
+                // nothing of the address past the host leaves the computer.
+                const QUrl url(value, QUrl::TolerantMode);
+                const QString scheme = url.scheme().toLower();
+                if ((scheme != u"https" && scheme != u"http") || url.host().isEmpty())
+                    return spec;
+                QUrl home;
+                home.setScheme(scheme);
+                home.setHost(url.host());
+                home.setPort(url.port());
+                home.setPath(u"/"_s);
+                spec.value = home.toString();
             } else
                 spec.value = value;
             spec.kind = p.kind;

@@ -545,7 +545,7 @@ struct Item {
     std::string id;
     std::string title;
     std::string subtitle;
-    std::string icon; // "file:C:\…", "ext:pdf", "glyph:U+E8E5", "color:#ff8800", "icon.png", "data:image/png;base64,…"
+    std::string icon; // "file:C:\…", "ext:pdf", "glyph:U+E8E5", "color:#ff8800", "icon.png", "data:image/png;base64,…", "site:https://…"
     int score = -1; // 0–100; -1: not given
     std::string match;
     std::string autocomplete;

@@ -223,7 +223,7 @@ Effects (an action's answer, in order): `hide` (default), `keep`, `setQuery {tex
 
 ### Icons
 
-`icon.png` (PNG / JPG / ICO in the plugin folder, relative; `icon.dark.png` preferred in the dark theme), `ext:pdf`, `file:C:\…`, `app:<AUMID>`, `glyph:U+E8E5` (Segoe Fluent Icons), `color:#ff8800` (a swatch), `data:image/png;base64,…` (≤ 64 KB). Paths outside the plugin folder and SVG are refused.
+`icon.png` (PNG / JPG / ICO in the plugin folder, relative; `icon.dark.png` preferred in the dark theme), `ext:pdf`, `file:C:\…`, `app:<AUMID>`, `glyph:U+E8E5` (Segoe Fluent Icons), `color:#ff8800` (a swatch), `data:image/png;base64,…` (≤ 64 KB), `site:https://…` (the site's own icon, as a browser shows it: Win顺 asks the site's home page for it once, keeps it and renews it monthly; the browser's icon until then; nothing of the address past the host is sent). Paths outside the plugin folder and SVG are refused.
 
 ## Permissions
 

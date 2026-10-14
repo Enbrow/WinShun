@@ -18,11 +18,12 @@ namespace ws::plugin {
 inline constexpr int kMaxItems = 200; // per response; the rest is dropped
 
 // "file:C:\…", "ext:pdf", "app:<AUMID>", "glyph:U+E8E5", "color:#ff8800",
-// "icon.png" (in the plugin folder), "data:image/png;base64,…".
+// "icon.png" (in the plugin folder), "data:image/png;base64,…",
+// "site:https://example.com/page" (the site's own icon, as a browser shows it).
 struct IconSpec {
-    enum class Kind { None, File, Ext, App, Glyph, Color, PluginFile, Data };
+    enum class Kind { None, File, Ext, App, Glyph, Color, PluginFile, Data, Site };
     Kind kind = Kind::None;
-    QString value; // the part after the prefix; PluginFile: the relative path
+    QString value; // the part after the prefix; PluginFile: the relative path; Site: "https://host/"
     friend bool operator==(const IconSpec&, const IconSpec&) = default;
 };
 IconSpec parseIcon(const QString& text); // Kind::None when it is none of these (or a path that leaves the folder)

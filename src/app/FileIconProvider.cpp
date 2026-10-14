@@ -355,6 +355,8 @@ QString FileIconProvider::pluginIconUrl(const QString& pluginId, const QString& 
         g_pluginData.insert(hash, bytes);
         return u"image://fileicon/pdata/"_s + hash;
     }
+    case plugin::IconSpec::Kind::Site:
+        return webIconUrl(spec.value, dark); // the browser's until the site's is here
     case plugin::IconSpec::Kind::PluginFile:
         return u"image://fileicon/plugin/"_s + encode(pluginId) + u'/' + encode(spec.value) + theme;
     case plugin::IconSpec::Kind::None:

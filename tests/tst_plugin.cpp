@@ -577,6 +577,12 @@ private slots:
         QCOMPARE(parseIcon(u"icons/a.svg"_s).kind, IconSpec::Kind::None); // no SVG support in the installed Qt
         QCOMPARE(parseIcon(u"data:image/png;base64,iVBORw0KGgo="_s).kind, IconSpec::Kind::Data);
         QCOMPARE(parseIcon(u"data:text/plain,hi"_s).kind, IconSpec::Kind::None);
+        // A site's icon: only its home page is kept, never the path.
+        QCOMPARE(parseIcon(u"site:https://github.com/LingCore/WinShun?tab=1"_s),
+            (IconSpec {IconSpec::Kind::Site, u"https://github.com/"_s}));
+        QCOMPARE(parseIcon(u"site:http://192.168.1.2:5244/dav/a"_s).value, u"http://192.168.1.2:5244/"_s);
+        QCOMPARE(parseIcon(u"site:file:///C:/a.html"_s).kind, IconSpec::Kind::None);
+        QCOMPARE(parseIcon(u"site:github.com"_s).kind, IconSpec::Kind::None);
         QCOMPARE(parseIcon(u"..\\icon.png"_s).kind, IconSpec::Kind::None); // leaves the folder
         QCOMPARE(parseIcon(u"C:\\icon.png"_s).kind, IconSpec::Kind::None);
         QCOMPARE(parseIcon(u"readme.txt"_s).kind, IconSpec::Kind::None);

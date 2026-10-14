@@ -88,7 +88,9 @@ def main():
             "bm-%d" % len(rows),
             title or shown,
             " · ".join(s for s in (browser, folder, shown) if s),
-            icon="glyph:U+E734",
+            # The site's own icon, as the browser shows it; Win顺 fetches it
+            # (from the site's home page only) and keeps it.
+            icon=("site:" + url) if url.lower().startswith(("https://", "http://")) else "glyph:U+E734",
             score=score,
             url=url,
             copy=url,

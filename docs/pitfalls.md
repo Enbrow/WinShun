@@ -1351,6 +1351,12 @@
 - **测试脚本写日志不能抛异常**：读日志的一方偶尔会占着文件，`AppendAllText` 抛出“文件被占用”，异常一路传上去，提权的测试脚本就退出了（2026-10-10 一次），后面的命令全没人执行。写日志失败就隔 50 毫秒重试，几次后放弃，不往外抛。
 - **启动器按 `Tab` 的顺序是 全部 → 文件 → 文件夹 → 内容**：要到“内容”是按两次（从“文件”开始）或三次（从“全部”开始），算成两步一次就会停在“文件夹”上。范围不跨重启保存，Win顺 刚启动时总在“全部”。
 
+### `Start-Process -ArgumentList` 把带空格的参数拆开
+
+- **现象**：测试脚本 `Start-Process WinShun.exe -ArgumentList '--query', 'bm Tinkercad'`，搜索框里只有 `bm`，书签网站图标的检查得出假阴性（2026-10-13）。
+- **原因**：Windows PowerShell 5.1 把数组元素用空格直接拼成命令行，不给带空格的元素加引号。
+- **做法**：自己拼引号：`-ArgumentList ('--query "' + $q + '"')`。拿不准时截一张屏，看程序实际收到了什么。
+
 ## README 和帖子的截图（tools/screenshots/）
 
 用法见 `tools/screenshots/README.md`，一次拍全部用 `agent.ps1 scenes\all.txt`，出图用 `shots.py render`。流程：`profile` 做一个只索引演示文件夹的配置，`WinShun.exe --profile <文件夹>` 用它启动；`scene` 换主题和壁纸；用真实输入把窗口摆出来，`shoot` 抠出来；`compose` 放到背景上（README 和帖子里封面以后的几张），`cover` 做帖子的封面（窗口立体地斜放，配大标题、桂冠里的两句话和两个 Ctrl 键）；最后 `restore`，用户自己的 Win顺 重新启动。
