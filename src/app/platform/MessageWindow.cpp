@@ -19,6 +19,23 @@ constexpr wchar_t kClassName[] = L"WinShun.MessageWindow";
 constexpr UINT kTrayMessage = WM_APP + 1;
 constexpr UINT kTrayId = 1;
 constexpr ULONG_PTR kCopyDataTag = 0x5753484E; // "WSHN"
+// The window Explorer's "search here" reaches (WinShunSearch.exe, src/stub).
+constexpr wchar_t kSearchHereClass[] = L"WinShun.SearchHere";
+constexpr ULONG_PTR kSearchHereTag = 0x57535348; // "WSSH"
+
+// A folder's full path as Explorer gives it: on a drive or a share, nothing
+// that could be read as anything else.
+bool isFolderPath(const QString& path)
+{
+    if (path.size() < 2 || path.size() > 32767
+        || std::any_of(path.begin(), path.end(), [](QChar c) { return c.unicode() < 0x20 || c == u'"'; }))
+        return false;
+    const bool drive = path[0].isLetter() && path[0].unicode() < 128 && path[1] == u':'
+        && (path.size() == 2 || path[2] == u'\\');
+    const bool share = path.startsWith(u"\\\\") && path.size() > 2 && path[2] != u'\\' && path[2] != u'?'
+        && path[2] != u'.';
+    return drive || share;
+}
 constexpr wchar_t kAppIconResource[] = L"IDI_ICON1"; // see app.rc
 // How long a second start waits for the running copy to take its command.
 constexpr std::chrono::milliseconds kRunningInstanceWait {30000};
@@ -56,6 +73,16 @@ MessageWindow::MessageWindow(Callbacks callbacks)
     // below, which has its own.
     ::ChangeWindowMessageFilterEx(m_hwnd, m_taskbarCreated, MSGFLT_ALLOW, nullptr);
     ::ChangeWindowMessageFilterEx(m_hwnd, WM_COPYDATA, MSGFLT_ALLOW, nullptr);
+    // Open to WinShunSearch.exe, which runs with the user's normal rights:
+    // it takes a folder to search in, and nothing else.
+    WNDCLASSEXW searchHere {sizeof(WNDCLASSEXW)};
+    searchHere.lpfnWndProc = &MessageWindow::searchHereProc;
+    searchHere.hInstance = instance;
+    searchHere.lpszClassName = kSearchHereClass;
+    ::RegisterClassExW(&searchHere);
+    m_searchHere = ::CreateWindowExW(
+        0, kSearchHereClass, L"WinShun", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, instance, this);
+    ::ChangeWindowMessageFilterEx(m_searchHere, WM_COPYDATA, MSGFLT_ALLOW, nullptr);
     m_powerNotify = ::RegisterSuspendResumeNotification(m_hwnd, DEVICE_NOTIFY_WINDOW_HANDLE);
 
     loadIcon();
@@ -94,6 +121,8 @@ MessageWindow::~MessageWindow()
     removeTrayIcon();
     if (m_powerNotify)
         ::UnregisterSuspendResumeNotification(m_powerNotify);
+    if (m_searchHere)
+        ::DestroyWindow(m_searchHere);
     if (m_hwnd)
         ::DestroyWindow(m_hwnd);
     if (m_icon)
@@ -253,6 +282,29 @@ LRESULT CALLBACK MessageWindow::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
     if (self && self->m_hwnd == hwnd)
         return self->handle(msg, wParam, lParam);
     return ::DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK MessageWindow::searchHereProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    if (msg == WM_NCCREATE) {
+        const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lParam);
+        ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create->lpCreateParams));
+    }
+    if (msg != WM_COPYDATA)
+        return ::DefWindowProcW(hwnd, msg, wParam, lParam);
+    auto* self = reinterpret_cast<MessageWindow*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    const auto* data = reinterpret_cast<const COPYDATASTRUCT*>(lParam);
+    if (!self || !data || data->dwData != kSearchHereTag || !data->lpData || data->cbData < sizeof(wchar_t)
+        || data->cbData > 32768 * sizeof(wchar_t))
+        return FALSE;
+    QString folder = QString::fromWCharArray(
+        static_cast<const wchar_t*>(data->lpData), static_cast<qsizetype>(data->cbData / sizeof(wchar_t)));
+    while (folder.endsWith(QChar(0)))
+        folder.chop(1);
+    if (!isFolderPath(folder) || !self->m_callbacks.searchHere)
+        return FALSE;
+    self->m_callbacks.searchHere(folder);
+    return TRUE;
 }
 
 LRESULT MessageWindow::handle(UINT msg, WPARAM wParam, LPARAM lParam)

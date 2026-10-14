@@ -1,0 +1,73 @@
+#include "ShellMenu.h"
+
+#include <QCoreApplication>
+#include <QDir>
+
+#include <windows.h>
+#include <shlobj.h>
+
+#include <string>
+
+namespace ws::shellmenu {
+
+namespace {
+
+// Where the verb goes: a folder, a folder's empty space (%V is the folder
+// shown), a drive's root.
+constexpr const wchar_t* kKeys[] {
+    L"Software\\Classes\\Directory\\shell\\WinShun.SearchHere",
+    L"Software\\Classes\\Directory\\Background\\shell\\WinShun.SearchHere",
+    L"Software\\Classes\\Drive\\shell\\WinShun.SearchHere",
+};
+
+std::wstring readString(HKEY root, const std::wstring& key, const wchar_t* name)
+{
+    DWORD bytes = 0;
+    if (::RegGetValueW(root, key.c_str(), name, RRF_RT_REG_SZ, nullptr, nullptr, &bytes) != ERROR_SUCCESS || bytes == 0)
+        return {};
+    std::wstring value(bytes / sizeof(wchar_t), L'\0');
+    if (::RegGetValueW(root, key.c_str(), name, RRF_RT_REG_SZ, nullptr, value.data(), &bytes) != ERROR_SUCCESS)
+        return {};
+    value.resize(::wcsnlen(value.c_str(), value.size()));
+    return value;
+}
+
+// Whether it was written (false when it was so already, or could not be).
+bool writeString(const std::wstring& key, const wchar_t* name, const std::wstring& value)
+{
+    if (readString(HKEY_CURRENT_USER, key, name) == value)
+        return false;
+    return ::RegSetKeyValueW(HKEY_CURRENT_USER, key.c_str(), name, REG_SZ, value.c_str(),
+               static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)))
+        == ERROR_SUCCESS;
+}
+
+} // namespace
+
+void apply(bool on, const QString& title)
+{
+    const std::wstring folder = QDir::toNativeSeparators(QCoreApplication::applicationDirPath()).toStdWString();
+    const std::wstring stub = folder + L"\\WinShunSearch.exe";
+    const std::wstring command = L"\"" + stub + L"\" --search-here \"%V\"";
+    if (on && ::GetFileAttributesW(stub.c_str()) == INVALID_FILE_ATTRIBUTES)
+        return; // a build without it (run from the build folder)
+    bool changed = false;
+    for (const wchar_t* key : kKeys) {
+        const std::wstring commandKey = std::wstring(key) + L"\\command";
+        if (!on) {
+            // Only ours: a portable copy elsewhere may have set them since.
+            const std::wstring current = readString(HKEY_CURRENT_USER, commandKey, nullptr);
+            if (!current.empty() && current == command)
+                changed |= ::RegDeleteTreeW(HKEY_CURRENT_USER, key) == ERROR_SUCCESS;
+            continue;
+        }
+        changed |= writeString(key, L"MUIVerb", title.toStdWString());
+        changed |= writeString(key, L"Icon", folder + L"\\WinShun.exe,0");
+        changed |= writeString(key, L"MultiSelectModel", L"Single");
+        changed |= writeString(commandKey, nullptr, command);
+    }
+    if (changed)
+        ::SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+}
+
+} // namespace ws::shellmenu

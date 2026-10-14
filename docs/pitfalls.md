@@ -1048,6 +1048,18 @@
 
 - 0.2.0 及更早的版本收到 `WM_CLOSE` 只会销毁消息窗口，进程还在。所以安装程序按进程（`tasklist`）判断是否退出，等 15 秒不退就 `taskkill /F`。0.2.1 起消息窗口把 `WM_CLOSE` 当成 `--quit`。
 
+### 资源管理器的右键动词不能直接指向 WinShun.exe
+
+- **现象**：想给资源管理器右键加「用 Win顺 搜索此处」（GitHub #20），最直接的做法是注册表动词 `WinShun.exe --query "%V\ "`。
+- **原因**：WinShun.exe 的清单是 `requireAdministrator`，每次右键都会先弹 UAC，`main()` 里的单实例转交来不及跑。换成普通权限的小程序转交，运行中的实例（高完整性）也收不到：`MessageWindow` 只对中完整性放行了 TaskbarCreated，`WM_COPYDATA` 被 UIPI 拦下（`SendMessageTimeout` 返回 0，错误 5）。
+- **做法**：动词运行 `WinShunSearch.exe --search-here "%V"`（普通权限）。`MessageWindow` 另开一个只收消息的窗口 `WinShun.SearchHere`，只对它放行 `WM_COPYDATA`，而且只认一个盘符或共享上的文件夹路径；能 quit、settings 的那个窗口仍只对提权进程开放。`"%V"` 在盘根是 `"D:\"`，`CommandLineToArgvW` 会把 `\"` 当成转义的引号，所以小程序自己读命令行的原文。
+
+### 开机任务启动的不一定是这一份 Win顺
+
+- **现象**：在 dist\WinShun 测右键「搜索此处」，Win顺 没在运行时，小程序启动了 Win顺 却等了 30 秒也没把文件夹交过去（2026-10-14）。
+- **原因**：小程序先用开机任务 `\WinShun` 免 UAC 启动，而这台机器的任务指向 `C:\Program Files\WinShun` 里装的旧版，旧版没有 `WinShun.SearchHere` 窗口。便携版和安装版同时在时，用户也会遇到同样的事。
+- **做法**：`runAutostartTask` 先读任务的操作，只有启动的正是小程序旁边的 WinShun.exe 才用它，否则直接启动旁边那份（弹一次 UAC）。测试 dist 里的版本时，留意别把装好的旧版启动起来留在那里跑。
+
 ## 读文档（WinShunExtract.exe）
 
 ### 大 PDF 在沙箱里读到一半退出，退出码 0xE0000008

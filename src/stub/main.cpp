@@ -11,6 +11,10 @@
 // for Win顺 once it has taken Win+S over (Explorer then lets go of every
 // Win+S key): Win顺 cannot start it itself, the capture would run elevated.
 //
+// --search-here "<folder>" is Explorer's right-click "用 Win顺 搜索此处"
+// (GitHub #20; ShellMenu.cpp registers it): Win顺 opens with "<folder>\ "
+// typed, searching in that folder.
+//
 // --pin <shortcut> asks Windows to pin this program to the taskbar; the user
 // says yes in Windows' own dialog (TaskbarManager, open to desktop programs
 // since Windows 11 KB5074105). Win顺 starts it so from its settings, on the
@@ -30,6 +34,7 @@
 
 #include <cwchar>
 #include <string>
+#include <string_view>
 #include <utility>
 
 using Microsoft::WRL::ComPtr;
@@ -81,8 +86,28 @@ bool signalRunning()
     return set;
 }
 
+// Whether the task starts the WinShun.exe beside this program: an installed
+// copy's task would start that copy, not this (portable) one.
+bool startsThisCopy(IRegisteredTask* task)
+{
+    ComPtr<ITaskDefinition> definition;
+    ComPtr<IActionCollection> actions;
+    ComPtr<IAction> action;
+    ComPtr<IExecAction> exec;
+    BSTR path = nullptr;
+    if (FAILED(task->get_Definition(&definition)) || FAILED(definition->get_Actions(&actions))
+        || FAILED(actions->get_Item(1, &action)) || FAILED(action.As(&exec)) || FAILED(exec->get_Path(&path)) || !path)
+        return false;
+    std::wstring started(path);
+    ::SysFreeString(path);
+    if (started.size() >= 2 && started.front() == L'"' && started.back() == L'"')
+        started = started.substr(1, started.size() - 2);
+    const std::wstring own = ownFolder() + L"\\WinShun.exe";
+    return ::CompareStringOrdinal(started.c_str(), -1, own.c_str(), -1, TRUE) == CSTR_EQUAL;
+}
+
 // Win顺's logon task starts it elevated without asking UAC, and the user may
-// run it on demand.
+// run it on demand. Only when it starts this copy.
 bool runAutostartTask()
 {
     ComPtr<ITaskService> service;
@@ -94,7 +119,8 @@ bool runAutostartTask()
     const VARIANT none {};
     return SUCCEEDED(::CoCreateInstance(CLSID_TaskScheduler, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&service)))
         && SUCCEEDED(service->Connect(none, none, none, none)) && SUCCEEDED(service->GetFolder(rootPath.value, &root))
-        && SUCCEEDED(root->GetTask(taskName.value, &task)) && SUCCEEDED(task->Run(none, &running));
+        && SUCCEEDED(root->GetTask(taskName.value, &task)) && startsThisCopy(task.Get())
+        && SUCCEEDED(task->Run(none, &running));
 }
 
 // Not running: started (through its logon task, else the copy next to this
@@ -115,6 +141,66 @@ void startWinShun()
             return;
         ::Sleep(100);
     }
+}
+
+// The folder after "--search-here" on our command line, as Explorer's verb
+// passes it ("%V" in quotes, ShellMenu.cpp). Read from the raw line: a
+// drive's root comes as "D:\", whose \" CommandLineToArgvW takes for a quote.
+std::wstring searchHereFolder()
+{
+    std::wstring_view line = ::GetCommandLineW();
+    const std::size_t at = line.find(L"--search-here");
+    if (at == std::wstring_view::npos)
+        return {};
+    line.remove_prefix(at + std::wcslen(L"--search-here"));
+    while (!line.empty() && (line.front() == L' ' || line.front() == L'\t'))
+        line.remove_prefix(1);
+    while (!line.empty() && (line.back() == L' ' || line.back() == L'\t'))
+        line.remove_suffix(1);
+    if (line.size() >= 2 && line.front() == L'"' && line.back() == L'"')
+        line = line.substr(1, line.size() - 2);
+    else if (!line.empty() && line.front() == L'"')
+        line.remove_prefix(1);
+    std::wstring folder(line);
+    while (folder.size() > 3 && folder.back() == L'\\') // "D:\" stays
+        folder.pop_back();
+    return folder;
+}
+
+// Explorer's "search here" (GitHub #20): the folder to Win顺's window for it
+// (MessageWindow, open to this program), which shows the search box with
+// "<folder>\ " typed. Not running: started first, as above.
+void searchHere(const std::wstring& folder)
+{
+    constexpr wchar_t kWindow[] = L"WinShun.SearchHere";
+    constexpr ULONG_PTR kTag = 0x57535348; // "WSSH"
+    HWND window = ::FindWindowExW(HWND_MESSAGE, nullptr, kWindow, nullptr);
+    if (!window) {
+        if (!runAutostartTask()) {
+            const std::wstring own = ownFolder();
+            const std::wstring exe = own + L"\\WinShun.exe";
+            if (own.empty()
+                || reinterpret_cast<INT_PTR>(
+                       ::ShellExecuteW(nullptr, nullptr, exe.c_str(), L"--background", own.c_str(), SW_SHOWNORMAL))
+                    <= 32)
+                return;
+        }
+        for (int waited = 0; !window && waited < 30000; waited += 100) {
+            ::Sleep(100);
+            window = ::FindWindowExW(HWND_MESSAGE, nullptr, kWindow, nullptr);
+        }
+        if (!window)
+            return;
+    }
+    DWORD pid = 0;
+    ::GetWindowThreadProcessId(window, &pid);
+    ::AllowSetForegroundWindow(pid ? pid : ASFW_ANY); // Explorer's click gave us the right
+    COPYDATASTRUCT data {};
+    data.dwData = kTag;
+    data.cbData = static_cast<DWORD>((folder.size() + 1) * sizeof(wchar_t));
+    data.lpData = const_cast<wchar_t*>(folder.c_str());
+    DWORD_PTR result = 0;
+    ::SendMessageTimeoutW(window, WM_COPYDATA, 0, reinterpret_cast<LPARAM>(&data), SMTO_NORMAL, 30000, &result);
 }
 
 // The class Snipping Tool registered for ms-screenclip: ("AppX…"), from its
@@ -270,6 +356,10 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         screenClip();
     else if (option == L"--pin" && count > 2)
         pinToTaskbar(args[2]);
+    else if (option == L"--search-here") {
+        if (const std::wstring folder = searchHereFolder(); !folder.empty())
+            searchHere(folder);
+    }
     else if (!signalRunning())
         startWinShun();
     ::LocalFree(args);

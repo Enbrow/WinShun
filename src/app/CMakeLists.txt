@@ -78,6 +78,7 @@ qt_add_executable(WinShun WIN32
     platform/Paster.cpp platform/Paster.h
     platform/PeekingLogo.cpp platform/PeekingLogo.h
     platform/Shell.cpp platform/Shell.h
+    platform/ShellMenu.cpp platform/ShellMenu.h
     platform/ShortcutCapture.cpp platform/ShortcutCapture.h
     platform/SiteIcons.cpp platform/SiteIcons.h
     platform/StartMenuTyping.cpp platform/StartMenuTyping.h

@@ -12,6 +12,12 @@ namespace ws {
 // tray icon events, RegisterHotKey hotkeys, commands from a second instance
 // of the app (WM_COPYDATA), drives coming and going (WM_DEVICECHANGE) and
 // Windows resuming. It also restores the tray icon when Explorer restarts.
+//
+// Beside it, a second hidden window ("WinShun.SearchHere") takes a folder
+// from Explorer's "search here" (WinShunSearch.exe --search-here, run with
+// the user's normal rights, GitHub #20). It alone is open to programs that
+// are not elevated, and it takes nothing but a folder's path: the commands
+// above (quit, settings) stay closed to them.
 class MessageWindow {
 public:
     struct Callbacks {
@@ -20,6 +26,7 @@ public:
         std::function<void()> notificationClicked; // the last showNotification()
         std::function<void(int id)> hotkeyPressed;
         std::function<void(const QString&)> commandReceived;
+        std::function<void(const QString& folder)> searchHere; // "D:\Work", "\\nas\docs"
         std::function<void()> sessionEnding; // Windows is logging off / shutting down
         std::function<LRESULT(WPARAM, LPARAM)> deviceChange; // WM_DEVICECHANGE (see VolumeNotifier)
         std::function<void()> shellRestarted; // Explorer started again (its taskbar is back)
@@ -50,6 +57,7 @@ public:
 
 private:
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    static LRESULT CALLBACK searchHereProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT handle(UINT msg, WPARAM wParam, LPARAM lParam);
     bool addTrayIcon();
     void removeTrayIcon();
@@ -57,6 +65,7 @@ private:
 
     Callbacks m_callbacks;
     HWND m_hwnd = nullptr;
+    HWND m_searchHere = nullptr;
     HICON m_icon = nullptr;
     bool m_mono = false;
     HPOWERNOTIFY m_powerNotify = nullptr; // so that resuming is told on every kind of standby

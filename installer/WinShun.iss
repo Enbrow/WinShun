@@ -314,6 +314,23 @@ begin
   RemoveDir(Folder);
 end;
 
+// Explorer's right-click "用 Win顺 搜索此处" (src/app/platform/ShellMenu.cpp),
+// when it runs this copy's WinShunSearch.exe: a portable copy's stays.
+procedure RemoveExplorerMenu();
+var
+  Keys: array[0..2] of String;
+  Command: String;
+  I: Integer;
+begin
+  Keys[0] := 'Software\Classes\Directory\shell\WinShun.SearchHere';
+  Keys[1] := 'Software\Classes\Directory\Background\shell\WinShun.SearchHere';
+  Keys[2] := 'Software\Classes\Drive\shell\WinShun.SearchHere';
+  for I := 0 to 2 do
+    if RegQueryStringValue(HKCU, Keys[I] + '\command', '', Command)
+      and (Pos(Lowercase(ExpandConstant('{app}\WinShunSearch.exe')), Lowercase(Command)) > 0) then
+      RegDeleteKeyIncludingSubkeys(HKCU, Keys[I]);
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ResultCode: Integer;
@@ -325,6 +342,7 @@ begin
     // The index service: stopped and removed (while its file is still there).
     Exec(ExpandConstant('{app}\WinShunService.exe'), '--uninstall', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     RemoveAutostart();
+    RemoveExplorerMenu();
     GiveBackKey('Clipboard', 'WinV', 'V');
     GiveBackKey('Taskbar', 'WinS', 'S');
   end;

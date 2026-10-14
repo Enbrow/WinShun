@@ -44,6 +44,7 @@
 #include "platform/NumberKeys.h"
 #include "platform/Paster.h"
 #include "platform/Shell.h"
+#include "platform/ShellMenu.h"
 #include "platform/SiteIcons.h"
 #include "platform/StartMenuTyping.h"
 #include "platform/TaskbarSearch.h"
@@ -551,6 +552,10 @@ bool App::start(const StartOptions& options)
         });
     };
     callbacks.commandReceived = [this](const QString& command) { handleCommand(command); };
+    // Explorer's "search here" (WinShunSearch.exe): the folder typed, words to come.
+    callbacks.searchHere = [this](const QString& folder) {
+        showLauncher(folder.endsWith(u'\\') ? folder + u' ' : folder + u"\\ "_s);
+    };
     // Windows ends us right after this returns, or a few seconds in: the
     // clipboard history and the index saved first. Past those seconds its
     // "preventing shutdown" screen says why rather than a bare name.
@@ -922,6 +927,7 @@ void App::applySettings(bool initial)
 
     if (!initial)
         applyAppearance();
+    shellmenu::apply(m_settings.explorerMenu, tr("用 Win顺 搜索此处")); // after the language
     m_updater->setAutomatic(m_settings.autoUpdate);
     m_backup->setFolder(m_settings.backupFolder);
     m_launcher->setRecordHistory(m_settings.recordHistory);
@@ -2099,7 +2105,9 @@ void App::showLauncher(const QString& query, const std::optional<taskbar::Spot>&
     m_window->show();
     win::bringToFront(m_window);
     m_window->requestActivate();
-    m_launcher->handleShown();
+    m_launcher->handleShown(); // selects all that is typed
+    if (!query.isEmpty()) // typed for the user (a folder, --query): words go after it
+        emit m_launcher->caretRequested(static_cast<int>(query.size()), false);
     if (m_revealing && !m_launcher->waitingForNames())
         armReveal(); // nothing to wait for (内容 refreshes in the background)
 }
