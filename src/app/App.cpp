@@ -382,7 +382,6 @@ bool App::start(const StartOptions& options)
     connect(m_launcher.get(), &Launcher::startListChanged, this, [this, remember] {
         remember(&Settings::startList, m_launcher->startList() == Launcher::RecentlyModified ? u"modified"_s : u"opened"_s);
     });
-    connect(m_launcher.get(), &Launcher::composingChanged, this, &App::updateNumberKeys);
     createPluginHost();
 
     // Clipboard history (Win+V), in clipboard\ next to the index.
@@ -1689,7 +1688,6 @@ void App::applyDialogs()
                     m_dialogJump->go(dialog, std::move(path), isFile, open);
             });
         connect(m_dialogBar.get(), &DialogBar::excludeAppRequested, this, &App::excludeFromDialogBar);
-        connect(m_dialogBar.get(), &DialogBar::composingChanged, this, &App::updateNumberKeys);
         connect(m_dialogBar.get(), &DialogBar::settingsRequested, this, [this] { showSettings(); });
         connect(m_dialogBar.get(), &DialogBar::autoJumpAnswered, this, &App::answerAutoJump);
     } else if (!m_settings.dialogBar && m_dialogBar) {
@@ -1804,48 +1802,15 @@ void App::updateNumberKeys()
 {
     const bool launcherInFront = m_window && m_window->isActive();
     const bool barInFront = m_barWindow && m_barWindow->isActive() && m_dialogBar;
-    if (m_settings.numberKeys == u"off" || (!launcherInFront && !barInFront)) {
-        m_numberKeys.reset();
+    if (m_settings.numberKeys == u"off" || (!launcherInFront && !barInFront))
         return;
-    }
-    std::vector<HWND> windows;
-    for (QWindow* window : {static_cast<QWindow*>(m_window), static_cast<QWindow*>(m_barWindow)}) {
-        if (window)
-            windows.push_back(reinterpret_cast<HWND>(window->winId()));
-    }
-    const bool alt = m_settings.numberKeys == u"alt";
     // Asked again each time, as programs start and end: digits another
     // program holds as global hotkeys stay its (PixPin's Ctrl+1…), as do Win顺's own.
-    const unsigned left = NumberKeys::heldMask(alt ? NumberKeys::Modifier::Alt : NumberKeys::Modifier::Ctrl);
+    const unsigned left = numberkeys::heldMask(
+        m_settings.numberKeys == u"alt" ? numberkeys::Modifier::Alt : numberkeys::Modifier::Ctrl);
     m_launcher->setNumberKeysLeft(left);
     if (m_dialogBar)
         m_dialogBar->setNumberKeysLeft(left);
-    if (!m_numberKeys || windows != m_numberWindows || alt != m_numberKeysAlt) {
-        m_numberKeys.reset(); // the one hook at a time
-        auto keys = std::make_unique<NumberKeys>(windows, alt ? NumberKeys::Modifier::Alt : NumberKeys::Modifier::Ctrl,
-            [this](HWND window, int number) { // on its thread
-                QMetaObject::invokeMethod(this, [this, window, number] { numberKeyPressed(window, number); },
-                    Qt::QueuedConnection);
-            });
-        if (!keys->isActive()) {
-            // The window's own keys still work, short of other programs' hotkeys.
-            qWarning() << "Number keys: no keyboard hook";
-            return;
-        }
-        m_numberKeys = std::move(keys);
-        m_numberWindows = std::move(windows);
-        m_numberKeysAlt = alt;
-    }
-    m_numberKeys->leave(left);
-    m_numberKeys->setComposing(launcherInFront ? m_launcher->composing() : m_dialogBar->composing());
-}
-
-void App::numberKeyPressed(HWND window, int number)
-{
-    if (m_window && window == reinterpret_cast<HWND>(m_window->winId()) && m_window->isActive())
-        m_launcher->pressNumber(number);
-    else if (m_barWindow && m_dialogBar && window == reinterpret_cast<HWND>(m_barWindow->winId()))
-        m_dialogBar->pressNumber(number);
 }
 
 void App::updateCompanions()
@@ -1974,8 +1939,8 @@ void App::showClipboard()
     // Digits another program holds as global hotkeys stay its (KeyRouter
     // passes them on): their rows carry no number.
     if (m_settings.clipboardNumberKeys != u"off") {
-        m_clipboard->setNumberKeysLeft(NumberKeys::heldMask(
-            m_settings.clipboardNumberKeys == u"ctrl" ? NumberKeys::Modifier::Ctrl : NumberKeys::Modifier::Alt));
+        m_clipboard->setNumberKeysLeft(numberkeys::heldMask(
+            m_settings.clipboardNumberKeys == u"ctrl" ? numberkeys::Modifier::Ctrl : numberkeys::Modifier::Alt));
     }
     if (m_keyRouter) // up already, over the program that keeps the focus
         return;

@@ -87,7 +87,6 @@ class DialogBar : public QObject {
     Q_PROPERTY(bool showModified READ showModified NOTIFY resultOptionsChanged FINAL)
     Q_PROPERTY(QString numberKeys READ numberKeys NOTIFY resultOptionsChanged FINAL)
     Q_PROPERTY(int numberKeysLeft READ numberKeysLeft NOTIFY resultOptionsChanged FINAL)
-    Q_PROPERTY(bool composing READ composing WRITE setComposing NOTIFY composingChanged FINAL)
 
 public:
     static constexpr int kBarHeight = 44; // logical pixels
@@ -138,8 +137,6 @@ public:
     QString numberKeys() const { return m_numberKeys; }
     int numberKeysLeft() const { return static_cast<int>(m_numberKeysLeft); }
     void setNumberKeysLeft(unsigned digits);
-    bool composing() const { return m_composing; }
-    void setComposing(bool composing);
     // Ctrl+n (or Alt+n): the nth row shown takes the dialog there
     // (numberPressed), once the rows are those of what was typed.
     Q_INVOKABLE void pressNumber(int number);
@@ -206,7 +203,6 @@ signals:
     void settingsRequested();
     void contextMenuKeyPressed(); // Menu key / Shift+F10 (arrive as a context-menu event, not a key)
     void resultOptionsChanged();
-    void composingChanged();
     void askingChanged();
     void autoJumpAnswered(const QString& when); // see answerAutoJump()
     void numberPressed(int number); // 1…9, counted from the first row shown
@@ -264,7 +260,6 @@ private:
     bool m_showModified = true;
     QString m_numberKeys = QStringLiteral("ctrl");
     unsigned m_numberKeysLeft = 0;
-    bool m_composing = false;
     bool m_askAutoJump = false;
     bool m_asking = false;
     QString m_browsed; // see browsedFolder

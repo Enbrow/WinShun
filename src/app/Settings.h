@@ -85,7 +85,7 @@ struct Settings {
     // files written last (the footer's switch, remembered).
     QString startList = QStringLiteral("opened");
     // ctrl | alt | off: Ctrl+1…9 opens the nth row shown, in the launcher and
-    // the bar by file dialogs (taken before other programs' hotkeys, see NumberKeys).
+    // the bar by file dialogs (other programs' hotkeys stay theirs, see numberkeys).
     QString numberKeys = QStringLiteral("ctrl");
 
     // [FileTypes]: what 文件 can be narrowed to, in the strip under the

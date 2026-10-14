@@ -141,10 +141,7 @@ Item {
             bar.launcher.query = text
             bar.reportField()
         }
-        onPreeditTextChanged: {
-            bar.launcher.composing = preeditText.length > 0
-            bar.reportField()
-        }
+        onPreeditTextChanged: bar.reportField()
         onCursorPositionChanged: bar.reportField()
         onSelectionStartChanged: bar.reportField()
         onSelectionEndChanged: bar.reportField()

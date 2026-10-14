@@ -102,14 +102,15 @@ Window {
         numbersDelay.stop()
         showNumbers = false
     }
-    // As the launcher's (Main.qml): a digit another program holds is its.
+    readonly property string numberModifier: numberKey === Qt.Key_Alt ? "Alt" : "Ctrl"
+    // As the launcher's (Main.qml): a digit another program holds is its,
+    // its row's chord struck through.
     function numberUsable(number) {
         return number >= 1 && (bar.numberKeysLeft & (1 << number)) === 0
     }
     function numberOf(index) {
-        const number = index - firstShownRow + 1
         return showNumbers && list.visible && index >= firstShownRow && index <= lastShownRow
-            && numberUsable(number) ? number : 0
+            ? index - firstShownRow + 1 : 0
     }
     function openNumber(number) {
         const row = firstShownRow + number - 1
@@ -252,7 +253,6 @@ Window {
             selectionColor: Theme.textSelection
             selectedTextColor: Theme.text
             onTextChanged: window.bar.query = text
-            onPreeditTextChanged: window.bar.composing = preeditText.length > 0
             Keys.onPressed: (event) => window.handleKey(event)
             Keys.onReleased: (event) => window.handleKeyRelease(event)
             Accessible.role: Accessible.EditableText
@@ -495,6 +495,8 @@ Window {
             height: window.bar.rowHeight
             showModified: window.bar.showModified
             hint: window.numberOf(index)
+            hintModifier: window.numberModifier
+            hintTaken: rowItem.hint > 0 && !window.numberUsable(rowItem.hint)
             // On whole device pixels wherever the list has scrolled to (see
             // Main.qml). Below the bar the rows start at 49 logical pixels:
             // at 150 % on a half pixel even before any scrolling.

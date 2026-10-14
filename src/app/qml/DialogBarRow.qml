@@ -20,6 +20,8 @@ Item {
     property string tag
     property bool showModified: true
     property int hint: 0 // the number keys' modifier held: this row's number, 0 for none
+    property string hintModifier: "Ctrl" // ... that modifier
+    property bool hintTaken: false // another program holds that chord as a global hotkey: shown struck through
 
     readonly property bool current: ListView.isCurrentItem
 
@@ -130,7 +132,8 @@ Item {
         anchors.right: parent.right
         anchors.rightMargin: 14
         anchors.verticalCenter: parent.verticalCenter
-        number: row.hint
+        keys: row.hint > 0 ? row.hintModifier + "+" + row.hint : ""
+        taken: row.hintTaken
     }
 
     Text {

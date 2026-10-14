@@ -86,7 +86,8 @@ Item {
     // every row).
     readonly property int numberKey: clipboard.numberKeys === "alt" ? Qt.Key_Alt
                                    : clipboard.numberKeys === "ctrl" ? Qt.Key_Control : -1
-    // A digit another program holds as a global hotkey is its (Clipboard.numberKeysLeft): no number for that row.
+    // A digit another program holds as a global hotkey is its (Clipboard.numberKeysLeft):
+    // the row still shows the chord, struck through (ClipRow.hintTaken).
     function numberUsable(number) {
         return (clipboard.numberKeysLeft & (1 << number)) === 0
     }
@@ -479,7 +480,9 @@ Item {
                         id: clipRow
                         width: list.width
                         height: clipRow.kind === 4 ? page.pictureRowHeight : page.rowHeight
-                        hint: page.numberKey >= 0 && index < 9 && page.numberUsable(index + 1) ? index + 1 : 0
+                        hint: page.numberKey >= 0 && index < 9 ? index + 1 : 0
+                        hintModifier: page.numberKey === Qt.Key_Control ? "Ctrl" : "Alt"
+                        hintTaken: clipRow.hint > 0 && !page.numberUsable(clipRow.hint)
                         pasteTip: page.pasteLabel
                         onDragRequested: (index) => page.clipboard.dragOut(index)
                         // On whole device pixels wherever the list has scrolled

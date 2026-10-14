@@ -67,7 +67,7 @@ class Clipboard : public QObject {
     // for none (Settings::clipboardNumberKeys).
     Q_PROPERTY(QString numberKeys READ numberKeys NOTIFY numberKeysChanged FINAL)
     // Bits 1 << n of the digits n left to another program's global hotkey
-    // (NumberKeys::heldMask): their rows carry no number.
+    // (numberkeys::heldMask): their rows show the chord struck through.
     Q_PROPERTY(int numberKeysLeft READ numberKeysLeft NOTIFY numberKeysChanged FINAL)
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged FINAL)
     Q_PROPERTY(int category READ category WRITE setCategory NOTIFY categoryChanged FINAL)

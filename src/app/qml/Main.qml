@@ -339,24 +339,25 @@ Window {
     }
 
     // Ctrl+1… (or Alt+1…, Launcher.numberKeys) opens the nth row shown,
-    // counted from the first one at least half in view. The numbers are on
+    // counted from the first one at least half in view. The chords are on
     // the rows' icons all along: shown only while the modifier was held,
     // they came late (after a wait, so that Ctrl+C and the like would not
-    // flash them) and swapped the right of every row. The keys themselves
-    // come from NumberKeys (before other programs' hooks; a digit another
-    // program holds as a global hotkey stays its), or here when it is not running.
+    // flash them) and swapped the right of every row. The keys come here as
+    // the window's own (no hook: GitHub #10); a digit another program holds
+    // as a global hotkey stays its (numberkeys::heldMask).
     readonly property int numberKey: launcher.numberKeys === "ctrl" ? Qt.Key_Control
                                    : launcher.numberKeys === "alt" ? Qt.Key_Alt : -1
     readonly property int firstShownRow: Math.max(0, Math.floor((list.contentY + rowHeight / 2) / rowHeight))
     readonly property int lastShownRow: Math.min(list.count - 1, firstShownRow + 8,
                                                  Math.floor((list.contentY + list.height - rowHeight / 2) / rowHeight))
-    // A digit another program holds as a global hotkey is its (Launcher.numberKeysLeft): no number for that row.
+    readonly property string numberModifier: numberKey === Qt.Key_Alt ? "Alt" : "Ctrl"
+    // A digit another program holds as a global hotkey is its (Launcher.numberKeysLeft):
+    // the row still shows the chord, struck through (ResultRow.hintTaken).
     function numberUsable(number) {
         return number >= 1 && (launcher.numberKeysLeft & (1 << number)) === 0
     }
     function numberOf(index) {
-        const number = index - firstShownRow + 1
-        return numberKey >= 0 && index >= firstShownRow && index <= lastShownRow && numberUsable(number) ? number : 0
+        return numberKey >= 0 && index >= firstShownRow && index <= lastShownRow ? index - firstShownRow + 1 : 0
     }
     function openNumber(number) {
         const row = firstShownRow + number - 1
@@ -865,6 +866,8 @@ Window {
                     height: window.rowHeight
                     showModified: window.launcher.showModified
                     hint: window.numberOf(index)
+                    hintModifier: window.numberModifier
+                    hintTaken: resultRow.hint > 0 && !window.numberUsable(resultRow.hint)
                     // Drawn on whole device pixels, wherever the list has
                     // scrolled to (ResultRow puts its text on whole device
                     // pixels within). Between them (at 150 % most scroll

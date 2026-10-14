@@ -24,6 +24,8 @@ Item {
     required property bool pinned
     required property bool missing
     property int hint: 0 // the number that pastes this row (Alt+1...), on its icon; 0 for none
+    property string hintModifier: "Alt" // ... with this held
+    property bool hintTaken: false // another program holds that chord as a global hotkey: shown struck through
     property string pasteTip: qsTr("粘贴") // where the paste button pastes ("粘贴到搜索框")
 
     readonly property bool current: ListView.isCurrentItem
@@ -235,13 +237,15 @@ Item {
         }
     }
 
-    IconNumber { // Alt+1 (or Ctrl+1) pastes the row that shows "1"
-        // A little inside the top right of the icon, or of the picture as
-        // drawn (narrower or flatter than its slot), as in the launcher.
+    IconNumber { // "Alt+1" (or "Ctrl+1"): pastes this row
+        id: iconNumber
+        // From the top left corner of the icon, or of the picture as drawn
+        // (narrower or flatter than its slot), rightwards, as in the launcher.
         readonly property bool picture: row.kind === 4 && thumbnail.ready
-        number: row.hint
-        x: row.onPixel(iconSlot.x + (picture ? thumbnail.x + thumbnail.width : iconSlot.width) - 2 - width / 2)
-        y: row.onPixel(iconSlot.y + (picture ? thumbnail.y : 0) + 4 - height / 2)
+        keys: row.hint > 0 ? row.hintModifier + "+" + row.hint : ""
+        taken: row.hintTaken
+        x: row.onPixel(iconSlot.x + (picture ? thumbnail.x : 0) - 5)
+        y: row.onPixel(iconSlot.y + (picture ? thumbnail.y : 0) - 4)
     }
 
     MouseArea {
@@ -317,8 +321,13 @@ Item {
         readonly property RowAction hovered: pasteAction.tipWanted ? pasteAction
                                            : pinAction.tipWanted ? pinAction
                                            : removeAction.tipWanted ? removeAction : null
-        target: hovered
-        text: hovered ? hovered.tip : ""
+        readonly property bool onKeys: !hovered && iconNumber.taken && area.containsMouse // (a hover handler under the area gets no hover)
+                                          && iconNumber.contains(iconNumber.mapFromItem(area, area.mouseX, area.mouseY))
+        target: hovered ? hovered : onKeys ? iconNumber : null
+        text: hovered ? hovered.tip
+            : onKeys ? qsTr("%1 被别的程序占用了，在这里按也会交给那个程序。可在设置里改用 %2")
+                       .arg(iconNumber.keys).arg(row.hintModifier === "Alt" ? "Ctrl" : "Alt")
+            : ""
         shortcut: hovered ? hovered.tipShortcut : ""
     }
 }

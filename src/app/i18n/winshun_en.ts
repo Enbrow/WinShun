@@ -218,6 +218,10 @@
 <context>
     <name>ClipRow</name>
     <message>
+        <source>%1 被别的程序占用了，在这里按也会交给那个程序。可在设置里改用 %2</source>
+        <translation>Another program uses %1, so pressing it here goes to that program. Settings can switch to %2</translation>
+    </message>
+    <message>
         <source>粘贴</source>
         <translation>Paste</translation>
     </message>
@@ -633,8 +637,8 @@
         <translation>Switch the order; with nothing typed, opened or modified lately</translation>
     </message>
     <message>
-        <source>打开第几行（图标上的数字）</source>
-        <translation>Open the nth row (the number on its icon)</translation>
+        <source>打开第几行（图标上标着快捷键）</source>
+        <translation>Open the nth row (the shortcut on its icon)</translation>
     </message>
     <message>
         <source>右键菜单</source>
@@ -1272,6 +1276,10 @@
 </context>
 <context>
     <name>ResultRow</name>
+    <message>
+        <source>%1 被别的程序占用了，在这里按也会交给那个程序。可在设置的“结果列表”里改用 %2</source>
+        <translation>Another program uses %1, so pressing it here goes to that program. Settings › Result list can switch to %2</translation>
+    </message>
     <message>
         <source>在终端中打开</source>
         <translation>Open in Terminal</translation>
@@ -2576,8 +2584,8 @@
         <translation>Used to open folders and the folder a file is in</translation>
     </message>
     <message>
-        <source>前九条的图标上标着序号，按 %1+1 粘贴第一条，加按 Shift 粘贴为纯文本</source>
-        <translation>The first nine show their number on the icon; %1+1 pastes the first entry, add Shift to paste it as plain text</translation>
+        <source>前九条的图标上标着快捷键，按 %1+1 粘贴第一条，加按 Shift 粘贴为纯文本</source>
+        <translation>The first nine show their shortcut on the icon; %1+1 pastes the first entry, add Shift to paste it as plain text</translation>
     </message>
     <message>
         <source>按扩展名列出；Word、PDF 等文档由“搜索文档”负责</source>
@@ -2684,8 +2692,8 @@
         <translation>All set: the taskbar, Win+S and the Start menu all search with WinShun.</translation>
     </message>
     <message>
-        <source>结果的图标上标着序号，按 %1+1 打开第一行</source>
-        <translation>Results show their number on the icon; %1+1 opens the first row</translation>
+        <source>结果的图标上标着快捷键，按 %1+1 打开第一行</source>
+        <translation>Results show their shortcut on the icon; %1+1 opens the first row</translation>
     </message>
     <message>
         <source>文件夹</source>

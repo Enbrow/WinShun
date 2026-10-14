@@ -677,14 +677,6 @@ void Launcher::switchOrder()
         setSort(static_cast<Sort>((m_sort + 1) % 3));
 }
 
-void Launcher::setComposing(bool composing)
-{
-    if (composing == m_composing)
-        return;
-    m_composing = composing;
-    emit composingChanged();
-}
-
 void Launcher::setInTaskbarBox(bool on)
 {
     if (on == m_inTaskbarBox)

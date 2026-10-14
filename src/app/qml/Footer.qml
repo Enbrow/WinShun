@@ -285,7 +285,7 @@ Item {
             ["Ctrl+Shift+C", qsTr("复制路径")],
             ["Ctrl+S", qsTr("切换排序；不输入时切换最近打开、最近修改")]
         ].concat(footer.launcher.numberKeys === "off" ? []
-                 : [[modifier + "+1…9", qsTr("打开第几行（图标上的数字）")]])
+                 : [[modifier + "+1…9", qsTr("打开第几行（图标上标着快捷键）")]])
          .concat([
             ["Shift+F10", qsTr("右键菜单")],
             ["Esc", qsTr("关闭；选中了多行时先取消选择")]

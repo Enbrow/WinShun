@@ -633,14 +633,6 @@ void DialogBar::setNumberKeysLeft(unsigned digits)
     emit resultOptionsChanged();
 }
 
-void DialogBar::setComposing(bool composing)
-{
-    if (composing == m_composing)
-        return;
-    m_composing = composing;
-    emit composingChanged();
-}
-
 void DialogBar::pressNumber(int number)
 {
     if (number < 1 || number > 9 || m_numberKeys.isEmpty() || holdUntilShown(number, false))

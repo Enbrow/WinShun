@@ -44,7 +44,6 @@ class KeyListener;
 class Launcher;
 class MessageWindow;
 class NetworkNotifier;
-class NumberKeys;
 class Placement;
 class SearchEngine;
 class SettingsEditor;
@@ -135,10 +134,9 @@ private:
     QQuickItem* focusedField() const; // a text field of Win顺's own with the keyboard
     void returnToField(QQuickItem* field); // from the clipboard (Clipboard::fieldRequested)
     void updateCompanions(); // our windows that go with a file dialog (DialogJump)
-    // Ctrl+1… on the launcher and the dialog bar: NumberKeys while one of
-    // them is in front, with the modifier the settings name.
+    // Ctrl+1… on the launcher and the dialog bar: as one of them comes to
+    // the front, which digits other programs hold (numberkeys::heldMask).
     void updateNumberKeys();
-    void numberKeyPressed(HWND window, int number);
     void applySettings(bool initial);
     ClipboardWatcher::Options clipboardOptions() const;
     void applyClipboard(); // the [Clipboard] settings
@@ -306,9 +304,6 @@ private:
     HWND m_keyRouterTarget = nullptr; // that program's window
     std::uint64_t m_keyRouterRun = 0; // which routing its posted keys belong to
     std::unique_ptr<KeyRouter> m_drainingRouter; // done, until the keys it took are let go (KeyRouter::drain)
-    std::unique_ptr<NumberKeys> m_numberKeys; // see updateNumberKeys()
-    std::vector<HWND> m_numberWindows; // the windows it takes the keys for
-    bool m_numberKeysAlt = false; // ... with Alt, else with Ctrl
     std::uint64_t m_drainingRun = 0;
     std::atomic<bool> m_clipUncloak {false}; // shown cloaked until its first frame
     QTimer m_clipUncloakTimeout;

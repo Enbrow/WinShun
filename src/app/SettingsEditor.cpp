@@ -195,8 +195,8 @@ namespace {
 
 // What the user should know of the number keys `keys` ("ctrl", "alt"):
 // those another program holds as global hotkeys, and those that are one of
-// Win顺's own shortcuts. Win顺 leaves both alone (NumberKeys::leave,
-// KeyRouter::heldAsHotkey), and their rows carry no number.
+// Win顺's own shortcuts. Win顺 leaves both alone (numberkeys::heldMask,
+// KeyRouter::heldAsHotkey), and their rows show the chord struck through.
 QString describeNumberKeys(const QString& keys, const Settings& settings)
 {
     if (keys != u"ctrl" && keys != u"alt")
@@ -206,7 +206,7 @@ QString describeNumberKeys(const QString& keys, const Settings& settings)
     QStringList own;
     QStringList others;
     const std::vector<int> held
-        = NumberKeys::heldAsHotkeys(keys == u"alt" ? NumberKeys::Modifier::Alt : NumberKeys::Modifier::Ctrl);
+        = numberkeys::heldAsHotkeys(keys == u"alt" ? numberkeys::Modifier::Alt : numberkeys::Modifier::Ctrl);
     for (int n = 1; n <= 9; ++n) {
         const QString c = chord(n);
         const bool mine = settings.hotkey.compare(c, Qt::CaseInsensitive) == 0

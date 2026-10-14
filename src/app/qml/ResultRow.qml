@@ -20,8 +20,8 @@ import WinShun
 // name, shows what the plugin said under its title, and has one button,
 // which copies its text (its actions are the plugin's: Enter, Ctrl+Enter,
 // Shift+Enter, and the menu).
-// While the modifier of the number keys is held, the rows show their number
-// there instead (Ctrl+1 opens the first one shown).
+// The rows shown carry their shortcut on the icon (Ctrl+1 opens the first one
+// shown); one another program holds is struck through, its tip says why.
 // A file's or folder's row can be dragged out with the mouse, into a chat or
 // a folder (with the selection, when it is in it).
 Item {
@@ -58,6 +58,8 @@ Item {
     required property bool missing // a favorite no longer there: dimmed, tagged
     property bool showModified: true
     property int hint: 0 // its number for the number keys (Ctrl+1…), on its icon; 0 for none
+    property string hintModifier: "Ctrl" // ... with this held
+    property bool hintTaken: false // another program holds that chord as a global hotkey: shown struck through
 
     readonly property bool contentMode: line > 0 // a content match (also mixed into 全部)
     readonly property bool current: ListView.isCurrentItem
@@ -259,11 +261,13 @@ Item {
         }
     }
 
-    IconNumber { // Ctrl+1 (or Alt+1) opens the row that shows "1"
-        number: row.hint
-        // The digit centred a little inside the icon's top right.
-        x: row.onPixel(iconSlot.x + iconSlot.width - 2 - width / 2)
-        y: row.onPixel(iconSlot.y + 4 - height / 2)
+    IconNumber { // "Ctrl+1" (or "Alt+1"): opens this row
+        id: iconNumber
+        keys: row.hint > 0 ? row.hintModifier + "+" + row.hint : ""
+        taken: row.hintTaken
+        // From the icon's top left corner rightwards, clear of the title.
+        x: row.onPixel(iconSlot.x - 5)
+        y: row.onPixel(iconSlot.y - 4)
     }
 
     MouseArea {
@@ -380,9 +384,17 @@ Item {
                                            : copyAction.tipWanted ? copyAction
                                            : copyPathAction.tipWanted ? copyPathAction
                                            : deleteAction.tipWanted ? deleteAction : null
-        readonly property bool onDate: !hovered && date.visible && dateHover.hovered
-        target: hovered ? hovered : onDate ? date : null
-        text: hovered ? hovered.tip : onDate ? row.modifiedFull : ""
+        // Hover handlers on items under the row's mouse area get no hover: asked of the area instead.
+        function under(item: Item): bool {
+            return area.containsMouse && item.contains(item.mapFromItem(area, area.mouseX, area.mouseY))
+        }
+        readonly property bool onDate: !hovered && date.visible && under(date)
+        readonly property bool onKeys: !hovered && !onDate && iconNumber.taken && under(iconNumber)
+        target: hovered ? hovered : onDate ? date : onKeys ? iconNumber : null
+        text: hovered ? hovered.tip : onDate ? row.modifiedFull
+            : onKeys ? qsTr("%1 被别的程序占用了，在这里按也会交给那个程序。可在设置的“结果列表”里改用 %2")
+                       .arg(iconNumber.keys).arg(row.hintModifier === "Alt" ? "Ctrl" : "Alt")
+            : ""
         shortcut: hovered ? hovered.tipShortcut : ""
     }
 }

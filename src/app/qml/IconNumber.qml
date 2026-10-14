@@ -1,23 +1,36 @@
 import QtQuick
 import WinShun
 
-// A row's number on its icon's corner: the modifier of the number keys and
-// this digit act on the row (ResultRow: Ctrl+1 opens it; ClipRow: Alt+1
-// pastes it). The caller places it (on whole device pixels: the halo is a
-// layer, so no blur); not dimmed with the icon. 0: none.
+// A row's shortcut on its icon's top left, running right: "Ctrl+1" opens
+// (ResultRow) or pastes (ClipRow) the row. `taken`: another program holds
+// that chord as a global hotkey, so pressing it goes there; it still shows,
+// faint and struck through, so the gap in the numbers is not a mystery (the
+// row's tip says why, from the row's own mouse area: under it, a handler
+// here gets no hover). The caller places it (on whole device pixels: the
+// halo is a layer, so no blur); not dimmed with the icon. "": none.
 Loader {
     id: root
 
-    property int number: 0
+    property string keys
+    property bool taken: false
 
-    active: number > 0
-    width: 24
-    height: 24
+    active: keys.length > 0
+    height: 16 // the width is the text's
 
     sourceComponent: Item {
-        id: digit
+        id: label
 
-        readonly property font face: Qt.font({ family: "Segoe UI", weight: Font.DemiBold, pixelSize: 20 })
+        readonly property font face: Qt.font({ family: "Segoe UI", weight: Font.DemiBold, pixelSize: 13,
+                                               strikeout: root.taken })
+
+        width: Math.ceil(ink.advanceWidth) + 4
+        height: root.height
+
+        TextMetrics {
+            id: ink
+            font: label.face
+            text: root.keys
+        }
 
         Item { // a halo of the window's dark (light), so it reads over any icon and on the selected row alike
             anchors.fill: parent
@@ -27,13 +40,17 @@ Loader {
             Repeater {
                 model: 17 // itself, then a ring of 16 around it
 
-                CenteredNumber {
+                Text {
                     id: copy
 
                     required property int index
 
-                    text: root.number
-                    font: digit.face
+                    x: 2
+                    y: 12 - baselineOffset // the baseline 12 px down
+                    text: root.keys
+                    textFormat: Text.PlainText
+                    renderType: Text.CurveRendering
+                    font: label.face
                     color: Theme.dark ? "black" : "white"
                     transform: Translate {
                         x: copy.index > 0 ? 1.5 * Math.cos(copy.index * Math.PI / 8) : 0
@@ -42,10 +59,14 @@ Loader {
                 }
             }
         }
-        CenteredNumber {
-            text: root.number
-            font: digit.face
-            color: Theme.text
+        Text {
+            x: 2
+            y: 12 - baselineOffset
+            text: root.keys
+            textFormat: Text.PlainText
+            renderType: Text.CurveRendering
+            font: label.face
+            color: root.taken ? Theme.faint : Theme.text
         }
     }
 }
