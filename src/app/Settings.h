@@ -74,6 +74,14 @@ struct Settings {
     // explorer | totalcmd | dopus: where folders open and items are shown
     // (shell::setFileManager); Explorer while the one chosen is not installed.
     QString fileManager = QStringLiteral("explorer");
+    bool explorerMenu = true; // "用 Win顺 搜索此处" in Explorer's right-click menu (shellmenu::)
+    // auto | on | off: a double click on the blank space of a File Explorer
+    // folder or of the desktop brings up a menu of favorite and recent
+    // folders (FolderMenu, GitHub #22); auto: not while Listary runs, which
+    // does the same.
+    QString folderMenu = QStringLiteral("auto");
+    bool folderMenuExplorer = true; // in File Explorer's folders
+    bool folderMenuDesktop = true; // on the desktop
 
     // [Results]
     bool foldersFirst = false; // 全部 and 文件 list the folders found before the files (else after)

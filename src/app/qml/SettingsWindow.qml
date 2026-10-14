@@ -1235,6 +1235,50 @@ Window {
                 }
 
                 SettingRow {
+                    title: qsTr("资源管理器右键“用 Win顺 搜索此处”")
+                    keywords: qsTr("右键;右键菜单;上下文菜单;搜索此文件夹;在此搜索;资源管理器;context menu").split(";")
+                    description: qsTr("右键文件夹、文件夹空白处或磁盘，只在那里面搜；Windows 11 在“显示更多选项”里")
+
+                    ToggleSwitch {
+                        checked: window.editor.explorerMenu
+                        onToggled: (on) => window.editor.explorerMenu = on
+                    }
+                }
+
+                SettingRow {
+                    title: qsTr("双击空白处弹出文件夹菜单")
+                    keywords: qsTr("双击;空白;空白处;收藏;收藏夹;最近;文件夹菜单;资源管理器;桌面;Listary;double-click;folder menu").split(";")
+                    description: qsTr("在资源管理器或桌面的空白处双击，列出收藏的、最近的和别的窗口里的文件夹，选一个就在这个窗口里打开；Listary 在运行时由它来弹")
+
+                    ToggleSwitch {
+                        checked: window.editor.folderMenu
+                        onToggled: (on) => window.editor.folderMenu = on
+                    }
+                }
+
+                SettingRow {
+                    shown: window.editor.folderMenu
+                    title: qsTr("在资源管理器的空白处双击")
+                    keywords: qsTr("双击;空白;文件夹菜单;资源管理器").split(";")
+
+                    ToggleSwitch {
+                        checked: window.editor.folderMenuExplorer
+                        onToggled: (on) => window.editor.folderMenuExplorer = on
+                    }
+                }
+
+                SettingRow {
+                    shown: window.editor.folderMenu
+                    title: qsTr("在桌面的空白处双击")
+                    keywords: qsTr("双击;空白;文件夹菜单;桌面").split(";")
+
+                    ToggleSwitch {
+                        checked: window.editor.folderMenuDesktop
+                        onToggled: (on) => window.editor.folderMenuDesktop = on
+                    }
+                }
+
+                SettingRow {
                     title: qsTr("Ctrl+G 转到文件管理器的文件夹")
                     keywords: qsTr("跳转;转到;对话框;另存为;打开文件;资源管理器;Total Commander;Directory Opus;jump").split(";")
                     description: qsTr("在“打开”“另存为”里按 Ctrl+G，转到文件管理器当前的文件夹")

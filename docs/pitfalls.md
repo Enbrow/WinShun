@@ -1871,3 +1871,26 @@
 - **原因**：ninja 在 Windows 上用 ANSI 版 API，源目录的中文按当时控制台的代码页转换，bash 起的子进程代码页不是 936/65001，中文全成了 `?`。
 - **做法**：构建从 PowerShell 工具（或项目的 `scripts/build.ps1`）起，不经 bash。
 
+## 双击空白处的文件夹菜单（GitHub #22）
+
+### 鼠标的 Raw Input 一个进程只能登记一份
+
+- **现象**：另开一个窗口登记鼠标 Raw Input，下一次按 Ctrl 后双击 Ctrl 的监听把它顶掉，过一会儿又整个撤掉，双击检测时灵时不灵。
+- **原因**：`RegisterRawInputDevices` 对同一个用途（鼠标）是按进程登记的，换一个 `hwndTarget` 再登记就是替换，`RIDEV_REMOVE` 就全撤了。
+- **做法**：只让 `KeyListener` 登记鼠标：文件夹菜单开着时一直登记，双击 Ctrl 那边“撤掉鼠标”变成空操作；同一条 `WM_INPUT` 分给 `DoubleTapDetector` 和 `DoubleClickDetector`。改设置时整个 `KeyListener` 重建，旧的先撤。
+
+### 资源管理器分组视图里，组和组标题的 MSAA 角色一样
+
+- **现象**：按“修改日期”分组的文件夹，行间的缝和组标题条 `accHitTest` 都落在 GROUPING 上，分不出哪个是空白。UIA 的 `ElementFromIAccessible` 对这些 DirectUI 对象一律失败（E_INVALIDARG），拿不到 `UIGroupItem` / `UIGroupHeader` 类名。
+- **做法**：看它的第一个子对象（`AccessibleChildren(obj, 0, 1)`）：整组的第一个子对象是同名的 GROUPING（它的标题条），标题条的第一个子对象是“折叠组”按钮。前者算空白。不分组的视图和桌面的空处落在列表自己（`CHILDID_SELF`，LIST）上。2026-10-14 实测：空白处 3–7 ms 判完，双击文件夹条目不弹、照常打开。
+
+### 菜单在屏幕下边缘没往上翻，伸到屏幕外
+
+- **现象**：在窗口靠下的空白处双击，菜单从光标往下伸出屏幕，下半截看不见。
+- **原因**：条目刚换，`Column` 的 `implicitHeight` 要到下一次布局（polish）才更新，弹出时按旧高度判断放不放得下。
+- **做法**：弹出前先 `content.forceLayout()`，再按高度翻转、夹进工作区。
+
+### “最近的文件夹”第一次读要一百多毫秒
+
+- **现象**：菜单从双击到出现要 120–170 ms，其中判空白 3–7 ms、问资源管理器当前文件夹 3–7 ms、别的窗口的文件夹约 6 ms，其余全在读 Windows 最近项目里的快捷方式。
+- **做法**：最近的文件夹在启动时和每次菜单弹出之后在后台读好，菜单用上一次读到的。

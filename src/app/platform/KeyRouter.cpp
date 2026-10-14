@@ -123,6 +123,27 @@ int qtKey(UINT vk, bool extended, bool shift)
 // Whether the clipboard window acts on the key (ClipboardPage.qml, its
 // search field's TextInput); the rest goes on to the program in front.
 // `numberKeys`: the modifier that pastes a row with a digit.
+// A menu's keys: to move, choose, close and jump by a first letter.
+bool wantedByMenu(const KeyRouter::Key& key)
+{
+    if (key.modifiers.testFlag(Qt::ControlModifier) || key.modifiers.testFlag(Qt::AltModifier))
+        return false;
+    switch (key.vk) {
+    case VK_RETURN:
+    case VK_ESCAPE:
+    case VK_UP:
+    case VK_DOWN:
+    case VK_HOME:
+    case VK_END:
+    case VK_PRIOR:
+    case VK_NEXT:
+    case VK_APPS:
+        return true;
+    default:
+        return typesCharacter(key.vk);
+    }
+}
+
 bool wanted(const KeyRouter::Key& key, Qt::KeyboardModifier numberKeys)
 {
     const UINT vk = key.vk;
@@ -218,10 +239,11 @@ void sendMaskedRelease(const KBDLLHOOKSTRUCT& event)
 
 } // namespace
 
-KeyRouter::KeyRouter(HWND target, HWND window, Callbacks callbacks, Qt::KeyboardModifier numberKeys)
+KeyRouter::KeyRouter(HWND target, HWND window, Callbacks callbacks, Qt::KeyboardModifier numberKeys, Policy policy)
     : m_target(target)
     , m_window(window)
     , m_numberKeys(numberKeys)
+    , m_policy(policy)
     , m_process(::GetCurrentProcessId())
     , m_callbacks(std::move(callbacks))
 {
@@ -355,7 +377,7 @@ LRESULT KeyRouter::handleKey(int code, WPARAM message, LPARAM lParam)
     if (!taking() || held(VK_LWIN) || held(VK_RWIN) || held(static_cast<int>(vk)))
         return next();
     const Key key = translate(event, true, false);
-    if (!wanted(key, m_numberKeys) || heldAsHotkey(key))
+    if (!(m_policy == Policy::Menu ? wantedByMenu(key) : wanted(key, m_numberKeys)) || heldAsHotkey(key))
         return next();
     // A key the window wants goes to the hooks after this one first, as if
     // the window were an ordinary one in front: a remapper there (AutoHotkey,

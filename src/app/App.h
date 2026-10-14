@@ -37,6 +37,7 @@ class Clipboard;
 class DialogBar;
 class DialogJump;
 class Favorites;
+class FolderMenu;
 class SystemCatalog;
 class History;
 class IndexService;
@@ -183,6 +184,7 @@ private:
     void showPluginSettings(const QString& pluginId); // ... on that plugin's card ("winshun:settings")
     void applyHotkey();
     void applyDialogs(); // Ctrl+G, the bar and going by themselves in file dialogs
+    void applyFolderMenu(); // the menu on a double click in File Explorer (GitHub #22)
     void excludeFromDialogBar(const QString& app); // "not in this program" from the bar's menu
     void answerAutoJump(const QString& when); // asked under the bar: "open", "back" or "" (DialogBar::autoJumpAnswered)
     bool createBarWindow();
@@ -330,7 +332,10 @@ private:
     std::unique_ptr<NetworkNotifier> m_network; // after m_index, whose shares it tells
     std::unique_ptr<IdleTrim> m_idleTrim; // gives the memory back while nothing is in use
     std::vector<std::wstring> m_sharesBuilding; // being read for the first time: told when done
-    std::unique_ptr<KeyListener> m_keyListener; // double Ctrl
+    std::unique_ptr<KeyListener> m_keyListener; // double Ctrl, double clicks for the folder menu
+    int m_keyListenerMode = 0; // what it listens to: 1 double Ctrl, 2 double clicks
+    std::unique_ptr<FolderMenu> m_folderMenu; // before the window: its view-model
+    QPointer<QQuickWindow> m_folderMenuWindow;
     QStringList m_doubleCtrlIgnoredLogged; // "program reason", logged once each: a game gets many
     std::unique_ptr<DialogJump> m_dialogJump; // file dialogs: Ctrl+G, the bar; after m_messages, which has the hotkey
     std::unique_ptr<DialogBar> m_dialogBar; // the search bar under file dialogs

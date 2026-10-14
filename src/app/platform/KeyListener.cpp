@@ -35,10 +35,21 @@ std::uint32_t maxGapMs()
     return std::clamp<std::uint32_t>(::GetDoubleClickTime(), 400, 900);
 }
 
+bool held(int vk)
+{
+    return ::GetAsyncKeyState(vk) < 0;
+}
+
+// Alt+double click is File Explorer's Properties, Ctrl and Shift select.
+bool modifierHeld()
+{
+    return held(VK_SHIFT) || held(VK_CONTROL) || held(VK_MENU) || held(VK_LWIN) || held(VK_RWIN);
+}
+
 } // namespace
 
-KeyListener::KeyListener(std::function<void()> onDoubleCtrl)
-    : m_callback(std::move(onDoubleCtrl))
+KeyListener::KeyListener(Callbacks callbacks)
+    : m_callbacks(std::move(callbacks))
 {
     std::latch ready(1);
     m_thread = std::jthread([this, &ready] {
@@ -50,11 +61,20 @@ KeyListener::KeyListener(std::function<void()> onDoubleCtrl)
         ::RegisterClassExW(&wc);
         // Message-only: never shown, and still the target of raw input.
         const HWND hwnd = ::CreateWindowExW(0, kClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, instance, this);
-        // Every keyboard, also while other programs have the focus; the mouse
-        // only around a Ctrl press (listenToMouse).
-        const RAWINPUTDEVICE keyboard {kGenericDesktop, kKeyboard, RIDEV_INPUTSINK, hwnd};
-        m_active = hwnd && ::RegisterRawInputDevices(&keyboard, 1, sizeof keyboard);
         m_window = hwnd;
+        // Every keyboard, also while other programs have the focus; the mouse
+        // only around a Ctrl press (listenToMouse), or all the time for
+        // double clicks.
+        bool active = hwnd != nullptr;
+        if (hwnd && m_callbacks.doubleCtrl) {
+            const RAWINPUTDEVICE keyboard {kGenericDesktop, kKeyboard, RIDEV_INPUTSINK, hwnd};
+            active = ::RegisterRawInputDevices(&keyboard, 1, sizeof keyboard);
+        }
+        if (hwnd && m_callbacks.doubleClick) {
+            listenToMouse(true);
+            active = active && m_mouseOn;
+        }
+        m_active = active;
         ready.count_down();
         if (!hwnd)
             return;
@@ -98,9 +118,12 @@ LRESULT CALLBACK KeyListener::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         }
         return 0;
     case WM_CLOSE: {
-        const RAWINPUTDEVICE keyboard {kGenericDesktop, kKeyboard, RIDEV_REMOVE, nullptr};
-        ::RegisterRawInputDevices(&keyboard, 1, sizeof keyboard);
+        if (self && self->m_callbacks.doubleCtrl) {
+            const RAWINPUTDEVICE keyboard {kGenericDesktop, kKeyboard, RIDEV_REMOVE, nullptr};
+            ::RegisterRawInputDevices(&keyboard, 1, sizeof keyboard);
+        }
         if (self) {
+            self->m_callbacks.doubleClick = nullptr; // so the mouse goes too
             self->listenToMouse(false);
             self->m_active = false;
         }
@@ -123,10 +146,10 @@ void KeyListener::onInput(HRAWINPUT input)
         return;
     if (raw.header.dwType == RIM_TYPEMOUSE) { // mostly moves, which tell nothing
         if (raw.data.mouse.usButtonFlags & (kAnyButtonDown | kWheel))
-            m_detector.mouseUsed();
+            onMouse(raw.data.mouse);
         return;
     }
-    if (raw.header.dwType != RIM_TYPEKEYBOARD)
+    if (raw.header.dwType != RIM_TYPEKEYBOARD || !m_callbacks.doubleCtrl)
         return;
     const RAWKEYBOARD& key = raw.data.keyboard;
     if (key.VKey == 0xFF)
@@ -149,15 +172,50 @@ void KeyListener::onInput(HRAWINPUT input)
     const bool fire = up ? m_detector.keyUp(key.VKey, time, pt.x, pt.y) : m_detector.keyDown(key.VKey, time, pt.x, pt.y);
     if (ctrl && !up && mouseButtonHeld())
         m_detector.mouseUsed();
-    if (fire && m_callback)
-        m_callback();
+    if (fire)
+        m_callbacks.doubleCtrl();
+}
+
+void KeyListener::onMouse(const RAWMOUSE& mouse)
+{
+    m_detector.mouseUsed();
+    if (!m_callbacks.doubleClick)
+        return;
+    // The device's buttons: with them swapped (left-handed), its right one
+    // is the one that clicks.
+    const USHORT primary = ::GetSystemMetrics(SM_SWAPBUTTON) ? RI_MOUSE_RIGHT_BUTTON_DOWN : RI_MOUSE_LEFT_BUTTON_DOWN;
+    if ((mouse.usButtonFlags & kAnyButtonDown) != primary) {
+        m_clicks.otherInput(); // another button, the wheel, or more than one at once
+        return;
+    }
+    // Where the pointer was when the press was sent, by its own clock, as
+    // Windows judges a double click.
+    const DWORD at = ::GetMessagePos();
+    const POINT pt {static_cast<short>(LOWORD(at)), static_cast<short>(HIWORD(at))};
+    const auto time = static_cast<std::uint32_t>(::GetMessageTime());
+    // Safe here: this thread has no window that WindowFromPoint would ask.
+    const HWND window = ::WindowFromPoint(pt);
+    m_clicks.setConfig({::GetDoubleClickTime(), ::GetSystemMetrics(SM_CXDOUBLECLK) / 2,
+        ::GetSystemMetrics(SM_CYDOUBLECLK) / 2});
+    if (!m_clicks.leftDown(time, pt.x, pt.y, reinterpret_cast<std::uintptr_t>(window), m_menuOpen.load()))
+        return;
+    if (m_clicks.firstClosedMenu() || modifierHeld())
+        return;
+    const int other = ::GetSystemMetrics(SM_SWAPBUTTON) ? VK_LBUTTON : VK_RBUTTON;
+    if (held(other) || held(VK_MBUTTON) || held(VK_XBUTTON1) || held(VK_XBUTTON2))
+        return;
+    m_callbacks.doubleClick(window, pt);
 }
 
 // The mouse only while it can spoil a tap: from a Ctrl press until a second
-// tap can no longer follow. Listened to all the time, every move woke this
-// thread, up to thousands of times a second with a gaming mouse.
+// tap can no longer follow. Listened to all the time, every move wakes this
+// thread, up to thousands of times a second with a gaming mouse: only when
+// double clicks are asked for (cheap still: nothing waits on it, and a move
+// is one look at the button flags).
 void KeyListener::listenToMouse(bool on)
 {
+    if (!on && m_callbacks.doubleClick)
+        return;
     if (on == m_mouseOn)
         return;
     const RAWINPUTDEVICE mouse {kGenericDesktop, kMouse, static_cast<DWORD>(on ? RIDEV_INPUTSINK : RIDEV_REMOVE),

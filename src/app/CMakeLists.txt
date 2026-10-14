@@ -52,6 +52,7 @@ qt_add_executable(WinShun WIN32
     McpClients.cpp McpClients.h
     Migration.cpp Migration.h
     Preview.cpp Preview.h
+    RecentFolders.cpp RecentFolders.h
     Settings.cpp Settings.h
     SiteIconImage.cpp SiteIconImage.h
     TextField.cpp TextField.h
@@ -63,6 +64,7 @@ qt_add_executable(WinShun WIN32
     platform/DragOut.cpp platform/DragOut.h
     platform/FileDialog.cpp platform/FileDialog.h
     platform/FileManagers.cpp platform/FileManagers.h
+    platform/FolderViewHit.cpp platform/FolderViewHit.h
     platform/Foreground.cpp platform/Foreground.h
     platform/Http.cpp platform/Http.h
     platform/IdleTrim.cpp platform/IdleTrim.h
@@ -110,6 +112,7 @@ set(qml_files
     qml/ContextMenu.qml
     qml/DialogBarWindow.qml
     qml/DialogBarRow.qml
+    qml/FolderMenuWindow.qml
     qml/HoverTip.qml
     qml/ShortcutTip.qml
     qml/DropMenu.qml
@@ -198,6 +201,7 @@ qt_add_qml_module(WinShun
         DialogBar.cpp DialogBar.h
         FavoritesSettings.cpp FavoritesSettings.h
         FileDropTarget.cpp FileDropTarget.h
+        FolderMenu.cpp FolderMenu.h
         GleaningScene.cpp GleaningScene.h
         IconBadge.cpp IconBadge.h
         Launcher.cpp Launcher.h

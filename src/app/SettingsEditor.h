@@ -48,6 +48,11 @@ class SettingsEditor : public QObject {
     // window comes to the front (refreshFileManagers).
     Q_PROPERTY(QString fileManager READ fileManager WRITE setFileManager NOTIFY changed FINAL)
     Q_PROPERTY(QStringList fileManagers READ fileManagers NOTIFY fileManagersChanged FINAL)
+    Q_PROPERTY(bool explorerMenu READ explorerMenu WRITE setExplorerMenu NOTIFY changed FINAL)
+    // The folder menu on a double click (Settings::folderMenu: on unless "off").
+    Q_PROPERTY(bool folderMenu READ folderMenu WRITE setFolderMenu NOTIFY changed FINAL)
+    Q_PROPERTY(bool folderMenuExplorer READ folderMenuExplorer WRITE setFolderMenuExplorer NOTIFY changed FINAL)
+    Q_PROPERTY(bool folderMenuDesktop READ folderMenuDesktop WRITE setFolderMenuDesktop NOTIFY changed FINAL)
     Q_PROPERTY(bool includeRemovableDrives READ includeRemovableDrives WRITE setIncludeRemovableDrives NOTIFY changed FINAL)
     Q_PROPERTY(bool rescanOnStartup READ rescanOnStartup WRITE setRescanOnStartup NOTIFY changed FINAL)
     // 索引方式 (Settings::indexAccess, GitHub #21): auto | service | direct |
@@ -216,6 +221,14 @@ public:
     QString fileManager() const { return m_settings.fileManager; }
     void setFileManager(const QString& manager);
     QStringList fileManagers() const { return m_fileManagers; }
+    bool explorerMenu() const { return m_settings.explorerMenu; }
+    void setExplorerMenu(bool on);
+    bool folderMenu() const { return m_settings.folderMenu != u"off"; }
+    void setFolderMenu(bool on);
+    bool folderMenuExplorer() const { return m_settings.folderMenuExplorer; }
+    void setFolderMenuExplorer(bool on);
+    bool folderMenuDesktop() const { return m_settings.folderMenuDesktop; }
+    void setFolderMenuDesktop(bool on);
     Q_INVOKABLE void refreshFileManagers();
     bool includeRemovableDrives() const { return m_settings.includeRemovableDrives; }
     void setIncludeRemovableDrives(bool on);

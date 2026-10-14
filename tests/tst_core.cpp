@@ -7,6 +7,7 @@
 #include "Crawler.h"
 #include "DocExtractor.h"
 #include "Documents.h"
+#include "DoubleClickDetector.h"
 #include "DoubleTapDetector.h"
 #include "Extract.h"
 #include "GameGuard.h"
@@ -5364,6 +5365,58 @@ private slots:
             d.keyUp(ctrl, 0xFFFFFF40u, 0, 0);
             d.keyDown(ctrl, 0x00000010u, 0, 0);
             QVERIFY(d.keyUp(ctrl, 0x00000050u, 0, 0));
+        }
+    }
+
+    void doubleClick()
+    {
+        constexpr std::uintptr_t view = 0x1234;
+        {
+            DoubleClickDetector d;
+            QVERIFY(!d.leftDown(0, 100, 100, view, false));
+            QVERIFY(d.leftDown(300, 101, 99, view, false));
+            QVERIFY(!d.firstClosedMenu());
+            QVERIFY(!d.leftDown(400, 101, 99, view, false)); // a third press starts over
+            QVERIFY(d.leftDown(600, 101, 99, view, false));
+        }
+        { // too slow
+            DoubleClickDetector d;
+            d.leftDown(0, 100, 100, view, false);
+            QVERIFY(!d.leftDown(501, 100, 100, view, false));
+            QVERIFY(d.leftDown(900, 100, 100, view, false)); // that one was a first press
+        }
+        { // moved out of the box
+            DoubleClickDetector d;
+            d.leftDown(0, 100, 100, view, false);
+            QVERIFY(!d.leftDown(200, 103, 100, view, false));
+            DoubleClickDetector e;
+            e.leftDown(0, 100, 100, view, false);
+            QVERIFY(!e.leftDown(200, 100, 97, view, false));
+        }
+        { // another window (a press on the menu, then one on File Explorer)
+            DoubleClickDetector d;
+            d.leftDown(0, 100, 100, view, false);
+            QVERIFY(!d.leftDown(200, 100, 100, view + 1, false));
+        }
+        { // another button or the wheel in between
+            DoubleClickDetector d;
+            d.leftDown(0, 100, 100, view, false);
+            d.otherInput();
+            QVERIFY(!d.leftDown(200, 100, 100, view, false));
+        }
+        { // the first press closed the menu: a double click that means "close"
+            DoubleClickDetector d;
+            d.leftDown(0, 100, 100, view, true);
+            QVERIFY(d.leftDown(200, 100, 100, view, false));
+            QVERIFY(d.firstClosedMenu());
+            d.leftDown(1000, 100, 100, view, false);
+            QVERIFY(d.leftDown(1200, 100, 100, view, false));
+            QVERIFY(!d.firstClosedMenu());
+        }
+        { // the tick count wraps around
+            DoubleClickDetector d;
+            d.leftDown(0xFFFFFF00u, 100, 100, view, false);
+            QVERIFY(d.leftDown(0x00000010u, 100, 100, view, false));
         }
     }
 

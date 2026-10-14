@@ -1672,6 +1672,46 @@
         <translation>The box is beside the icons; hold its icon and drag it onto Start to make the icons move over</translation>
     </message>
     <message>
+        <source>资源管理器右键“用 Win顺 搜索此处”</source>
+        <translation>“Search here with WinShun” in Explorer’s right-click menu</translation>
+    </message>
+    <message>
+        <source>右键;右键菜单;上下文菜单;搜索此文件夹;在此搜索;资源管理器;context menu</source>
+        <translation>right-click;context menu;search this folder;search here;Explorer</translation>
+    </message>
+    <message>
+        <source>右键文件夹、文件夹空白处或磁盘，只在那里面搜；Windows 11 在“显示更多选项”里</source>
+        <translation>Right-click a folder, a folder’s empty space or a drive to search only in it; on Windows 11 it is under “Show more options”</translation>
+    </message>
+    <message>
+        <source>双击空白处弹出文件夹菜单</source>
+        <translation>Folder menu on a double click</translation>
+    </message>
+    <message>
+        <source>双击;空白;空白处;收藏;收藏夹;最近;文件夹菜单;资源管理器;桌面;Listary;double-click;folder menu</source>
+        <translation>double click;blank;empty space;favorites;recent;folder menu;File Explorer;desktop;Listary</translation>
+    </message>
+    <message>
+        <source>在资源管理器或桌面的空白处双击，列出收藏的、最近的和别的窗口里的文件夹，选一个就在这个窗口里打开；Listary 在运行时由它来弹</source>
+        <translation>Double-click the blank space of a File Explorer folder or of the desktop for favorite, recent and open folders; pick one to go there in that window. Left to Listary while it runs</translation>
+    </message>
+    <message>
+        <source>在资源管理器的空白处双击</source>
+        <translation>Double click in File Explorer</translation>
+    </message>
+    <message>
+        <source>双击;空白;文件夹菜单;资源管理器</source>
+        <translation>double click;blank;folder menu;File Explorer</translation>
+    </message>
+    <message>
+        <source>在桌面的空白处双击</source>
+        <translation>Double click on the desktop</translation>
+    </message>
+    <message>
+        <source>双击;空白;文件夹菜单;桌面</source>
+        <translation>double click;blank;folder menu;desktop</translation>
+    </message>
+    <message>
         <source>对话框旁的搜索框</source>
         <translation>Search bar by file dialogs</translation>
     </message>
@@ -4169,6 +4209,25 @@
             <numerusform>Exported %n item to %1</numerusform>
             <numerusform>Exported %n items to %1</numerusform>
         </translation>
+    </message>
+</context>
+<context>
+    <name>ws::FolderMenu</name>
+    <message>
+        <source>还没有收藏的文件夹</source>
+        <translation>No favorite folders yet</translation>
+    </message>
+    <message>
+        <source>在“%1”里搜索</source>
+        <translation>Search in “%1”</translation>
+    </message>
+    <message>
+        <source>从收藏夹移除这个文件夹</source>
+        <translation>Remove this folder from favorites</translation>
+    </message>
+    <message>
+        <source>收藏这个文件夹</source>
+        <translation>Add this folder to favorites</translation>
     </message>
 </context>
 <context>

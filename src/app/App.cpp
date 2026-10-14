@@ -9,6 +9,7 @@
 #include "Favorites.h"
 #include "FavoritesSettings.h"
 #include "FileIconProvider.h"
+#include "FolderMenu.h"
 #include "History.h"
 #include "Host.h"
 #include "IndexFolder.h"
@@ -325,6 +326,9 @@ App::~App()
     siteicons::shutdown(); // an icon arriving now would be told to no one
     m_keyRouter.reset(); // no keys taken from here on
     m_drainingRouter.reset();
+    m_keyListener.reset(); // no double click told to the folder menu
+    delete m_folderMenuWindow; // before its view-model and the QML engine
+    m_folderMenu.reset();
     delete m_settingsWindow; // before the QML engine it was created with
     delete m_barWindow;
     delete m_clipWindow;
@@ -889,12 +893,20 @@ QString App::trayTooltip() const
 
 void App::applySettings(bool initial)
 {
-    if (m_settings.doubleCtrl && !m_keyListener) {
-        // Called on the listener thread: hop to the GUI thread.
-        m_keyListener = std::make_unique<KeyListener>(
-            [this] { QMetaObject::invokeMethod(this, &App::onDoubleCtrl, Qt::QueuedConnection); });
-    } else if (!m_settings.doubleCtrl) {
-        m_keyListener.reset();
+    applyFolderMenu(); // before the listener, which tells it double clicks
+    const int listenTo = (m_settings.doubleCtrl ? 1 : 0) | (m_folderMenu ? 2 : 0);
+    if (listenTo != m_keyListenerMode) {
+        m_keyListener.reset(); // the process's one mouse registration goes with it first
+        m_keyListenerMode = listenTo;
+        if (listenTo != 0) {
+            // Called on the listener thread: hop to the GUI thread.
+            KeyListener::Callbacks callbacks;
+            if (m_settings.doubleCtrl)
+                callbacks.doubleCtrl = [this] { QMetaObject::invokeMethod(this, &App::onDoubleCtrl, Qt::QueuedConnection); };
+            if (FolderMenu* menu = m_folderMenu.get())
+                callbacks.doubleClick = [menu](HWND window, POINT pt) { menu->doubleClicked(window, pt); };
+            m_keyListener = std::make_unique<KeyListener>(std::move(callbacks));
+        }
     }
     applyDialogs();
     applyClipboard();
@@ -1799,6 +1811,42 @@ void App::handleCommand(const QString& command)
         showLauncher(command.mid(6));
     else
         showLauncher();
+}
+
+void App::applyFolderMenu()
+{
+    const bool on = m_settings.folderMenu != u"off" && (m_settings.folderMenuExplorer || m_settings.folderMenuDesktop);
+    if (!on && m_folderMenu) {
+        m_keyListener.reset(); // it tells the menu double clicks: gone first
+        m_keyListenerMode = 0;
+        delete m_folderMenuWindow;
+        m_folderMenu.reset();
+    } else if (on && !m_folderMenu) {
+        auto menu = std::make_unique<FolderMenu>(m_history.get(), m_favorites.get());
+        QQmlComponent component(m_qml.get(), u"WinShun"_s, u"FolderMenuWindow"_s);
+        QObject* object = component.createWithInitialProperties({{u"folderMenu"_s, QVariant::fromValue(menu.get())}});
+        auto* window = qobject_cast<QQuickWindow*>(object);
+        if (!window) {
+            qWarning().noquote() << component.errorString();
+            delete object;
+            return;
+        }
+        menu->setWindow(window);
+        menu->setBlocked([this] { return clipboardInCharge(); }); // its keys over File Explorer
+        connect(menu.get(), &FolderMenu::openChanged, this, [this](bool open) {
+            if (m_keyListener)
+                m_keyListener->setMenuOpen(open);
+        });
+        connect(menu.get(), &FolderMenu::searchRequested, this, [this](const QString& folder) {
+            showLauncher(folder.endsWith(u'\\') ? folder + u' ' : folder + u"\\ "_s);
+        });
+        m_folderMenuWindow = window;
+        m_folderMenu = std::move(menu);
+    }
+    if (m_folderMenu) {
+        m_folderMenu->setOptions(m_settings.folderMenu == u"auto", m_settings.folderMenuExplorer, m_settings.folderMenuDesktop);
+        m_folderMenu->setRecordHistory(m_settings.recordHistory);
+    }
 }
 
 void App::applyDialogs()

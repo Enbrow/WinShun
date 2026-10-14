@@ -599,6 +599,12 @@ void Settings::load()
     fileManager = readOrDefault(s, u"Launcher/FileManager"_s, d.fileManager).trimmed().toLower();
     if (fileManager != u"totalcmd" && fileManager != u"dopus")
         fileManager = d.fileManager;
+    explorerMenu = readOrDefault(s, u"Launcher/ExplorerMenu"_s, d.explorerMenu);
+    folderMenu = readOrDefault(s, u"Launcher/FolderMenu"_s, d.folderMenu).trimmed().toLower();
+    if (folderMenu != u"on" && folderMenu != u"off")
+        folderMenu = d.folderMenu;
+    folderMenuExplorer = readOrDefault(s, u"Launcher/FolderMenuExplorer"_s, d.folderMenuExplorer);
+    folderMenuDesktop = readOrDefault(s, u"Launcher/FolderMenuDesktop"_s, d.folderMenuDesktop);
 
     foldersFirst = readOrDefault(s, u"Results/FoldersFirst"_s, d.foldersFirst);
     showModified = readOrDefault(s, u"Results/ShowModified"_s, d.showModified);
@@ -734,6 +740,10 @@ void Settings::save() const
     s.setValue(u"Launcher/DialogAutoJumpAsked"_s, dialogAutoJumpAsked);
     s.setValue(u"Launcher/DialogBarExcludedApps"_s, dialogBarExcludedApps);
     s.setValue(u"Launcher/FileManager"_s, fileManager);
+    s.setValue(u"Launcher/ExplorerMenu"_s, explorerMenu);
+    s.setValue(u"Launcher/FolderMenu"_s, folderMenu);
+    s.setValue(u"Launcher/FolderMenuExplorer"_s, folderMenuExplorer);
+    s.setValue(u"Launcher/FolderMenuDesktop"_s, folderMenuDesktop);
     s.setValue(u"Results/FoldersFirst"_s, foldersFirst);
     s.setValue(u"Results/ShowModified"_s, showModified);
     s.setValue(u"Results/Sort"_s, sort);

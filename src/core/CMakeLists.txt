@@ -12,6 +12,7 @@ qt_add_library(wscore STATIC
     Crawler.cpp Crawler.h
     DocExtractor.cpp DocExtractor.h
     Documents.h
+    DoubleClickDetector.h
     DoubleTapDetector.h
     Favorites.cpp Favorites.h
     FileIndex.cpp FileIndex.h

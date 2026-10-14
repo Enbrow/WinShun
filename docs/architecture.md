@@ -17,6 +17,9 @@ DialogJump=true          ; “打开”“另存为”对话框里按 Ctrl+G，�
 DialogBar=true           ; “打开”“另存为”对话框下方的搜索框
 DialogAutoJump=false     ; 对话框出现时（以及从文件管理器换了文件夹再切回来时）自动转到文件管理器的文件夹
 DialogBarExcludedApps=   ; 不显示搜索框的程序，如 notepad.exe，逗号分隔；搜索框“更多”菜单里加，设置里删
+FolderMenu=auto          ; auto | on | off：在资源管理器或桌面的空白处双击弹出文件夹菜单（GitHub #22）；auto 时 Listary 在运行就不弹
+FolderMenuExplorer=true  ; 资源管理器里
+FolderMenuDesktop=true   ; 桌面上
 FileManager=explorer     ; explorer | totalcmd | dopus：打开文件夹、打开所在位置用哪个；没装或没启动起来就用资源管理器
 Renderer=d3d11           ; d3d11（文字清晰）| software（省内存，文字偏模糊）；没写或旧版的 auto：装机内存 ≥ 8 GB 用 d3d11，否则 software
 
@@ -215,6 +218,8 @@ src/extract/         读文档里的文字（只在 WinShunExtract.exe 里运行
 src/app/             界面与 Windows 集成
   Launcher           QML 用的视图模型（查询、结果、状态、操作）
   DialogBar          对话框下方搜索框的视图模型（建议、收藏、右键菜单）；它的窗口跟着对话框出现、移动、隐藏
+  FolderMenu         双击资源管理器或桌面空白处弹出的文件夹菜单（GitHub #22）：platform/FolderViewHit 判断落点（窗口类 + MSAA），菜单窗口不抢焦点、键由 KeyRouter（Policy::Menu）转来，选中后 filemanager::goTo 让同一个标签页转过去
+  RecentFolders      最近的文件夹（Windows 最近项目 + Win顺 的历史，轮流取），对话框搜索框和文件夹菜单共用
   Clipboard          剪贴板窗口的视图模型（分类、分组、多选、预览、粘贴回原窗口）；ClipModel 是它的列表
   ColorText          文字里的颜色值（#rrggbbaa、rgba()、hsl() …）和它的几种写法；ColorSwatch 画色块，半透明的垫棋盘格
   SettingsEditor     设置窗口的视图模型（改动即保存）
@@ -223,7 +228,7 @@ src/app/             界面与 Windows 集成
   SiteIconImage      网站图标的图片：读 PNG 和 ICO（不经 WIC）、存盘前整理、画进行里（圆角、深浅底板）
   SettingsSearch     设置窗口的搜索：当前的查询，每一行问它“我命不命中”，再把显示着的行报给它，汇总出各分类的条数和最该去的一行
   App                组装各部分，管理窗口、托盘、热键
-  platform/          双击 Ctrl（Raw Input）、托盘、Shell 操作、驱动器插拔、窗口效果、跟踪文件对话框、Ctrl+G 和自动转过去（DialogJump）、从外面操作文件对话框（FileDialog）、问文件管理器开着哪些文件夹并叫它们打开文件夹（FileManagers）、带 COM 的后台线程（ComWorker）、录快捷键时的键盘钩子（ShortcutCapture）、读写剪贴板（ClipboardWatcher）、把按键送回原窗口（Paster）、剪贴板不抢焦点时把按键转给它（KeyRouter）、找别的程序的输入光标（TextCaret）、接管 Win+V 和 Win+S（WinV）、代替任务栏上的 Windows 搜索（TaskbarSearch）、任务栏上 Win顺 自己的搜索框（TaskbarSearchBox）和开始按钮右边给它让出的位置（TaskbarStartGap，配合 src/tap 的 WinShunTap.dll）、登录网络服务器（Credentials）、网络变化（NetworkNotifier）、取网站的图标（SiteIcons）、把结果拖出去（DragOut）
+  platform/          双击 Ctrl（Raw Input）、托盘、Shell 操作、驱动器插拔、窗口效果、跟踪文件对话框、Ctrl+G 和自动转过去（DialogJump）、从外面操作文件对话框（FileDialog）、问文件管理器开着哪些文件夹并叫它们打开文件夹、让资源管理器的某个标签页转到别的文件夹（FileManagers）、双击落在资源管理器或桌面的哪里（FolderViewHit）、带 COM 的后台线程（ComWorker）、录快捷键时的键盘钩子（ShortcutCapture）、读写剪贴板（ClipboardWatcher）、把按键送回原窗口（Paster）、剪贴板不抢焦点时把按键转给它（KeyRouter）、找别的程序的输入光标（TextCaret）、接管 Win+V 和 Win+S（WinV）、代替任务栏上的 Windows 搜索（TaskbarSearch）、任务栏上 Win顺 自己的搜索框（TaskbarSearchBox）和开始按钮右边给它让出的位置（TaskbarStartGap，配合 src/tap 的 WinShunTap.dll）、登录网络服务器（Credentials）、网络变化（NetworkNotifier）、取网站的图标（SiteIcons）、把结果拖出去（DragOut）
   qml/               界面：Main / SearchBar / ResultRow / Footer / ClipboardPage / SettingsWindow …
 src/stub/            WinShunSearch.exe：用户固定到任务栏的按钮，不带 Qt、不提权，点一下通知 Win顺；也替它以普通权限打开截图
 src/service/         WinShunService.exe：索引服务（Windows 服务 "WinShun"，LocalSystem，不带 Qt、静态 C 运行库），替普通权限的 Win顺 读 NTFS 的 MFT 和变更日志，见下文“权限分离”；Server（接受连接、每连接一线程、握手、限额、让出磁盘）、Volumes（OpenMft / QueryJournal / FollowJournal / CloseVolume 的服务端）、Log、main（SERVICE_MAIN、--install / --uninstall / --console）

@@ -574,6 +574,38 @@ void SettingsEditor::setHistoryCount(int count)
     emit historyCountChanged();
 }
 
+void SettingsEditor::setExplorerMenu(bool on)
+{
+    if (m_settings.explorerMenu == on)
+        return;
+    m_settings.explorerMenu = on;
+    commit();
+}
+
+void SettingsEditor::setFolderMenu(bool on)
+{
+    if (folderMenu() == on)
+        return;
+    m_settings.folderMenu = on ? QStringLiteral("auto") : QStringLiteral("off"); // "on" only by hand, in the file
+    commit();
+}
+
+void SettingsEditor::setFolderMenuExplorer(bool on)
+{
+    if (m_settings.folderMenuExplorer == on)
+        return;
+    m_settings.folderMenuExplorer = on;
+    commit();
+}
+
+void SettingsEditor::setFolderMenuDesktop(bool on)
+{
+    if (m_settings.folderMenuDesktop == on)
+        return;
+    m_settings.folderMenuDesktop = on;
+    commit();
+}
+
 void SettingsEditor::setAutoUpdate(bool on)
 {
     if (m_settings.autoUpdate == on)

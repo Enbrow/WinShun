@@ -196,6 +196,30 @@ std::vector<ExplorerTab> explorerTabs()
     return tabs;
 }
 
+// The shell's window (an IWebBrowser2) of an Explorer tab, and its browser.
+bool findTab(HWND tab, ComPtr<IWebBrowser2>& web, ComPtr<IShellBrowser>& browser)
+{
+    ComPtr<IShellWindows> windows;
+    long count = 0;
+    if (FAILED(::CoCreateInstance(CLSID_ShellWindows, nullptr, CLSCTX_LOCAL_SERVER, IID_PPV_ARGS(&windows)))
+        || FAILED(windows->get_Count(&count)))
+        return false;
+    for (long i = 0; i < count; ++i) {
+        VARIANT index {};
+        index.vt = VT_I4;
+        index.lVal = i;
+        ComPtr<IDispatch> item;
+        ComPtr<IServiceProvider> services;
+        HWND window = nullptr;
+        if (windows->Item(index, &item) != S_OK || !item || FAILED(item.As(&services))
+            || FAILED(services->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser)))
+            || FAILED(browser->GetWindow(&window)) || window != tab)
+            continue;
+        return SUCCEEDED(item.As(&web));
+    }
+    return false;
+}
+
 // The folders a Total Commander window shows: the panel with the focus first.
 std::vector<std::wstring> totalCommanderFolders(HWND window)
 {
@@ -316,6 +340,28 @@ std::vector<Folder> openFolders()
         }
     }
     return folders;
+}
+
+std::wstring explorerFolder(HWND tab)
+{
+    ComPtr<IWebBrowser2> web;
+    ComPtr<IShellBrowser> browser;
+    return findTab(tab, web, browser) ? folderPath(browser.Get()) : std::wstring();
+}
+
+bool goTo(HWND tab, const std::wstring& folder)
+{
+    ComPtr<IWebBrowser2> web;
+    ComPtr<IShellBrowser> browser;
+    if (!findTab(tab, web, browser))
+        return false;
+    VARIANT target {};
+    target.vt = VT_BSTR;
+    target.bstrVal = ::SysAllocString(folder.c_str());
+    VARIANT empty {};
+    const HRESULT hr = web->Navigate2(&target, &empty, &empty, &empty, &empty);
+    ::VariantClear(&target);
+    return SUCCEEDED(hr);
 }
 
 std::wstring program(Kind kind)

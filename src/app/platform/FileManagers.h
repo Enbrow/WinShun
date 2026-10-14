@@ -48,6 +48,14 @@ struct Folder {
 // so not on the GUI thread.
 std::vector<Folder> openFolders();
 
+// An Explorer tab by its window (ShellTabWindowClass; the top-level window
+// on Windows 10, which has none): the folder on disk it shows (empty for
+// Home, This PC, a search and the like), and taking it to another folder
+// there, as going there in it would (its Back button comes back). Need COM.
+// False when the tab is not among the shell's windows (they can miss one).
+std::wstring explorerFolder(HWND tab);
+bool goTo(HWND tab, const std::wstring& folder);
+
 // The program that takes the commands: TOTALCMD64.EXE (TOTALCMD.EXE),
 // dopusrt.exe; empty when it is not installed. A Total Commander that runs
 // (maybe a portable one) before the one installed. Explorer: always empty.

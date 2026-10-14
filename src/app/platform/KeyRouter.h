@@ -76,11 +76,17 @@ public:
         std::function<void()> drained; // after drain(): the keys it took are all let go
     };
 
+    // Which keys it takes: the clipboard's (above), or a menu's (the folder
+    // menu, GitHub #22): arrows, Home, End, Page Up and Down, Enter, Esc and
+    // what types a character, without Ctrl or Alt.
+    enum class Policy { Clipboard, Menu };
+
     // Keys are taken while `target` (top level) is in front and `window` is
     // shown. The callbacks run on the router's thread: post to the GUI thread.
     // `numberKeys`: the modifier that pastes a row with a digit (Alt, Ctrl,
     // or none: Settings::clipboardNumberKeys).
-    KeyRouter(HWND target, HWND window, Callbacks callbacks, Qt::KeyboardModifier numberKeys = Qt::AltModifier);
+    KeyRouter(HWND target, HWND window, Callbacks callbacks, Qt::KeyboardModifier numberKeys = Qt::AltModifier,
+        Policy policy = Policy::Clipboard);
     ~KeyRouter();
 
     KeyRouter(const KeyRouter&) = delete;
@@ -105,6 +111,7 @@ private:
     const HWND m_target;
     const HWND m_window;
     const Qt::KeyboardModifier m_numberKeys;
+    const Policy m_policy;
     const DWORD m_process;
     Callbacks m_callbacks;
     std::bitset<256> m_taken; // keys held whose press was taken; only touched on the router thread

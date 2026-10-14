@@ -2,6 +2,7 @@
 
 #include "PathText.h"
 #include "Query.h"
+#include "RecentFolders.h"
 #include "SearchEngine.h"
 #include "platform/WindowEffects.h"
 
@@ -35,6 +36,8 @@ using namespace Qt::StringLiterals;
 namespace ws {
 
 namespace {
+
+using recentfolders::LocalDrives;
 
 constexpr int kGap = 4; // logical pixels between the dialog and the bar
 constexpr int kMinWidth = 480;
@@ -152,95 +155,9 @@ QString withSlash(const QString& folder)
     return folder.endsWith(u'\\') ? folder : folder + u'\\';
 }
 
-// The drives of this computer, as they are now. Paths on the others are not
-// looked at: a network drive whose server is gone could take long to answer
-// (and hold up all that comes after).
-class LocalDrives {
-public:
-    LocalDrives()
-    {
-        const DWORD present = ::GetLogicalDrives();
-        for (int i = 0; i < 26; ++i) {
-            if (!(present & (1u << i)))
-                continue;
-            const wchar_t root[] {static_cast<wchar_t>(L'A' + i), L':', L'\\', L'\0'};
-            const UINT type = ::GetDriveTypeW(root);
-            if (type != DRIVE_REMOTE && type != DRIVE_NO_ROOT_DIR && type != DRIVE_UNKNOWN)
-                m_mask |= 1u << i;
-        }
-    }
-
-    bool contain(const QString& path) const
-    {
-        if (path.size() < 3 || path[1] != u':' || path[2] != u'\\')
-            return false;
-        const char16_t letter = path[0].toUpper().unicode();
-        return letter >= u'A' && letter <= u'Z' && (m_mask & (1u << (letter - u'A')));
-    }
-
-private:
-    DWORD m_mask = 0;
-};
-
 DWORD attributesOf(const QString& path)
 {
     return ::GetFileAttributesW(reinterpret_cast<const wchar_t*>(path.utf16()));
-}
-
-// A folder, or a file's folder; empty when it is not there (or not on one of `drives`).
-QString folderOf(const QString& path, const LocalDrives& drives)
-{
-    const DWORD attributes = drives.contain(path) ? attributesOf(path) : INVALID_FILE_ATTRIBUTES;
-    if (attributes == INVALID_FILE_ATTRIBUTES)
-        return {};
-    return (attributes & FILE_ATTRIBUTE_DIRECTORY) ? path : parentOf(path);
-}
-
-// The folders of what Windows lists as opened lately, newest first: the
-// shortcuts in the Recent folder, which the file dialogs of all programs add
-// to (what they open and save), and File Explorer too (the folders opened
-// in it). Empty while Windows keeps no such list. Needs COM.
-QStringList windowsRecentFolders(int max, const LocalDrives& drives)
-{
-    PWSTR dir = nullptr;
-    if (FAILED(::SHGetKnownFolderPath(FOLDERID_Recent, KF_FLAG_DONT_VERIFY, nullptr, &dir)))
-        return {};
-    const QString recent = QString::fromWCharArray(dir);
-    ::CoTaskMemFree(dir);
-    ComPtr<IShellLinkW> link;
-    ComPtr<IPersistFile> file;
-    if (FAILED(::CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link)))
-        || FAILED(link.As(&file)))
-        return {};
-    const QFileInfoList shortcuts = QDir(recent).entryInfoList({u"*.lnk"_s}, QDir::Files, QDir::Time); // newest first
-    std::wstring target(32768, L'\0');
-    QStringList folders;
-    for (const QFileInfo& shortcut : shortcuts.first(std::min<qsizetype>(shortcuts.size(), 100))) {
-        if (folders.size() >= max)
-            break;
-        const std::wstring name = QDir::toNativeSeparators(shortcut.filePath()).toStdWString();
-        if (FAILED(file->Load(name.c_str(), STGM_READ))
-            || link->GetPath(target.data(), static_cast<int>(target.size()), nullptr, 0) != S_OK)
-            continue; // S_FALSE: no file behind it (Control Panel and the like)
-        const QString folder = folderOf(QString::fromWCharArray(target.c_str()), drives);
-        if (!folder.isEmpty() && !folders.contains(folder, Qt::CaseInsensitive))
-            folders.append(folder);
-    }
-    return folders;
-}
-
-// One from each in turn, the first ones first: neither list knows when the
-// other's entries were used.
-QStringList interleaved(const QStringList& a, const QStringList& b, int max)
-{
-    QStringList out;
-    for (qsizetype i = 0; out.size() < max && (i < a.size() || i < b.size()); ++i) {
-        for (const QStringList* list : {&a, &b}) {
-            if (i < list->size() && out.size() < max && !out.contains(list->at(i), Qt::CaseInsensitive))
-                out.append(list->at(i));
-        }
-    }
-    return out;
 }
 
 // The path on the clipboard: of the (first) file or folder copied in File
@@ -827,18 +744,8 @@ void DialogBar::lookAround()
             found.explorerKinds.append(folder.shownIn);
         }
         const LocalDrives drives;
-        if (recordHistory) {
-            // The folders of what was opened through Win顺 (or the folders themselves).
-            QStringList ours;
-            for (const QString& item : history) {
-                if (ours.size() >= kMaxRecent)
-                    break;
-                const QString folder = folderOf(QDir::toNativeSeparators(item), drives);
-                if (!folder.isEmpty() && !ours.contains(folder, Qt::CaseInsensitive))
-                    ours.append(folder);
-            }
-            found.recent = interleaved(windowsRecentFolders(kMaxRecent, drives), ours, kMaxRecent);
-        }
+        if (recordHistory)
+            found.recent = recentfolders::recent(history, kMaxRecent);
         for (const Favorite& f : favorites) { // one on a network drive or share is kept unasked
             if (!f.isFileOrFolder() || (foldersOnly && f.kind != Favorite::Kind::Folder))
                 continue;
