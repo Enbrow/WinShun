@@ -15,6 +15,12 @@ qt_add_executable(tst_color tst_color.cpp ${PROJECT_SOURCE_DIR}/src/app/ColorTex
 target_include_directories(tst_color PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(tst_color PRIVATE Qt6::Gui Qt6::Test)
 
+# Backups of the settings: what goes in, unchanged ones skipped, old ones
+# removed, and restoring (a path leaving the folder refused).
+qt_add_executable(tst_backup tst_backup.cpp ${PROJECT_SOURCE_DIR}/src/app/BackupFiles.cpp)
+target_include_directories(tst_backup PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_link_libraries(tst_backup PRIVATE winshun_options miniz Qt6::Core Qt6::Test)
+
 # Sites' icons as read from what a site sends (PNG, ICO), damaged ones too.
 qt_add_executable(tst_siteicon tst_siteicon.cpp ${PROJECT_SOURCE_DIR}/src/app/SiteIconImage.cpp)
 target_include_directories(tst_siteicon PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
@@ -80,6 +86,7 @@ add_test(NAME tst_favorites COMMAND tst_favorites)
 add_test(NAME tst_color COMMAND tst_color)
 add_test(NAME tst_dragout COMMAND tst_dragout)
 add_test(NAME tst_siteicon COMMAND tst_siteicon)
+add_test(NAME tst_backup COMMAND tst_backup)
 add_test(NAME tst_ocr COMMAND tst_ocr)
 add_test(NAME tst_tools COMMAND tst_tools)
 add_test(NAME tst_semantic COMMAND tst_semantic)

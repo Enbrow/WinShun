@@ -1310,7 +1310,9 @@ void SettingsEditor::setSignedIn(const QString& path, const QString& problem)
 
 bool SettingsEditor::isDefault() const
 {
-    return m_settings == Settings::defaults();
+    Settings defaults = Settings::defaults();
+    defaults.backupFolder = m_settings.backupFolder; // kept by restoreDefaults()
+    return m_settings == defaults;
 }
 
 void SettingsEditor::addExcludedFolder()
@@ -1381,13 +1383,35 @@ void SettingsEditor::restoreDefaults()
 {
     if (isDefault())
         return;
+    // Backups go on: the settings before this are in them.
+    const QString backupFolder = m_settings.backupFolder;
     m_settings = Settings::defaults();
+    m_settings.backupFolder = backupFolder;
     commit();
 }
 
 void SettingsEditor::openDataFolder()
 {
     shell::open(Settings::dataDir());
+}
+
+bool SettingsEditor::chooseBackupFolder()
+{
+    const HWND owner = m_window ? reinterpret_cast<HWND>(m_window->winId()) : nullptr;
+    const QString folder = shell::pickFolder(owner, tr("选择备份文件夹（可以选同步盘里的文件夹）"));
+    if (!folder.isEmpty() && folder != m_settings.backupFolder) {
+        m_settings.backupFolder = folder;
+        commit();
+    }
+    return !m_settings.backupFolder.isEmpty();
+}
+
+void SettingsEditor::stopBackups()
+{
+    if (m_settings.backupFolder.isEmpty())
+        return;
+    m_settings.backupFolder.clear();
+    commit();
 }
 
 void SettingsEditor::setIndexFolderState(const IndexFolderState& state)

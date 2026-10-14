@@ -2,6 +2,7 @@
 
 #include "AiBridge.h"
 #include "AppCatalog.h"
+#include "Backup.h"
 #include "ClipStore.h"
 #include "Clipboard.h"
 #include "DialogBar.h"
@@ -426,6 +427,8 @@ bool App::start(const StartOptions& options)
     });
 
     m_updater = std::make_unique<Updater>();
+    m_backup = std::make_unique<Backup>();
+    connect(m_backup.get(), &Backup::restartRequested, this, [this] { restart({u"--settings"_s}); });
     m_updater->setChinese(m_language == u"zh");
     connect(m_updater.get(), &Updater::found, this, [this](bool manual) {
         // Asked for, or the settings window is open: show it there. Otherwise
@@ -827,6 +830,7 @@ void App::applySettings(bool initial)
     if (!initial)
         applyAppearance();
     m_updater->setAutomatic(m_settings.autoUpdate);
+    m_backup->setFolder(m_settings.backupFolder);
     m_launcher->setRecordHistory(m_settings.recordHistory);
     m_launcher->setResultOptions(m_settings.foldersFirst ? KindOrder::FoldersFirst : KindOrder::FilesFirst,
         m_settings.showModified, m_settings.numberKeys);
@@ -1285,6 +1289,7 @@ void App::settingsEdited(const Settings& settings)
 {
     m_settings = settings;
     applySettings(false);
+    m_backup->soon();
 }
 
 void App::showSettings()
@@ -1297,6 +1302,7 @@ void App::showSettings()
             {u"editor"_s, QVariant::fromValue(editor)},
             {u"frame"_s, QVariant::fromValue(frame)},
             {u"updater"_s, QVariant::fromValue(m_updater.get())},
+            {u"backup"_s, QVariant::fromValue(m_backup.get())},
         });
         auto* window = qobject_cast<QQuickWindow*>(object);
         if (!window) {

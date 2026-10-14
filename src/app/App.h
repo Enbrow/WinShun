@@ -50,6 +50,7 @@ class SearchEngine;
 class SettingsEditor;
 class StartMenuTyping;
 class Updater;
+class Backup;
 class VolumeNotifier;
 class WindowFrame;
 class WindowLogo;
@@ -289,6 +290,7 @@ private:
     QString m_clipboardShortcut; // what opens the clipboard: "Win+V", another shortcut, or nothing
     std::unique_ptr<MessageWindow> m_messages;
     std::unique_ptr<Updater> m_updater;
+    std::unique_ptr<Backup> m_backup; // of the settings, into a folder chosen
     bool m_updateNotified = false; // the last tray notification announced a new version
     std::unique_ptr<VolumeNotifier> m_volumeNotifier; // after m_messages, whose window it uses
     std::unique_ptr<NetworkNotifier> m_network; // after m_index, whose shares it tells

@@ -2323,6 +2323,62 @@
         <translation>upgrade;new version;update</translation>
     </message>
     <message>
+        <source>备份</source>
+        <translation>Backup</translation>
+    </message>
+    <message>
+        <source>备份设置、收藏夹和添加的插件，不含索引和历史记录。选同步盘里的文件夹（OneDrive、坚果云，或用 alist、RaiDrive 挂载的 WebDAV 盘），备份就跟着同步到云上。</source>
+        <translation>Backs up the settings, favorites and added plugins, not the indexes or histories. Pick a folder that syncs (OneDrive, Nutstore, or a WebDAV drive mounted with alist or RaiDrive) and the backups go to the cloud too.</translation>
+    </message>
+    <message>
+        <source>自动备份设置</source>
+        <translation>Back up settings automatically</translation>
+    </message>
+    <message>
+        <source>备份;同步;云;WebDAV;坚果云;OneDrive;网盘;导出;backup;sync</source>
+        <translation>backup;sync;cloud;WebDAV;Nutstore;OneDrive;export;save settings</translation>
+    </message>
+    <message>
+        <source>设置有变化时自动备份到你选的文件夹，保留最近 10 份</source>
+        <translation>When settings change, a backup goes to a folder you choose; the latest 10 are kept</translation>
+    </message>
+    <message>
+        <source>正在备份…</source>
+        <translation>Backing up…</translation>
+    </message>
+    <message>
+        <source>没有备份成功：%1</source>
+        <translation>Backup failed: %1</translation>
+    </message>
+    <message>
+        <source>上次备份：%1</source>
+        <translation>Last backup: %1</translation>
+    </message>
+    <message>
+        <source>还没有备份</source>
+        <translation>No backup yet</translation>
+    </message>
+    <message>
+        <source>恢复设置</source>
+        <translation>Restore settings</translation>
+    </message>
+    <message>
+        <source>恢复;还原;导入;换电脑;restore;import</source>
+        <translation>restore;import;new computer;move settings</translation>
+    </message>
+    <message>
+        <source>从一份备份恢复，Win顺 随后重启；现在的设置会先备份一份，恢复错了还能换回来</source>
+        <translation>Restore from a backup, then WinShun restarts. The current settings are backed up first, so a wrong restore can be undone</translation>
+    </message>
+    <message>
+        <source>立即备份</source>
+        <translation>Back up now</translation>
+    </message>
+    <message>
+        <source>从备份恢复…</source>
+        <translation>Restore from backup…</translation>
+    </message>
+    <message>
         <source>界面绘制方式</source>
         <translation>Rendering</translation>
     </message>
@@ -3279,6 +3335,29 @@
     <message>
         <source>这是机械硬盘：文件名搜索不受影响；内容索引会在后台预读进内存，硬盘休眠后第一次内容搜索可能要等它转起来</source>
         <translation>This is a hard disk. Searching by name is not affected; the content index is read into memory in the background, but after the disk has gone to sleep, the first content search may wait for it to spin up</translation>
+    </message>
+</context>
+<context>
+    <name>ws::Backup</name>
+    <message>
+        <source>选择要恢复的备份</source>
+        <translation>Choose a backup to restore</translation>
+    </message>
+    <message>
+        <source>Win顺 备份</source>
+        <translation>WinShun backups</translation>
+    </message>
+    <message>
+        <source>所有文件</source>
+        <translation>All files</translation>
+    </message>
+    <message>
+        <source>有文件读不出来</source>
+        <translation>A file could not be read</translation>
+    </message>
+    <message>
+        <source>写不进 %1</source>
+        <translation>Cannot write to %1</translation>
     </message>
 </context>
 <context>
@@ -5285,6 +5364,10 @@
         <translation>%1 shares no folders</translation>
     </message>
     <message>
+        <source>选择备份文件夹（可以选同步盘里的文件夹）</source>
+        <translation>Choose a backup folder (one that syncs works too)</translation>
+    </message>
+    <message>
         <source>选择不让 AI 看到的文件夹</source>
         <translation>Choose a folder AI never sees</translation>
     </message>
@@ -5334,6 +5417,33 @@
     <message>
         <source>连不上 GitHub，请检查网络（或代理）后重试。</source>
         <translation>Couldn’t reach GitHub. Check your network (or proxy) and try again.</translation>
+    </message>
+</context>
+<context>
+    <name>ws::backupfiles</name>
+    <message>
+        <source>有文件读不出来</source>
+        <translation>A file could not be read</translation>
+    </message>
+    <message>
+        <source>建不了文件夹 %1</source>
+        <translation>Cannot create the folder %1</translation>
+    </message>
+    <message>
+        <source>写不进 %1</source>
+        <translation>Cannot write to %1</translation>
+    </message>
+    <message>
+        <source>打不开 %1</source>
+        <translation>Cannot open %1</translation>
+    </message>
+    <message>
+        <source>这不是 Win顺 的备份</source>
+        <translation>This is not a WinShun backup</translation>
+    </message>
+    <message>
+        <source>备份文件已损坏</source>
+        <translation>The backup file is damaged</translation>
     </message>
 </context>
 </TS>

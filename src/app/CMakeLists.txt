@@ -209,6 +209,7 @@ qt_add_qml_module(WinShun
         SystemTheme.cpp SystemTheme.h
         UiSize.h
         Updater.cpp Updater.h
+        Backup.cpp Backup.h BackupFiles.cpp BackupFiles.h
         WindowFrame.cpp WindowFrame.h
 )
 
@@ -253,7 +254,7 @@ target_link_libraries(WinShun PRIVATE
     onnxruntime_headers) # PaddleOcr
 # The gap right of Start (platform/TaskbarStartGap): the channel to WinShunTap.dll
 # (src/tap), the DLL's SHA-256 (bcrypt), its folder's DACL (advapi32).
-target_link_libraries(WinShun PRIVATE wstap_api bcrypt advapi32)
+target_link_libraries(WinShun PRIVATE wstap_api bcrypt advapi32 miniz) # miniz: settings backups (BackupFiles)
 add_dependencies(WinShun WinShunTap) # built first: it is staged from next to WinShun.exe
 # The execution level (requireAdministrator) comes from app.manifest alone; the
 # linker's own default (asInvoker) would conflict with it. Media Foundation is

@@ -108,6 +108,9 @@ struct Settings {
     // [Update]
     bool autoUpdate = true; // look for new versions on GitHub (see Updater)
 
+    // [Backup]
+    QString backupFolder; // where the settings are backed up (see Backup); empty: not
+
     // [Index]
     QStringList excludedPaths;
     QStringList excludedNames;

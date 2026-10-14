@@ -10,6 +10,7 @@ Window {
     required property SettingsEditor editor
     required property WindowFrame frame
     required property Updater updater
+    required property Backup backup
 
     readonly property var renderers: ["software", "d3d11"]
     readonly property var languages: ["system", "zh", "en"]
@@ -2758,6 +2759,67 @@ Window {
                     ToggleSwitch {
                         checked: window.editor.autoUpdate
                         onToggled: (on) => window.editor.autoUpdate = on
+                    }
+                }
+            }
+
+            SettingsSection {
+                page: window.advancedPage
+                width: parent.width
+                title: qsTr("备份")
+                note: qsTr("备份设置、收藏夹和添加的插件，不含索引和历史记录。选同步盘里的文件夹（OneDrive、坚果云，或用 alist、RaiDrive 挂载的 WebDAV 盘），备份就跟着同步到云上。")
+
+                SettingRow {
+                    id: backupRow
+
+                    readonly property bool on: window.editor.backupFolder.length > 0
+
+                    title: qsTr("自动备份设置")
+                    keywords: qsTr("备份;同步;云;WebDAV;坚果云;OneDrive;网盘;导出;backup;sync").split(";")
+                    description: !on ? qsTr("设置有变化时自动备份到你选的文件夹，保留最近 10 份")
+                               : (window.backup.busy ? qsTr("正在备份…")
+                                  : window.backup.problem.length > 0 ? qsTr("没有备份成功：%1").arg(window.backup.problem)
+                                  : !isNaN(window.backup.last.getTime()) ? qsTr("上次备份：%1").arg(window.sinceText(window.backup.last))
+                                  : qsTr("还没有备份"))
+                                 + "\n" + window.editor.backupFolder
+
+                    FlatButton {
+                        visible: backupRow.on
+                        text: qsTr("打开")
+                        glyph: "" // FolderOpen
+                        onClicked: window.backup.openFolder()
+                    }
+                    FlatButton {
+                        visible: backupRow.on
+                        text: qsTr("更改")
+                        onClicked: window.editor.chooseBackupFolder()
+                    }
+                    ToggleSwitch {
+                        checked: backupRow.on
+                        onToggled: (on) => {
+                            if (on)
+                                window.editor.chooseBackupFolder()
+                            else
+                                window.editor.stopBackups()
+                        }
+                    }
+                }
+
+                SettingRow {
+                    title: qsTr("恢复设置")
+                    keywords: qsTr("恢复;还原;导入;换电脑;restore;import").split(";")
+                    description: qsTr("从一份备份恢复，Win顺 随后重启；现在的设置会先备份一份，恢复错了还能换回来")
+
+                    FlatButton {
+                        visible: window.editor.backupFolder.length > 0
+                        enabled: !window.backup.busy
+                        text: qsTr("立即备份")
+                        onClicked: window.backup.backUpNow()
+                    }
+                    FlatButton {
+                        enabled: !window.backup.busy
+                        text: qsTr("从备份恢复…")
+                        onClicked: window.backup.restore(window)
                     }
                 }
             }

@@ -3,6 +3,7 @@
 #include "Settings.h"
 #include "Unc.h"
 
+#include <QDir>
 #include <QObject>
 #include <QPointer>
 #include <QVariantList>
@@ -131,6 +132,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString taskbarIcon READ taskbarIcon WRITE setTaskbarIcon NOTIFY changed FINAL) // color | mono
     Q_PROPERTY(QString uiSize READ uiSize WRITE setUiSize NOTIFY changed FINAL) // compact | standard | roomy
     Q_PROPERTY(bool autoUpdate READ autoUpdate WRITE setAutoUpdate NOTIFY changed FINAL)
+    Q_PROPERTY(QString backupFolder READ backupFolder NOTIFY changed FINAL) // empty: no backups (see Backup)
     Q_PROPERTY(bool restartRequired READ restartRequired NOTIFY changed FINAL)
     Q_PROPERTY(bool isDefault READ isDefault NOTIFY changed FINAL)
     Q_PROPERTY(QString dataFolder READ dataFolder CONSTANT FINAL)
@@ -232,6 +234,7 @@ public:
     QString uiSize() const { return m_settings.uiSize; }
     void setUiSize(const QString& size);
     bool autoUpdate() const { return m_settings.autoUpdate; }
+    QString backupFolder() const { return QDir::toNativeSeparators(m_settings.backupFolder); }
     void setAutoUpdate(bool on);
     bool restartRequired() const { return Settings::resolveRenderer(m_settings.renderer) != m_runningRenderer; }
     bool isDefault() const;
@@ -394,6 +397,10 @@ public:
     Q_INVOKABLE void restoreDefaults();
     Q_INVOKABLE void clearHistory() { emit historyClearRequested(); }
     Q_INVOKABLE void openDataFolder();
+    // Automatic backups of the settings: into a folder asked for here; off.
+    // Returns whether they are on now.
+    Q_INVOKABLE bool chooseBackupFolder();
+    Q_INVOKABLE void stopBackups();
     // The app moves the index files once the setting changes (App::applyIndexFolder).
     Q_INVOKABLE void chooseIndexFolder(); // asks for the folder
     Q_INVOKABLE void resetIndexFolder() { setIndexFolder({}); } // back to the default place

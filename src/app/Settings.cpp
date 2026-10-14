@@ -638,6 +638,7 @@ void Settings::load()
     }
 
     autoUpdate = readOrDefault(s, u"Update/Automatic"_s, d.autoUpdate);
+    backupFolder = readOrDefault(s, u"Backup/Folder"_s, d.backupFolder);
 
     excludedPaths = readOrDefault(s, u"Index/ExcludedPaths"_s, d.excludedPaths);
     excludedNames = readOrDefault(s, u"Index/ExcludedNames"_s, d.excludedNames);
@@ -741,6 +742,7 @@ void Settings::save() const
     s.setValue(u"Appearance/TaskbarIcon"_s, taskbarIcon);
     s.setValue(u"Appearance/UiSize"_s, uiSize);
     s.setValue(u"Update/Automatic"_s, autoUpdate);
+    s.setValue(u"Backup/Folder"_s, backupFolder);
     s.setValue(u"Index/ExcludedPaths"_s, excludedPaths);
     s.setValue(u"Index/ExcludedNames"_s, excludedNames);
     s.setValue(u"Index/IncludeRemovableDrives"_s, includeRemovableDrives);

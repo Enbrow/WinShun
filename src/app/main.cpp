@@ -1,4 +1,5 @@
 #include "App.h"
+#include "Backup.h"
 #include "Migration.h"
 #include "Preview.h"
 #include "Settings.h"
@@ -222,6 +223,7 @@ int main(int argc, char* argv[])
         return 0; // nothing running
     if (portable)
         ws::copyIntoPortable(); // its first start: what the usual places hold
+    ws::Backup::applyRestored(); // a backup chosen to restore, before the settings are read
     g_defaultHandler = qInstallMessageHandler(logToFile); // the running copy only
 
     applyUiFont(); // the UI font (see above)
