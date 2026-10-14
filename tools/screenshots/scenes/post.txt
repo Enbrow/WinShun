@@ -37,13 +37,11 @@ matte L-numbers
 tap 1B
 sleep 600
 
-# The newest first: 全部 → 文件 (Shift+Tab, see windows.txt), Ctrl+S once
-# (最匹配 → 最新); twice more back to 最匹配, then 文件 → 全部.
+# The newest first: 全部 → 文件 (Tab, see windows.txt), Ctrl+S once
+# (最匹配 → 最新); twice more back to 最匹配, then 文件 → 内容 → 全部.
 open ndbg
 sleep 800
-chord 10 09
-sleep 400
-chord 10 09
+tap 09
 sleep 800
 chord 11 53
 sleep 1000
@@ -54,7 +52,13 @@ chord 11 53
 sleep 300
 chord 11 53
 sleep 300
-chord 10 09
+# no rows, so that Tab can't go into a folder
+tap 23
+type zqxwvj
+sleep 500
+tap 09
+sleep 300
+tap 09
 sleep 300
 tap 1B
 sleep 600

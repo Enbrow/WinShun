@@ -202,6 +202,15 @@ def near(a, b, distance):
     return a[0] < b[2] + distance and b[0] < a[2] + distance and a[1] < b[3] + distance and b[1] < a[3] + distance
 
 
+def overlap(a, b):
+    """How much of the smaller of two rectangles the other covers, 0 to 1."""
+    w = min(a[2], b[2]) - max(a[0], b[0])
+    h = min(a[3], b[3]) - max(a[1], b[1])
+    if w <= 0 or h <= 0:
+        return 0.0
+    return w * h / min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
+
+
 def shoot(delay=0.0, winshun=False, margin=64, tries=12):
     """The window in front, or with `winshun` WinShun's frontmost one (the
     clipboard pops up without taking the focus), and WinShun's windows by it
@@ -221,10 +230,12 @@ def shoot(delay=0.0, winshun=False, margin=64, tries=12):
     def logo(h):
         return max(size(h)) <= 160
     # A file dialog and the bar against it go together, whichever is in front.
+    # The bar sits against the dialog's edge: a dialog that merely lies behind
+    # (another program's, such as a licence window) overlaps it and stays out.
     targets = [main]
     if main in ours:
         targets += [h for h in order if h not in ours and d.class_name(h) == "#32770"
-                    and near(d.frame(h), d.frame(main), 24)]
+                    and near(d.frame(h), d.frame(main), 24) and overlap(d.frame(h), d.frame(main)) < 0.1]
     else:
         targets += [h for h in ours if not logo(h) and near(d.frame(h), d.frame(main), 24)]
     targets += [h for h in ours if logo(h) and any(near(d.frame(h), d.frame(t), 160) for t in targets)]

@@ -11,13 +11,17 @@ clickbox 560 1564
 sleep 1200
 type ndbg
 sleep 800
-chord 10 09
-sleep 400
-chord 10 09
+tap 09
 sleep 1200
 shotabs screen-taskbar 0 0 2560 1600
 matte L-taskbar
-chord 10 09
+# 文件 → 内容 → 全部, with no rows (Tab would go into a folder row)
+tap 23
+type zqxwvj
+sleep 500
+tap 09
+sleep 300
+tap 09
 sleep 300
 tap 1B
 sleep 600

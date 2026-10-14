@@ -1,9 +1,11 @@
 # The windows of the README and the post, {p}-<name>.png each (p: L light,
 # D dark; light.txt and dark.txt set it and the theme). The launcher keeps
 # its scope from one opening to the next and starts at 全部 when WinShun
-# starts: this file starts and ends at 全部. Scopes are changed with
-# Shift+Tab (全部 → 内容 → 文件), since Tab on a folder row goes into the
-# folder and in 文件 steps through the kinds. End before each shot, so that the query isn't selected;
+# starts: this file starts and ends at 全部. Scopes are changed with Tab
+# (全部 → 文件 → 内容; Shift+Tab is the row of kinds since GitHub #16), so the
+# row the keyboard is on must not be a folder: Tab goes into that one.
+# `open` puts the caret after the query (nothing selected): Backspace it
+# before typing other words. End before each shot, so that the query isn't selected;
 # the agent drops leading spaces, so a space is typed with `tap 20`.
 
 # The clipboard history over Notepad (Win+Alt+V, Alt+P for the preview);
@@ -77,9 +79,7 @@ sleep 600
 # 全部 → 文件 (its row of kinds under the box)
 open ndbg
 sleep 800
-chord 10 09
-sleep 400
-chord 10 09
+tap 09
 sleep 800
 tap 23
 sleep 700
@@ -87,22 +87,19 @@ matte {p}-search
 tap 1B
 sleep 600
 
-# 文件 → 全部 → 内容 (the content search takes a moment)
+# 文件 → 内容 (the content search takes a moment)
 open x
 sleep 300
+tap 08
 type 第三季度销售额
 sleep 600
-chord 10 09
-sleep 400
-chord 10 09
+tap 09
 sleep 1500
 tap 23
 sleep 500
 matte {p}-content
-# 内容 → 文件 → 全部
-chord 10 09
-sleep 300
-chord 10 09
+# 内容 → 全部
+tap 09
 sleep 300
 tap 1B
 sleep 600
