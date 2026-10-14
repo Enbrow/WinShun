@@ -304,7 +304,7 @@ public:
     // (fileTypes); in 文件 (or 文件夹) from any scope.
     static constexpr int kFoldersChip = -2;
     Q_INVOKABLE void chooseFileType(int type);
-    // Tab in 文件: the next chip, round (不限, 文件夹, then the kinds).
+    // Shift+Tab in 文件: the next chip, round (不限, 文件夹, then the kinds).
     Q_INVOKABLE void cycleFileType(int delta);
     Q_INVOKABLE void editFileTypes(); // the strip's +: fileTypeSettingsRequested
     // The strip's choice, to keep between runs: "folders", a kind's id

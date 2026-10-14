@@ -1817,7 +1817,7 @@ Window {
             SettingsSection {
                 page: 3
                 width: parent.width
-                note: qsTr("在搜索框按 Tab 切换“全部”“文件”“内容”；在“文件”里 Tab 切换文件类型，Shift+Tab 切换范围。")
+                note: qsTr("在搜索框按 Tab 切换“全部”“文件”“内容”；Shift+Tab 在“文件”里切换文件类型，在“内容”里切换文件夹。")
 
                 SettingRow {
                     title: qsTr("文件和文件夹的顺序")
@@ -1898,7 +1898,7 @@ Window {
                     title: qsTr("文件类型")
                     keywords: qsTr("类型;扩展名;后缀;筛选;图片;文档;视频;音乐;压缩包;filter;type;extension").split(";")
                     values: window.editor.fileTypes.map(t => t.name)
-                    description: qsTr("“文件”里搜索框下面的一排，按 Tab 切换；每个类型是一组扩展名，用空格或逗号隔开")
+                    description: qsTr("“文件”里搜索框下面的一排，按 Shift+Tab 切换；每个类型是一组扩展名，用空格或逗号隔开")
 
                     FlatButton {
                         visible: !window.editor.fileTypesDefault

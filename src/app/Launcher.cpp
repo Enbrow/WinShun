@@ -1334,11 +1334,11 @@ void Launcher::refreshKeyHints()
     QString enter;
     QString secondKeys;
     QString second;
-    // In 文件, Tab goes through the strip of kinds (not into a folder).
-    const bool narrowing = (m_scope == Files || m_scope == Folders) && !m_keyword;
+    // Tab: into a favorite folder in 全部, a completion, else the scopes (the
+    // strip under the box is Shift+Tab's, GitHub #16).
+    const bool narrowing = (m_scope == Files || m_scope == Folders || m_scope == Content) && !m_keyword;
     QString tab = enterableFolder(m_currentRow) && !narrowing ? tr("进入文件夹")
         : completionRow(m_currentRow)                          ? tr("补全")
-        : narrowing                                            ? tr("切换类型")
         : m_keyword                                            ? QString()
                                                                : tr("切换范围");
     const SearchResult* r = m_results.at(m_currentRow);
@@ -2354,8 +2354,9 @@ const SearchResult* Launcher::enterableFolder(int row) const
 
 bool Launcher::autocomplete(int row)
 {
-    // In 文件, Tab goes through the strip of kinds instead (cycleFileType).
-    const bool narrowing = m_scope == Files || m_scope == Folders;
+    // Not in 文件 and 内容: there a folder is narrowed to by the strip
+    // (Shift+Tab), and Tab is the scopes' alone.
+    const bool narrowing = m_scope == Files || m_scope == Folders || m_scope == Content;
     if (const SearchResult* folder = narrowing ? nullptr : enterableFolder(row)) {
         setQuery(folder->path.endsWith(u'\\') ? folder->path : folder->path + u'\\');
         return true;

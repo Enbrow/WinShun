@@ -850,8 +850,8 @@
         <translation>Type a name to search files, apps and settings</translation>
     </message>
     <message>
-        <source>按 Tab 换个类型，Shift+Tab 切换范围</source>
-        <translation>Press Tab for another type, Shift+Tab to switch scope</translation>
+        <source>按 Shift+Tab 换个类型，Tab 切换范围</source>
+        <translation>Press Shift+Tab for another type, Tab to switch scope</translation>
     </message>
 </context>
 <context>
@@ -2720,8 +2720,8 @@
         <translation>type;extension;suffix;filter;picture;document;video;music;archive;kind</translation>
     </message>
     <message>
-        <source>“文件”里搜索框下面的一排，按 Tab 切换；每个类型是一组扩展名，用空格或逗号隔开</source>
-        <translation>The row under the search box in Files; Tab goes along it. Each type is a list of extensions, separated by spaces or commas</translation>
+        <source>“文件”里搜索框下面的一排，按 Shift+Tab 切换；每个类型是一组扩展名，用空格或逗号隔开</source>
+        <translation>The row under the search box in Files; Shift+Tab goes along it. Each type is a list of extensions, separated by spaces or commas</translation>
     </message>
     <message>
         <source>上移</source>
@@ -4358,10 +4358,6 @@
         <source>搜索%1</source>
         <comment>a kind of file, as 图片</comment>
         <translation>Search %1</translation>
-    </message>
-    <message>
-        <source>切换类型</source>
-        <translation>Type</translation>
     </message>
 </context>
 <context>

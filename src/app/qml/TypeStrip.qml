@@ -47,14 +47,26 @@ Item {
     // sum of this and the room it does not fill yet (Main.qml), and with a
     // fraction in each the sum could come out a pixel short, a native resize
     // on that frame. The rows below glide on whole pixels too.
-    property real opening: targetHeight
+    // It opens with an animation but closes at once: the window gives its
+    // room back in the same go as the click, not in a second jump once it
+    // has closed (often the rows below go in that same click, and nothing
+    // would be left to glide). Written here, not bound, so that `animated`
+    // is set before the Behavior sees the new value.
+    property real opening: 0
+    property bool animated: false
+    onTargetHeightChanged: {
+        animated = targetHeight > opening
+        opening = targetHeight
+    }
     Behavior on opening {
+        enabled: strip.animated
         NumberAnimation { duration: 200; easing.type: Easing.OutCubic } // as fast as Windows' own
     }
     height: Math.round(opening)
     clip: true
 
     Component.onCompleted: {
+        opening = targetHeight
         frame.addDragArea(strip)
         frame.addControl(view)
         frame.addControl(edit)
