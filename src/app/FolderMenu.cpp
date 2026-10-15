@@ -3,6 +3,7 @@
 #include "Favorites.h"
 #include "History.h"
 #include "RecentFolders.h"
+#include "platform/FileDialog.h"
 #include "platform/FileManagers.h"
 #include "platform/KeyRouter.h"
 #include "platform/Shell.h"
@@ -18,10 +19,13 @@
 #include <QTimer>
 #include <QWindow>
 
+#include <shellscalingapi.h>
 #include <tlhelp32.h>
 
 #include <chrono>
+#include <cmath>
 #include <cwchar>
+#include <optional>
 #include <utility>
 
 using namespace std::chrono_literals;
@@ -79,6 +83,57 @@ QString detailOf(const QString& folder)
 bool samePath(const QString& a, const QString& b)
 {
     return a.compare(b, Qt::CaseInsensitive) == 0;
+}
+
+// The screen a physical point is on, as Qt knows it; the primary when none is.
+QScreen* screenAt(POINT pt)
+{
+    const HMONITOR monitor = ::MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+    QScreen* screen = QGuiApplication::primaryScreen();
+    for (QScreen* candidate : QGuiApplication::screens()) {
+        const auto* native = candidate->nativeInterface<QNativeInterface::QWindowsScreen>();
+        if (native && native->handle() == monitor)
+            screen = candidate;
+    }
+    return screen;
+}
+
+// The file manager whose window the menu is over, for the surfaces that are one's.
+std::optional<filemanager::Kind> managerOf(folderview::Surface surface)
+{
+    switch (surface) {
+    case folderview::Surface::Opus:
+        return filemanager::Kind::DirectoryOpus;
+    case folderview::Surface::TotalCommander:
+        return filemanager::Kind::TotalCommander;
+    case folderview::Surface::XYplorer:
+        return filemanager::Kind::XYplorer;
+    default:
+        return std::nullopt;
+    }
+}
+
+const char* nameOf(folderview::Surface surface)
+{
+    switch (surface) {
+    case folderview::Surface::Explorer:
+        return "File Explorer";
+    case folderview::Surface::Desktop:
+        return "the desktop";
+    case folderview::Surface::Opus:
+        return "Directory Opus";
+    case folderview::Surface::TotalCommander:
+        return "Total Commander";
+    case folderview::Surface::XYplorer:
+        return "XYplorer";
+    case folderview::Surface::Dialog:
+        return "a file dialog";
+    case folderview::Surface::Other:
+        return "another window";
+    case folderview::Surface::None:
+        break;
+    }
+    return "nothing";
 }
 
 } // namespace
@@ -186,6 +241,111 @@ void FolderMenu::requested(const QString& folder)
     });
 }
 
+void FolderMenu::hotkeyPressed()
+{
+    using Action = menuhotkey::Toggle::Action;
+    switch (m_toggle.pressed(m_open, m_asks)) {
+    case Action::Close:
+        qInfo() << "Folder menu: the hotkey closes it";
+        dismiss();
+        return;
+    case Action::Drop:
+        ++m_asks; // the answer on its way is dropped
+        qInfo() << "Folder menu: the hotkey again while asking; dropped";
+        return;
+    case Action::Open:
+        break;
+    }
+    if (m_blocked && m_blocked())
+        return;
+    const HWND foreground = ::GetForegroundWindow();
+    const HWND root = foreground ? ::GetAncestor(foreground, GA_ROOT) : nullptr;
+    if (!root)
+        return;
+    folderview::Hit hit = folderview::classifyWindow(root);
+    if (hit.surface == folderview::Surface::None) {
+        hit.root = root;
+        hit.tab = root;
+        const std::optional<filemanager::Kind> manager = filemanager::kindOf(root);
+        if (manager == filemanager::Kind::DirectoryOpus)
+            hit.surface = folderview::Surface::Opus;
+        else if (manager == filemanager::Kind::TotalCommander)
+            hit.surface = folderview::Surface::TotalCommander;
+        else if (manager == filemanager::Kind::XYplorer)
+            hit.surface = folderview::Surface::XYplorer;
+        else if (filedialog::kind(root) != filedialog::Kind::None)
+            hit.surface = folderview::Surface::Dialog;
+        else
+            hit.surface = folderview::Surface::Other;
+    }
+    hit.pt = hotkeyAnchor(root);
+    const int ask = ++m_asks;
+    m_toggle.asked(ask);
+    const bool recordHistory = m_recordHistory;
+    const QStringList history = recordHistory && m_history ? m_history->items() : QStringList();
+    qInfo().noquote() << u"Folder menu: hotkey over %1 at %2,%3"_s.arg(QLatin1StringView(nameOf(hit.surface)))
+                             .arg(hit.pt.x).arg(hit.pt.y);
+    m_worker.post([this, hit, ask, recordHistory, history] {
+        if (ask != m_asks)
+            return;
+        QElapsedTimer clock;
+        clock.start();
+        // The folder shown there, if the window has one: it is "here" (在此搜索, the favorite).
+        QString folder;
+        switch (hit.surface) {
+        case folderview::Surface::Explorer:
+            folder = QString::fromStdWString(filemanager::explorerFolder(hit.tab));
+            break;
+        case folderview::Surface::Opus:
+        case folderview::Surface::TotalCommander:
+        case folderview::Surface::XYplorer:
+            folder = QString::fromStdWString(filemanager::frontFolder(hit.root));
+            break;
+        case folderview::Surface::Dialog:
+            folder = QString::fromStdWString(filedialog::currentFolder(hit.root));
+            break;
+        case folderview::Surface::Desktop:
+        case folderview::Surface::Other:
+        case folderview::Surface::None:
+            break;
+        }
+        qInfo().noquote() << u"Folder menu: hotkey, folder \"%1\" %2 ms"_s.arg(folder).arg(clock.elapsed());
+        gatherHere(hit, ask, folder, recordHistory, history);
+    });
+}
+
+// Under the pointer when it is over `root` (and nothing covers it there),
+// as a context menu; else a little inside what has the keyboard focus in
+// that window (the folder view, a text box), where a keyboard-opened context
+// menu goes. Physical pixels; the inset in the monitor's own scale.
+POINT FolderMenu::hotkeyAnchor(HWND root) const
+{
+    POINT cursor {};
+    ::GetCursorPos(&cursor);
+    // Asked on the GUI thread: only windows of this thread are sent anything by it.
+    const HWND under = ::WindowFromPoint(cursor);
+    const bool over = under && ::GetAncestor(under, GA_ROOT) == root;
+    GUITHREADINFO info {sizeof info};
+    HWND focused = nullptr;
+    if (::GetGUIThreadInfo(::GetWindowThreadProcessId(root, nullptr), &info) && info.hwndFocus
+        && ::GetAncestor(info.hwndFocus, GA_ROOT) == root)
+        focused = info.hwndFocus;
+    POINT topLeft {};
+    RECT rect {};
+    if (focused && ::GetWindowRect(focused, &rect)) {
+        topLeft = {rect.left, rect.top};
+    } else {
+        ::ClientToScreen(root, &topLeft); // the window's client area
+    }
+    UINT dpiX = 96;
+    UINT dpiY = 96;
+    if (FAILED(::GetDpiForMonitor(::MonitorFromPoint(topLeft, MONITOR_DEFAULTTONEAREST), MDT_EFFECTIVE_DPI, &dpiX, &dpiY)))
+        dpiX = 96;
+    const int inset = static_cast<int>(std::lround(16.0 * dpiX / 96.0)); // 16 logical px
+    const menuhotkey::Point at = menuhotkey::anchor(over, {cursor.x, cursor.y}, {topLeft.x, topLeft.y}, inset);
+    return {at.x, at.y};
+}
+
 // On the worker: the rest of what the menu shows, then the menu.
 void FolderMenu::gatherHere(const folderview::Hit& hit, int ask, const QString& folder, bool recordHistory,
     const QStringList& history)
@@ -208,6 +368,7 @@ void FolderMenu::gatherHere(const folderview::Hit& hit, int ask, const QString& 
         found.recent = m_recent;
     qInfo().noquote() << u"Folder menu: windows %1, ready %2 ms"_s.arg(windowsMs).arg(clock.elapsed());
     QMetaObject::invokeMethod(this, [this, hit, ask, found = std::move(found)] {
+        m_toggle.answered(ask); // the hotkey's, maybe; shown or not
         if (ask == m_asks)
             show(hit, found);
     }, Qt::QueuedConnection);
@@ -280,15 +441,10 @@ void FolderMenu::show(const folderview::Hit& hit, const Found& found)
     }
     emit entriesChanged();
 
-    // Where the second press was: its top-left corner there, as a context
-    // menu's. In Qt's pixels on the screen it is on (the same origin in both).
-    const HMONITOR monitor = ::MonitorFromPoint(hit.pt, MONITOR_DEFAULTTONEAREST);
-    QScreen* screen = QGuiApplication::primaryScreen();
-    for (QScreen* candidate : QGuiApplication::screens()) {
-        const auto* native = candidate->nativeInterface<QNativeInterface::QWindowsScreen>();
-        if (native && native->handle() == monitor)
-            screen = candidate;
-    }
+    // Where the second press was (or the hotkey's anchor): its top-left
+    // corner there, as a context menu's. In Qt's pixels on the screen it is
+    // on (the same origin in both).
+    QScreen* screen = screenAt(hit.pt);
     if (!screen)
         return;
     const QPoint origin = screen->geometry().topLeft();
@@ -382,16 +538,29 @@ void FolderMenu::goTo(const QString& folder)
 {
     if (m_recordHistory && m_history)
         m_history->record(folder, QDateTime::currentMSecsSinceEpoch());
-    if (m_hit.surface == folderview::Surface::Opus) {
-        // The lister it came from (the latest one used) and its tab in front.
-        m_worker.post([path = QDir::toNativeSeparators(folder)] {
-            if (!filemanager::goToInOpus(path.toStdWString()))
+    if (const std::optional<filemanager::Kind> manager = managerOf(m_hit.surface)) {
+        // The window it came from (the latest one used) and its tab in front.
+        m_worker.post([kind = *manager, path = QDir::toNativeSeparators(folder)] {
+            if (!filemanager::goToInFront(kind, path.toStdWString()))
                 shell::open(path);
         });
         return;
     }
+    if (m_hit.surface == folderview::Surface::Dialog) {
+        // The dialog in front goes there, as Ctrl+G takes it: through the
+        // app (in order with its other moves), or by the menu itself.
+        const QString path = QDir::toNativeSeparators(folder);
+        if (m_dialogGo && m_dialogGo(m_hit.root, path))
+            return;
+        m_worker.post([dialog = m_hit.root, path] {
+            filedialog::waitForFront(dialog);
+            if (!filedialog::goTo(dialog, path.toStdWString()))
+                qWarning() << "Folder menu: the file dialog did not go to the folder";
+        });
+        return;
+    }
     if (m_hit.surface != folderview::Surface::Explorer) {
-        shell::open(folder); // the desktop: in the file manager chosen
+        shell::open(folder); // the desktop, any other window: in the file manager chosen
         return;
     }
     // The same tab goes there; one the shell's list lacks (it can miss

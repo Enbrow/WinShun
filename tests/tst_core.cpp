@@ -8,6 +8,7 @@
 #include "DocExtractor.h"
 #include "Documents.h"
 #include "DoubleClickDetector.h"
+#include "MenuHotkey.h"
 #include "DoubleTapDetector.h"
 #include "Extract.h"
 #include "GameGuard.h"
@@ -5822,6 +5823,69 @@ private slots:
             d.leftDown(0xFFFFFF00u, 100, 100, view, false);
             QVERIFY(d.leftDown(0x00000010u, 100, 100, view, false));
         }
+    }
+
+    // The folder menu's hotkey (GitHub #25): a press opens, closes or
+    // forgets, and where a menu opened by a key goes.
+    void menuHotkey()
+    {
+        using menuhotkey::Toggle;
+        using Action = Toggle::Action;
+        {
+            Toggle t;
+            int asks = 0;
+            QCOMPARE(t.pressed(false, asks), Action::Open);
+            t.asked(++asks);
+            QVERIFY(t.pending(asks));
+            t.answered(asks); // the menu came up
+            QVERIFY(!t.pending(asks));
+            QCOMPARE(t.pressed(true, asks), Action::Close);
+            QCOMPARE(t.pressed(false, asks), Action::Open); // and again
+        }
+        { // pressed twice before the menu is up: forgotten, the next press opens
+            Toggle t;
+            int asks = 0;
+            QCOMPARE(t.pressed(false, asks), Action::Open);
+            t.asked(++asks);
+            QCOMPARE(t.pressed(false, asks), Action::Drop);
+            ++asks; // the menu moves on, so that the answer is dropped
+            QVERIFY(!t.pending(asks));
+            QCOMPARE(t.pressed(false, asks), Action::Open);
+        }
+        { // nothing came of the ask (the window in front changed): the next press opens
+            Toggle t;
+            int asks = 0;
+            t.pressed(false, asks);
+            t.asked(++asks);
+            t.answered(asks);
+            QCOMPARE(t.pressed(false, asks), Action::Open);
+        }
+        { // a double click asked after us: ours is no longer the latest, and not pending
+            Toggle t;
+            int asks = 0;
+            t.pressed(false, asks);
+            t.asked(++asks);
+            ++asks;
+            QVERIFY(!t.pending(asks));
+            QCOMPARE(t.pressed(false, asks), Action::Open);
+            t.answered(1); // the old answer, dropped by the menu: changes nothing for the new ask
+            QVERIFY(t.pending(asks) == false); // Open was returned, asked() not yet called
+            t.asked(++asks);
+            QVERIFY(t.pending(asks));
+        }
+        { // the menu is up (a double click's) while ours is on its way: Close, and ours is forgotten
+            Toggle t;
+            int asks = 0;
+            t.pressed(false, asks);
+            t.asked(++asks);
+            QCOMPARE(t.pressed(true, asks), Action::Close);
+            QVERIFY(!t.pending(asks));
+        }
+        using menuhotkey::Point;
+        const auto same = [](Point a, Point b) { return a.x == b.x && a.y == b.y; };
+        QVERIFY(same(menuhotkey::anchor(true, {500, 600}, {10, 20}, 16), Point {500, 600}));
+        QVERIFY(same(menuhotkey::anchor(false, {500, 600}, {10, 20}, 16), Point {26, 36}));
+        QVERIFY(same(menuhotkey::anchor(false, {500, 600}, {-1920, 0}, 24), Point {-1896, 24})); // a monitor left of the primary
     }
 
     void gameGuard()

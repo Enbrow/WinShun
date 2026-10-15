@@ -1,5 +1,6 @@
 #pragma once
 
+#include "MenuHotkey.h"
 #include "platform/ComWorker.h"
 #include "platform/FolderViewHit.h"
 
@@ -37,6 +38,13 @@ class KeyRouter;
 // blank space once the user has set that up (requested()). Chosen there,
 // Opus's tab goes to the folder.
 //
+// A hotkey brings the menu up too (GitHub #25: another program may have the
+// double click), for whatever window is in front (hotkeyPressed()): a File
+// Explorer folder, the desktop, a Directory Opus, Total Commander or
+// XYplorer window, an Open or Save dialog, which a folder chosen takes
+// there, or any other, from which the file manager opens it. Pressed again
+// while the menu is up, it closes it.
+//
 // The menu never takes the focus: File Explorer stays in front, its
 // selection and caret as they were, and the keys the menu uses are taken on
 // their way to it (KeyRouter, as the clipboard does over other programs). A
@@ -60,6 +68,10 @@ public:
     // Whether something else has the keys now (the clipboard over File
     // Explorer): the menu does not come, the double click only closes that.
     void setBlocked(std::function<bool()> blocked) { m_blocked = std::move(blocked); }
+    // Takes an Open or Save dialog to a folder, in order with the app's
+    // other moves of it (DialogJump::go); false: not able to, the menu
+    // does it itself.
+    void setDialogGo(std::function<bool(HWND dialog, const QString& folder)> go) { m_dialogGo = std::move(go); }
 
     // From the listener thread (KeyListener): a double click there. Window
     // classes are looked at at once; what may be a folder's blank space is
@@ -68,6 +80,10 @@ public:
     // From Directory Opus (through WinShunSearch.exe): a double click on
     // blank space in a lister showing `folder`, the pointer still there.
     void requested(const QString& folder);
+    // The hotkey (Settings::folderMenuHotkey) was pressed: the menu for the
+    // window in front, under the pointer when that is over it; or, up
+    // already, closed. On the GUI thread.
+    void hotkeyPressed();
     bool isOpen() const noexcept { return m_open.load(); }
 
     QVariantList entries() const { return m_entries; }
@@ -99,11 +115,14 @@ private:
     void startKeys(HWND target);
     void stopKeys();
     void goTo(const QString& folder);
+    POINT hotkeyAnchor(HWND root) const; // where the menu goes for the hotkey (physical pixels)
 
     History* m_history;
     Favorites* m_favorites;
     QPointer<QWindow> m_window;
     std::function<bool()> m_blocked;
+    std::function<bool(HWND, const QString&)> m_dialogGo;
+    menuhotkey::Toggle m_toggle; // GUI thread: what a hotkey press means now
     bool m_recordHistory = true;
     std::atomic<bool> m_yieldToListary {true};
     std::atomic<bool> m_explorer {true};

@@ -137,6 +137,7 @@
 
 - **双击空白处**：在资源管理器或桌面的空白处双击，弹出收藏的、最近的、别的窗口里开着的文件夹，选一个就在这个窗口里转过去（桌面上开新窗口），和 Listary 一样；还能在当前文件夹里搜、把它加进收藏。
 - 菜单不抢焦点，方向键、回车、Esc、首字母都能用；点别处或再双击就关。Listary 在运行时让给它。
+- **用快捷键弹出**：双击被别的程序占了（Directory Opus 等），就在设置里给文件夹菜单设一个快捷键，在任何窗口里按：资源管理器、桌面、Directory Opus、Total Commander、XYplorer、“打开”“另存为”对话框里选中的文件夹在那个窗口里打开，别的窗口里用文件管理器打开；再按一次关闭。
 - **右键“用 Win顺 搜索此处”**：文件夹、文件夹的空白处和磁盘的右键菜单里都有（Windows 11 在“显示更多选项”里），搜索框带着这个文件夹打开，接着打字就在里面找。设置里可以关。
 
 #### 📋 剪贴板历史（代替 Win+V）
@@ -183,6 +184,7 @@
 | `Ctrl+S` | 最匹配 → 最新在前 → 最早在前 |
 | `Ctrl+G`（对话框里） | 转到文件管理器正在显示的文件夹 |
 | `Win+V` / `Win+S`（设置里打开后） | 剪贴板历史 / 任务栏上方的搜索框 |
+| 自设的组合键（设置 › 打开 Win顺 › 对话框） | 在任何窗口里弹出文件夹菜单，再按一次关闭 |
 
 ### 下载安装
 
@@ -287,6 +289,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 - 🗂️ **In File Explorer: a double click, a right-click**
   - **Folder menu**: double-click the blank space of a File Explorer folder or of the desktop: favorite, recent and open folders; pick one and the same window goes there (the desktop opens a new one), like Listary. Also: search this folder, add it to the favorites.
   - It never takes the focus: arrows, Enter, Esc and first letters work; a click elsewhere or another double click closes it. It stays out of the way while Listary runs.
+  - **By a shortcut**: when another program has the double click (Directory Opus, say), give the folder menu a shortcut in the settings and press it in any window: in File Explorer, on the desktop, in Directory Opus, Total Commander, XYplorer and Open / Save dialogs the folder picked opens in that window; anywhere else, in your file manager. Press it again to close the menu.
   - **“Search here with WinShun”** on the right-click menu of folders, a folder's blank space and drives (under “Show more options” on Windows 11): the search window opens with that folder typed. It can be turned off.
 - 📋 **Clipboard history (replaces Win+V)**
   - **What**: text, pictures and files, opened with `Win+V` or your own shortcut, by the text cursor, without taking the focus.
@@ -316,6 +319,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 | `Ctrl+S` | Best match → newest first → oldest first |
 | `Ctrl+G` (in a file dialog) | Go to the folder shown in your file manager |
 | `Win+V` / `Win+S` (once turned on) | Clipboard history / search above the taskbar |
+| A shortcut you set (Settings › Open WinShun › Dialogs) | The folder menu in any window; again to close it |
 
 ### Download and install
 

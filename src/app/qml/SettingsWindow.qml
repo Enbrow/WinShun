@@ -403,7 +403,8 @@ Window {
     Binding { // suspends the global hotkey and hands the recorder the keyboard (see ShortcutCapture)
         target: window.editor
         property: "recordingHotkey"
-        value: hotkeyRecorder.recording || clipHotkeyRecorder.recording || window.editor.plugins.recordingHotkey
+        value: hotkeyRecorder.recording || clipHotkeyRecorder.recording || folderMenuHotkeyRecorder.recording
+               || window.editor.plugins.recordingHotkey
     }
     Binding { // the plugin cards read their processes' memory only while on show
         target: window.editor.plugins
@@ -1518,6 +1519,36 @@ Window {
                         id: copiedReset
                         interval: 2000
                         onTriggered: opusMenuRow.copied = false
+                    }
+                }
+
+                SettingRow {
+                    // Shown with the double click off too: the hotkey alone
+                    // brings the menu (GitHub #25).
+                    title: qsTr("用快捷键弹出文件夹菜单")
+                    keywords: qsTr("快捷键;热键;组合键;文件夹菜单;收藏;最近;对话框;Directory Opus;Total Commander;XYplorer;hotkey;folder menu").split(";")
+                    values: [window.editor.folderMenuHotkey]
+                    description: qsTr("双击被别的程序占用时用：在资源管理器、桌面、Directory Opus、Total Commander、XYplorer 或“打开”“另存为”对话框里按它，选中的文件夹在那个窗口里打开；在别的窗口里按，用文件管理器打开。再按一次关闭")
+
+                    FlatButton {
+                        visible: window.editor.folderMenuHotkey.length > 0 && !folderMenuHotkeyRecorder.recording
+                        flat: true
+                        text: qsTr("清除")
+                        onClicked: window.editor.folderMenuHotkey = ""
+                    }
+                    HotkeyRecorder {
+                        id: folderMenuHotkeyRecorder
+                        hotkey: window.editor.folderMenuHotkey
+                        onRecorded: (hotkey) => window.editor.folderMenuHotkey = hotkey
+                    }
+
+                    body: Text {
+                        visible: window.editor.folderMenuHotkeyError.length > 0
+                        width: parent.width
+                        text: window.editor.folderMenuHotkeyError
+                        color: Theme.danger
+                        font.pixelSize: Theme.fontCaption
+                        wrapMode: Text.Wrap
                     }
                 }
 

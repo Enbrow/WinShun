@@ -657,6 +657,58 @@ bool goToInOpus(const std::wstring& folder)
     return !exe.empty() && run(exe, L"/acmd Go " + quoted(folder), false);
 }
 
+std::wstring frontFolder(HWND window)
+{
+    const std::optional<Kind> kind = kindOf(window);
+    if (!kind)
+        return {};
+    switch (*kind) {
+    case Kind::Explorer: {
+        const HWND tab = ::FindWindowExW(window, nullptr, L"ShellTabWindowClass", nullptr); // the one on top first
+        return explorerFolder(tab ? tab : window);
+    }
+    case Kind::TotalCommander: {
+        const std::vector<std::wstring> folders = totalCommanderFolders(window);
+        return folders.empty() ? std::wstring() : folders.front();
+    }
+    case Kind::DirectoryOpus:
+        for (const pathtext::OpusTab& tab : opusTabs()) {
+            if (tab.lister == reinterpret_cast<quintptr>(window) && tab.state == 1)
+                return tab.path.toStdWString();
+        }
+        return {};
+    case Kind::XYplorer:
+        for (const pathtext::XYplorerTab& tab : xyplorerTabs(window)) {
+            if (tab.state == 1)
+                return tab.path.toStdWString();
+        }
+        return {};
+    case Kind::Custom:
+        break;
+    }
+    return {};
+}
+
+bool goToInFront(Kind kind, const std::wstring& folder)
+{
+    switch (kind) {
+    case Kind::DirectoryOpus:
+        return goToInOpus(folder);
+    case Kind::TotalCommander: {
+        // The copy that runs (/O), the panel with the focus (/S), its
+        // current tab: without /T, which would open a new one.
+        const std::wstring exe = totalCommanderProgram();
+        return !exe.empty() && run(exe, L"/O /S /L=" + quoted(folder), false);
+    }
+    case Kind::XYplorer:
+        return openFolder(kind, folder);
+    case Kind::Explorer:
+    case Kind::Custom:
+        break;
+    }
+    return false;
+}
+
 bool openOpusPreferences()
 {
     const std::wstring exe = opusProgram();

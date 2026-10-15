@@ -46,6 +46,11 @@ Rectangle {
     implicitHeight: 36
     radius: 4
     activeFocusOnTab: true
+    // For screen readers and UI Automation: a button that records, named
+    // by what it holds.
+    Accessible.role: Accessible.Button
+    Accessible.name: recording ? qsTr("正在录制快捷键") : hotkey.length > 0 ? hotkey : qsTr("录制快捷键")
+    Accessible.onPressAction: recording ? stop() : forceActiveFocus()
     color: recording ? Theme.inputFocused : area.containsMouse ? Theme.controlHover : Theme.control
     border.width: recording ? 2 : 1
     border.color: recording ? Theme.accent : Theme.controlBorder

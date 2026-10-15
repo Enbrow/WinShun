@@ -88,6 +88,27 @@ Hit classify(HWND window, POINT pt)
     return hit;
 }
 
+Hit classifyWindow(HWND root)
+{
+    Hit hit;
+    if (!root || ::GetAncestor(root, GA_ROOT) != root)
+        return hit;
+    if (hasClass(root, L"CabinetWClass") || hasClass(root, L"ExploreWClass")) {
+        hit.surface = Surface::Explorer;
+        // Windows 11 has a child per tab, the one on top first among them;
+        // Windows 10 has none, the window itself is the tab.
+        const HWND tab = ::FindWindowExW(root, nullptr, L"ShellTabWindowClass", nullptr);
+        hit.tab = tab ? tab : root;
+    } else if ((hasClass(root, L"Progman") || hasClass(root, L"WorkerW"))
+        && ::FindWindowExW(root, nullptr, L"SHELLDLL_DefView", nullptr)) {
+        hit.surface = Surface::Desktop;
+    } else {
+        return hit;
+    }
+    hit.root = root;
+    return hit;
+}
+
 bool isBlank(const Hit& hit)
 {
     if (hit.surface == Surface::None || !::IsWindow(hit.view) || ::IsHungAppWindow(hit.root))

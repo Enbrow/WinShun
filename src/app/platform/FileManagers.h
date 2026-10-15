@@ -92,6 +92,19 @@ bool openFolder(Kind kind, const std::wstring& folder);
 // (its Back button comes back), as the folder menu's double click there
 // asks. False when Opus is not installed.
 bool goToInOpus(const std::wstring& folder);
+// The folder shown in front in `window`, one of theirs (kindOf): the tab on
+// top in File Explorer and Directory Opus, the panel with the focus in Total
+// Commander, the tab with the focus in XYplorer. Empty when that is no
+// folder on disk (Home, This PC, an archive), or the window is not one of
+// theirs. Needs COM, asks the programs: not on the GUI thread. For the
+// folder menu's hotkey (GitHub #25).
+std::wstring frontFolder(HWND window);
+// The window of that program used last goes to `folder` where its user
+// looks: Directory Opus's tab in front (goToInOpus), Total Commander's
+// panel with the focus (its current tab), XYplorer's tab showing it already
+// or a new one (openFolder). Not for Explorer (goTo takes its tab) or
+// Custom (openFolder). False when it is not installed.
+bool goToInFront(Kind kind, const std::wstring& folder);
 // Directory Opus's Preferences window.
 bool openOpusPreferences();
 // Directory Opus's settings file (prefs.oxc); empty when there is none.

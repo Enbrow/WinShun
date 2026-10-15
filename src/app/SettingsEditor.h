@@ -73,6 +73,10 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString opusFolderMenuProblem READ opusFolderMenuProblem NOTIFY opusFolderMenuChanged FINAL)
     Q_PROPERTY(bool opusRunning READ opusRunning NOTIFY opusFolderMenuChanged FINAL) // setting it restarts Opus
     Q_PROPERTY(bool folderMenuDesktop READ folderMenuDesktop WRITE setFolderMenuDesktop NOTIFY changed FINAL)
+    // The hotkey that brings the folder menu up anywhere (GitHub #25); its
+    // error as the app found it (taken, not understood), like hotkeyError.
+    Q_PROPERTY(QString folderMenuHotkey READ folderMenuHotkey WRITE setFolderMenuHotkey NOTIFY changed FINAL)
+    Q_PROPERTY(QString folderMenuHotkeyError READ folderMenuHotkeyError NOTIFY hotkeyErrorChanged FINAL)
     Q_PROPERTY(bool includeRemovableDrives READ includeRemovableDrives WRITE setIncludeRemovableDrives NOTIFY changed FINAL)
     Q_PROPERTY(bool rescanOnStartup READ rescanOnStartup WRITE setRescanOnStartup NOTIFY changed FINAL)
     // 索引方式 (Settings::indexAccess, GitHub #21): auto | service | direct |
@@ -262,6 +266,10 @@ public:
     void setFolderMenuExplorer(bool on);
     bool folderMenuDesktop() const { return m_settings.folderMenuDesktop; }
     void setFolderMenuDesktop(bool on);
+    QString folderMenuHotkey() const { return m_settings.folderMenuHotkey; }
+    void setFolderMenuHotkey(const QString& hotkey);
+    QString folderMenuHotkeyError() const { return m_folderMenuHotkeyError; }
+    void setFolderMenuHotkeyError(const QString& error);
     Q_INVOKABLE void refreshFileManagers();
     // The command Directory Opus runs for a double click on blank space, to
     // bring up the folder menu there (FolderMenu::requested): for its
@@ -600,6 +608,7 @@ private:
     QString m_numberKeysNote;
     QString m_clipboardNumberKeysNote;
     QString m_doubleCtrlClash;
+    QString m_folderMenuHotkeyError;
     QString m_opusFolderMenu = QStringLiteral("manual");
     QString m_opusFolderMenuTaken;
     QString m_opusFolderMenuProblem;

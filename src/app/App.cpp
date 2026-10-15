@@ -94,6 +94,7 @@ constexpr int kWinVHotkeyId = 3; // Win+V: the clipboard history, once Explorer 
 constexpr int kClipboardHotkeyId = 4; // another shortcut for the clipboard history
 constexpr int kWinSHotkeyId = 5; // Win+S: the launcher over the taskbar, once Explorer gave it up (winv::)
 constexpr int kScreenClipHotkeyId = 6; // Win+Shift+S, which Explorer gives up with Win+S: the screen capture
+constexpr int kFolderMenuHotkeyId = 7; // the folder menu in the window in front (GitHub #25)
 // For another program to tell where its text caret is: longer, and the
 // clipboard would open late; it opens by the mouse pointer then.
 constexpr auto kCaretWait = 100ms;
@@ -535,7 +536,10 @@ bool App::start(const StartOptions& options)
             toggleAtTaskbar(false);
         else if (id == kScreenClipHotkeyId)
             startScreenClip();
-        else if (id != kDialogJumpHotkeyId)
+        else if (id == kFolderMenuHotkeyId) {
+            if (m_folderMenu)
+                m_folderMenu->hotkeyPressed();
+        } else if (id != kDialogJumpHotkeyId)
             toggleLauncher();
         else if (m_dialogJump && m_settings.dialogJump)
             m_dialogJump->jump();
@@ -557,9 +561,11 @@ bool App::start(const StartOptions& options)
     callbacks.searchHere = [this](const QString& folder) {
         showLauncher(folder.endsWith(u'\\') ? folder + u' ' : folder + u"\\ "_s);
     };
-    // Directory Opus's double click on blank space (WinShunSearch.exe, put into Opus's settings by SettingsEditor::setOpusFolderMenu).
+    // Directory Opus's double click on blank space (WinShunSearch.exe, put
+    // into Opus's settings by SettingsEditor::setOpusFolderMenu). Not with
+    // the double click turned off: the menu may be there for its hotkey alone.
     callbacks.folderMenu = [this](const QString& folder) {
-        if (m_folderMenu)
+        if (m_folderMenu && m_settings.folderMenu != u"off")
             m_folderMenu->requested(folder);
     };
     // Windows ends us right after this returns, or a few seconds in: the
@@ -895,6 +901,7 @@ void App::applyAppearance()
         m_settingsEditor->plugins()->setLocale(language); // the cards' names and texts
     m_messages->setTrayTooltip(trayTooltip());
     applyHotkey(); // its error message
+    applyFolderMenuHotkey();
     refreshContentIndexStatus();
 }
 
@@ -916,8 +923,10 @@ QString App::doubleCtrlName() const
 void App::applySettings(bool initial)
 {
     applyFolderMenu(); // before the listener, which tells it double clicks
-    // Double clicks: for File Explorer and the desktop; Directory Opus says so itself.
-    const bool doubleClicks = m_folderMenu && (m_settings.folderMenuExplorer || m_settings.folderMenuDesktop);
+    // Double clicks: for File Explorer and the desktop; Directory Opus says
+    // so itself. Not when the menu is there for its hotkey alone.
+    const bool doubleClicks = m_folderMenu && m_settings.folderMenu != u"off"
+        && (m_settings.folderMenuExplorer || m_settings.folderMenuDesktop);
     const int listenTo = (m_settings.doubleCtrl ? 1 : 0) | (doubleClicks ? 2 : 0);
     if (listenTo != m_keyListenerMode) {
         m_keyListener.reset(); // the process's one mouse registration goes with it first
@@ -972,6 +981,7 @@ void App::applySettings(bool initial)
     m_clipboard->setNumberKeys(m_settings.clipboardNumberKeys);
     updateNumberKeys();
     applyHotkey();
+    applyFolderMenuHotkey(); // after applyFolderMenu: the menu it brings up
     m_launcher->setContentOptions(m_settings.contentSearch, m_settings.contentExtensions,
         m_settings.contentSizeLimits(), m_settings.contentInLowPriority, m_settings.contentDocuments);
     m_launcher->setWebShortcuts(m_settings.webShortcuts);
@@ -999,6 +1009,26 @@ void App::applyHotkey()
     }
     if (m_settingsEditor)
         m_settingsEditor->setHotkeyError(hotkeyError); // shown next to the shortcut
+    else if (!hotkeyError.isEmpty())
+        m_messages->showNotification(tr("快捷键不可用"), hotkeyError);
+}
+
+void App::applyFolderMenuHotkey()
+{
+    m_messages->unregisterHotkey(kFolderMenuHotkeyId);
+    if (m_settingsEditor && m_settingsEditor->recordingHotkey())
+        return; // the keys being pressed must reach the settings window
+    const QString hotkey = m_settings.folderMenuHotkey.trimmed();
+    QString hotkeyError;
+    if (!hotkey.isEmpty() && !m_messages->registerHotkey(kFolderMenuHotkeyId, hotkey)) {
+        UINT modifiers = 0;
+        UINT vk = 0;
+        hotkeyError = MessageWindow::parseHotkey(hotkey, &modifiers, &vk)
+            ? tr("“%1” 已被其他程序或系统占用，请换一个。").arg(hotkey)
+            : tr("无法识别“%1”，请重新设置。").arg(hotkey);
+    }
+    if (m_settingsEditor)
+        m_settingsEditor->setFolderMenuHotkeyError(hotkeyError); // shown next to the shortcut
     else if (!hotkeyError.isEmpty())
         m_messages->showNotification(tr("快捷键不可用"), hotkeyError);
 }
@@ -1455,6 +1485,7 @@ void App::showSettings()
         connect(editor, &SettingsEditor::recordingHotkeyChanged, this, &App::applyHotkey);
         connect(editor, &SettingsEditor::recordingHotkeyChanged, this, &App::applyClipboardHotkeys);
         connect(editor, &SettingsEditor::recordingHotkeyChanged, this, &App::applyTaskbarHotkeys);
+        connect(editor, &SettingsEditor::recordingHotkeyChanged, this, &App::applyFolderMenuHotkey);
         connect(editor, &SettingsEditor::explorerRestartRequested, this, &App::restartExplorer);
         connect(editor, &SettingsEditor::clipboardClearRequested, this, [this, editor] {
             m_clipStore->clearHistory();
@@ -1490,6 +1521,7 @@ void App::showSettings()
         applyHotkey(); // shows whether the current hotkey works
         applyClipboardHotkeys(); // ... and where Win+V stands
         applyTaskbarHotkeys(); // ... and Win+S
+        applyFolderMenuHotkey(); // ... and the folder menu's
         editor->refreshTaskbarState();
         editor->setSearchBoxShown(searchBoxHiddenName(m_searchBoxHidden));
         setStartGapStatus(m_startGapStatus);
@@ -1860,8 +1892,10 @@ void App::handleCommand(const QString& command)
 
 void App::applyFolderMenu()
 {
-    // On with File Explorer and the desktop both off too: Directory Opus may ask for it (requested()).
-    const bool on = m_settings.folderMenu != u"off";
+    // On with File Explorer and the desktop both off too: Directory Opus may
+    // ask for it (requested()). And with the double click off, for its
+    // hotkey (GitHub #25).
+    const bool on = m_settings.folderMenu != u"off" || !m_settings.folderMenuHotkey.trimmed().isEmpty();
     if (!on && m_folderMenu) {
         m_keyListener.reset(); // it tells the menu double clicks: gone first
         m_keyListenerMode = 0;
@@ -1879,6 +1913,12 @@ void App::applyFolderMenu()
         }
         menu->setWindow(window);
         menu->setBlocked([this] { return clipboardInCharge(); }); // its keys over File Explorer
+        menu->setDialogGo([this](HWND dialog, const QString& folder) { // the hotkey over a file dialog
+            if (!m_dialogJump)
+                return false;
+            m_dialogJump->go(dialog, folder.toStdWString(), false);
+            return true;
+        });
         connect(menu.get(), &FolderMenu::openChanged, this, [this](bool open) {
             if (m_keyListener)
                 m_keyListener->setMenuOpen(open);

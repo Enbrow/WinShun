@@ -134,7 +134,8 @@ void SettingsEditor::setSettings(const Settings& settings)
         return;
     const bool keys = settings.numberKeys != m_settings.numberKeys || settings.hotkey != m_settings.hotkey
         || settings.clipboardNumberKeys != m_settings.clipboardNumberKeys
-        || settings.clipboardHotkey != m_settings.clipboardHotkey;
+        || settings.clipboardHotkey != m_settings.clipboardHotkey
+        || settings.folderMenuHotkey != m_settings.folderMenuHotkey;
     const bool shares = settings.shares != m_settings.shares;
     m_settings = settings;
     emit changed();
@@ -221,7 +222,8 @@ QString describeNumberKeys(const QString& keys, const Settings& settings)
     for (int n = 1; n <= 9; ++n) {
         const QString c = chord(n);
         const bool mine = settings.hotkey.compare(c, Qt::CaseInsensitive) == 0
-            || settings.clipboardHotkey.compare(c, Qt::CaseInsensitive) == 0;
+            || settings.clipboardHotkey.compare(c, Qt::CaseInsensitive) == 0
+            || settings.folderMenuHotkey.compare(c, Qt::CaseInsensitive) == 0;
         if (mine)
             own.append(c);
         else if (std::find(held.begin(), held.end(), n) != held.end())
@@ -825,6 +827,23 @@ void SettingsEditor::setFolderMenuDesktop(bool on)
         return;
     m_settings.folderMenuDesktop = on;
     commit();
+}
+
+void SettingsEditor::setFolderMenuHotkey(const QString& hotkey)
+{
+    const QString value = hotkey.trimmed();
+    if (m_settings.folderMenuHotkey == value)
+        return;
+    m_settings.folderMenuHotkey = value;
+    commit(); // the app registers it and says whether that worked (setFolderMenuHotkeyError)
+}
+
+void SettingsEditor::setFolderMenuHotkeyError(const QString& error)
+{
+    if (m_folderMenuHotkeyError == error)
+        return;
+    m_folderMenuHotkeyError = error;
+    emit hotkeyErrorChanged();
 }
 
 void SettingsEditor::setAutoUpdate(bool on)

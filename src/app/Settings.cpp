@@ -610,6 +610,7 @@ void Settings::load()
         folderMenu = d.folderMenu;
     folderMenuExplorer = readOrDefault(s, u"Launcher/FolderMenuExplorer"_s, d.folderMenuExplorer);
     folderMenuDesktop = readOrDefault(s, u"Launcher/FolderMenuDesktop"_s, d.folderMenuDesktop);
+    folderMenuHotkey = readOrDefault(s, u"Launcher/FolderMenuHotkey"_s, d.folderMenuHotkey).trimmed();
     folderMenuOpusBefore = readOrDefault(s, u"Launcher/FolderMenuOpusBefore"_s, d.folderMenuOpusBefore);
 
     foldersFirst = readOrDefault(s, u"Results/FoldersFirst"_s, d.foldersFirst);
@@ -754,6 +755,7 @@ void Settings::save() const
     s.setValue(u"Launcher/FolderMenu"_s, folderMenu);
     s.setValue(u"Launcher/FolderMenuExplorer"_s, folderMenuExplorer);
     s.setValue(u"Launcher/FolderMenuDesktop"_s, folderMenuDesktop);
+    s.setValue(u"Launcher/FolderMenuHotkey"_s, folderMenuHotkey);
     s.setValue(u"Launcher/FolderMenuOpusBefore"_s, folderMenuOpusBefore);
     s.setValue(u"Results/FoldersFirst"_s, foldersFirst);
     s.setValue(u"Results/ShowModified"_s, showModified);

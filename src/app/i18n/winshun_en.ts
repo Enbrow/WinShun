@@ -779,6 +779,14 @@
 <context>
     <name>HotkeyRecorder</name>
     <message>
+        <source>正在录制快捷键</source>
+        <translation>Recording a shortcut</translation>
+    </message>
+    <message>
+        <source>录制快捷键</source>
+        <translation>Record a shortcut</translation>
+    </message>
+    <message>
         <source>这个键不能用，换一个试试</source>
         <translation>This key can’t be used, try another</translation>
     </message>
@@ -2352,6 +2360,18 @@
     <message>
         <source>复制</source>
         <translation>Copy</translation>
+    </message>
+    <message>
+        <source>用快捷键弹出文件夹菜单</source>
+        <translation>Folder menu on a shortcut</translation>
+    </message>
+    <message>
+        <source>快捷键;热键;组合键;文件夹菜单;收藏;最近;对话框;Directory Opus;Total Commander;XYplorer;hotkey;folder menu</source>
+        <translation>shortcut;hotkey;key combination;folder menu;favorites;recent;file dialog;Directory Opus;Total Commander;XYplorer</translation>
+    </message>
+    <message>
+        <source>双击被别的程序占用时用：在资源管理器、桌面、Directory Opus、Total Commander、XYplorer 或“打开”“另存为”对话框里按它，选中的文件夹在那个窗口里打开；在别的窗口里按，用文件管理器打开。再按一次关闭</source>
+        <translation>For when another program has the double click: press it in File Explorer, on the desktop, in Directory Opus, Total Commander, XYplorer or an Open / Save dialog and the folder picked opens in that window; in any other window, in your file manager. Press it again to close the menu</translation>
     </message>
     <message>
         <source>界面大小</source>

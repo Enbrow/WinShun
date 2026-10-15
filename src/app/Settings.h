@@ -89,6 +89,10 @@ struct Settings {
     QString folderMenu = QStringLiteral("auto");
     bool folderMenuExplorer = true; // in File Explorer's folders
     bool folderMenuDesktop = true; // on the desktop
+    // A hotkey that brings the menu up in whatever window is in front, for
+    // when another program has the double click (GitHub #25); e.g.
+    // "Ctrl+Alt+D", empty = none. Works with folderMenu off too.
+    QString folderMenuHotkey;
     // Directory Opus's <event> for a double click on blank space, as it was
     // before Win顺 put its own there (SettingsEditor::setOpusFolderMenu); "": none.
     QString folderMenuOpusBefore;

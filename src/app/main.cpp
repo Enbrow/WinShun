@@ -33,10 +33,13 @@ QtMessageHandler g_defaultHandler = nullptr;
 
 // Warnings and errors also go to %LOCALAPPDATA%\WinShun\WinShun.log: a
 // tray app has no console, and the user's machine is where things go wrong.
-// Over 1 MB, the log becomes WinShun.old.log and a new one starts.
+// Over 1 MB, the log becomes WinShun.old.log and a new one starts. With
+// WINSHUN_LOG_INFO set (a test, a user asked to), the info lines too (what
+// the folder menu did, the dialogs followed…).
 void logToFile(QtMsgType type, const QMessageLogContext& context, const QString& message)
 {
-    if (type != QtDebugMsg && type != QtInfoMsg) {
+    static const bool info = qEnvironmentVariableIsSet("WINSHUN_LOG_INFO");
+    if (type != QtDebugMsg && (type != QtInfoMsg || info)) {
         static std::mutex mutex; // messages come from every thread
         const std::lock_guard lock(mutex);
         const QString path = ws::Settings::dataDir() + u"\\WinShun.log"_s;
@@ -47,7 +50,10 @@ void logToFile(QtMsgType type, const QMessageLogContext& context, const QString&
         }
         QFile file(path);
         if (file.open(QIODevice::Append | QIODevice::Text)) {
-            const char* level = type == QtWarningMsg ? "warning" : type == QtCriticalMsg ? "error" : "fatal";
+            const char* level = type == QtInfoMsg ? "info"
+                : type == QtWarningMsg         ? "warning"
+                : type == QtCriticalMsg        ? "error"
+                                               : "fatal";
             file.write(QDateTime::currentDateTime().toString(Qt::ISODateWithMs).toUtf8() + ' ' + level + ": "
                 + message.toUtf8() + '\n');
         }

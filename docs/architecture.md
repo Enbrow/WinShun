@@ -20,6 +20,7 @@ DialogBarExcludedApps=   ; 不显示搜索框的程序，如 notepad.exe，逗�
 FolderMenu=auto          ; auto | on | off：在资源管理器或桌面的空白处双击弹出文件夹菜单（GitHub #22）；auto 时 Listary 在运行就不弹
 FolderMenuExplorer=true  ; 资源管理器里
 FolderMenuDesktop=true   ; 桌面上
+FolderMenuHotkey=        ; 在任何窗口里弹出文件夹菜单的组合键，例如 Ctrl+Alt+D（GitHub #25）；双击关着也能用，再按一次关闭
 FileManager=explorer     ; explorer | totalcmd | dopus | xyplorer | custom：打开文件夹、打开所在位置用哪个；没装或没启动起来就用资源管理器
 FileManagerOpenCommand=  ; custom 时打开文件夹的命令行，{path} 换成文件夹路径（自动加引号），如 "C:\Tools\fm.exe" {path}；在设置界面里填，手改 ini 要按 QSettings 的转义写成 "\"C:\\Tools\\fm.exe\" {path}"（开头的引号会被当成带转义的字符串）
 FileManagerRevealCommand= ; custom 时打开所在位置（选中文件）的命令行；不填就用上一条打开文件所在的文件夹
@@ -112,7 +113,7 @@ Setting.showSystem=true  ; manifest 里声明的设置项的值（Setting.<key>�
 
 修改“不搜索的文件夹”后不需要重建索引：新排除的文件夹直接从索引里去掉，取消排除的文件夹单独补读一遍。只有取消排除“文件夹名称”（它可能出现在任何位置）时才会重新读取所有磁盘。
 
-索引、最近使用记录、收藏夹（`favorites.json`）和日志（`WinShun.log`，只记警告和错误）保存在 `%LOCALAPPDATA%\WinShun`；剪贴板历史在其中的 `clipboard\`（`clipboard.db` 和存图片的 `images\`）。
+索引、最近使用记录、收藏夹（`favorites.json`）和日志（`WinShun.log`，只记警告和错误；环境变量 `WINSHUN_LOG_INFO` 设了就连 info 行一起记，文件夹菜单、对话框跟踪这类“做了什么”的话都在里面，排查用）保存在 `%LOCALAPPDATA%\WinShun`；剪贴板历史在其中的 `clipboard\`（`clipboard.db` 和存图片的 `images\`）。
 
 索引文件（快照 `index.bin`、内容索引的 `content\*.grams` 和文档文字 `content\*.texts`；作者电脑上 323 万项、33.7 万个文件共约 112 MB）可以在设置 → 高级 → 索引位置换到别的文件夹（`[Index] Folder`）：
 
@@ -220,7 +221,7 @@ src/extract/         读文档里的文字（只在 WinShunExtract.exe 里运行
 src/app/             界面与 Windows 集成
   Launcher           QML 用的视图模型（查询、结果、状态、操作）
   DialogBar          对话框下方搜索框的视图模型（建议、收藏、右键菜单）；它的窗口跟着对话框出现、移动、隐藏
-  FolderMenu         双击资源管理器或桌面空白处弹出的文件夹菜单（GitHub #22）：platform/FolderViewHit 判断落点（窗口类 + MSAA），菜单窗口不抢焦点、键由 KeyRouter（Policy::Menu）转来，选中后 filemanager::goTo 让同一个标签页转过去
+  FolderMenu         双击资源管理器或桌面空白处弹出的文件夹菜单（GitHub #22）：platform/FolderViewHit 判断落点（窗口类 + MSAA），菜单窗口不抢焦点、键由 KeyRouter（Policy::Menu）转来，选中后 filemanager::goTo 让同一个标签页转过去；也可按自设的快捷键在任何窗口里弹出（GitHub #25，hotkeyPressed，见“全局快捷键”一节）
   RecentFolders      最近的文件夹（Windows 最近项目 + Win顺 的历史，轮流取），对话框搜索框和文件夹菜单共用
   Clipboard          剪贴板窗口的视图模型（分类、分组、多选、预览、粘贴回原窗口）；ClipModel 是它的列表
   ColorText          文字里的颜色值（#rrggbbaa、rgba()、hsl() …）和它的几种写法；ColorSwatch 画色块，半透明的垫棋盘格
@@ -368,6 +369,7 @@ tools/plugin-probe.cpp 插件系统阶段 0 的探针（无 Qt，静态 C 运行
     - 实测（2026-10-09，Total Commander 11.58、Directory Opus 13.25）：同一个打开对话框，依次在 Total Commander、Directory Opus、资源管理器之后按 `Ctrl+G`，每次都转到刚才那个窗口显示的文件夹；搜索框的建议里各自标出来源。设成 Total Commander 或 Directory Opus 时，在启动器里回车打开文件夹、`Ctrl+Enter` 打开所在位置都在它里面开，并且它到了前台，光标（选中）停在那个文件上。2026-10-14（XYplorer 27.20，有一个自己的配置的测试副本 `--profile`）：回车打开已有标签显示的文件夹就切到那个标签（标签数不变），没有的开新标签，盘根 `F:\` 也行，带撇号和空格的 `John's 乙` 也行，每次 XYplorer 都到前台；`Ctrl+Enter` 在它的标签里选中文件、选中文件夹，各约 1.2 秒内读到（含启动器的时间）；没在运行时回车把它启动在那个文件夹上，`Ctrl+Enter` 启动后选中那个文件。双栏时 `Ctrl+G` 转到有焦点那一栏的标签，搜索框的建议里当前标签标“当前位置”，另一栏的、后面的标签（`桌面` 解析成 `C:\Users\young\Desktop`）标“XYplorer”；它没在运行时 `Ctrl+G` 不会把它启动起来。自定义命令用一个记录 argv 的小程序验证：`"F:\wsfmtest\子文件夹 甲"` 加了引号，`F:\` 和没有空格的文件路径不加，`"{path}"` 不加第二层，工作目录是程序所在文件夹，以普通权限启动；不填第二条时 `Ctrl+Enter` 用第一条打开文件所在的文件夹；把 XYplorer.exe 填成自定义命令，正在运行的 XYplorer 也接下了路径并到前台。
 - **双击 Ctrl 用 Raw Input，不用键盘钩子。** 低级键盘钩子会被系统里每一次按键同步调用，钩子一慢就拖慢所有程序的打字；回应超时后 Windows 还会悄悄把它摘掉，双击 Ctrl 从此失灵。Raw Input 是按键之后才异步送来的消息（在单独的线程上接收），两个问题都没有。
 - **只在录快捷键时临时装低级键盘钩子。** 设置里点了快捷键方框，到录完、按 Esc 或焦点离开为止，`ShortcutCapture` 在自己的线程上装 `WH_KEYBOARD_LL` 钩子（PowerToys 的快捷键框也这样做）。设置窗口在前台时，按键在 Windows、Qt 和其他程序处理之前就被拿走，换成普通的按键事件交给录制框。不这样的话，Alt+Space 被 Qt 拿去弹系统菜单，Alt+F4 关掉设置窗口，Win+E 打开资源管理器，别的程序注册了的组合键（PowerToys Run、Copilot 常用 Alt+Space）直接打开那个程序，都录不上。现在都能录下来，注册不上的照常提示“已被其他程序或系统占用”。只吞录制开始后按下的键，以及这些键的抬起：之前就按着的键 Windows 要看到它完整抬起，否则会以为它一直按着。Win 键按下和抬起都不让 Windows 看到，所以不会弹开始菜单。音量、媒体键照常放行。钩子装不上时，录制框退回 Qt 自己的按键事件（录不到 Alt+Space）。
+- **文件夹菜单的快捷键在任何窗口里都弹**（GitHub #25，`FolderMenu::hotkeyPressed`）。一位 Directory Opus 用户关掉了 Opus 自己的双击空白处，Win顺 的菜单又弹不出来（Opus 的行外面看不见，见 pitfalls），要一个不靠双击的入口。设置里录一个组合键（`[Launcher] FolderMenuHotkey`，和启动器、剪贴板的快捷键一样用 `RegisterHotKey`、`HotkeyRecorder`、录制期间注销、占用了就在行下面标红），双击那项关着也有效（`App::applyFolderMenu` 只要有快捷键就建菜单；这时监听器不登记鼠标，Opus 的 `--folder-menu` 也不理）。按下时看前台窗口是谁（`folderview::classifyWindow` 认资源管理器窗口（顶上那个 `ShellTabWindowClass` 标签页）和桌面；`filemanager::kindOf` 认 Opus、Total Commander、XYplorer；`filedialog::kind` 认打开 / 另存为对话框；其余算“别的窗口”），在工作线程上问它当前文件夹（`filemanager::explorerFolder` / `frontFolder`（Opus 走文档写明的 `dopusrt /info …,paths`）/ `filedialog::currentFolder`），再走双击那条路（`gatherHere` → `show`）。不判空白、不让给 Listary：快捷键是明说要菜单。选中后：资源管理器同一个标签页过去（`goTo`），Opus / TC / XYplorer 由 `filemanager::goToInFront`（Opus `/acmd Go`，TC `/O /S /L=` 换有焦点那一栏的当前标签（按手册写的，没实测；实测过的是资源管理器、桌面、Opus、对话框、别的窗口），XYplorer 已有标签就切过去），对话框经 `DialogJump::go` 转过去（和 Ctrl+G 同一个队列），桌面和别的窗口用文件管理器打开；有当前文件夹的才有“在此搜索”“收藏这个文件夹”。位置（`menuhotkey::anchor`，有单测）：光标在那个窗口上就在光标处（和右键菜单一样），不在就在它有键盘焦点的控件左上角往里 16 逻辑像素（键盘打开右键菜单的惯例；`GetGUIThreadInfo`，拿不到就用客户区左上角），物理像素到 Qt 像素的换算和双击一样按点所在的屏幕来，混合 DPI 也对。再按一次关闭；菜单还在路上（正问 Opus）时再按，丢掉那一次（`menuhotkey::Toggle`，有单测）。快捷键自己的抬起不会漏进菜单或目标窗口：`RegisterHotKey` 吃掉主键的按下，抬起到目标窗口时只是一个没头的 keyup；菜单出来后 `KeyRouter` 只转按下，修饰键的抬起照剪贴板的办法补一个掩码键再放行。
 - **剪贴板历史有自己的窗口。** `Win+V` 打开的是 `ClipboardWindow.qml`（里面是 `ClipboardPage.qml`），不是启动器的另一页：它要出现在粘贴去的地方旁边（在哪个搜索框里按，就在哪个框下面打开；在别的程序里按，就在输入光标下面），大小也和启动器不同；两件事挤在一个窗口里时，启动器的每处布局、每个开关逻辑都得先问一句“现在是不是剪贴板”。云母效果、主题、多选和右键菜单仍是同一套，窗口启动后 1.5 秒预先画一帧（同启动器，见 `prewarmClipboard`），打开时先遮住、画好第一帧再显示。历史在内存里（每条文字的前 64K 个字符），打开不用等任何东西。
   - **固定的可以排在最前，分组里的顺序由用户定。** 论坛用户想让固定的内容排在新复制的上面，或者能自己排序。分类标签那一行最右边的排序开关（`Clipboard.pinnedFirst`，记在 `clipboard.db` 的 `state` 表，`order` = `pinnedFirst` | `newest`）打开后，“全部”和各类型标签里“固定”的条目排在最前，其余照旧按时间；默认关，因为打开后 `Alt+1…9` 对应的行会变（`Alt+1` 是第一条固定的），和 Windows 的列表也不一样了。分组（包括“固定”）里的条目有自己的顺序（`clips.rank`，小的在前）：放进分组时排在最上面，粘贴或再复制一次不挪位置，这样固定在前时 `Alt+数字` 一直对着同一条；拖动行右边的手柄、`Ctrl+↑/↓` 或右键菜单的“上移 / 下移”调整（搜索时不能调，看不出挪到哪）。旧的历史升级时按当时的列表顺序（最近用过的在前，`rank = -used`）给出顺序，看起来不变。挪一行时 `ClipModel::setRows` 认出“只挪了一行”，发 `rowsMoved` 而不是重置列表，当前行跟着走，`ListView` 的 `move` 过渡让它滑过去；拖动时不放过渡，否则还在滑的行会被当成鼠标下的那一行来回换。高度不同的行（图片行 80，其它 60）用“挪过去以后鼠标仍在这一行上”判断，不会来回抖。
 - **点一条是预览，粘贴按钮或双击才粘贴。** 起初和 Windows 自带的剪贴板面板一样点一下就粘贴，用户要求改成点一下看预览（GitHub #9 之后）：列表里点一下（不按 Ctrl、Shift）在右边打开这一条的预览，再点这一条收起；每行右边的粘贴按钮（悬停和当前行才显示）或双击才粘贴，点的是多选里的一条，就把选中的几条一起粘贴。平时窗口只有列表（480 宽）；`Alt+P`，或光标在搜索框文字末尾时按 `→`，也打开当前这一条的预览（再按一次收起；搜索框是空的时 `←` 也收起），窗口往右变宽，方向键换行时预览跟着走，`Esc` 先收起预览。预览开着还是关着记在 `clipboard.db` 的 `state` 表（`preview`），下次打开照旧：先按只有列表放好位置，再在 `Clipboard::placed` 里打开预览，宽度照常按这时右边剩下的地方算（GitHub #9）。底栏的“→ 预览”只在放得下时出现。预览宽 280～400，取列表右边到屏幕边缘还剩的地方，这样窗口不用挪、列表和按钮停在鼠标下面不动；剩下的不到 280 时窗口才往左挪（实测：启动器靠右时窗口一挪，第二次点预览按钮就点在了旁边的固定按钮上；现在窗口往左挪时，双击的第二下也会落到别的行，粘贴按钮不受影响）。

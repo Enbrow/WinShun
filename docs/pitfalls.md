@@ -1939,6 +1939,23 @@
 - **不要给 `dopusrt /info` 传文档以外的类型**：手册只列了 `paths`、`list`、`listsel`、`open`、`select`。2026-10-14 研究时传了一个 `selected`，`dopus.exe` 当场崩溃（0xC0000005，线程 `dopus.worker`），之后的 `/info` 每次都卡 30 秒，直到 Opus 重启。
 - **替用户写 `prefs.oxc`**（用户：“能不能不让用户设置？我们帮用户做好”）。实测 Opus 13.25（2026-10-14）：运行中的 Opus **不重读**外面改过的 `prefs.oxc`（改完双击空白处没反应）；`dopusrt /cmd Close PROGRAM` 退出时**不重写**它（修改时间不变，改动还在）；再启动就生效（菜单 213–245 ms），原来开着的 lister 和文件夹都会恢复；`<dblclk>` 里没有 `<bg_commands>` 时，插一段 `<bg_commands><event …/></bg_commands>` 到 `<mouse_hook_delay>` 前面也认。但在 Opus 的首选项里点“确定”会把内存里的整份设置写回去，所以**不能趁 Opus 运行时改文件**：`filemanager::editOpusPrefs` 先关 Opus（等进程退出，15 秒不退就放弃，比如有复制任务在问），再改，再启动。只换 `<dblclk>` 里 `id="0"` 的那个 `<event>`，别的字节原样（`pathtext::withOpusBlankClick`，有单测）；原来那条存在 `[Launcher] FolderMenuOpusBefore`，“取消设置”原样放回（实测还原后整个文件哈希一致）；第一次改之前把整份文件备份到 `%LOCALAPPDATA%\WinShun\opus-prefs.oxc.bak`。用户自己启用了别的命令时不自动换，设置页显示那条命令，用户点“换成 Win顺 的菜单”才换，取消时换回。设置窗口每次到前台都重读一次状态（用户可能在 Opus 里改了）。卸载时 `WinShunSearch.exe --opus-menu-off` 把指向本副本的那条改成 `enable="no"`，免得卸载后双击空白处 Opus 报找不到程序（2026-10-14 用 ISCC 编的测试包真装真卸过：只变了这一行，重启 Opus 后双击空白处什么也不发生）。只在托盘里跑、没开窗口的 Opus，重新启动时会开出默认 lister，`dopus.exe` 没有不开窗口的命令行开关（只有它首选项里的“启动时不打开 lister”）：原来没窗口的，等新窗口出来就 `WM_CLOSE` 掉（实测约 0.5 秒后关掉，仍在托盘）。Opus 15 秒不退就放弃；之后用户才在 Opus 的提问里点“退出”的话，Opus 会关掉且不会再被启动。
 
+### 用快捷键弹出（GitHub #25）：想看菜单做了什么，日志里没有
+
+- **现象**：实测快捷键时想从 `WinShun.log` 读“菜单是关了还是丢了这一次”，文件里一行都没有：`qInfo` 只进调试输出，日志文件只记警告和错误。
+- **做法**：环境变量 `WINSHUN_LOG_INFO` 设了就连 info 行一起写（`main.cpp` 的 `logToFile`），测试脚本启动 Win顺 前设上，用 `--profile` 的那份日志读状态；平时不设，日志不变。别为了测试把 info 改成 warning。
+
+### 快捷键弹出的位置：光标不在那个窗口上时落到焦点控件，差 1 像素是换算
+
+- **现象**：150% 下菜单该在焦点控件左上角 (834,454) 往里 24 物理像素即 (858,478)，窗口实际在 (858,477)。
+- **原因**：锚点是物理像素，交给 Qt 要换成逻辑像素（478 / 1.5 = 318.67），Qt 放窗口时再换回去，分数缩放下来回各舍一次。
+- **做法**：和双击落点一样接受 1 像素；核对时按“同一套单位、容差 1 像素”比。光标在窗口上时直接用光标点，没有这个误差。屏幕下边放不下时菜单照样往上翻（`other`、`explorer-pointer` 两例都翻了，x 不变）。
+
+### 实测脚本（Windows PowerShell 5.1）的两个坑
+
+- `[ushort]` 不是 5.1 的类型加速器（pwsh 7 才有），`Add-Type` 之后 `[ushort[]]@(...)` 报 “Unable to find type”，提权窗口里又看不见：先不提权跑一遍脚本看编译错误，数组写 `[uint16[]]`。
+- 在“别的窗口”上选一个已经有资源管理器窗口开着的文件夹来验证“用文件管理器打开”，数不到新窗口：外壳打开文件夹时，已有窗口显示着它就只把那个窗口提到前台（前台确实换成了它）。要验证就选没开着的（最近的文件夹），再数新开的 `CabinetWClass` 窗口。
+- 记日志的函数里用 `Write-Output` 写一行，这一行就成了调用它的函数的返回值的一部分：`Recorder` 返回的成了 `Object[]`，`MenuWindows` 只剩一项时又被拆成单个对象，`.Count` 是空。日志用 `Write-Host`，返回数组写 `return ,$m`，调用处套 `@()`。
+
 ## 内容索引直读（bulk，第一次建立不逐个打开文件）
 
 做法和取舍见 [architecture.md](architecture.md) 的“内容索引第一次建立时直读磁盘”（`src/core/NtfsBulk.cpp`、`ContentIndexer::pass` 的 feeder、`src/service/Volumes.cpp` 的 `serveOpenBulkRead`）。下面是量出来的、光看资料想不到的几条。
