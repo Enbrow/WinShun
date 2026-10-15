@@ -435,15 +435,23 @@ bool App::start(const StartOptions& options)
     m_launcher
         = std::make_unique<Launcher>(m_index.get(), m_apps.get(), m_places.get(), m_engine.get(), m_history.get());
     m_launcher->setFavorites(m_favorites.get());
-    connect(m_launcher.get(), &Launcher::dismissRequested, this, &App::hideLauncher);
+    // Done with it (a result opened, a command run): hidden, unless pinned.
+    connect(m_launcher.get(), &Launcher::dismissRequested, this, [this] {
+        if (!m_launcher->pinned())
+            hideLauncher();
+    });
     // Opened by typing in an Explorer window, Esc hands the keyboard back to
     // it (allowed: the launcher is in front), as closing a menu would; not a
-    // result opened, whose program is coming to the front instead.
+    // result opened, whose program is coming to the front instead. Esc hides
+    // it, pinned or not (dismissRequested follows, for the rest).
     connect(m_launcher.get(), &Launcher::escaped, this, [this] {
         const HWND back = std::exchange(m_typingExplorer, nullptr);
         if (back && ::IsWindow(back) && m_window && m_window->isActive())
             ::SetForegroundWindow(back);
+        hideLauncher();
     });
+    connect(m_launcher.get(), &Launcher::pinnedChanged, this, &App::launcherPinnedChanged);
+    connect(m_launcher.get(), &Launcher::settingsRequested, this, [this] { showSettings(); });
     connect(m_launcher.get(), &Launcher::panelToggleRequested, this, &App::togglePanel);
     connect(m_launcher.get(), &Launcher::openFailed, this, [this](const QString& name) {
         m_messages->showNotification(tr("没有打开“%1”").arg(name),
@@ -464,7 +472,7 @@ bool App::start(const StartOptions& options)
     m_boxPressGrace.setSingleShot(true);
     m_boxPressGrace.setInterval(400ms);
     connect(&m_boxPressGrace, &QTimer::timeout, this, [this] {
-        if (m_window && m_window->isVisible() && !m_window->isActive())
+        if (m_window && m_window->isVisible() && !m_window->isActive() && !m_launcher->pinned())
             hideLauncher();
     });
     // The footer's switches (the order, the start list): remembered.
@@ -746,6 +754,17 @@ bool App::createWindow()
                 if (pid == ::GetCurrentProcessId())
                     return;
                 m_launcher->systemCommandDone();
+            }
+            if (m_launcher->pinned()) { // stays up, behind nothing (topmost), until Esc
+                m_boxPressGrace.stop();
+                // A press on Win顺's box took the focus: that press hides it
+                // (searchBoxPressed), as double Ctrl would.
+                if (m_searchBox && m_searchBox->underPointer())
+                    m_pinnedLostToBox.start();
+                else
+                    m_pinnedLostToBox.invalidate();
+                updateNumberKeys();
+                return;
             }
             const bool justShown = m_launcherShown.isValid() && m_launcherShown.elapsed() < 500;
             const bool onBox = m_searchBox && m_searchBox->underPointer();
@@ -1352,6 +1371,19 @@ void App::searchBoxPressed(const taskbar::SearchBox::Press& press)
 {
     if (!m_window || !m_searchBox)
         return;
+    // Pinned, a window of its own (not over the box, see showLauncher): the
+    // box opens and closes it as double Ctrl does. In front a moment ago
+    // (the press took the focus from it): hidden; else to the front.
+    if (m_launcher->pinned() && launcherShown() && !m_launcherOverBox) {
+        const bool wasInFront = m_window->isActive()
+            || (m_pinnedLostToBox.isValid() && m_pinnedLostToBox.elapsed() < 500);
+        m_pinnedLostToBox.invalidate();
+        if (wasInFront)
+            hideLauncher();
+        else
+            showLauncherInBox();
+        return;
+    }
     if (!launcherShown() || !m_launcherOverBox) {
         showLauncherInBox();
         return;
@@ -2032,6 +2064,8 @@ void App::dumpLauncher(const QString& file) const
     QJsonObject state;
     state[u"visible"_s] = m_window && m_window->isVisible();
     state[u"panel"_s] = m_launcher->panel();
+    state[u"pinned"_s] = m_launcher->pinned();
+    state[u"active"_s] = m_window && m_window->isActive();
     if (m_window) {
         const QRect g = m_window->geometry();
         state[u"geometry"_s] = QJsonArray {g.x(), g.y(), g.width(), g.height()};
@@ -2333,6 +2367,20 @@ void App::showLauncher(const QString& query, const std::optional<taskbar::Spot>&
     hideClipboard(false); // from under its search box: searching again
     m_boxPressGrace.stop();
     m_launcherShown.start();
+    if (m_launcher->pinned() && launcherShown()) {
+        // Pinned and up already, without the focus (or under another topmost
+        // window): to the front where it stands, the words as they are. Not
+        // placed again: that would take a window dragged aside back to its
+        // spot, or the field into the taskbar's box.
+        if (!query.isEmpty())
+            m_launcher->setQuery(query);
+        win::bringToFront(m_window);
+        m_window->requestActivate();
+        m_launcher->handleShown(); // refreshed (something was opened meanwhile), all typed selected
+        if (!query.isEmpty())
+            emit m_launcher->caretRequested(static_cast<int>(query.size()), false);
+        return;
+    }
     const bool wasClosing = std::exchange(m_launcherClosing, false); // back from on its way out
     // Opened anew (not back from on its way out, not up already): as at its
     // first opening, if so set. Still hidden or cloaked until the rows for
@@ -2340,7 +2388,9 @@ void App::showLauncher(const QString& query, const std::optional<taskbar::Spot>&
     if (m_settings.clearOnOpen && !wasClosing && (!m_window->isVisible() || m_prewarming.load()))
         m_launcher->startOver();
     const bool wasInBox = m_launcher->inTaskbarBox();
-    m_launcherOverBox = inBox && m_searchBox;
+    // Pinned, it stays while the user works elsewhere: a window of its own,
+    // with its own field, the box idle (see launcherPinnedChanged).
+    m_launcherOverBox = inBox && m_searchBox && !m_launcher->pinned();
     m_launcher->setInTaskbarBox(m_launcherOverBox && m_searchBox->wide());
     updateSearchBoxLook();
     if (m_searchBox && !m_launcher->inTaskbarBox()) // opened elsewhere: the box is idle; over it, it looks open
@@ -2663,7 +2713,7 @@ void App::hideClipboard(bool launcherToo)
     m_clipboard->handleHidden();
     // Gone without going back to the search box (pasted elsewhere, clicked
     // away): the launcher goes too.
-    if (launcherToo && underLauncher && m_window && !m_window->isActive())
+    if (launcherToo && underLauncher && m_window && !m_window->isActive() && !m_launcher->pinned())
         hideLauncher();
 }
 
@@ -2835,6 +2885,23 @@ void App::togglePanel()
 {
     if (m_window && m_window->isVisible() && !m_launcherClosing)
         setPanel(!m_launcher->panel());
+}
+
+void App::launcherPinnedChanged()
+{
+    // Over the box, its field drawn there: pinned, the window is one of its
+    // own (it stays while the user works elsewhere, and can be dragged
+    // away), so the field comes back into it and the box goes idle. Where it
+    // stands, it stays; the next press on the box brings it to the front.
+    if (!m_launcher->pinned() || !launcherShown() || !m_launcherOverBox)
+        return;
+    if (m_launcher->inTaskbarBox())
+        m_launcher->setInTaskbarBox(false);
+    if (m_searchBox) {
+        m_searchBox->setText({});
+        updateSearchBoxLook();
+    }
+    m_launcherOverBox = false;
 }
 
 void App::setPanel(bool on)

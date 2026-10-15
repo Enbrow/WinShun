@@ -544,6 +544,13 @@ Window {
         }
         const ctrl = (event.modifiers & Qt.ControlModifier) !== 0
         const shift = (event.modifiers & Qt.ShiftModifier) !== 0
+        // Ctrl+T: pinned, or not (the pin at the box's corner; Lertaro's key,
+        // linux.do #157). From the row of apps too.
+        if (event.key === Qt.Key_T && ctrl && !shift && (event.modifiers & Qt.AltModifier) === 0) {
+            window.launcher.togglePin()
+            event.accepted = true
+            return
+        }
         if (homeIndex >= 0) { // on the row of apps (nothing typed, so ← → move nothing else)
             switch (event.key) {
             case Qt.Key_Left: homeIndex = Math.max(0, homeIndex - 1); break
@@ -709,6 +716,7 @@ Window {
     Connections {
         target: window.frame
         function onDoubleClicked() { window.placement.moveHome() } // on the header or footer
+        function onHandleClicked() { window.launcher.openSettings() } // the search icon (SearchBar.qml)
     }
     Connections {
         target: window.placement

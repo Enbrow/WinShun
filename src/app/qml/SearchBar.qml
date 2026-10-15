@@ -68,6 +68,8 @@ Item {
         frame.addControl(input)
         frame.addControl(tabs)
         frame.addControl(expand)
+        frame.addControl(pin)
+        frame.addHandle(handle)
     }
 
     HoverHandler { id: hover } // over the field and the tabs
@@ -118,9 +120,37 @@ Item {
         }
     }
 
+    // The search icon is a handle (linux.do #157, as Lertaro has it): held
+    // and dragged it moves the window, as the rest of the header does;
+    // clicked, the settings (WindowFrame.addHandle, handleClicked in
+    // Main.qml). Pointed at, a square shows under it and a tip says so.
+    // In the drag area, QML hears of the pointer there from the frame alone.
+    Rectangle {
+        id: handle
+
+        readonly property bool pointed: visible && contains(mapFromItem(null, bar.frame.pointer))
+
+        visible: !bar.inBox
+        anchors.horizontalCenter: icon.horizontalCenter
+        y: bar.onPixel((bar.height - height) / 2)
+        width: Theme.searchIconSize + 12
+        height: width
+        radius: 4
+        color: pointed && !bar.placement.moving ? Theme.chipHover : "transparent"
+        Behavior on color { ColorAnimation { duration: 100 } }
+        Accessible.role: Accessible.Button
+        Accessible.name: qsTr("设置")
+    }
+
+    HoverTip {
+        target: handle.pointed && !bar.placement.moving ? handle : null
+        text: qsTr("拖动可移动窗口 · 点击打开设置")
+    }
+
     Glyph {
         id: icon
         visible: !bar.inBox
+        color: handle.pointed ? Theme.text : Theme.subtext
         anchors.left: parent.left
         anchors.leftMargin: 20
         y: bar.onPixel((bar.height - height) / 2)
@@ -202,6 +232,53 @@ Item {
         }
     }
 
+    // Pins the launcher (Launcher.pinned, Ctrl+T; linux.do #157): it stays
+    // up through clicks elsewhere and opened results, until Esc. Beside the
+    // panel's button, as small and plain; on, it shows so: the filled pin in
+    // the accent colour on a raised square with an edge (as the footer's
+    // chosen chips; a mark in the accent colour, never a fill of it).
+    Rectangle {
+        id: pin
+
+        readonly property bool checked: bar.launcher.pinned
+        readonly property bool tipWanted: pinArea.containsMouse
+        readonly property string tip: checked ? qsTr("取消钉住") : qsTr("钉住：点别处、打开文件后都不收起，按 Esc 关闭")
+
+        anchors.right: expand.left
+        anchors.rightMargin: 4
+        y: bar.onPixel((bar.height - height) / 2)
+        width: Theme.chipHeight
+        height: Theme.chipHeight
+        radius: 4
+        color: pinArea.pressed ? Theme.controlPressed : checked ? Theme.chipActive
+             : pinArea.containsMouse ? Theme.chipHover : "transparent"
+        border.width: checked ? 1 : 0
+        border.color: Theme.chipBorder
+        Accessible.role: Accessible.CheckBox
+        Accessible.name: qsTr("钉住")
+        Accessible.checked: checked
+
+        Glyph {
+            anchors.centerIn: parent
+            glyph: pin.checked ? "" : "" // PinnedFill, Pin
+            overlay: pin.checked ? "" : "" // the needle (lines up with PinnedFill in Fluent and MDL2)
+            size: 12
+            color: pin.checked ? Theme.accent : pinArea.containsMouse ? Theme.text : Theme.subtext
+        }
+        MouseArea {
+            id: pinArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: bar.launcher.togglePin()
+        }
+        HoverTip {
+            target: pin.tipWanted ? pin : null
+            text: pin.tip
+            shortcut: "Ctrl+T"
+        }
+    }
+
     // Expands the box into the search panel (Launcher.panel), or collapses
     // it: at the corner, small and plain, as Listary has it (Ctrl+E too).
     Rectangle {
@@ -243,7 +320,7 @@ Item {
     ScopeTabs {
         id: tabs
         scaled: true
-        anchors.right: expand.left
+        anchors.right: pin.left
         anchors.rightMargin: 6
         anchors.leftMargin: 16
         y: bar.onPixel((bar.height - height) / 2)

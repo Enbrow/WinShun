@@ -151,6 +151,11 @@ class Launcher : public QObject {
     // same way. The app sizes the window (App::setPanel) and then says so
     // here; togglePanel() asks it to.
     Q_PROPERTY(bool panel READ panel NOTIFY panelChanged FINAL)
+    // Pinned (Ctrl+T, the pin at the box's corner; linux.do #157): it stays
+    // up when it loses the focus or a result is opened, until Esc (or double
+    // Ctrl while it is in front) hides it. Kept while hidden, until turned
+    // off or the program restarts. The app does the rest (App.cpp).
+    Q_PROPERTY(bool pinned READ pinned WRITE setPinned NOTIFY pinnedChanged FINAL)
     // Its filters, applied in the panel alone (the box is the plain quick
     // search): when written (dateChoice: 0 不限, 1 今天, 2 最近 7 天, 3 最近
     // 30 天, 4 今年, 5 自定义 with dateFrom and dateTo as "yyyy-MM-dd", either
@@ -408,6 +413,12 @@ public:
     bool panel() const { return m_panel; }
     void setPanel(bool on); // by the app, the window sized for it (App::setPanel)
     Q_INVOKABLE void togglePanel(); // panelToggleRequested: the app does it
+    bool pinned() const { return m_pinned; }
+    void setPinned(bool on);
+    Q_INVOKABLE void togglePin() { setPinned(!m_pinned); } // Ctrl+T
+    // The search icon clicked (not dragged, WindowFrame::handleClicked):
+    // the settings window (settingsRequested).
+    Q_INVOKABLE void openSettings() { emit settingsRequested(); }
     int dateChoice() const { return m_dateChoice; }
     QString dateFrom() const { return m_dateFrom; }
     QString dateTo() const { return m_dateTo; }
@@ -479,6 +490,8 @@ signals:
     void folderChipsChanged();
     void panelChanged();
     void panelToggleRequested();
+    void pinnedChanged();
+    void settingsRequested();
     void filtersChanged();
     void panelSortChanged();
 
@@ -662,6 +675,7 @@ private:
 
     // The search panel (see the properties).
     bool m_panel = false;
+    bool m_pinned = false;
     int m_dateChoice = 0;
     QString m_dateFrom;
     QString m_dateTo;

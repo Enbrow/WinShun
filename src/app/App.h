@@ -111,6 +111,10 @@ public:
     // it goes back quietly.
     void setPanel(bool on);
     void togglePanel();
+    // Launcher::pinned changed. Pinned over Win顺's box on the taskbar, the
+    // field comes back into the window and the box goes idle (as for the
+    // panel): the window stays where it stands, a window of its own now.
+    void launcherPinnedChanged();
     // --dump <file> from another copy (tests): the launcher's state and rows as JSON.
     void dumpLauncher(const QString& file) const;
     void showClipboard();
@@ -346,6 +350,9 @@ private:
     // does that for whatever is clicked on the taskbar): it comes back with
     // the press (searchBoxPressed), else it goes once this runs out.
     QTimer m_boxPressGrace;
+    // Pinned (Launcher::pinned), it lost the focus to a press on the box:
+    // that press closes it (searchBoxPressed). Since when.
+    QElapsedTimer m_pinnedLostToBox;
     QPointer<QQuickItem> m_searchField; // the launcher's (SearchBar.qml): the input method asks it where the caret is
     taskbar::SearchBox::Text m_fieldShown; // what it last reported (mirrorField), for the box
     bool m_deliverTyping = false; // the launcher was asked for by typing in the Start menu or in Explorer

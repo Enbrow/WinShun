@@ -1354,6 +1354,17 @@ void Launcher::togglePanel()
     emit panelToggleRequested();
 }
 
+void Launcher::setPinned(bool on)
+{
+    if (on == m_pinned)
+        return;
+    m_pinned = on;
+    emit pinnedChanged();
+    // Said in the footer as well: Ctrl+T leaves no other trace near the keys.
+    if (m_window && m_window->isVisible())
+        flash(on ? tr("已钉住：点别处、打开文件后都不收起，按 Esc 关闭") : tr("已取消钉住"));
+}
+
 bool Launcher::filtersActive() const
 {
     return m_dateChoice != 0 || m_sizeChoice != 0 || !m_folderFilter.isEmpty();

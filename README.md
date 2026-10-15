@@ -81,6 +81,7 @@
 - **数字键直达**：结果的图标上标着序号，`Ctrl+1`～`Ctrl+9` 打开第几行（也可改成 `Alt`）。
 - **按类型找**：选中 **文件** 后，下面一排是文件夹、文档、图片、视频、压缩包等类型，`Ctrl+Tab` 依次切换；点 `+` 或在设置里自己加类型。
 - **搜索面板**：结果太多时，点搜索框右上角的小按钮或按 `Ctrl+E`，同一个窗口展开成面板（像 Listary）：左边按范围、类型、修改时间、大小、位置筛选，右边名称 / 路径 / 大小 / 修改时间四列，点列头排序；什么都不输入也能按条件浏览整个索引（三百万个文件也是毫秒级）。`size:>10mb`、`dm:7d` 这类写法直接打在搜索框里也行。再按一次就缩回搜索框。
+- **钉住**：按 `Ctrl+T` 或点搜索框右上角的图钉，点别处、打开文件后搜索框都不收起，`Esc` 关闭；按住左边的放大镜拖动窗口，单击它打开设置。
 - **拖出去就能用**：结果直接拖进微信、邮件、资源管理器。
 - **实时更新**：读 USN 变更日志，改名、新建、删除马上搜得到；拔 U 盘不会提示“设备正在使用”。
 
@@ -184,6 +185,7 @@
 | `Tab` / `Shift+Tab` | 切换范围：全部 / 文件 / 内容（往后 / 往前） |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | 在 **文件** 里切换类型，在 **内容** 里切换文件夹 |
 | `Ctrl+S` | 最匹配 → 最新在前 → 最早在前 |
+| `Ctrl+E` / `Ctrl+T` | 展开为搜索面板 / 钉住搜索框（点别处不收起） |
 | `Ctrl+G`（对话框里） | 转到文件管理器正在显示的文件夹 |
 | `Win+V` / `Win+S`（设置里打开后） | 剪贴板历史 / 任务栏上方的搜索框 |
 | 自设的组合键（设置 › 打开 Win顺 › 对话框） | 在任何窗口里弹出文件夹菜单，再按一次关闭 |
@@ -267,6 +269,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Order**: your own files first, the date modified on each row, `Ctrl+S` for best match / newest / oldest. Recent files are listed when the box is empty.
   - **Shortcuts**: `Ctrl+1`…`Ctrl+9` opens a row (its number is on its icon).
   - **Search panel**: too many hits? The small button at the box's corner or `Ctrl+E` grows the same window into a panel, as Listary has it: filters down the left (scope, kind, date modified, size, folder), the rows in columns on the right (name, path, size, date modified) with sortable headers; with nothing typed it browses the whole index by those filters (milliseconds over three million files). `size:>10mb` and `dm:7d` work in the box too. Press it again to collapse.
+  - **Pin**: `Ctrl+T` or the pin at the box's corner keeps the search box up through clicks elsewhere and opened files; `Esc` closes it. Drag the window by the magnifier on the left; click it for the settings.
   - **By kind**: under **Files**, a row of kinds (folders, documents, pictures, videos, archives…); `Ctrl+Tab` steps through them, `+` adds your own.
   - **Drag out**: drag results into a chat, a mail or Explorer.
   - **Query syntax**: `"exact phrase"`, `!exclude`, `!node_modules\`, wildcards `*` `?`, `ext:pdf,docx`, `folder\name`, and paths (`D:\My Files\`, `tools/out/`).
@@ -320,6 +323,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 | `Tab` / `Shift+Tab` | Switch scope: All / Files / Content (forward / back) |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | In **Files**, step through the kinds; in **Content**, through the folders |
 | `Ctrl+S` | Best match → newest first → oldest first |
+| `Ctrl+E` / `Ctrl+T` | Expand to the search panel / pin the search box (stays up through clicks elsewhere) |
 | `Ctrl+G` (in a file dialog) | Go to the folder shown in your file manager |
 | `Win+V` / `Win+S` (once turned on) | Clipboard history / search above the taskbar |
 | A shortcut you set (Settings › Open WinShun › Dialogs) | The folder menu in any window; again to close it |

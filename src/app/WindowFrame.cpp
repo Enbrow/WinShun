@@ -117,12 +117,39 @@ struct WindowFrame::Hook {
             // moving it, the program behind keeps the front.
             if (wParam == HTCAPTION && self->m_noActivate)
                 return ::DefWindowProcW(hwnd, WM_SYSCOMMAND, SC_MOVE | HTCAPTION, lParam);
+            // A handle: dragged, it moves the window as the rest does; let go
+            // before the pointer has gone the system's drag distance, a click.
+            // Told apart here, before the move loop, which takes the release
+            // and leaves no trace of a click (DragDetect follows the mouse
+            // until one or the other, the button's release included).
+            if (wParam == HTCAPTION && self->onHandle(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
+                const POINT at {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                if (::DragDetect(hwnd, at)) {
+                    // The move loop starts from where the pointer is now, past
+                    // the drag distance: the window catches up with it first,
+                    // or it would trail the pointer by that much all the way
+                    // (measured: 288 of 300 px).
+                    POINT now {};
+                    RECT rect {};
+                    if (::GetCursorPos(&now) && ::GetWindowRect(hwnd, &rect))
+                        ::SetWindowPos(hwnd, nullptr, rect.left + now.x - at.x, rect.top + now.y - at.y, 0, 0,
+                            SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE);
+                    break; // the move loop, as for any press on the drag area
+                }
+                if (!(::GetAsyncKeyState(VK_ESCAPE) & 0x8000)) // Esc ends it too: no click then
+                    QMetaObject::invokeMethod(self, &WindowFrame::handleClicked, Qt::QueuedConnection);
+                return 0;
+            }
             break;
         case WM_NCLBUTTONDBLCLK:
             if (wParam == HTMAXBUTTON) {
                 self->setMaximizeState(true, true);
                 return 0;
             }
+            // Its first click did what a click there does; the second is not
+            // a double click on the title bar (the launcher's goes home).
+            if (wParam == HTCAPTION && self->onHandle(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+                return 0;
             if (wParam == HTCAPTION) {
                 emit self->doubleClicked();
                 if (!self->m_ownFrame)
@@ -239,6 +266,17 @@ void WindowFrame::addControl(QQuickItem* item)
 {
     if (item)
         m_controls.append(item);
+}
+
+void WindowFrame::addHandle(QQuickItem* item)
+{
+    if (item)
+        m_handles.append(item);
+}
+
+bool WindowFrame::onHandle(int screenX, int screenY) const
+{
+    return anyCovers(m_handles, toWindow(screenX, screenY));
 }
 
 QString WindowFrame::icon() const

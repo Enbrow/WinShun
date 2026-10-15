@@ -287,7 +287,8 @@ Item {
             ["Ctrl+C", qsTr("复制文件")],
             ["Ctrl+Shift+C", qsTr("复制路径")],
             ["Ctrl+S", qsTr("切换排序；不输入时切换最近打开、最近修改")],
-            ["Ctrl+E", qsTr("展开为搜索面板，或收回搜索框")]
+            ["Ctrl+E", qsTr("展开为搜索面板，或收回搜索框")],
+            ["Ctrl+T", qsTr("钉住：点别处、打开文件后都不收起；再按一次取消")]
         ].concat(footer.launcher.numberKeys === "off" ? []
                  : [[modifier + "+1…9", qsTr("打开第几行（图标上标着快捷键）")]])
          .concat([

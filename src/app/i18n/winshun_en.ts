@@ -657,6 +657,10 @@
         <translation>Expand to the search panel, or collapse it</translation>
     </message>
     <message>
+        <source>钉住：点别处、打开文件后都不收起；再按一次取消</source>
+        <translation>Pin: stays up through clicks elsewhere and opened files; again to unpin</translation>
+    </message>
+    <message>
         <source>打开第几行（图标上标着快捷键）</source>
         <translation>Open the nth row (the shortcut on its icon)</translation>
     </message>
@@ -1584,6 +1588,26 @@
 </context>
 <context>
     <name>SearchBar</name>
+    <message>
+        <source>设置</source>
+        <translation>Settings</translation>
+    </message>
+    <message>
+        <source>拖动可移动窗口 · 点击打开设置</source>
+        <translation>Drag to move the window · click for the settings</translation>
+    </message>
+    <message>
+        <source>取消钉住</source>
+        <translation>Unpin</translation>
+    </message>
+    <message>
+        <source>钉住：点别处、打开文件后都不收起，按 Esc 关闭</source>
+        <translation>Pin: stays up through clicks elsewhere and opened files; Esc closes it</translation>
+    </message>
+    <message>
+        <source>钉住</source>
+        <translation>Pin</translation>
+    </message>
     <message>
         <source>收回搜索框</source>
         <translation>Collapse to the search box</translation>
@@ -5018,6 +5042,14 @@
     <message>
         <source>搜索应用和文件</source>
         <translation>Search apps and files</translation>
+    </message>
+    <message>
+        <source>已钉住：点别处、打开文件后都不收起，按 Esc 关闭</source>
+        <translation>Pinned: stays up through clicks elsewhere and opened files; Esc closes it</translation>
+    </message>
+    <message>
+        <source>已取消钉住</source>
+        <translation>Unpinned</translation>
     </message>
     <message>
         <source>选择要在其中搜索的文件夹</source>

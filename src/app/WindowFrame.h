@@ -53,6 +53,11 @@ public:
     Q_INVOKABLE void addDragArea(QQuickItem* item);
     // Inside a drag area, still the window's own (buttons, text fields).
     Q_INVOKABLE void addControl(QQuickItem* item);
+    // Inside a drag area, dragged it moves the window as the rest does;
+    // clicked (let go before the system's drag distance) it emits
+    // handleClicked() (the launcher's search icon: the settings). Not a
+    // control: QML hears of the pointer over it from `pointer` alone.
+    Q_INVOKABLE void addHandle(QQuickItem* item);
     // With ownFrame: hit-tested as the maximise button (Snap Layouts).
     Q_INVOKABLE void setMaximizeButton(QQuickItem* item) { m_maximizeButton = item; }
     // frameShown() once the scene as it is now is on the screen: the first
@@ -80,6 +85,7 @@ signals:
     void pointerChanged();
     void maximizeButtonChanged();
     void doubleClicked(); // on a drag area
+    void handleClicked(); // see addHandle
     void frameShown(); // see afterNextFrame
 
 private:
@@ -87,6 +93,7 @@ private:
     friend struct Hook;
 
     int hitTest(int screenX, int screenY) const; // HT* code
+    bool onHandle(int screenX, int screenY) const; // a handle under that point (see addHandle)
     QPointF toWindow(int screenX, int screenY) const; // logical pixels
     void setPointer(QPointF pointer);
     void setMaximizeState(bool hovered, bool pressed);
@@ -97,6 +104,7 @@ private:
     WId m_hwnd = 0;
     QList<QPointer<QQuickItem>> m_dragAreas;
     QList<QPointer<QQuickItem>> m_controls;
+    QList<QPointer<QQuickItem>> m_handles;
     QPointer<QQuickItem> m_maximizeButton;
     QPointF m_pointer {-1, -1};
     bool m_trackingLeave = false;
