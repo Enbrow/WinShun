@@ -502,6 +502,71 @@ Item {
                             currentIndex = Math.min(Math.max(0, currentIndex), count - 1)
                     }
 
+                    // The mouse wheel glides the list itself (docs/pitfalls.md:
+                    // 剪贴板列表滚轮一格一顿). Rows are of two heights, so the
+                    // view re-estimates contentHeight/originY whenever a row
+                    // is made or let go; Flickable answers each such change,
+                    // while its own wheel glide runs, by cutting the glide
+                    // short and stepping back under a pixel. Here the wheel
+                    // never reaches Flickable: a notch adds 3 lines to a goal,
+                    // the rows ease there in whole pixels, never backwards,
+                    // and the ends are wherever the view says they are at
+                    // each step.
+                    WheelHandler {
+                        target: null
+                        acceptedDevices: PointerDevice.Mouse
+                        onWheel: (event) => list.wheelScroll(event.angleDelta.y)
+                    }
+                    readonly property real minY: originY - topMargin
+                    readonly property real maxY: Math.max(minY, originY + contentHeight + bottomMargin - height)
+                    property real glideFrom: 0
+                    property real glideGoal: 0 // -Infinity: the top, Infinity: the end, wherever they turn out to be
+                    property real glideT: 0 // 0..1 along the ease
+                    property real glideWritten: NaN // the contentY the glide set last
+                    readonly property real glideTo: Math.max(minY, Math.min(maxY, glideGoal))
+                    NumberAnimation {
+                        id: glide
+                        target: list
+                        property: "glideT"
+                        from: 0
+                        to: 1
+                        duration: SystemTheme.animations ? 300 : 0
+                        easing.type: Easing.OutExpo
+                    }
+                    function wheelScroll(angleDeltaY) {
+                        if (maxY <= minY)
+                            return
+                        const lines = Application.styleHints.wheelScrollLines
+                        const step = angleDeltaY / 120 * (lines > 0 ? lines * 24 : height)
+                        let goal = (glide.running ? glideTo : contentY) - step
+                        if (goal <= minY)
+                            goal = -Infinity
+                        else if (goal >= maxY)
+                            goal = Infinity
+                        glide.stop()
+                        glideFrom = contentY
+                        glideWritten = contentY
+                        glideGoal = goal
+                        glideT = 0
+                        glide.start()
+                    }
+                    function glideStep() {
+                        if (!glide.running)
+                            return
+                        let y = Math.round(Math.max(minY, Math.min(maxY, glideFrom + (glideTo - glideFrom) * glideT)))
+                        // Never against the glide's own direction: an end the
+                        // view re-estimates nearer must not pull the rows back.
+                        y = glideGoal < glideFrom ? Math.min(y, glideWritten) : Math.max(y, glideWritten)
+                        glideWritten = y
+                        contentY = y
+                    }
+                    onGlideTChanged: glideStep()
+                    onGlideToChanged: glideStep() // an end moved under a glide heading for it
+                    onContentYChanged: {
+                        if (glide.running && Math.abs(contentY - glideWritten) > 0.5)
+                            glide.stop() // something else moved the view: keys, the scroll bar, selectFirst()
+                    }
+
                     delegate: ClipRow {
                         id: clipRow
                         width: list.width

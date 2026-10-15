@@ -1781,6 +1781,12 @@
 - **原因**：`ClipModel::setRows` 分类相同顺序时是逐行删、逐行插，`originY` 随之漂移；之后 `positionViewAtBeginning()` 常常把 `contentY` 停在 `originY`，不算 `topMargin`。只在第一行不变时才对。先 `forceLayout()` 也没用（用 qml.exe 离屏实验逐种比过）。
 - **做法**：`positionViewAtBeginning()` 之后再 `contentY = originY - topMargin`（和 `ListScrollBar.minY` 同一个起点），之前先 `cancelFlick()`。搜索结果（Main.qml）和对话框栏（DialogBarWindow.qml）的列表也有 `topMargin: 4`，遇到同样现象照此处理。
 
+### 剪贴板列表滚轮一格一顿
+
+- **现象**：剪贴板列表用鼠标滚轮滚动，每一格都“顿一下”，回到顶部时尤其明显，像在抖；启动器列表没有。
+- **原因**：行高两种（图片行 80、其余 `Theme.rowHeight`），ListView 用可见行的平均高度估 `originY`/`contentHeight`，每创建或释放一行估值就变 → `setContentHeight()`。Qt 6.12 默认滚轮（`wheelDeceleration` 15000 > 14999）走 `moveBy(OutExpo, 225 ms)` 并置 `vData.fixingUp`；`setContentHeight()` 见 `fixingUp` 就 `fixupY()`：打断正在滑的动画，并把 `contentY` 取整，取整方向和滚动方向相反，退 0.1–0.75 px（150 % 下退 1 个设备像素）；每格也只走约 33 px 而不是 72。行高都一样时 `contentHeight` 不变，没这回事。往上滚时以为是 `originY` 修正让行跳了，量下来不是：行之间始终首尾相接。
+- **做法**：`ClipboardPage` 的列表自己接鼠标滚轮（`WheelHandler`，`acceptedDevices: PointerDevice.Mouse`，`target: null`），Flickable 收不到滚轮，`fixingUp` 不会置上：每格往目标上累加 3 行，每帧按当时的 `minY/maxY` 夹住、取整写 `contentY`、不往回退；别处写了 `contentY`（键盘、滚动条、`selectFirst()`）就停掉滑动。触摸板（`pixelDelta`）仍走 Flickable。复现：qml.exe 离屏 + QtTest `TestEvent.mouseWheel`，逐帧记 `contentY/originY/contentHeight`。
+
 ### 单元测试的输出在管道里看不见
 
 - **现象**：`ctest --output-on-failure` 报 `tst_core` 失败却一行输出都没有；直接在 PowerShell 或 Git Bash 里跑 `tst_core.exe 某个测试 2>&1 | head`，也只有退出码（失败的个数），没有 QTest 的任何文字（2026-10-11）。
