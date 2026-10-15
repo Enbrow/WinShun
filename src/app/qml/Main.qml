@@ -463,6 +463,28 @@ Window {
             contextMenu.dismiss()
     }
 
+    // The system's own menu for a file's or folder's row (the shell's, with
+    // every extension; Launcher.showSystemMenu): Shift+right-click,
+    // Shift+Menu (Ctrl+Shift+F10), 更多选项 in Win顺's menu. `globalPos`
+    // (logical): where to put it; none: at the pointer. False for a row that
+    // has none (an app, a place, a web page, a plugin's): the caller shows
+    // Win顺's menu instead.
+    function openSystemMenu(index, globalPos) {
+        if (index < 0 || index >= list.count || !window.launcher.hasSystemMenu(index))
+            return false
+        closeContextMenu()
+        if (!window.launcher.results.isSelected(index))
+            window.launcher.clearSelection() // as in Explorer: the menu is for this row alone
+        list.currentIndex = index
+        window.launcher.showSystemMenu(index, globalPos)
+        return true
+    }
+    function rowPoint(index) { // under the row's icon, where the keyboard's menus open
+        list.currentIndex = index
+        list.positionViewAtIndex(index, ListView.Contain)
+        return list.currentItem.mapToGlobal(56, rowHeight - 6)
+    }
+
     // Hidden: also free the menu window until it is needed again.
     onVisibleChanged: {
         if (!visible) {
@@ -551,6 +573,14 @@ Window {
                 return
             window.launcher.switchOrder()
             break
+        case Qt.Key_Menu: // Shift+Menu: the system's menu for the row; the Menu key alone comes back as a context-menu event (Win顺's menu)
+            if (!shift || list.currentIndex < 0 || !openSystemMenu(list.currentIndex, rowPoint(list.currentIndex)))
+                return
+            break
+        case Qt.Key_F10: // Ctrl+Shift+F10 the same (Shift+F10 is Win顺's menu, as the Menu key)
+            if (!ctrl || !shift || list.currentIndex < 0 || !openSystemMenu(list.currentIndex, rowPoint(list.currentIndex)))
+                return
+            break
         case Qt.Key_Backtab:
             // Along the strip under the box: in 文件 the kinds, in 内容 the folders.
             if (window.launcher.pluginKeyword.length > 0 || !typeStrip.shown)
@@ -605,7 +635,12 @@ Window {
             if (window.homeIndex < 0 && list.count > 0)
                 list.currentIndex = 0
         }
-        function onContextMenuKeyPressed() { window.openContextMenu(list.currentIndex) } // Menu key, Shift+F10
+        function onContextMenuKeyPressed(system) { // Menu key, Shift+F10; Shift+Menu when an IME kept the key itself
+            const row = list.currentIndex
+            if (system && row >= 0 && row < list.count && window.openSystemMenu(row, window.rowPoint(row)))
+                return
+            window.openContextMenu(row)
+        }
         function onQueryChanged() {
             if (searchBar.text !== window.launcher.query)
                 searchBar.text = window.launcher.query
@@ -955,7 +990,11 @@ Window {
                         list.currentIndex = index
                         window.launcher.trigger(index, action)
                     }
-                    onMenuRequested: (index, globalPos) => window.openContextMenu(index, globalPos)
+                    onMenuRequested: (index, globalPos, modifiers) => {
+                        // Shift+right-click: the system's menu, for a file or folder; Win顺's for the rest.
+                        if (!(modifiers & Qt.ShiftModifier) || !window.openSystemMenu(index))
+                            window.openContextMenu(index, globalPos)
+                    }
                     onDragRequested: (index) => window.launcher.dragOut(index)
                 }
             }
@@ -1051,7 +1090,12 @@ Window {
         active: false
         sourceComponent: ContextMenu {
             host: window.launcher
-            onTriggered: (row, action) => window.launcher.trigger(row, action)
+            onTriggered: (row, action) => {
+                if (action === Launcher.SystemMenu) // 更多选项: the system's menu where this one was
+                    window.openSystemMenu(row, Qt.point(x, y))
+                else
+                    window.launcher.trigger(row, action)
+            }
         }
     }
 

@@ -45,6 +45,7 @@
 #include "platform/NumberKeys.h"
 #include "platform/Paster.h"
 #include "platform/Shell.h"
+#include "platform/ShellContextMenu.h"
 #include "platform/ShellMenu.h"
 #include "platform/SiteIcons.h"
 #include "platform/StartMenuTyping.h"
@@ -690,6 +691,7 @@ bool App::createWindow()
     prepareBackdrop(m_window);
     m_window->create(); // native handle now, so DWM styling applies before the first show
     m_window->installEventFilter(this);
+    shellcontext::watchKeys(reinterpret_cast<HWND>(m_window->winId())); // which key asks for a context menu (eventFilter)
     m_launcher->setWindow(m_window);
     m_placement->setWindow(m_window);
     m_frame->setWindow(m_window);
@@ -710,6 +712,17 @@ bool App::createWindow()
         // on the rest of the taskbar) dismisses it at once, however soon
         // after it opened.
         if (m_window && !m_window->isActive() && m_window->isVisible() && !clipboardUnderLauncher()) {
+            // A command of the shell's menu that keeps the launcher (删除,
+            // say) runs, or just did: its dialogs, owned by a hidden window
+            // of ours, take the focus and hand it back (Launcher::
+            // runSystemMenu); another program's window ends that.
+            if (m_launcher->systemCommandRunning()) {
+                DWORD pid = 0;
+                ::GetWindowThreadProcessId(::GetForegroundWindow(), &pid);
+                if (pid == ::GetCurrentProcessId())
+                    return;
+                m_launcher->systemCommandDone();
+            }
             const bool justShown = m_launcherShown.isValid() && m_launcherShown.elapsed() < 500;
             const bool onBox = m_searchBox && m_searchBox->underPointer();
             const HWND front = ::GetForegroundWindow();
@@ -720,6 +733,7 @@ bool App::createWindow()
             else
                 hideLauncher();
         } else if (m_window && m_window->isActive()) {
+            m_launcher->systemCommandDone();
             m_boxPressGrace.stop();
             deliverTyping(); // asked for from the Start menu
         }
@@ -815,7 +829,19 @@ bool App::eventFilter(QObject* watched, QEvent* event)
     }
     if (watched == m_window && event->type() == QEvent::ContextMenu
         && static_cast<QContextMenuEvent*>(event)->reason() == QContextMenuEvent::Keyboard) {
-        emit m_launcher->contextMenuKeyPressed();
+        // Shift+Menu and Ctrl+Shift+F10 ask for the shell's menu, the Menu
+        // key and Shift+F10 for Win顺's. Main.qml takes the chords as keys
+        // when Qt hands them on as such; an IME in its Chinese mode keeps
+        // the press for itself, and only this event (from the release)
+        // tells, so the key is looked up (shellcontext::watchKeys). Not
+        // when the shell's menu is up or about to be (opened from the key):
+        // that is the release's event, and the menu has the keyboard.
+        const Qt::KeyboardModifiers modifiers = static_cast<QContextMenuEvent*>(event)->modifiers();
+        const UINT key = shellcontext::lastKeyPressed();
+        const bool system = (modifiers & Qt::ShiftModifier)
+            && (key == VK_APPS || (key == VK_F10 && (modifiers & Qt::ControlModifier)));
+        if (!m_launcher->systemMenuBusy())
+            emit m_launcher->contextMenuKeyPressed(system);
         return true;
     }
     if (watched == m_clipWindow && event->type() == QEvent::ContextMenu
@@ -2593,6 +2619,8 @@ void App::hideLauncher()
 {
     if (!m_window || !m_window->isVisible() || m_launcherClosing)
         return;
+    if (m_launcher->systemMenuOpen())
+        ::EndMenu(); // the shell's menu over it (Shift+right-click) goes with it: double Ctrl, say
     m_launcherHidden.start();
     m_boxPressGrace.stop();
     m_deliverTyping = false;

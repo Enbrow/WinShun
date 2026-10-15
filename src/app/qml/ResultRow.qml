@@ -76,7 +76,7 @@ Item {
     property bool deleteArmed: false // first click on delete; the second one deletes
 
     signal clicked(int index, int modifiers)
-    signal menuRequested(int index, point globalPos)
+    signal menuRequested(int index, point globalPos, int modifiers) // with Shift: the system's menu
     signal actionRequested(int index, int action)
     signal dragRequested(int index) // its file or folder dragged out of the window
 
@@ -308,7 +308,7 @@ Item {
             if (draggedOut) // the release that ended a drag out
                 return
             if (mouse.button === Qt.RightButton)
-                row.menuRequested(row.index, area.mapToGlobal(mouse.x, mouse.y))
+                row.menuRequested(row.index, area.mapToGlobal(mouse.x, mouse.y), mouse.modifiers)
             else
                 row.clicked(row.index, mouse.modifiers)
         }

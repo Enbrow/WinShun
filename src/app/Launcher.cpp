@@ -14,6 +14,7 @@
 #include "Unc.h"
 #include "platform/DragOut.h"
 #include "platform/Shell.h"
+#include "platform/ShellContextMenu.h"
 #include "platform/WindowEffects.h"
 
 #include <QDateTime>
@@ -791,6 +792,7 @@ void Launcher::retranslate()
 void Launcher::handleHidden()
 {
     m_index->contentIndexer()->setSearchBoxOpen(false);
+    m_systemCommand = false;
     m_results.setSelection({});
     m_held.reset();
     m_statusPoll.stop();
@@ -1825,6 +1827,10 @@ void Launcher::dismiss()
 
 void Launcher::trigger(int row, int action)
 {
+    if (action == SystemMenu) { // takes the selection itself, from Win顺's menu (Main.qml says where)
+        showSystemMenu(row);
+        return;
+    }
     // A terminal opens for the row it was asked on, not for each of a selection.
     if (action != OpenTerminal && m_results.isSelected(row) && m_results.selectedCount() > 1) {
         performMany(m_results.selection(), static_cast<Action>(action));
@@ -2014,7 +2020,8 @@ void Launcher::perform(const SearchResult& result, Action action)
         break;
     case FavoriteFolder:
     case EditFavorite:
-        break; // not for a file, or done above
+    case SystemMenu:
+        break; // not for a file, or done above (SystemMenu: trigger)
     }
 }
 
@@ -2501,6 +2508,10 @@ QVariantList Launcher::menuItems(int row) const
             else if (kept > 0)
                 items.append(entry(RemoveFavorite, tr("从收藏夹移除（%Ln 项）", nullptr, kept), QString(), u"\uE8D9"_s));
         }
+        if (any([](const SearchResult& r) { return !r.isApp() && !r.missing && !r.offline; })) {
+            items.append(separator);
+            items.append(entry(SystemMenu, tr("更多选项"), tr("Shift+右键"), u"\uE712"_s)); // More
+        }
         return items;
     }
 
@@ -2608,7 +2619,156 @@ QVariantList Launcher::menuItems(int row) const
         items.append(separator);
         items.append(entry(ForgetRecent, tr("从最近使用中移除"), QString(), u"\uE711"_s));
     }
+    if (!r->missing && !r->offline) { // the shell's menu for it, for whom Shift+right-click is news
+        items.append(separator);
+        items.append(entry(SystemMenu, tr("更多选项"), tr("Shift+右键"), u"\uE712"_s)); // More
+    }
     return items;
+}
+
+bool Launcher::hasSystemMenu(int row) const
+{
+    const auto file = [](const SearchResult& r) { return !r.isApp() && !r.missing && !r.offline; };
+    const SearchResult* r = m_results.at(row);
+    if (!r)
+        return false;
+    if (m_results.isSelected(row) && m_results.selectedCount() > 1) { // for the selection: any file in it
+        const SearchResults selection = m_results.selection();
+        return std::any_of(selection.cbegin(), selection.cend(), file);
+    }
+    return file(*r);
+}
+
+bool Launcher::systemMenuBusy() const
+{
+    return m_systemMenuOpen || (m_systemMenuAsked.isValid() && m_systemMenuAsked.elapsed() < 500);
+}
+
+void Launcher::showSystemMenu(int row, const QVariant& globalPos)
+{
+    const SearchResult* at = m_results.at(row);
+    if (!at || !hasSystemMenu(row) || m_systemMenuOpen || !m_window)
+        return;
+    // The selection when the row is in it (its files; apps and the like
+    // have no shell menu), else the row alone, as Win顺's menu has it.
+    const SearchResults items = m_results.isSelected(row) && m_results.selectedCount() > 1 ? m_results.selection()
+                                                                                         : SearchResults {*at};
+    QStringList paths;
+    for (const SearchResult& r : items) {
+        // A share that does not answer would hold the shell up for long.
+        if (!r.isApp() && !r.missing && !r.offline && serverAnswers(r.path))
+            paths.append(r.path);
+    }
+    if (paths.isEmpty())
+        return;
+    if (const qsizetype here = paths.indexOf(at->path); here > 0)
+        paths.move(here, 0); // the row asked on first: the one the menu falls back to
+    const std::optional<QPointF> pos = globalPos.canConvert<QPointF>() ? std::optional(globalPos.toPointF()) : std::nullopt;
+    m_systemMenuAsked.start();
+    // From the event loop, not from inside the click's handler: the menu's
+    // loop runs for as long as it is up (with the queued work going on
+    // underneath: results coming in, rows rewritten), and the command may
+    // go on to open dialogs of its own.
+    QMetaObject::invokeMethod(this, [self = QPointer(this), paths, pos] {
+        if (self)
+            self->runSystemMenu(paths, pos);
+    }, Qt::QueuedConnection);
+}
+
+void Launcher::runSystemMenu(const QStringList& paths, std::optional<QPointF> globalPos)
+{
+    if (!m_window || !m_window->isVisible() || m_systemMenuOpen)
+        return;
+    POINT pos {};
+    if (globalPos) {
+        // Logical to physical pixels by the screen the point is on (its own
+        // scale on a second monitor): Qt gives every screen the same origin
+        // in both (the reverse of FolderMenu's).
+        QScreen* screen = QGuiApplication::screenAt(globalPos->toPoint());
+        if (!screen)
+            screen = m_window->screen();
+        const QPoint origin = screen->geometry().topLeft();
+        const qreal scale = screen->devicePixelRatio();
+        pos.x = origin.x() + qRound((globalPos->x() - origin.x()) * scale);
+        pos.y = origin.y() + qRound((globalPos->y() - origin.y()) * scale);
+    } else {
+        ::GetCursorPos(&pos);
+    }
+    const auto hwnd = reinterpret_cast<HWND>(m_window->winId());
+    const bool extended = ::GetKeyState(VK_SHIFT) < 0; // as Explorer: Shift held as the menu opens adds its extra verbs
+    m_systemMenuOpen = true;
+    const shellcontext::Choice choice = shellcontext::showMenu(paths, hwnd, pos, extended, [&](const shellcontext::Choice& c) {
+        // The menu is gone, the command about to run. One that opens
+        // something (a program, 属性, 打开方式) takes the launcher down first,
+        // as its own 打开 does; the rest (复制, 删除, 固定…) keep it, through
+        // whatever the command shows meanwhile (App leaves the launcher be
+        // while systemCommandRunning).
+        m_systemMenuOpen = false;
+        if (shellcontext::keepsLauncher(c.verb)) {
+            m_systemCommand = true;
+            return;
+        }
+        if (c.verb == L"open" || c.verb == L"edit" || c.verb == L"runas") {
+            for (const QString& path : paths)
+                remember(path);
+        }
+        emit dismissRequested();
+    });
+    m_systemMenuOpen = false;
+    if (!choice.chosen)
+        return; // Esc, or a click elsewhere: the launcher stays, as after its own menu
+    if (m_systemCommand) {
+        // It stays on (systemCommandRunning): 删除 shows its progress window
+        // only after the call returned; the hidden owner window hands the
+        // focus back to the launcher when such a dialog closes (ownerProc),
+        // and App ends it once the launcher is active again or another
+        // program's window took the focus. A command that shows nothing
+        // (复制, 固定) would leave it on, keeping the launcher up for a window
+        // of ours it should go for (the settings): off once it had its moment.
+        // Left inactive by then with the focus elsewhere (nothing handed it
+        // back), the launcher goes, as for a click elsewhere.
+        QTimer::singleShot(3000, this, [this] {
+            if (!m_window || !m_systemCommand)
+                return;
+            if (m_window->isActive()) {
+                m_systemCommand = false;
+                return;
+            }
+            DWORD pid = 0;
+            ::GetWindowThreadProcessId(::GetForegroundWindow(), &pid);
+            if (m_window->isVisible() && pid != ::GetCurrentProcessId()) {
+                m_systemCommand = false;
+                emit dismissRequested();
+            }
+        });
+    }
+    // What Win顺's own menu says for the like of it.
+    if (choice.verb == L"copy")
+        flash(paths.size() == 1 ? tr("已复制，可在资源管理器中粘贴")
+                                : tr("已复制 %Ln 项，可在资源管理器中粘贴", nullptr, static_cast<int>(paths.size())));
+    else if (choice.verb == L"cut")
+        flash(tr("已剪切，可在资源管理器中粘贴"));
+    else if (choice.verb == L"copyaspath")
+        flash(paths.size() == 1 ? tr("已复制路径") : tr("已复制 %Ln 个路径", nullptr, static_cast<int>(paths.size())));
+    forgetGone(paths, 0);
+}
+
+void Launcher::forgetGone(const QStringList& paths, int attempt)
+{
+    for (const QString& path : paths) {
+        if (QFileInfo::exists(path))
+            continue;
+        if (const SearchResult* row = m_results.at(m_results.indexOf(path)))
+            forgetRecycled(*row); // the row and its count, and the history
+        else
+            m_history->remove(path);
+    }
+    refreshStatus();
+    // The shell may still be at it: a confirmation, a progress window for a
+    // big folder; a paste elsewhere comes later still (the index tells then).
+    static constexpr int kAgain[] {250, 1500, 4000};
+    if (attempt < static_cast<int>(std::size(kAgain)))
+        QTimer::singleShot(kAgain[attempt], this, [this, paths, attempt] { forgetGone(paths, attempt + 1); });
 }
 
 // ---- plugins ------------------------------------------------------------------

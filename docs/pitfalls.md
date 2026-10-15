@@ -2022,3 +2022,55 @@
 - **现象**：PowerShell 测试脚本报“无法覆盖变量 PID，因为它是只读变量”、“Collection was of a fixed size”。
 - **原因**：`$pid` 是只读的自动变量；变量名不分大小写，`$r = … -split ','` 把报告用的列表 `$R` 换成了定长数组；`$profile` 也是自动变量。
 - **做法**：起名避开自动变量（`$sp`、`$rect`、`$prof`），`Get-Variable` 能查。
+
+## 结果列表的系统右键菜单（GitHub #26）
+
+### 外壳菜单的“发送到”“打开方式”展开是空的
+
+- **现象**：`IContextMenu::QueryContextMenu` 填好的菜单弹出来了，“发送到”“打开方式”这类子菜单展开没有项（或根本展不开）。
+- **原因**：这些子菜单在 `WM_INITMENUPOPUP` 时才由处理程序（`IContextMenu2/3::HandleMenuMsg`）填进去，自绘的项还要 `WM_MEASUREITEM` / `WM_DRAWITEM`。这些消息发给菜单的属主窗口；Qt 的窗口过程不认识它们，`shell::popupMenu` 那样带 `TPM_NONOTIFY` 的调用更是根本不发。
+- **做法**：不传 `TPM_NONOTIFY`；菜单开着期间 `SetWindowSubclass` 启动器窗口，把 `WM_INITMENUPOPUP` / `WM_MEASUREITEM` / `WM_DRAWITEM` / `WM_MENUCHAR` 交给 `HandleMenuMsg2`（返回它给的 `LRESULT`），`TrackPopupMenuEx` 一回来就 `RemoveWindowSubclass`（`platform/ShellContextMenu.cpp`）。
+
+### 菜单的模态循环里，Qt 照常运转
+
+- **现象**：`TrackPopupMenuEx` 在界面线程上阻塞着，排队的搜索结果照样到、行照样被重写、定时器照样响。
+- **原因**：菜单循环自己 `DispatchMessage`，Qt 的定时器和排队事件都是普通窗口消息（`WM_TIMER`、`WM_QT_SENDPOSTEDEVENTS`），一样被派发。托盘菜单、`SHDoDragDrop` 早就是这样。
+- **做法**：菜单用 `QueuedConnection` 从事件循环里打开，不在 QML 点击的处理函数里嵌套（行的代理可能在循环期间被回收）；要操作的东西按路径先复制下来，不按行号；菜单关了再按路径找行（`Launcher::forgetGone`）。
+
+### 命令弹的对话框别挂在启动器名下
+
+- **现象**（按机制推断，没有用启动器当属主试过）：`CMINVOKECOMMANDINFOEX.hwnd` 给启动器窗口时，删除确认这类模态对话框一拿到焦点，启动器因失去激活而收起，`ShowWindow(SW_HIDE)` 连带隐藏它名下的窗口，对话框不见了，`InvokeCommand` 还阻塞在里面等人回答；“打开方式”之类我们本来就先收起启动器再执行的命令，对话框更是一出来就没了。
+- **做法**：给一个专门的隐藏顶层窗口（`WinShun.MenuOwner`，`WS_POPUP`，从不显示也从不隐藏）当对话框的属主；`TrackPopupMenuEx` 的属主仍是启动器窗口（菜单要前台线程的可见窗口做属主，点在外面才会关）。
+
+### “删除”的进度窗口在 `InvokeCommand` 返回之后才出来，启动器被它挤掉
+
+- **现象**（2026-10-15 实测）：外壳菜单里点“删除”，文件进了回收站，启动器却收起了，前台成了那个隐藏的 `WinShun.MenuOwner`。命令运行期间不让启动器收起也没用。
+- **原因**：Windows 11 的删除动词把操作交给复制引擎，`InvokeCommand` 立刻返回；进度窗口（哪怕只闪一下，40 毫秒一轮的轮询都抓不到）之后才出来，属主是 `MenuOwner`，它一激活启动器就失去激活、照规矩收起；它关掉后激活回到属主——一个隐藏窗口。
+- **做法**：保留启动器的命令（`shellcontext::keepsLauncher`：复制、剪切、删除、固定……）执行后 `Launcher::m_systemCommand` 一直开着：这期间启动器失去激活、而前台窗口属于本进程（那些对话框、`MenuOwner`）就不收起，前台是别的程序才收起并结束这段；`MenuOwner` 的窗口过程收到 `WM_ACTIVATE` 时把前台交回启动器（它还显示着的话）；启动器再次激活或被隐藏时结束（`App` 的 `activeChanged`、`handleHidden`）。实测：删除一个和两个文件后启动器都还在前台，行已去掉。
+
+### 中文输入法开着时，Shift+Menu 键到不了 QML
+
+- **现象**：Shift+Menu 应弹外壳菜单；微软拼音在中文状态时弹的是 Win顺 自己的菜单，切到英文（单击一下 Shift）就对了。日志里中文状态下 `handleKey` 一行都没有，只有一个带 Shift 的 `QContextMenuEvent`。
+- **原因**：输入法把 `WM_KEYDOWN` 的 `wParam` 换成 `VK_PROCESSKEY`，Qt 的键盘映射直接吞掉（“IME will process these keys”），不发按键事件、也不记录这个键；抬起时没有记录，交给 `DefWindowProc`，它才发 `WM_CONTEXTMENU`（Menu 键和 Shift+F10 都这样）。这个事件不说是哪个键，`GetKeyState` 也分不出（到它这时键都抬起了）。`ImmGetVirtualKey` 对 TSF 输入法（微软拼音）给回的还是 `VK_PROCESSKEY`。
+- **做法**：`shellcontext::watchKeys` 用 `SetWindowSubclass` 在启动器窗口上记下最后一次 `WM_KEYDOWN` 的键：`VK_PROCESSKEY` 时按 `lParam` 里的扫描码（输入法不改它）`MapVirtualKey(…, MAPVK_VSC_TO_VK_EX)` 还原（Apps 键是扩展键，要带 `0xE000`）。`App::eventFilter` 收到键盘的 `QContextMenuEvent` 时：Shift 按着且那个键是 `VK_APPS`，或 Ctrl+Shift 且是 `VK_F10`，就是外壳菜单，否则 Win顺 的。Qt 的 `QAbstractNativeEventFilter` 收不到按键消息（`isInputMessage`），所以要子类化。英文状态下按键照常到 QML（`Main.qml` 的 `Key_Menu` / `Key_F10` 分支先处理，排队的系统菜单让随后的 `QContextMenuEvent` 被 `systemMenuBusy` 忽略）。
+
+### 测试：原生菜单的项 UI Automation 读不到，字母加速键会撞车
+
+- **现象**：`AutomationElement.FromHandle(#32768)` 下 `FindAll(MenuItem)`（Children、Descendants 都试了）一个项都没有；按 `N` 想展开“发送到(N)”，光标却在“以 Notepad++ 编辑”和它之间跳。
+- **做法**：按位置：从截图量出项的 y（这台机器上 Shift 菜单里“发送到”在菜单顶边下 736 物理像素），把鼠标移上去（`WindowFromPoint` 的根是菜单窗口才算），子菜单 `#32768` 自己展开；或 End 再 ↑ 若干下，一步步截图核对（2026-10-15 实测差了一项）。证据用截图和窗口数（子菜单是第二个 `#32768`）。
+
+### 不同文件夹的几个文件，外壳给不出一张菜单
+
+- **现象**（2026-10-15 实测）：多选里的两个文件分别在两个文件夹，`SHCreateShellItemArrayFromIDLists` + `BindToHandler(BHID_SFUIObject)` 照样成功，但菜单只是第一个文件的（“压缩为 zqinner1.zip”），“删除”只删它。换成桌面文件夹的 `GetUIObjectOf`，把完整 ID 列表当它的子项（拖出去的数据对象就是这样做的），拿到的是桌面自己那张短菜单（打开、管理、剪切、复制、删除、属性），“删除”对文件什么也不做。
+- **做法**：同一文件夹的多选整组弹菜单；跨文件夹时只对当前行（菜单是在它上面要的）弹，`showSystemMenu` 把它排在路径列表最前。要覆盖几个文件夹得自己实现 `IShellFolder` 或 `CDefFolderMenu_Create2` 的回调，不值得。
+
+### `CMF_CANRENAME` 的“重命名”在这里什么也不做
+
+- **原因**：重命名是让宿主的 `IShellView` 进入编辑状态，不是外壳自己改名；没有视图的宿主点了没反应。
+- **做法**：不传 `CMF_CANRENAME`，菜单里就没有这一项。用 `CMF_ITEMMENU`（资源管理器对条目也这样传），Shift 按着时加 `CMF_EXTENDEDVERBS`。
+
+### 测试：PowerShell 5.1 里 `(管道).Count` 对单个对象是空
+
+- **现象**：`(Get-Windows | Where-Object { … }).Count -gt 0` 恒为假，等窗口出现一直等到超时，窗口明明在。
+- **原因**：Windows PowerShell 5.1 里 `PSCustomObject` 没有 `Count`；管道只剩一个结果时给出的是那个对象本身。pwsh 7 不受影响，以前的脚本是在 pwsh 下跑的。
+- **做法**：`@(…).Count`；接函数返回的列表也用 `$m = @(Wait-Menus 1)`。

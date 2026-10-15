@@ -174,6 +174,7 @@ public:
         EditFavorite,
         OpenTerminal,
         SearchInFolder, // 内容 in a folder's row (the strip shows it chosen)
+        SystemMenu, // the shell's own menu for the row (更多选项 in Win顺's; see showSystemMenu)
         PluginAction = 100
     };
     Q_ENUM(Action)
@@ -313,6 +314,30 @@ public:
     Q_INVOKABLE QVariantList menuItems(int row) const;
     Q_INVOKABLE QRectF screenArea(QPointF globalPos) const;
     Q_INVOKABLE void prepareMenuWindow(QWindow* menu) const;
+    // The shell's own context menu (platform/ShellContextMenu) for a file's
+    // or folder's row, or for the files among a selection it is in:
+    // Shift+right-click, Shift+Menu, 更多选项 in Win顺's menu (GitHub #26).
+    // hasSystemMenu: the row is such a row (an app, a place, a web page or a
+    // plugin's row has none: the caller shows Win顺's menu). showSystemMenu
+    // opens it a moment later, from the event loop, at `globalPos` (logical
+    // pixels on the screen: the row, or where Win顺's menu was) or, without
+    // one, at the pointer. The menu runs its own loop there; the launcher
+    // stays open under it, and goes, as for 打开, once a command that opens
+    // something was picked (shellcontext::keepsLauncher).
+    Q_INVOKABLE bool hasSystemMenu(int row) const;
+    Q_INVOKABLE void showSystemMenu(int row, const QVariant& globalPos = {});
+    bool systemMenuOpen() const { return m_systemMenuOpen; }
+    // Open, or asked for a moment ago: the context-menu event the Menu
+    // key's release brings is not for Win顺's menu then (App::eventFilter).
+    bool systemMenuBusy() const;
+    // A command of that menu that keeps the launcher (复制, 删除…) is
+    // running, or just was: whatever it shows (a confirmation, a progress
+    // window, which 删除 brings up after the call returns) takes the focus
+    // for a moment and gives it back; the launcher is not to go for that.
+    // Over once the launcher is active again, or another program's window
+    // took the focus (App's activeChanged), or the launcher was hidden.
+    bool systemCommandRunning() const { return m_systemCommand; }
+    void systemCommandDone() { m_systemCommand = false; }
     Q_INVOKABLE void cycleScope(int delta);
     int fileType() const { return m_fileType; }
     QVariantList fileTypes() const;
@@ -356,7 +381,9 @@ signals:
     // Not started: it would have needed administrator rights to start at all
     // (see shell::open). The launcher is closed by then.
     void openFailed(const QString& name);
-    void contextMenuKeyPressed(); // Menu key / Shift+F10 (arrive as a context-menu event, not a key)
+    // Menu key / Shift+F10 (arrive as a context-menu event, not a key);
+    // `system`: Shift+Menu or Ctrl+Shift+F10, the shell's menu (showSystemMenu).
+    void contextMenuKeyPressed(bool system);
     void historyChanged();
     void frequentAppsChanged();
     void webSettingsRequested(); // the settings window, on its 网页搜索 page
@@ -439,6 +466,11 @@ private:
     const SearchResult* enterableFolder(int row) const;
     void remember(const QString& path); // opened: into the history, if it is kept
     void forgetRecent(const QStringList& paths);
+    // showSystemMenu's work, from the event loop; afterwards forgetGone drops
+    // the rows whose files the command took away (删除, 剪切 and paste
+    // elsewhere), now and a little later (a confirmation, a progress window).
+    void runSystemMenu(const QStringList& paths, std::optional<QPointF> globalPos);
+    void forgetGone(const QStringList& paths, int attempt);
     bool forgetRecycled(const SearchResult& result); // its row and count; false if it is still there
     std::function<void(bool)> reportFailure(const QString& name);
     void onRecycled(const SearchResult& result, bool ok);
@@ -564,6 +596,9 @@ private:
     QString m_numberKeys = QStringLiteral("ctrl");
     unsigned m_numberKeysLeft = 0;
     bool m_inTaskbarBox = false;
+    bool m_systemMenuOpen = false; // the shell's menu is up (its loop runs inside runSystemMenu)
+    bool m_systemCommand = false; // see systemCommandRunning
+    QElapsedTimer m_systemMenuAsked; // since showSystemMenu was last called
     std::optional<std::pair<int, int>> m_held; // holdUntilShown(): action, number
     std::vector<FrequentApp> m_frequent;
     std::vector<AppUse> m_windowsUses; // Windows' record of what was started, read at most every minute

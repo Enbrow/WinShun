@@ -4428,6 +4428,18 @@
         <translation>Open in Terminal</translation>
     </message>
     <message>
+        <source>更多选项</source>
+        <translation>More options</translation>
+    </message>
+    <message>
+        <source>Shift+右键</source>
+        <translation>Shift+right-click</translation>
+    </message>
+    <message>
+        <source>已剪切，可在资源管理器中粘贴</source>
+        <translation>Cut, ready to paste in File Explorer</translation>
+    </message>
+    <message>
         <source>这些大文件里也没有</source>
         <translation>Not in those large files either</translation>
     </message>

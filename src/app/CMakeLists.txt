@@ -79,6 +79,7 @@ qt_add_executable(WinShun WIN32
     platform/Paster.cpp platform/Paster.h
     platform/PeekingLogo.cpp platform/PeekingLogo.h
     platform/Shell.cpp platform/Shell.h
+    platform/ShellContextMenu.cpp platform/ShellContextMenu.h
     platform/ShellMenu.cpp platform/ShellMenu.h
     platform/ShortcutCapture.cpp platform/ShortcutCapture.h
     platform/SiteIcons.cpp platform/SiteIcons.h
@@ -255,7 +256,7 @@ target_include_directories(WinShun PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(WinShun PRIVATE
     wscore wsmcp wsplugin
     Qt6::Gui Qt6::Qml Qt6::Quick
-    comctl32 d2d1 dwmapi dwrite oleacc oleaut32 shcore shell32 shlwapi ole32 user32 uxtheme version winhttp winmm
+    comctl32 d2d1 dwmapi dwrite imm32 oleacc oleaut32 shcore shell32 shlwapi ole32 user32 uxtheme version winhttp winmm
     credui iphlpapi mpr psapi
     mfplat mfreadwrite mfuuid delayimp
     windowsapp # TextRecognizer: Windows.Media.Ocr, through C++/WinRT from the Windows SDK
