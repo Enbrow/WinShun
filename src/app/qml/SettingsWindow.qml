@@ -883,12 +883,52 @@ Window {
                 SettingRow {
                     title: qsTr("双击 Ctrl 打开")
                     keywords: qsTr("双击;呼出;唤出;double ctrl").split(";")
-                    unlocks: [gamesRow, fullScreenRow, doubleCtrlAppsRow]
+                    unlocks: [doubleCtrlKeyRow, gamesRow, fullScreenRow, doubleCtrlAppsRow]
                     description: qsTr("连按两下 Ctrl，打开或关闭搜索框")
 
                     ToggleSwitch {
                         checked: window.editor.doubleCtrl
                         onToggled: (on) => window.editor.doubleCtrl = on
+                    }
+                }
+
+                SettingRow {
+                    id: doubleCtrlKeyRow
+                    shown: window.editor.doubleCtrl
+                    title: qsTr("用哪个 Ctrl")
+                    keywords: qsTr("左 Ctrl;右 Ctrl;左边;右边;冲突;PowerToys;查找鼠标;left ctrl;right ctrl").split(";")
+                    description: qsTr("同一个 Ctrl 连按两下才算。和别的软件撞了时，可以只用一边")
+                    bodyShown: window.editor.doubleCtrlClash.length > 0
+
+                    ScopeTabs {
+                        labels: [qsTr("左右都行"), qsTr("左 Ctrl"), qsTr("右 Ctrl")]
+                        current: Math.max(0, ["both", "left", "right"].indexOf(window.editor.doubleCtrlKey))
+                        onActivated: (index) => window.editor.doubleCtrlKey = ["both", "left", "right"][index]
+                    }
+
+                    // PowerToys' Find My Mouse comes on the same double tap: say so, one click away from the other side.
+                    body: Row {
+                        readonly property string other: window.editor.doubleCtrlClash === "left" ? "right" : "left"
+                        visible: window.editor.doubleCtrlClash.length > 0
+                        width: parent.width
+                        spacing: 8
+
+                        Text {
+                            width: Math.min(implicitWidth, parent.width - clashButton.width - parent.spacing)
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: window.editor.doubleCtrlClash === "left"
+                                  ? qsTr("PowerToys 的“查找鼠标”也是双击左 Ctrl，两边会一起出来。")
+                                  : qsTr("PowerToys 的“查找鼠标”也是双击右 Ctrl，两边会一起出来。")
+                            color: Theme.subtext
+                            font.pixelSize: Theme.fontCaption
+                            wrapMode: Text.Wrap
+                        }
+                        FlatButton {
+                            id: clashButton
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: parent.other === "right" ? qsTr("Win顺 改用右 Ctrl") : qsTr("Win顺 改用左 Ctrl")
+                            onClicked: window.editor.doubleCtrlKey = parent.other
+                        }
                     }
                 }
 

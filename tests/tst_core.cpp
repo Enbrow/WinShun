@@ -5573,6 +5573,78 @@ private slots:
         }
     }
 
+    void doubleTapKeys()
+    {
+        constexpr std::uint32_t left = 0xA2, right = 0xA3, alt = 0xA4, shift = 0xA0, win = 0x5B;
+        const auto tapTwice = [](DoubleTapDetector& d, std::uint32_t first, std::uint32_t second, std::uint32_t t) {
+            d.keyDown(first, t, 0, 0);
+            d.keyUp(first, t + 50, 0, 0);
+            d.keyDown(second, t + 150, 0, 0);
+            return d.keyUp(second, t + 200, 0, 0);
+        };
+        { // Alt held, its hotkey's key eaten by the tool's hook, Ctrl tapped by
+          // the tool after each press (AutoHotkey's menu mask): not a double tap
+            DoubleTapDetector d;
+            d.keyDown(alt, 0, 0, 0);
+            QVERIFY(!tapTwice(d, left, left, 300));
+            d.keyUp(alt, 600, 0, 0);
+            QVERIFY(tapTwice(d, left, left, 700)); // and after Alt is let go, it works
+        }
+        { // the same with Shift or Win
+            for (const std::uint32_t modifier : {shift, win, 0x10u /*VK_SHIFT*/, 0x12u /*VK_MENU*/}) {
+                DoubleTapDetector d;
+                d.keyDown(modifier, 0, 0, 0);
+                QVERIFY(!tapTwice(d, left, left, 300));
+            }
+        }
+        { // Alt's release was lost (Ctrl+Alt+Del): once it is quiet and up, taps count again
+            static bool altDown = true;
+            DoubleTapDetector::Config config;
+            config.isDown = [](std::uint32_t vk) { return vk == 0x12 && altDown; };
+            DoubleTapDetector d(config);
+            d.keyDown(alt, 0, 0, 0);
+            QVERIFY(!tapTwice(d, left, left, 5'000)); // still held, as the system says
+            altDown = false;
+            QVERIFY(tapTwice(d, left, left, 6'000));
+            altDown = true;
+        }
+        { // the other Ctrl starts over: right after left is not a double tap
+            DoubleTapDetector d;
+            QVERIFY(!tapTwice(d, left, right, 0));
+            d.keyDown(right, 300, 0, 0);
+            QVERIFY(d.keyUp(right, 340, 0, 0)); // with the right one just tapped, it is
+        }
+        { // both Ctrl keys at once
+            DoubleTapDetector d;
+            d.keyDown(left, 0, 0, 0);
+            d.keyDown(right, 20, 0, 0);
+            d.keyUp(right, 40, 0, 0);
+            d.keyUp(left, 50, 0, 0);
+            d.keyDown(left, 150, 0, 0);
+            QVERIFY(!d.keyUp(left, 200, 0, 0));
+        }
+        { // left only: the right Ctrl is another key
+            DoubleTapDetector::Config config;
+            config.side = DoubleTapDetector::Side::Left;
+            DoubleTapDetector d(config);
+            QVERIFY(!tapTwice(d, right, right, 0));
+            QVERIFY(tapTwice(d, left, left, 1'000));
+            QVERIFY(tapTwice(d, 0x11 /*VK_CONTROL*/, 0x11, 2'000));
+            d.keyDown(left, 3'000, 0, 0);
+            d.keyUp(left, 3'050, 0, 0);
+            d.keyDown(right, 3'100, 0, 0); // between the two
+            d.keyUp(right, 3'120, 0, 0);
+            d.keyDown(left, 3'150, 0, 0);
+            QVERIFY(!d.keyUp(left, 3'200, 0, 0));
+        }
+        { // right only
+            DoubleTapDetector d;
+            d.setSide(DoubleTapDetector::Side::Right);
+            QVERIFY(!tapTwice(d, left, left, 0));
+            QVERIFY(tapTwice(d, right, right, 1'000));
+        }
+    }
+
     void doubleClick()
     {
         constexpr std::uintptr_t view = 0x1234;

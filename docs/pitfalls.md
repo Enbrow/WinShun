@@ -123,7 +123,13 @@
 - **AltGr 不用特殊处理**：AltGr 发出的假 LCtrl 后面紧跟着右 Alt 的按下，已经算“中间按了别的键”。
 - **两次敲击的间隔跟随系统的双击速度**（`GetDoubleClickTime()`，限制在 400–900 ms）：PowerToys 的“查找鼠标”也是这样做的，它同样用 Raw Input 检测双击 Ctrl。
 - **不要丢弃 `hDevice` 为 NULL 的按键**：这样能排除模拟出来的 Ctrl，但也会排除 PowerToys 键盘管理器、AutoHotkey 映射出来的 Ctrl（比如把 CapsLock 改成 Ctrl）、屏幕键盘，以及测试脚本 `SendInput` 发的键。
-- **会冲突的程序**：PowerToys 的“查找鼠标”默认就是双击左 Ctrl，Listary 默认也是双击 Ctrl。两边都会响应。
+- **会冲突的程序**：PowerToys 的“查找鼠标”默认就是双击左 Ctrl，Listary 默认也是双击 Ctrl。两边都会响应。2026-10-14 有用户反馈（把查找鼠标设成了双击右 Ctrl），加了“用哪个 Ctrl”：左右都行 / 左 Ctrl / 右 Ctrl（`Launcher/DoubleCtrlKey`）。不自动让开：用惯左 Ctrl 的人会以为双击 Ctrl 坏了。设置页读 PowerToys 的配置（`%LOCALAPPDATA%\Microsoft\PowerToys\settings.json` 里 `enabled.FindMyMouse`，`FindMyMouse\settings.json` 里 `activation_method`：0 双击左 Ctrl，1 双击右 Ctrl，见 PowerToys 的 `FindMyMouse.h`），撞上了就在这一行提示，并给一个“改用另一边”的按钮。
+
+### 按住 Alt 连按两下别的程序的快捷键，弹出了搜索框
+
+- **现象**：2026-10-14 用户反馈：他的剪贴板工具用 Alt+\` 粘贴，按住 Alt 连按两下 \`，Win顺 的搜索框出来了。他没设过这个快捷键。
+- **原因**：快捷键工具用低级键盘钩子吞掉 \`，Raw Input 看不到它；Alt 按着时它还会自己补发 Ctrl 的按下和抬起，免得 Alt 一松开就激活窗口的菜单栏（AutoHotkey 的 `#MenuMaskKey`，默认左 Ctrl `vk11sc01D`；它的 `Send` 在 Alt 按着时要先放开 Alt，也会这样补发）。连按两次快捷键补发两次，两次靠得近，就成了“双击 Ctrl”。用户没说是哪个工具，这是按现象推出来的最常见的一类；`KeyListener` 现在会在“有一次是程序发出来的（`hDevice` 为 NULL）双击 Ctrl”时往日志写一行最近的按键（只记修饰键和 Ctrl 的名字，别的键只记“key”，不记打了什么），下次有人报告可以直接看。
+- **做法**：Ctrl 按下时 Shift、Alt、Win 有一个按着，这次就不算敲击（`DoubleTapDetector`）。修饰键是否按着，按事件流本身的先后记，不能在处理 `WM_INPUT` 时问 `GetAsyncKeyState`：消息是事后才处理的，工具一口气发完“Ctrl 按下、Alt 抬起、Ctrl 抬起”，轮到处理 Ctrl 时 Alt 可能已经是抬起状态。只在修饰键安静超过 1.5 秒时才问 `GetAsyncKeyState`，用来清掉收不到抬起的情况（Win+L、Ctrl+Alt+Del 的抬起去了安全桌面）。同时两次敲击必须是同一个 Ctrl，左右各按一下不算。
 
 ### 后台进程抢不到前台
 

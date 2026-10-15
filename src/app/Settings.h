@@ -55,6 +55,7 @@ struct PluginConfig {
 struct Settings {
     // [Launcher]
     bool doubleCtrl = true;
+    QString doubleCtrlKey = QStringLiteral("both"); // both | left | right: the Ctrl tapped (twice the same one)
     bool doubleCtrlPauseInGames = true; // not while a game has the mouse or exclusive full screen (GameGuard)
     bool doubleCtrlPauseInFullScreen = false; // not over any full-screen window
     QStringList doubleCtrlExcludedApps; // program files ("TheFinals.exe") in front of which double Ctrl does nothing

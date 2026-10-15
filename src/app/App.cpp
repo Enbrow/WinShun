@@ -893,13 +893,25 @@ void App::applyAppearance()
 
 QString App::trayTooltip() const
 {
-    return tr("Win顺 — 双击 Ctrl 打开");
+    return m_settings.doubleCtrl ? tr("Win顺 — %1 打开").arg(doubleCtrlName()) : tr("Win顺");
+}
+
+// "双击 Ctrl", "双击左 Ctrl": the keys as set.
+QString App::doubleCtrlName() const
+{
+    if (m_settings.doubleCtrlKey == u"left")
+        return tr("双击左 Ctrl");
+    if (m_settings.doubleCtrlKey == u"right")
+        return tr("双击右 Ctrl");
+    return tr("双击 Ctrl");
 }
 
 void App::applySettings(bool initial)
 {
     applyFolderMenu(); // before the listener, which tells it double clicks
-    const int listenTo = (m_settings.doubleCtrl ? 1 : 0) | (m_folderMenu ? 2 : 0);
+    // Double clicks: for File Explorer and the desktop; Directory Opus says so itself.
+    const bool doubleClicks = m_folderMenu && (m_settings.folderMenuExplorer || m_settings.folderMenuDesktop);
+    const int listenTo = (m_settings.doubleCtrl ? 1 : 0) | (doubleClicks ? 2 : 0);
     if (listenTo != m_keyListenerMode) {
         m_keyListener.reset(); // the process's one mouse registration goes with it first
         m_keyListenerMode = listenTo;
@@ -907,19 +919,32 @@ void App::applySettings(bool initial)
             // Called on the listener thread: hop to the GUI thread.
             KeyListener::Callbacks callbacks;
             if (m_settings.doubleCtrl)
-                callbacks.doubleCtrl = [this] { QMetaObject::invokeMethod(this, &App::onDoubleCtrl, Qt::QueuedConnection); };
-            if (FolderMenu* menu = m_folderMenu.get())
+                callbacks.doubleCtrl = [this](const std::string& sent) {
+                    // A program made the taps: which keys came, for "it opens by itself".
+                    // A few times a run (a key remapped to Ctrl makes every one).
+                    static std::atomic<int> logged {0};
+                    if (!sent.empty() && logged.fetch_add(1) < 10)
+                        qWarning().noquote() << "Double Ctrl partly sent by a program:" << QString::fromStdString(sent);
+                    QMetaObject::invokeMethod(this, &App::onDoubleCtrl, Qt::QueuedConnection);
+                };
+            if (FolderMenu* menu = doubleClicks ? m_folderMenu.get() : nullptr)
                 callbacks.doubleClick = [menu](HWND window, POINT pt) { menu->doubleClicked(window, pt); };
             m_keyListener = std::make_unique<KeyListener>(std::move(callbacks));
         }
     }
+    if (m_keyListener)
+        m_keyListener->setSide(m_settings.doubleCtrlKey == u"left" ? DoubleTapDetector::Side::Left
+                : m_settings.doubleCtrlKey == u"right"            ? DoubleTapDetector::Side::Right
+                                                                  : DoubleTapDetector::Side::Both);
     applyDialogs();
     applyClipboard();
     applyTaskbar();
     // The tray's icon and the taskbar box's: Win顺's colours, or the taskbar's one.
     m_messages->setTrayIconMono(m_settings.taskbarIcon == u"mono");
+    m_messages->setTrayTooltip(trayTooltip()); // which Ctrl
     updateSearchBoxLook();
     applyMcp();
+    filemanager::setCustomCommands(m_settings.fileManagerOpenCommand, m_settings.fileManagerRevealCommand);
     for (const auto& [kind, name] : filemanager::kSettingNames) {
         if (m_settings.fileManager == QLatin1StringView(name))
             shell::setFileManager(kind);
@@ -2565,7 +2590,7 @@ void App::showTrayMenu()
                                : tr("正在建立索引…");
     const QString show = tr("打开 Win顺");
     std::vector<shell::MenuItem> items {
-        {ShowCommand, m_settings.doubleCtrl ? show + u'\t' + tr("双击 Ctrl") : show, false, true, true},
+        {ShowCommand, m_settings.doubleCtrl ? show + u'\t' + doubleCtrlName() : show, false, true, true},
         {ClipboardCommand, m_clipboardShortcut.isEmpty() ? tr("剪贴板历史") : tr("剪贴板历史") + u'\t' + m_clipboardShortcut},
         {PauseClipboardCommand, tr("暂停记录剪贴板"), m_clipboardPaused, m_settings.clipboard},
         shell::MenuItem::separator(),

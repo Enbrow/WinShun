@@ -209,6 +209,7 @@ private:
     void applyTheme();
     void applyAppearance(); // the chosen theme and language
     QString trayTooltip() const;
+    QString doubleCtrlName() const;
     void armReveal();
     void revealLauncher(); // slides in (Placement::slideIn) unless it went away meanwhile
     void finishHidingLauncher(); // slid out (Placement::slideOut), or at once

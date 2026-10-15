@@ -245,6 +245,61 @@ void SettingsEditor::setDoubleCtrl(bool on)
         return;
     m_settings.doubleCtrl = on;
     commit();
+    refreshDoubleCtrlClash();
+}
+
+void SettingsEditor::setDoubleCtrlKey(const QString& key)
+{
+    if (m_settings.doubleCtrlKey == key || (key != u"both" && key != u"left" && key != u"right"))
+        return;
+    m_settings.doubleCtrlKey = key;
+    commit();
+    refreshDoubleCtrlClash();
+}
+
+namespace {
+
+// The Ctrl that PowerToys' Find My Mouse is turned on to come with by a
+// double tap ("left", "right"), from its settings files; empty for none
+// (off, shaking the mouse, a shortcut). PowerToys' activation_method:
+// 0 left Ctrl twice, 1 right Ctrl twice (FindMyMouse.h).
+QString findMyMouseCtrl()
+{
+    const QString folder = qEnvironmentVariable("LOCALAPPDATA") + u"/Microsoft/PowerToys"_s;
+    const auto read = [](const QString& path) {
+        QFile file(path);
+        return file.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(file.readAll()).object() : QJsonObject();
+    };
+    if (!read(folder + u"/settings.json"_s)[u"enabled"_s].toObject()[u"FindMyMouse"_s].toBool())
+        return {};
+    const QJsonValue method
+        = read(folder + u"/FindMyMouse/settings.json"_s)[u"properties"_s].toObject()[u"activation_method"_s].toObject()[u"value"_s];
+    if (!method.isDouble())
+        return {};
+    switch (method.toInt()) {
+    case 0:
+        return u"left"_s;
+    case 1:
+        return u"right"_s;
+    default:
+        return {};
+    }
+}
+
+} // namespace
+
+void SettingsEditor::refreshDoubleCtrlClash()
+{
+    QString clash;
+    if (m_settings.doubleCtrl) {
+        clash = findMyMouseCtrl();
+        if (m_settings.doubleCtrlKey != u"both" && m_settings.doubleCtrlKey != clash)
+            clash.clear();
+    }
+    if (clash == m_doubleCtrlClash)
+        return;
+    m_doubleCtrlClash = clash;
+    emit doubleCtrlClashChanged();
 }
 
 void SettingsEditor::setDoubleCtrlPauseInGames(bool on)

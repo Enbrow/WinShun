@@ -27,6 +27,11 @@ class SettingsEditor : public QObject {
     QML_ELEMENT
     QML_UNCREATABLE("Provided by the application")
     Q_PROPERTY(bool doubleCtrl READ doubleCtrl WRITE setDoubleCtrl NOTIFY changed FINAL)
+    Q_PROPERTY(QString doubleCtrlKey READ doubleCtrlKey WRITE setDoubleCtrlKey NOTIFY changed FINAL) // both | left | right
+    // The Ctrl PowerToys' Find My Mouse also opens on with a double tap,
+    // when that is one Win顺 listens to as well: left | right; empty when
+    // none (refreshDoubleCtrlClash).
+    Q_PROPERTY(QString doubleCtrlClash READ doubleCtrlClash NOTIFY doubleCtrlClashChanged FINAL)
     Q_PROPERTY(bool doubleCtrlPauseInGames READ doubleCtrlPauseInGames WRITE setDoubleCtrlPauseInGames NOTIFY changed FINAL)
     Q_PROPERTY(bool doubleCtrlPauseInFullScreen READ doubleCtrlPauseInFullScreen WRITE setDoubleCtrlPauseInFullScreen
             NOTIFY changed FINAL)
@@ -190,6 +195,10 @@ public:
 
     bool doubleCtrl() const { return m_settings.doubleCtrl; }
     void setDoubleCtrl(bool on);
+    QString doubleCtrlKey() const { return m_settings.doubleCtrlKey; }
+    void setDoubleCtrlKey(const QString& key);
+    QString doubleCtrlClash() const { return m_doubleCtrlClash; }
+    Q_INVOKABLE void refreshDoubleCtrlClash();
     bool doubleCtrlPauseInGames() const { return m_settings.doubleCtrlPauseInGames; }
     void setDoubleCtrlPauseInGames(bool on);
     bool doubleCtrlPauseInFullScreen() const { return m_settings.doubleCtrlPauseInFullScreen; }

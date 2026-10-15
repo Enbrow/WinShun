@@ -577,6 +577,9 @@ void Settings::load()
     const Settings d = defaults();
 
     doubleCtrl = readOrDefault(s, u"Launcher/DoubleCtrl"_s, d.doubleCtrl);
+    doubleCtrlKey = readOrDefault(s, u"Launcher/DoubleCtrlKey"_s, d.doubleCtrlKey).trimmed().toLower();
+    if (doubleCtrlKey != u"left" && doubleCtrlKey != u"right")
+        doubleCtrlKey = d.doubleCtrlKey;
     doubleCtrlPauseInGames = readOrDefault(s, u"Launcher/DoubleCtrlPauseInGames"_s, d.doubleCtrlPauseInGames);
     doubleCtrlPauseInFullScreen
         = readOrDefault(s, u"Launcher/DoubleCtrlPauseInFullScreen"_s, d.doubleCtrlPauseInFullScreen);
@@ -726,6 +729,7 @@ void Settings::save() const
 {
     QSettings s(QSettings::IniFormat, QSettings::UserScope, u"WinShun"_s, u"WinShun"_s);
     s.setValue(u"Launcher/DoubleCtrl"_s, doubleCtrl);
+    s.setValue(u"Launcher/DoubleCtrlKey"_s, doubleCtrlKey);
     s.setValue(u"Launcher/DoubleCtrlPauseInGames"_s, doubleCtrlPauseInGames);
     s.setValue(u"Launcher/DoubleCtrlPauseInFullScreen"_s, doubleCtrlPauseInFullScreen);
     s.setValue(u"Launcher/DoubleCtrlExcludedApps"_s, doubleCtrlExcludedApps);

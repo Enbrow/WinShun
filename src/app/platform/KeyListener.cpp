@@ -1,6 +1,7 @@
 #include "KeyListener.h"
 
 #include <algorithm>
+#include <format>
 #include <latch>
 
 namespace ws {
@@ -46,10 +47,50 @@ bool modifierHeld()
     return held(VK_SHIFT) || held(VK_CONTROL) || held(VK_MENU) || held(VK_LWIN) || held(VK_RWIN);
 }
 
+bool isDown(std::uint32_t vk)
+{
+    return held(static_cast<int>(vk));
+}
+
+// Raw Input names Ctrl, Shift and Alt without their side: the right Ctrl and
+// Alt come with the E0 prefix, the right Shift with its own scan code.
+std::uint32_t sidedKey(const RAWKEYBOARD& key)
+{
+    const bool e0 = key.Flags & RI_KEY_E0;
+    switch (key.VKey) {
+    case VK_CONTROL:
+        return e0 ? VK_RCONTROL : VK_LCONTROL;
+    case VK_MENU:
+        return e0 ? VK_RMENU : VK_LMENU;
+    case VK_SHIFT:
+        return key.MakeCode == 0x36 ? VK_RSHIFT : VK_LSHIFT;
+    default:
+        return key.VKey;
+    }
+}
+
+constexpr const char* kRecentNames[] {"", "LCtrl", "RCtrl", "LShift", "RShift", "LAlt", "RAlt", "LWin", "RWin", "key"};
+
+std::uint8_t recentKey(std::uint32_t vk)
+{
+    switch (vk) {
+    case VK_LCONTROL: return 1;
+    case VK_RCONTROL: return 2;
+    case VK_LSHIFT: return 3;
+    case VK_RSHIFT: return 4;
+    case VK_LMENU: return 5;
+    case VK_RMENU: return 6;
+    case VK_LWIN: return 7;
+    case VK_RWIN: return 8;
+    default: return 9;
+    }
+}
+
 } // namespace
 
 KeyListener::KeyListener(Callbacks callbacks)
     : m_callbacks(std::move(callbacks))
+    , m_detector(DoubleTapDetector::Config {.isDown = &isDown})
 {
     std::latch ready(1);
     m_thread = std::jthread([this, &ready] {
@@ -155,12 +196,17 @@ void KeyListener::onInput(HRAWINPUT input)
     if (key.VKey == 0xFF)
         return; // the extra part of an escaped key sequence, not a key
     const bool up = key.Flags & RI_KEY_BREAK;
-    const bool ctrl = DoubleTapDetector::isCtrl(key.VKey);
+    const std::uint32_t vk = sidedKey(key);
+    const bool ctrl = DoubleTapDetector::isCtrl(vk);
+    const auto time = static_cast<std::uint32_t>(::GetMessageTime()); // when it was pressed, not when we got to it
+    m_recent[m_recentNext] = {recentKey(vk), up, raw.header.hDevice == nullptr, time};
+    m_recentNext = (m_recentNext + 1) % m_recent.size();
     POINT pt {};
     if (ctrl) {
         ::GetCursorPos(&pt);
         if (!up) {
             m_detector.setMaxGap(maxGapMs());
+            m_detector.setSide(m_side.load());
             listenToMouse(true);
         }
         // Until a second tap can no longer follow. Armed on the press too: a
@@ -168,12 +214,42 @@ void KeyListener::onInput(HRAWINPUT input)
         // then finds Ctrl up.
         ::SetTimer(m_window.load(), kMouseOffTimer, maxGapMs() + 100, nullptr);
     }
-    const auto time = static_cast<std::uint32_t>(::GetMessageTime()); // when it was pressed, not when we got to it
-    const bool fire = up ? m_detector.keyUp(key.VKey, time, pt.x, pt.y) : m_detector.keyDown(key.VKey, time, pt.x, pt.y);
+    const bool fire = up ? m_detector.keyUp(vk, time, pt.x, pt.y) : m_detector.keyDown(vk, time, pt.x, pt.y);
     if (ctrl && !up && mouseButtonHeld())
         m_detector.mouseUsed();
     if (fire)
-        m_callbacks.doubleCtrl();
+        m_callbacks.doubleCtrl(sentTrace());
+}
+
+// The last keys, oldest first, when a program sent any of the last four Ctrl
+// events: "LAlt↓ +0, LCtrl↓ sent +812, …". Empty when the taps were all
+// typed.
+std::string KeyListener::sentTrace() const
+{
+    bool sent = false;
+    int ctrlEvents = 0;
+    for (std::size_t i = 0; i < m_recent.size() && ctrlEvents < 4; ++i) {
+        const Recent& r = m_recent[(m_recentNext + m_recent.size() - 1 - i) % m_recent.size()];
+        if (r.key == 1 || r.key == 2) {
+            ++ctrlEvents;
+            sent = sent || r.sent;
+        }
+    }
+    if (!sent)
+        return {};
+    std::string trace;
+    std::uint32_t first = 0;
+    for (std::size_t i = 0; i < m_recent.size(); ++i) {
+        const Recent& r = m_recent[(m_recentNext + i) % m_recent.size()];
+        if (r.key == 0)
+            continue;
+        if (trace.empty())
+            first = r.time;
+        else
+            trace += ", ";
+        trace += std::format("{}{}{} +{}", kRecentNames[r.key], r.up ? "↑" : "↓", r.sent ? " sent" : "", r.time - first);
+    }
+    return trace;
 }
 
 void KeyListener::onMouse(const RAWMOUSE& mouse)
