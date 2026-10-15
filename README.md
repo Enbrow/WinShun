@@ -82,6 +82,7 @@
 - **按类型找**：选中 **文件** 后，下面一排是文件夹、文档、图片、视频、压缩包等类型，`Ctrl+Tab` 依次切换；点 `+` 或在设置里自己加类型。
 - **搜索面板**：结果太多时，点搜索框右上角的小按钮或按 `Ctrl+E`，同一个窗口展开成面板（像 Listary）：左边按范围、类型、修改时间、大小、位置筛选，右边名称 / 路径 / 大小 / 修改时间四列，点列头排序；什么都不输入也能按条件浏览整个索引（三百万个文件也是毫秒级）。`size:>10mb`、`dm:7d` 这类写法直接打在搜索框里也行。再按一次就缩回搜索框。
 - **钉住**：按 `Ctrl+T` 或点搜索框右上角的图钉，点别处、打开文件后搜索框都不收起，`Esc` 关闭；按住左边的放大镜拖动窗口，单击它打开设置。
+- **预览**：在结果上按 `Alt+P`（或右键“预览”）看一眼文件，启动器不关：图片、文本（自动认 UTF-8 / GBK）、Word / Excel / PowerPoint / PDF（用资源管理器预览窗格的同一套预览程序）、文件夹里有什么；上下键换一行就换一个文件，再按 `Alt+P` 或 `Esc` 关掉。后台开着 QuickLook 或 Seer 时交给它们。
 - **拖出去就能用**：结果直接拖进微信、邮件、资源管理器。
 - **实时更新**：读 USN 变更日志，改名、新建、删除马上搜得到；拔 U 盘不会提示“设备正在使用”。
 
@@ -270,6 +271,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Shortcuts**: `Ctrl+1`…`Ctrl+9` opens a row (its number is on its icon).
   - **Search panel**: too many hits? The small button at the box's corner or `Ctrl+E` grows the same window into a panel, as Listary has it: filters down the left (scope, kind, date modified, size, folder), the rows in columns on the right (name, path, size, date modified) with sortable headers; with nothing typed it browses the whole index by those filters (milliseconds over three million files). `size:>10mb` and `dm:7d` work in the box too. Press it again to collapse.
   - **Pin**: `Ctrl+T` or the pin at the box's corner keeps the search box up through clicks elsewhere and opened files; `Esc` closes it. Drag the window by the magnifier on the left; click it for the settings.
+  - **Preview**: `Alt+P` on a result (or Preview in its menu) shows the file without leaving the launcher: pictures, text (UTF-8 or GBK, detected), Word, Excel, PowerPoint and PDF (through the same preview handlers as File Explorer's preview pane), what a folder holds; the arrows move it to the next row, `Alt+P` again or `Esc` closes it. QuickLook or Seer, when running in the background, shows it instead.
   - **By kind**: under **Files**, a row of kinds (folders, documents, pictures, videos, archives…); `Ctrl+Tab` steps through them, `+` adds your own.
   - **Drag out**: drag results into a chat, a mail or Explorer.
   - **Query syntax**: `"exact phrase"`, `!exclude`, `!node_modules\`, wildcards `*` `?`, `ext:pdf,docx`, `folder\name`, and paths (`D:\My Files\`, `tools/out/`).

@@ -542,6 +542,11 @@ Window {
             event.accepted = true
             return
         }
+        if (event.key === Qt.Key_P && (event.modifiers & ~Qt.KeypadModifier) === Qt.AltModifier) {
+            togglePreview()
+            event.accepted = true
+            return
+        }
         const ctrl = (event.modifiers & Qt.ControlModifier) !== 0
         const shift = (event.modifiers & Qt.ShiftModifier) !== 0
         // Ctrl+T: pinned, or not (the pin at the box's corner; Lertaro's key,
@@ -565,6 +570,8 @@ Window {
             event.accepted = true
             return
         }
+        if (event.key === Qt.Key_Down || event.key === Qt.Key_Up || event.key === Qt.Key_PageDown || event.key === Qt.Key_PageUp)
+            window.launcher.keyboardMoved() // Alt+P is for this row now, not the one under a pointer left where it was
         switch (event.key) {
         case Qt.Key_Down: shift ? extendSelection(1) : moveSelection(1); break
         case Qt.Key_Up:
@@ -591,8 +598,11 @@ Window {
             break
         }
         case Qt.Key_Escape:
-            // In a plugin's keyword mode, first the words after the keyword go;
-            // in 内容 in a folder chosen, the words (the folder stays); then the window.
+            // A preview open goes first (Alt+P); in a plugin's keyword mode,
+            // then the words after the keyword go; in 内容 in a folder chosen,
+            // the words (the folder stays); then the window.
+            if (window.launcher.closePreview())
+                break
             if (selectedCount > 0)
                 window.launcher.clearSelection()
             else if (!window.launcher.clearToKeyword() && !window.launcher.clearContentWords())
@@ -653,6 +663,28 @@ Window {
         event.accepted = true
     }
 
+    // Alt+P: the row under the pointer when the mouse went there after the
+    // keyboard last moved (Launcher.pointerIfMoved), else the keyboard's;
+    // either way it becomes the current row, so the highlight says what is
+    // shown and the arrows go on from it.
+    function togglePreview() {
+        if (homeIndex >= 0 || hintIndex >= 0)
+            return
+        const pointer = window.launcher.pointerIfMoved()
+        if (pointer !== undefined && view.count > 0) {
+            const p = view.mapFromGlobal(pointer.x, pointer.y)
+            if (p.x >= 0 && p.y >= 0 && p.x < view.width && p.y < view.height) {
+                const row = view.indexAt(p.x + view.contentX, p.y + view.contentY)
+                if (row >= 0) {
+                    window.launcher.clearSelection()
+                    view.currentIndex = row
+                }
+            }
+        }
+        window.launcher.keyboardMoved() // pressed again where it is: the same row
+        window.launcher.togglePreview(view.currentIndex)
+    }
+
     function selectFirst() {
         hintIndex = -1
         if (view.count > 0 && homeIndex < 0)
@@ -671,11 +703,13 @@ Window {
         }
         function onShown() {
             // Still cloaked here (App::showLauncher): nobody sees the jump.
+            window.launcher.keyboardMoved() // the pointer is where it was, wherever the window came up
             window.homeIndex = -1
             window.selectFirst()
             searchBar.focusAndSelect()
         }
         function onResultsReplaced() {
+            window.launcher.keyboardMoved() // other rows under a pointer that did not move
             window.selectionAnchor = -1
             window.closeContextMenu() // its row now holds another result
             window.selectFirst()

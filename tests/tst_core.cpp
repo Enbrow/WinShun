@@ -13,6 +13,7 @@
 #include "Extract.h"
 #include "GameGuard.h"
 #include "FileIndex.h"
+#include "FileText.h"
 #include "History.h"
 #include "NameSearch.h"
 #include "Ntfs.h"
@@ -590,6 +591,66 @@ private slots:
         QVERIFY(filterExtensions(u"All files (*)"_s).isEmpty());
         QVERIFY(filterExtensions(u"Web pages (*.htm*)"_s).isEmpty());
         QVERIFY(filterExtensions(u"Word 文档"_s).isEmpty());
+    }
+
+    // The preview's text (filetext::decodeHead): the encoding as the content
+    // search finds it, and a cut start ends on a whole line or character.
+    void previewTextHead()
+    {
+        using filetext::decodeHead;
+        using filetext::HeadEncoding;
+        const auto bytes = [](std::initializer_list<int> list) {
+            std::string s;
+            for (const int b : list)
+                s.push_back(static_cast<char>(b));
+            return s;
+        };
+        // Whole file, UTF-8 with CRLF.
+        filetext::Head h = decodeHead("one\r\ntwo\r\n", 10);
+        QCOMPARE(h.status, filetext::Status::Ok);
+        QCOMPARE(h.text, u"one\ntwo\n"_s);
+        QCOMPARE(h.encoding, HeadEncoding::Utf8);
+        QVERIFY(!h.cut);
+        // UTF-8 with a BOM.
+        h = decodeHead(bytes({0xEF, 0xBB, 0xBF, 'h', 'i'}), 5);
+        QCOMPARE(h.text, u"hi"_s);
+        QCOMPARE(h.encoding, HeadEncoding::Utf8Bom);
+        // Cut: back to the last line end.
+        h = decodeHead("line 1\nline 2 cut he", 1000);
+        QVERIFY(h.cut);
+        QCOMPARE(h.text, u"line 1\n"_s);
+        // One long line cut inside a character (好 is E5 A5 BD): the whole ones only.
+        h = decodeHead(bytes({'a', 0xE4, 0xBD, 0xA0, 0xE5, 0xA5}), 100);
+        QCOMPARE(h.encoding, HeadEncoding::Utf8);
+        QCOMPARE(h.text, u"a你"_s);
+        // UTF-16 LE with a BOM, cut after a line.
+        h = decodeHead(bytes({0xFF, 0xFE, 'x', 0, '\n', 0, 'y', 0}), 100);
+        QCOMPARE(h.encoding, HeadEncoding::Utf16LE);
+        QCOMPARE(h.text, u"x\n"_s);
+        // A NUL early on: not text.
+        QCOMPARE(decodeHead(bytes({'M', 'Z', 0, 0, 3}), 5).status, filetext::Status::NotText);
+        // GBK: 你好 is C4 E3 BA C3; cut inside the second. On a Chinese
+        // Windows as its ANSI code page, on a Western one because every
+        // character beyond ASCII comes out Chinese.
+        const unsigned system = ContentScanner::legacyCodePage();
+        if (system == 936 || system == 1252) {
+            h = decodeHead(bytes({0xC4, 0xE3, 0xBA, 0xC3}), 4);
+            QCOMPARE(h.encoding, HeadEncoding::Ansi);
+            QCOMPARE(h.codePage, 936u);
+            QCOMPARE(h.text, u"你好"_s);
+            h = decodeHead(bytes({0xC4, 0xE3, 0xBA}), 50);
+            QCOMPARE(h.text, u"你"_s);
+            QCOMPARE(h.codePage, 936u);
+        }
+        if (system == 1252) {
+            // Western text stays Western: "café." (E9 then a full stop is no GBK pair).
+            h = decodeHead(bytes({'c', 'a', 'f', 0xE9, '.'}), 5);
+            QCOMPARE(h.codePage, 1252u);
+            QCOMPARE(h.text, u"café."_s);
+        }
+        // From the disk (Windows paths, as the preview gives them): a folder, a missing file.
+        QCOMPARE(filetext::readHead(QDir::toNativeSeparators(QDir::tempPath()).toStdWString(), 1024).status, filetext::Status::Folder);
+        QCOMPARE(filetext::readHead(L"C:\\no\\such\\file.txt", 1024).status, filetext::Status::Missing);
     }
 
     void folderFromAddress()

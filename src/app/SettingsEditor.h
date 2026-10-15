@@ -116,6 +116,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString startList READ startList WRITE setStartList NOTIFY changed FINAL) // opened | modified | none
     Q_PROPERTY(bool clearOnOpen READ clearOnOpen WRITE setClearOnOpen NOTIFY changed FINAL)
     Q_PROPERTY(QString numberKeys READ numberKeys WRITE setNumberKeys NOTIFY changed FINAL) // ctrl | alt | off
+    Q_PROPERTY(QString previewWith READ previewWith WRITE setPreviewWith NOTIFY changed FINAL) // auto | builtin
     // Which of the chosen number keys are other programs' hotkeys, or Win顺's
     // own shortcuts, said for the user; empty when none (refreshNumberKeys).
     Q_PROPERTY(QString numberKeysNote READ numberKeysNote NOTIFY numberKeysNoteChanged FINAL)
@@ -413,6 +414,8 @@ public:
     QString numberKeys() const { return m_settings.numberKeys; }
     void setNumberKeys(const QString& keys);
     QString numberKeysNote() const { return m_numberKeysNote; }
+    QString previewWith() const { return m_settings.previewWith; }
+    void setPreviewWith(const QString& with);
     // Looks again at which number keys are taken (as the window comes to the
     // front: a program may have been started or closed meanwhile).
     Q_INVOKABLE void refreshNumberKeys();

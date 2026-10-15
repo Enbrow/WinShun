@@ -14,6 +14,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace ws {
 
@@ -53,6 +54,27 @@ struct Sources {
 // read (a document's extraction; a text file is read up to its first 16 MB
 // regardless).
 Result read(const std::wstring& path, const Sources& sources, std::int64_t maxBytes, const std::function<bool()>& cancelled);
+
+// The start of a text file, for looking at it (the launcher's preview): its
+// first `maxBytes` decoded as the content search decodes it (BOM, else valid
+// UTF-8, else the ANSI code page: GBK on Chinese Windows), line ends made
+// "\n". Cut at the last whole line that fits (or the last whole character,
+// when one line is longer than that). Status Ok, NotText (a NUL near the
+// start: a binary file), Missing, Folder, CloudOnly or Unreadable; never
+// reads a cloud file that is not on this computer.
+enum class HeadEncoding { Utf8, Utf8Bom, Utf16LE, Utf16BE, Ansi };
+struct Head {
+    Status status = Status::Unreadable;
+    QString text;
+    HeadEncoding encoding = HeadEncoding::Utf8;
+    unsigned codePage = 0; // Ansi: which (936 for GBK)
+    bool cut = false; // the file goes on past `text`
+    std::uint64_t size = 0; // the file's, in bytes
+};
+Head readHead(const std::wstring& path, std::size_t maxBytes);
+// The same on bytes in memory (`total`: how long the file is; more than
+// bytes.size() means they are only its start).
+Head decodeHead(std::string_view bytes, std::uint64_t total);
 
 } // namespace filetext
 } // namespace ws

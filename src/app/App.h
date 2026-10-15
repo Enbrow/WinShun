@@ -39,6 +39,7 @@ class ComWorker;
 class DialogBar;
 class DialogJump;
 class Favorites;
+class FilePreview;
 class FolderMenu;
 class SystemCatalog;
 class History;
@@ -135,6 +136,7 @@ protected:
 private:
     bool createWindow();
     bool createClipWindow();
+    QQuickWindow* createPreviewWindow(); // FilePreview's, the first time it is wanted
     void onDoubleCtrl(); // toggleLauncher(), unless a game is played (GameGuard)
     // `launcherToo`: and the launcher, when the clipboard was under its
     // search box and the keyboard went elsewhere.
@@ -317,6 +319,8 @@ private:
     std::unique_ptr<Launcher> m_launcher;
     std::unique_ptr<ClipStore> m_clipStore; // the clipboard history
     std::unique_ptr<Clipboard> m_clipboard; // its window's view-model
+    std::unique_ptr<FilePreview> m_preview; // Alt+P on a result
+    std::unique_ptr<WindowFrame> m_previewFrame;
     // Destroyed before the two above: its thread calls back into the app, and
     // the page waits on its writes.
     std::unique_ptr<ClipboardWatcher> m_clipWatcher;

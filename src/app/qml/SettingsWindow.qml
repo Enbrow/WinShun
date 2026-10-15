@@ -2378,6 +2378,20 @@ Window {
                 }
 
                 SettingRow {
+                    title: qsTr("预览文件（Alt+P）")
+                    keywords: qsTr("预览;快速查看;看一眼;QuickLook;Seer;空格;Alt+P;preview").split(";")
+                    description: window.editor.previewWith === "builtin"
+                                 ? qsTr("在结果上按 Alt+P，用 Win顺 自己的预览窗口看一眼")
+                                 : qsTr("在结果上按 Alt+P 看一眼；QuickLook 或 Seer 在后台运行时交给它，否则用 Win顺 自己的预览")
+
+                    ScopeTabs {
+                        labels: [qsTr("自动"), qsTr("内置")]
+                        current: window.editor.previewWith === "builtin" ? 1 : 0
+                        onActivated: (index) => window.editor.previewWith = ["auto", "builtin"][index]
+                    }
+                }
+
+                SettingRow {
                     id: fileTypesRow
 
                     property string problem // what was wrong with the last change

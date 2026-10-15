@@ -9,6 +9,7 @@
 #include "Favorites.h"
 #include "FavoritesSettings.h"
 #include "FileIconProvider.h"
+#include "FilePreview.h"
 #include "ThumbnailProvider.h"
 #include "FolderMenu.h"
 #include "History.h"
@@ -326,7 +327,8 @@ App::App()
         if (m_darkFrameWatch.elapsed() < 50) // Qt's own, after some 5 ms, first
             return;
         for (QWindow* window : {static_cast<QWindow*>(m_window), static_cast<QWindow*>(m_settingsWindow),
-                 static_cast<QWindow*>(m_barWindow), static_cast<QWindow*>(m_clipWindow)}) {
+                 static_cast<QWindow*>(m_barWindow), static_cast<QWindow*>(m_clipWindow),
+                 static_cast<QWindow*>(m_preview ? m_preview->window() : nullptr)}) {
             if (window && win::isDarkFrame(window) != m_darkFrame)
                 win::setDarkFrame(window, m_darkFrame);
         }
@@ -435,6 +437,9 @@ bool App::start(const StartOptions& options)
     m_launcher
         = std::make_unique<Launcher>(m_index.get(), m_apps.get(), m_places.get(), m_engine.get(), m_history.get());
     m_launcher->setFavorites(m_favorites.get());
+    m_preview = std::make_unique<FilePreview>();
+    m_preview->setWindowFactory([this] { return createPreviewWindow(); });
+    m_launcher->setPreview(m_preview.get());
     // Done with it (a result opened, a command run): hidden, unless pinned.
     connect(m_launcher.get(), &Launcher::dismissRequested, this, [this] {
         if (!m_launcher->pinned())
@@ -704,6 +709,7 @@ bool App::createWindow()
     m_qml = std::make_unique<QQmlApplicationEngine>();
     m_qml->addImageProvider(u"fileicon"_s, new FileIconProvider); // engine takes ownership
     m_qml->addImageProvider(u"thumbnail"_s, new ThumbnailProvider); // result rows' pictures, videos, PDFs
+    m_qml->addImageProvider(u"preview"_s, m_preview->imageProvider()); // the picture in the preview (Alt+P)
     m_placement = std::make_unique<Placement>(Settings::dataDir() + u"\\state.ini"_s, u"Launcher"_s);
     m_frame = std::make_unique<WindowFrame>(false);
     m_qml->setInitialProperties({
@@ -725,6 +731,7 @@ bool App::createWindow()
     m_window->installEventFilter(this);
     shellcontext::watchKeys(reinterpret_cast<HWND>(m_window->winId())); // which key asks for a context menu (eventFilter)
     m_launcher->setWindow(m_window);
+    m_preview->setLauncherWindow(m_window);
     m_placement->setWindow(m_window);
     m_frame->setWindow(m_window);
     m_launcherLogo = new WindowLogo(m_window);
@@ -744,6 +751,17 @@ bool App::createWindow()
         // on the rest of the taskbar) dismisses it at once, however soon
         // after it opened.
         if (m_window && !m_window->isActive() && m_window->isVisible() && !clipboardUnderLauncher()) {
+            // The preview (Alt+P) took the focus for a moment: a handler's
+            // window of ours (handed back at once), or QuickLook's or Seer's
+            // (which hand it back themselves). The launcher stays.
+            if (m_preview->ownsForeground()) {
+                if (m_preview->foregroundIsOurs())
+                    QMetaObject::invokeMethod(this, [this] {
+                        if (m_window && m_window->isVisible() && !m_window->isActive())
+                            win::bringToFront(m_window);
+                    }, Qt::QueuedConnection);
+                return;
+            }
             // A command of the shell's menu that keeps the launcher (删除,
             // say) runs, or just did: its dialogs, owned by a hidden window
             // of ours, take the focus and hand it back (Launcher::
@@ -848,6 +866,31 @@ bool App::createClipWindow()
     return true;
 }
 
+// The preview's window (FilePreview, PreviewWindow.qml): made the first time
+// Alt+P is pressed, styled as the launcher, never activated.
+QQuickWindow* App::createPreviewWindow()
+{
+    m_previewFrame = std::make_unique<WindowFrame>(false);
+    QQmlComponent component(m_qml.get(), u"WinShun"_s, u"PreviewWindow"_s);
+    QObject* object = component.createWithInitialProperties({
+        {u"preview"_s, QVariant::fromValue(m_preview.get())},
+        {u"frame"_s, QVariant::fromValue(m_previewFrame.get())},
+    });
+    auto* window = qobject_cast<QQuickWindow*>(object);
+    if (!window) {
+        qWarning().noquote() << component.errorString();
+        delete object;
+        return nullptr;
+    }
+    prepareBackdrop(window);
+    window->create();
+    styleWindow(window, SystemTheme::backdropAvailable());
+    win::setDarkFrame(window, isDarkMode());
+    m_previewFrame->setWindow(window);
+    m_previewFrame->setNoActivate(true); // the launcher keeps the keyboard; Mica drawn as active all the same
+    return window;
+}
+
 bool App::eventFilter(QObject* watched, QEvent* event)
 {
     // The launcher's field, drawn in the box on the taskbar: the input
@@ -910,6 +953,10 @@ void App::applyTheme()
         styleWindow(m_window, SystemTheme::backdropAvailable());
     if (m_clipWindow)
         styleWindow(m_clipWindow, SystemTheme::backdropAvailable());
+    if (QQuickWindow* preview = m_preview ? m_preview->window() : nullptr)
+        styleWindow(preview, SystemTheme::backdropAvailable());
+    if (m_preview)
+        m_preview->setDark(dark);
     if (m_settingsWindow)
         styleWindow(m_settingsWindow, SystemTheme::backdropAvailable());
     if (m_barWindow)
@@ -1049,6 +1096,8 @@ void App::applySettings(bool initial)
     m_launcher->setStartList(m_settings.startList == u"modified" ? Launcher::RecentlyModified
             : m_settings.startList == u"none"                     ? Launcher::NoStartList
                                                                  : Launcher::RecentlyOpened);
+    m_preview->setBuiltInOnly(m_settings.previewWith == u"builtin");
+    m_preview->setTextExtensions(m_settings.contentExtensions);
     m_clipboard->setNumberKeys(m_settings.clipboardNumberKeys);
     updateNumberKeys();
     applyHotkey();
@@ -2841,6 +2890,7 @@ void App::hideLauncher()
     m_launcherHidden.start();
     m_boxPressGrace.stop();
     m_deliverTyping = false;
+    m_launcher->closePreview(); // at once, not after the slide
     if (clipboardUnderLauncher())
         hideClipboard(false);
     // Slid out, unless it was never seen (still waiting for its first frame).

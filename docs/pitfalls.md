@@ -2190,3 +2190,63 @@
 - **现象**：0.8.0 的「用 Win顺 搜索此处」在选中的文件夹、盘符上有，在文件夹空白处右键没有（论坛 #209、#215）。用户把 `Directory\Background\shell\WinShun.SearchHere` 下的 `MultiSelectModel` 删掉就好了。
 - **原因**：三个键统一写了 `MultiSelectModel=Single`。空白处没有选中项，外壳按“恰好选中一项”去比，就把动词藏了。
 - **做法**：`ShellMenu.cpp` 只给 `Directory`、`Drive` 写 `Single`，`Background` 不写，已有的删掉（老用户启动新版即修好）。验证用 `IShellFolder::CreateViewObject(IID_IContextMenu)` 取空白处菜单、`GetUIObjectOf` 取文件夹本身的菜单，列出菜单项对比，不必点界面。
+
+## 预览（Alt+P）
+
+### 发布包里的 Qt 读不了 JPEG
+
+- **现象**：预览照片，`QImage` 读出来是空的；开发机上从构建目录跑却正常。
+- **原因**：`build.ps1` 部署时跳过了 Qt 的 `imageformats` 插件（省体积），发布包里的 Qt 只认内置的 PNG、BMP、PPM、XBM、XPM。
+- **做法**：预览的图片一律用 WIC（Windows 图像组件）解码（`FilePreview.cpp` 的 `decodePicture`），Windows 认的格式都能读（装了扩展的 HEIC、WebP 也行），顺带按 EXIF 方向转正、解码时就缩小。别为了预览把 `imageformats` 加回来。
+
+### 预览程序的窗口挂在 Qt 窗口下，一卡启动器的键也卡
+
+- **现象**：（设计时按文档和实测确认）把 `IPreviewHandler` 的父窗口设成预览窗口（Qt 的，GUI 线程），或者让弹出窗口以预览窗口为所有者，预览程序一卡住，启动器的方向键、`Esc` 也没反应。
+- **原因**：跨线程的父子窗口、所有者窗口会把两个线程的输入队列连在一起（`AttachThreadInput` 的效果），一个线程不取消息，另一个的键也排着。
+- **做法**：预览程序画在一个专门 STA 线程上的弹出窗口里，这个窗口没有父窗口、没有所有者，只是摆在预览窗口内容区的位置上、z 序紧挨着它（`PreviewHost`）。GUI 线程对它只用异步的调用：`ShowWindowAsync`、`PostMessage`，不用 `SetWindowPos`、`SendMessage`。
+
+### 没装 Outlook 时 .msg 的预览程序永远不返回
+
+- **现象**：.msg 交给它的预览程序（MAPI，`{53BEDF0B-…}`），`CreateInstance` 一直不回来；超时后对它 `CoCancelCall` 能把调用拿回来，但再 `Release` 又卡住。
+- **做法**：超时（10 秒）就把整个线程丢掉，不 `Release`、不等，下一个文件开新线程；这个预览程序这次运行里不再用（`PreviewHost::handlerFor` 返回空，显示缩略图和信息）。不去杀 `prevhost.exe`：它是别的程序（资源管理器的预览窗格）也在用的共享进程。
+
+### Office 的预览程序只认文件路径；Edge 的 PDF 一调就返回
+
+- **现象**：只试 `IInitializeWithStream` 时 Word、Excel、PowerPoint、Edge 的 PDF 预览程序都初始化失败；Edge 的 PDF `DoPreview` 2 毫秒就返回，这时窗口里还是空的。
+- **做法**：依次试 Stream、File、Item，前一个失败就试下一个。显示弹出窗口的时机不是 `DoPreview` 返回，而是它下面出现了预览程序的子窗口（最多等 3 秒），之前预览窗口里写“正在读取…”。Word 第一次要启动自己（3–6 秒），类工厂留着（`LockServer`），一分钟没有预览才放。
+
+### 带 `\\?\` 前缀的路径不能用正斜杠
+
+- **现象**：`filetext::readHead(QDir::tempPath())` 在单元测试里报“打不开”，不是“文件夹”。
+- **原因**：`readHead` 用 `win32::longPath` 加上 `\\?\` 前缀，有这个前缀时 Windows 不再把 `/` 换成 `\`；`QDir::tempPath()` 给的是 `C:/Users/...`。
+- **做法**：交给 `win32::longPath` 的路径先 `QDir::toNativeSeparators`（预览里的路径本来就换过）。
+
+### PowerShell 里 `[IO.File]` 用相对路径，写到了别处
+
+- **现象**：在 `F:\wswt\wspreview` 下用 `[IO.File]::WriteAllText('src\…', …)` 改文件，什么也没改到，也不报错。
+- **原因**：.NET 的相对路径按进程的当前目录算，不是 PowerShell 的 `$PWD`（`Set-Location` 不改进程的当前目录）。
+- **做法**：`[IO.File]` 一律用绝对路径。
+
+### Excel 的预览程序冷启动时抢前台，启动器跟着关了
+
+- **现象**：预览 .xlsx，Excel 还没运行时，前台变成一个类名 `XLMAIN`、标题“Excel”的窗口，启动器失去焦点就关掉了，预览也跟着关。Word、Edge 的 PDF 没有这个问题。
+- **原因**：Excel 以 `-Embedding` 启动时自己激活了一下窗口。这时预览程序的子窗口还没出来，按“子窗口所在进程”认不出它是预览的。
+- **做法**：给出文件时按 CLSID 的 `LocalServer32`（没有就是 AppID 的 `DllSurrogate`）记下服务它的程序名，8 秒内前台换成这个程序的窗口算预览自己的，启动器不关、把前台拿回来（`PreviewHost::owns`）。
+
+### 英文“非 Unicode 程序语言”的电脑上，GBK 的 .txt 成了乱码
+
+- **现象**：预览 GBK 编码的 .txt，标题下写“ANSI 1252”，内容是 `ÕâÒ»ÐÐ` 这类乱码。单元测试的 GBK 一段因为 `legacyCodePage() == 936` 不成立被跳过了，没发现。
+- **原因**：这台机器的系统区域是 en-US，`GetACP()` 是 1252；内容搜索和预览都按它解。
+- **做法**：预览（`filetext::decodeHead`）在系统代码页不是中日韩双字节时，再试严格的 GBK（`MB_ERR_INVALID_CHARS`），ASCII 以外的字全是中文才认 GBK；西文（`café.`）过不了。单元测试在 1252 和 936 上都跑这一段。内容搜索没动。
+
+### `Qt::UniqueConnection` 连 lambda 不生效
+
+- **现象**：启动器挪动、展开成搜索面板时，预览窗口不跟着动；代码里明明连了 `QWindow::xChanged` 等信号。
+- **原因**：`connect(…, lambda, Qt::UniqueConnection)` 只支持成员函数，连 lambda 时直接失败（只在调试输出里有一句警告）。
+- **做法**：只连一次的地方不要加 `Qt::UniqueConnection`；真要防重复连接，就记下 `QMetaObject::Connection`。
+
+### 预览程序的弹出窗口每次挪动都要重新排 z 序
+
+- **现象**：预览窗口压到搜索面板上面时（`HWND_TOPMOST`），Word 的内容不见了，只剩空白的预览窗口；另一种情形里弹出窗口跑到了启动器上面。
+- **原因**：弹出窗口只在开始时插到预览窗口上面，之后挪动用了 `SWP_NOZORDER`；预览窗口自己换到最前面后，弹出窗口就被压在下面。另外“预览窗口上面那个窗口就是弹出窗口自己”时误用了 `HWND_TOPMOST`，把它提到了所有窗口最前面。
+- **做法**：每次挪动都按 `GetWindow(预览窗口, GW_HWNDPREV)` 重新插（已经紧挨着就 `SWP_NOZORDER`），预览窗口每次摆好后也让弹出窗口跟一次（`FilePreview::showWindow` 末尾的 `placeHandler`）。

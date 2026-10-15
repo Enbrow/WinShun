@@ -31,6 +31,9 @@ public:
     // calling thread (which it joins to COM); null if there is none.
     // `cachedOnly`: only from Windows' thumbnail cache, which is instant.
     static QImage thumbnail(const QString& path, int px, bool cachedOnly);
+    // The thumbnail, else the icon drawn as large (a folder's shows what is
+    // in it): at most `px` pixels on its longer side, on the calling thread.
+    static QImage largeImage(const QString& path, int px);
     // An installed app (AppCatalog). Packaged apps' logos differ by theme.
     static QString appIconUrl(const QString& appId, bool packaged, bool dark);
     // A place in Windows (SystemCatalog), by its icon: one in a module

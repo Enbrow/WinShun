@@ -649,6 +649,10 @@
         <translation>Copy the path</translation>
     </message>
     <message>
+        <source>预览文件；再按一次或 Esc 关闭</source>
+        <translation>Preview the file; press again or Esc to close</translation>
+    </message>
+    <message>
         <source>切换排序；不输入时切换最近打开、最近修改</source>
         <translation>Switch the order; with nothing typed, opened or modified lately</translation>
     </message>
@@ -1486,6 +1490,21 @@
     <message>
         <source>知道了</source>
         <translation>OK</translation>
+    </message>
+</context>
+<context>
+    <name>PreviewWindow</name>
+    <message>
+        <source>预览</source>
+        <translation>Preview</translation>
+    </message>
+    <message>
+        <source>打开</source>
+        <translation>Open</translation>
+    </message>
+    <message>
+        <source>正在读取…</source>
+        <translation>Reading…</translation>
     </message>
 </context>
 <context>
@@ -2549,7 +2568,7 @@
     </message>
     <message>
         <source>文件列表有焦点时直接打字，就在这个窗口显示的文件夹里搜，和 Listary 一样；代替了资源管理器自己的“按首字母跳到文件”</source>
-        <translation>Just type while the file list has the focus to search the folder that window shows, as in Listary; it takes the place of Explorer's own jump to a file by its first letters</translation>
+        <translation>Just type while the file list has the focus to search the folder that window shows, as in Listary; it takes the place of Explorer&apos;s own jump to a file by its first letters</translation>
     </message>
     <message>
         <source>在 Directory Opus 的空白处双击</source>
@@ -2793,6 +2812,26 @@
     <message>
         <source>打开时搜索框是空的，回到“全部”；关掉时保留上次的文字并选中，直接输入就会替换</source>
         <translation>Opens with an empty box, back in All; when off, the last words stay, selected, so typing replaces them</translation>
+    </message>
+    <message>
+        <source>预览文件（Alt+P）</source>
+        <translation>Preview files (Alt+P)</translation>
+    </message>
+    <message>
+        <source>预览;快速查看;看一眼;QuickLook;Seer;空格;Alt+P;preview</source>
+        <translation>preview;quick look;peek;QuickLook;Seer;space;Alt+P</translation>
+    </message>
+    <message>
+        <source>在结果上按 Alt+P，用 Win顺 自己的预览窗口看一眼</source>
+        <translation>Press Alt+P on a result to take a look in WinShun&apos;s own preview window</translation>
+    </message>
+    <message>
+        <source>在结果上按 Alt+P 看一眼；QuickLook 或 Seer 在后台运行时交给它，否则用 Win顺 自己的预览</source>
+        <translation>Press Alt+P on a result to take a look; QuickLook or Seer shows it when running in the background, otherwise WinShun&apos;s own preview</translation>
+    </message>
+    <message>
+        <source>内置</source>
+        <translation>Built-in</translation>
     </message>
     <message>
         <source>内容;全文;文字;开关;关闭;content</source>
@@ -4636,6 +4675,99 @@
     </message>
 </context>
 <context>
+    <name>ws::FilePreview</name>
+    <message>
+        <source>这一行没有可预览的文件</source>
+        <translation>Nothing to preview on this row</translation>
+    </message>
+    <message>
+        <source>找不到这个文件，可能已被移动或删除</source>
+        <translation>The file is not there; it may have been moved or deleted</translation>
+    </message>
+    <message>
+        <source>空文件夹</source>
+        <translation>Empty folder</translation>
+    </message>
+    <message>
+        <source>%1 项以上</source>
+        <translation>More than %1 items</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 个文件</source>
+        <translation>
+            <numerusform>%n file</numerusform>
+            <numerusform>%n files</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 个文件夹</source>
+        <translation>
+            <numerusform>%n folder</numerusform>
+            <numerusform>%n folders</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>%1 个文件夹，%2 个文件</source>
+        <translation>%1 folders, %2 files</translation>
+    </message>
+    <message>
+        <source>包含</source>
+        <translation>Contains</translation>
+    </message>
+    <message>
+        <source>空文件</source>
+        <translation>Empty file</translation>
+    </message>
+    <message>
+        <source>前 %1 行</source>
+        <translation>First %1 lines</translation>
+    </message>
+    <message>
+        <source>%1 行</source>
+        <translation>%1 lines</translation>
+    </message>
+    <message>
+        <source>类型</source>
+        <translation>Kind</translation>
+    </message>
+    <message>
+        <source>大小</source>
+        <translation>Size</translation>
+    </message>
+    <message>
+        <source>修改时间</source>
+        <translation>Date modified</translation>
+    </message>
+    <message>
+        <source>创建时间</source>
+        <translation>Date created</translation>
+    </message>
+    <message>
+        <source>位置</source>
+        <translation>Location</translation>
+    </message>
+    <message>
+        <source>状态</source>
+        <translation>Status</translation>
+    </message>
+    <message>
+        <source>仅在云端，未下载到这台电脑</source>
+        <translation>Online only, not downloaded to this PC</translation>
+    </message>
+    <message>
+        <source>说明</source>
+        <translation>Note</translation>
+    </message>
+    <message>
+        <source>预览程序没能显示这个文件</source>
+        <translation>The preview handler could not show this file</translation>
+    </message>
+    <message>
+        <source>从网上下载的文件，为安全起见不预览内容（资源管理器也是这样）</source>
+        <translation>Downloaded from the internet: its content is not previewed, for safety (as in File Explorer)</translation>
+    </message>
+</context>
+<context>
     <name>ws::FolderMenu</name>
     <message>
         <source>还没有收藏的文件夹</source>
@@ -5000,6 +5132,10 @@
         <translation>Waiting for %1…</translation>
     </message>
     <message>
+        <source>预览</source>
+        <translation>Preview</translation>
+    </message>
+    <message>
         <source>在此文件夹中搜内容</source>
         <translation>Search contents in this folder</translation>
     </message>
@@ -5144,6 +5280,14 @@
     <message>
         <source>或在词后加“文件夹名/”</source>
         <translation>or add “folder/” after the words</translation>
+    </message>
+    <message>
+        <source>这一行没有可预览的文件</source>
+        <translation>Nothing to preview on this row</translation>
+    </message>
+    <message>
+        <source>没有选中的结果</source>
+        <translation>No result selected</translation>
     </message>
     <message>
         <source>“%1” 已不存在；右键可从收藏夹移除</source>

@@ -63,6 +63,7 @@ qt_add_executable(WinShun WIN32
     platform/Credentials.cpp platform/Credentials.h
     platform/DialogJump.cpp platform/DialogJump.h
     platform/DragOut.cpp platform/DragOut.h
+    platform/ExternalPreview.cpp platform/ExternalPreview.h
     platform/FileDialog.cpp platform/FileDialog.h
     platform/FileManagers.cpp platform/FileManagers.h
     platform/FolderViewHit.cpp platform/FolderViewHit.h
@@ -78,6 +79,7 @@ qt_add_executable(WinShun WIN32
     platform/NumberKeys.cpp platform/NumberKeys.h
     platform/Paster.cpp platform/Paster.h
     platform/PeekingLogo.cpp platform/PeekingLogo.h
+    platform/PreviewHost.cpp platform/PreviewHost.h
     platform/Shell.cpp platform/Shell.h
     platform/ShellContextMenu.cpp platform/ShellContextMenu.h
     platform/ShellMenu.cpp platform/ShellMenu.h
@@ -119,6 +121,7 @@ set(qml_files
     qml/DialogBarWindow.qml
     qml/DialogBarRow.qml
     qml/FolderMenuWindow.qml
+    qml/PreviewWindow.qml
     qml/HoverTip.qml
     qml/ShortcutTip.qml
     qml/DropMenu.qml
@@ -207,6 +210,7 @@ qt_add_qml_module(WinShun
         DialogBar.cpp DialogBar.h
         FavoritesSettings.cpp FavoritesSettings.h
         FileDropTarget.cpp FileDropTarget.h
+        FilePreview.cpp FilePreview.h
         FolderMenu.cpp FolderMenu.h
         GleaningScene.cpp GleaningScene.h
         IconBadge.cpp IconBadge.h
@@ -259,7 +263,7 @@ target_link_libraries(WinShun PRIVATE
     wscore wsmcp wsplugin
     Qt6::Gui Qt6::Qml Qt6::Quick
     comctl32 d2d1 dwmapi dwrite imm32 oleacc oleaut32 shcore shell32 shlwapi ole32 user32 uxtheme version winhttp winmm
-    credui iphlpapi mpr psapi
+    credui iphlpapi mpr psapi windowscodecs
     mfplat mfreadwrite mfuuid delayimp
     windowsapp # TextRecognizer: Windows.Media.Ocr, through C++/WinRT from the Windows SDK
     onnxruntime_headers) # PaddleOcr

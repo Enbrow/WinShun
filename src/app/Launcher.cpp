@@ -2,6 +2,7 @@
 
 #include "AppCatalog.h"
 #include "FileIconProvider.h"
+#include "FilePreview.h"
 #include "History.h"
 #include "Host.h"
 #include "IndexService.h"
@@ -17,6 +18,7 @@
 #include "platform/ShellContextMenu.h"
 #include "platform/WindowEffects.h"
 
+#include <QCursor>
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
@@ -836,6 +838,7 @@ void Launcher::retranslate()
 
 void Launcher::handleHidden()
 {
+    closePreview();
     m_index->contentIndexer()->setSearchBoxOpen(false);
     m_systemCommand = false;
     m_results.setSelection({});
@@ -1670,6 +1673,7 @@ void Launcher::setCurrentRow(int row)
     m_currentRow = row;
     emit currentRowChanged();
     refreshKeyHints();
+    followPreview();
 }
 
 // What the keys do on the row the keyboard is on (keyHints), from the same
@@ -2150,10 +2154,97 @@ void Launcher::dismiss()
     emit dismissRequested();
 }
 
+namespace {
+
+// What a row shows in the preview: a file or folder of its own (not an app,
+// a place, a web page or a plugin's row; not one gone or out of reach).
+std::optional<FilePreview::Item> previewItem(const SearchResult* r)
+{
+    if (!r || r->isApp() || r->missing || r->offline || r->path.isEmpty())
+        return std::nullopt;
+    return FilePreview::Item {r->path, r->name, r->isDir};
+}
+
+} // namespace
+
+void Launcher::setPreview(FilePreview* preview)
+{
+    m_preview = preview;
+    // New rows: the current one (the first, as QML selects it) is shown, once
+    // QML has said which it is.
+    connect(this, &Launcher::resultsReplaced, this, [this] {
+        QMetaObject::invokeMethod(this, &Launcher::followPreview, Qt::QueuedConnection);
+    });
+    // 打开 in the preview's header: as Enter on that file's row.
+    connect(preview, &FilePreview::openRequested, this, [this](const QString& path) {
+        for (int row = 0; row < m_results.count(); ++row) {
+            const SearchResult* r = m_results.at(row);
+            if (r && !r->isApp() && r->path.compare(path, Qt::CaseInsensitive) == 0) {
+                trigger(row, Open);
+                return;
+            }
+        }
+    });
+}
+
+void Launcher::togglePreview(int row)
+{
+    if (!m_preview)
+        return;
+    const SearchResult* r = m_results.at(row);
+    const std::optional<FilePreview::Item> item = previewItem(r);
+    m_preview->forgetClosedExternal(); // QuickLook or Seer closed on its own meanwhile
+    // Open: the same key closes it, unless it was pressed for another file
+    // (the row under the pointer), which it then shows.
+    if (m_preview->isOpen()) {
+        if (!item || m_preview->isShowing(item->path))
+            m_preview->close();
+        else
+            m_preview->show(*item);
+        return;
+    }
+    if (!item) {
+        flash(r ? tr("这一行没有可预览的文件") : tr("没有选中的结果"));
+        return;
+    }
+    m_preview->show(*item);
+}
+
+bool Launcher::closePreview()
+{
+    if (m_preview)
+        m_preview->forgetClosedExternal(); // Esc then goes on to the launcher
+    if (!m_preview || !m_preview->isOpen())
+        return false;
+    m_preview->close();
+    return true;
+}
+
+void Launcher::followPreview()
+{
+    if (m_preview && m_preview->isOpen())
+        m_preview->follow(previewItem(m_results.at(m_currentRow)));
+}
+
+void Launcher::keyboardMoved()
+{
+    m_pointerAtKeys = QCursor::pos();
+}
+
+QVariant Launcher::pointerIfMoved() const
+{
+    const QPoint now = QCursor::pos();
+    return now == m_pointerAtKeys ? QVariant() : QVariant(QPointF(now));
+}
+
 void Launcher::trigger(int row, int action)
 {
     if (action == SystemMenu) { // takes the selection itself, from Win顺's menu (Main.qml says where)
         showSystemMenu(row);
+        return;
+    }
+    if (action == Preview) { // the row it was asked on, not a selection
+        togglePreview(row);
         return;
     }
     // A terminal opens for the row it was asked on, not for each of a selection.
@@ -2930,6 +3021,8 @@ QVariantList Launcher::menuItems(int row) const
     }
     items.append(entry(Open, r->isDir ? tr("打开文件夹") : tr("打开"), u"Enter"_s, r->isDir ? u"\uE838"_s : u"\uE8E5"_s));
     items.append(entry(Reveal, tr("打开所在位置"), u"Ctrl+Enter"_s, u"\uE8DA"_s));
+    if (!r->missing && !r->offline)
+        items.append(entry(Preview, tr("预览"), u"Alt+P"_s, u"\uE890"_s)); // View
     items.append(entry(OpenTerminal, tr("在终端中打开"), QString(), u"\uE756"_s)); // CommandPrompt
     if (r->isDir && m_contentEnabled && !r->path.startsWith(u"\\\\"_s)) // shares: contents are not read there
         items.append(entry(SearchInFolder, tr("在此文件夹中搜内容"), QString(), u"\uE721"_s)); // Search

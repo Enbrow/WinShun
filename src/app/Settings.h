@@ -120,6 +120,10 @@ struct Settings {
     // ctrl | alt | off: Ctrl+1…9 opens the nth row shown, in the launcher and
     // the bar by file dialogs (other programs' hotkeys stay theirs, see numberkeys).
     QString numberKeys = QStringLiteral("ctrl");
+    // auto | builtin: what Alt+P on a row shows the file with. auto: QuickLook
+    // or Seer when one is running in the background (FilePreview), else
+    // Win顺's own preview window; builtin: always that.
+    QString previewWith = QStringLiteral("auto");
 
     // [FileTypes]: what 文件 can be narrowed to, in the strip under the
     // search box (图片: jpg, png…), in its user's order. Written as an

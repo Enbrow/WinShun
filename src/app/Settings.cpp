@@ -630,6 +630,9 @@ void Settings::load()
     numberKeys = readOrDefault(s, u"Results/NumberKeys"_s, d.numberKeys).trimmed().toLower();
     if (numberKeys != u"alt" && numberKeys != u"off")
         numberKeys = d.numberKeys;
+    previewWith = readOrDefault(s, u"Results/PreviewWith"_s, d.previewWith).trimmed().toLower();
+    if (previewWith != u"builtin")
+        previewWith = d.previewWith;
 
     theme = readOrDefault(s, u"Appearance/Theme"_s, d.theme).trimmed().toLower();
     if (theme != u"light" && theme != u"dark")
@@ -767,6 +770,7 @@ void Settings::save() const
     s.setValue(u"Results/StartList"_s, startList);
     s.setValue(u"Launcher/ClearOnOpen"_s, clearOnOpen);
     s.setValue(u"Results/NumberKeys"_s, numberKeys);
+    s.setValue(u"Results/PreviewWith"_s, previewWith);
     s.setValue(u"Appearance/Theme"_s, theme);
     s.setValue(u"Appearance/Language"_s, language);
     s.setValue(u"Appearance/Transparency"_s, transparency);

@@ -202,6 +202,14 @@ void SettingsEditor::setNumberKeys(const QString& keys)
     refreshNumberKeys();
 }
 
+void SettingsEditor::setPreviewWith(const QString& with)
+{
+    if (m_settings.previewWith == with || (with != u"auto" && with != u"builtin"))
+        return;
+    m_settings.previewWith = with;
+    commit();
+}
+
 void SettingsEditor::setClipboardNumberKeys(const QString& keys)
 {
     if (m_settings.clipboardNumberKeys == keys || (keys != u"ctrl" && keys != u"alt" && keys != u"off"))

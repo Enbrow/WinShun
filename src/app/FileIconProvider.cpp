@@ -437,6 +437,23 @@ QImage FileIconProvider::thumbnail(const QString& path, int px, bool cachedOnly)
     return shellThumbnail(path.toStdWString(), px, cachedOnly);
 }
 
+QImage FileIconProvider::largeImage(const QString& path, int px)
+{
+    thread_local ComApartment com;
+    ComPtr<IShellItemImageFactory> factory;
+    if (FAILED(::SHCreateItemFromParsingName(reinterpret_cast<const wchar_t*>(path.utf16()), nullptr, IID_PPV_ARGS(&factory))))
+        return {};
+    HBITMAP bitmap = nullptr;
+    // Neither THUMBNAILONLY nor ICONONLY: the thumbnail, else the icon drawn that large.
+    if (FAILED(factory->GetImage({px, px}, SIIGBF_BIGGERSIZEOK, &bitmap)) || !bitmap)
+        return {};
+    QImage image = fromShellBitmap(bitmap);
+    ::DeleteObject(bitmap);
+    if (image.width() > px || image.height() > px)
+        image = image.scaled(px, px, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    return image;
+}
+
 QString FileIconProvider::thumbnailUrl(const QString& path)
 {
     return u"image://fileicon/thumb/"_s + encode(path);

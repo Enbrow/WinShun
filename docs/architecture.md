@@ -472,6 +472,33 @@ linux.do 上的用户要的（#157、#225，对照 Lertaro）：一个让搜索�
 - **图钉的样子**：没钉住是空心图钉（`E718`）；钉住是实心图钉加针（`E841` + `E718`，和剪贴板的钉住一样），强调色画在白色的凸起方块上，一圈 1 像素的灰边（和底栏选中的选项一样），不拿强调色当底色。提示带 `Ctrl+T`；切换时底栏说一声“已钉住：…”/“已取消钉住”（键盘按的没有别的反馈）。快捷键列表（底栏的 ⓘ）有这一行。
 - **测试读数**：`--dump` 多了 `pinned`、`active`。
 - **实测**（2026-10-15，150%，浅色、紧凑，提权的 SendInput 脚本，独立配置的测试副本）：放大镜命中是 `HTCAPTION`、图钉是 `HTCLIENT`；`Ctrl+T` 钉住后底栏出提示。点另一个窗口：启动器还显示、置顶、没焦点；双击 Ctrl 把它拿回前台，位置不变；再按收起。回车打开一个结果（`.lnk` 开的控制台）：启动器还在，压在新窗口上面。`Esc` 钉住时照样收起，再打开还是钉住的。按住放大镜拖 300×150 像素，窗口正好移动 300×150，拖回来也一样；在放大镜上点一下，设置窗口出来、启动器收起。图钉按钮开、关、开、关都对；没钉住时点别处照常收起。面板里图钉和 `Ctrl+T` 都管用，点别处不收、`Esc` 收回成框、下次打开还是钉住的。任务栏框：框里打开后 `Ctrl+T`，输入框回到窗口、框回到空闲样子；点别处不收；点框拿回前台，再点框收起；钉住时从框打开停在原处；取消钉住后 `Esc` 收起。
+## 预览（Alt+P）
+
+论坛 #157 / #225（从 Listary 来的用户：QuickLook 接管 Alt+P）、#162（Seer）、#165（开发者要看文档、图片，最好还有 DXF / 3D）。在结果上按 `Alt+P`（右键菜单“预览”也行）看一眼文件，启动器不关；再按 `Alt+P` 或 `Esc` 关掉预览、键盘一直在启动器上；↑ ↓ 换行，预览跟着换文件。
+
+- **哪一行**：键盘选中的行。鼠标停在另一行上、而且上次按方向键之后鼠标动过，才算鼠标那一行（它同时变成选中的行，`Launcher::pointerIfMoved` / `keyboardMoved`）：一边按方向键一边让鼠标停在列表上是常态，那时预览的应该是键盘走到的那行；特意把鼠标挪到某行再按 `Alt+P`，就是要看那一行。程序、网址、计算这类不是文件的行，`Alt+P` 提示“这一行没有可预览的文件”；预览开着时走到这种行，预览窗口里写同一句话，不关。
+- **为什么是 Alt+P 不是空格**：空格要打进搜索框。`Alt+P` 实测空闲（`RegisterHotKey` 探测；结果列表、搜索框都没有 Alt+字母 的访问键；剪贴板页本来就用 `Alt+P` 开关预览，一致）。在资源管理器里不接管 QuickLook 的空格。
+- **用谁预览**（设置“结果”页“预览文件（Alt+P）”：自动 / 内置，`[Results] PreviewWith`，`FilePreview::show`）：自动时，QuickLook 在运行就交给它，否则 Seer 在运行就交给 Seer，都没有才用自己的窗口。只认“正在运行的”，不认“装了的”：论坛的说法本来就是“后台要开着 QuickLook”；冷启动一个 WPF 程序要一两秒，比自己的窗口慢得多；用户没开着它，多半是不想让它常驻。
+    - **QuickLook**（QL-Win，看过它的源码）：命名管道 `\\.\pipe\QuickLook.App.Pipe.<用户 SID>`，每个连接写一行 UTF-8 `QuickLook.App.PipeMessages.<消息>|<路径>|`，和它自己的第二个实例转发命令行一样（`platform/ExternalPreview`）。`Invoke` 打开（空路径表示“资源管理器里选中的”，所以从不发空的），`Switch` 换文件（只在它的窗口开着时生效），`Close` 关。它认不认在运行看互斥量 `QuickLook.App.Mutex`。它的窗口 `ShowActivated=False`，不抢焦点；但它听不到 Win顺 的键，所以 `Alt+P` / `Esc` / 换行都由 Win顺 发命令。用户在 QuickLook 里自己关了（空格、Esc、点叉），下次按 `Alt+P` / `Esc` 时看一眼它的窗口还在不在（`forgetClosedExternal`，给它 1.5 秒出窗口），不在就当已经关了。
+    - **Seer**：它的 SDK（`ipc.h`）规定的 `WM_COPYDATA`：发给 `SeerWindowClass`，`5000` 打开 / 换文件（UTF-16 带结尾 0，两次至少隔 200 ms，`SeerPacer` 只发最新的那个），`5004` 问是否显示，`5005` 关。`SendMessageTimeout` 500 ms、`SMTO_ABORTIFHUNG`，Seer 卡住不连累启动器。
+    - **PowerToys Peek 不用**：它只能 `PowerToys.Peek.UI.exe <路径>` 每次新开一个进程，而且会把自己拉到前台（启动器失去焦点就关了），也不能换文件。
+- **自己的窗口**（`FilePreview` + `PreviewWindow.qml`）：一个不接受焦点的置顶工具窗口（`WindowDoesNotAcceptFocus`，`WindowFrame::setNoActivate`，`_q_showWithoutActivating`），放在启动器旁边：打开时按“一页文档”（820 宽、八成五屏高）挑左右两边空间大的那边，两边都放不下一半才放下面；之后换文件不换边（上下键扫过大小不一的文件时窗口不左右跳），启动器挪动、变成搜索面板时再挑。z 序紧挨在启动器之下。两边都放不下（搜索面板、小屏幕正中的启动器）就压在启动器右边那部分的上面（最多占它六成宽，左边的名字还看得见）。窗口大小随内容：图片按比例（窄了也不留上下的空白），文本按行数，文档九成屏高。读文件全在 `ComWorker` 线程上，结果按“代”（`m_generation`）对号，新的请求让旧的作废；250 ms 还没读出来才显示“正在读取…”，免得一闪。内容分几种：
+    - **图片**：Windows 图像组件（WIC）解码，按 EXIF 方向转正，长边超过 4096 的解码时就缩小（一张 1 亿像素的照片不该吃掉几百 MB）。不用 Qt 的图片插件：发布包不带 `imageformats`（build.ps1 跳过），Qt 自己只认 PNG、BMP 等几种；WIC 认 Windows 认的所有格式（JPEG、GIF、TIFF、HEIC / WebP 装了扩展也行）。窗口里先适应窗口大小，滚轮按鼠标位置缩放，双击在适应和 100% 之间切换；100% 时关掉平滑，像素是像素。
+    - **文本**：读开头 1 MB（`filetext::readHead`，和内容搜索同一套编码判断：BOM、UTF-8、否则按系统 ANSI 代码页，中文系统就是 GBK；系统的“非 Unicode 程序的语言”是英文等西文时，字节能严格按 GBK 解码、而且 ASCII 以外的字全是中文，也按 GBK——这台测试机就是 1252，中文的老 .txt 照样是 GBK。内容搜索还是只按系统代码页，没改），截断时退到最后一个完整的行 / 字；带行号、等宽字体，长行折行（超长的行切成 2000 字一段，列表不会因为一行而卡）。标题下写编码和行数（“GBK · 12 行”，截断时“前 N 行”）。哪些算文本：常见的文本扩展名 + 设置里内容搜索的扩展名；没有扩展名、或没有别的办法显示的文件，读出来像文本（前 64 KB 没有 0 字节）也按文本。
+    - **文档**：资源管理器预览窗格用的预览程序（`IPreviewHandler`，`platform/PreviewHost`），见下一条。
+    - **其他**：大缩略图（`IShellItemImageFactory`，没有缩略图就是大图标）和类型、大小、时间、位置；文件夹显示“N 个文件夹，M 个文件”（数到 1 万项为止）。只在云端的文件（OneDrive 未下载）不读内容，免得触发下载。
+- **预览程序（IPreviewHandler）**，最容易出事的一块，规矩都是实测出来的：
+    - **查找**：`AssocQueryString(ASSOCSTR_SHELLEXTENSION, 扩展名, {8895b1c6-…})`，和资源管理器一样先按用户选的 ProgID，再按扩展名、感知类型、`SystemFileAssociations`。这台机器上 .docx/.xlsx/.pptx 是 Office 的，.pdf 是 Edge 的，.txt/.md/.json 等被 PowerToys 接管（文本类 Win顺 自己显示，不走它）。
+    - **只在进程外**：`CoGetClassObject(CLSCTX_LOCAL_SERVER)`，也就是系统的 `prevhost.exe` 或 Office 自己（WINWORD.EXE），从不加载进 Win顺：预览程序崩了不能把启动器带走。类工厂拿到后 `LockServer(TRUE)` 留着，下一个文件不用再起一次 Word（冷启动 3–6 秒）；一分钟没有预览才放掉。
+    - **一个专门的 STA 线程，一个没有父窗口、没有所有者的弹出窗口**：预览程序的窗口是这个弹出窗口的子窗口，盖在预览窗口的内容区上，z 序紧挨在预览窗口上面。跨线程的父子窗口、所有者窗口都会把两个线程的输入队列合在一起，预览程序一卡，启动器的键也卡；所以弹出窗口在自己的线程上、和 Qt 的窗口没有父子 / 所有者关系，GUI 线程对它只用异步的调用（`ShowWindowAsync`、`PostMessage`）。弹出窗口 `WS_EX_NOACTIVATE`、`MA_NOACTIVATE`：点它启动器也不失去焦点。
+    - **初始化**：先试 `IInitializeWithStream`（`SHCreateStreamOnFileEx`，`STGM_SHARE_DENY_NONE`），不行再 `IInitializeWithFile`、`IInitializeWithItem`（Office 和 Edge 的 PDF 只认路径）。顺序：`SetSite`（一个最小的 `IPreviewHandlerFrame`，Word 会要）→ 初始化 → `IPreviewHandlerVisuals`（深色主题的颜色，只有少数认）→ `SetWindow`（物理像素，不能是空矩形）→ `DoPreview`；改大小 `SetRect`；关时 `Unload`、`SetSite(nullptr)`。
+    - **什么时候算显示好了**：不是 `DoPreview` 返回时（Edge 的 PDF 2 ms 就返回，内容稍后才画），而是弹出窗口下面出现了预览程序的子窗口（最多等 3 秒），在那之前预览窗口里写“正在读取…”。
+    - **超时**：一次预览 10 秒还没回来就算失败：弹出窗口立刻藏起来，线程整个丢掉（卡在调用里的对象连 `Release` 都会卡），下一个文件开新线程；这个预览程序这次运行里不再用（没装 Outlook 时 .msg 的 MAPI 预览程序 `CreateInstance` 永远不返回）。失败的文件改显示缩略图和信息。
+    - **焦点**：Excel 冷启动时会把自己的一个窗口（`XLMAIN`）拉到前台，启动器一失去焦点就关了；所以给出文件后 8 秒内，前台换成预览程序那个程序（按 `LocalServer32` / `DllSurrogate` 的文件名认，`excel.exe`、`prevhost.exe`，子窗口出来后也按进程号认）的窗口时，启动器不关，再把前台拿回来（`PreviewHost::owns`、`App` 的 `activeChanged`）。8 秒以后不算：用户自己点到 Excel 上，就是要去 Excel。没用 `LockSetForegroundWindow`：它会挡住从启动器打开的程序到前台。
+    - **网上下载的文件**（`Zone.Identifier` 里 ZoneId 3 / 4）：资源管理器的预览窗格从 2025 年的安全更新起不预览它们（文档能让预览程序去连服务器，把用户的登录凭据带出去），Win顺 也不交给预览程序，只显示缩略图和信息，并注明原因。
+- **DXF / 3D 等**（#165）不在这次范围。以后要加，最合适的是插件：插件声明“我能预览的扩展名”，返回一张图（PNG 字节）或一段文字，`FilePreview::load` 在找预览程序之前先问插件，结果走现有的“图片 / 文本”显示，不必让插件碰窗口；需要交互（转动 3D 模型）的，插件可以返回一个本机网页地址，由预览窗口里的 WebView 显示（要另加 Qt WebView，体积和内存都不小，等有人真要再做）。装了 DXF / STEP 预览程序（IPreviewHandler）的，现在就能用。
+- **QuickLook / Seer 的窗口放在哪由它们自己定**：实测 Seer 4.6 把窗口开在启动器上面、盖住结果列表的右半边；启动器还在前台，键照常（↑ ↓ 跟着换文件，`Alt+P` / `Esc` 关掉）。QuickLook 没装，只按源码实现。
+- **未做**：预览窗口不能拖着改大小（位置跟着启动器）；视频、音频不播放（显示缩略图）；文本不高亮语法；预览窗口里的“打开”按钮等同在那一行上按 Enter。
 
 ## AI 助手（MCP）
 

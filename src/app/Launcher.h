@@ -27,6 +27,7 @@
 
 namespace ws {
 
+class FilePreview;
 class History;
 class IndexService;
 class SystemCatalog;
@@ -211,6 +212,7 @@ public:
         OpenTerminal,
         SearchInFolder, // 内容 in a folder's row (the strip shows it chosen)
         SystemMenu, // the shell's own menu for the row (更多选项 in Win顺's; see showSystemMenu)
+        Preview, // the file or folder in a preview (Alt+P, togglePreview)
         PluginAction = 100
     };
     Q_ENUM(Action)
@@ -409,6 +411,21 @@ public:
     Q_INVOKABLE bool clearContentWords();
     Q_INVOKABLE void dismiss();
 
+    // Alt+P, 预览 in the menu: the row's file or folder in a preview
+    // (FilePreview: QuickLook or Seer when running, else Win顺's own window),
+    // or, shown already, closed. While it is open the current row's file
+    // follows (setCurrentRow); the launcher hidden closes it. closePreview:
+    // Esc's first step, true when there was one to close.
+    void setPreview(FilePreview* preview);
+    Q_INVOKABLE void togglePreview(int row);
+    Q_INVOKABLE bool closePreview();
+    // Which row Alt+P is for: the one under the pointer when the mouse moved
+    // there after the keyboard last moved (keyboardMoved, the arrows), else
+    // the keyboard's. pointerIfMoved: the pointer (global, logical) in the
+    // first case, undefined in the second.
+    Q_INVOKABLE void keyboardMoved();
+    Q_INVOKABLE QVariant pointerIfMoved() const;
+
     // The search panel (see the properties above).
     bool panel() const { return m_panel; }
     void setPanel(bool on); // by the app, the window sized for it (App::setPanel)
@@ -580,6 +597,7 @@ private:
     void finishLeftOut(bool stopped); // the one running is over: the hint goes, the footer says what came of it
     void refreshStatus();
     void refreshFrequentApps();
+    void followPreview(); // the current row's file into the open preview
 
     struct FrequentApp {
         QString name;
@@ -735,6 +753,9 @@ private:
     QString m_pluginError; // "X 没有响应": shown for a few seconds
     QTimer m_pluginErrorTimer;
     std::uint64_t m_pluginRequest = 0; // actions sent
+
+    QPointer<FilePreview> m_preview;
+    QPoint m_pointerAtKeys {-1, -1}; // where the pointer was when the keyboard last moved (keyboardMoved)
 };
 
 } // namespace ws
