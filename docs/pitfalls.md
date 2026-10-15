@@ -2250,3 +2250,46 @@
 - **现象**：预览窗口压到搜索面板上面时（`HWND_TOPMOST`），Word 的内容不见了，只剩空白的预览窗口；另一种情形里弹出窗口跑到了启动器上面。
 - **原因**：弹出窗口只在开始时插到预览窗口上面，之后挪动用了 `SWP_NOZORDER`；预览窗口自己换到最前面后，弹出窗口就被压在下面。另外“预览窗口上面那个窗口就是弹出窗口自己”时误用了 `HWND_TOPMOST`，把它提到了所有窗口最前面。
 - **做法**：每次挪动都按 `GetWindow(预览窗口, GW_HWNDPREV)` 重新插（已经紧挨着就 `SWP_NOZORDER`），预览窗口每次摆好后也让弹出窗口跟一次（`FilePreview::showWindow` 末尾的 `placeHandler`）。
+## 网页搜索建议和 SVG 图标
+
+### 百度的 JSONP 不是 JSON，而且是 GBK
+
+- **现象**：`suggestion.baidu.com/su?wd=显卡` 回来 `window.baidu.sug({q:"显卡",p:false,s:["显卡性能天梯图",…]});`，去掉外壳后 `QJsonDocument::fromJson` 报错；按 UTF-8 解出来的是乱码。
+- **原因**：键没加引号（`q:`、`s:`），是 JavaScript 对象字面量；Content-Type 是 `text/javascript; charset=gbk`。加 `&action=opensearch` 的那个也是 GBK。
+- **做法**：`websuggest::parse` 先按严格 JSON，失败再放宽（给标识符键加引号、单引号字符串转双引号）；编码先看 charset。B 站的接口根本不带 Content-Type，按“是合法 UTF-8 就当 UTF-8，否则 GB18030”猜。
+
+### Qt 不认 GBK
+
+- **现象**：`QStringDecoder("GBK")` 无效（`isValid()` 是 false），解出来是空的。
+- **原因**：这份 Qt 没带 ICU，`QStringConverter` 只有 UTF 系列和 Latin-1。
+- **做法**：GBK / GB2312 / GB18030 用 `MultiByteToWideChar(54936)`（GB18030 是 GBK 的超集），Big5 用 950。
+
+### WinHTTP 的超时是每一步各算的，不是整个请求
+
+- **现象**：接口填死地址 `https://10.255.255.1/…`，`WinHttpSetTimeouts` 设了 1500 ms，请求约 4 s 才返回 12002；实测里迟到的失败（12029、12002）在 9 s 后才回来。
+- **原因**：解析、连接、发送、接收各有各的超时，连接还会重试。
+- **做法**：界面不靠 WinHTTP 的超时：`WebSuggester` 自己起 1.5 s 的计时器，到点就算没有；请求在自己的线程上，回来时代号不对只进缓存（成功的）或丢掉。不要在界面线程上等它。
+
+### SVG 能引用外面的东西
+
+- **现象**：iconfont 复制来的 SVG 无害，但 SVG 本身可以 `<image href="C:\…">`、`<image href="https://…">`、`<use href="别的文件#id">`、CSS `url(…)`、`@import`、`<!ENTITY … SYSTEM>`。
+- **原因**：QtSvg 支持 `<image>`（会按路径读本地图片）和 `<use>`；粘贴来的、网上取来的 SVG 都不是用户写的。
+- **做法**：画之前整段检查（`svgicon::render` 的 `External`），只放行 `#片段` 和 `data:image/png|jpeg|gif`，其余整段拒绝并说明，不悄悄删掉再画。不设 `QtSvg::AssumeTrustedSource`。脚本不用管：QtSvg 不执行，存的是画好的 PNG。
+
+### 按路径删结果行会删错
+
+- **现象**：建议从 5 条变 4 条时，按路径找建议行删掉，偶尔删掉的是刚原位改写的那一行。
+- **原因**：原位改写是逐行 `update`，改到一半时新旧两行可能暂时是同一个路径（同一条建议从第 3 行挪到第 2 行）。
+- **做法**：按位置改、按位置删（`ResultModel::removeRange`），从后往前。
+
+### 测试：普通权限的脚本看不到提权进程的路径
+
+- **现象**：会话脚本按 `ExecutablePath` 判断用户的 Win顺 有没有在跑，判成“没在跑”，没让它退出就启动了测试的那份；测试那份把参数转给已在跑的那份就退了，代理脚本报“staged copy not running”。
+- **原因**：用户那份那时是被别的测试以管理员身份重启的，普通权限的 `Get-CimInstance` / `Get-Process` 拿不到提权进程的路径（空）。
+- **做法**：路径为空的 `WinShun.exe` 当作用户那份，先 `--quit` 再启动自己的；恢复时用普通权限 `Start-Process`（这才是正常的运行方式）。
+
+### 测试：`--settings --settings-at` 第一次打开时不跳到那一页
+
+- **现象**：设置窗口没开着时 `--settings --settings-at 5,0` 打开的是第一页；窗口已开着时才跳。
+- **原因**：`App` 只在 `m_settingsWindow` 已存在时调 `showPlace`。
+- **做法**：测试里点侧栏进页面；表单在窗口外面时最大化设置窗口再点，别指望 Tab：设置表单的输入框不在 Tab 链里（从网址框按 Tab 跳到了侧栏和“查找设置”）。

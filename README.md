@@ -118,6 +118,7 @@
 - **网页搜索**：`baidu 天气`、`zhihu 显卡`、`jingdong 键盘`，关键词加空格就在那个网站上搜。
   - 自带百度、必应、B 站、知乎、微博、抖音、小红书、淘宝、京东、翻译。
   - 可以用 `%s` 网址添加自己的网站，图标、列表都能导入导出。
+  - 搜索建议：`baidu 显卡` 下面直接列出百度的联想词，Enter 搜它、Tab 填进框里；自己的网站也能填建议接口。图标可以选 SVG 文件，或直接粘贴 iconfont 的 SVG 代码。
 - **收藏夹**：
   - 右键“加入收藏夹”，不打字时排在最前；
   - 起个关键词，一打就开；
@@ -226,7 +227,7 @@ Listary、PowerToys 的“查找鼠标”默认也用双击 Ctrl，关掉其中�
 - **索引位置**：在设置 → 高级 → 索引位置里，可以移到其他内置硬盘。
 
 **收费吗？会上传数据吗？**
-完全免费，MIT 开源。只在这些时候联网：到 GitHub 检查新版本（可以关掉）；第一次显示某个网页搜索或书签时取一次那个网站的图标；你自己打开“按意思找”插件并选了云服务时，把文档的文字发给你选的服务商。索引和历史只存在本机（`%LOCALAPPDATA%\WinShun`）。
+完全免费，MIT 开源。只在这些时候联网：到 GitHub 检查新版本（可以关掉）；第一次显示某个网页搜索或书签时取一次那个网站的图标；在网站关键词后打字时，把这些字发给那个网站取搜索建议（不打关键词时一个字也不发，可以在设置里关掉）；你自己打开“按意思找”插件并选了云服务时，把文档的文字发给你选的服务商。索引和历史只存在本机（`%LOCALAPPDATA%\WinShun`）。
 
 ### 反馈
 
@@ -283,7 +284,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 - 🚀 **Apps and settings**
   - **Apps**: everything in the Start menu (Store apps included), by name, pinyin, initials (`vsc`) or program file (`winword`).
   - **Settings**: about 1,200 Windows settings pages and Control Panel items (`ncpa.cpl`, “network adapter”), plus Group Policy, Disk Management, hosts, AppData and more.
-- 🌐 **Web search**: `zhihu 显卡`, `baidu 天气`: a keyword and a space search that site. Ten Chinese sites are built in; add your own with `%s` in the URL.
+- 🌐 **Web search**: `zhihu 显卡`, `baidu 天气`: a keyword and a space search that site. Ten Chinese sites are built in; add your own with `%s` in the URL. The site's search suggestions show below as you type (Enter searches one, Tab puts it in the box), and a site's icon can be an SVG file or pasted SVG code.
 - ⭐ **Favorites**: right-click → Add to favorites. They come first when the box is empty; give one a keyword to open it, and `Tab` searches inside a favorite folder.
 - 🧩 **Plugins**
   - **Bundled**: `= 1+2*3`, `12 inch to cm`, `#ff8800`, timestamps, UUID, Base64, hashes; `kill` processes, `bm` browser bookmarks, `tr` translation.
@@ -365,7 +366,7 @@ With “Direct (administrator)” chosen, WinShun runs as administrator, and Win
 - **Index location**: the index can move to another built-in drive under Settings → Advanced.
 
 **Is it free? Does it collect data?**
-Free and MIT-licensed. It goes online only to check GitHub for new versions (you can turn that off), to fetch a web shortcut's or bookmark's site icon once, and, if you turn on the “Search by meaning” plugin with a cloud service, to send document text to the service you chose. The index and history stay on your PC (`%LOCALAPPDATA%\WinShun`).
+Free and MIT-licensed. It goes online only to check GitHub for new versions (you can turn that off), to fetch a web shortcut's or bookmark's site icon once, to ask a site for search suggestions while you type after its keyword (nothing is sent without a site keyword; you can turn this off), and, if you turn on the “Search by meaning” plugin with a cloud service, to send document text to the service you chose. The index and history stay on your PC (`%LOCALAPPDATA%\WinShun`).
 
 ### Feedback
 
