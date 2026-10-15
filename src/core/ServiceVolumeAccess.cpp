@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <iterator>
+#include <unordered_map>
 #include <utility>
 
 namespace ws::ntfs {
@@ -32,8 +33,8 @@ std::wstring describe(const wchar_t* what, DWORD error)
 // Connects to the service and shakes hands, within `timeoutMs` for each
 // step (a healthy service answers in microseconds; the GUI thread asks with
 // a short one). Nothing when it is not there, or refuses us; `error` says which.
-std::optional<Channel> connectSession(
-    const std::wstring& pipeName, std::wstring& error, std::wstring* version = nullptr, DWORD timeoutMs = kReplyMs)
+std::optional<Channel> connectSession(const std::wstring& pipeName, std::wstring& error, std::wstring* version = nullptr,
+    DWORD timeoutMs = kReplyMs, std::uint32_t* capabilities = nullptr)
 {
     const std::wstring path = fullPipePath(pipeName);
     HANDLE pipe = INVALID_HANDLE_VALUE;
@@ -94,6 +95,8 @@ std::optional<Channel> connectSession(
     if (version)
         *version = std::to_wstring(ok.version[0]) + L"." + std::to_wstring(ok.version[1]) + L"."
             + std::to_wstring(ok.version[2]);
+    if (capabilities)
+        *capabilities = ok.capabilities;
     return channel;
 }
 
@@ -385,6 +388,136 @@ private:
     std::optional<std::chrono::steady_clock::time_point> m_lostSince; // the connection broke then
 };
 
+// ---- a bulk read (the content index's first build) ----------------------------------
+
+class PipeBulkSource final : public BulkSource {
+public:
+    explicit PipeBulkSource(Channel&& channel, std::wstring_view root)
+        : m_channel(std::move(channel))
+        , m_root(root)
+    {
+    }
+    explicit PipeBulkSource(std::wstring error)
+        : m_error(std::move(error))
+    {
+    }
+
+    bool valid() const noexcept override { return m_error.empty(); }
+    const std::wstring& error() const noexcept override { return m_error; }
+
+    bool want(std::span<const BulkWant> wants) override
+    {
+        if (!valid())
+            return false;
+        // Frames of about a megabyte: so many wants as fit.
+        Writer w;
+        for (std::size_t at = 0; at < wants.size();) {
+            std::size_t n = 0;
+            std::size_t bytes = 4;
+            while (at + n < wants.size() && (n == 0 || bytes + 14 + wants[at + n].name.size() * 2 <= kBlockBytes)) {
+                bytes += 14 + wants[at + n].name.size() * 2;
+                ++n;
+            }
+            w.reset();
+            encode(w, wants.subspan(at, n));
+            if (!m_channel.write(w.finish(Type::BulkWant), kReplyMs))
+                return fail(L"the index service's connection broke");
+            at += n;
+        }
+        return true;
+    }
+
+    bool scan(std::vector<BulkFile>& files) override
+    {
+        files.clear();
+        if (!valid())
+            return false;
+        Writer w;
+        if (!m_channel.write(w.finish(Type::BulkScan), kReplyMs))
+            return fail(L"the index service's connection broke");
+        // The answers come in one burst: taken in whole before anything else.
+        for (;;) {
+            Type type {};
+            std::vector<std::byte> payload;
+            if (!m_channel.read(type, payload, kBlockMs))
+                return fail(L"the index service's connection broke while it scanned " + m_root);
+            if (type == Type::BulkFiles) {
+                if (!decode(payload, files))
+                    return fail(L"the index service sent malformed bulk files");
+                continue;
+            }
+            if (type == Type::BulkScanned) {
+                BulkScanned scanned;
+                decode(payload, scanned);
+                return true;
+            }
+            return other(type, payload);
+        }
+    }
+
+    bool fetch(std::span<const std::uint32_t> tickets,
+        const std::function<void(std::uint32_t ticket, std::vector<std::byte>&& bytes)>& sink) override
+    {
+        if (!valid())
+            return false;
+        Writer w;
+        encode(w, tickets);
+        if (!m_channel.write(w.finish(Type::BulkFetch), kReplyMs))
+            return fail(L"the index service's connection broke");
+        std::unordered_map<std::uint32_t, std::vector<std::byte>> partial; // files that come in several frames
+        for (;;) {
+            Type type {};
+            std::vector<std::byte> payload;
+            if (!m_channel.read(type, payload, kBlockMs))
+                return fail(L"the index service's connection broke while it read " + m_root);
+            if (type == Type::BulkFetched)
+                return true;
+            if (type != Type::BulkData)
+                return other(type, payload);
+            BulkDataHeader header;
+            std::span<const std::byte> bytes;
+            if (!decode(payload, header, bytes))
+                return fail(L"the index service sent malformed bulk data");
+            if (header.offset == 0 && bytes.size() == header.total) {
+                sink(header.ticket, std::vector<std::byte>(bytes.begin(), bytes.end())); // whole in one frame
+                continue;
+            }
+            std::vector<std::byte>& file = partial[header.ticket];
+            if (header.offset != file.size())
+                return fail(L"the index service sent bulk data out of order");
+            file.insert(file.end(), bytes.begin(), bytes.end());
+            if (file.size() == header.total) {
+                std::vector<std::byte> whole = std::move(file);
+                partial.erase(header.ticket);
+                sink(header.ticket, std::move(whole));
+            }
+        }
+    }
+
+private:
+    bool fail(std::wstring error)
+    {
+        m_error = std::move(error);
+        m_channel.close();
+        return false;
+    }
+    bool other(Type type, std::span<const std::byte> payload)
+    {
+        if (type == Type::VolumeLost)
+            return fail(L"the index service let go of " + m_root);
+        if (type == Type::Error) {
+            Error e;
+            if (decode(payload, e))
+                return fail(e.message + L" (error " + std::to_wstring(e.code) + L")");
+        }
+        return fail(L"the index service answered with frame " + std::to_wstring(static_cast<unsigned>(type)));
+    }
+
+    Channel m_channel;
+    std::wstring m_root;
+    std::wstring m_error;
+};
+
 } // namespace
 
 // ---- ServiceVolumeAccess ----------------------------------------------------------
@@ -511,6 +644,31 @@ void ServiceVolumeAccess::closeVolume(std::wstring_view root)
     if (!ask(*channel, w.finish(Type::CloseVolume), Type::Closed, payload, kCloseMs, error))
         qWarning("WinShun: the index service did not confirm letting go of %ls: %ls", std::wstring(root).c_str(),
             error.c_str());
+}
+
+std::unique_ptr<BulkSource> ServiceVolumeAccess::openBulkRead(std::wstring_view root, std::uint32_t serial, bool quiet)
+{
+    std::wstring error;
+    std::uint32_t capabilities = 0;
+    std::optional<Channel> channel = connectSession(m_pipeName, error, nullptr, kReplyMs, &capabilities);
+    if (!channel) {
+        noteError(error);
+        return std::make_unique<PipeBulkSource>(std::move(error));
+    }
+    if (!(capabilities & kCapabilityBulkRead)) {
+        // An older service: the files are read the usual way. Said once.
+        static std::atomic<bool> said {false};
+        if (!said.exchange(true))
+            qWarning("WinShun: the index service has no bulk reads (an older version): the content index opens each file");
+        return nullptr;
+    }
+    OpenBulkRead open {std::wstring(root), serial, quiet};
+    Writer w;
+    encode(w, open);
+    std::vector<std::byte> payload;
+    if (!ask(*channel, w.finish(Type::OpenBulkRead), Type::BulkReady, payload, kReplyMs, error))
+        return std::make_unique<PipeBulkSource>(std::move(error));
+    return std::make_unique<PipeBulkSource>(std::move(*channel), root);
 }
 
 std::chrono::milliseconds ServiceVolumeAccess::reconnectWindow() noexcept

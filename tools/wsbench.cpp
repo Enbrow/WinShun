@@ -35,6 +35,30 @@
 //                      --merge-threads: for the merge at the end (as --threads);
 //                      --merge-times: then merges again on 16, 8, 4 and 1
 //                      threads, each timed
+//   wsbench [snapshot] --open-probe [--all] [--sample N] [--seed N] [--threads T]
+//                      what the antivirus charges for each kind of open, on
+//                      three samples of the content index's candidates: a
+//                      GENERIC_READ open with 64 KB read, an open for the
+//                      attributes and security descriptor only, and
+//                      GetFileAttributesExW by path; per file the median and
+//                      percentiles, per pass the processor time other
+//                      processes used meanwhile. Normal rights do
+//   wsbench [snapshot] --raw-read [D: ...] [--all] [--sample N] [--seed N] [--depth N] [--threads T] [--verify]
+//                      (as administrator) reads a sample of the content
+//                      index's text files off the volume by their MFT records
+//                      (ntfs::BulkReader: the design's bulk path), reports
+//                      which it would not read that way and why, and the
+//                      speed; --verify reads them through ReadFile too (T
+//                      threads) and compares byte for byte
+//   wsbench --dirty-window [D:] [--seconds S] [--big MB]
+//                      (as administrator) writes files on that volume
+//                      (default: %TEMP%'s) with their handles kept open (new
+//                      ones, in-place overwrites of flushed ones, a big one)
+//                      and reads them off the disk 50 ms apart, then every
+//                      2 s: after how long are the record and the data there?
+//                      Also through a volume handle opened after the writes,
+//                      with the disk's write counter, and against
+//                      FSCTL_GET_NTFS_FILE_RECORD. Cleans up after itself
 //   wsbench [snapshot] --content-search [--all] [--unknown] phrase ...
 //                      with the content index the app keeps (from copies of its
 //                      files), what a content search for each phrase reads: how
@@ -149,6 +173,7 @@
 #include "Pipe.h"
 #include "NameSearch.h"
 #include "Ntfs.h"
+#include "NtfsBulk.h"
 #include "NtfsIndexer.h"
 #include "PathText.h"
 #include "Query.h"
@@ -187,7 +212,9 @@
 #include <QTimer>
 
 #include <windows.h>
+#include <aclapi.h>
 #include <psapi.h>
+#include <winioctl.h>
 
 #include <algorithm>
 #include <array>
@@ -200,6 +227,7 @@
 #include <map>
 #include <mutex>
 #include <numeric>
+#include <optional>
 #include <random>
 #include <set>
 #include <thread>
@@ -964,6 +992,19 @@ int runServiceContent(const QStringList& args)
     options.content.documents = settings.contentDocuments;
     options.content.includeLowPriority = settings.contentInLowPriority;
     options.content.sizeLimits = settings.contentSizeLimits();
+    // WINSHUN_ACCESS=service: through the index service (as runService), so
+    // that the content index's bulk reads go through it too, and this
+    // program needs no administrator.
+    if (qEnvironmentVariable("WINSHUN_ACCESS") == u"service"_s) {
+        auto access = std::make_shared<ws::ntfs::ServiceVolumeAccess>();
+        if (!access->probe()) {
+            std::printf("index service: %s\n", narrow(ws::wtf8::view(access->lastError())).c_str());
+            return 1;
+        }
+        std::printf("through the index service %s on %s\n", narrow(ws::wtf8::view(access->serviceVersion())).c_str(),
+            narrow(ws::wtf8::view(access->pipeName())).c_str());
+        options.volumeAccess = access;
+    }
     ws::IndexService service(dir.path(), options);
     QElapsedTimer t;
     t.start();
@@ -1028,6 +1069,16 @@ int runServiceContent(const QStringList& args)
         static_cast<double>(stats.segmentBytes) / 1048576.0, stats.segments,
         static_cast<double>(stats.textBytes) / 1048576.0, (cpuAtEnd.system - cpuAtStart.system) / contentS,
         std::thread::hardware_concurrency());
+    // The bulk way (ContentIndexer.h): how many files came off the volumes by
+    // their records, and how many went the usual way and why.
+    const ws::ContentIndexer::BulkStats bulk = service.contentIndexer()->bulkStats();
+    std::printf("bulk %zu sessions (%zu failed): %zu files, %.1f MB read by their records; %zu too large from the record; "
+                "the usual way: %zu written lately, %zu without a folder record, %zu not found, %zu denied, %zu fallback "
+                "(compressed, encrypted, reparse points...)%s\n",
+        bulk.sessions, bulk.sessionsFailed, bulk.files, static_cast<double>(bulk.bytes) / 1048576.0, bulk.tooLarge, bulk.recent,
+        bulk.noRecord, bulk.notFound, bulk.denied, bulk.fallback,
+        bulk.verified > 0 ? qPrintable(u"; WINSHUN_BULK_VERIFY: %1 read both ways, %2 DIFFER"_s.arg(bulk.verified).arg(bulk.verifyMismatches))
+                          : "");
     service.shutdown(); // saves the snapshot
     qint64 snapshot = 0;
     for (const QFileInfo& f : QDir(dir.path()).entryInfoList({u"*.bin"_s}, QDir::Files))
@@ -1586,6 +1637,31 @@ int runContentBench(const ws::FileIndex& index, QStringList args)
     return 0;
 }
 
+// The files a content index pass would read (`filter`: the user's extensions,
+// with or without system and program folders) that `keep` accepts, or a
+// random sample of `limit` of them: the same files for the same seed, sorted
+// as the index has them.
+std::vector<ws::EntryId> contentCandidates(const ws::FileIndex& index, const ws::ContentFilter& filter, std::size_t limit,
+    std::uint64_t seed, const std::function<bool(ws::EntryId)>& keep = {})
+{
+    std::vector<ws::EntryId> files;
+    for (std::size_t c = 0; c < index.chunkCount(); ++c) {
+        const auto entries = index.chunk(c);
+        for (std::size_t i = 0; i < entries.size(); ++i) {
+            const auto id = static_cast<ws::EntryId>((c << ws::FileIndex::kChunkBits) + i);
+            if (filter.accepts(index, entries[i]) && (!keep || keep(id)))
+                files.push_back(id);
+        }
+    }
+    if (files.size() > limit) {
+        std::mt19937_64 rng(seed);
+        std::shuffle(files.begin(), files.end(), rng);
+        files.resize(limit);
+        std::sort(files.begin(), files.end());
+    }
+    return files;
+}
+
 // Builds a content index of the files a content search looks in (as the app's
 // indexer does, with more threads), then times lookups and the candidate walk
 // a content search does with it.
@@ -1617,20 +1693,7 @@ int runContentIndexBench(const ws::FileIndex& index, QStringList args)
         directory = args[at + 1];
     QDir(directory).removeRecursively();
 
-    std::vector<ws::EntryId> files;
-    for (std::size_t c = 0; c < index.chunkCount(); ++c) {
-        const auto entries = index.chunk(c);
-        for (std::size_t i = 0; i < entries.size(); ++i) {
-            if (filter.accepts(index, entries[i]))
-                files.push_back(static_cast<ws::EntryId>((c << ws::FileIndex::kChunkBits) + i));
-        }
-    }
-    if (files.size() > limit) {
-        std::mt19937_64 rng(seed);
-        std::shuffle(files.begin(), files.end(), rng);
-        files.resize(limit);
-        std::sort(files.begin(), files.end());
-    }
+    std::vector<ws::EntryId> files = contentCandidates(index, filter, limit, seed);
     std::printf("content index: %zu files (%s), %d threads%s, into %s\n", files.size(),
         all ? "all folders" : "without system and program folders", threads,
         background ? " in background mode" : lowest ? " at lowest priority" : "", qPrintable(directory));
@@ -1914,6 +1977,1083 @@ int runContentIndexBench(const ws::FileIndex& index, QStringList args)
     if (!args.contains(u"--keep"_s))
         QDir(directory).removeRecursively();
     return 0;
+}
+
+// ---- the cost of opening a file (--open-probe) ----------------------------------
+//
+// What the antivirus charges for each kind of open, on the content index's
+// candidates: three passes, each over its own sample (what it remembers of
+// the files one pass opened must not help the next): a read of 64 KB as the
+// content index reads, an open for the attributes and the security descriptor
+// only (no data access: what the index service would do to check who may read
+// a file before reading it off the volume), and GetFileAttributesExW by path
+// (no handle at all). Per file the median and the 90th and 99th percentiles;
+// per pass the whole computer's processor time beyond this process's, which
+// is where the antivirus's work shows. Normal rights do.
+int runOpenProbe(const ws::FileIndex& index, QStringList args)
+{
+    ws::Settings settings;
+    settings.load();
+    const bool all = args.contains(u"--all"_s);
+    const ws::ContentFilter filter {ws::ExtensionFilter(settings.contentExtensions), all};
+    int threads = 8;
+    if (const qsizetype at = args.indexOf(u"--threads"_s); at >= 0 && at + 1 < args.size())
+        threads = std::max(1, args[at + 1].toInt());
+    std::size_t sample = 12000;
+    if (const qsizetype at = args.indexOf(u"--sample"_s); at >= 0 && at + 1 < args.size())
+        sample = args[at + 1].toULongLong();
+    std::uint64_t seed = 20261007;
+    if (const qsizetype at = args.indexOf(u"--seed"_s); at >= 0 && at + 1 < args.size())
+        seed = args[at + 1].toULongLong();
+    std::printf("open probe   %zu files a pass (%s), %d threads. The antivirus's state is not read here: check it\n"
+                "             separately (PowerShell: Get-MpComputerStatus | Select RealTimeProtectionEnabled)\n",
+        sample, all ? "all folders" : "without system and program folders", threads);
+
+    enum class Kind { ReadData, AttributesAndSecurity, AttributesByPath };
+    struct Pass {
+        const char* name;
+        Kind kind;
+    };
+    const Pass passes[] = {
+        {"GENERIC_READ + ReadFile 64 KB", Kind::ReadData},
+        {"FILE_READ_ATTRIBUTES|READ_CONTROL + GetSecurityInfo", Kind::AttributesAndSecurity},
+        {"GetFileAttributesExW (no handle)", Kind::AttributesByPath},
+    };
+    for (std::size_t p = 0; p < std::size(passes); ++p) {
+        const Pass& pass = passes[p];
+        const std::vector<ws::EntryId> files = contentCandidates(index, filter, sample, seed + p);
+        std::vector<std::vector<double>> perThread(static_cast<std::size_t>(threads));
+        std::atomic<std::size_t> next {0};
+        std::atomic<std::size_t> failed {0};
+        std::atomic<std::size_t> denied {0};
+        const CpuTimes cpuBefore = cpuTimes();
+        QElapsedTimer timer;
+        timer.start();
+        {
+            std::vector<std::jthread> workers;
+            for (int t = 0; t < threads; ++t) {
+                workers.emplace_back([&, t] {
+                    std::vector<char> buffer(64u << 10);
+                    std::vector<double>& us = perThread[static_cast<std::size_t>(t)];
+                    for (;;) {
+                        const std::size_t i = next.fetch_add(1);
+                        if (i >= files.size())
+                            break;
+                        const std::wstring path = ws::win32::longPath(index.wpath(files[i]));
+                        const auto started = std::chrono::steady_clock::now();
+                        bool ok = false;
+                        DWORD error = 0;
+                        switch (pass.kind) {
+                        case Kind::ReadData: {
+                            const HANDLE h = ::CreateFileW(path.c_str(), GENERIC_READ,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                                FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+                            if (h != INVALID_HANDLE_VALUE) {
+                                DWORD got = 0;
+                                ok = ::ReadFile(h, buffer.data(), static_cast<DWORD>(buffer.size()), &got, nullptr);
+                                error = ok ? 0 : ::GetLastError();
+                                ::CloseHandle(h);
+                            } else {
+                                error = ::GetLastError();
+                            }
+                            break;
+                        }
+                        case Kind::AttributesAndSecurity: {
+                            const HANDLE h = ::CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES | READ_CONTROL,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                                FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+                            if (h != INVALID_HANDLE_VALUE) {
+                                PSECURITY_DESCRIPTOR descriptor = nullptr;
+                                error = ::GetSecurityInfo(h, SE_FILE_OBJECT,
+                                    OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+                                    nullptr, nullptr, nullptr, nullptr, &descriptor);
+                                ok = error == ERROR_SUCCESS;
+                                if (descriptor)
+                                    ::LocalFree(descriptor);
+                                ::CloseHandle(h);
+                            } else {
+                                error = ::GetLastError();
+                            }
+                            break;
+                        }
+                        case Kind::AttributesByPath: {
+                            WIN32_FILE_ATTRIBUTE_DATA data {};
+                            ok = ::GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data);
+                            error = ok ? 0 : ::GetLastError();
+                            break;
+                        }
+                        }
+                        us.push_back(usSince(started));
+                        if (!ok)
+                            ++(error == ERROR_ACCESS_DENIED ? denied : failed);
+                    }
+                });
+            }
+        }
+        const double wallMs = msSince(timer);
+        const CpuTimes cpuAfter = cpuTimes();
+        std::vector<double> us;
+        for (const auto& part : perThread)
+            us.insert(us.end(), part.begin(), part.end());
+        std::sort(us.begin(), us.end());
+        const auto percentile = [&](double q) { return us.empty() ? 0.0 : us[std::min(us.size() - 1, static_cast<std::size_t>(q * static_cast<double>(us.size())))]; };
+        const double mean = us.empty() ? 0.0 : std::accumulate(us.begin(), us.end(), 0.0) / static_cast<double>(us.size());
+        // Beyond this process: the antivirus's scans (and whatever else ran meanwhile).
+        const double others = (cpuAfter.system - cpuBefore.system) - (cpuAfter.process - cpuBefore.process);
+        std::printf("%-52s %6.0f files/s; per file median %5.0f us, p90 %6.0f, p99 %7.0f, mean %6.0f;\n"
+                    "%-52s other processes %.1f CPU s (%.2f ms a file), this process %.1f; %zu failed, %zu denied\n",
+            pass.name, static_cast<double>(files.size()) * 1000.0 / std::max(wallMs, 1e-3), percentile(0.5), percentile(0.9),
+            percentile(0.99), mean, "", others, others * 1000.0 / static_cast<double>(std::max<std::size_t>(files.size(), 1)),
+            cpuAfter.process - cpuBefore.process, failed.load(), denied.load());
+    }
+    return 0;
+}
+
+// ---- reading files off the volume (--raw-read) -----------------------------------
+
+// A 64-bit hash of a file's bytes, fed in pieces: enough to tell two reads of
+// the same file apart (the first differing byte is found by reading again).
+struct Hash64 {
+    std::uint64_t h = 0x9E37'79B9'7F4A'7C15ull;
+    std::uint64_t carry = 0;
+    unsigned carried = 0;
+    std::uint64_t length = 0;
+
+    void mix(std::uint64_t word) noexcept
+    {
+        h = (h ^ word) * 0xBF58'476D'1CE4'E5B9ull;
+        h ^= h >> 31;
+    }
+    void feed(std::span<const std::byte> bytes) noexcept
+    {
+        length += bytes.size();
+        std::size_t i = 0;
+        while (carried > 0 && i < bytes.size()) {
+            carry |= std::uint64_t {static_cast<std::uint8_t>(bytes[i++])} << (8 * carried);
+            if (++carried == 8) {
+                mix(carry);
+                carry = 0;
+                carried = 0;
+            }
+        }
+        for (; i + 8 <= bytes.size(); i += 8) {
+            std::uint64_t word = 0;
+            std::memcpy(&word, bytes.data() + i, 8);
+            mix(word);
+        }
+        for (; i < bytes.size(); ++i) {
+            carry |= std::uint64_t {static_cast<std::uint8_t>(bytes[i])} << (8 * carried);
+            ++carried;
+        }
+    }
+    std::uint64_t finish() noexcept
+    {
+        if (carried > 0)
+            mix(carry | (std::uint64_t {carried} << 56));
+        mix(length);
+        return h;
+    }
+};
+
+// The file's first `want` bytes through ReadFile, hashed; nothing when it
+// could not be read (`error` says).
+std::optional<std::uint64_t> hashNormally(const std::wstring& path, std::uint64_t want, std::vector<char>& buffer,
+    std::uint64_t& got, DWORD& error, std::vector<std::byte>* keep = nullptr)
+{
+    const ws::win32::UniqueHandle file(::CreateFileW(ws::win32::longPath(path).c_str(), GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
+    got = 0;
+    if (!file.valid()) {
+        error = ::GetLastError();
+        return std::nullopt;
+    }
+    Hash64 hash;
+    if (keep)
+        keep->clear();
+    while (got < want) {
+        DWORD n = 0;
+        const auto ask = static_cast<DWORD>(std::min<std::uint64_t>(want - got, buffer.size()));
+        if (!::ReadFile(file.get(), buffer.data(), ask, &n, nullptr)) {
+            error = ::GetLastError();
+            return std::nullopt;
+        }
+        if (n == 0)
+            break;
+        const std::span<const std::byte> piece(reinterpret_cast<const std::byte*>(buffer.data()), n);
+        hash.feed(piece);
+        if (keep)
+            keep->insert(keep->end(), piece.begin(), piece.end());
+        got += n;
+    }
+    error = 0;
+    return hash.finish();
+}
+
+std::wstring wideName(const ws::FileIndex& index, ws::EntryId id)
+{
+    std::u16string name;
+    ws::wtf8::decodeAppend(name, index.name(id));
+    return std::wstring(ws::wtf8::wview(name));
+}
+
+// (as administrator) The content index's candidates (a sample of them; text
+// files only, documents go to the extractor anyway) read off the volume by
+// their MFT records (ntfs::BulkReader), as the design has the index service
+// read them for a first build, and with --verify through ReadFile too, byte
+// for byte the same? Reports which files it would not read that way and why
+// (compressed, encrypted, reparse points...), the sizes of those groups, how
+// fast each way is, and what the computer's processors did meanwhile (the
+// antivirus scans each file the normal way opens). The folder of each file is
+// named by its MFT record number (the index keeps those for folders), the file
+// by its name: what the service would be asked. Volumes named ("D:") limit
+// the sample to them.
+int runRawRead(const ws::FileIndex& index, QStringList args)
+{
+    ws::Settings settings;
+    settings.load();
+    const bool all = args.contains(u"--all"_s);
+    const ws::ContentFilter filter {ws::ExtensionFilter(settings.contentExtensions), all};
+    const ws::ContentSizeLimits limits = settings.contentSizeLimits();
+    int threads = 16; // the normal reads
+    if (const qsizetype at = args.indexOf(u"--threads"_s); at >= 0 && at + 1 < args.size())
+        threads = std::max(1, args[at + 1].toInt());
+    ws::ntfs::BulkReader::Options options;
+    if (const qsizetype at = args.indexOf(u"--depth"_s); at >= 0 && at + 1 < args.size())
+        options.readsInFlight = std::max(1, args[at + 1].toInt());
+    std::size_t sample = 20000;
+    if (const qsizetype at = args.indexOf(u"--sample"_s); at >= 0 && at + 1 < args.size())
+        sample = args[at + 1].toULongLong();
+    std::uint64_t seed = 20261007;
+    if (const qsizetype at = args.indexOf(u"--seed"_s); at >= 0 && at + 1 < args.size())
+        seed = args[at + 1].toULongLong();
+    const bool verify = args.contains(u"--verify"_s);
+    std::vector<std::wstring> only; // "D:"
+    for (const QString& a : args) {
+        if (a.size() == 2 && a[1] == u':' && a[0].isLetter())
+            only.push_back(a.toUpper().toStdWString());
+    }
+
+    // Each file's volume root (an entry), and the roots' names.
+    std::unordered_map<ws::EntryId, std::wstring> rootNames;
+    for (const ws::EntryId r : index.roots())
+        rootNames.emplace(r, wideName(index, r));
+    const auto rootOf = [&](ws::EntryId id) {
+        while (index.entry(id).parent != ws::kNoEntry)
+            id = index.entry(id).parent;
+        return id;
+    };
+    const std::vector<ws::EntryId> files = contentCandidates(index, filter, sample, seed, [&](ws::EntryId id) {
+        if (ws::isDocumentPath(wideName(index, id)))
+            return false;
+        if (only.empty())
+            return true;
+        const auto root = rootNames.find(rootOf(id));
+        return root != rootNames.end() && std::find(only.begin(), only.end(), root->second) != only.end();
+    });
+
+    // What is known of each file, from the record and from the reads.
+    struct Item {
+        ws::EntryId id;
+        ws::EntryId root;
+        std::uint64_t maxBytes;
+        std::size_t volume = ~std::size_t {0}; // in `volumes`
+        std::size_t found = 0; // in that volume's `found`
+        bool noFolderRecord = false;
+        bool rawRead = false; // the bytes came off the volume
+        std::uint64_t rawHash = 0;
+        std::uint64_t rawBytes = 0;
+    };
+    std::vector<Item> items;
+    items.reserve(files.size());
+    std::map<ws::EntryId, std::vector<std::size_t>> byRoot; // items of each volume
+    for (const ws::EntryId id : files) {
+        items.push_back({id, rootOf(id), static_cast<std::uint64_t>(std::max<std::int64_t>(0, limits.of(index.wpath(id))))});
+        byRoot[items.back().root].push_back(items.size() - 1);
+    }
+    std::printf("raw read     %zu text files (%s, seed %llu) on %zu volumes; %d reads in flight; %d threads for the normal reads\n",
+        files.size(), all ? "all folders" : "without system and program folders", static_cast<unsigned long long>(seed),
+        byRoot.size(), options.readsInFlight, threads);
+
+    struct Volume {
+        std::wstring root;
+        std::unique_ptr<ws::ntfs::BulkReader> reader;
+        std::vector<ws::ntfs::BulkReader::Want> wants;
+        std::vector<ws::ntfs::BulkReader::Found> found;
+        std::vector<std::size_t> item; // of each want
+    };
+    std::vector<Volume> volumes;
+    double scanMs = 0, readMs = 0, hashMs = 0;
+    std::uint64_t rawFiles = 0, rawBytes = 0, diskBytes = 0, reads = 0, residentFiles = 0;
+    std::uint64_t rechecked = 0, recheckChanged = 0, recheckOtherRecord = 0, recheckFixups = 0, recheckNoFixups = 0,
+                  recheckFailed = 0;
+    double cpuOthers = 0, cpuOwn = 0;
+    for (auto& [root, members] : byRoot) {
+        Volume v;
+        v.root = rootNames[root];
+        v.reader = std::make_unique<ws::ntfs::BulkReader>(v.root, options);
+        if (!v.reader->valid()) {
+            std::printf("%ls: %ls\n", v.root.c_str(), v.reader->error().c_str());
+            return 1;
+        }
+        // The folders' record numbers, the other way round from how the index keeps them.
+        std::unordered_map<ws::EntryId, std::uint32_t> folderRecord;
+        if (const ws::RecordTable* table = index.folderRecords(root))
+            table->forEach([&](std::uint32_t record, ws::EntryId folder) { folderRecord[folder] = record; });
+        for (const std::size_t i : members) {
+            Item& it = items[i];
+            const auto parent = folderRecord.find(index.entry(it.id).parent);
+            if (parent == folderRecord.end()) {
+                it.noFolderRecord = true;
+                continue;
+            }
+            it.volume = volumes.size();
+            it.found = v.wants.size();
+            std::u16string name;
+            ws::wtf8::decodeAppend(name, index.name(it.id));
+            v.wants.push_back({parent->second, std::move(name), it.maxBytes});
+            v.item.push_back(i);
+        }
+        ws::ntfs::BulkReader::ScanStats scan;
+        if (!v.reader->scan(v.wants, v.found, &scan)) {
+            std::printf("%ls: scanning the MFT failed: %ls\n", v.root.c_str(), v.reader->error().c_str());
+            return 1;
+        }
+        scanMs += scan.ms;
+        const ws::ntfs::Geometry& g = v.reader->geometry();
+        std::printf("%ls           MFT %llu records (%llu in use, %u-byte records, %u-byte clusters) scanned in %.0f ms: "
+                    "%llu of %zu files matched\n",
+            v.root.c_str(), static_cast<unsigned long long>(scan.records), static_cast<unsigned long long>(scan.inUse),
+            g.recordSize, g.clusterSize, scan.ms, static_cast<unsigned long long>(scan.matched), v.wants.size());
+
+        // The bytes: resident ones from the records, the rest off the disk in LCN order.
+        const CpuTimes cpuBefore = cpuTimes();
+        double hashing = 0;
+        const auto take = [&](std::size_t index, std::span<const std::byte> bytes) {
+            const auto started = std::chrono::steady_clock::now();
+            Hash64 hash;
+            hash.feed(bytes);
+            Item& it = items[v.item[index]];
+            it.rawHash = hash.finish();
+            it.rawBytes = bytes.size();
+            it.rawRead = true;
+            hashing += usSince(started) / 1000.0;
+        };
+        for (std::size_t f = 0; f < v.found.size(); ++f) {
+            const ws::ntfs::BulkReader::Found& found = v.found[f];
+            if (found.skip == ws::ntfs::BulkSkip::None && found.info.data == ws::ntfs::FileInfo::Data::Resident) {
+                take(f, std::span<const std::byte>(found.resident.data(), static_cast<std::size_t>(found.want)));
+                ++residentFiles;
+            }
+        }
+        ws::ntfs::BulkReader::ReadStats read;
+        if (!v.reader->readAll(v.found, take, &read)) {
+            std::printf("%ls: reading off the volume failed: %ls\n", v.root.c_str(), v.reader->error().c_str());
+            return 1;
+        }
+        const CpuTimes cpuAfter = cpuTimes();
+        cpuOthers += (cpuAfter.system - cpuBefore.system) - (cpuAfter.process - cpuBefore.process);
+        cpuOwn += cpuAfter.process - cpuBefore.process;
+        readMs += read.ms;
+        hashMs += hashing;
+        rawFiles += read.files;
+        rawBytes += read.bytes;
+        diskBytes += read.diskBytes;
+        reads += read.reads;
+        std::printf("             %llu non-resident files, %.1f MB (%.1f MB read from the disk in %llu reads) in %.0f ms: "
+                    "%.0f MB/s, %.0f files/s\n",
+            static_cast<unsigned long long>(read.files), static_cast<double>(read.bytes) / 1048576.0,
+            static_cast<double>(read.diskBytes) / 1048576.0, static_cast<unsigned long long>(read.reads), read.ms,
+            static_cast<double>(read.diskBytes) / 1048576.0 / std::max(read.ms / 1000.0, 1e-6),
+            static_cast<double>(read.files) * 1000.0 / std::max(read.ms, 1e-3));
+
+        // The record again, as NTFS has it now: did the file change under us
+        // (LSN, sequence, size, write time), and do the bytes come with their
+        // update sequence array (then applyFixups is needed) or without?
+        for (std::size_t f = 0; f < v.found.size(); ++f) {
+            const ws::ntfs::BulkReader::Found& found = v.found[f];
+            if (!items[v.item[f]].rawRead)
+                continue;
+            ws::ntfs::BulkReader::Cached cached;
+            ws::ntfs::FileInfo now;
+            if (!v.reader->readRecordCached(found.record, cached) || !ws::ntfs::parseFileInfo(cached.record, now)) {
+                ++recheckFailed;
+                continue;
+            }
+            ++rechecked;
+            if (ws::ntfs::recordOf(cached.reference) != found.record) {
+                ++recheckOtherRecord;
+                continue;
+            }
+            ++(cached.fixupsApplied ? recheckFixups : recheckNoFixups);
+            if (now.lsn != found.info.lsn || now.sequence != found.info.sequence || now.size != found.info.size
+                || now.modified != found.info.modified)
+                ++recheckChanged;
+        }
+        volumes.push_back(std::move(v));
+    }
+    std::printf("raw total    MFT scans %.0f ms; %llu resident files from the records; %llu files, %.1f MB read in %.0f ms "
+                "(%.0f MB/s off the disk, hashing them %.0f ms of that); other processes %.1f CPU s, this process %.1f\n",
+        scanMs, static_cast<unsigned long long>(residentFiles), static_cast<unsigned long long>(rawFiles),
+        static_cast<double>(rawBytes) / 1048576.0, readMs,
+        static_cast<double>(diskBytes) / 1048576.0 / std::max(readMs / 1000.0, 1e-6), hashMs, cpuOthers, cpuOwn);
+    std::printf("recheck      %llu records read again through FSCTL_GET_NTFS_FILE_RECORD: %llu changed meanwhile, "
+                "%llu answered with another record; %llu came with fixups to apply, %llu without; %llu unreadable\n",
+        static_cast<unsigned long long>(rechecked), static_cast<unsigned long long>(recheckChanged),
+        static_cast<unsigned long long>(recheckOtherRecord), static_cast<unsigned long long>(recheckFixups),
+        static_cast<unsigned long long>(recheckNoFixups), static_cast<unsigned long long>(recheckFailed));
+
+    // The groups a file may be in (several at once), and what each held.
+    enum Bucket {
+        Readable,
+        Resident,
+        NonResident,
+        Sparse,
+        Compressed,
+        Encrypted,
+        ReparseWof,
+        ReparseCloud,
+        ReparseOther,
+        AttributeList,
+        ShortVdl,
+        HardLink,
+        Recent,
+        TooLarge,
+        NotFound,
+        NoFolderRecord,
+        Unreadable,
+        kBuckets
+    };
+    const char* bucketNames[kBuckets] = {"readable off the volume", "  resident", "  non-resident", "sparse", "compressed",
+        "encrypted", "reparse: WOF (compact /exe, CompactOS)", "reparse: cloud placeholder", "reparse: other",
+        "attribute list / several parts", "valid data length < size", "hard linked (> 1 non-DOS name)", "modified < 5 min ago",
+        "too large for the content limit", "not found by (folder record, name)", "folder record unknown to the index",
+        "other (no $DATA, bad run list, directory)"};
+    struct Count {
+        std::size_t files = 0;
+        std::uint64_t bytes = 0;
+        std::size_t compared = 0;
+        std::size_t mismatches = 0;
+    };
+    std::array<Count, kBuckets> counts {};
+    std::vector<std::vector<Bucket>> membership(items.size());
+    FILETIME nowTime {};
+    ::GetSystemTimeAsFileTime(&nowTime);
+    const auto now = static_cast<std::int64_t>((std::uint64_t {nowTime.dwHighDateTime} << 32) | nowTime.dwLowDateTime);
+    std::size_t securityIds = 0, shortStandardInfo = 0, ownDescriptors = 0, matched = 0;
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        Item& it = items[i];
+        std::vector<Bucket>& in = membership[i];
+        std::uint64_t size = 0; // as the record says
+        if (it.noFolderRecord) {
+            in.push_back(NoFolderRecord);
+        } else {
+            const ws::ntfs::BulkReader::Found& f = volumes[it.volume].found[it.found];
+            const ws::ntfs::FileInfo& info = f.info;
+            using Skip = ws::ntfs::BulkSkip;
+            if (f.skip == Skip::NotFound) {
+                in.push_back(NotFound);
+            } else {
+                ++matched;
+                if (info.standardInfoBytes >= 0x48)
+                    ++securityIds;
+                else
+                    ++shortStandardInfo;
+                ownDescriptors += info.hasSecurityDescriptor ? 1 : 0;
+                if (f.skip == Skip::None)
+                    in.push_back(Readable);
+                if (info.data == ws::ntfs::FileInfo::Data::Resident)
+                    in.push_back(Resident);
+                else if (info.data == ws::ntfs::FileInfo::Data::NonResident)
+                    in.push_back(NonResident);
+                if ((info.dataFlags & ws::ntfs::kDataSparse) || (info.attributes & FILE_ATTRIBUTE_SPARSE_FILE))
+                    in.push_back(Sparse);
+                if (f.skip == Skip::Compressed)
+                    in.push_back(Compressed);
+                if (f.skip == Skip::Encrypted)
+                    in.push_back(Encrypted);
+                if (f.skip == Skip::Reparse) {
+                    in.push_back(info.reparseTag == IO_REPARSE_TAG_WOF           ? ReparseWof
+                            : (info.reparseTag & 0xFFFF'0FFFu) == 0x9000'001Au ? ReparseCloud // IO_REPARSE_TAG_CLOUD and its variants
+                                                                               : ReparseOther);
+                }
+                if (f.skip == Skip::SeveralParts)
+                    in.push_back(AttributeList);
+                if (info.data == ws::ntfs::FileInfo::Data::NonResident && info.initialized < info.size)
+                    in.push_back(ShortVdl);
+                if (info.names > 1) // not `links`: that counts the DOS 8.3 alias too
+                    in.push_back(HardLink);
+                if (now - info.modified < 5ll * 60 * 10'000'000)
+                    in.push_back(Recent);
+                if (f.skip == Skip::TooLarge)
+                    in.push_back(TooLarge);
+                if (f.skip == Skip::NoData || f.skip == Skip::RunList || f.skip == Skip::Directory)
+                    in.push_back(Unreadable);
+                size = info.size;
+            }
+        }
+        for (const Bucket b : in) {
+            ++counts[b].files;
+            counts[b].bytes += size;
+        }
+    }
+    std::printf("records      %zu matched: %zu with a security id ($STANDARD_INFORMATION of 0x48 bytes), %zu shorter, "
+                "%zu with a $SECURITY_DESCRIPTOR of their own\n",
+        matched, securityIds, shortStandardInfo, ownDescriptors);
+
+    // --verify: the same bytes through ReadFile, as the content index reads
+    // them today (the antivirus scans each file as it is opened).
+    std::size_t compared = 0, mismatched = 0, unopenable = 0, shorter = 0;
+    if (verify) {
+        struct Mismatch {
+            std::size_t item;
+            std::uint64_t normalBytes;
+            std::uint64_t firstDifference;
+        };
+        std::vector<Mismatch> mismatches;
+        std::mutex mutex; // mismatches, and the readers (one request at a time each)
+        std::atomic<std::size_t> next {0};
+        std::atomic<std::size_t> comparedCount {0}, mismatchedCount {0}, unopenableCount {0}, shorterCount {0};
+        std::atomic<std::uint64_t> normalBytes {0};
+        const CpuTimes cpuBefore = cpuTimes();
+        QElapsedTimer timer;
+        timer.start();
+        {
+            std::vector<std::jthread> workers;
+            for (int t = 0; t < threads; ++t) {
+                workers.emplace_back([&] {
+                    std::vector<char> buffer(1u << 20);
+                    for (;;) {
+                        const std::size_t i = next.fetch_add(1);
+                        if (i >= items.size())
+                            break;
+                        const Item& it = items[i];
+                        if (!it.rawRead)
+                            continue;
+                        const ws::ntfs::BulkReader::Found& f = volumes[it.volume].found[it.found];
+                        std::uint64_t got = 0;
+                        DWORD error = 0;
+                        const std::optional<std::uint64_t> hash = hashNormally(index.wpath(it.id), f.want, buffer, got, error);
+                        if (!hash) {
+                            ++unopenableCount;
+                            continue;
+                        }
+                        ++comparedCount;
+                        normalBytes += got;
+                        if (got == it.rawBytes && *hash == it.rawHash)
+                            continue;
+                        ++mismatchedCount;
+                        if (got < it.rawBytes)
+                            ++shorterCount;
+                        // Both again, whole, for the first byte that differs.
+                        std::vector<std::byte> normal, raw;
+                        hashNormally(index.wpath(it.id), f.want, buffer, got, error, &normal);
+                        std::lock_guard lock(mutex);
+                        volumes[it.volume].reader->readOne(f, raw);
+                        const std::size_t common = std::min(normal.size(), raw.size());
+                        std::size_t at = 0;
+                        while (at < common && normal[at] == raw[at])
+                            ++at;
+                        mismatches.push_back({i, got, at});
+                    }
+                });
+            }
+        }
+        const double wallMs = msSince(timer);
+        const CpuTimes cpuAfter = cpuTimes();
+        compared = comparedCount;
+        mismatched = mismatchedCount;
+        unopenable = unopenableCount;
+        shorter = shorterCount;
+        std::printf("normal read  %zu files, %.1f MB through ReadFile in %.0f ms: %.0f MB/s, %.0f files/s; other processes "
+                    "%.1f CPU s (%.2f ms a file), this process %.1f; %zu could not be opened\n",
+            compared, static_cast<double>(normalBytes.load()) / 1048576.0, wallMs,
+            static_cast<double>(normalBytes.load()) / 1048576.0 / std::max(wallMs / 1000.0, 1e-6),
+            static_cast<double>(compared) * 1000.0 / std::max(wallMs, 1e-3),
+            (cpuAfter.system - cpuBefore.system) - (cpuAfter.process - cpuBefore.process),
+            ((cpuAfter.system - cpuBefore.system) - (cpuAfter.process - cpuBefore.process)) * 1000.0
+                / static_cast<double>(std::max<std::size_t>(compared, 1)),
+            cpuAfter.process - cpuBefore.process, unopenable);
+        std::sort(mismatches.begin(), mismatches.end(), [](const Mismatch& a, const Mismatch& b) { return a.item < b.item; });
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            if (!items[i].rawRead)
+                continue;
+            const bool bad = std::any_of(mismatches.begin(), mismatches.end(), [&](const Mismatch& m) { return m.item == i; });
+            for (const Bucket b : membership[i]) {
+                ++counts[b].compared;
+                counts[b].mismatches += bad ? 1 : 0;
+            }
+        }
+        std::printf("compare      %zu files the same byte for byte, %zu DIFFERENT (%zu of those shorter through ReadFile)\n",
+            compared - mismatched, mismatched, shorter);
+        for (std::size_t k = 0; k < mismatches.size() && k < 20; ++k) {
+            const Mismatch& m = mismatches[k];
+            const Item& it = items[m.item];
+            std::string groups;
+            for (const Bucket b : membership[m.item])
+                groups += std::string(groups.empty() ? "" : ", ") + bucketNames[b];
+            std::printf("  DIFFERENT  %ls  [%s]  raw %llu B, ReadFile %llu B, first difference at %llu\n",
+                index.wpath(it.id).c_str(), groups.c_str(), static_cast<unsigned long long>(it.rawBytes),
+                static_cast<unsigned long long>(m.normalBytes), static_cast<unsigned long long>(m.firstDifference));
+        }
+    }
+
+    std::printf("%-44s %8s %10s%s\n", "group", "files", "MB", verify ? "   compared  different" : "");
+    for (std::size_t b = 0; b < kBuckets; ++b) {
+        const Count& c = counts[b];
+        if (c.files == 0)
+            continue;
+        if (verify)
+            std::printf("%-44s %8zu %10.1f   %8zu  %9zu\n", bucketNames[b], c.files, static_cast<double>(c.bytes) / 1048576.0,
+                c.compared, c.mismatches);
+        else
+            std::printf("%-44s %8zu %10.1f\n", bucketNames[b], c.files, static_cast<double>(c.bytes) / 1048576.0);
+    }
+    return mismatched == 0 ? 0 : 1;
+}
+
+// ---- how long until a write is on the disk (--dirty-window) --------------------------
+
+// The physical disk's write counter (IOCTL_DISK_PERFORMANCE), for telling
+// whether a read of the volume made NTFS write anything first.
+class DiskWrites {
+public:
+    explicit DiskWrites(const std::wstring& root) // "C:"
+    {
+        const HANDLE volume = ::CreateFileW((L"\\\\.\\" + root).c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+            OPEN_EXISTING, 0, nullptr);
+        if (volume == INVALID_HANDLE_VALUE)
+            return;
+        VOLUME_DISK_EXTENTS extents {};
+        DWORD bytes = 0;
+        const bool ok = ::DeviceIoControl(volume, IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, nullptr, 0, &extents, sizeof extents,
+                            &bytes, nullptr)
+            || ::GetLastError() == ERROR_MORE_DATA; // several extents: the first is in there anyway
+        ::CloseHandle(volume);
+        if (!ok || extents.NumberOfDiskExtents == 0)
+            return;
+        m_disk = extents.Extents[0].DiskNumber;
+        const std::wstring path = L"\\\\.\\PhysicalDrive" + std::to_wstring(m_disk);
+        m_handle = ::CreateFileW(path.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (m_handle == INVALID_HANDLE_VALUE)
+            m_handle = nullptr;
+    }
+    ~DiskWrites()
+    {
+        if (m_handle)
+            ::CloseHandle(m_handle);
+    }
+    DiskWrites(const DiskWrites&) = delete;
+    DiskWrites& operator=(const DiskWrites&) = delete;
+
+    bool valid() const noexcept { return m_handle != nullptr; }
+    int disk() const noexcept { return static_cast<int>(m_disk); }
+    std::uint64_t bytesWritten() // 0 when the counter cannot be read
+    {
+        DISK_PERFORMANCE perf {};
+        DWORD bytes = 0;
+        if (!m_handle || !::DeviceIoControl(m_handle, IOCTL_DISK_PERFORMANCE, nullptr, 0, &perf, sizeof perf, &bytes, nullptr))
+            return 0;
+        return static_cast<std::uint64_t>(perf.BytesWritten.QuadPart);
+    }
+
+private:
+    DWORD m_disk = 0;
+    HANDLE m_handle = nullptr;
+};
+
+// How much of `data` is the new content, the old, zeros, or something else, in 64 KB chunks.
+struct ChunkMatch {
+    std::size_t chunks = 0;
+    std::size_t fresh = 0; // the new content
+    std::size_t old = 0; // what was there before the overwrite
+    std::size_t zero = 0;
+    std::size_t other = 0;
+    std::size_t firstWrong = 0; // the first chunk that is not the new content
+};
+ChunkMatch compareChunks(std::span<const std::byte> data, std::span<const std::byte> fresh, std::span<const std::byte> old)
+{
+    constexpr std::size_t kChunk = 64u << 10;
+    ChunkMatch m;
+    m.firstWrong = static_cast<std::size_t>(-1);
+    for (std::size_t at = 0; at < fresh.size(); at += kChunk) {
+        const std::size_t n = std::min(kChunk, fresh.size() - at);
+        ++m.chunks;
+        const bool have = at + n <= data.size();
+        if (have && std::memcmp(data.data() + at, fresh.data() + at, n) == 0) {
+            ++m.fresh;
+            continue;
+        }
+        if (m.firstWrong == static_cast<std::size_t>(-1))
+            m.firstWrong = m.chunks - 1;
+        if (have && at + n <= old.size() && std::memcmp(data.data() + at, old.data() + at, n) == 0)
+            ++m.old;
+        else if (have && std::all_of(data.begin() + static_cast<std::ptrdiff_t>(at), data.begin() + static_cast<std::ptrdiff_t>(at + n), [](std::byte b) { return b == std::byte {0}; }))
+            ++m.zero;
+        else
+            ++m.other;
+    }
+    return m;
+}
+
+// (as administrator) Whether a read of the volume (unbuffered, as the bulk
+// path reads) sees what was just written through the file cache, and if not,
+// after how long. Probes, all with their handles kept open (nothing is closed
+// or flushed by us):
+//  - new 64 KB files: WriteFile, and a write through MapViewOfFile;
+//  - files written and flushed beforehand, then overwritten in place (same
+//    size: nothing allocated): a resident one (300 B) and 1 MB ones, by
+//    WriteFile at offset 0 and through a view;
+//  - a big new file (--big MB, default 64) by WriteFile: what the lazy writer
+//    cannot have written out within a moment; compared in 64 KB chunks.
+// Read off the disk right after the writes, then 50 ms apart for 2 s, then
+// every 2 s (--seconds S at most, default 180): through the volume handle
+// opened before the writes, and through one opened fresh at each poll. The
+// physical disk's write counter is read around the first raw read: if
+// reading the volume makes NTFS flush what is dirty first, the bytes show
+// up there and the read takes its time. FSCTL_GET_NTFS_FILE_RECORD (NTFS's
+// own view of a record) is compared with the record off the disk.
+int runDirtyWindow(QStringList args)
+{
+    std::wstring root;
+    for (const QString& a : args) {
+        if (a.size() == 2 && a[1] == u':' && a[0].isLetter())
+            root = a.toUpper().toStdWString();
+    }
+    if (root.empty())
+        root = QDir::toNativeSeparators(QDir::tempPath()).left(2).toUpper().toStdWString();
+    int seconds = 180;
+    if (const qsizetype at = args.indexOf(u"--seconds"_s); at >= 0 && at + 1 < args.size())
+        seconds = std::max(2, args[at + 1].toInt());
+    std::size_t bigMB = 64;
+    if (const qsizetype at = args.indexOf(u"--big"_s); at >= 0 && at + 1 < args.size())
+        bigMB = std::max<std::size_t>(1, args[at + 1].toULongLong());
+    ws::ntfs::BulkReader reader(root); // opened before anything is written
+    if (!reader.valid()) {
+        std::printf("%ls: %ls\n", root.c_str(), reader.error().c_str());
+        return 1;
+    }
+    DiskWrites disk(root);
+    const std::wstring folder = root + L"\\wsdirty-" + std::to_wstring(::GetCurrentProcessId());
+    if (!::CreateDirectoryW(folder.c_str(), nullptr)) {
+        std::printf("cannot create %ls (error %lu)\n", folder.c_str(), ::GetLastError());
+        return 1;
+    }
+    std::printf("dirty window on %ls (%u-byte records, %u-byte clusters; physical disk %d, write counter %s); files in %ls\n",
+        root.c_str(), reader.geometry().recordSize, reader.geometry().clusterSize, disk.disk(),
+        disk.valid() ? "readable" : "NOT readable", folder.c_str());
+
+    enum class Kind { NewWrite, NewMapped, OverwriteResident, OverwriteWrite, OverwriteMapped, Big };
+    struct Probe {
+        Kind kind;
+        const char* name;
+        std::size_t size;
+        std::wstring path;
+        std::vector<std::byte> expected; // written last
+        std::vector<std::byte> old; // what an overwritten file held before, on the disk
+        std::uint32_t record = 0;
+        std::uint16_t sequence = 0;
+        std::uint64_t lsnBefore = 0; // the record's LSN on the disk before the overwrite
+        HANDLE file = INVALID_HANDLE_VALUE;
+        HANDLE mapping = nullptr;
+        void* view = nullptr;
+        // Results, in ms after the writes ended; -1: not yet.
+        double recordAt = -1; // the record on the disk is this file's, with its final size (and a new LSN after an overwrite)
+        double dataAt = -1; // every chunk read off the disk is the new content
+        double firstPollAt = -1;
+        ChunkMatch firstPoll; // what the first poll saw
+        double firstReadMs = 0; // how long that first raw read took
+        bool freshDiffered = false; // a volume handle opened after the writes ever read something else
+        std::string fsctl = "not asked"; // NTFS's record against the disk's, at the first poll
+        std::string lastState;
+    };
+    std::vector<Probe> probes;
+    std::mt19937_64 rng(::GetTickCount64());
+    const auto randomBytes = [&](std::size_t n) {
+        std::vector<std::byte> out(n);
+        for (std::size_t i = 0; i + 8 <= n; i += 8) {
+            const std::uint64_t word = rng() | 0x0101'0101'0101'0101ull; // never a zero byte: zeros mean "not written"
+            std::memcpy(out.data() + i, &word, 8);
+        }
+        for (std::size_t i = n / 8 * 8; i < n; ++i)
+            out[i] = static_cast<std::byte>(rng() | 1);
+        return out;
+    };
+    const auto add = [&](Kind kind, const char* name, std::size_t size) {
+        Probe p;
+        p.kind = kind;
+        p.name = name;
+        p.size = size;
+        p.path = folder + L"\\" + std::to_wstring(probes.size()) + L".bin";
+        p.expected = randomBytes(size);
+        probes.push_back(std::move(p));
+    };
+    add(Kind::NewWrite, "new, WriteFile", 64u << 10);
+    add(Kind::NewMapped, "new, MapViewOfFile", 64u << 10);
+    add(Kind::OverwriteResident, "overwrite resident, WriteFile", 300);
+    add(Kind::OverwriteWrite, "overwrite in place, WriteFile", 1u << 20);
+    add(Kind::OverwriteMapped, "overwrite in place, MapViewOfFile", 1u << 20);
+    add(Kind::Big, "new big, WriteFile", bigMB << 20);
+
+    const auto fileReference = [](HANDLE file, std::uint32_t& record, std::uint16_t& sequence) {
+        BY_HANDLE_FILE_INFORMATION info {};
+        ::GetFileInformationByHandle(file, &info);
+        const std::uint64_t reference = (std::uint64_t {info.nFileIndexHigh} << 32) | info.nFileIndexLow;
+        record = ws::ntfs::recordOf(reference);
+        sequence = static_cast<std::uint16_t>(reference >> 48);
+    };
+    const auto writeAll = [](HANDLE file, std::span<const std::byte> bytes) {
+        for (std::size_t at = 0; at < bytes.size();) {
+            DWORD written = 0;
+            const auto n = static_cast<DWORD>(std::min<std::size_t>(1u << 20, bytes.size() - at));
+            if (!::WriteFile(file, bytes.data() + at, n, &written, nullptr) || written != n)
+                return false;
+            at += n;
+        }
+        return true;
+    };
+    // The record and data of `p` as the disk has them now, through `through`.
+    struct Seen {
+        std::string state; // what kept the data from being read, if anything
+        ws::ntfs::FileInfo info;
+        bool recordIsFile = false; // in use, this file's sequence
+        std::vector<std::byte> data;
+        double readMs = 0;
+    };
+    const auto seeThrough = [](ws::ntfs::BulkReader& through, const Probe& p, Seen& seen) {
+        seen = Seen {};
+        const std::vector<std::byte> raw = through.readRecordRaw(p.record);
+        if (raw.empty()) {
+            seen.state = "record unreadable";
+            return;
+        }
+        if (!ws::ntfs::parseFileInfo(raw, seen.info) || !seen.info.inUse) {
+            seen.state = "record free on the disk";
+            return;
+        }
+        if (seen.info.sequence != p.sequence) {
+            seen.state = "record holds another file on the disk (sequence " + std::to_string(seen.info.sequence) + ")";
+            return;
+        }
+        seen.recordIsFile = true;
+        ws::ntfs::BulkReader::Found found;
+        found.record = p.record;
+        found.info = seen.info;
+        found.want = seen.info.size;
+        if (seen.info.data == ws::ntfs::FileInfo::Data::Resident) {
+            found.resident.assign(seen.info.resident.begin(), seen.info.resident.end());
+            found.skip = ws::ntfs::BulkSkip::None;
+        } else if (auto runs = ws::ntfs::decodeDataRuns(seen.info.runList)) {
+            found.runs = std::move(*runs);
+            found.skip = ws::ntfs::BulkSkip::None;
+        }
+        const auto started = std::chrono::steady_clock::now();
+        if (found.skip != ws::ntfs::BulkSkip::None || !through.readOne(found, seen.data))
+            seen.state = "data unreadable";
+        seen.readMs = usSince(started) / 1000.0;
+    };
+
+    bool ok = true;
+    // The files to be overwritten: written, flushed, closed; then what the disk has of them.
+    for (Probe& p : probes) {
+        if (p.kind != Kind::OverwriteResident && p.kind != Kind::OverwriteWrite && p.kind != Kind::OverwriteMapped)
+            continue;
+        p.old = randomBytes(p.size);
+        const HANDLE file = ::CreateFileW(p.path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL, nullptr);
+        ok = file != INVALID_HANDLE_VALUE && writeAll(file, p.old) && ::FlushFileBuffers(file);
+        if (file != INVALID_HANDLE_VALUE) {
+            fileReference(file, p.record, p.sequence);
+            ::CloseHandle(file);
+        }
+        if (!ok) {
+            std::printf("cannot prepare %ls (error %lu)\n", p.path.c_str(), ::GetLastError());
+            break;
+        }
+        Seen seen;
+        seeThrough(reader, p, seen);
+        p.lsnBefore = seen.info.lsn;
+        const ChunkMatch m = seen.recordIsFile ? compareChunks(seen.data, p.old, {}) : ChunkMatch {};
+        std::printf("prepared     %-36s %9zu B: on the disk %s%zu of %zu chunks as written%s, LSN %llu\n", p.name, p.size,
+            seen.state.empty() ? "" : (seen.state + ", ").c_str(), m.fresh, m.chunks,
+            seen.info.data == ws::ntfs::FileInfo::Data::Resident ? " (resident)" : "",
+            static_cast<unsigned long long>(seen.info.lsn));
+    }
+    ::Sleep(ok ? 1000 : 0); // the flushes done with
+
+    // The writes, as fast as they go; the clock starts when the last is done.
+    QElapsedTimer clock;
+    const auto started = std::chrono::steady_clock::now();
+    for (Probe& p : probes) {
+        if (!ok)
+            break;
+        const bool overwrite = p.kind == Kind::OverwriteResident || p.kind == Kind::OverwriteWrite || p.kind == Kind::OverwriteMapped;
+        p.file = ::CreateFileW(p.path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+            overwrite ? OPEN_EXISTING : CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (p.file == INVALID_HANDLE_VALUE) {
+            std::printf("cannot open %ls (error %lu)\n", p.path.c_str(), ::GetLastError());
+            ok = false;
+            break;
+        }
+        if (p.kind == Kind::NewMapped || p.kind == Kind::OverwriteMapped) {
+            if (!overwrite) {
+                LARGE_INTEGER end {};
+                end.QuadPart = static_cast<LONGLONG>(p.size);
+                ::SetFilePointerEx(p.file, end, nullptr, FILE_BEGIN);
+                ::SetEndOfFile(p.file);
+            }
+            p.mapping = ::CreateFileMappingW(p.file, nullptr, PAGE_READWRITE, 0, 0, nullptr);
+            p.view = p.mapping ? ::MapViewOfFile(p.mapping, FILE_MAP_WRITE, 0, 0, 0) : nullptr;
+            if (!p.view) {
+                std::printf("cannot map %ls (error %lu)\n", p.path.c_str(), ::GetLastError());
+                ok = false;
+                break;
+            }
+            std::memcpy(p.view, p.expected.data(), p.size); // no FlushViewOfFile
+        } else if (!writeAll(p.file, p.expected)) {
+            std::printf("cannot write %ls (error %lu)\n", p.path.c_str(), ::GetLastError());
+            ok = false;
+            break;
+        }
+        fileReference(p.file, p.record, p.sequence);
+    }
+    clock.start();
+    const double writingMs = usSince(started) / 1000.0;
+
+    const auto fraction = [](const ChunkMatch& m) {
+        return m.chunks == 0 ? 0.0 : 100.0 * static_cast<double>(m.fresh) / static_cast<double>(m.chunks);
+    };
+    const auto describe = [&](const ChunkMatch& m) {
+        char text[160];
+        std::snprintf(text, sizeof text, "%zu/%zu chunks new (%.0f%%; %zu old, %zu zero, %zu other)", m.fresh, m.chunks,
+            fraction(m), m.old, m.zero, m.other);
+        return std::string(text);
+    };
+    // One look at a probe: the two handles, the chunks, NTFS's record.
+    const auto look = [&](Probe& p, double at, bool first) {
+        Seen before; // through the handle opened before the writes
+        const std::uint64_t writtenBefore = disk.bytesWritten();
+        seeThrough(reader, p, before);
+        const std::uint64_t writtenDuring = disk.bytesWritten() - writtenBefore;
+        std::string state = before.state;
+        if (before.recordIsFile) {
+            const bool sized = before.info.size == p.size;
+            const bool renewed = p.lsnBefore == 0 || before.info.lsn != p.lsnBefore;
+            char text[200];
+            std::snprintf(text, sizeof text, "record on disk: size %llu%s vdl %llu lsn %llu%s", static_cast<unsigned long long>(before.info.size),
+                before.info.data == ws::ntfs::FileInfo::Data::Resident ? " (resident)" : "",
+                static_cast<unsigned long long>(before.info.initialized), static_cast<unsigned long long>(before.info.lsn),
+                p.lsnBefore != 0 ? (renewed ? " (changed)" : " (as before the overwrite)") : "");
+            state = text;
+            if (sized && renewed && p.recordAt < 0)
+                p.recordAt = at;
+            if (before.state.empty()) {
+                const ChunkMatch m = compareChunks(before.data, p.expected, p.old);
+                state += "; data: " + describe(m);
+                if (first) {
+                    p.firstPoll = m;
+                    p.firstReadMs = before.readMs;
+                }
+                if (m.fresh == m.chunks && sized && p.dataAt < 0)
+                    p.dataAt = at;
+                // The same through a handle opened only now.
+                ws::ntfs::BulkReader fresh(root);
+                Seen after;
+                if (fresh.valid()) {
+                    seeThrough(fresh, p, after);
+                    if (after.data != before.data || after.state != before.state) {
+                        p.freshDiffered = true;
+                        state += "; a FRESH handle read " + (after.state.empty() ? describe(compareChunks(after.data, p.expected, p.old)) : after.state);
+                    } else {
+                        state += "; fresh handle: the same";
+                    }
+                }
+            } else {
+                state += "; " + before.state;
+            }
+        }
+        if (first) {
+            p.firstPollAt = at;
+            char text[120];
+            std::snprintf(text, sizeof text, "; raw read %.1f ms, disk wrote %.1f MB meanwhile", before.readMs,
+                static_cast<double>(writtenDuring) / 1048576.0);
+            state += text;
+        }
+        // NTFS's own view of the record against the disk's.
+        ws::ntfs::BulkReader::Cached cached;
+        ws::ntfs::FileInfo now;
+        if (reader.readRecordCached(p.record, cached) && ws::ntfs::parseFileInfo(cached.record, now)
+            && ws::ntfs::recordOf(cached.reference) == p.record) {
+            std::string verdict;
+            if (!before.recordIsFile)
+                verdict = "FSCTL has the file, the disk not yet";
+            else if (now.lsn == before.info.lsn && now.size == before.info.size && now.initialized == before.info.initialized)
+                verdict = "FSCTL = disk";
+            else {
+                char text[160];
+                std::snprintf(text, sizeof text, "FSCTL differs: size %llu vdl %llu lsn %llu", static_cast<unsigned long long>(now.size),
+                    static_cast<unsigned long long>(now.initialized), static_cast<unsigned long long>(now.lsn));
+                verdict = text;
+            }
+            state += "; " + verdict;
+            if (first)
+                p.fsctl = verdict;
+        }
+        if (state != p.lastState) {
+            std::printf("  +%8.1f ms  %-36s %9zu B  %s\n", at, p.name, p.size, state.c_str());
+            p.lastState = state;
+        }
+    };
+    if (ok) {
+        std::printf("written in %.1f ms (clock starts now); what the disk shows, as it changes:\n", writingMs);
+        bool first = true;
+        double nextAt = 0;
+        for (;;) {
+            double at = msSince(clock);
+            if (at < nextAt) {
+                ::Sleep(static_cast<DWORD>(nextAt - at));
+                at = msSince(clock);
+            }
+            bool pending = false;
+            for (Probe& p : probes) {
+                if (p.dataAt < 0 || p.recordAt < 0)
+                    look(p, at, first);
+                pending = pending || p.dataAt < 0 || p.recordAt < 0;
+            }
+            first = false;
+            if (!pending || at >= seconds * 1000.0)
+                break;
+            nextAt = at < 2000 ? at + 50 : at + 2000;
+        }
+        std::printf("\n%-36s %9s  %12s  %12s  %22s  %9s  %6s  %s\n", "probe", "bytes", "record", "data", "first poll", "read", "fresh",
+            "FSCTL at the first poll");
+        for (const Probe& p : probes) {
+            const auto cell = [](double ms) {
+                char text[32];
+                if (ms < 0)
+                    return std::string("never");
+                std::snprintf(text, sizeof text, "+%.0f ms", ms);
+                return std::string(text);
+            };
+            char firstPoll[48];
+            std::snprintf(firstPoll, sizeof firstPoll, "%s %3.0f%% new", cell(p.firstPollAt).c_str(), fraction(p.firstPoll));
+            std::printf("%-36s %9zu  %12s  %12s  %22s  %6.1f ms  %6s  %s\n", p.name, p.size, cell(p.recordAt).c_str(),
+                cell(p.dataAt).c_str(), firstPoll, p.firstReadMs, p.freshDiffered ? "DIFFER" : "same", p.fsctl.c_str());
+        }
+        std::printf("record: the disk's record is this file's with its final size (after an overwrite: and changed); data: every "
+                    "chunk read off the disk is the new content; fresh: whether a volume handle opened after the writes ever read "
+                    "something else than the one opened before them\n");
+    }
+    for (Probe& p : probes) {
+        if (p.view)
+            ::UnmapViewOfFile(p.view);
+        if (p.mapping)
+            ::CloseHandle(p.mapping);
+        if (p.file != INVALID_HANDLE_VALUE)
+            ::CloseHandle(p.file);
+        ::DeleteFileW(p.path.c_str());
+    }
+    ::RemoveDirectoryW(folder.c_str());
+    return ok ? 0 : 1;
 }
 
 // ---- a content search with the app's own index (--content-search) -----------
@@ -3558,6 +4698,10 @@ int main(int argc, char* argv[])
         args.removeAll(u"--mft-time"_s);
         return runMftTiming(args, 3);
     }
+    if (args.contains(u"--dirty-window"_s)) {
+        args.removeAll(u"--dirty-window"_s);
+        return runDirtyWindow(args);
+    }
     if (args.contains(u"--mft"_s)) {
         const bool compare = !args.contains(u"--no-compare"_s);
         ws::ntfs::ReadOptions options;
@@ -3774,6 +4918,10 @@ int main(int argc, char* argv[])
         return runContentBench(*index, args);
     if (args.contains(u"--content-index"_s))
         return runContentIndexBench(*index, args);
+    if (args.contains(u"--open-probe"_s))
+        return runOpenProbe(*index, args);
+    if (args.contains(u"--raw-read"_s))
+        return runRawRead(*index, args);
     if (args.contains(u"--content-search"_s))
         return runContentSearchBench(*index, contents->attachment, QFileInfo(path).absolutePath() + u"/content"_s, args);
     if (const qsizetype at = args.indexOf(u"--resave"_s); at >= 0 && at + 1 < args.size()) {

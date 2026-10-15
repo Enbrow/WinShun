@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -59,6 +60,10 @@ struct Extent {
 // Decodes the MFT's run list (the mapping pairs of its $DATA attribute).
 // Returns nothing for malformed or sparse runs.
 std::optional<std::vector<Extent>> decodeRunList(std::span<const std::byte> pairs, std::uint64_t clusterSize);
+
+// Where a volume's MFT lies, as FSCTL_GET_RETRIEVAL_POINTERS on $MFT tells
+// (administrator rights); empty when it does not.
+std::vector<Extent> mftExtents(std::wstring_view root, std::uint32_t clusterSize);
 
 // How a volume is laid out, as FSCTL_GET_NTFS_VOLUME_DATA reports it.
 struct Geometry {
@@ -154,6 +159,13 @@ public:
     std::uint32_t firstRecord() const noexcept override { return m_firstRecord; }
     std::size_t blockRecords() const noexcept override { return m_blockRecords; }
     bool parse(std::size_t i, FileRecord& out) override;
+    // The bytes of record i of the current block: fixed up once parse(i) has
+    // been called on it, raw before (NtfsBulk reads a file's $DATA from them).
+    std::span<std::byte> recordBytes(std::size_t i) noexcept
+    {
+        return i < m_blockRecords ? std::span<std::byte>(m_records + i * m_geometry.recordSize, m_geometry.recordSize)
+                                  : std::span<std::byte>();
+    }
 
 private:
     class Device;
@@ -276,6 +288,75 @@ private:
     unsigned long m_startError = 0;
 };
 
+// ---- files read by their records (the content index's bulk path) ---------------
+
+// The content index's first build reads hundreds of thousands of files, and
+// the antivirus scans each one as it is opened. Read off the volume by their
+// MFT records instead (NtfsBulk.h), with no file opened: the client names
+// each file by its folder's record number and its name (what the index
+// has), the volume is scanned once, and the bytes of the files the client
+// may read (an access check against its token, in the service) come back in
+// the order they lie on the disk. Anything doubtful is left to the normal
+// path: BulkSkip says why.
+enum class BulkSkip : std::uint8_t {
+    None,
+    NotFound, // no record with that parent and name
+    Directory,
+    NoData, // no unnamed $DATA
+    SeveralParts, // the $DATA is in parts, or an attribute list may hold more of it
+    Compressed,
+    Encrypted,
+    Reparse, // a reparse point: WOF-compressed, a cloud placeholder, a symbolic link...
+    RunList, // malformed, or not covering the attribute
+    TooLarge, // over the caller's limit (the size is still reported)
+};
+const char* bulkSkipName(BulkSkip skip) noexcept;
+
+enum class BulkStatus : std::uint8_t {
+    Data, // the bytes can be fetched
+    NotFound,
+    Denied, // the client may not read it (or that could not be made sure of)
+    Fallback, // not read this way: BulkFile::reason
+    TooLarge, // over the limit asked for: the size is given
+};
+
+// One file asked for: the record number of its folder (FileIndex keeps
+// those) and its name, exactly as the MFT has it. The i-th want is ticket i.
+struct BulkWant {
+    std::uint32_t parentRecord;
+    std::u16string name;
+    std::uint64_t maxBytes; // read none of a larger file
+};
+
+// What the scan found about one want.
+struct BulkFile {
+    std::uint32_t ticket;
+    BulkStatus status;
+    BulkSkip reason; // with Fallback
+    std::uint64_t size; // the file's, as GetFileSizeEx would say (Data, TooLarge)
+    std::int64_t modified; // FILETIME of the last write (Data, TooLarge)
+};
+
+// One bulk session on one volume: the volume itself (DirectBulkSource, in
+// NtfsBulk.cpp: the elevated program's own reads, no access check) or the
+// index service. want() any number of times, then scan() once, then fetch()
+// the Data tickets in batches (each batch's bytes come whole, then fetch
+// returns); destroying it ends the session.
+class BulkSource {
+public:
+    virtual ~BulkSource() = default;
+    virtual bool valid() const noexcept = 0; // false: error() says why
+    virtual const std::wstring& error() const noexcept = 0;
+    virtual bool want(std::span<const BulkWant> wants) = 0;
+    // Scans the volume; `files` gets one entry per ticket, those with Data
+    // in the order they are best fetched (as they lie on the disk).
+    virtual bool scan(std::vector<BulkFile>& files) = 0;
+    // The bytes of those tickets (Data ones not fetched before), each handed
+    // to `sink` whole: min(size, maxBytes) bytes.
+    virtual bool fetch(std::span<const std::uint32_t> tickets,
+        const std::function<void(std::uint32_t ticket, std::vector<std::byte>&& bytes)>& sink) = 0;
+};
+
 // ---- where the volumes are read from ------------------------------------------
 
 // What the index needs of an NTFS volume, from wherever it comes: the
@@ -306,6 +387,12 @@ public:
     // Before the volume is ejected or locked: returns once nothing opened on
     // our behalf holds it any more (the sources on it are destroyed first).
     virtual void closeVolume(std::wstring_view root) = 0;
+    // Files read by their records (BulkSource): null when there is no way to
+    // that (no access, or a service without the capability), else a source
+    // whose valid() says whether it opened. `quiet`: someone uses the
+    // computer and the volume is on a hard disk: one read at a time, at very
+    // low I/O priority.
+    virtual std::unique_ptr<BulkSource> openBulkRead(std::wstring_view root, std::uint32_t serial, bool quiet) = 0;
 };
 
 // The volume itself: MftReader, queryJournal(), JournalReader.
@@ -317,6 +404,7 @@ public:
     std::unique_ptr<JournalSource> openJournal(std::wstring_view root, std::uint32_t serial,
         std::uint64_t journalId) override;
     void closeVolume(std::wstring_view root) override; // nothing to do: the sources held the handles
+    std::unique_ptr<BulkSource> openBulkRead(std::wstring_view root, std::uint32_t serial, bool quiet) override; // NtfsBulk.cpp
 };
 
 // No way to the MFT or the journals (normal rights, no service).
@@ -330,6 +418,7 @@ public:
         return nullptr;
     }
     void closeVolume(std::wstring_view) override { }
+    std::unique_ptr<BulkSource> openBulkRead(std::wstring_view, std::uint32_t, bool) override { return nullptr; }
 };
 
 } // namespace ws::ntfs

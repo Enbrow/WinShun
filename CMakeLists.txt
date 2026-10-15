@@ -75,7 +75,7 @@ qt_add_executable(wsbench tools/wsbench.cpp src/app/Settings.cpp
     src/app/SiteIconImage.cpp src/app/platform/Http.cpp src/app/platform/SiteIcons.cpp # --site-icon
     src/app/platform/PaddleOcr.cpp) # --ocr
 target_include_directories(wsbench PRIVATE src/app src/app/platform) # Settings: the user's crawl rules for --sync
-target_link_libraries(wsbench PRIVATE wscore wsextract wsmcp wsplugin Qt6::Gui psapi winhttp onnxruntime_headers) # wsmcp: --mcp-host; wsplugin: --plugin
+target_link_libraries(wsbench PRIVATE wscore wsextract wsmcp wsplugin Qt6::Gui psapi winhttp advapi32 onnxruntime_headers) # wsmcp: --mcp-host; wsplugin: --plugin; advapi32: --open-probe
 add_dependencies(wsbench WinShunPluginHost bundled_plugins) # --plugin starts it from next to wsbench; the bundled plugins next to it too
 set_target_properties(wsbench PROPERTIES WIN32_EXECUTABLE OFF)
 

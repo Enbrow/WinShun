@@ -15,6 +15,7 @@
 #include "History.h"
 #include "NameSearch.h"
 #include "Ntfs.h"
+#include "NtfsBulk.h"
 #include "NtfsIndexer.h"
 #include "PathText.h"
 #include "Pinyin.h"
@@ -428,6 +429,18 @@ public:
     }
 
     void resident(std::uint32_t type, const std::vector<std::byte>& value) { attribute(type, value); }
+
+    // An unnamed non-resident attribute with its sizes and flags given apart
+    // (a file's $DATA: the valid data length short of the size, compressed...).
+    void nonResidentData(const std::vector<std::byte>& runs, std::uint64_t lastVcn, std::uint64_t allocated,
+        std::uint64_t size, std::uint64_t initialized, std::uint16_t flags)
+    {
+        const std::size_t at = m_pos;
+        nonResident(0x80, runs, lastVcn, allocated);
+        put<std::uint16_t>(m_data, at + 0x0C, flags);
+        put<std::uint64_t>(m_data, at + 0x30, size);
+        put<std::uint64_t>(m_data, at + 0x38, initialized);
+    }
 
     std::vector<std::byte> finish()
     {
@@ -2204,6 +2217,198 @@ private slots:
         while (cut.next()) {
         }
         QVERIFY(!cut.valid());
+    }
+
+    // What the bulk path reads out of a file's record (ntfs::parseFileInfo,
+    // ntfs::decodeDataRuns): the $DATA's shape and sizes, the flags that keep
+    // a file from being read that way, the ids, the names.
+    void fileInfo()
+    {
+        // $STANDARD_INFORMATION as Windows writes it (0x48 bytes): the times,
+        // the attributes at 0x20, the security id at 0x34.
+        const auto standardInformation = [](std::uint32_t attributes, std::uint32_t securityId) {
+            std::vector<std::byte> value(0x48);
+            put<std::int64_t>(value, 0x08, 0x01DC'0000'1111'2222ll); // modified
+            put<std::int64_t>(value, 0x10, 0x01DC'0000'3333'4444ll); // MFT changed
+            put(value, 0x20, attributes);
+            put(value, 0x34, securityId);
+            return value;
+        };
+        const auto fixedUp = [](RecordBuilder& b) {
+            std::vector<std::byte> record = b.finish();
+            ntfs::FileRecord parsed;
+            if (!ntfs::parseFileRecord(record.data(), record.size(), parsed)) // fixups applied in place
+                record.clear();
+            return record;
+        };
+        ntfs::FileInfo info;
+
+        // A small file: resident data, a Win32 name and its DOS alias (two
+        // $FILE_NAMEs, one name), a security id.
+        {
+            RecordBuilder b(0x0001);
+            b.resident(0x10, standardInformation(FILE_ATTRIBUTE_ARCHIVE, 0x123));
+            b.fileName(0x0001'0000'0000'0005ull, u"readme.txt", 1);
+            b.fileName(0x0001'0000'0000'0005ull, u"README~1.TXT", 2);
+            const std::string text = "hello, world";
+            std::vector<std::byte> data(text.size());
+            std::memcpy(data.data(), text.data(), text.size());
+            b.resident(0x80, data);
+            const std::vector<std::byte> record = fixedUp(b);
+            QVERIFY(!record.empty() && ntfs::parseFileInfo(record, info));
+            QVERIFY(info.inUse && !info.directory);
+            QCOMPARE(info.sequence, std::uint16_t {1});
+            QCOMPARE(info.names, std::uint16_t {1});
+            QCOMPARE(info.standardInfoBytes, 0x48u);
+            QCOMPARE(info.securityId, 0x123u);
+            QCOMPARE(info.attributes, static_cast<std::uint32_t>(FILE_ATTRIBUTE_ARCHIVE));
+            QCOMPARE(info.modified, 0x01DC'0000'1111'2222ll);
+            QCOMPARE(info.mftChanged, 0x01DC'0000'3333'4444ll);
+            QCOMPARE(info.data, ntfs::FileInfo::Data::Resident);
+            QCOMPARE(info.size, std::uint64_t {text.size()});
+            QCOMPARE(std::string(reinterpret_cast<const char*>(info.resident.data()), info.resident.size()), text);
+            QVERIFY(!info.hasAttributeList && !info.hasReparse && !info.hasSecurityDescriptor);
+        }
+        // Non-resident: two runs, a valid data length short of the size.
+        {
+            RecordBuilder b(0x0001);
+            b.resident(0x10, standardInformation(FILE_ATTRIBUTE_ARCHIVE, 0x124));
+            b.fileName(0x0001'0000'0000'0005ull, u"big.log", 3);
+            b.nonResidentData(runList({{40 * 4096, 3 * 4096}, {100 * 4096, 2 * 4096}}, 4096), 4, 5 * 4096, 18000, 9000, 0);
+            const std::vector<std::byte> record = fixedUp(b);
+            QVERIFY(!record.empty() && ntfs::parseFileInfo(record, info));
+            QCOMPARE(info.data, ntfs::FileInfo::Data::NonResident);
+            QCOMPARE(info.size, std::uint64_t {18000});
+            QCOMPARE(info.initialized, std::uint64_t {9000});
+            QCOMPARE(info.allocated, std::uint64_t {5 * 4096});
+            QCOMPARE(info.lowestVcn, std::uint64_t {0});
+            QCOMPARE(info.highestVcn, std::uint64_t {4});
+            QCOMPARE(info.dataFlags, std::uint16_t {0});
+            const auto runs = ntfs::decodeDataRuns(info.runList);
+            QVERIFY(runs);
+            QCOMPARE(runs->size(), std::size_t {2});
+            QCOMPARE((*runs)[0].lcn, std::int64_t {40});
+            QCOMPARE((*runs)[0].clusters, std::uint64_t {3});
+            QCOMPARE((*runs)[1].lcn, std::int64_t {100});
+            QCOMPARE((*runs)[1].clusters, std::uint64_t {2});
+        }
+        // Compressed, encrypted, sparse: the flags; a reparse point and an
+        // attribute list; two unnamed $DATAs.
+        {
+            RecordBuilder b(0x0001);
+            b.resident(0x10, standardInformation(FILE_ATTRIBUTE_COMPRESSED | FILE_ATTRIBUTE_REPARSE_POINT, 0x125));
+            b.resident(0x20, std::vector<std::byte>(0x20)); // $ATTRIBUTE_LIST
+            b.fileName(0x0001'0000'0000'0005ull, u"packed.bin", 1);
+            b.nonResidentData(runList({{40 * 4096, 16 * 4096}}, 4096), 15, 16 * 4096, 60000, 60000,
+                ntfs::kDataCompressed | ntfs::kDataSparse | ntfs::kDataEncrypted);
+            std::vector<std::byte> reparse(0x10);
+            put<std::uint32_t>(reparse, 0, 0x8000'0017u); // IO_REPARSE_TAG_WOF
+            b.resident(0xC0, reparse);
+            const std::vector<std::byte> record = fixedUp(b);
+            QVERIFY(!record.empty() && ntfs::parseFileInfo(record, info));
+            QVERIFY(info.hasAttributeList);
+            QVERIFY(info.hasReparse);
+            QCOMPARE(info.reparseTag, 0x8000'0017u);
+            QVERIFY(info.dataFlags & ntfs::kDataCompressed);
+            QVERIFY(info.dataFlags & ntfs::kDataSparse);
+            QVERIFY(info.dataFlags & ntfs::kDataEncrypted);
+            QVERIFY(info.attributes & FILE_ATTRIBUTE_REPARSE_POINT);
+        }
+        {
+            RecordBuilder b(0x0001);
+            b.resident(0x10, standardInformation(FILE_ATTRIBUTE_ARCHIVE, 7));
+            b.resident(0x80, std::vector<std::byte>(3));
+            b.resident(0x80, std::vector<std::byte>(5));
+            const std::vector<std::byte> record = fixedUp(b);
+            QVERIFY(!record.empty() && ntfs::parseFileInfo(record, info));
+            QCOMPARE(info.data, ntfs::FileInfo::Data::Several);
+        }
+        // Old volumes: a $SECURITY_DESCRIPTOR of the file's own, a short $STANDARD_INFORMATION.
+        {
+            RecordBuilder b(0x0001);
+            b.resident(0x10, std::vector<std::byte>(0x30));
+            b.resident(0x50, std::vector<std::byte>(0x40));
+            b.resident(0x80, std::vector<std::byte>(1));
+            const std::vector<std::byte> record = fixedUp(b);
+            QVERIFY(!record.empty() && ntfs::parseFileInfo(record, info));
+            QVERIFY(info.hasSecurityDescriptor);
+            QCOMPARE(info.standardInfoBytes, 0x30u);
+            QCOMPARE(info.securityId, 0u);
+        }
+        // A free record parses as not in use; garbage does not parse.
+        {
+            RecordBuilder b(0x0000);
+            const std::vector<std::byte> record = fixedUp(b);
+            QVERIFY(!record.empty() && ntfs::parseFileInfo(record, info));
+            QVERIFY(!info.inUse);
+            std::vector<std::byte> garbage(1024, std::byte {0xCC});
+            QVERIFY(!ntfs::parseFileInfo(garbage, info));
+        }
+
+        // Run lists with a sparse run (no offset): kept as a run without
+        // clusters; the next run's offset counts from the one before it.
+        const std::vector<std::byte> withHole {std::byte {0x11}, std::byte {0x04}, std::byte {0x10}, // 4 clusters at 0x10
+            std::byte {0x01}, std::byte {0x03}, // 3 clusters, sparse
+            std::byte {0x11}, std::byte {0x02}, std::byte {0x05}, // 2 clusters at 0x15
+            std::byte {0x00}};
+        const auto runs = ntfs::decodeDataRuns(withHole);
+        QVERIFY(runs);
+        QCOMPARE(runs->size(), std::size_t {3});
+        QCOMPARE((*runs)[0].lcn, std::int64_t {0x10});
+        QCOMPARE((*runs)[1].lcn, std::int64_t {-1});
+        QCOMPARE((*runs)[1].clusters, std::uint64_t {3});
+        QCOMPARE((*runs)[2].lcn, std::int64_t {0x15});
+        QVERIFY(!ntfs::decodeRunList(withHole, 4096)); // the MFT's own decoder refuses sparse runs
+        const std::vector<std::byte> cut {std::byte {0x21}, std::byte {0x04}}; // ends inside a run
+        QVERIFY(!ntfs::decodeDataRuns(cut));
+        const std::vector<std::byte> noEnd {std::byte {0x11}, std::byte {0x04}, std::byte {0x10}};
+        QVERIFY(!ntfs::decodeDataRuns(noEnd));
+    }
+
+    // The grams the bulk path takes from a file's bytes are those readFile()
+    // takes from the file: the encoding from the first chunk, the chunks the same.
+    void collectTextMatchesReadFile()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        std::mt19937_64 rng(20261014);
+        const auto check = [&](const char* name, const QByteArray& bytes) {
+            const QString path = QDir::toNativeSeparators(dir.filePath(QString::fromLatin1(name))); // as the index has paths
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            QVERIFY(file.write(bytes) == bytes.size());
+            file.close();
+            const ContentIndexer::FileText fromFile = ContentIndexer::readFile(path.toStdWString(), 64ll << 20, {});
+            const std::optional<std::uint32_t> stamp = ContentIndexer::stampOf(path.toStdWString());
+            QVERIFY(stamp);
+            const ContentIndexer::FileText fromBytes
+                = ContentIndexer::collectText({bytes.constData(), static_cast<std::size_t>(bytes.size())}, *stamp);
+            QCOMPARE(fromBytes.outcome, fromFile.outcome);
+            QCOMPARE(fromBytes.stamp, fromFile.stamp);
+            QVERIFY2(fromBytes.keys == fromFile.keys, name);
+            QVERIFY(fromBytes.outcome == ContentIndexer::Outcome::Empty || !fromBytes.keys.empty());
+        };
+        check("ascii.txt", QByteArray("The quick brown fox jumps over the lazy dog.\nfor (int i = 0; i < n; ++i)\n"));
+        check("utf8.md", QString(u"季度报告：第三季度收入增长 12%，详见附录。\nUnicode café naïve 日本語テキスト\n"_s).toUtf8());
+        QByteArray utf16;
+        utf16.append("\xFF\xFE", 2);
+        const QString wide = u"合同编号 2026-10 甲方乙方 WinShun"_s;
+        utf16.append(reinterpret_cast<const char*>(wide.utf16()), wide.size() * 2);
+        check("utf16.txt", utf16);
+        // Longer than a chunk (ContentScanner::kChunkBytes): several feeds,
+        // words running across the chunk boundary.
+        QByteArray big;
+        const char* words[] = {"alpha", "beta", "gamma", "delta", "报告", "合同", "epsilon"};
+        while (big.size() < static_cast<qsizetype>(ContentScanner::kChunkBytes) * 2 + 777) {
+            big.append(words[rng() % std::size(words)]);
+            big.append(rng() % 7 == 0 ? '\n' : ' ');
+        }
+        check("big.txt", big);
+        check("empty.txt", QByteArray());
+        QByteArray binary(3000, '\0');
+        for (char& c : binary)
+            c = static_cast<char>(rng());
+        check("binary.dat", binary);
     }
 
     void usnRecords()

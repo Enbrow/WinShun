@@ -150,6 +150,7 @@ IndexService::IndexService(QString folder, Options options, QObject* parent)
     ContentIndexer::Source source;
     source.index = [this] { return m_index.load(); };
     source.volumes = [this] { return contentVolumes(); };
+    source.access = [this] { return m_access.load(); }; // the bulk reads of a first build
     // Ready once the volumes are known too: a snapshot makes the index Ready
     // before that, and a content pass then found no volume to read and slept
     // for 15 minutes (after an upgrade that rebuilds the content index).
@@ -1310,7 +1311,7 @@ std::vector<ContentIndexer::Volume> IndexService::contentVolumes() const
     std::vector<ContentIndexer::Volume> out;
     for (std::size_t i = 0; i < m_volumes.size() && i < m_journals.size(); ++i) {
         if (m_journals[i].journalId != 0)
-            out.push_back({toUtf8(m_volumes[i].root), contains(m_suspended, m_volumes[i].root)});
+            out.push_back({toUtf8(m_volumes[i].root), contains(m_suspended, m_volumes[i].root), m_volumes[i].serial});
     }
     return out;
 }

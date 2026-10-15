@@ -16,6 +16,7 @@
 #include <atomic>
 #include <deque>
 #include <limits>
+#include <optional>
 
 using namespace std::chrono_literals;
 
@@ -32,6 +33,27 @@ constexpr int kHardDiskReadsQuiet = 1;
 constexpr DWORD kAwayAfterMs = 2 * 60 * 1000;
 constexpr auto kAfterSearchBox = std::chrono::seconds(5); // closed, before files are read again: searching again
 constexpr std::size_t kChunkBytes = ContentScanner::kChunkBytes;
+// The bulk way (ContentIndexer.h): from this many text files to read for the
+// first time on; files written within kBulkRecent are left to the usual way
+// (what was just written may not be on the disk yet: the volume is read
+// unbuffered); a session's files are fetched in batches of up to
+// kBulkBatchBytes, and no more than kBulkPendingBytes wait in memory for a
+// thread to take their grams.
+constexpr std::size_t kBulkThreshold = 2000;
+constexpr FileTime kBulkRecent = 5 * 60; // seconds
+constexpr std::uint64_t kBulkBatchBytes = 64ull << 20;
+constexpr std::size_t kBulkPendingBytes = 256u << 20;
+
+// WINSHUN_BULK_VERIFY=1: every file read the bulk way is read the usual way
+// too, and the grams compared (wsbench --service --content reports).
+bool bulkVerify()
+{
+    static const bool on = [] {
+        wchar_t value[8] {};
+        return ::GetEnvironmentVariableW(L"WINSHUN_BULK_VERIFY", value, 8) > 0 && value[0] == L'1';
+    }();
+    return on;
+}
 
 // How many files are read at once. Opening one costs the antivirus several
 // milliseconds of processor time (measured with Defender: about 7 ms), in its
@@ -319,6 +341,13 @@ bool ContentIndexer::enabled()
     return m_options.enabled;
 }
 
+ContentIndexer::BulkStats ContentIndexer::bulkStats() const noexcept
+{
+    return {m_bulk.sessions.load(), m_bulk.sessionsFailed.load(), m_bulk.files.load(), m_bulk.bytes.load(),
+        m_bulk.tooLarge.load(), m_bulk.recent.load(), m_bulk.noRecord.load(), m_bulk.notFound.load(), m_bulk.denied.load(),
+        m_bulk.fallback.load(), m_bulk.verified.load(), m_bulk.verifyMismatches.load()};
+}
+
 void ContentIndexer::wake()
 {
     {
@@ -604,7 +633,64 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
     Queue& documents = queues.emplace_back();
     documents.room = away ? documentProcesses() : std::max(1, documentProcesses() / 2);
     Queue& others = queues.emplace_back();
+
+    // The bulk way (ContentIndexer.h): the text files to read for the first
+    // time, when there are enough of them and the volumes can be read by
+    // their records. Each goes to its volume's session instead of a queue;
+    // what a session does not give comes back to the usual way (`late`).
+    struct BulkVolume {
+        std::size_t volume;
+        std::vector<const Work*> files;
+        std::unordered_map<EntryId, std::uint32_t> folderRecord; // the index keeps the folders' MFT record numbers
+    };
+    std::vector<BulkVolume> bulkVolumes;
+    const std::shared_ptr<ntfs::VolumeAccess> access = m_source.access ? m_source.access() : nullptr;
+    if (access && access->kind() != ntfs::VolumeAccess::Kind::None) {
+        const auto lock = index->readLock();
+        const auto now = static_cast<FileTime>(
+            std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+        std::vector<EntryId> rootOf(volumes.size(), kNoEntry);
+        for (const EntryId r : index->roots()) {
+            for (std::size_t v = 0; v < volumes.size(); ++v) {
+                if (index->name(r) == volumes[v].root)
+                    rootOf[v] = r;
+            }
+        }
+        std::vector<std::vector<const Work*>> perVolume(volumes.size());
+        std::size_t candidates = 0;
+        std::size_t recent = 0;
+        for (const Work& w : work) {
+            if (w.checkOnly || w.again || w.document || volumes[w.volume].suspended || rootOf[w.volume] == kNoEntry)
+                continue;
+            // Written lately (the time is the journal's, so it is current):
+            // what was written may not be on the disk yet.
+            if (index->modified(w.entry) + kBulkRecent > now) {
+                ++recent;
+                continue;
+            }
+            perVolume[w.volume].push_back(&w);
+            ++candidates;
+        }
+        if (candidates >= kBulkThreshold) {
+            m_bulk.recent += recent;
+            for (std::size_t v = 0; v < volumes.size(); ++v) {
+                if (perVolume[v].empty())
+                    continue;
+                BulkVolume bv {v, std::move(perVolume[v]), {}};
+                if (const RecordTable* table = index->folderRecords(rootOf[v]))
+                    table->forEach([&](std::uint32_t record, EntryId folder) { bv.folderRecord[folder] = record; });
+                bulkVolumes.push_back(std::move(bv));
+            }
+        }
+    }
+    std::vector<bool> inBulk(work.size(), false);
+    for (const BulkVolume& bv : bulkVolumes) {
+        for (const Work* w : bv.files)
+            inBulk[static_cast<std::size_t>(w - work.data())] = true;
+    }
     for (const Work& w : work) {
+        if (inBulk[static_cast<std::size_t>(&w - work.data())])
+            continue;
         Queue* q = hardDiskQueue[w.volume];
         (q ? *q : w.document ? documents : others).files.push_back(&w);
     }
@@ -646,6 +732,29 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
     const auto waitOn = [&](std::condition_variable& cv, std::chrono::milliseconds most) {
         std::unique_lock lock(gateMutex);
         cv.wait_for(lock, most);
+    };
+
+    // The bulk way's hand-overs: files whose bytes a session delivered, for a
+    // reader thread to take the grams out of (`ready`: kBulkPendingBytes of
+    // them at most), and files a session will not give, for the usual way
+    // (`late`). `feeders`: sessions still at work.
+    struct Ready {
+        const Work* work;
+        std::uint64_t since;
+        std::uint32_t stamp;
+        std::vector<std::byte> bytes;
+    };
+    std::mutex bulkMutex;
+    std::condition_variable bulkRoom; // pending bytes went down (or the pass ends)
+    std::deque<Ready> ready;
+    std::deque<const Work*> late;
+    std::size_t pendingBytes = 0; // under bulkMutex
+    std::atomic<int> feeders {static_cast<int>(bulkVolumes.size())};
+    const auto bulkLeft = [&] {
+        if (feeders.load() > 0)
+            return true;
+        std::lock_guard lock(bulkMutex);
+        return !ready.empty() || !late.empty();
     };
 
     const auto anyLeft = [](const std::vector<Queue*>& mine) {
@@ -752,13 +861,44 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
         }
         return true;
     };
+    // The grams of a file the bulk way delivered, into the index; false when
+    // the index has no room left.
+    const auto takeGrams = [&](Ready& r) {
+        const Work& w = *r.work;
+        if (m_content->knows(w.entry))
+            return true; // a search read it meanwhile (Intake)
+        const FileText text = collectText({reinterpret_cast<const char*>(r.bytes.data()), r.bytes.size()}, r.stamp);
+        if (bulkVerify()) {
+            // The file the usual way too: the same grams?
+            std::wstring path;
+            {
+                const auto lock = index->readLock();
+                path = index->wpath(w.entry);
+            }
+            const FileText again = readFile(path, options.sizeLimits.of(path), cancelled);
+            ++m_bulk.verified;
+            if (again.outcome != text.outcome || again.keys != text.keys || again.stamp != text.stamp) {
+                ++m_bulk.verifyMismatches;
+                qWarning("WinShun: the bulk read of %ls differs from the file: %zu grams (outcome %d, stamp %u) against %zu "
+                         "(outcome %d, stamp %u) from %zu bytes",
+                    path.c_str(), text.keys.size(), static_cast<int>(text.outcome), text.stamp, again.keys.size(),
+                    static_cast<int>(again.outcome), again.stamp, r.bytes.size());
+            }
+        }
+        if (!m_content->add(w.entry, text.keys, text.outcome == Outcome::Empty, text.stamp, r.since, {}, false))
+            return false;
+        ++added;
+        ++m_bulk.files;
+        m_bulk.bytes += r.bytes.size();
+        return true;
+    };
     const auto worker = [&](int t) {
         const bool forDocuments = t < documentThreads;
         const std::vector<Queue*>& mine = forDocuments ? documentQueues : readerQueues;
         std::wstring path;
         while (!cancelled() && !full.load()) {
             if (hold.load() || (!forDocuments && t - documentThreads >= allowed.load())) {
-                if (!anyLeft(mine))
+                if (!anyLeft(mine) && (forDocuments || !bulkLeft()))
                     break; // the threads that may read took them all
                 waitOn(gate, 1s);
                 continue;
@@ -769,14 +909,46 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
             }
             // Announced before looking at `hold`: a merge waits for it.
             busy.fetch_add(1);
+            if (!forDocuments && !hold.load()) {
+                // The bulk way's hand-overs first: their bytes are in memory
+                // already; then the files it would not give.
+                std::optional<Ready> delivered;
+                const Work* lateWork = nullptr;
+                {
+                    std::lock_guard lock(bulkMutex);
+                    if (!ready.empty()) {
+                        delivered = std::move(ready.front());
+                        ready.pop_front();
+                        pendingBytes -= delivered->bytes.size();
+                    } else if (!late.empty()) {
+                        lateWork = late.front();
+                        late.pop_front();
+                    }
+                }
+                if (delivered) {
+                    bulkRoom.notify_all();
+                    if (!takeGrams(*delivered))
+                        full = true;
+                    ++m_passDone;
+                    busy.fetch_sub(1);
+                    continue;
+                }
+                if (lateWork) {
+                    if (!read(*lateWork, path, hardDiskQueue[lateWork->volume] != nullptr))
+                        full = true;
+                    ++m_passDone;
+                    busy.fetch_sub(1);
+                    continue;
+                }
+            }
             Queue* from = nullptr;
             bool left = true;
             const Work* w = hold.load() ? nullptr : take(mine, from, left);
             if (!w) {
                 busy.fetch_sub(1);
-                if (!left)
+                if (!left && (forDocuments || !bulkLeft()))
                     break; // all taken
-                waitOn(room, 100ms); // the files left wait for a hard disk or an extractor
+                waitOn(room, 100ms); // the files left wait for a hard disk, an extractor or a session
                 continue;
             }
             if (!read(*w, path, from->hardDisk))
@@ -795,8 +967,175 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
         room.notify_all();
     };
 
+    // One volume's bulk session, on a thread of its own: asks for its files,
+    // records the ones too large from what the scan says, hands the others
+    // back to the usual way, and fetches the bytes of the rest in batches as
+    // memory allows and while nobody searches. What it did not deliver by the
+    // end goes the usual way too.
+    const auto feed = [&](BulkVolume& bv) {
+        const Volume& vol = volumes[bv.volume];
+        const std::wstring root = QString::fromStdString(vol.root).toStdWString();
+        const auto giveBack = [&](const std::vector<const Work*>& files) {
+            if (files.empty())
+                return;
+            {
+                std::lock_guard lock(bulkMutex);
+                late.insert(late.end(), files.begin(), files.end());
+            }
+            room.notify_all();
+        };
+        const auto finish = [&] {
+            --feeders;
+            room.notify_all();
+            bulkRoom.notify_all();
+        };
+        const bool quiet = hardDiskQueue[bv.volume] != nullptr && !awayNow.load();
+        std::unique_ptr<ntfs::BulkSource> session = access->openBulkRead(root, vol.serial, quiet);
+        if (!session || !session->valid()) {
+            if (session)
+                qWarning("WinShun: no bulk read of %ls: %ls", root.c_str(), session->error().c_str());
+            ++m_bulk.sessionsFailed;
+            giveBack(bv.files);
+            finish();
+            return;
+        }
+        ++m_bulk.sessions;
+        // Taken before anything is read: a file written from here on turns
+        // dirty as it is added (ContentIndex::add's `since`).
+        const std::uint64_t since = m_content->changeSequence();
+        std::vector<ntfs::BulkWant> wants;
+        std::vector<const Work*> ticketWork; // the Work of each ticket
+        wants.reserve(bv.files.size());
+        ticketWork.reserve(bv.files.size());
+        std::vector<const Work*> back;
+        {
+            const auto lock = index->readLock();
+            for (const Work* w : bv.files) {
+                const Entry& e = index->entry(w->entry);
+                if (e.isDeleted()) {
+                    ++m_passDone;
+                    continue;
+                }
+                const auto parent = bv.folderRecord.find(e.parent);
+                if (parent == bv.folderRecord.end()) {
+                    ++m_bulk.noRecord;
+                    back.push_back(w);
+                    continue;
+                }
+                std::u16string name;
+                wtf8::decodeAppend(name, index->name(e));
+                wants.push_back({parent->second, std::move(name),
+                    static_cast<std::uint64_t>(std::max<std::int64_t>(0, options.sizeLimits.of(index->wpath(w->entry))))});
+                ticketWork.push_back(w);
+            }
+        }
+        giveBack(back);
+        back.clear();
+        std::vector<ntfs::BulkFile> files;
+        if (cancelled() || !session->want(wants) || !session->scan(files)) {
+            if (!cancelled()) {
+                qWarning("WinShun: the bulk read of %ls did not start: %ls", root.c_str(), session->error().c_str());
+                ++m_bulk.sessionsFailed;
+                giveBack(ticketWork);
+            }
+            finish();
+            return;
+        }
+        // What the session will not give goes the usual way; a file too large
+        // for its limit is recorded from the record alone, as openText would.
+        std::vector<const ntfs::BulkFile*> data; // in the order given: the disk's
+        std::vector<const ntfs::BulkFile*> byTicket(ticketWork.size(), nullptr);
+        for (const ntfs::BulkFile& f : files) {
+            if (f.ticket >= ticketWork.size())
+                continue;
+            byTicket[f.ticket] = &f;
+            const Work* w = ticketWork[f.ticket];
+            switch (f.status) {
+            case ntfs::BulkStatus::Data:
+                data.push_back(&f);
+                break;
+            case ntfs::BulkStatus::TooLarge:
+                if (!m_content->knows(w->entry)) {
+                    if (m_content->add(w->entry, {}, true, ContentIndex::stampOf(static_cast<std::int64_t>(f.size), f.modified),
+                            since, {}, true))
+                        ++added;
+                    else
+                        full = true;
+                }
+                ++m_bulk.tooLarge;
+                ++m_passDone;
+                break;
+            case ntfs::BulkStatus::NotFound:
+                ++m_bulk.notFound;
+                back.push_back(w);
+                break;
+            case ntfs::BulkStatus::Denied:
+                ++m_bulk.denied;
+                back.push_back(w);
+                break;
+            case ntfs::BulkStatus::Fallback:
+                ++m_bulk.fallback;
+                back.push_back(w);
+                break;
+            }
+        }
+        giveBack(back);
+        back.clear();
+        // The bytes, in batches, in the order given.
+        std::vector<bool> got(ticketWork.size(), false);
+        std::size_t at = 0;
+        while (at < data.size() && !cancelled() && !full.load()) {
+            std::vector<std::uint32_t> tickets;
+            std::uint64_t batchBytes = 0;
+            while (at < data.size() && (tickets.empty() || batchBytes + data[at]->size <= kBulkBatchBytes)) {
+                tickets.push_back(data[at]->ticket);
+                batchBytes += data[at]->size;
+                ++at;
+            }
+            {
+                // Room in memory, and nobody searching (the readers wait then too).
+                std::unique_lock lock(bulkMutex);
+                while (!cancelled() && !full.load()
+                    && (pendingBytes + batchBytes > kBulkPendingBytes || hold.load() || m_content->searching() || searchBoxHolds()))
+                    bulkRoom.wait_for(lock, 100ms);
+            }
+            if (cancelled() || full.load())
+                break;
+            const bool fetched = session->fetch(tickets, [&](std::uint32_t ticket, std::vector<std::byte>&& bytes) {
+                if (ticket >= ticketWork.size() || !byTicket[ticket] || got[ticket])
+                    return;
+                got[ticket] = true;
+                const ntfs::BulkFile& f = *byTicket[ticket];
+                std::lock_guard lock(bulkMutex);
+                pendingBytes += bytes.size();
+                ready.push_back({ticketWork[ticket], since,
+                    ContentIndex::stampOf(static_cast<std::int64_t>(f.size), f.modified), std::move(bytes)});
+                room.notify_one();
+            });
+            if (!fetched) {
+                if (!cancelled()) {
+                    qWarning("WinShun: the bulk read of %ls broke: %ls", root.c_str(), session->error().c_str());
+                    ++m_bulk.sessionsFailed;
+                }
+                break;
+            }
+        }
+        session.reset(); // the volume let go of
+        if (!cancelled()) {
+            for (const ntfs::BulkFile* f : data) {
+                if (!got[f->ticket])
+                    back.push_back(ticketWork[f->ticket]);
+            }
+            giveBack(back);
+        }
+        finish();
+    };
+
     m_content->beginReads();
     {
+        std::vector<std::jthread> feederThreads; // joined after the workers: those wait for them
+        for (BulkVolume& bv : bulkVolumes)
+            feederThreads.emplace_back([&feed, &bv] { feed(bv); });
         std::vector<std::jthread> workers;
         for (int t = 0; t < threads; ++t)
             workers.emplace_back(worker, t);
@@ -1002,6 +1341,28 @@ ContentIndexer::FileText ContentIndexer::readFile(std::wstring_view path, std::i
             return out;
         collector.feed(buffer.data(), n);
     }
+    out.keys = collector.finish();
+    out.outcome = Outcome::Indexed;
+    return out;
+}
+
+ContentIndexer::FileText ContentIndexer::collectText(std::span<const char> bytes, std::uint32_t stamp)
+{
+    // As readFile() has it: the encoding from the first chunk, the grams
+    // from the bytes in chunks of the same size.
+    FileText out;
+    out.stamp = stamp;
+    if (bytes.empty()) {
+        out.outcome = Outcome::Empty;
+        return out;
+    }
+    const std::size_t head = std::min(bytes.size(), kChunkBytes);
+    std::size_t bom = 0;
+    const TextEncoding encoding = ContentScanner::detect({bytes.data(), head}, &bom);
+    grams::Collector collector(encoding, ContentScanner::legacyCodePage());
+    collector.feed(bytes.data() + bom, head - bom);
+    for (std::size_t at = head; at < bytes.size(); at += kChunkBytes)
+        collector.feed(bytes.data() + at, std::min(kChunkBytes, bytes.size() - at));
     out.keys = collector.finish();
     out.outcome = Outcome::Indexed;
     return out;

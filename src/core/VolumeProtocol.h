@@ -25,13 +25,19 @@
 //   FollowJournal -> Following | Error; then Read -> UsnBatch | JournalLost,
 //                    Cancel -> Cancelled, any number of times
 //   CloseVolume   -> Closed
-// VolumeLost comes from the service on an MFT or journal connection whose
-// volume it had to let go of (an eject, a lock, or the client's own
+//   OpenBulkRead  -> BulkReady | Error; then BulkWant... BulkScan -> BulkFiles... BulkScanned,
+//                    then BulkFetch -> BulkData... BulkFetched, any number of times
+//                    (the content index's bulk path, Ntfs.h BulkSource; the
+//                    service's HelloOk says whether it has it: kCapabilityBulkRead)
+// VolumeLost comes from the service on an MFT, journal or bulk connection
+// whose volume it had to let go of (an eject, a lock, or the client's own
 // CloseVolume on another connection).
 namespace ws::volproto {
 
 constexpr std::uint16_t kMajor = 1; // different on the two ends: they cannot talk
-constexpr std::uint16_t kMinor = 0; // only ever adds fields at the end of a payload
+constexpr std::uint16_t kMinor = 1; // only ever adds fields at the end of a payload; 1: bulk reads
+constexpr std::uint32_t kCapabilityBulkRead = 1; // HelloOk::capabilities
+constexpr std::size_t kMaxBulkWants = 4u << 20; // files one bulk session may ask about
 constexpr wchar_t kPipeName[] = L"WinShun.Volumes"; // one service for the whole machine
 constexpr wchar_t kPipeEnvironment[] = L"WINSHUN_PIPE"; // another pipe's name, for tests (--console --pipe)
 constexpr wchar_t kServiceName[] = L"WinShun";
@@ -60,6 +66,15 @@ enum class Type : std::uint16_t {
     Closed = 41,
     VolumeLost = 50,
     Error = 60,
+    OpenBulkRead = 70,
+    BulkReady = 71,
+    BulkWant = 72,
+    BulkScan = 73,
+    BulkFiles = 74,
+    BulkScanned = 75,
+    BulkFetch = 76,
+    BulkData = 77,
+    BulkFetched = 78,
 };
 
 std::wstring fullPipePath(std::wstring_view name); // "\\.\pipe\" + name
@@ -136,6 +151,26 @@ struct Closed {
 struct Error {
     std::uint32_t code = 0; // Win32
     std::wstring message;
+};
+
+struct OpenBulkRead {
+    std::wstring root; // "C:"
+    std::uint32_t serial = 0; // 0: not checked
+    bool quiet = false; // a hard disk someone is using: one read at a time, very low I/O priority
+};
+
+struct BulkScanned {
+    std::uint32_t matched = 0; // wants with a record
+    std::uint32_t checks = 0; // access checks made (descriptors fetched)
+};
+
+// A BulkData frame: the header, then the bytes (the rest of the payload). A
+// file longer than a frame comes in several, `offset` moving on; the client
+// has the whole once offset + bytes == total.
+struct BulkDataHeader {
+    std::uint32_t ticket = 0;
+    std::uint64_t offset = 0;
+    std::uint64_t total = 0;
 };
 
 // ---- encoding ----------------------------------------------------------------
@@ -225,6 +260,25 @@ bool decode(std::span<const std::byte> payload, JournalLost& m);
 bool decode(std::span<const std::byte> payload, CloseVolume& m);
 bool decode(std::span<const std::byte> payload, Closed& m);
 bool decode(std::span<const std::byte> payload, Error& m);
+void encode(Writer& w, const OpenBulkRead& m);
+bool decode(std::span<const std::byte> payload, OpenBulkRead& m);
+void encode(Writer& w, const BulkScanned& m);
+bool decode(std::span<const std::byte> payload, BulkScanned& m);
+
+// The bulk frames with lists: each { u32 count } then the items. A BulkWant
+// item is { u32 parentRecord, u64 maxBytes, string name }; the i-th want of
+// the session is ticket i. A BulkFiles item is { u32 ticket, u8 status, u8
+// reason, u64 size, i64 modified }. A BulkFetch item is a u32 ticket. The
+// decoders append to `out`; false for a payload cut short or over
+// kMaxPayloadBytes worth of items.
+void encode(Writer& w, std::span<const ntfs::BulkWant> wants);
+bool decode(std::span<const std::byte> payload, std::vector<ntfs::BulkWant>& out);
+void encode(Writer& w, std::span<const ntfs::BulkFile> files);
+bool decode(std::span<const std::byte> payload, std::vector<ntfs::BulkFile>& out);
+void encode(Writer& w, std::span<const std::uint32_t> tickets);
+bool decode(std::span<const std::byte> payload, std::vector<std::uint32_t>& out);
+void encode(Writer& w, const BulkDataHeader& m, std::span<const std::byte> bytes);
+bool decode(std::span<const std::byte> payload, BulkDataHeader& m, std::span<const std::byte>& bytes);
 
 // An MftBlock: { u32 firstRecord, u32 count, u64 bytesDone }, then `count`
 // records in order, each { u8 kind } and, for a record in use, { u32

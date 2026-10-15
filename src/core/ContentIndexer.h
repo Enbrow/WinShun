@@ -3,6 +3,7 @@
 #include "ContentIndex.h"
 #include "ContentScanner.h"
 #include "DocExtractor.h"
+#include "Ntfs.h"
 
 #include <QStringList>
 
@@ -15,6 +16,7 @@
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
+#include <span>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -39,6 +41,17 @@ namespace ws {
 // (the same bytes) get its document without being read. Small segments are
 // merged while files are read; everything, on as many threads as read
 // files, once they are all in.
+//
+// A first build (or a rebuild) has hundreds of thousands of text files to
+// read for the first time, and the antivirus scans each one as it is
+// opened. Those go the bulk way when there are enough of them (kBulk*):
+// per volume, a session with the index service (or the volume itself, when
+// this program may read it: ntfs::VolumeAccess::openBulkRead) that reads
+// their bytes off the volume by their MFT records, in disk order, with no
+// file opened; the grams are taken out here as from a file. Files written
+// lately, documents, and whatever the session will not give (compressed,
+// encrypted, reparse points, not readable by this user, not found) are read
+// the usual way instead; nothing is lost, only read differently.
 class ContentIndexer {
 public:
     struct Options {
@@ -54,12 +67,30 @@ public:
     struct Volume {
         std::string root; // "C:"
         bool suspended = false; // being ejected or locked: not touched, its documents kept
+        std::uint32_t serial = 0; // VolumeInfo's, for the bulk reads (0: not checked)
     };
     struct Source {
         std::function<std::shared_ptr<FileIndex>()> index;
         std::function<std::vector<Volume>()> volumes; // those followed through their change journal
         std::function<bool()> ready; // the file index is complete
+        std::function<std::shared_ptr<ntfs::VolumeAccess>()> access; // for the bulk reads; may be empty: none
     };
+    // How the bulk way went, all told (for the settings and wsbench).
+    struct BulkStats {
+        std::size_t sessions = 0; // opened
+        std::size_t sessionsFailed = 0; // could not be opened, or broke (their files were read the usual way)
+        std::size_t files = 0; // read in bulk
+        std::uint64_t bytes = 0;
+        std::size_t tooLarge = 0; // recorded as too large from the record, without a read
+        std::size_t recent = 0; // written lately: kept to the usual way
+        std::size_t noRecord = 0; // the folder's record is not known: the usual way
+        std::size_t notFound = 0; // the session found no record (the usual way)
+        std::size_t denied = 0; // this user may not read it, said the service (the usual way: ACCESS_DENIED)
+        std::size_t fallback = 0; // compressed, encrypted, reparse points...: the usual way
+        std::size_t verified = 0; // WINSHUN_BULK_VERIFY: read the usual way too and compared
+        std::size_t verifyMismatches = 0;
+    };
+    BulkStats bulkStats() const noexcept;
     struct Timing {
         // From starting to the first pass, to let logging on settle; when
         // nothing has been read yet (the first run), no wait. Either way the
@@ -127,6 +158,9 @@ public:
     // A document (isDocumentPath) goes to `documents`; without it, it is skipped.
     static FileText readFile(std::wstring_view path, std::int64_t maxBytes, const std::function<bool()>& cancelled,
         DocExtractor* documents = nullptr, HardDisk disk = {});
+    // A text file's bytes, read elsewhere (the bulk way): the same grams as
+    // readFile() takes from the file, with `stamp` (ContentIndex::stampOf).
+    static FileText collectText(std::span<const char> bytes, std::uint32_t stamp);
     static std::optional<std::uint32_t> stampOf(std::wstring_view path); // size and time only
     // A content search's read of a file: `scanner` looks for its phrase while
     // the whole file is read for the index (the rest of it after a match).
@@ -200,6 +234,11 @@ private:
     std::atomic<std::size_t> m_passDone {0};
     std::atomic<std::size_t> m_passTotal {0};
     std::atomic<std::size_t> m_copies {0};
+    struct BulkCounters {
+        std::atomic<std::size_t> sessions {0}, sessionsFailed {0}, files {0}, tooLarge {0}, recent {0}, noRecord {0},
+            notFound {0}, denied {0}, fallback {0}, verified {0}, verifyMismatches {0};
+        std::atomic<std::uint64_t> bytes {0};
+    } m_bulk;
     // Files read lately, and when: one that keeps changing (a log being
     // written) is read at most every Timing::cooldown; meanwhile searches
     // read it themselves.

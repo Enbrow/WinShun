@@ -47,6 +47,8 @@ public:
     // Asks the service to let go of everything it opened on this process's
     // behalf on the volume, and waits (2 s at most) for it to say so.
     void closeVolume(std::wstring_view root) override;
+    // Null when the service is an older one without bulk reads.
+    std::unique_ptr<BulkSource> openBulkRead(std::wstring_view root, std::uint32_t serial, bool quiet) override;
 
     // How long a journal source keeps trying to reach the service again
     // before it gives the journal up as lost (30 s; tests shorten it).

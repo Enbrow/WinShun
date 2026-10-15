@@ -1,25 +1,33 @@
 // WinShunService.exe: the index service (GitHub #21). Win顺 itself runs with
 // the user's normal rights; this service (LocalSystem, "WinShun") does the
-// two things those rights cannot: read the NTFS volumes' master file tables
-// and their change journals. It streams the parsed records over the pipe
-// \\.\pipe\WinShun.Volumes (src/core/VolumeProtocol.h) to any interactive
-// user's program that asks; the index itself stays in WinShun.exe. It never
-// hands out raw volume bytes or handles, holds no volume open between
-// requests, and keeps nothing in memory.
+// things those rights cannot: read the NTFS volumes' master file tables and
+// their change journals, and, for the content index's first build, the
+// contents of files off the volume by their MFT records (no file is opened,
+// so the antivirus does not scan each one). It streams the parsed records
+// over the pipe \\.\pipe\WinShun.Volumes (src/core/VolumeProtocol.h) to any
+// interactive user's program that asks; the index itself stays in
+// WinShun.exe. It never hands out raw sectors, raw records or handles; a
+// file's contents go only to a client whose own token passes an access check
+// (AccessCheck for FILE_GENERIC_READ) against that file's security
+// descriptor, and only for files the service found itself from the folder
+// record and name the client gave (never a path, a cluster or an offset). It
+// holds no volume open between requests, and keeps nothing in memory.
 //
 //   WinShunService.exe                  as a service (the Service Control Manager starts it)
 //   WinShunService.exe --install        registers and starts it (the installer; administrator)
 //   WinShunService.exe --uninstall      stops and removes it
-//   WinShunService.exe --console [--pipe NAME] [--no-privileges]
+//   WinShunService.exe --console [--pipe NAME] [--no-privileges] [--no-bulk]
 //                                       the same server in this console (administrator), for
 //                                       tests: Win顺 and tst_service reach it with WINSHUN_PIPE=NAME;
 //                                       --no-privileges drops every privilege but
-//                                       SeChangeNotifyPrivilege first, as the service runs
+//                                       SeChangeNotifyPrivilege first, as the service runs;
+//                                       --no-bulk: without the bulk reads, as an older service
 //
-// Like Everything's service, it filters nothing by the caller's permissions:
-// any interactive user on this computer can learn the names, folders,
-// attributes and times of every file on every local NTFS volume (not their
-// contents). docs/architecture.md says so.
+// Like Everything's service, it filters nothing by the caller's permissions
+// where names are concerned: any interactive user on this computer can learn
+// the names, folders, attributes and times of every file on every local NTFS
+// volume. Contents it filters: each file's by the caller's own rights.
+// docs/architecture.md says so.
 
 #include "Log.h"
 #include "Server.h"
@@ -89,10 +97,12 @@ DWORD WINAPI handler(DWORD control, DWORD eventType, void* eventData, void*)
 // from a window of its own. Returns the Win32 error that kept it from
 // listening, else 0.
 template <typename Running>
-DWORD serve(const std::wstring& pipeName, HANDLE stop, HANDLE recipient, DWORD recipientFlags, Running running)
+DWORD serve(const std::wstring& pipeName, HANDLE stop, HANDLE recipient, DWORD recipientFlags, Running running,
+    bool bulkReads = true)
 {
     Server::Options options;
     options.pipeName = pipeName;
+    options.bulkReads = bulkReads;
     Server server(options);
     DeviceWatch watch(recipient, recipientFlags, [&](const std::wstring& root) { server.closeVolume(root, 0, 2000); });
     g_deviceWatch = &watch;
@@ -160,7 +170,7 @@ BOOL WINAPI onConsoleControl(DWORD)
     return TRUE;
 }
 
-int runConsole(const std::wstring& pipeName, bool noPrivileges)
+int runConsole(const std::wstring& pipeName, bool noPrivileges, bool noBulk)
 {
     ws::service::log::toConsole();
     if (noPrivileges && !dropPrivileges()) {
@@ -169,12 +179,15 @@ int runConsole(const std::wstring& pipeName, bool noPrivileges)
     }
     g_stopEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
     ::SetConsoleCtrlHandler(onConsoleControl, TRUE);
-    return static_cast<int>(serve(pipeName, g_stopEvent, nullptr, 0, [&] {
-        // "ready" on stdout: the tests wait for it.
-        std::fwprintf(stdout, L"ready: WinShun index service %hs on \\\\.\\pipe\\%ls; Ctrl+C stops it\n",
-            WINSHUN_VERSION, pipeName.c_str());
-        std::fflush(stdout);
-    }));
+    return static_cast<int>(serve(
+        pipeName, g_stopEvent, nullptr, 0,
+        [&] {
+            // "ready" on stdout: the tests wait for it.
+            std::fwprintf(stdout, L"ready: WinShun index service %hs on \\\\.\\pipe\\%ls; Ctrl+C stops it\n",
+                WINSHUN_VERSION, pipeName.c_str());
+            std::fflush(stdout);
+        },
+        !noBulk));
 }
 
 // ---- --install / --uninstall ------------------------------------------------------
@@ -286,7 +299,7 @@ int usage()
         L"WinShunService.exe: the index service of Win顺 (WinShun) %hs\n"
         L"  --install              register and start the service (as administrator)\n"
         L"  --uninstall            stop and remove it\n"
-        L"  --console [--pipe NAME] [--no-privileges]\n"
+        L"  --console [--pipe NAME] [--no-privileges] [--no-bulk]\n"
         L"                         serve in this console instead (as administrator), for tests\n",
         WINSHUN_VERSION);
     return 1;
@@ -306,15 +319,18 @@ int wmain(int argc, wchar_t** argv)
         if (option == L"--console") {
             std::wstring pipe = ws::volproto::kPipeName;
             bool noPrivileges = false;
+            bool noBulk = false;
             for (int i = 2; i < argc; ++i) {
                 if (std::wstring_view(argv[i]) == L"--pipe" && i + 1 < argc)
                     pipe = argv[++i];
                 else if (std::wstring_view(argv[i]) == L"--no-privileges")
                     noPrivileges = true;
+                else if (std::wstring_view(argv[i]) == L"--no-bulk")
+                    noBulk = true;
                 else
                     return usage();
             }
-            return runConsole(pipe, noPrivileges);
+            return runConsole(pipe, noPrivileges, noBulk);
         }
         return usage();
     }

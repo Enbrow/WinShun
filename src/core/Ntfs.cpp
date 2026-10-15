@@ -160,6 +160,11 @@ std::vector<Extent> retrievalPointers(std::wstring_view root, std::uint32_t clus
 
 } // namespace
 
+std::vector<Extent> mftExtents(std::wstring_view root, std::uint32_t clusterSize)
+{
+    return retrievalPointers(root, clusterSize);
+}
+
 bool parseFileRecord(std::byte* data, std::size_t size, FileRecord& out)
 {
     out.inUse = false;

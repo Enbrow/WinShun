@@ -22,16 +22,21 @@ namespace ws::service {
 // (its MFT or change journal), the connection is bound to that volume, so
 // that the volume can be let go of from outside (Server::closeVolume): the
 // thread sees `abort` set, closes what it holds and sets `released`.
+// What a connection holds a volume for: a journal (any number per process),
+// an MFT read or a bulk read (one each per process and volume).
+enum class Bind : std::uint8_t { Journal, Mft, Bulk };
+
 struct Connection {
     volproto::Channel channel;
     std::uint32_t id = 0;
     DWORD pid = 0; // the client process, as the pipe reports it
     std::wstring root; // "C:" while bound
     bool bound = false; // holds (or is about to hold) a handle on `root`; under Server's mutex
-    bool mft = false; // bound for an MFT read (one per process and volume)
+    Bind kind = Bind::Journal; // while bound
     HANDLE abort = nullptr; // manual-reset: let go of the volume (or stop altogether)
     HANDLE released = nullptr; // manual-reset: nothing held on the volume any more
     void* watch = nullptr; // DeviceWatch's token while bound
+    HANDLE token = nullptr; // the client's identification token, while a bulk read checks access with it
 
     ~Connection() // the events live as long as anyone waiting on them holds the connection
     {
@@ -39,6 +44,8 @@ struct Connection {
             ::CloseHandle(abort);
         if (released)
             ::CloseHandle(released);
+        if (token)
+            ::CloseHandle(token);
     }
 };
 
@@ -89,6 +96,7 @@ public:
         unsigned maxPerProcess = 16; // connections one client process may hold
         DWORD helloTimeoutMs = 10'000; // for the handshake and the request after it
         DWORD writeTimeoutMs = 10'000; // a client that does not read for this long is dropped
+        bool bulkReads = true; // --console --no-bulk: as a service without them (tests)
     };
     explicit Server(Options options);
     ~Server();
@@ -102,9 +110,9 @@ public:
     void stop(); // ends every connection, waits for their threads (a while at most)
     unsigned connectionCount() const;
 
-    // Binds `conn` to `root` for an MFT read or a journal: false when the
-    // process already reads that volume's MFT (one at a time per process).
-    bool bind(Connection& conn, std::wstring root, bool mft);
+    // Binds `conn` to `root` for `kind`: false when the process already holds
+    // the volume for an MFT or bulk read of that kind (one at a time per process).
+    bool bind(Connection& conn, std::wstring root, Bind kind);
     void unbind(Connection& conn);
     // Has every connection bound to `root` (of process `pid`, or of all with
     // 0) let go of it, and waits up to `waitMs` for them to say so. Returns
@@ -136,6 +144,7 @@ void serveOpenMft(Server& server, Connection& conn, std::span<const std::byte> p
 void serveQueryJournal(Server& server, Connection& conn, std::span<const std::byte> payload);
 void serveFollowJournal(Server& server, Connection& conn, std::span<const std::byte> payload);
 void serveCloseVolume(Server& server, Connection& conn, std::span<const std::byte> payload);
+void serveOpenBulkRead(Server& server, Connection& conn, std::span<const std::byte> payload);
 // A reply with nothing in it, or an error.
 bool reply(Connection& conn, volproto::Type type, DWORD timeoutMs);
 bool replyError(Connection& conn, DWORD code, const wchar_t* message, DWORD timeoutMs);

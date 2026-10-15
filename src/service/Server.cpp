@@ -360,6 +360,7 @@ bool Server::handshake(Connection& conn)
     ok.version[0] = WINSHUN_VERSION_MAJOR;
     ok.version[1] = WINSHUN_VERSION_MINOR;
     ok.version[2] = WINSHUN_VERSION_PATCH;
+    ok.capabilities = m_options.bulkReads ? kCapabilityBulkRead : 0;
     encode(w, ok);
     return conn.channel.write(w.finish(Type::HelloOk), m_options.writeTimeoutMs);
 }
@@ -383,6 +384,9 @@ void Server::serve(std::shared_ptr<Connection> conn)
             case Type::CloseVolume:
                 serveCloseVolume(*this, *conn, payload);
                 break;
+            case Type::OpenBulkRead:
+                serveOpenBulkRead(*this, *conn, payload);
+                break;
             default:
                 log::write(L"pid %lu: unknown request %u", conn->pid, static_cast<unsigned>(type));
                 replyError(*conn, ERROR_INVALID_FUNCTION, L"unknown request", m_options.writeTimeoutMs);
@@ -402,19 +406,20 @@ void Server::serve(std::shared_ptr<Connection> conn)
     m_finished.notify_all();
 }
 
-bool Server::bind(Connection& conn, std::wstring root, bool mft)
+bool Server::bind(Connection& conn, std::wstring root, Bind kind)
 {
     {
         const std::lock_guard lock(m_mutex);
-        if (mft) {
+        if (kind != Bind::Journal) {
             for (const auto& c : m_connections) {
-                if (c.get() != &conn && c->bound && c->mft && c->pid == conn.pid && win32::equalsIgnoreCase(c->root, root))
+                if (c.get() != &conn && c->bound && c->kind == kind && c->pid == conn.pid
+                    && win32::equalsIgnoreCase(c->root, root))
                     return false;
             }
         }
         conn.root = std::move(root);
         conn.bound = true;
-        conn.mft = mft;
+        conn.kind = kind;
         ::ResetEvent(conn.released);
     }
     if (m_watch)
@@ -430,7 +435,7 @@ void Server::unbind(Connection& conn)
         if (!conn.bound)
             return;
         conn.bound = false;
-        conn.mft = false;
+        conn.kind = Bind::Journal;
         watch = std::exchange(conn.watch, nullptr);
         ::SetEvent(conn.released);
     }

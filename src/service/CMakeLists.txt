@@ -11,6 +11,7 @@ add_executable(WinShunService
     Server.cpp Server.h
     Volumes.cpp
     ${PROJECT_SOURCE_DIR}/src/core/Ntfs.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/NtfsBulk.cpp
     ${PROJECT_SOURCE_DIR}/src/core/VolumeProtocol.cpp
     ${PROJECT_SOURCE_DIR}/resources/WinShunService.rc)
 target_include_directories(WinShunService PRIVATE ${PROJECT_SOURCE_DIR}/src/core)

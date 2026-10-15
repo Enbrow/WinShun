@@ -23,6 +23,7 @@ qt_add_library(wscore STATIC
     IndexService.cpp IndexService.h
     NameSearch.cpp NameSearch.h
     Ntfs.cpp Ntfs.h
+    NtfsBulk.cpp NtfsBulk.h
     NtfsIndexer.cpp NtfsIndexer.h
     PathText.cpp PathText.h
     Pinyin.cpp Pinyin.h

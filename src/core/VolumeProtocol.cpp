@@ -366,6 +366,130 @@ bool decode(std::span<const std::byte> payload, Error& m)
     return r.u32(m.code) && r.string(m.message);
 }
 
+void encode(Writer& w, const OpenBulkRead& m)
+{
+    w.string(m.root);
+    w.u32(m.serial);
+    w.u8(m.quiet ? 1 : 0);
+}
+
+bool decode(std::span<const std::byte> payload, OpenBulkRead& m)
+{
+    Reader r(payload);
+    return r.string(m.root) && r.u32(m.serial) && r.boolean(m.quiet) && validRoot(m.root);
+}
+
+void encode(Writer& w, const BulkScanned& m)
+{
+    w.u32(m.matched);
+    w.u32(m.checks);
+}
+
+bool decode(std::span<const std::byte> payload, BulkScanned& m)
+{
+    Reader r(payload);
+    return r.u32(m.matched) && r.u32(m.checks);
+}
+
+void encode(Writer& w, std::span<const ntfs::BulkWant> wants)
+{
+    w.u32(static_cast<std::uint32_t>(wants.size()));
+    for (const ntfs::BulkWant& want : wants) {
+        w.u32(want.parentRecord);
+        w.u64(want.maxBytes);
+        w.string(std::u16string_view(want.name));
+    }
+}
+
+bool decode(std::span<const std::byte> payload, std::vector<ntfs::BulkWant>& out)
+{
+    Reader r(payload);
+    std::uint32_t count = 0;
+    if (!r.u32(count) || count > payload.size() / 14) // at least 14 bytes each
+        return false;
+    out.reserve(out.size() + count);
+    for (std::uint32_t i = 0; i < count; ++i) {
+        ntfs::BulkWant want;
+        std::u16string_view name;
+        if (!r.u32(want.parentRecord) || !r.u64(want.maxBytes) || !r.string(name) || name.empty())
+            return false;
+        want.name.assign(name);
+        out.push_back(std::move(want));
+    }
+    return r.done();
+}
+
+void encode(Writer& w, std::span<const ntfs::BulkFile> files)
+{
+    w.u32(static_cast<std::uint32_t>(files.size()));
+    for (const ntfs::BulkFile& f : files) {
+        w.u32(f.ticket);
+        w.u8(static_cast<std::uint8_t>(f.status));
+        w.u8(static_cast<std::uint8_t>(f.reason));
+        w.u64(f.size);
+        w.i64(f.modified);
+    }
+}
+
+bool decode(std::span<const std::byte> payload, std::vector<ntfs::BulkFile>& out)
+{
+    Reader r(payload);
+    std::uint32_t count = 0;
+    if (!r.u32(count) || count > payload.size() / 22)
+        return false;
+    out.reserve(out.size() + count);
+    for (std::uint32_t i = 0; i < count; ++i) {
+        ntfs::BulkFile f {};
+        std::uint8_t status = 0, reason = 0;
+        if (!r.u32(f.ticket) || !r.u8(status) || !r.u8(reason) || !r.u64(f.size) || !r.i64(f.modified)
+            || status > static_cast<std::uint8_t>(ntfs::BulkStatus::TooLarge)
+            || reason > static_cast<std::uint8_t>(ntfs::BulkSkip::TooLarge))
+            return false;
+        f.status = static_cast<ntfs::BulkStatus>(status);
+        f.reason = static_cast<ntfs::BulkSkip>(reason);
+        out.push_back(f);
+    }
+    return r.done();
+}
+
+void encode(Writer& w, std::span<const std::uint32_t> tickets)
+{
+    w.u32(static_cast<std::uint32_t>(tickets.size()));
+    for (const std::uint32_t t : tickets)
+        w.u32(t);
+}
+
+bool decode(std::span<const std::byte> payload, std::vector<std::uint32_t>& out)
+{
+    Reader r(payload);
+    std::uint32_t count = 0;
+    if (!r.u32(count) || count > payload.size() / 4)
+        return false;
+    out.reserve(out.size() + count);
+    for (std::uint32_t i = 0; i < count; ++i) {
+        std::uint32_t t = 0;
+        if (!r.u32(t))
+            return false;
+        out.push_back(t);
+    }
+    return r.done();
+}
+
+void encode(Writer& w, const BulkDataHeader& m, std::span<const std::byte> bytes)
+{
+    w.u32(m.ticket);
+    w.u64(m.offset);
+    w.u64(m.total);
+    w.bytes(bytes);
+}
+
+bool decode(std::span<const std::byte> payload, BulkDataHeader& m, std::span<const std::byte>& bytes)
+{
+    Reader r(payload);
+    return r.u32(m.ticket) && r.u64(m.offset) && r.u64(m.total) && r.bytes(bytes, r.left()) && m.offset <= m.total
+        && bytes.size() <= m.total - m.offset;
+}
+
 // ---- MftBlock ----------------------------------------------------------------
 
 void BlockWriter::begin(std::uint32_t firstRecord)

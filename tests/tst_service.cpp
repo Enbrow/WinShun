@@ -24,9 +24,13 @@
 #include <QUuid>
 
 #include <windows.h>
+#include <aclapi.h>
+#include <sddl.h>
 #include <winioctl.h>
 
 #include <atomic>
+#include <map>
+#include <random>
 #include <chrono>
 #include <cstring>
 #include <memory>
@@ -199,6 +203,10 @@ struct CountingAccess final : ntfs::VolumeAccess {
         return inner.openJournal(root, serial, journalId);
     }
     void closeVolume(std::wstring_view root) override { inner.closeVolume(root); }
+    std::unique_ptr<ntfs::BulkSource> openBulkRead(std::wstring_view root, std::uint32_t serial, bool quiet) override
+    {
+        return inner.openBulkRead(root, serial, quiet);
+    }
 };
 
 // Whether `path` is in the index (with its read lock, as the app looks).
@@ -763,6 +771,262 @@ private slots:
         QTest::qWait(300);
         ntfs::ServiceVolumeAccess access(m_pipe.toStdWString());
         QVERIFY2(access.probe(), qPrintable(QString::fromStdWString(access.lastError())));
+    }
+
+    // ---- bulk reads (the content index's first build) --------------------------
+
+    // Files of several shapes in a folder of the scratch, written and
+    // flushed, read off the volume through the service by their records:
+    // the same bytes as ReadFile gives; what the service will not read
+    // (compressed, not this user's to read, not there) said so.
+    void bulkReadMatchesFiles()
+    {
+        const QString folder = m_scratch + u"\\bulk"_s;
+        QVERIFY(QDir().mkpath(folder));
+        std::mt19937_64 rng(20261015);
+        const auto randomText = [&](int n) {
+            QByteArray out;
+            out.reserve(n);
+            const char* words[] = {"alpha ", "beta ", "gamma\n", "报告 ", "合同\n", "delta "};
+            while (out.size() < n)
+                out.append(words[rng() % std::size(words)]);
+            out.truncate(n);
+            return out;
+        };
+        const auto write = [&](const QString& name, const QByteArray& bytes, DWORD fsctl = 0) {
+            const QString path = folder + u"\\"_s + name;
+            const HANDLE h = ::CreateFileW(path.toStdWString().c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL, nullptr);
+            QVERIFY(h != INVALID_HANDLE_VALUE);
+            DWORD returned = 0;
+            if (fsctl == FSCTL_SET_COMPRESSION) {
+                USHORT format = COMPRESSION_FORMAT_DEFAULT;
+                QVERIFY(::DeviceIoControl(h, FSCTL_SET_COMPRESSION, &format, sizeof format, nullptr, 0, &returned, nullptr));
+            } else if (fsctl == FSCTL_SET_SPARSE) {
+                QVERIFY(::DeviceIoControl(h, FSCTL_SET_SPARSE, nullptr, 0, nullptr, 0, &returned, nullptr));
+            }
+            DWORD written = 0;
+            QVERIFY(::WriteFile(h, bytes.constData(), static_cast<DWORD>(bytes.size()), &written, nullptr));
+            QCOMPARE(written, static_cast<DWORD>(bytes.size()));
+            QVERIFY(::FlushFileBuffers(h));
+            ::CloseHandle(h);
+        };
+        const QByteArray tiny = QByteArray("a resident file\n"); // not `small`: rpcndr.h defines that
+        const QByteArray medium = randomText(100'000);
+        const QByteArray large = randomText(3'000'000);
+        write(u"small.txt"_s, tiny);
+        write(u"medium.txt"_s, medium);
+        write(u"large.txt"_s, large);
+        write(u"empty.txt"_s, QByteArray());
+        write(u"packed.txt"_s, randomText(300'000), FSCTL_SET_COMPRESSION);
+        // Sparse: 64 KB, a hole up to 1 MB, 64 KB.
+        {
+            const QString path = folder + u"\\holes.bin"_s;
+            const HANDLE h = ::CreateFileW(path.toStdWString().c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL, nullptr);
+            QVERIFY(h != INVALID_HANDLE_VALUE);
+            DWORD returned = 0;
+            QVERIFY(::DeviceIoControl(h, FSCTL_SET_SPARSE, nullptr, 0, nullptr, 0, &returned, nullptr));
+            const QByteArray piece = randomText(64 << 10);
+            DWORD written = 0;
+            QVERIFY(::WriteFile(h, piece.constData(), static_cast<DWORD>(piece.size()), &written, nullptr));
+            LARGE_INTEGER at {};
+            at.QuadPart = 1 << 20;
+            QVERIFY(::SetFilePointerEx(h, at, nullptr, FILE_BEGIN));
+            QVERIFY(::WriteFile(h, piece.constData(), static_cast<DWORD>(piece.size()), &written, nullptr));
+            QVERIFY(::FlushFileBuffers(h));
+            ::CloseHandle(h);
+        }
+        // Not this user's to read: a deny ACE for our own SID (admins too).
+        const QString deniedPath = folder + u"\\denied.txt"_s;
+        write(u"denied.txt"_s, randomText(1000));
+        {
+            HANDLE token = nullptr;
+            QVERIFY(::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token));
+            BYTE buffer[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE];
+            DWORD size = 0;
+            QVERIFY(::GetTokenInformation(token, TokenUser, buffer, sizeof buffer, &size));
+            ::CloseHandle(token);
+            wchar_t* sid = nullptr;
+            QVERIFY(::ConvertSidToStringSidW(reinterpret_cast<TOKEN_USER*>(buffer)->User.Sid, &sid));
+            const std::wstring sddl = L"D:P(D;;FR;;;" + std::wstring(sid) + L")(A;;FA;;;" + std::wstring(sid) + L")";
+            ::LocalFree(sid);
+            PSECURITY_DESCRIPTOR descriptor = nullptr;
+            QVERIFY(::ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1, &descriptor, nullptr));
+            BOOL present = FALSE, defaulted = FALSE;
+            PACL dacl = nullptr;
+            QVERIFY(::GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted) && present);
+            QCOMPARE(::SetNamedSecurityInfoW(const_cast<wchar_t*>(deniedPath.toStdWString().c_str()), SE_FILE_OBJECT,
+                         DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, nullptr, nullptr, dacl, nullptr),
+                DWORD {ERROR_SUCCESS});
+            ::LocalFree(descriptor);
+            // Sanity: we cannot read it ourselves now.
+            const HANDLE h = ::CreateFileW(deniedPath.toStdWString().c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+            QVERIFY(h == INVALID_HANDLE_VALUE);
+            QCOMPARE(::GetLastError(), DWORD {ERROR_ACCESS_DENIED});
+        }
+        // The records reach the disk a moment after the flush (--dirty-window: ~200 ms).
+        QTest::qWait(1500);
+
+        // The folder's record number: what the index keeps of folders.
+        std::uint32_t parentRecord = 0;
+        {
+            const HANDLE h = ::CreateFileW(folder.toStdWString().c_str(), FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+            QVERIFY(h != INVALID_HANDLE_VALUE);
+            BY_HANDLE_FILE_INFORMATION info {};
+            QVERIFY(::GetFileInformationByHandle(h, &info));
+            ::CloseHandle(h);
+            parentRecord = ntfs::recordOf((std::uint64_t {info.nFileIndexHigh} << 32) | info.nFileIndexLow);
+        }
+        const std::vector<ntfs::BulkWant> wants {
+            {parentRecord, u"small.txt", 16u << 20}, // 0
+            {parentRecord, u"medium.txt", 16u << 20}, // 1
+            {parentRecord, u"large.txt", 16u << 20}, // 2
+            {parentRecord, u"empty.txt", 16u << 20}, // 3
+            {parentRecord, u"packed.txt", 16u << 20}, // 4: compressed
+            {parentRecord, u"holes.bin", 16u << 20}, // 5: sparse
+            {parentRecord, u"denied.txt", 16u << 20}, // 6
+            {parentRecord, u"missing.txt", 16u << 20}, // 7: no such file
+            {parentRecord, u"medium.txt", 1000}, // 8: over its limit
+        };
+
+        ntfs::ServiceVolumeAccess access(m_pipe.toStdWString());
+        const std::unique_ptr<ntfs::BulkSource> session = access.openBulkRead(m_root, m_serial, false);
+        QVERIFY(session);
+        QVERIFY2(session->valid(), qPrintable(QString::fromStdWString(session->error())));
+        QVERIFY(session->want(wants));
+        std::vector<ntfs::BulkFile> files;
+        QVERIFY2(session->scan(files), qPrintable(QString::fromStdWString(session->error())));
+        QCOMPARE(files.size(), wants.size());
+        std::vector<const ntfs::BulkFile*> byTicket(wants.size(), nullptr);
+        for (const ntfs::BulkFile& f : files) {
+            QVERIFY(f.ticket < wants.size());
+            byTicket[f.ticket] = &f;
+        }
+        for (const std::uint32_t t : {0u, 1u, 2u, 3u, 5u}) {
+            QVERIFY2(byTicket[t]->status == ntfs::BulkStatus::Data, qPrintable(u"ticket %1: status %2 reason %3"_s.arg(t)
+                .arg(static_cast<int>(byTicket[t]->status)).arg(ntfs::bulkSkipName(byTicket[t]->reason))));
+        }
+        QCOMPARE(byTicket[0]->size, static_cast<std::uint64_t>(tiny.size()));
+        QCOMPARE(byTicket[2]->size, static_cast<std::uint64_t>(large.size()));
+        QCOMPARE(byTicket[4]->status, ntfs::BulkStatus::Fallback);
+        QCOMPARE(byTicket[4]->reason, ntfs::BulkSkip::Compressed);
+        QCOMPARE(byTicket[6]->status, ntfs::BulkStatus::Denied);
+        QCOMPARE(byTicket[7]->status, ntfs::BulkStatus::NotFound);
+        QCOMPARE(byTicket[8]->status, ntfs::BulkStatus::TooLarge);
+        QCOMPARE(byTicket[8]->size, static_cast<std::uint64_t>(medium.size()));
+        // The Data ones come last, in the order to fetch them.
+        std::size_t firstData = 0;
+        while (firstData < files.size() && files[firstData].status != ntfs::BulkStatus::Data)
+            ++firstData;
+        for (std::size_t i = firstData; i < files.size(); ++i)
+            QCOMPARE(files[i].status, ntfs::BulkStatus::Data);
+
+        // The bytes, in two batches; a denied or spent ticket gives nothing.
+        std::map<std::uint32_t, QByteArray> got;
+        const auto sink = [&](std::uint32_t ticket, std::vector<std::byte>&& bytes) {
+            QVERIFY(!got.contains(ticket));
+            got[ticket] = QByteArray(reinterpret_cast<const char*>(bytes.data()), static_cast<qsizetype>(bytes.size()));
+        };
+        const std::vector<std::uint32_t> first {0, 1, 6};
+        QVERIFY2(session->fetch(first, sink), qPrintable(QString::fromStdWString(session->error())));
+        QCOMPARE(got.size(), std::size_t {2});
+        const std::vector<std::uint32_t> second {2, 3, 5, 0, 7, 8, 99};
+        QVERIFY2(session->fetch(second, sink), qPrintable(QString::fromStdWString(session->error())));
+        QCOMPARE(got.size(), std::size_t {5});
+        const auto fileBytes = [&](const QString& name) {
+            QFile f(folder + u"\\"_s + name);
+            return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray("could not open");
+        };
+        QCOMPARE(got[0], tiny);
+        QCOMPARE(got[1], medium);
+        QCOMPARE(got[2], large);
+        QCOMPARE(got[3], QByteArray());
+        QCOMPARE(got[5], fileBytes(u"holes.bin"_s)); // the hole read as zeros
+        QVERIFY(!got.contains(6));
+        qInfo("bulk read: %zu files matched, %d bytes fetched", files.size(), got[0].size() + got[1].size() + got[2].size() + got[5].size());
+    }
+
+    void bulkReadRefusals()
+    {
+        ntfs::ServiceVolumeAccess access(m_pipe.toStdWString());
+        // Another serial: the drive letter holds another disk, as far as the service knows.
+        const std::unique_ptr<ntfs::BulkSource> wrong = access.openBulkRead(m_root, m_serial ^ 0x5A5A, false);
+        QVERIFY(wrong && !wrong->valid());
+        QVERIFY2(QString::fromStdWString(wrong->error()).contains(u"another volume"),
+            qPrintable(QString::fromStdWString(wrong->error())));
+        // One bulk read per process and volume at a time.
+        const std::unique_ptr<ntfs::BulkSource> first = access.openBulkRead(m_root, m_serial, false);
+        QVERIFY(first && first->valid());
+        const std::unique_ptr<ntfs::BulkSource> second = access.openBulkRead(m_root, m_serial, false);
+        QVERIFY(second && !second->valid());
+        QVERIFY2(QString::fromStdWString(second->error()).contains(u"already"),
+            qPrintable(QString::fromStdWString(second->error())));
+    }
+
+    // A service without bulk reads (an older one, or --no-bulk): the client
+    // sees no capability and takes the usual way; a request anyway is refused.
+    void bulkReadWithoutCapability()
+    {
+        if (m_external)
+            QSKIP("needs a server of our own");
+        const QString pipe = m_pipe + u".nobulk"_s;
+        QProcess old;
+        old.setProgram(m_exe);
+        old.setArguments({u"--console"_s, u"--pipe"_s, pipe, u"--no-bulk"_s});
+        old.start();
+        QVERIFY2(old.waitForStarted(5000), qPrintable(old.errorString()));
+        QByteArray out;
+        QElapsedTimer t;
+        t.start();
+        while (!out.contains("ready") && t.elapsed() < 10000 && old.state() == QProcess::Running) {
+            old.waitForReadyRead(200);
+            out += old.readAllStandardOutput();
+        }
+        QVERIFY2(out.contains("ready"), qPrintable(QString::fromUtf8(out)));
+        ntfs::ServiceVolumeAccess access(pipe.toStdWString());
+        QVERIFY(access.probe());
+        QVERIFY(!access.openBulkRead(m_root, m_serial, false)); // null: the usual way
+        RawClient raw;
+        QVERIFY(raw.connect(pipe));
+        volproto::Type reply {};
+        std::vector<std::byte> payload;
+        QVERIFY(raw.hello(volproto::kMajor, reply, payload));
+        QCOMPARE(reply, volproto::Type::HelloOk);
+        volproto::HelloOk ok;
+        QVERIFY(decode(payload, ok));
+        QCOMPARE(ok.capabilities & volproto::kCapabilityBulkRead, 0u);
+        volproto::Writer w;
+        encode(w, volproto::OpenBulkRead {m_root, m_serial, false});
+        QVERIFY(raw.channel.write(w.finish(volproto::Type::OpenBulkRead), 5000));
+        QVERIFY(raw.channel.read(reply, payload, 5000));
+        QCOMPARE(reply, volproto::Type::Error);
+        old.kill();
+        old.waitForFinished(5000);
+    }
+
+    // The volume let go of (CloseVolume, as before an eject) ends a bulk
+    // read under way: the next fetch says so.
+    void bulkReadAbortedByCloseVolume()
+    {
+        ntfs::ServiceVolumeAccess access(m_pipe.toStdWString());
+        const std::unique_ptr<ntfs::BulkSource> session = access.openBulkRead(m_root, m_serial, false);
+        QVERIFY(session && session->valid());
+        const std::vector<ntfs::BulkWant> wants {{ntfs::kRootRecord, u"nothing-here.txt", 1 << 20}};
+        QVERIFY(session->want(wants));
+        std::vector<ntfs::BulkFile> files;
+        QVERIFY(session->scan(files));
+        QCOMPARE(files.size(), std::size_t {1});
+        QCOMPARE(files[0].status, ntfs::BulkStatus::NotFound);
+        QElapsedTimer t;
+        t.start();
+        access.closeVolume(m_root);
+        QVERIFY(t.elapsed() < 2000);
+        const std::vector<std::uint32_t> tickets {0};
+        QVERIFY(!session->fetch(tickets, [](std::uint32_t, std::vector<std::byte>&&) {}));
+        QVERIFY2(QString::fromStdWString(session->error()).contains(u"let go"),
+            qPrintable(QString::fromStdWString(session->error())));
     }
 };
 
