@@ -260,7 +260,7 @@ public:
     // rows refreshed when they change.
     void setFavorites(Favorites* favorites);
     bool hasFavorites() const;
-    void setResultOptions(KindOrder kindOrder, bool showModified, const QString& numberKeys);
+    void setResultOptions(KindOrder kindOrder, bool showModified, bool thumbnails, const QString& numberKeys);
     Sort sort() const { return m_sort; }
     void setSort(Sort sort);
     StartList startList() const { return m_startList; }

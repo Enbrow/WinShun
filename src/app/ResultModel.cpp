@@ -3,6 +3,7 @@
 #include "AppCatalog.h"
 #include "FileIndex.h"
 #include "FileIconProvider.h"
+#include "ThumbnailProvider.h"
 #include "Pinyin.h"
 #include "SystemCatalog.h"
 #include "WebShortcut.h"
@@ -231,6 +232,10 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
             return FileIconProvider::appIconUrl(appIdOf(r->path), r->isPackagedApp(), dark);
         }
         return FileIconProvider::iconUrl(r->path, r->isDir);
+    case ThumbnailRole:
+        if (!m_thumbnails || r->isApp() || r->isDir || r->offline || r->missing)
+            return QString();
+        return ThumbnailProvider::url(r->path, r->modified);
     case SnippetHtmlRole:
         if (r->snippet.isEmpty())
             return QString();
@@ -295,6 +300,7 @@ QHash<int, QByteArray> ResultModel::roleNames() const
         {PathRole, "path"},
         {IsDirRole, "isDir"},
         {IconRole, "icon"},
+        {ThumbnailRole, "thumbnail"},
         {SnippetHtmlRole, "snippetHtml"},
         {LineRole, "line"},
         {LocationRole, "location"},
@@ -665,6 +671,15 @@ void ResultModel::setHighlightColor(const QColor& color)
     emit highlightColorChanged();
     if (!m_items.isEmpty()) // a web search's title too, and where content matches are
         emit dataChanged(index(0), index(count() - 1), {NameHtmlRole, SnippetHtmlRole});
+}
+
+void ResultModel::setThumbnails(bool on)
+{
+    if (on == m_thumbnails)
+        return;
+    m_thumbnails = on;
+    if (!m_items.isEmpty())
+        emit dataChanged(index(0), index(count() - 1), {ThumbnailRole});
 }
 
 } // namespace ws

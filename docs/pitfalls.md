@@ -178,6 +178,18 @@
 
 把截图按元素的设备像素位置裁下来，和原图合成到同样的背景上逐像素比较。对不上，就是渲染流程（请求尺寸、设备像素比、缩放、平滑）的问题，不是图片素材的问题。150% 下周期为 3 像素的误差图案，说明有一次 1.5 倍的最近邻缩放。把一处的修法推广到别处之前，先确认那里是同一个原因。
 
+### 一张慢的缩略图挡住整个列表的图标
+
+- **现象**：结果行的缩略图如果和图标走同一个 `QQuickImageProvider`（`image://fileicon/thumb/…`），视频、大图、第一次加载解码器的缩略图要几十到几百毫秒，这段时间里后面所有行的类型图标都出不来，滚动时一片空格子。
+- **原因**：Qt 6.12 每个 QML 引擎只有一条读图线程（`qquickpixmapcache.cpp` 的 `QQuickPixmapReader`），`Image` 类型的提供器在它上面同步调用 `requestImage`，一个接一个。`ForceAsynchronousImageLoading` 只是不在界面线程上调，不会多开线程。
+- **做法**：缩略图用单独的 `QQuickAsyncImageProvider`（`ThumbnailProvider`，`image://thumbnail/`）。`requestImageResponse` 也在那条读图线程上被调，但只查一下内存缓存，其余交给自己的线程池（4 条），马上返回；图标不再排在缩略图后面。
+
+### 异步图片提供器：没有图别报错，取消了也要 `finished`
+
+- **没有图**：`errorString()` 非空时 Qt 把 Image 置为 Error，并给每一行打一条 `QML Image: Failed to get image from provider` 警告（剪贴板预览里非图片的文件就会这样）。没有缩略图时 `textureFactory()` 返回 `nullptr`、`errorString()` 留空，Image 是 Ready、尺寸为 0，QML 里用 `status === Image.Ready && implicitWidth > 0` 判断有没有图。
+- **取消**：行滚走或复用时 Qt 调 `cancel()`，但不删响应对象；它只在收到 `finished` 后 `deleteLater`。所以取消了也要发一次 `finished`（不带图），否则每次取消漏一个对象。`finished` 可以在 `requestImageResponse` 返回之前就发（缓存命中时），Qt 返回后会查 `finished` 标志补上。
+- **Qt 自己的图片缓存只留 2 MB 没人用的图**（`cache_limit`，写死，30 秒淘汰四分之一）：48 像素的缩略图约 220 张。滚回去、再打一遍同样的字要立即出来，提供器自己按字节留一份（`QCache`，48 MB），没有缩略图的也记下。
+- **sourceSize**：image:// 提供器按逻辑像素写，Qt 乘设备像素比再请求；返回的图带着这个比，`implicitWidth` 就是“像素数 / 设备像素比”，`width: implicitWidth` 正好一个像素对一个像素（150% 实测与系统给的位图逐像素相同）。
 
 ### 列表滚动时整行在抖
 

@@ -613,8 +613,9 @@ bool Launcher::hasFavorites() const
     return m_favorites && !m_favorites->items().isEmpty();
 }
 
-void Launcher::setResultOptions(KindOrder kindOrder, bool showModified, const QString& numberKeys)
+void Launcher::setResultOptions(KindOrder kindOrder, bool showModified, bool thumbnails, const QString& numberKeys)
 {
+    m_results.setThumbnails(thumbnails);
     const QString keys = numberKeys == u"off" ? QString() : numberKeys;
     if (kindOrder == m_kindOrder && showModified == m_showModified && keys == m_numberKeys)
         return;

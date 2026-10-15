@@ -38,6 +38,9 @@ public:
         PathRole,
         IsDirRole,
         IconRole,
+        // A picture's, video's, PDF's thumbnail (ThumbnailProvider), shown over
+        // the icon once loaded; "" for none, or when they are turned off.
+        ThumbnailRole,
         SnippetHtmlRole,
         LineRole,
         LocationRole, // of a content match: "第 3 行", "第 2 页", "Sheet1 第 12 行"
@@ -95,6 +98,7 @@ public:
 
     QColor highlightColor() const { return m_highlightColor; }
     void setHighlightColor(const QColor& color);
+    void setThumbnails(bool on); // ThumbnailRole: Settings::thumbnails
 
     int selectedCount() const { return static_cast<int>(m_selected.size()); }
     const QSet<QString>& selectedPaths() const { return m_selected; }
@@ -112,6 +116,7 @@ private:
     SearchResults m_items;
     QStringList m_highlights;
     QColor m_highlightColor {0x00, 0x5F, 0xB8};
+    bool m_thumbnails = true;
     QSet<QString> m_selected; // paths
 };
 

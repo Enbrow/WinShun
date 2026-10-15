@@ -160,6 +160,14 @@ void SettingsEditor::setShowModified(bool on)
     commit();
 }
 
+void SettingsEditor::setThumbnails(bool on)
+{
+    if (m_settings.thumbnails == on)
+        return;
+    m_settings.thumbnails = on;
+    commit();
+}
+
 void SettingsEditor::setSort(const QString& sort)
 {
     if (m_settings.sort == sort || (sort != u"match" && sort != u"newest" && sort != u"oldest"))

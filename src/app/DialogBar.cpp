@@ -538,8 +538,9 @@ void DialogBar::setQuery(const QString& query)
     relist();
 }
 
-void DialogBar::setResultOptions(bool showModified, const QString& numberKeys)
+void DialogBar::setResultOptions(bool showModified, bool thumbnails, const QString& numberKeys)
 {
+    m_results.setThumbnails(thumbnails);
     const QString keys = numberKeys == u"off" ? QString() : numberKeys;
     if (showModified == m_showModified && keys == m_numberKeys)
         return;

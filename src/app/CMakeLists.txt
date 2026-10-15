@@ -56,6 +56,7 @@ qt_add_executable(WinShun WIN32
     Settings.cpp Settings.h
     SiteIconImage.cpp SiteIconImage.h
     TextField.cpp TextField.h
+    ThumbnailProvider.cpp ThumbnailProvider.h
     WindowLogo.cpp WindowLogo.h
     platform/ClipboardWatcher.cpp platform/ClipboardWatcher.h
     platform/ComWorker.cpp platform/ComWorker.h
@@ -103,6 +104,7 @@ set(qml_files
     qml/ScopeTabs.qml
     qml/TypeStrip.qml
     qml/ResultRow.qml
+    qml/FileThumbnail.qml
     qml/ClipboardWindow.qml
     qml/ClipboardPage.qml
     qml/ClipTabs.qml

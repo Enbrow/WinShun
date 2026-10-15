@@ -106,6 +106,7 @@ class SettingsEditor : public QObject {
     // 结果列表
     Q_PROPERTY(bool foldersFirst READ foldersFirst WRITE setFoldersFirst NOTIFY changed FINAL)
     Q_PROPERTY(bool showModified READ showModified WRITE setShowModified NOTIFY changed FINAL)
+    Q_PROPERTY(bool thumbnails READ thumbnails WRITE setThumbnails NOTIFY changed FINAL)
     Q_PROPERTY(QString sort READ sort WRITE setSort NOTIFY changed FINAL) // match | newest | oldest
     Q_PROPERTY(QString startList READ startList WRITE setStartList NOTIFY changed FINAL) // opened | modified
     Q_PROPERTY(QString numberKeys READ numberKeys WRITE setNumberKeys NOTIFY changed FINAL) // ctrl | alt | off
@@ -389,6 +390,8 @@ public:
     void setFoldersFirst(bool on);
     bool showModified() const { return m_settings.showModified; }
     void setShowModified(bool on);
+    bool thumbnails() const { return m_settings.thumbnails; }
+    void setThumbnails(bool on);
     QString sort() const { return m_settings.sort; }
     void setSort(const QString& sort);
     QString startList() const { return m_settings.startList; }

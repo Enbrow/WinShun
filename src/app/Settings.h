@@ -96,6 +96,7 @@ struct Settings {
     // [Results]
     bool foldersFirst = false; // 全部 and 文件 list the folders found before the files (else after)
     bool showModified = true; // each file and folder found says when it was last written
+    bool thumbnails = true; // a picture, video, PDF found shows its thumbnail for an icon
     // match | newest | oldest: how 文件 and 文件夹 order what they find, by
     // best match or by when last written (the footer's switch, remembered).
     QString sort = QStringLiteral("match");

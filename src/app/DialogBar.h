@@ -135,7 +135,7 @@ public:
     void setRecordHistory(bool on) { m_recordHistory = on; }
     void setExcludedApps(const QStringList& apps); // program files ("notepad.exe") whose dialogs go without
     void setPlace(const QString& name); // Settings::dialogBarPlace: "auto", "below", "left", "right"
-    void setResultOptions(bool showModified, const QString& numberKeys); // Settings: "ctrl", "alt", "off"
+    void setResultOptions(bool showModified, bool thumbnails, const QString& numberKeys); // Settings: "ctrl", "alt", "off"
     void setAskAutoJump(bool on); // not answered yet (Settings::dialogAutoJumpAsked)
     bool showModified() const { return m_showModified; }
     QString numberKeys() const { return m_numberKeys; }

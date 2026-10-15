@@ -9,6 +9,7 @@
 #include "Favorites.h"
 #include "FavoritesSettings.h"
 #include "FileIconProvider.h"
+#include "ThumbnailProvider.h"
 #include "FolderMenu.h"
 #include "History.h"
 #include "Host.h"
@@ -663,6 +664,7 @@ bool App::createWindow()
 {
     m_qml = std::make_unique<QQmlApplicationEngine>();
     m_qml->addImageProvider(u"fileicon"_s, new FileIconProvider); // engine takes ownership
+    m_qml->addImageProvider(u"thumbnail"_s, new ThumbnailProvider); // result rows' pictures, videos, PDFs
     m_placement = std::make_unique<Placement>(Settings::dataDir() + u"\\state.ini"_s, u"Launcher"_s);
     m_frame = std::make_unique<WindowFrame>(false);
     m_qml->setInitialProperties({
@@ -962,7 +964,7 @@ void App::applySettings(bool initial)
     m_backup->setFolder(m_settings.backupFolder);
     m_launcher->setRecordHistory(m_settings.recordHistory);
     m_launcher->setResultOptions(m_settings.foldersFirst ? KindOrder::FoldersFirst : KindOrder::FilesFirst,
-        m_settings.showModified, m_settings.numberKeys);
+        m_settings.showModified, m_settings.thumbnails, m_settings.numberKeys);
     m_launcher->setSort(m_settings.sort == u"newest" ? Launcher::NewestFirst
             : m_settings.sort == u"oldest"           ? Launcher::OldestFirst
                                                      : Launcher::BestMatch);
@@ -1915,7 +1917,7 @@ void App::applyDialogs()
         m_dialogBar->setRecordHistory(m_settings.recordHistory);
         m_dialogBar->setExcludedApps(m_settings.dialogBarExcludedApps);
         m_dialogBar->setPlace(m_settings.dialogBarPlace);
-        m_dialogBar->setResultOptions(m_settings.showModified, m_settings.numberKeys);
+        m_dialogBar->setResultOptions(m_settings.showModified, m_settings.thumbnails, m_settings.numberKeys);
         m_dialogBar->setAskAutoJump(!m_settings.dialogAutoJump && !m_settings.dialogAutoJumpAsked);
     }
 

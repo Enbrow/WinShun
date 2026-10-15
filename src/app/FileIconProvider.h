@@ -27,6 +27,10 @@ public:
     // What Explorer shows as the file's thumbnail (pictures, videos, PDFs
     // and other documents with a thumbnail handler); no image if it has none.
     static QString thumbnailUrl(const QString& path);
+    // The same picture, at most `px` pixels on its longer side, on the
+    // calling thread (which it joins to COM); null if there is none.
+    // `cachedOnly`: only from Windows' thumbnail cache, which is instant.
+    static QImage thumbnail(const QString& path, int px, bool cachedOnly);
     // An installed app (AppCatalog). Packaged apps' logos differ by theme.
     static QString appIconUrl(const QString& appId, bool packaged, bool dark);
     // A place in Windows (SystemCatalog), by its icon: one in a module

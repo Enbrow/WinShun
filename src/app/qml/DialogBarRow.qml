@@ -15,6 +15,7 @@ Item {
     required property string folder
     required property string path
     required property string icon
+    required property string thumbnail // a picture's, video's, PDF's (see ResultRow)
     required property bool isDir
     required property string modified // "昨天 14:32"; empty when not known
     property string tag
@@ -65,6 +66,7 @@ Item {
         height: 32
 
         Image { // exactly as many device pixels as the icon has (see ResultRow)
+            visible: !thumbnailImage.ready
             readonly property real dpr: Screen.devicePixelRatio
             readonly property int pixels: Math.round(iconSlot.width * dpr)
 
@@ -78,6 +80,11 @@ Item {
             smooth: false
             asynchronous: true
             fillMode: Image.PreserveAspectFit
+        }
+
+        FileThumbnail {
+            id: thumbnailImage
+            source: row.thumbnail
         }
     }
 

@@ -2168,6 +2168,18 @@
         <translation>date modified;modified;date;time</translation>
     </message>
     <message>
+        <source>显示图片缩略图</source>
+        <translation>Show thumbnails</translation>
+    </message>
+    <message>
+        <source>缩略图;预览;图片;照片;视频;PDF;thumbnail;preview</source>
+        <translation>thumbnail;preview;picture;photo;image;video;PDF</translation>
+    </message>
+    <message>
+        <source>图片、视频、PDF 等显示缩略图，代替类型图标</source>
+        <translation>Pictures, videos, PDFs and the like show their thumbnail instead of their type&apos;s icon</translation>
+    </message>
+    <message>
         <source>用数字键直接打开</source>
         <translation>Open with number keys</translation>
     </message>

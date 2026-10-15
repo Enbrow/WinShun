@@ -14,6 +14,7 @@ import WinShun
 // A web shortcut's site or search is tagged "网页" and copies its address.
 // A file or folder says when it was last written, at the end of its name's
 // line (also on the current row, where the buttons take the right end).
+// A picture, a video, a PDF shows its thumbnail for an icon, once loaded.
 // A file or folder on a network share that cannot be reached now is dimmed
 // and tagged "离线".
 // A plugin's row (an app in the list's terms) is tagged with the plugin's
@@ -36,6 +37,7 @@ Item {
     required property string path
     required property bool isDir
     required property string icon
+    required property string thumbnail // a picture's, video's, PDF's; "" for none
     required property string snippetHtml
     required property int line
     required property string location // of a content match: "第 3 行", "第 2 页"
@@ -125,6 +127,7 @@ Item {
 
         Image {
             id: iconImage
+            visible: !thumbnailImage.ready
 
             readonly property real dpr: Screen.devicePixelRatio
             readonly property int pixels: Math.round(iconSlot.width * dpr)
@@ -145,6 +148,11 @@ Item {
             smooth: false
             asynchronous: true
             fillMode: Image.PreserveAspectFit
+        }
+
+        FileThumbnail {
+            id: thumbnailImage
+            source: row.thumbnail
         }
     }
 
@@ -263,7 +271,8 @@ Item {
         id: iconNumber
         keys: row.hint > 0 ? row.hintModifier + "+" + row.hint : ""
         taken: row.hintTaken
-        // From the icon's top left corner rightwards, clear of the title.
+        // From the icon's top left corner rightwards, clear of the title. Not
+        // moved onto a wide thumbnail's corner: it would cover half of it.
         x: row.onPixel(iconSlot.x - 5)
         y: row.onPixel(iconSlot.y - 4)
     }

@@ -192,14 +192,16 @@ QImage shellItemIcon(const std::wstring& parsingName, int size)
 }
 
 // A file's thumbnail as Explorer shows it, at most `size` pixels on its
-// longer side (never enlarged); null if the file has none.
-QImage shellThumbnail(const std::wstring& path, int size)
+// longer side (never enlarged); null if the file has none. `cachedOnly`:
+// only if Windows' thumbnail cache has it (no handler runs, nothing is read).
+QImage shellThumbnail(const std::wstring& path, int size, bool cachedOnly = false)
 {
     ComPtr<IShellItemImageFactory> factory;
     if (FAILED(::SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(&factory))))
         return {};
     HBITMAP bitmap = nullptr;
-    if (FAILED(factory->GetImage({size, size}, SIIGBF_THUMBNAILONLY, &bitmap)) || !bitmap)
+    const SIIGBF flags = cachedOnly ? SIIGBF_THUMBNAILONLY | SIIGBF_INCACHEONLY : SIIGBF_THUMBNAILONLY;
+    if (FAILED(factory->GetImage({size, size}, flags, &bitmap)) || !bitmap)
         return {};
     QImage image = fromShellBitmap(bitmap);
     ::DeleteObject(bitmap);
@@ -427,6 +429,12 @@ QString FileIconProvider::iconUrl(const QString& path, bool isDir)
     if (hasOwnIcon(suffix) && !path.startsWith(u"\\\\"))
         return u"image://fileicon/file/"_s + encode(path);
     return u"image://fileicon/ext/"_s + encode(suffix);
+}
+
+QImage FileIconProvider::thumbnail(const QString& path, int px, bool cachedOnly)
+{
+    thread_local ComApartment com;
+    return shellThumbnail(path.toStdWString(), px, cachedOnly);
 }
 
 QString FileIconProvider::thumbnailUrl(const QString& path)

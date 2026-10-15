@@ -614,6 +614,7 @@ void Settings::load()
 
     foldersFirst = readOrDefault(s, u"Results/FoldersFirst"_s, d.foldersFirst);
     showModified = readOrDefault(s, u"Results/ShowModified"_s, d.showModified);
+    thumbnails = readOrDefault(s, u"Results/Thumbnails"_s, d.thumbnails);
     if (!s.contains(u"Results/Sort"_s) && s.value(u"Results/SortByModified"_s).toBool())
         s.setValue(u"Results/Sort"_s, u"newest"_s); // 0.6.0's switch: newest first, or best match
     s.remove(u"Results/SortByModified"_s);
@@ -756,6 +757,7 @@ void Settings::save() const
     s.setValue(u"Launcher/FolderMenuOpusBefore"_s, folderMenuOpusBefore);
     s.setValue(u"Results/FoldersFirst"_s, foldersFirst);
     s.setValue(u"Results/ShowModified"_s, showModified);
+    s.setValue(u"Results/Thumbnails"_s, thumbnails);
     s.setValue(u"Results/Sort"_s, sort);
     s.setValue(u"Results/StartList"_s, startList);
     s.setValue(u"Results/NumberKeys"_s, numberKeys);

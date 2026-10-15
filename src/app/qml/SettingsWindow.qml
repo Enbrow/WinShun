@@ -2291,6 +2291,17 @@ Window {
                 }
 
                 SettingRow {
+                    title: qsTr("显示图片缩略图")
+                    keywords: qsTr("缩略图;预览;图片;照片;视频;PDF;thumbnail;preview").split(";")
+                    description: qsTr("图片、视频、PDF 等显示缩略图，代替类型图标")
+
+                    ToggleSwitch {
+                        checked: window.editor.thumbnails
+                        onToggled: (on) => window.editor.thumbnails = on
+                    }
+                }
+
+                SettingRow {
                     title: qsTr("用数字键直接打开")
                     keywords: qsTr("快捷键;数字键;序号;Ctrl+1;Alt+1;冲突;hotkey").split(";")
                     description: qsTr("结果的图标上标着快捷键，按 %1+1 打开第一行")
