@@ -5,9 +5,10 @@ import WinShun
 
 // The folder menu (FolderMenu, GitHub #22): favorite, recent and open
 // folders, brought up by a double click on the blank space of a File
-// Explorer folder or of the desktop. Drawn as ContextMenu is; it never takes
-// the focus, File Explorer stays in front, and the keys come through
-// FolderMenu (keyPressed).
+// Explorer folder or of the desktop, or by its hotkey (GitHub #25) over
+// whatever window is in front. Drawn as ContextMenu is; it never takes the
+// focus, that window stays in front, and the keys come through FolderMenu
+// (keyPressed).
 Window {
     id: menu
 

@@ -623,8 +623,9 @@ void Settings::load()
     if (sort != u"newest" && sort != u"oldest")
         sort = d.sort;
     startList = readOrDefault(s, u"Results/StartList"_s, d.startList).trimmed().toLower();
-    if (startList != u"modified")
+    if (startList != u"modified" && startList != u"none")
         startList = d.startList;
+    clearOnOpen = readOrDefault(s, u"Launcher/ClearOnOpen"_s, d.clearOnOpen);
     numberKeys = readOrDefault(s, u"Results/NumberKeys"_s, d.numberKeys).trimmed().toLower();
     if (numberKeys != u"alt" && numberKeys != u"off")
         numberKeys = d.numberKeys;
@@ -762,6 +763,7 @@ void Settings::save() const
     s.setValue(u"Results/Thumbnails"_s, thumbnails);
     s.setValue(u"Results/Sort"_s, sort);
     s.setValue(u"Results/StartList"_s, startList);
+    s.setValue(u"Launcher/ClearOnOpen"_s, clearOnOpen);
     s.setValue(u"Results/NumberKeys"_s, numberKeys);
     s.setValue(u"Appearance/Theme"_s, theme);
     s.setValue(u"Appearance/Language"_s, language);

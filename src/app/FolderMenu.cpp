@@ -259,9 +259,18 @@ void FolderMenu::hotkeyPressed()
     if (m_blocked && m_blocked())
         return;
     const HWND foreground = ::GetForegroundWindow();
-    const HWND root = foreground ? ::GetAncestor(foreground, GA_ROOT) : nullptr;
+    HWND root = foreground ? ::GetAncestor(foreground, GA_ROOT) : nullptr;
     if (!root)
         return;
+    // The search bar beside a file dialog has the keyboard: the menu is for
+    // that dialog, which gets the front back first (ours to give). With a
+    // window of ours in front the keys could not be taken anyway: the
+    // process has keyboard Raw Input, and Windows then skips its hook (see
+    // KeyListener, docs/pitfalls.md).
+    if (const HWND dialog = m_dialogOf ? m_dialogOf(root) : nullptr) {
+        ::SetForegroundWindow(dialog);
+        root = dialog;
+    }
     folderview::Hit hit = folderview::classifyWindow(root);
     if (hit.surface == folderview::Surface::None) {
         hit.root = root;
@@ -380,9 +389,11 @@ void FolderMenu::show(const folderview::Hit& hit, const Found& found)
 {
     if (!m_window || (m_blocked && m_blocked()))
         return;
-    // Still where it was double-clicked: the menu goes with that window.
+    // Still where it was double-clicked: the menu goes with that window. (A
+    // dialog given the front back from its bar may not have it yet.)
     const HWND foreground = ::GetForegroundWindow();
-    if (!foreground || ::GetAncestor(foreground, GA_ROOT) != hit.root)
+    const HWND front = foreground ? ::GetAncestor(foreground, GA_ROOT) : nullptr;
+    if (!front || (front != hit.root && !(m_dialogOf && m_dialogOf(front) == hit.root)))
         return;
     m_hit = hit;
     m_folder = found.folder;
@@ -583,7 +594,7 @@ void FolderMenu::prepareMenuWindow(QWindow* menu) const
 {
     if (!menu)
         return;
-    // Shown without taking the focus from File Explorer (see the class).
+    // Shown without taking the focus from the window it is for (see the class).
     menu->setProperty("_q_showWithoutActivating", true);
     const bool dark = QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark;
     win::styleFramelessWindow(menu);

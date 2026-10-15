@@ -179,9 +179,17 @@ void SettingsEditor::setSort(const QString& sort)
 
 void SettingsEditor::setStartList(const QString& list)
 {
-    if (m_settings.startList == list || (list != u"opened" && list != u"modified"))
+    if (m_settings.startList == list || (list != u"opened" && list != u"modified" && list != u"none"))
         return;
     m_settings.startList = list;
+    commit();
+}
+
+void SettingsEditor::setClearOnOpen(bool on)
+{
+    if (m_settings.clearOnOpen == on)
+        return;
+    m_settings.clearOnOpen = on;
     commit();
 }
 

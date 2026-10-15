@@ -43,19 +43,27 @@ class KeyRouter;
 // Explorer folder, the desktop, a Directory Opus, Total Commander or
 // XYplorer window, an Open or Save dialog, which a folder chosen takes
 // there, or any other, from which the file manager opens it. Pressed again
-// while the menu is up, it closes it.
+// while the menu is up, it closes it. Pressed with the search bar beside a
+// file dialog in front (a window of Win顺's own), the dialog is given the
+// front back and the menu is for it.
 //
-// The menu never takes the focus: File Explorer stays in front, its
-// selection and caret as they were, and the keys the menu uses are taken on
-// their way to it (KeyRouter, as the clipboard does over other programs). A
-// click anywhere else closes it and goes on to where it was made; so does a
-// double click there (it does not open the menu again).
+// The menu never takes the focus: the window it is for (File Explorer,
+// Total Commander, a dialog…) stays in front, its selection and caret as
+// they were, and the keys the menu uses are taken on their way to it
+// (KeyRouter, as the clipboard does over other programs); the rest, and a
+// Chinese input method's own keys, go on to it. A click anywhere else
+// closes it and goes on to where it was made; so does a double click there
+// (it does not open the menu again). This holds over Total Commander and
+// XYplorer with a Chinese input method on too: measured 2026-10-15 (an
+// earlier "Down and Enter never arrive there" was the test script sending
+// VK 0, see docs/pitfalls.md).
 class FolderMenu : public QObject {
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Provided by the application")
     // {text, detail, glyph} or {separator: true}
     Q_PROPERTY(QVariantList entries READ entries NOTIFY entriesChanged FINAL)
+    Q_PROPERTY(bool open READ isOpen NOTIFY openChanged FINAL)
 
 public:
     FolderMenu(History* history, Favorites* favorites, QObject* parent = nullptr);
@@ -72,6 +80,9 @@ public:
     // other moves of it (DialogJump::go); false: not able to, the menu
     // does it itself.
     void setDialogGo(std::function<bool(HWND dialog, const QString& folder)> go) { m_dialogGo = std::move(go); }
+    // The Open or Save dialog that `window`, one of Win顺's own beside it
+    // (the search bar), stands in front of; null for any other window.
+    void setDialogOf(std::function<HWND(HWND window)> dialogOf) { m_dialogOf = std::move(dialogOf); }
 
     // From the listener thread (KeyListener): a double click there. Window
     // classes are looked at at once; what may be a folder's blank space is
@@ -122,6 +133,7 @@ private:
     QPointer<QWindow> m_window;
     std::function<bool()> m_blocked;
     std::function<bool(HWND, const QString&)> m_dialogGo;
+    std::function<HWND(HWND)> m_dialogOf;
     menuhotkey::Toggle m_toggle; // GUI thread: what a hotkey press means now
     bool m_recordHistory = true;
     std::atomic<bool> m_yieldToListary {true};

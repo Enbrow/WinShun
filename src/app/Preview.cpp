@@ -1,5 +1,6 @@
 #include "Preview.h"
 
+#include "Backup.h"
 #include "FavoritesSettings.h"
 #include "FileIconProvider.h"
 #include "PluginSettings.h"
@@ -343,11 +344,13 @@ int runSettings(const QStringList& args)
     editor->favorites()->setStore(&favorites);
     say(u"loading SettingsWindow.qml"_s);
 
+    Backup backup; // no folder: never backs anything up
     QQmlComponent component(&engine, u"WinShun"_s, u"SettingsWindow"_s);
     QObject* object = component.createWithInitialProperties({
         {u"editor"_s, QVariant::fromValue(editor)},
         {u"frame"_s, QVariant::fromValue(frame)},
         {u"updater"_s, QVariant::fromValue(updater)},
+        {u"backup"_s, QVariant::fromValue(&backup)},
     });
     auto* window = qobject_cast<QQuickWindow*>(object);
     if (!window) {

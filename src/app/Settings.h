@@ -17,10 +17,12 @@
 
 namespace ws {
 
-// A content size limit as kept: MB to a tenth, 0.1 to 4096.
+// A content size limit as kept, 1 KB to 4096 MB: under 1 MB in whole KB
+// (shown as KB), from there in hundredths of a MB (GitHub #28).
 inline double roundedSizeMB(double mb)
 {
-    return std::clamp(std::round(mb * 10) / 10, 0.1, 4096.0);
+    mb = std::clamp(mb, 1.0 / 1024, 4096.0);
+    return mb < 1 ? std::max(1.0, std::round(mb * 1024)) / 1024 : std::round(mb * 100) / 100;
 }
 
 // A network share searched with the local disks (ShareIndexer).
@@ -104,9 +106,13 @@ struct Settings {
     // match | newest | oldest: how 文件 and 文件夹 order what they find, by
     // best match or by when last written (the footer's switch, remembered).
     QString sort = QStringLiteral("match");
-    // opened | modified: with nothing typed, what was opened last, or the
-    // files written last (the footer's switch, remembered).
+    // opened | modified | none: with nothing typed, what was opened last, or
+    // the files written last (the footer's switch, remembered), or nothing
+    // but the favorites (GitHub #24: nothing of what was done shows).
     QString startList = QStringLiteral("opened");
+    // Each time the launcher opens, nothing is typed and the scope is 全部, as
+    // at its first opening (GitHub #24); else it keeps the words, selected.
+    bool clearOnOpen = false;
     // ctrl | alt | off: Ctrl+1…9 opens the nth row shown, in the launcher and
     // the bar by file dialogs (other programs' hotkeys stay theirs, see numberkeys).
     QString numberKeys = QStringLiteral("ctrl");

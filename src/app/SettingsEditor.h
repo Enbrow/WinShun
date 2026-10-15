@@ -112,7 +112,8 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool showModified READ showModified WRITE setShowModified NOTIFY changed FINAL)
     Q_PROPERTY(bool thumbnails READ thumbnails WRITE setThumbnails NOTIFY changed FINAL)
     Q_PROPERTY(QString sort READ sort WRITE setSort NOTIFY changed FINAL) // match | newest | oldest
-    Q_PROPERTY(QString startList READ startList WRITE setStartList NOTIFY changed FINAL) // opened | modified
+    Q_PROPERTY(QString startList READ startList WRITE setStartList NOTIFY changed FINAL) // opened | modified | none
+    Q_PROPERTY(bool clearOnOpen READ clearOnOpen WRITE setClearOnOpen NOTIFY changed FINAL)
     Q_PROPERTY(QString numberKeys READ numberKeys WRITE setNumberKeys NOTIFY changed FINAL) // ctrl | alt | off
     // Which of the chosen number keys are other programs' hotkeys, or Win顺's
     // own shortcuts, said for the user; empty when none (refreshNumberKeys).
@@ -404,6 +405,8 @@ public:
     void setSort(const QString& sort);
     QString startList() const { return m_settings.startList; }
     void setStartList(const QString& list);
+    bool clearOnOpen() const { return m_settings.clearOnOpen; }
+    void setClearOnOpen(bool on);
     QString numberKeys() const { return m_settings.numberKeys; }
     void setNumberKeys(const QString& keys);
     QString numberKeysNote() const { return m_numberKeysNote; }

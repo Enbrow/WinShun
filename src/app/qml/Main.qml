@@ -191,10 +191,10 @@ Window {
         : launcher.pluginKeyword.length > 0 ? qsTr("%1 没有找到“%2”").arg(launcher.pluginLabel).arg(shownQuery)
         : qsTr("没有找到“%1”").arg(shownQuery)
     readonly property string emptyHint: contentMode && launcher.contentWhere.length > 0
-        ? qsTr("按 Shift+Tab 换个文件夹，Tab 切换范围")
-        : contentMode && launcher.folderChips.length > 1 ? qsTr("按 Shift+Tab 只搜某个文件夹，Tab 切换范围")
+        ? qsTr("按 Ctrl+Tab 换个文件夹，Tab 切换范围")
+        : contentMode && launcher.folderChips.length > 1 ? qsTr("按 Ctrl+Tab 只搜某个文件夹，Tab 切换范围")
         : contentMode ? qsTr("按 Tab 回到文件名搜索")
-        : typeStrip.shown ? qsTr("按 Shift+Tab 换个类型，Tab 切换范围")
+        : typeStrip.shown ? qsTr("按 Ctrl+Tab 换个类型，Tab 切换范围")
         : launcher.pluginKeyword.length > 0 ? qsTr("按 Esc 清空关键字后面的文字")
         : launcher.searchesContent ? qsTr("文件名和 %1的内容里都没有").arg(launcher.contentFilesLabel)
         : launcher.contentEnabled ? qsTr("按 Tab 切换范围，或搜索文件内容")
@@ -493,6 +493,16 @@ Window {
         }
     }
 
+    // Along the strip under the box: in 文件 the kinds, in 内容 the folders.
+    function stepStrip(delta) {
+        if (launcher.pluginKeyword.length > 0 || !typeStrip.shown)
+            return
+        if (typeStrip.folders)
+            launcher.cycleFolderChip(delta)
+        else
+            launcher.cycleFileType(delta)
+    }
+
     function handleKey(event) {
         if (menuOpen && contextMenu.handleKey(event)) {
             event.accepted = true
@@ -557,6 +567,10 @@ Window {
                 window.launcher.dismiss()
             break
         case Qt.Key_Tab:
+            if (ctrl) { // Ctrl+Tab: along the strip under the box (GitHub #29)
+                stepStrip(1)
+                break
+            }
             // In keyword mode the scopes mean nothing: Tab takes the row's
             // autocomplete instead. Outside it the hint row of a keyword
             // ("kill" typed alone, or "kil" that it begins with) takes it
@@ -564,7 +578,7 @@ Window {
             if (window.launcher.pluginKeyword.length > 0)
                 window.launcher.autocomplete(list.currentIndex)
             else if (!window.launcher.autocomplete(list.currentIndex)) {
-                // Always the scopes; the strip under the box is Shift+Tab's (GitHub #16).
+                // Always the scopes; the strip under the box is Ctrl+Tab's (GitHub #16, #29).
                 window.launcher.cycleScope(1)
             }
             break
@@ -582,13 +596,12 @@ Window {
                 return
             break
         case Qt.Key_Backtab:
-            // Along the strip under the box: in 文件 the kinds, in 内容 the folders.
-            if (window.launcher.pluginKeyword.length > 0 || !typeStrip.shown)
-                break
-            if (typeStrip.folders)
-                window.launcher.cycleFolderChip(1)
-            else
-                window.launcher.cycleFileType(1)
+            // Back through the scopes, as Shift+Tab goes back in Windows;
+            // Ctrl+Shift+Tab back along the strip.
+            if (ctrl)
+                stepStrip(-1)
+            else if (window.launcher.pluginKeyword.length === 0)
+                window.launcher.cycleScope(-1)
             break
         case Qt.Key_C:
             // Ctrl+C copies selected text in the box; otherwise the file itself
@@ -831,7 +844,8 @@ Window {
                     height: Theme.labelRowHeight
                     verticalAlignment: Text.AlignVCenter
                     visible: list.count > 0
-                    text: window.launcher.hasFavorites
+                    text: window.launcher.startList === Launcher.NoStartList ? qsTr("收藏")
+                          : window.launcher.hasFavorites
                           ? (window.launcher.startList === Launcher.RecentlyModified ? qsTr("收藏和最近修改") : qsTr("收藏和最近"))
                           : (window.launcher.startList === Launcher.RecentlyModified ? qsTr("最近修改") : qsTr("最近"))
                     color: Theme.subtext

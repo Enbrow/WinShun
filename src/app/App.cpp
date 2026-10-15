@@ -457,7 +457,8 @@ bool App::start(const StartOptions& options)
         remember(&Settings::sort, kSorts[m_launcher->sort()].toString());
     });
     connect(m_launcher.get(), &Launcher::startListChanged, this, [this, remember] {
-        remember(&Settings::startList, m_launcher->startList() == Launcher::RecentlyModified ? u"modified"_s : u"opened"_s);
+        static constexpr QStringView kLists[] {u"opened", u"modified", u"none"};
+        remember(&Settings::startList, kLists[m_launcher->startList()].toString());
     });
     createPluginHost();
 
@@ -537,10 +538,9 @@ bool App::start(const StartOptions& options)
             toggleAtTaskbar(false);
         else if (id == kScreenClipHotkeyId)
             startScreenClip();
-        else if (id == kFolderMenuHotkeyId) {
-            if (m_folderMenu)
-                m_folderMenu->hotkeyPressed();
-        } else if (id != kDialogJumpHotkeyId)
+        else if (id == kFolderMenuHotkeyId)
+            folderMenuHotkey();
+        else if (id != kDialogJumpHotkeyId)
             toggleLauncher();
         else if (m_dialogJump && m_settings.dialogJump)
             m_dialogJump->jump();
@@ -1003,7 +1003,9 @@ void App::applySettings(bool initial)
     m_launcher->setSort(m_settings.sort == u"newest" ? Launcher::NewestFirst
             : m_settings.sort == u"oldest"           ? Launcher::OldestFirst
                                                      : Launcher::BestMatch);
-    m_launcher->setStartList(m_settings.startList == u"modified" ? Launcher::RecentlyModified : Launcher::RecentlyOpened);
+    m_launcher->setStartList(m_settings.startList == u"modified" ? Launcher::RecentlyModified
+            : m_settings.startList == u"none"                     ? Launcher::NoStartList
+                                                                 : Launcher::RecentlyOpened);
     m_clipboard->setNumberKeys(m_settings.clipboardNumberKeys);
     updateNumberKeys();
     applyHotkey();
@@ -1037,6 +1039,34 @@ void App::applyHotkey()
         m_settingsEditor->setHotkeyError(hotkeyError); // shown next to the shortcut
     else if (!hotkeyError.isEmpty())
         m_messages->showNotification(tr("快捷键不可用"), hotkeyError);
+}
+
+// The folder menu's hotkey (GitHub #25). Over the launcher itself, the
+// launcher goes first (as on Esc) and the menu is for the window Windows
+// brings to the front after it: a window of ours in front could not have
+// the keys taken for the menu (keyboard Raw Input, see KeyListener), and
+// the user pressed the menu's key, not the launcher's. The launcher slides
+// out: the menu waits for it to be gone.
+void App::folderMenuHotkey()
+{
+    if (!m_folderMenu)
+        return;
+    if (m_folderMenu->isOpen() || !launcherShown() || !m_window->isActive()) {
+        m_folderMenu->hotkeyPressed();
+        return;
+    }
+    hideLauncher();
+    auto wait = std::make_shared<std::function<void(int)>>();
+    *wait = [this, wait](int left) {
+        if (!m_folderMenu)
+            return;
+        if (m_window && m_window->isVisible() && left > 0) {
+            QTimer::singleShot(30ms, this, [wait, left] { (*wait)(left - 1); });
+            return;
+        }
+        m_folderMenu->hotkeyPressed();
+    };
+    (*wait)(20);
 }
 
 void App::applyFolderMenuHotkey()
@@ -1945,6 +1975,11 @@ void App::applyFolderMenu()
             m_dialogJump->go(dialog, folder.toStdWString(), false);
             return true;
         });
+        menu->setDialogOf([this](HWND window) -> HWND { // ... over the bar beside one: that dialog
+            if (!m_dialogJump || !m_dialogJump->dialog() || !m_dialogJump->isCompanion(window))
+                return nullptr;
+            return m_dialogJump->dialog();
+        });
         connect(menu.get(), &FolderMenu::openChanged, this, [this](bool open) {
             if (m_keyListener)
                 m_keyListener->setMenuOpen(open);
@@ -2175,6 +2210,11 @@ void App::showLauncher(const QString& query, const std::optional<taskbar::Spot>&
     m_boxPressGrace.stop();
     m_launcherShown.start();
     const bool wasClosing = std::exchange(m_launcherClosing, false); // back from on its way out
+    // Opened anew (not back from on its way out, not up already): as at its
+    // first opening, if so set. Still hidden or cloaked until the rows for
+    // it are drawn, so the old words and rows are never seen.
+    if (m_settings.clearOnOpen && !wasClosing && (!m_window->isVisible() || m_prewarming.load()))
+        m_launcher->startOver();
     const bool wasInBox = m_launcher->inTaskbarBox();
     m_launcherOverBox = inBox && m_searchBox;
     m_launcher->setInTaskbarBox(m_launcherOverBox && m_searchBox->wide());

@@ -625,6 +625,10 @@
         <translation>In Files, switch the type; in Content, the folder</translation>
     </message>
     <message>
+        <source>切换到上一个范围</source>
+        <translation>Back to the previous scope</translation>
+    </message>
+    <message>
         <source>上下移动，PgUp PgDn 翻页</source>
         <translation>Move up and down; PgUp PgDn a page at a time</translation>
     </message>
@@ -838,12 +842,12 @@
         <translation>Nothing found for “%1”</translation>
     </message>
     <message>
-        <source>按 Shift+Tab 换个文件夹，Tab 切换范围</source>
-        <translation>Shift+Tab for another folder, Tab to switch scope</translation>
+        <source>按 Ctrl+Tab 换个文件夹，Tab 切换范围</source>
+        <translation>Ctrl+Tab for another folder, Tab to switch scope</translation>
     </message>
     <message>
-        <source>按 Shift+Tab 只搜某个文件夹，Tab 切换范围</source>
-        <translation>Shift+Tab to search one folder only, Tab to switch scope</translation>
+        <source>按 Ctrl+Tab 只搜某个文件夹，Tab 切换范围</source>
+        <translation>Ctrl+Tab to search one folder only, Tab to switch scope</translation>
     </message>
     <message>
         <source>按 Tab 回到文件名搜索</source>
@@ -870,6 +874,10 @@
         <translation>Frequent apps</translation>
     </message>
     <message>
+        <source>收藏</source>
+        <translation>Favorites</translation>
+    </message>
+    <message>
         <source>收藏和最近修改</source>
         <translation>Favorites and recently modified</translation>
     </message>
@@ -890,8 +898,8 @@
         <translation>Type a name to search files, apps and settings</translation>
     </message>
     <message>
-        <source>按 Shift+Tab 换个类型，Tab 切换范围</source>
-        <translation>Press Shift+Tab for another type, Tab to switch scope</translation>
+        <source>按 Ctrl+Tab 换个类型，Tab 切换范围</source>
+        <translation>Press Ctrl+Tab for another type, Tab to switch scope</translation>
     </message>
 </context>
 <context>
@@ -2168,6 +2176,10 @@
         <translation>Folders first</translation>
     </message>
     <message>
+        <source>打开搜索框还没输入时列出什么：最近打开的 5 项，或最近修改的文件（往下滚动接着列出）；底栏也能切换（Ctrl+S）。选“不显示”只列收藏</source>
+        <translation>What is listed before you type: the 5 items opened last, or the files changed lately (scroll down for more); also at the bottom of the search box (Ctrl+S). None lists only the favorites</translation>
+    </message>
+    <message>
         <source>显示修改日期</source>
         <translation>Show the date modified</translation>
     </message>
@@ -2550,16 +2562,28 @@
         <translation>recent;recently opened;recently modified;history;start</translation>
     </message>
     <message>
-        <source>打开搜索框还没输入时列出什么：最近打开的 5 项，或最近修改的文件（往下滚动接着列出）；底栏也能切换（Ctrl+S）</source>
-        <translation>What is listed before you type: the 5 items opened last, or the files changed lately (scroll down for more); also at the bottom of the search box (Ctrl+S)</translation>
-    </message>
-    <message>
         <source>最近打开</source>
         <translation>Recently opened</translation>
     </message>
     <message>
         <source>最近修改</source>
         <translation>Recently modified</translation>
+    </message>
+    <message>
+        <source>不显示</source>
+        <translation>None</translation>
+    </message>
+    <message>
+        <source>每次打开时清空搜索</source>
+        <translation>Clear the search each time it opens</translation>
+    </message>
+    <message>
+        <source>清空;清除;上次;保留;隐私;搜索框;clear;privacy</source>
+        <translation>clear;empty;last;keep;privacy;search box;reset</translation>
+    </message>
+    <message>
+        <source>打开时搜索框是空的，回到“全部”；关掉时保留上次的文字并选中，直接输入就会替换</source>
+        <translation>Opens with an empty box, back in All; when off, the last words stay, selected, so typing replaces them</translation>
     </message>
     <message>
         <source>内容;全文;文字;开关;关闭;content</source>
@@ -2914,8 +2938,8 @@
         <translation>Notes the text in files in the background, which makes searches much faster. NTFS disks only; takes about 100–200 MB</translation>
     </message>
     <message>
-        <source>在搜索框按 Tab 切换“全部”“文件”“内容”；Shift+Tab 在“文件”里切换文件类型，在“内容”里切换文件夹。</source>
-        <translation>Press Tab in the search box to switch between All, Files and Content; Shift+Tab switches the type of file in Files, the folder in Content.</translation>
+        <source>在搜索框按 Tab、Shift+Tab 切换“全部”“文件”“内容”；Ctrl+Tab 在“文件”里切换文件类型，在“内容”里切换文件夹。</source>
+        <translation>Press Tab or Shift+Tab in the search box to switch between All, Files and Content; Ctrl+Tab switches the type of file in Files, the folder in Content.</translation>
     </message>
     <message>
         <source>在搜索框的“更多”菜单里添加</source>
@@ -3143,8 +3167,8 @@
         <translation>type;extension;suffix;filter;picture;document;video;music;archive;kind</translation>
     </message>
     <message>
-        <source>“文件”里搜索框下面的一排，按 Shift+Tab 切换；每个类型是一组扩展名，用空格或逗号隔开</source>
-        <translation>The row under the search box in Files; Shift+Tab goes along it. Each type is a list of extensions, separated by spaces or commas</translation>
+        <source>“文件”里搜索框下面的一排，按 Ctrl+Tab 切换；每个类型是一组扩展名，用空格或逗号隔开</source>
+        <translation>The row under the search box in Files; Ctrl+Tab goes along it. Each type is a list of extensions, separated by spaces or commas</translation>
     </message>
     <message>
         <source>上移</source>
@@ -4882,8 +4906,8 @@
         <translation>Search all files</translation>
     </message>
     <message>
-        <source>Shift+Tab 选其中一个</source>
-        <translation>Shift+Tab to pick one</translation>
+        <source>Ctrl+Tab 选其中一个</source>
+        <translation>Ctrl+Tab to pick one</translation>
     </message>
     <message>
         <source>没有叫 %1 的文件夹，当作文字搜</source>

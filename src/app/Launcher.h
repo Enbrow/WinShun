@@ -148,7 +148,7 @@ class Launcher : public QObject {
 
 public:
     // As ws::Scope. 文件夹 is shown within 文件, as a chip of its strip
-    // (chooseFileType): Tab goes 全部, 文件, 内容 (cycleScope), Shift+Tab
+    // (chooseFileType): Tab goes 全部, 文件, 内容 (cycleScope; Shift+Tab back), Ctrl+Tab
     // through the strip under the box (cycleFileType, cycleFolderChip).
     enum Scope { All, Files, Content, Folders };
     Q_ENUM(Scope)
@@ -181,7 +181,7 @@ public:
     // As ws::RankBy and ws::StartList.
     enum Sort { BestMatch, NewestFirst, OldestFirst };
     Q_ENUM(Sort)
-    enum StartList { RecentlyOpened, RecentlyModified };
+    enum StartList { RecentlyOpened, RecentlyModified, NoStartList }; // none: only the favorites
     Q_ENUM(StartList)
 
     Launcher(IndexService* index, AppCatalog* apps, SystemCatalog* places, SearchEngine* engine, History* history,
@@ -292,6 +292,9 @@ public:
     Q_INVOKABLE void clearHistory();
     QVariantList frequentApps() const;
     Q_INVOKABLE void openFrequentApp(int index);
+    // Nothing typed, 全部, no folder chosen in 内容: as at the first opening
+    // (Settings::clearOnOpen); the search follows in handleShown.
+    void startOver();
     void handleShown();
     void handleHidden();
     void retranslate(); // the language changed: status, placeholder, rows
@@ -346,7 +349,7 @@ public:
     // (fileTypes); in 文件 (or 文件夹) from any scope.
     static constexpr int kFoldersChip = -2;
     Q_INVOKABLE void chooseFileType(int type);
-    // Shift+Tab in 文件: the next chip, round (不限, 文件夹, then the kinds).
+    // Ctrl+Tab in 文件: the next chip (Ctrl+Shift+Tab the one before), round (不限, 文件夹, then the kinds).
     Q_INVOKABLE void cycleFileType(int delta);
     Q_INVOKABLE void editFileTypes(); // the strip's +: fileTypeSettingsRequested
     // The strip's choice, to keep between runs: "folders", a kind's id
@@ -362,7 +365,7 @@ public:
     QString whereMissing() const;
     // A chip of the strip in 内容 (folderChips): searched there.
     Q_INVOKABLE void chooseFolderChip(const QString& key);
-    // Shift+Tab in 内容: the next folder chip, round; nothing with none to go to.
+    // Ctrl+Tab in 内容: the next folder chip (or the one before), round; nothing with none to go to.
     Q_INVOKABLE void cycleFolderChip(int delta);
     Q_INVOKABLE void editFolderChips(); // the strip's +: the favorites, where the folders come from
     // Esc in 内容 with a folder chosen: the words go, the folder stays

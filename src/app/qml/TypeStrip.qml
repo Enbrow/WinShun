@@ -5,7 +5,7 @@ import WinShun
 
 // Under the search box in 文件: the kinds of file it narrows to, as chips
 // (不限, 文件夹, then 文档, 图片… as the settings have them), and + for the
-// settings. Shift+Tab goes along them (Launcher.cycleFileType), a chip's tooltip
+// settings. Ctrl+Tab goes along them (Launcher.cycleFileType), a chip's tooltip
 // lists its extensions. In 内容 the folders it looks in instead
 // (Launcher.folderChips: 不限 and the favorite folders, or those a folder
 // named among the words stands for), + for the favorites, and after them a

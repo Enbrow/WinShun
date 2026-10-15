@@ -214,7 +214,9 @@ Item {
 
     Choices {
         id: order
+        // Not at the start with no start list (set so in the settings, GitHub #24).
         visible: footer.launcher.pluginKeyword.length === 0
+                 && !(footer.atStart && footer.launcher.startList === Launcher.NoStartList)
         anchors.left: parent.left
         anchors.leftMargin: 16
         anchors.verticalCenter: parent.verticalCenter
@@ -277,7 +279,8 @@ Item {
 
         readonly property string modifier: footer.launcher.numberKeys === "alt" ? "Alt" : "Ctrl"
         shortcuts: [
-            ["Shift+Tab", qsTr("在“文件”里切换类型，在“内容”里换个文件夹")],
+            ["Shift+Tab", qsTr("切换到上一个范围")],
+            ["Ctrl+Tab", qsTr("在“文件”里切换类型，在“内容”里换个文件夹")],
             ["↑ ↓", qsTr("上下移动，PgUp PgDn 翻页")],
             ["Shift+↑ ↓", qsTr("选中多行，也可 Ctrl+单击、Shift+单击")],
             ["Ctrl+Shift+Enter", qsTr("以管理员身份运行")],

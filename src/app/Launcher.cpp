@@ -686,8 +686,10 @@ bool Launcher::showsStartList() const
 void Launcher::switchOrder()
 {
     // The footer's switch shows what it is now; the status keeps its figures.
-    if (showsStartList())
-        setStartList(m_startList == RecentlyOpened ? RecentlyModified : RecentlyOpened);
+    if (showsStartList()) {
+        if (m_startList != NoStartList) // set so in the settings: kept so
+            setStartList(m_startList == RecentlyOpened ? RecentlyModified : RecentlyOpened);
+    }
     else if (!m_keyword) // a command's list is in the plugin's order
         setSort(static_cast<Sort>((m_sort + 1) % 3));
 }
@@ -719,6 +721,26 @@ bool Launcher::holdUntilShown(int action, int number)
         return false; // the rows on screen are the query's
     m_held = {action, number};
     return true;
+}
+
+void Launcher::startOver()
+{
+    if (!m_contentFolder.isEmpty() || !m_contentPick.folder.isEmpty()) {
+        m_contentFolder.clear();
+        m_contentPick = {};
+        emit folderChipsChanged();
+    }
+    if (m_scope != All) {
+        m_scope = All;
+        emit scopeChanged();
+    }
+    if (!m_query.isEmpty()) {
+        m_query.clear();
+        emit queryChanged();
+    }
+    m_results.setSelection({});
+    m_held.reset();
+    refreshKeyHints();
 }
 
 void Launcher::handleShown()
@@ -919,9 +941,10 @@ void Launcher::search(bool more)
     request.extensions = fileExtensions();
     request.kindOrder = m_kindOrder;
     request.rankBy = rankBy();
-    request.startList = static_cast<ws::StartList>(m_startList);
+    request.startList = m_startList == RecentlyModified ? ws::StartList::Modified : ws::StartList::Opened;
     request.limit = kPage * m_pages;
-    if (m_recordHistory)
+    // With no start list, nothing opened shows before something is typed.
+    if (m_recordHistory && !(text.isEmpty() && m_startList == NoStartList))
         request.history = m_history->items();
     request.web = m_web;
     if (m_favorites)
@@ -1360,7 +1383,7 @@ void Launcher::refreshKeyHints()
     QString secondKeys;
     QString second;
     // Tab: into a favorite folder in 全部, a completion, else the scopes (the
-    // strip under the box is Shift+Tab's, GitHub #16).
+    // strip under the box is Ctrl+Tab's, GitHub #16, #29).
     const bool narrowing = (m_scope == Files || m_scope == Folders || m_scope == Content) && !m_keyword;
     QString tab = enterableFolder(m_currentRow) && !narrowing ? tr("进入文件夹")
         : completionRow(m_currentRow)                          ? tr("补全")
@@ -1703,7 +1726,7 @@ QString Launcher::folderHint() const
         return {};
     if (const ContentScope::Place* place = typedPlace()) {
         if (place->status == ContentScope::Status::Searched)
-            return place->count > 1 ? tr("Shift+Tab 选其中一个") : QString();
+            return place->count > 1 ? tr("Ctrl+Tab 选其中一个") : QString();
         if (place->status == ContentScope::Status::Words) { // "/usr": searched for as it is
             QString name = place->typed;
             name.removeIf([](QChar c) { return c == u'/' || c == u'\\' || c == QChar(0xFF0F) || c == QChar(0xFF3C); });
@@ -2849,7 +2872,7 @@ const SearchResult* Launcher::enterableFolder(int row) const
 bool Launcher::autocomplete(int row)
 {
     // Not in 文件 and 内容: there a folder is narrowed to by the strip
-    // (Shift+Tab), and Tab is the scopes' alone.
+    // (Ctrl+Tab), and Tab and Shift+Tab are the scopes'.
     const bool narrowing = m_scope == Files || m_scope == Folders || m_scope == Content;
     if (const SearchResult* folder = narrowing ? nullptr : enterableFolder(row)) {
         setQuery(folder->path.endsWith(u'\\') ? folder->path : folder->path + u'\\');

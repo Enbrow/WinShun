@@ -2272,7 +2272,7 @@ Window {
             SettingsSection {
                 page: 3
                 width: parent.width
-                note: qsTr("在搜索框按 Tab 切换“全部”“文件”“内容”；Shift+Tab 在“文件”里切换文件类型，在“内容”里切换文件夹。")
+                note: qsTr("在搜索框按 Tab、Shift+Tab 切换“全部”“文件”“内容”；Ctrl+Tab 在“文件”里切换文件类型，在“内容”里切换文件夹。")
 
                 SettingRow {
                     title: qsTr("文件和文件夹的顺序")
@@ -2301,12 +2301,24 @@ Window {
                 SettingRow {
                     title: qsTr("不输入时显示")
                     keywords: qsTr("最近;最近打开;最近修改;最近使用;历史;recent").split(";")
-                    description: qsTr("打开搜索框还没输入时列出什么：最近打开的 5 项，或最近修改的文件（往下滚动接着列出）；底栏也能切换（Ctrl+S）")
+                    description: qsTr("打开搜索框还没输入时列出什么：最近打开的 5 项，或最近修改的文件（往下滚动接着列出）；底栏也能切换（Ctrl+S）。选“不显示”只列收藏")
 
                     ScopeTabs {
-                        labels: [qsTr("最近打开"), qsTr("最近修改")]
-                        current: window.editor.startList === "modified" ? 1 : 0
-                        onActivated: (index) => window.editor.startList = index === 1 ? "modified" : "opened"
+                        readonly property var lists: ["opened", "modified", "none"]
+                        labels: [qsTr("最近打开"), qsTr("最近修改"), qsTr("不显示")]
+                        current: Math.max(0, lists.indexOf(window.editor.startList))
+                        onActivated: (index) => window.editor.startList = lists[index]
+                    }
+                }
+
+                SettingRow {
+                    title: qsTr("每次打开时清空搜索")
+                    keywords: qsTr("清空;清除;上次;保留;隐私;搜索框;clear;privacy").split(";")
+                    description: qsTr("打开时搜索框是空的，回到“全部”；关掉时保留上次的文字并选中，直接输入就会替换")
+
+                    ToggleSwitch {
+                        checked: window.editor.clearOnOpen
+                        onToggled: (on) => window.editor.clearOnOpen = on
                     }
                 }
 
@@ -2364,7 +2376,7 @@ Window {
                     title: qsTr("文件类型")
                     keywords: qsTr("类型;扩展名;后缀;筛选;图片;文档;视频;音乐;压缩包;filter;type;extension").split(";")
                     values: window.editor.fileTypes.map(t => t.name)
-                    description: qsTr("“文件”里搜索框下面的一排，按 Shift+Tab 切换；每个类型是一组扩展名，用空格或逗号隔开")
+                    description: qsTr("“文件”里搜索框下面的一排，按 Ctrl+Tab 切换；每个类型是一组扩展名，用空格或逗号隔开")
 
                     FlatButton {
                         visible: !window.editor.fileTypesDefault
@@ -2615,9 +2627,25 @@ Window {
                         required property int index
                         required property var modelData
                         readonly property real mb: window.editor.contentMaxSizeMB[index]
-                        // − and +: by a tenth under 1 MB, by 1 under 16, by 16 above
-                        readonly property real down: mb > 16 ? Math.max(16, mb - 16) : mb > 1 ? Math.max(1, mb - 1) : mb - 0.1
-                        readonly property real up: mb >= 16 ? mb + 16 : mb >= 1 ? Math.min(16, Math.floor(mb) + 1) : mb + 0.1
+                        // Under 1 MB in whole KB (Settings: roundedSizeMB), else MB to a hundredth.
+                        readonly property bool inKB: mb < 1
+                        readonly property real kb: Math.round(mb * 1024)
+                        readonly property string shownText: String(inKB ? kb : Math.round(mb * 100) / 100) // 512, 16, 1.25
+                        // − and +: halving and doubling under 1 MB (…, 256, 512 KB, 1 MB), by 1 under 16, by 16 above
+                        readonly property real down: mb > 16 ? Math.max(16, mb - 16) : mb > 1 ? Math.max(1, mb - 1)
+                                                   : Math.pow(2, Math.ceil(Math.log2(kb)) - 1) / 1024
+                        readonly property real up: mb >= 16 ? mb + 16 : mb >= 1 ? Math.min(16, Math.floor(mb) + 1)
+                                                 : Math.pow(2, Math.floor(Math.log2(kb)) + 1) / 1024
+
+                        // What was typed: a number in the unit shown, or with its own ("50k", "1.5 MB", "2g").
+                        function typedMB(text) {
+                            const m = /^\s*(\d*(?:\.\d*)?)\s*([kmg]?)b?\s*$/i.exec(text.replace("。", "."))
+                            const n = m ? parseFloat(m[1]) : NaN
+                            if (isNaN(n))
+                                return NaN
+                            const unit = m[2].toLowerCase() || (inKB ? "k" : "m")
+                            return unit === "k" ? n / 1024 : unit === "g" ? n * 1024 : n
+                        }
                         readonly property string extensions: window.editor.contentKindExtensions[index]
 
                         shown: window.editor.contentSearch && (modelData.files === undefined || window.editor.contentDocuments)
@@ -2627,19 +2655,19 @@ Window {
 
                         FlatButton {
                             glyph: "" // Remove (minus)
-                            enabled: sizeRow.mb > 0.1
+                            enabled: !sizeRow.inKB || sizeRow.kb > 1
                             onClicked: window.editor.setContentMaxSizeMB(sizeRow.index, sizeRow.down)
                         }
                         InputBox {
                             width: 80
                             horizontalAlignment: TextInput.AlignHCenter
-                            text: String(Math.round(sizeRow.mb * 10) / 10) // 16, 0.5
-                            validator: RegularExpressionValidator { regularExpression: /\d{0,4}([.。]\d?)?/ }
+                            text: sizeRow.shownText
+                            validator: RegularExpressionValidator { regularExpression: /\s*\d{0,4}([.。]\d{0,3})?\s*([kKmMgG][bB]?)?/ }
                             onEditingFinished: {
-                                const mb = parseFloat(text.replace("。", "."))
-                                if (!isNaN(mb))
+                                const mb = sizeRow.typedMB(text)
+                                if (!isNaN(mb) && mb > 0)
                                     window.editor.setContentMaxSizeMB(sizeRow.index, mb)
-                                text = Qt.binding(() => sizeRow.mb)
+                                text = Qt.binding(() => sizeRow.shownText)
                             }
                         }
                         FlatButton {
@@ -2648,10 +2676,14 @@ Window {
                             onClicked: window.editor.setContentMaxSizeMB(sizeRow.index, sizeRow.up)
                         }
                         Text {
+                            id: unitText
                             anchors.verticalCenter: parent.verticalCenter
-                            text: "MB"
+                            width: unitMetrics.advanceWidth("MB") // KB takes the same room: the row stays put
+                            text: sizeRow.inKB ? "KB" : "MB"
                             color: Theme.subtext
                             font.pixelSize: Theme.fontBody
+
+                            FontMetrics { id: unitMetrics; font: unitText.font }
                         }
                     }
                 }

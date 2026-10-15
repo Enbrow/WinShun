@@ -186,6 +186,7 @@ private:
     void applyDialogs(); // Ctrl+G, the bar and going by themselves in file dialogs
     void applyFolderMenu(); // the menu on a double click in File Explorer (GitHub #22)
     void applyFolderMenuHotkey(); // ... and on its hotkey, anywhere (GitHub #25)
+    void folderMenuHotkey(); // the hotkey was pressed: the menu, the launcher out of the way first
     void excludeFromDialogBar(const QString& app); // "not in this program" from the bar's menu
     void answerAutoJump(const QString& when); // asked under the bar: "open", "back" or "" (DialogBar::autoJumpAnswered)
     bool createBarWindow();

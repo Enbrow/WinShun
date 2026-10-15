@@ -1944,14 +1944,27 @@
 - **现象**：实测快捷键时想从 `WinShun.log` 读“菜单是关了还是丢了这一次”，文件里一行都没有：`qInfo` 只进调试输出，日志文件只记警告和错误。
 - **做法**：环境变量 `WINSHUN_LOG_INFO` 设了就连 info 行一起写（`main.cpp` 的 `logToFile`），测试脚本启动 Win顺 前设上，用 `--profile` 的那份日志读状态；平时不设，日志不变。别为了测试把 info 改成 warning。
 
+### 快捷键在 Win顺 自己的窗口上按：菜单出来了，键一个都到不了它
+
+- **现象**（2026-10-15 合并版实测）：对话框旁搜索框有焦点时按文件夹菜单的快捷键，菜单弹出来，按 Z 进了搜索框的输入法候选，Enter 没反应；启动器在前时同样，Esc 关掉的是启动器。
+- **原因**：进程登记了键盘 Raw Input（双击 Ctrl），自己的窗口在前台时 Windows 不调用本进程的低级键盘钩子（见上文“数字键”一条），`KeyRouter` 什么也收不到。
+- **做法**：不要让自己的窗口在前台时开这个菜单。搜索框有焦点 → 先把前台还给它旁边的对话框（`DialogJump::isCompanion`，`SetForegroundWindow` 是自己的前台所以允许），菜单按对话框来（`FolderMenu::setDialogOf`；`show()` 的前台核对也认“对话框的同伴在前”，前台切换有一点点滞后）；启动器在前 → 先把启动器收起（和 Esc 一样），等它滑出去（最多 20 × 30 ms）再按新前台弹菜单（`App::folderMenuHotkey`）。实测：搜索框里按，对话框回到前台、菜单的文件夹是对话框的，Z+Enter 对话框转过去；启动器上按，启动器收起，菜单对着后面的窗口。
+
+### “Total Commander、XYplorer 开着中文输入法，Down 和主键盘 Enter 到不了菜单”——是测试脚本发了 VK 0
+
+- **现象**（2026-10-15）：菜单在 TC / XYplorer 上弹出，Z 能跳、Esc 能关、小键盘 Enter 能选，Down 和主键盘 Enter 没反应；装一个最新的低级钩子探针，这两个键探针也看不到；把 XYplorer 线程的布局换成 en-US 它们又“好了”。一度断定是微信输入法在 IMM32 程序那一层吃掉了它们，为此让菜单在这两种窗口上激活、自己收键（`takesKeyboard`），窗口子类化里还按 `VK_PROCESSKEY` 做了换算——菜单激活了，Down / Enter 还是一个 `WM_KEYDOWN` 都没有。
+- **原因**：脚本的 `MenuOver` 里写了 `$vk = [int][char]$letter`，PowerShell 变量名**不分大小写**，这个局部 `$vk` 把脚本级的键码表 `$VK` 挡住了，`$VK.Down`、`$VK.Enter` 成了 `(90).Down` → `$null` → `[int]` 0：`SendInput` 发的是 **VK 0、扫描码 0**，Windows 直接丢掉，当然到不了任何钩子、任何窗口。Z 用的是那个局部变量所以对；Esc 是在 case 主体里用的 `$VK.Esc`，那里没有局部 `$vk` 挡着；小键盘 Enter 是字面量 `KeyEx(0x0D, …)`；换布局那段 `LayoutTest` 也没有局部 `$vk`，它的 Enter 本来就是真的——所以恰好只有 `MenuOver` 里的 Down 和主键盘 Enter “坏了”。`DismissTcNag` 里同样的 `$vk` 让 `$VK.Alt` 也成了 0，TC 的提示窗时灵时不灵也是它。给每个键记下 `SendInput` 的返回和实际发出的 `vk/scan` 一眼就看出来了（`tap Down: … vk 0 scan 0`）；在这之前的几轮探针只打印了白名单里的 VK，VK 0 的事件被过滤掉了，所以“探针没看到”也是假象。
+- **做法**：`takesKeyboard` 整个撤掉，TC / XYplorer 和别处一样是不抢焦点的 `KeyRouter` 模型（修好脚本后实测：微信输入法中文状态下，菜单在 XYplorer 上 Z / Down / Z / Enter 过去了，TC 同样；菜单激活模型下也测过 Down、Up、Home、PageDown、Left、Right、Space、Tab、Enter 全到，Z 之后 165–900 ms 内的 Down 也到——都没有输入法吃键这回事）。脚本：键码表不要叫 `$VK` 又在函数里用 `$vk`，改名 `$letterVk`、`$digitVk`；每次 `SendInput` 记返回值和发出的 `vk/scan/flags`；探针别按白名单过滤，全部打印。没测的：真按物理键（这台机器只能注入），微软拼音。
+
 ### 快捷键弹出的位置：光标不在那个窗口上时落到焦点控件，差 1 像素是换算
 
 - **现象**：150% 下菜单该在焦点控件左上角 (834,454) 往里 24 物理像素即 (858,478)，窗口实际在 (858,477)。
 - **原因**：锚点是物理像素，交给 Qt 要换成逻辑像素（478 / 1.5 = 318.67），Qt 放窗口时再换回去，分数缩放下来回各舍一次。
 - **做法**：和双击落点一样接受 1 像素；核对时按“同一套单位、容差 1 像素”比。光标在窗口上时直接用光标点，没有这个误差。屏幕下边放不下时菜单照样往上翻（`other`、`explorer-pointer` 两例都翻了，x 不变）。
 
-### 实测脚本（Windows PowerShell 5.1）的两个坑
+### 实测脚本（Windows PowerShell 5.1）的几个坑
 
+- 变量名不分大小写：脚本级的 `$VK = @{ Down = 0x28; … }` 和函数里的局部 `$vk = …` 是同一个名字，局部一赋值，`$VK.Down` 就成了 `$null`（见上面“……是测试脚本发了 VK 0”一条，为此错判了一下午）。表和局部变量用不同的词，每个 `SendInput` 记下返回值和实际的 `vk/scan`。
 - `[ushort]` 不是 5.1 的类型加速器（pwsh 7 才有），`Add-Type` 之后 `[ushort[]]@(...)` 报 “Unable to find type”，提权窗口里又看不见：先不提权跑一遍脚本看编译错误，数组写 `[uint16[]]`。
 - 在“别的窗口”上选一个已经有资源管理器窗口开着的文件夹来验证“用文件管理器打开”，数不到新窗口：外壳打开文件夹时，已有窗口显示着它就只把那个窗口提到前台（前台确实换成了它）。要验证就选没开着的（最近的文件夹），再数新开的 `CabinetWClass` 窗口。
 - 记日志的函数里用 `Write-Output` 写一行，这一行就成了调用它的函数的返回值的一部分：`Recorder` 返回的成了 `Object[]`，`MenuWindows` 只剩一项时又被拆成单个对象，`.Count` 是空。日志用 `Write-Host`，返回数组写 `return ,$m`，调用处套 `@()`。
@@ -2023,6 +2036,12 @@
 - **原因**：`$pid` 是只读的自动变量；变量名不分大小写，`$r = … -split ','` 把报告用的列表 `$R` 换成了定长数组；`$profile` 也是自动变量。
 - **做法**：起名避开自动变量（`$sp`、`$rect`、`$prof`），`Get-Variable` 能查。
 
+### 设置窗口加了 `required property`，离屏预览就整页出不来
+
+- **现象**：2026-10-15 `WinShun.exe --preview-settings` 退出码 3，一张图也没有，日志只有“Required property backup was not initialized”和两条 `Cannot read property 'busy' of null`。
+- **原因**：设置备份（#17）给 `SettingsWindow.qml` 加了 `required property Backup backup`，`App` 建窗口时传了，`Preview.cpp` 的 `createWithInitialProperties` 没跟着加；缺了必需属性，组件直接建不出来。
+- **做法**：给 `SettingsWindow` 加必需属性时同时改 `Preview.cpp`（预览里给一个不设文件夹、不会真备份的对象），改完跑一次 `--preview-settings` 看退出码是不是 0。
+
 ## 结果列表的系统右键菜单（GitHub #26）
 
 ### 外壳菜单的“发送到”“打开方式”展开是空的
@@ -2074,3 +2093,9 @@
 - **现象**：`(Get-Windows | Where-Object { … }).Count -gt 0` 恒为假，等窗口出现一直等到超时，窗口明明在。
 - **原因**：Windows PowerShell 5.1 里 `PSCustomObject` 没有 `Count`；管道只剩一个结果时给出的是那个对象本身。pwsh 7 不受影响，以前的脚本是在 pwsh 下跑的。
 - **做法**：`@(…).Count`；接函数返回的列表也用 `$m = @(Wait-Menus 1)`。
+
+### 测试脚本模拟按键不带扫描码，Shift+Menu 看起来弹错了菜单
+
+- **现象**：2026-10-15 合并 #26 后复测，脚本发 Shift+Menu，弹出的是 Win顺 自己的菜单而不是系统菜单；子代理用自己的脚本测是好的，鼠标 Shift+右键也是好的。
+- **原因**：中文输入法开着时 Menu 键到窗口是 `VK_PROCESSKEY`，Win顺 靠扫描码认出它（见上面 #26 一节）；脚本的 `SendInput` 只填了虚拟键码，扫描码是 0，认不出来，就当成普通的 Menu 键。真键盘总带扫描码，用户那里没有这个问题。
+- **做法**：测试脚本的 `KEYBDINPUT.wScan` 一律填 `MapVirtualKey(vk, MAPVK_VK_TO_VSC)`，Menu、方向键、Insert/Delete 等再加 `KEYEVENTF_EXTENDEDKEY`。结果和真键盘对不上时，先查脚本发的键。

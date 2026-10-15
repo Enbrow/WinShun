@@ -6,6 +6,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <functional>
 #include <string>
 #include <utility>
@@ -57,6 +58,7 @@ public:
     // from the bar or over the dialog): while one is in front, the dialog
     // still counts as in front.
     void setCompanions(std::vector<HWND> windows) { m_companions = std::move(windows); }
+    bool isCompanion(HWND window) const { return std::find(m_companions.begin(), m_companions.end(), window) != m_companions.end(); }
     HWND dialog() const { return m_dialog; }
 
     void jump(); // Ctrl+G was pressed: to the folder shown in the file manager
