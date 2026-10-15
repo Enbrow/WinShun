@@ -31,6 +31,12 @@ class KeyRouter;
 // File Explorer window, the same tab goes there; on the desktop, the file
 // manager opens it.
 //
+// Directory Opus shows nothing of its rows to accessibility, so where a
+// double click landed cannot be told from outside; Opus tells it itself,
+// running WinShunSearch.exe --folder-menu "<folder>" for a double click on
+// blank space once the user has set that up (requested()). Chosen there,
+// Opus's tab goes to the folder.
+//
 // The menu never takes the focus: File Explorer stays in front, its
 // selection and caret as they were, and the keys the menu uses are taken on
 // their way to it (KeyRouter, as the clipboard does over other programs). A
@@ -59,6 +65,9 @@ public:
     // classes are looked at at once; what may be a folder's blank space is
     // asked about on a thread of its own, and the menu comes if it is.
     void doubleClicked(HWND window, POINT pt);
+    // From Directory Opus (through WinShunSearch.exe): a double click on
+    // blank space in a lister showing `folder`, the pointer still there.
+    void requested(const QString& folder);
     bool isOpen() const noexcept { return m_open.load(); }
 
     QVariantList entries() const { return m_entries; }
@@ -84,6 +93,8 @@ private:
     };
     struct Found; // what the worker gathered
 
+    void gatherHere(const folderview::Hit& hit, int ask, const QString& folder, bool recordHistory,
+        const QStringList& history);
     void show(const folderview::Hit& hit, const Found& found);
     void startKeys(HWND target);
     void stopKeys();

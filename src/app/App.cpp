@@ -556,6 +556,11 @@ bool App::start(const StartOptions& options)
     callbacks.searchHere = [this](const QString& folder) {
         showLauncher(folder.endsWith(u'\\') ? folder + u' ' : folder + u"\\ "_s);
     };
+    // Directory Opus's double click on blank space (WinShunSearch.exe, put into Opus's settings by SettingsEditor::setOpusFolderMenu).
+    callbacks.folderMenu = [this](const QString& folder) {
+        if (m_folderMenu)
+            m_folderMenu->requested(folder);
+    };
     // Windows ends us right after this returns, or a few seconds in: the
     // clipboard history and the index saved first. Past those seconds its
     // "preventing shutdown" screen says why rather than a bare name.
@@ -1467,6 +1472,13 @@ void App::showSettings()
         connect(editor, &SettingsEditor::elevatedRestartRequested, this,
             [this] { restart({u"--settings"_s, u"--settings-at"_s, u"indexAccess"_s}, Elevation::Elevated); });
         connect(editor, &SettingsEditor::indexServiceInstallRequested, this, &App::installIndexService);
+        connect(editor, &SettingsEditor::opusRestarted, this, [this] { // the settings window back over it
+            if (m_settingsWindow && m_settingsWindow->isVisible()) {
+                m_settingsWindow->raise();
+                win::bringToFront(m_settingsWindow);
+                m_settingsWindow->requestActivate();
+            }
+        });
         editor->plugins()->setLocale(m_language);
         editor->plugins()->setHost(m_pluginHost.get());
         editor->favorites()->setCatalogs(m_apps.get(), m_places.get());
@@ -1846,7 +1858,8 @@ void App::handleCommand(const QString& command)
 
 void App::applyFolderMenu()
 {
-    const bool on = m_settings.folderMenu != u"off" && (m_settings.folderMenuExplorer || m_settings.folderMenuDesktop);
+    // On with File Explorer and the desktop both off too: Directory Opus may ask for it (requested()).
+    const bool on = m_settings.folderMenu != u"off";
     if (!on && m_folderMenu) {
         m_keyListener.reset(); // it tells the menu double clicks: gone first
         m_keyListenerMode = 0;

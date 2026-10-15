@@ -4,6 +4,7 @@
 #include "FileIconProvider.h"
 #include "IndexFolder.h"
 #include "McpClients.h"
+#include "PathText.h"
 #include "PluginSettings.h"
 #include "Query.h"
 #include "ShareLister.h"
@@ -25,6 +26,8 @@
 #include <QFileInfo>
 #include <QFileSystemWatcher>
 #include <QGuiApplication>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QKeyEvent>
 #include <QRegularExpression>
 #include <QSaveFile>
@@ -583,6 +586,49 @@ void SettingsEditor::setFileManager(const QString& manager)
     commit();
 }
 
+void SettingsEditor::setFileManagerOpenCommand(const QString& command)
+{
+    const QString value = command.trimmed();
+    if (m_settings.fileManagerOpenCommand == value)
+        return;
+    m_settings.fileManagerOpenCommand = value;
+    commit();
+}
+
+void SettingsEditor::setFileManagerRevealCommand(const QString& command)
+{
+    const QString value = command.trimmed();
+    if (m_settings.fileManagerRevealCommand == value)
+        return;
+    m_settings.fileManagerRevealCommand = value;
+    commit();
+}
+
+QString SettingsEditor::fileManagerProblem() const
+{
+    if (m_settings.fileManager != u"custom")
+        return {};
+    const QString open = m_settings.fileManagerOpenCommand;
+    const QString reveal = m_settings.fileManagerRevealCommand;
+    if (open.isEmpty())
+        return tr("还没填打开文件夹的命令，先用资源管理器");
+    if (filemanager::customProgram(open).isEmpty())
+        return tr("找不到打开文件夹的程序：%1").arg(pathtext::customCommand(open, {}).program);
+    if (!reveal.isEmpty() && filemanager::customProgram(reveal).isEmpty())
+        return tr("找不到打开所在位置的程序：%1").arg(pathtext::customCommand(reveal, {}).program);
+    return {};
+}
+
+QString SettingsEditor::pickFileManagerProgram()
+{
+    const HWND owner = m_window ? reinterpret_cast<HWND>(m_window->winId()) : nullptr;
+    const QString path = shell::pickFile(owner, tr("选择文件管理器的程序"),
+        {{tr("程序"), u"*.exe"_s}, {tr("所有文件"), u"*.*"_s}});
+    if (path.isEmpty())
+        return {};
+    return pathtext::commandArgument(QDir::toNativeSeparators(path)) + u" {path}"_s;
+}
+
 void SettingsEditor::refreshFileManagers()
 {
     QStringList managers;
@@ -594,6 +640,118 @@ void SettingsEditor::refreshFileManagers()
         return;
     m_fileManagers = managers;
     emit fileManagersChanged();
+}
+
+QString SettingsEditor::opusFolderMenuCommand() const
+{
+    // {sourcepath$}: the folder shown, and nothing run for a non-folder
+    // (a collection, an FTP site); |noterm: "D:" for a drive, not "D:\",
+    // whose \" would read as a quote.
+    const QString stub = QDir::toNativeSeparators(QCoreApplication::applicationDirPath() + u"/WinShunSearch.exe"_s);
+    return u"\"%1\" --folder-menu \"{sourcepath$|noterm}\""_s.arg(stub);
+}
+
+void SettingsEditor::openOpusPreferences() const
+{
+    filemanager::openOpusPreferences();
+}
+
+namespace {
+
+// Win顺's command for Directory Opus: of this copy, or of another one.
+bool isFolderMenuCommand(const QString& command)
+{
+    return command.contains(u"WinShunSearch.exe\" --folder-menu"_s, Qt::CaseInsensitive);
+}
+
+} // namespace
+
+void SettingsEditor::refreshOpusFolderMenu()
+{
+    if (m_opusFolderMenu == u"busy")
+        return;
+    QString state = u"manual"_s;
+    QString taken;
+    if (const std::wstring file = filemanager::opusPrefsFile(); !file.empty()) {
+        QFile prefs(QString::fromStdWString(file));
+        const pathtext::OpusBlankClick click = prefs.open(QIODevice::ReadOnly)
+            ? pathtext::opusBlankClick(prefs.readAll()) : pathtext::OpusBlankClick {};
+        if (!click.hasPlace) {
+            state = u"manual"_s;
+        } else if (click.enabled && isFolderMenuCommand(click.command)) {
+            state = click.command.compare(opusFolderMenuCommand(), Qt::CaseInsensitive) == 0 ? u"on"_s : u"stale"_s;
+        } else if (click.enabled && !click.command.trimmed().isEmpty()) {
+            state = u"taken"_s;
+            taken = click.command;
+        } else {
+            state = u"off"_s;
+        }
+    }
+    const bool running = filemanager::opusRunning();
+    if (state == m_opusFolderMenu && taken == m_opusFolderMenuTaken && running == m_opusRunning)
+        return;
+    if (!m_opusFolderMenu.isEmpty() && state != m_opusFolderMenu)
+        m_opusFolderMenuProblem.clear(); // changed since (in Opus, say): the problem was the last try's
+    m_opusFolderMenu = state;
+    m_opusFolderMenuTaken = taken;
+    m_opusRunning = running;
+    emit opusFolderMenuChanged();
+}
+
+void SettingsEditor::setOpusFolderMenu(bool on)
+{
+    if (m_opusFolderMenu == u"busy")
+        return;
+    m_opusFolderMenu = u"busy"_s;
+    m_opusFolderMenuProblem.clear();
+    emit opusFolderMenuChanged();
+    const QByteArray event = on ? pathtext::opusBlankClickEvent(opusFolderMenuCommand())
+                                : m_settings.folderMenuOpusBefore.toUtf8(); // none: taken away
+    const QString backup = QDir(Settings::dataDir()).filePath(u"opus-prefs.oxc.bak"_s);
+    std::thread([guard = QPointer(this), on, event, backup, before = m_settings.folderMenuOpusBefore]() mutable {
+        bool understood = true;
+        const bool restarts = filemanager::opusRunning();
+        const filemanager::PrefsEdit result = filemanager::editOpusPrefs(
+            [&](const QByteArray& prefs) -> std::optional<QByteArray> {
+                const pathtext::OpusBlankClick click = pathtext::opusBlankClick(prefs);
+                const bool ours = isFolderMenuCommand(click.command);
+                if (!on && !ours)
+                    return std::nullopt; // the user's own by now: it stays
+                QByteArray changed = pathtext::withOpusBlankClick(prefs, event);
+                if (changed.isEmpty()) {
+                    understood = false;
+                    return std::nullopt;
+                }
+                if (on && !ours)
+                    before = QString::fromUtf8(click.element);
+                if (!QFile::exists(backup)) { // the file as it was before Win顺 first changed it
+                    QSaveFile copy(backup);
+                    if (copy.open(QIODevice::WriteOnly) && copy.write(prefs) == prefs.size())
+                        copy.commit();
+                }
+                return changed;
+            });
+        QMetaObject::invokeMethod(qApp, [guard, on, result, understood, restarts, before] {
+            if (!guard)
+                return;
+            guard->m_opusFolderMenu.clear(); // no longer busy
+            if (result == filemanager::PrefsEdit::OpusStayed)
+                guard->m_opusFolderMenuProblem = tr("Opus 没有关闭（也许有复制之类的任务还在进行），稍后再试");
+            else if (result == filemanager::PrefsEdit::Failed)
+                guard->m_opusFolderMenuProblem = tr("改不了 Opus 的设置文件，请照下面的步骤在 Opus 里设一次");
+            else if (!understood)
+                guard->m_opusFolderMenuProblem = tr("认不出 Opus 的设置文件，请照下面的步骤在 Opus 里设一次");
+            if (result == filemanager::PrefsEdit::Done && understood
+                && guard->m_settings.folderMenuOpusBefore != (on ? before : QString())) {
+                guard->m_settings.folderMenuOpusBefore = on ? before : QString();
+                guard->commit();
+            }
+            guard->refreshOpusFolderMenu();
+            emit guard->opusFolderMenuChanged(); // the problem, though the state may be as it was
+            if (restarts && result != filemanager::PrefsEdit::OpusStayed)
+                emit guard->opusRestarted();
+        });
+    }).detach();
 }
 
 void SettingsEditor::setDialogAutoJump(bool on)

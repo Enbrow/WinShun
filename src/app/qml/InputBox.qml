@@ -9,6 +9,7 @@ Rectangle {
     property alias validator: input.validator
     property alias horizontalAlignment: input.horizontalAlignment
     property alias echoMode: input.echoMode // TextInput.Password for a plugin's password setting
+    property alias readOnly: input.readOnly // shown to be copied (selectable still)
     property string placeholder
 
     signal accepted()

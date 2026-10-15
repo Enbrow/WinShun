@@ -72,9 +72,15 @@ struct Settings {
     // The user was asked under the dialog bar whether to go by itself (or set it in Settings): asked once.
     bool dialogAutoJumpAsked = false;
     QStringList dialogBarExcludedApps; // program files ("notepad.exe") whose file dialogs go without the bar
-    // explorer | totalcmd | dopus: where folders open and items are shown
-    // (shell::setFileManager); Explorer while the one chosen is not installed.
+    // explorer | totalcmd | dopus | xyplorer | custom: where folders open and
+    // items are shown (shell::setFileManager); Explorer while the one chosen
+    // is not installed. custom: by the command lines below (GitHub #23).
     QString fileManager = QStringLiteral("explorer");
+    // For custom: the command line that opens a folder, and the one that
+    // shows an item selected (none: the item's folder is opened), {path}
+    // standing for it (pathtext::customCommand).
+    QString fileManagerOpenCommand;
+    QString fileManagerRevealCommand;
     bool explorerMenu = true; // "用 Win顺 搜索此处" in Explorer's right-click menu (shellmenu::)
     // auto | on | off: a double click on the blank space of a File Explorer
     // folder or of the desktop brings up a menu of favorite and recent
@@ -83,6 +89,9 @@ struct Settings {
     QString folderMenu = QStringLiteral("auto");
     bool folderMenuExplorer = true; // in File Explorer's folders
     bool folderMenuDesktop = true; // on the desktop
+    // Directory Opus's <event> for a double click on blank space, as it was
+    // before Win顺 put its own there (SettingsEditor::setOpusFolderMenu); "": none.
+    QString folderMenuOpusBefore;
 
     // [Results]
     bool foldersFirst = false; // 全部 and 文件 list the folders found before the files (else after)

@@ -27,6 +27,9 @@ public:
         std::function<void(int id)> hotkeyPressed;
         std::function<void(const QString&)> commandReceived;
         std::function<void(const QString& folder)> searchHere; // "D:\Work", "\\nas\docs"
+        // A double click on blank space in Directory Opus showing `folder`
+        // (WinShunSearch.exe --folder-menu, run by Opus).
+        std::function<void(const QString& folder)> folderMenu;
         std::function<void()> sessionEnding; // Windows is logging off / shutting down
         std::function<LRESULT(WPARAM, LPARAM)> deviceChange; // WM_DEVICECHANGE (see VolumeNotifier)
         std::function<void()> shellRestarted; // Explorer started again (its taskbar is back)

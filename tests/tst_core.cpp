@@ -640,6 +640,133 @@ private slots:
         QVERIFY(pathtext::opusTabs("not xml").isEmpty());
     }
 
+    // What XYplorer answers (filemanager::), and what goes into its scripts.
+    void xyplorerText()
+    {
+        using pathtext::xyplorerTabs;
+        // Both panes shown: the active pane's tab on top (state 1), the
+        // other pane's (2), the rest (0). pathreal() gives "C:" for a drive,
+        // special places stay as they are ("此电脑"), a quick search keeps
+        // its "?pattern".
+        QList<pathtext::XYplorerTab> tabs = xyplorerTabs(
+            u"1\r\n|F:\\wsfmtest\\子文件夹 甲|此电脑|c:|C:\\Users\\me?*.bmp\r\n|D:\\Work|\\\\nas\\photos\\2024|"_s);
+        QCOMPARE(tabs.size(), 5);
+        QCOMPARE(tabs[0].path, u"F:\\wsfmtest\\子文件夹 甲"_s);
+        QCOMPARE(tabs[0].state, 1);
+        QCOMPARE(tabs[1].path, u"C:\\"_s); // the drive, as a folder
+        QCOMPARE(tabs[1].state, 0);
+        QCOMPARE(tabs[2].path, u"C:\\Users\\me"_s); // the folder searched
+        QCOMPARE(tabs[3].path, u"D:\\Work"_s);
+        QCOMPARE(tabs[3].state, 2);
+        QCOMPARE(tabs[4].path, u"\\\\nas\\photos\\2024"_s);
+        QCOMPARE(tabs[4].state, 0);
+        // One pane shown: the other's tabs are not on view.
+        tabs = xyplorerTabs(u"0\n|此电脑|C:\\Windows\n|D:\\|E:\\"_s);
+        QCOMPARE(tabs.size(), 1);
+        QCOMPARE(tabs[0].path, u"C:\\Windows"_s);
+        QCOMPARE(tabs[0].state, 1);
+        QVERIFY(xyplorerTabs(u"1\n|此电脑\n|"_s).isEmpty());
+        QVERIFY(xyplorerTabs({}).isEmpty());
+        QVERIFY(xyplorerTabs(u"garbage"_s).isEmpty());
+
+        QCOMPARE(pathtext::xyplorerQuoted(u"C:\\Users\\me"_s), u"'C:\\Users\\me'"_s);
+        QCOMPARE(pathtext::xyplorerQuoted(u"D:\\John's 100%"_s), u"'D:\\John''s 100%'"_s);
+        QCOMPARE(pathtext::xyplorerQuoted({}), u"''"_s);
+    }
+
+    // A command of the user's own for another file manager, with {path}.
+    void customFileManagerCommand()
+    {
+        using pathtext::commandArgument;
+        using pathtext::customCommand;
+        QCOMPARE(commandArgument(u"C:\\Tools\\x.exe"_s), u"C:\\Tools\\x.exe"_s);
+        QCOMPARE(commandArgument(u"C:\\"_s), u"C:\\"_s); // no quotes: nothing to escape
+        QCOMPARE(commandArgument(u"C:\\Program Files"_s), u"\"C:\\Program Files\""_s);
+        QCOMPARE(commandArgument(u"D:\\A B\\"_s), u"\"D:\\A B\\\\\""_s); // \" would be a quote
+        QCOMPARE(commandArgument(u"F:\\wsfmtest\\子文件夹 甲"_s), u"\"F:\\wsfmtest\\子文件夹 甲\""_s);
+        QCOMPARE(commandArgument({}), u"\"\""_s);
+
+        pathtext::CustomCommand c = customCommand(u"\"C:\\Tools\\My Manager\\fm.exe\" --open {path}"_s, u"D:\\A B"_s);
+        QCOMPARE(c.program, u"C:\\Tools\\My Manager\\fm.exe"_s);
+        QCOMPARE(c.arguments, u"--open \"D:\\A B\""_s);
+        // Quoted by the user: not twice. Twice in the line: both.
+        c = customCommand(u"fm.exe \"{path}\" /x={path}"_s, u"D:\\A B"_s);
+        QCOMPARE(c.program, u"fm.exe"_s);
+        QCOMPARE(c.arguments, u"\"D:\\A B\" /x=\"D:\\A B\""_s);
+        // No {path}: the path goes last.
+        c = customCommand(u"  C:\\fm.exe  "_s, u"C:\\"_s);
+        QCOMPARE(c.program, u"C:\\fm.exe"_s);
+        QCOMPARE(c.arguments, u"C:\\"_s);
+        c = customCommand(u"C:\\fm.exe /n"_s, u"C:\\x y"_s);
+        QCOMPARE(c.arguments, u"/n \"C:\\x y\""_s);
+        // %VARIABLES% in the line, not in the path.
+        qputenv("WS_TEST_FM", "C:\\Tools");
+        c = customCommand(u"\"%WS_TEST_FM%\\fm.exe\" {path}"_s, u"%TEMP%"_s);
+        QCOMPARE(c.program, u"C:\\Tools\\fm.exe"_s);
+        QCOMPARE(c.arguments, u"%TEMP%"_s);
+        qunsetenv("WS_TEST_FM");
+        QVERIFY(customCommand({}, u"C:\\"_s).program.isEmpty());
+        QVERIFY(customCommand(u"\"unclosed"_s, u"C:\\"_s).program.isEmpty());
+        QVERIFY(customCommand(u"\"\" {path}"_s, u"C:\\"_s).program.isEmpty());
+    }
+
+    void opusBlankClick()
+    {
+        using pathtext::opusBlankClickEvent;
+        using pathtext::withOpusBlankClick;
+        // As Opus 13 writes prefs.oxc; another <bg_commands> outside <dblclk> stays out of it.
+        const QByteArray before = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<prefs version=\"6\">\n"
+                                  "\t<other><bg_commands><event command=\"x\" enable=\"yes\" id=\"0\" /></bg_commands></other>\n"
+                                  "\t<dblclk flags=\"0x405\">\n\t\t<layout />\n\t\t<text />\n"
+                                  "\t\t<bg_commands single_middle_click=\"no\">\n"
+                                  "\t\t\t<event command=\"Go UP\" enable=\"yes\" id=\"1\" />\n"
+                                  "\t\t\t<event command=\"Go UP BACK\" enable=\"no\" id=\"0\" />\n"
+                                  "\t\t</bg_commands>\n\t\t<mouse_hook_delay>0</mouse_hook_delay>\n"
+                                  "\t</dblclk>\n\t<名字>文档</名字>\n</prefs>\n";
+        pathtext::OpusBlankClick click = pathtext::opusBlankClick(before);
+        QVERIFY(click.hasPlace);
+        QCOMPARE(click.element, "<event command=\"Go UP BACK\" enable=\"no\" id=\"0\" />");
+        QCOMPARE(click.command, u"Go UP BACK"_s);
+        QVERIFY(!click.enabled);
+
+        // Quotes, & and > in the command; only the element changes.
+        const QString ours = uR"("C:\A & B\WinShunSearch.exe" --folder-menu "{sourcepath$|noterm}" >x)"_s;
+        const QByteArray event = opusBlankClickEvent(ours);
+        QCOMPARE(event, R"(<event command="&quot;C:\A &amp; B\WinShunSearch.exe&quot; --folder-menu &quot;{sourcepath$|noterm}&quot; &gt;x" enable="yes" id="0" />)");
+        const QByteArray set = withOpusBlankClick(before, event);
+        QCOMPARE(QByteArray(set).replace(event, click.element), before);
+        click = pathtext::opusBlankClick(set);
+        QCOMPARE(click.command, ours);
+        QVERIFY(click.enabled);
+        QCOMPARE(withOpusBlankClick(set, "<event command=\"Go UP BACK\" enable=\"no\" id=\"0\" />"), before);
+        // Taken away with its line; a later read finds none.
+        const QByteArray removed = withOpusBlankClick(set, {});
+        QCOMPARE(QByteArray(removed).replace("\t\t\t<event command=\"Go UP\" enable=\"yes\" id=\"1\" />\n",
+                     "\t\t\t<event command=\"Go UP\" enable=\"yes\" id=\"1\" />\n\t\t\t" + click.element + '\n'),
+            set);
+        QVERIFY(pathtext::opusBlankClick(removed).element.isEmpty());
+        QVERIFY(pathtext::opusBlankClick(removed).hasPlace);
+
+        // No <bg_commands> yet: one before <mouse_hook_delay>; a <bg_commands/> opened up.
+        const QByteArray bare = "<prefs><dblclk flags=\"0x405\"><text /><mouse_hook_delay>0</mouse_hook_delay></dblclk></prefs>";
+        QCOMPARE(withOpusBlankClick(bare, event),
+            "<prefs><dblclk flags=\"0x405\"><text /><bg_commands>" + event
+                + "</bg_commands><mouse_hook_delay>0</mouse_hook_delay></dblclk></prefs>");
+        QCOMPARE(pathtext::opusBlankClick(withOpusBlankClick(bare, event)).command, ours);
+        QCOMPARE(withOpusBlankClick("<prefs><dblclk><bg_commands single_middle_click=\"no\"/></dblclk></prefs>", event),
+            "<prefs><dblclk><bg_commands single_middle_click=\"no\">" + event + "</bg_commands></dblclk></prefs>");
+        QCOMPARE(withOpusBlankClick("<prefs><dblclk></dblclk></prefs>", event),
+            "<prefs><dblclk><bg_commands>" + event + "</bg_commands></dblclk></prefs>");
+        QCOMPARE(withOpusBlankClick(bare, {}), bare); // nothing to take away
+
+        // No place for it: no <dblclk>, an empty one, not XML.
+        QVERIFY(withOpusBlankClick("<prefs><dblclkx></dblclkx></prefs>", event).isEmpty());
+        QVERIFY(withOpusBlankClick("<prefs><dblclk /></prefs>", event).isEmpty());
+        QVERIFY(withOpusBlankClick("<prefs><dblclk>", event).isEmpty());
+        QVERIFY(!pathtext::opusBlankClick("<prefs/>").hasPlace);
+        QVERIFY(withOpusBlankClick({}, event).isEmpty());
+    }
+
     void splitTyped()
     {
         const auto split = [](const QString& text) {

@@ -62,6 +62,23 @@ QString normalized(QString path)
     return out;
 }
 
+// "%USERPROFILE%\Downloads" with its variables' values; an unknown name stays.
+QString expandVariables(QString line)
+{
+    if (!line.contains(u'%'))
+        return line;
+    static const QRegularExpression variable(u"%([^%\\\\/]+)%"_s);
+    QString expanded;
+    qsizetype from = 0;
+    for (const QRegularExpressionMatch& m : variable.globalMatch(line)) {
+        const QString value = qEnvironmentVariable(m.captured(1).toLocal8Bit().constData());
+        expanded += line.mid(from, m.capturedStart() - from);
+        expanded += value.isEmpty() ? m.captured() : value;
+        from = m.capturedEnd();
+    }
+    return expanded + line.mid(from);
+}
+
 // The first line, out of its quotes, a file: URL as its path, %VARIABLES%
 // expanded; separators as they were. Empty for a URL of no local file.
 QString unwrapped(const QString& text)
@@ -80,19 +97,7 @@ QString unwrapped(const QString& text)
             return {};
         line = url.toLocalFile();
     }
-    if (line.contains(u'%')) { // "%USERPROFILE%\Downloads"; an unknown name stays
-        static const QRegularExpression variable(u"%([^%\\\\/]+)%"_s);
-        QString expanded;
-        qsizetype from = 0;
-        for (const QRegularExpressionMatch& m : variable.globalMatch(line)) {
-            const QString value = qEnvironmentVariable(m.captured(1).toLocal8Bit().constData());
-            expanded += line.mid(from, m.capturedStart() - from);
-            expanded += value.isEmpty() ? m.captured() : value;
-            from = m.capturedEnd();
-        }
-        line = expanded + line.mid(from);
-    }
-    return line;
+    return expandVariables(line);
 }
 
 } // namespace
@@ -259,6 +264,220 @@ QList<OpusTab> opusTabs(const QByteArray& xml)
             tabs.append(std::move(tab));
     }
     return tabs;
+}
+
+QList<XYplorerTab> xyplorerTabs(const QString& reply)
+{
+    QList<XYplorerTab> tabs;
+    const QStringList lines = reply.split(u'\n');
+    if (lines.size() < 2)
+        return tabs;
+    const bool dual = lines[0].trimmed() == u"1";
+    for (int pane = 1; pane <= 2 && pane < lines.size(); ++pane) {
+        if (pane == 2 && !dual)
+            break; // the other pane is not shown
+        bool first = true;
+        for (const QStringView token : QStringView(lines[pane]).tokenize(u'|')) {
+            QString path = token.trimmed().toString();
+            if (const qsizetype search = path.indexOf(u'?'); search >= 0)
+                path.truncate(search); // a quick search in that folder
+            path = normalized(path);
+            if (path.isEmpty())
+                continue;
+            if (path[1] == u':')
+                path[0] = path[0].toUpper();
+            tabs.append({std::move(path), first ? pane : 0});
+            first = false;
+        }
+    }
+    return tabs;
+}
+
+QString xyplorerQuoted(const QString& text)
+{
+    QString quoted = text;
+    quoted.replace(u'\'', u"''"_s);
+    return u'\'' + quoted + u'\'';
+}
+
+QString commandArgument(const QString& path)
+{
+    if (!path.isEmpty() && !path.contains(u' ') && !path.contains(u'\t') && !path.contains(u'"'))
+        return path;
+    QString quoted = path;
+    quoted.replace(u'"', u"\\\""_s); // no path has one; a word of the user's own may
+    qsizetype backslashes = 0;
+    while (backslashes < quoted.size() && quoted[quoted.size() - 1 - backslashes] == u'\\')
+        ++backslashes;
+    return u'"' + quoted + QString(backslashes, u'\\') + u'"';
+}
+
+CustomCommand customCommand(const QString& commandLine, const QString& path)
+{
+    const QString line = expandVariables(commandLine.trimmed());
+    CustomCommand command;
+    QString rest;
+    if (line.startsWith(u'"')) {
+        const qsizetype end = line.indexOf(u'"', 1);
+        if (end < 0)
+            return {};
+        command.program = line.mid(1, end - 1).trimmed();
+        rest = line.mid(end + 1);
+    } else {
+        const qsizetype space = line.indexOf(u' ');
+        command.program = space < 0 ? line : line.left(space);
+        rest = space < 0 ? QString() : line.mid(space + 1);
+    }
+    if (command.program.isEmpty())
+        return {};
+    static const QString placeholder = u"{path}"_s;
+    const QString argument = commandArgument(path);
+    rest = rest.trimmed();
+    const bool quotedByUser = rest.contains(u'"' + placeholder + u'"');
+    if (quotedByUser)
+        rest.replace(u'"' + placeholder + u'"', argument); // not in quotes twice
+    if (rest.contains(placeholder))
+        rest.replace(placeholder, argument);
+    else if (!quotedByUser)
+        rest = rest.isEmpty() ? argument : rest + u' ' + argument;
+    command.arguments = rest;
+    return command;
+}
+
+namespace {
+
+// An element in XML text, found by its name: where it begins, where its
+// start tag ends, where its content ends (its end tag begins) and where it
+// ends. For <name … />, the content ends where it ends.
+struct Element {
+    qsizetype begin = -1;
+    qsizetype tagEnd = -1;
+    qsizetype contentEnd = -1;
+    qsizetype end = -1;
+
+    bool found() const { return begin >= 0; }
+    bool empty() const { return contentEnd == end; }
+};
+
+// Past the '>' of the tag at `begin`; quoted values may hold one. -1 if none.
+qsizetype tagEnd(QByteArrayView xml, qsizetype begin)
+{
+    char quote = 0;
+    for (qsizetype i = begin + 1; i < xml.size(); ++i) {
+        const char c = xml[i];
+        if (quote)
+            quote = c == quote ? 0 : quote;
+        else if (c == '"' || c == '\'')
+            quote = c;
+        else if (c == '>')
+            return i + 1;
+    }
+    return -1;
+}
+
+// The first element called `name` from `from` that ends by `to`; none of
+// the same name inside it (prefs.oxc has none).
+Element findElement(QByteArrayView xml, QByteArrayView name, qsizetype from, qsizetype to)
+{
+    const QByteArray open = '<' + name.toByteArray();
+    for (qsizetype at = xml.indexOf(open, from); at >= 0 && at < to; at = xml.indexOf(open, at + 1)) {
+        const qsizetype next = at + open.size();
+        if (next >= xml.size() || !QByteArrayView(" \t\r\n/>").contains(xml[next]))
+            continue; // <dblclkfoo
+        Element e {.begin = at, .tagEnd = tagEnd(xml, at)};
+        if (e.tagEnd < 0 || e.tagEnd > to)
+            return {};
+        if (xml[e.tagEnd - 2] == '/') {
+            e.contentEnd = e.end = e.tagEnd;
+            return e;
+        }
+        e.contentEnd = xml.indexOf("</" + name.toByteArray() + '>', e.tagEnd);
+        e.end = e.contentEnd + name.size() + 3;
+        return e.contentEnd >= 0 && e.end <= to ? e : Element {};
+    }
+    return {};
+}
+
+struct BlankClickPlace {
+    Element dblclk;
+    Element bgCommands; // in dblclk; maybe not there
+    Element event; // in bgCommands, id="0"; maybe not there
+    QXmlStreamAttributes attributes; // the event's
+};
+
+BlankClickPlace findBlankClick(QByteArrayView prefs)
+{
+    BlankClickPlace place;
+    place.dblclk = findElement(prefs, "dblclk", 0, prefs.size());
+    if (!place.dblclk.found() || place.dblclk.empty())
+        return place;
+    place.bgCommands = findElement(prefs, "bg_commands", place.dblclk.tagEnd, place.dblclk.contentEnd);
+    if (!place.bgCommands.found())
+        return place;
+    for (qsizetype from = place.bgCommands.tagEnd;;) {
+        const Element e = findElement(prefs, "event", from, place.bgCommands.contentEnd);
+        if (!e.found())
+            break;
+        QXmlStreamReader reader(prefs.sliced(e.begin, e.end - e.begin).toByteArray());
+        if (reader.readNextStartElement() && reader.attributes().value(u"id") == u"0") {
+            place.event = e;
+            place.attributes = reader.attributes();
+            break;
+        }
+        from = e.end;
+    }
+    return place;
+}
+
+} // namespace
+
+OpusBlankClick opusBlankClick(const QByteArray& prefs)
+{
+    const BlankClickPlace place = findBlankClick(prefs);
+    OpusBlankClick click;
+    click.hasPlace = place.dblclk.found() && !place.dblclk.empty();
+    if (place.event.found()) {
+        click.element = prefs.sliced(place.event.begin, place.event.end - place.event.begin);
+        click.command = place.attributes.value(u"command").toString();
+        click.enabled = place.attributes.value(u"enable") == u"yes";
+    }
+    return click;
+}
+
+QByteArray opusBlankClickEvent(const QString& command)
+{
+    return "<event command=\"" + command.toHtmlEscaped().toUtf8() + "\" enable=\"yes\" id=\"0\" />";
+}
+
+QByteArray withOpusBlankClick(const QByteArray& prefs, const QByteArray& element)
+{
+    const BlankClickPlace place = findBlankClick(prefs);
+    if (!place.dblclk.found() || place.dblclk.empty())
+        return {};
+    QByteArray result = prefs;
+    if (place.event.found()) {
+        qsizetype begin = place.event.begin;
+        if (element.isEmpty()) { // its line goes with it
+            while (begin > 0 && (prefs[begin - 1] == ' ' || prefs[begin - 1] == '\t'))
+                --begin;
+            if (begin > 0 && prefs[begin - 1] == '\n')
+                --begin;
+            if (begin > 0 && prefs[begin - 1] == '\r')
+                --begin;
+        }
+        return result.replace(begin, place.event.end - begin, element);
+    }
+    if (element.isEmpty())
+        return result;
+    if (const Element& bg = place.bgCommands; bg.found()) {
+        if (!bg.empty())
+            return result.insert(bg.contentEnd, element);
+        // <bg_commands … />: opened up to hold it.
+        return result.replace(bg.end - 2, 2, '>' + element + "</bg_commands>");
+    }
+    // Where Opus writes it: before <mouse_hook_delay>, else last.
+    const Element delay = findElement(prefs, "mouse_hook_delay", place.dblclk.tagEnd, place.dblclk.contentEnd);
+    return result.insert(delay.found() ? delay.begin : place.dblclk.contentEnd, "<bg_commands>" + element + "</bg_commands>");
 }
 
 } // namespace ws::pathtext

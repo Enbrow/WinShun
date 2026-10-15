@@ -150,31 +150,69 @@ void FolderMenu::doubleClicked(HWND window, POINT pt)
             if (!folderview::isBlank(hit))
                 return;
             const qint64 blankMs = clock.elapsed();
-            Found found;
-            if (hit.surface == folderview::Surface::Explorer)
-                found.folder = QString::fromStdWString(filemanager::explorerFolder(hit.tab));
-            const qint64 folderMs = clock.elapsed();
-            for (const filemanager::Folder& f : filemanager::openFolders()) {
-                const QString path = QString::fromStdWString(f.path);
-                if (!samePath(path, found.folder) && !found.windows.contains(path, Qt::CaseInsensitive))
-                    found.windows.append(path);
-            }
-            const qint64 windowsMs = clock.elapsed();
-            if (recordHistory && !m_recentKnown) {
-                m_recent = recentfolders::recent(history, kMaxRecent + 1);
-                m_recentKnown = true;
-            }
-            if (recordHistory)
-                found.recent = m_recent;
-            qInfo().noquote() << u"Folder menu: blank %1, folder %2, windows %3, ready %4 ms"_s.arg(blankMs).arg(folderMs).arg(windowsMs).arg(clock.elapsed());
-            QMetaObject::invokeMethod(this, [this, hit, ask, found = std::move(found)] {
-                if (ask == m_asks)
-                    show(hit, found);
-            }, Qt::QueuedConnection);
-            if (recordHistory) // for the next time, now that this one is up
-                m_recent = recentfolders::recent(history, kMaxRecent + 1);
+            const QString folder = hit.surface == folderview::Surface::Explorer
+                ? QString::fromStdWString(filemanager::explorerFolder(hit.tab))
+                : QString();
+            qInfo().noquote() << u"Folder menu: blank %1, folder %2 ms"_s.arg(blankMs).arg(clock.elapsed());
+            gatherHere(hit, ask, folder, recordHistory, history);
         });
     }, Qt::QueuedConnection);
+}
+
+void FolderMenu::requested(const QString& folder)
+{
+    if (m_blocked && m_blocked())
+        return;
+    const int ask = ++m_asks;
+    const bool recordHistory = m_recordHistory;
+    const QStringList history = recordHistory && m_history ? m_history->items() : QStringList();
+    m_worker.post([this, ask, folder, recordHistory, history] {
+        if (ask != m_asks)
+            return;
+        // Where the pointer is: Opus ran WinShunSearch.exe on the double
+        // click a moment ago, and the lister under it is the one. (Asked
+        // here: WindowFromPoint may wait on the window it finds.)
+        folderview::Hit hit;
+        ::GetCursorPos(&hit.pt);
+        hit.view = ::WindowFromPoint(hit.pt);
+        hit.root = hit.view ? ::GetAncestor(hit.view, GA_ROOT) : nullptr;
+        if (!hit.root || filemanager::kindOf(hit.root) != filemanager::Kind::DirectoryOpus) {
+            qWarning() << "Folder menu: asked for by Directory Opus, but no lister under the pointer";
+            return;
+        }
+        hit.surface = folderview::Surface::Opus;
+        hit.tab = hit.root;
+        gatherHere(hit, ask, folder, recordHistory, history);
+    });
+}
+
+// On the worker: the rest of what the menu shows, then the menu.
+void FolderMenu::gatherHere(const folderview::Hit& hit, int ask, const QString& folder, bool recordHistory,
+    const QStringList& history)
+{
+    QElapsedTimer clock;
+    clock.start();
+    Found found;
+    found.folder = folder;
+    for (const filemanager::Folder& f : filemanager::openFolders()) {
+        const QString path = QString::fromStdWString(f.path);
+        if (!samePath(path, found.folder) && !found.windows.contains(path, Qt::CaseInsensitive))
+            found.windows.append(path);
+    }
+    const qint64 windowsMs = clock.elapsed();
+    if (recordHistory && !m_recentKnown) {
+        m_recent = recentfolders::recent(history, kMaxRecent + 1);
+        m_recentKnown = true;
+    }
+    if (recordHistory)
+        found.recent = m_recent;
+    qInfo().noquote() << u"Folder menu: windows %1, ready %2 ms"_s.arg(windowsMs).arg(clock.elapsed());
+    QMetaObject::invokeMethod(this, [this, hit, ask, found = std::move(found)] {
+        if (ask == m_asks)
+            show(hit, found);
+    }, Qt::QueuedConnection);
+    if (recordHistory) // for the next time, now that this one is up
+        m_recent = recentfolders::recent(history, kMaxRecent + 1);
 }
 
 void FolderMenu::show(const folderview::Hit& hit, const Found& found)
@@ -344,6 +382,14 @@ void FolderMenu::goTo(const QString& folder)
 {
     if (m_recordHistory && m_history)
         m_history->record(folder, QDateTime::currentMSecsSinceEpoch());
+    if (m_hit.surface == folderview::Surface::Opus) {
+        // The lister it came from (the latest one used) and its tab in front.
+        m_worker.post([path = QDir::toNativeSeparators(folder)] {
+            if (!filemanager::goToInOpus(path.toStdWString()))
+                shell::open(path);
+        });
+        return;
+    }
     if (m_hit.surface != folderview::Surface::Explorer) {
         shell::open(folder); // the desktop: in the file manager chosen
         return;

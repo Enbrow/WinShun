@@ -15,6 +15,15 @@
 // (GitHub #20; ShellMenu.cpp registers it): Win顺 opens with "<folder>\ "
 // typed, searching in that folder.
 //
+// --folder-menu "<folder>" is a double click on the blank space of a
+// Directory Opus file display, which Opus itself tells apart (its
+// Preferences > File Displays > Mouse > Background Events run this, put
+// there by Win顺's settings or by the user): Win顺 brings up its folder menu
+// there, as it does for File Explorer by itself. Not running: nothing.
+//
+// --opus-menu-off is for the uninstaller: that command, when it runs this
+// copy, switched off in Opus's settings file (Opus reads it when it starts).
+//
 // --pin <shortcut> asks Windows to pin this program to the taskbar; the user
 // says yes in Windows' own dialog (TaskbarManager, open to desktop programs
 // since Windows 11 KB5074105). Win顺 starts it so from its settings, on the
@@ -143,16 +152,17 @@ void startWinShun()
     }
 }
 
-// The folder after "--search-here" on our command line, as Explorer's verb
-// passes it ("%V" in quotes, ShellMenu.cpp). Read from the raw line: a
-// drive's root comes as "D:\", whose \" CommandLineToArgvW takes for a quote.
-std::wstring searchHereFolder()
+// The folder after `option` on our command line, as Explorer's verb passes
+// it ("%V" in quotes, ShellMenu.cpp). Read from the raw line: a drive's root
+// comes as "D:\", whose \" CommandLineToArgvW takes for a quote. Directory
+// Opus is told to leave the backslash off ({sourcepath$|noterm}): "D:".
+std::wstring folderAfter(std::wstring_view option)
 {
     std::wstring_view line = ::GetCommandLineW();
-    const std::size_t at = line.find(L"--search-here");
+    const std::size_t at = line.find(option);
     if (at == std::wstring_view::npos)
         return {};
-    line.remove_prefix(at + std::wcslen(L"--search-here"));
+    line.remove_prefix(at + option.size());
     while (!line.empty() && (line.front() == L' ' || line.front() == L'\t'))
         line.remove_prefix(1);
     while (!line.empty() && (line.back() == L' ' || line.back() == L'\t'))
@@ -164,17 +174,25 @@ std::wstring searchHereFolder()
     std::wstring folder(line);
     while (folder.size() > 3 && folder.back() == L'\\') // "D:\" stays
         folder.pop_back();
+    if (folder.size() == 2 && folder[1] == L':')
+        folder += L'\\';
     return folder;
 }
 
-// Explorer's "search here" (GitHub #20): the folder to Win顺's window for it
+constexpr ULONG_PTR kSearchHere = 0x57535348; // "WSSH"
+constexpr ULONG_PTR kFolderMenu = 0x5753464D; // "WSFM"
+
+// Explorer's "search here" (GitHub #20, kSearchHere) or Directory Opus's
+// double click (kFolderMenu): the folder to Win顺's window for these
 // (MessageWindow, open to this program), which shows the search box with
-// "<folder>\ " typed. Not running: started first, as above.
-void searchHere(const std::wstring& folder)
+// "<folder>\ " typed, or the folder menu. Not running: started first for a
+// search, as above; a menu would come seconds after the click, so none.
+void sendFolder(const std::wstring& folder, ULONG_PTR tag)
 {
     constexpr wchar_t kWindow[] = L"WinShun.SearchHere";
-    constexpr ULONG_PTR kTag = 0x57535348; // "WSSH"
     HWND window = ::FindWindowExW(HWND_MESSAGE, nullptr, kWindow, nullptr);
+    if (!window && tag == kFolderMenu)
+        return;
     if (!window) {
         if (!runAutostartTask()) {
             const std::wstring own = ownFolder();
@@ -196,11 +214,68 @@ void searchHere(const std::wstring& folder)
     ::GetWindowThreadProcessId(window, &pid);
     ::AllowSetForegroundWindow(pid ? pid : ASFW_ANY); // Explorer's click gave us the right
     COPYDATASTRUCT data {};
-    data.dwData = kTag;
+    data.dwData = tag;
     data.cbData = static_cast<DWORD>((folder.size() + 1) * sizeof(wchar_t));
     data.lpData = const_cast<wchar_t*>(folder.c_str());
     DWORD_PTR result = 0;
     ::SendMessageTimeoutW(window, WM_COPYDATA, 0, reinterpret_cast<LPARAM>(&data), SMTO_NORMAL, 30000, &result);
+}
+
+std::string utf8(std::wstring_view text)
+{
+    std::string bytes(static_cast<std::size_t>(::WideCharToMultiByte(CP_UTF8, 0, text.data(),
+                          static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr)),
+        '\0');
+    ::WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), bytes.data(),
+        static_cast<int>(bytes.size()), nullptr, nullptr);
+    return bytes;
+}
+
+// The <event> Win顺's settings put into Opus's prefs.oxc for this copy
+// (pathtext::opusBlankClickEvent) gets enable="no"; every other byte stays.
+void opusMenuOff()
+{
+    PWSTR roaming = nullptr;
+    if (FAILED(::SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &roaming)))
+        return;
+    const std::wstring file = std::wstring(roaming) + L"\\GPSoftware\\Directory Opus\\ConfigFiles\\prefs.oxc";
+    ::CoTaskMemFree(roaming);
+    std::wstring stub = ownFolder() + L"\\WinShunSearch.exe";
+    for (std::size_t at = stub.find(L'&'); at != std::wstring::npos; at = stub.find(L'&', at + 1))
+        stub.insert(at + 1, L"amp;"); // as XML writes it; a path has no < > "
+    const std::string ours = utf8(L"<event command=\"&quot;" + stub
+        + L"&quot; --folder-menu &quot;{sourcepath$|noterm}&quot;\" enable=\"yes\" id=\"0\" />");
+
+    std::string prefs;
+    {
+        const HANDLE in = ::CreateFileW(file.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (in == INVALID_HANDLE_VALUE)
+            return;
+        LARGE_INTEGER size {};
+        DWORD read = 0;
+        if (::GetFileSizeEx(in, &size) && size.QuadPart < 64 << 20) {
+            prefs.resize(static_cast<std::size_t>(size.QuadPart));
+            if (!::ReadFile(in, prefs.data(), static_cast<DWORD>(prefs.size()), &read, nullptr) || read != prefs.size())
+                prefs.clear();
+        }
+        ::CloseHandle(in);
+    }
+    const std::size_t at = prefs.find(ours);
+    if (at == std::string::npos)
+        return;
+    const std::size_t enable = prefs.find("enable=\"yes\"", at);
+    prefs.replace(enable, 12, "enable=\"no\"");
+
+    const std::wstring temp = file + L".winshun";
+    const HANDLE out = ::CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+    if (out == INVALID_HANDLE_VALUE)
+        return;
+    DWORD written = 0;
+    const bool ok = ::WriteFile(out, prefs.data(), static_cast<DWORD>(prefs.size()), &written, nullptr)
+        && written == prefs.size() && ::FlushFileBuffers(out);
+    ::CloseHandle(out);
+    if (!ok || !::MoveFileExW(temp.c_str(), file.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+        ::DeleteFileW(temp.c_str());
 }
 
 // The class Snipping Tool registered for ms-screenclip: ("AppX…"), from its
@@ -357,9 +432,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     else if (option == L"--pin" && count > 2)
         pinToTaskbar(args[2]);
     else if (option == L"--search-here") {
-        if (const std::wstring folder = searchHereFolder(); !folder.empty())
-            searchHere(folder);
-    }
+        if (const std::wstring folder = folderAfter(L"--search-here"); !folder.empty())
+            sendFolder(folder, kSearchHere);
+    } else if (option == L"--folder-menu") {
+        if (const std::wstring folder = folderAfter(L"--folder-menu"); !folder.empty())
+            sendFolder(folder, kFolderMenu);
+    } else if (option == L"--opus-menu-off")
+        opusMenuOff();
     else if (!signalRunning())
         startWinShun();
     ::LocalFree(args);

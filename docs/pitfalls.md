@@ -1918,3 +1918,78 @@
 
 - **现象**：菜单从双击到出现要 120–170 ms，其中判空白 3–7 ms、问资源管理器当前文件夹 3–7 ms、别的窗口的文件夹约 6 ms，其余全在读 Windows 最近项目里的快捷方式。
 - **做法**：最近的文件夹在启动时和每次菜单弹出之后在后台读好，菜单用上一次读到的。
+
+### Directory Opus 从外面看不出双击落在了空白处
+
+- **现象**：2026-10-14 用户反馈：在 Directory Opus 里双击空白处没有文件夹菜单（当时只做了资源管理器和桌面）。
+- **原因**：Opus 13 的文件列表（`dopus.lister` › `dopus.filedisplaycontainer` › `dopus.filedisplay`）不向辅助功能透露行：MSAA `accHitTest` 在列表里任何位置都是 `CHILDID_SELF`（CLIENT），UIA `ElementFromPoint` 一律是这个 Pane，只有列标题有子对象。脚本的 `OnDoubleClick` 只在双击文件或文件夹时触发。Listary 也做不到，它对 Opus 的这一项是灰的。按行高和条目数推算会被视图模式、分组、滚动打乱，不做。
+- **做法**：让 Opus 自己判断。它的“首选项 › 文件显示栏 › 鼠标 › 背景事件”（中文界面的叫法；英文 Preferences › File Displays › Mouse › Background Events）可以给双击空白处设一条命令（“左键双击”下的“默认”一行），默认没启用（`prefs.oxc` 里 `<bg_commands><event command="Go UP BACK" enable="no"/>`，那只是预填的例子）。设成 `"…\WinShunSearch.exe" --folder-menu "{sourcepath$|noterm}"`（设置页的“自动设置”替用户写，见下一条；认不出文件时照设置页的步骤手填）：`$` 让非文件夹（收藏集、FTP）不运行，`|noterm` 去掉结尾的 `\`，免得 `"D:\"` 的 `\"` 被当成引号（`WinShunSearch.exe` 再把 `D:` 补成 `D:\`）。它把文件夹经 `WinShun.SearchHere` 窗口交给 Win顺（`WM_COPYDATA`，标记 `WSFM`），Win顺 按光标所在的 lister 弹菜单；选中后 `dopusrt /acmd Go "<文件夹>"`（不带 `NEWTAB`），最近用过的那个 lister 的当前标签过去。实测（Opus 13.25 中文界面）：按设置页的步骤在 Opus 里填好，真的双击空白处，199 ms 菜单出来，当前文件夹正确，Opus 没有回上一级；Esc 关闭；选中后同一个标签跳过去；`C:` 补成了 `C:\`。没测双击条目（那由 Opus 自己分开）。
+- **不要给 `dopusrt /info` 传文档以外的类型**：手册只列了 `paths`、`list`、`listsel`、`open`、`select`。2026-10-14 研究时传了一个 `selected`，`dopus.exe` 当场崩溃（0xC0000005，线程 `dopus.worker`），之后的 `/info` 每次都卡 30 秒，直到 Opus 重启。
+- **替用户写 `prefs.oxc`**（用户：“能不能不让用户设置？我们帮用户做好”）。实测 Opus 13.25（2026-10-14）：运行中的 Opus **不重读**外面改过的 `prefs.oxc`（改完双击空白处没反应）；`dopusrt /cmd Close PROGRAM` 退出时**不重写**它（修改时间不变，改动还在）；再启动就生效（菜单 213–245 ms），原来开着的 lister 和文件夹都会恢复；`<dblclk>` 里没有 `<bg_commands>` 时，插一段 `<bg_commands><event …/></bg_commands>` 到 `<mouse_hook_delay>` 前面也认。但在 Opus 的首选项里点“确定”会把内存里的整份设置写回去，所以**不能趁 Opus 运行时改文件**：`filemanager::editOpusPrefs` 先关 Opus（等进程退出，15 秒不退就放弃，比如有复制任务在问），再改，再启动。只换 `<dblclk>` 里 `id="0"` 的那个 `<event>`，别的字节原样（`pathtext::withOpusBlankClick`，有单测）；原来那条存在 `[Launcher] FolderMenuOpusBefore`，“取消设置”原样放回（实测还原后整个文件哈希一致）；第一次改之前把整份文件备份到 `%LOCALAPPDATA%\WinShun\opus-prefs.oxc.bak`。用户自己启用了别的命令时不自动换，设置页显示那条命令，用户点“换成 Win顺 的菜单”才换，取消时换回。设置窗口每次到前台都重读一次状态（用户可能在 Opus 里改了）。卸载时 `WinShunSearch.exe --opus-menu-off` 把指向本副本的那条改成 `enable="no"`，免得卸载后双击空白处 Opus 报找不到程序（2026-10-14 用 ISCC 编的测试包真装真卸过：只变了这一行，重启 Opus 后双击空白处什么也不发生）。只在托盘里跑、没开窗口的 Opus，重新启动时会开出默认 lister，`dopus.exe` 没有不开窗口的命令行开关（只有它首选项里的“启动时不打开 lister”）：原来没窗口的，等新窗口出来就 `WM_CLOSE` 掉（实测约 0.5 秒后关掉，仍在托盘）。Opus 15 秒不退就放弃；之后用户才在 Opus 的提问里点“退出”的话，Opus 会关掉且不会再被启动。
+
+## 内容索引直读（bulk，第一次建立不逐个打开文件）
+
+做法和取舍见 [architecture.md](architecture.md) 的“内容索引第一次建立时直读磁盘”（`src/core/NtfsBulk.cpp`、`ContentIndexer::pass` 的 feeder、`src/service/Volumes.cpp` 的 `serveOpenBulkRead`）。下面是量出来的、光看资料想不到的几条。
+
+### 只读属性和安全描述符的打开，Defender 不扫
+
+- **现象**：设计时拿不准“服务取每个文件的安全描述符要不要再打开一次，打开会不会又被扫”。
+- **量法**：`wsbench --open-probe --sample 12000`（不必提权），同一批候选文件三遍、每遍换 seed（Defender 记得扫过的文件）：`GENERIC_READ`+读 64 KB、`FILE_READ_ATTRIBUTES|READ_CONTROL`+`GetSecurityInfo`、`GetFileAttributesExW`；看整机 CPU 减本进程 CPU（钱花在 MsMpEng 里）。
+- **结果**（2026-10-14）：读数据 6.24 ms/文件别的进程的 CPU，只读属性 0.06 ms，按路径取属性 0.06 ms。所以访问检查用 `OpenFileById(READ_CONTROL)` 取描述符，不解析 `$Secure`。
+
+### 卷直读看到的是磁盘，不是缓存；记录约 200 ms 后才落盘
+
+- **现象**：`wsbench --dirty-window`：新建的文件写完立刻直读，记录“不在用”或还是别的文件的；`FlushFileBuffers` 之后记录也要约 200 ms 才在磁盘上出现（数据倒是先到）。原地覆盖一个常驻文件（数据在记录里），先前打开的卷句柄读到的是旧内容，新开一个卷句柄读到新的——“打开卷句柄会让 NTFS 刷一次”只是观察，没有单独证明，**不要依赖它**。`FSCTL_GET_NTFS_FILE_RECORD` 对这次常驻覆盖也答了旧记录（LSN 没变），所以它也不是“缓存里的最新”。
+- **做法**：三道保险都在界面侧：变更日志给的修改时间 5 分钟内的文件不直读（`kBulkRecent`）；会话前取 `ContentIndex::changeSequence()` 作 `since`，会话期间被写的文件入库时直接标脏（`m_changedWhileReading`）；之后任何写事件照常让它重读。服务每个会话新开卷句柄（便宜）。`FSCTL_GET_NTFS_FILE_RECORD` 返回的记录**不带** USA（fixup 已应用）：`parseFileRecord` 对它会失败，`BulkReader::readRecordCached` 两种都接。
+
+### `$DATA` 的 VDL 之后、末簇的尾巴，盘上是垃圾
+
+- **现象**：原型只按 VDL 决定读多少簇，最后一簇里 VDL 到 want 之间的字节直接交出去；`--raw-read --verify` 之前没撞上，是审查发现的。
+- **做法**：`readAll` 的 `deliver()` 把 `initialized` 到 `want` 之间清零（`ReadFile` 给的就是零）；`--raw-read --verify` 2 万个样本逐字节一致（含 `valid data length < size` 这一组）。
+
+### 记录头 0x12 的“硬链接数”把 8.3 短名也算一个
+
+- **现象**：`--raw-read` 的“hard linked”组 2 万个里 1.5 万个。
+- **原因**：链接数是 `$FILE_NAME` 属性的个数，DOS 命名空间（2）的短名别名也算。
+- **做法**：数命名空间 ≠ DOS 的 `$FILE_NAME`（`FileInfo::names`）。
+
+### `small` 是 Windows 头文件里的宏
+
+- **现象**：测试里 `const QByteArray small = …` 报“`QByteArray` 后面接 `char` 是非法的”。
+- **原因**：`rpcndr.h`（经 `windows.h`）`#define small char`。
+- **做法**：别用 `small` 当标识符（`tiny`）。
+
+### Qt 测试程序在 PowerShell 工具里一行输出都没有
+
+- **现象**：`tst_core.exe … 2>&1 | Select-Object -Last 8` 什么都不打印，只有退出码。
+- **做法**：加 `-o 文件,txt` 让 QTest 把结果写进文件再看；退出码非零再查文件里的 `FAIL!`。
+
+### XYplorer：`WM_COPYDATA` 的 `cbData` 多算了结尾的 0，脚本报错、消息不返回
+
+- **现象**：2026-10-14 给 XYplorer 27.20 发脚本（`dwData` `0x00400001`），回答都收到了，`SendMessageTimeout` 却等到超时才回来；之后再发的脚本一律立刻返回、什么都不做。
+- **原因**：`lpData` 是 UTF-16，XYplorer 把 `cbData` 内的每个字节都当脚本，结尾的 `\0` 成了多出来的一行 `·;`，脚本跑完后弹出“'·' is not a valid script command”的模态窗口（后面还跟一个“Error 400: Form already displayed”），消息要等那个窗口关掉才返回，脚本引擎也一直被它占着。VB6 程序，隐藏的错误窗口在截图里才看得见。
+- **做法**：`cbData` 只算字符的字节数，不含结尾的 0（`filemanager::askXYplorer`）。它回答时也一样：`cbData` 是字节数、没有结尾的 0，收到后按 `cbData / 2` 个字符取。测试时弹出的脚本错误窗口（`XYplorer - Scripting`，属主是主窗体）发 `WM_CLOSE` 就取消了脚本。
+
+### XYplorer 的标签路径可能是“特殊路径”，盘根没有反斜杠
+
+- **现象**：`get('tabs')` 给出 `此电脑|文档|young`，`get('path')` 给出 `C:`；拿去 `GetFileAttributes`，`文档`、`young` 查不到，`C:` 查的是 C 盘的当前目录。
+- **原因**：XYplorer 的标签里存的是它的特殊路径（`文档` 是文档文件夹，用户名代表用户文件夹，`桌面`），`get('path')`、`pathreal()` 的约定是不带结尾的反斜杠，盘根就只剩 `C:`。
+- **做法**：脚本里对每个标签 `pathreal()`（`文档` → `C:\Users\young\Documents`，`此电脑` 原样返回，解析时扔掉），`C:` 补成 `C:\` 再查（`pathtext::xyplorerTabs`）。`foreach` 要加 `e` 标志跳过空项：`pathreal('')` 默认是当前聚焦的文件，会混进一个文件路径。
+
+### XYplorer 的主窗口有属主：VB6 运行时的 `ThunderRT6Main`
+
+- **现象**：想用“类名 `ThunderRT6FormDC`、可见、没有属主”认主窗口，一个都找不到。
+- **原因**：VB6 程序的每个窗体都是 `ThunderRT6FormDC`，属主是运行时的隐藏窗口 `ThunderRT6Main`（标题是程序名 `XYplorer`，`IsWindowVisible` 为真但 0×0）；它自己的对话框（试用版提示、设置、脚本错误）的属主才是主窗体。别的 VB6 程序的窗体类名一样。
+- **做法**：类名 `ThunderRT6FormDC`，属主为空或类名是 `ThunderRT6Main`，再查窗口进程的 exe 是 `XYplorer.exe`（`filemanager::kindOf`）。找“有没有 XYplorer 在跑”（含在托盘里的）用 `FindWindowEx(ThunderRT6Main, "XYplorer")` 再核对 exe。它第一天第一次启动弹“XYplorer Trial Version”（有 Continue Evaluation 按钮，不是许可协议），按钮是 `ThunderRT6CommandButton`，`BM_CLICK` 就行；之后再启动不弹。
+
+### 模拟按键的 `INPUT` 结构在 x64 上是 40 字节
+
+- **现象**：2026-10-14 测试脚本里 `SendInput` 返回 0，回车没按下去，看起来像启动器没响应。
+- **原因**：C# 里把 `INPUT` 写成 `uint type; KEYBDINPUT ki; long pad1; long pad2;`，算出 48 字节；真实大小是 40（`type` 4 + 对齐 4 + 联合体 32，以 `MOUSEINPUT` 为准），大小不对 `SendInput` 整批拒绝。
+- **做法**：`uint type; KEYBDINPUT ki; long pad1;`，并把 `SendInput` 的返回值记进日志，不要只看“发了”。
+
+### 测试脚本里 `$r`、`$pid`、`$profile` 会撞上内置变量
+
+- **现象**：PowerShell 测试脚本报“无法覆盖变量 PID，因为它是只读变量”、“Collection was of a fixed size”。
+- **原因**：`$pid` 是只读的自动变量；变量名不分大小写，`$r = … -split ','` 把报告用的列表 `$R` 换成了定长数组；`$profile` 也是自动变量。
+- **做法**：起名避开自动变量（`$sp`、`$rect`、`$prof`），`Get-Variable` 能查。

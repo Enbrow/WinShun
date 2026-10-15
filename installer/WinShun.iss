@@ -343,6 +343,8 @@ begin
     Exec(ExpandConstant('{app}\WinShunService.exe'), '--uninstall', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     RemoveAutostart();
     RemoveExplorerMenu();
+    // Directory Opus's double click on blank space, if Win顺 set it to run this copy.
+    Exec(ExpandConstant('{app}\WinShunSearch.exe'), '--opus-menu-off', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     GiveBackKey('Clipboard', 'WinV', 'V');
     GiveBackKey('Taskbar', 'WinS', 'S');
   end;

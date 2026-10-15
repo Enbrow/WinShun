@@ -53,10 +53,25 @@ class SettingsEditor : public QObject {
     // window comes to the front (refreshFileManagers).
     Q_PROPERTY(QString fileManager READ fileManager WRITE setFileManager NOTIFY changed FINAL)
     Q_PROPERTY(QStringList fileManagers READ fileManagers NOTIFY fileManagersChanged FINAL)
+    // The command lines of "custom" (Settings::fileManagerOpenCommand,
+    // fileManagerRevealCommand), and what is wrong with them: no open
+    // command, a program not found (empty: nothing).
+    Q_PROPERTY(QString fileManagerOpenCommand READ fileManagerOpenCommand WRITE setFileManagerOpenCommand NOTIFY changed FINAL)
+    Q_PROPERTY(QString fileManagerRevealCommand READ fileManagerRevealCommand WRITE setFileManagerRevealCommand NOTIFY changed FINAL)
+    Q_PROPERTY(QString fileManagerProblem READ fileManagerProblem NOTIFY changed FINAL)
     Q_PROPERTY(bool explorerMenu READ explorerMenu WRITE setExplorerMenu NOTIFY changed FINAL)
     // The folder menu on a double click (Settings::folderMenu: on unless "off").
     Q_PROPERTY(bool folderMenu READ folderMenu WRITE setFolderMenu NOTIFY changed FINAL)
     Q_PROPERTY(bool folderMenuExplorer READ folderMenuExplorer WRITE setFolderMenuExplorer NOTIFY changed FINAL)
+    // The folder menu in Directory Opus, which runs a command of its settings
+    // on a double click on blank space (refreshOpusFolderMenu): on | stale
+    // (another copy's WinShunSearch.exe) | off | taken (a command of the
+    // user's own: opusFolderMenuTaken) | manual (no settings file, or one
+    // not understood: set up by hand) | busy (setOpusFolderMenu at work).
+    Q_PROPERTY(QString opusFolderMenu READ opusFolderMenu NOTIFY opusFolderMenuChanged FINAL)
+    Q_PROPERTY(QString opusFolderMenuTaken READ opusFolderMenuTaken NOTIFY opusFolderMenuChanged FINAL)
+    Q_PROPERTY(QString opusFolderMenuProblem READ opusFolderMenuProblem NOTIFY opusFolderMenuChanged FINAL)
+    Q_PROPERTY(bool opusRunning READ opusRunning NOTIFY opusFolderMenuChanged FINAL) // setting it restarts Opus
     Q_PROPERTY(bool folderMenuDesktop READ folderMenuDesktop WRITE setFolderMenuDesktop NOTIFY changed FINAL)
     Q_PROPERTY(bool includeRemovableDrives READ includeRemovableDrives WRITE setIncludeRemovableDrives NOTIFY changed FINAL)
     Q_PROPERTY(bool rescanOnStartup READ rescanOnStartup WRITE setRescanOnStartup NOTIFY changed FINAL)
@@ -230,6 +245,14 @@ public:
     QString fileManager() const { return m_settings.fileManager; }
     void setFileManager(const QString& manager);
     QStringList fileManagers() const { return m_fileManagers; }
+    QString fileManagerOpenCommand() const { return m_settings.fileManagerOpenCommand; }
+    void setFileManagerOpenCommand(const QString& command);
+    QString fileManagerRevealCommand() const { return m_settings.fileManagerRevealCommand; }
+    void setFileManagerRevealCommand(const QString& command);
+    QString fileManagerProblem() const;
+    // Asks for a program: a command line running it with {path}, to fill a
+    // command in with; empty when none was picked.
+    Q_INVOKABLE QString pickFileManagerProgram();
     bool explorerMenu() const { return m_settings.explorerMenu; }
     void setExplorerMenu(bool on);
     bool folderMenu() const { return m_settings.folderMenu != u"off"; }
@@ -239,6 +262,19 @@ public:
     bool folderMenuDesktop() const { return m_settings.folderMenuDesktop; }
     void setFolderMenuDesktop(bool on);
     Q_INVOKABLE void refreshFileManagers();
+    // The command Directory Opus runs for a double click on blank space, to
+    // bring up the folder menu there (FolderMenu::requested): for its
+    // Preferences > File Displays > Mouse > Background Events.
+    Q_INVOKABLE QString opusFolderMenuCommand() const;
+    Q_INVOKABLE void openOpusPreferences() const;
+    QString opusFolderMenu() const { return m_opusFolderMenu; }
+    QString opusFolderMenuTaken() const { return m_opusFolderMenuTaken; }
+    QString opusFolderMenuProblem() const { return m_opusFolderMenuProblem; }
+    bool opusRunning() const { return m_opusRunning; }
+    Q_INVOKABLE void refreshOpusFolderMenu();
+    // Puts that command into Opus's settings (what was there comes back with
+    // `on` false), closing and starting again an Opus that runs.
+    Q_INVOKABLE void setOpusFolderMenu(bool on);
     bool includeRemovableDrives() const { return m_settings.includeRemovableDrives; }
     void setIncludeRemovableDrives(bool on);
     bool rescanOnStartup() const { return m_settings.rescanOnStartup; }
@@ -526,6 +562,9 @@ signals:
     void fileManagersChanged();
     void clipboardCountChanged();
     void numberKeysNoteChanged();
+    void doubleCtrlClashChanged();
+    void opusFolderMenuChanged();
+    void opusRestarted(); // setOpusFolderMenu started Opus again: it came to the front
     void clipboardClearRequested();
     void explorerRestartRequested(); // Win+V changes hands when Explorer starts again
     void edited(const ws::Settings& settings);
@@ -557,6 +596,11 @@ private:
     QString m_hotkeyError;
     QString m_numberKeysNote;
     QString m_clipboardNumberKeysNote;
+    QString m_doubleCtrlClash;
+    QString m_opusFolderMenu = QStringLiteral("manual");
+    QString m_opusFolderMenuTaken;
+    QString m_opusFolderMenuProblem;
+    bool m_opusRunning = false;
     int m_historyCount = 0;
     int m_siteIconsArrived = 0;
     QString m_contentIndexStatus;

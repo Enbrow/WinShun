@@ -10,6 +10,7 @@ enum class Surface {
     None,
     Explorer, // a folder view in a File Explorer window
     Desktop, // the desktop's icons
+    Opus, // a Directory Opus file display: blank space told by Opus itself (FolderMenu::requested)
 };
 
 struct Hit {

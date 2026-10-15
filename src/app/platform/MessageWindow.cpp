@@ -22,6 +22,7 @@ constexpr ULONG_PTR kCopyDataTag = 0x5753484E; // "WSHN"
 // The window Explorer's "search here" reaches (WinShunSearch.exe, src/stub).
 constexpr wchar_t kSearchHereClass[] = L"WinShun.SearchHere";
 constexpr ULONG_PTR kSearchHereTag = 0x57535348; // "WSSH"
+constexpr ULONG_PTR kFolderMenuTag = 0x5753464D; // "WSFM"
 
 // A folder's full path as Explorer gives it: on a drive or a share, nothing
 // that could be read as anything else.
@@ -294,16 +295,18 @@ LRESULT CALLBACK MessageWindow::searchHereProc(HWND hwnd, UINT msg, WPARAM wPara
         return ::DefWindowProcW(hwnd, msg, wParam, lParam);
     auto* self = reinterpret_cast<MessageWindow*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     const auto* data = reinterpret_cast<const COPYDATASTRUCT*>(lParam);
-    if (!self || !data || data->dwData != kSearchHereTag || !data->lpData || data->cbData < sizeof(wchar_t)
-        || data->cbData > 32768 * sizeof(wchar_t))
+    if (!self || !data || (data->dwData != kSearchHereTag && data->dwData != kFolderMenuTag) || !data->lpData
+        || data->cbData < sizeof(wchar_t) || data->cbData > 32768 * sizeof(wchar_t))
         return FALSE;
     QString folder = QString::fromWCharArray(
         static_cast<const wchar_t*>(data->lpData), static_cast<qsizetype>(data->cbData / sizeof(wchar_t)));
     while (folder.endsWith(QChar(0)))
         folder.chop(1);
-    if (!isFolderPath(folder) || !self->m_callbacks.searchHere)
+    const auto& callback
+        = data->dwData == kFolderMenuTag ? self->m_callbacks.folderMenu : self->m_callbacks.searchHere;
+    if (!isFolderPath(folder) || !callback)
         return FALSE;
-    self->m_callbacks.searchHere(folder);
+    callback(folder);
     return TRUE;
 }
 

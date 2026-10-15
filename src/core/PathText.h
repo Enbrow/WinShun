@@ -78,4 +78,56 @@ struct OpusTab {
 };
 QList<OpusTab> opusTabs(const QByteArray& xml);
 
+// A folder tab of XYplorer, from what its window answers when asked which
+// folders it shows (filemanager::, a script sent by WM_COPYDATA): a first
+// line "1" when both panes are shown ("0": one), then a line per pane, the
+// active one first, holding its tabs' paths joined by '|', the tab on top
+// first, as pathreal() gives them ("C:" for a drive, no backslash at the
+// end). What is no folder on a drive or share is left out: This PC, a
+// search's results. A tab with a quick search ("C:\?*.bmp") stands for its
+// folder. The other pane's tabs count only while it is shown.
+struct XYplorerTab {
+    QString path;
+    int state = 0; // as OpusTab::state
+};
+QList<XYplorerTab> xyplorerTabs(const QString& reply);
+
+// `text` as a string in an XYplorer script: in single quotes, in which
+// nothing is resolved (%VARIABLES%, <variables>), one inside doubled.
+QString xyplorerQuoted(const QString& text);
+
+// A command line of the user's own for a file manager Win顺 does not know
+// (Settings::fileManagerOpenCommand, fileManagerRevealCommand), to run for
+// `path`: the program, in quotes when its path has spaces, then its
+// arguments with {path} replaced by the path, quoted as the program's
+// arguments are parsed (commandArgument); the path goes last when there is
+// no {path}. %VARIABLES% are expanded. An empty program: no command.
+struct CustomCommand {
+    QString program;
+    QString arguments;
+};
+CustomCommand customCommand(const QString& commandLine, const QString& path);
+// `path` as one argument on a command line, as CommandLineToArgv (the C
+// runtime, Rust, .NET) reads it: in quotes when it has a space or is empty,
+// backslashes before the closing quote doubled ("C:\" would end in \").
+QString commandArgument(const QString& path);
+
+// What Directory Opus runs on a left double click on the blank space of a
+// file display ("Preferences › File Displays › Mouse › Background Events",
+// the line "Default"), as its prefs.oxc keeps it: <dblclk> … <bg_commands>
+// <event command="…" enable="yes" id="0" />.
+struct OpusBlankClick {
+    bool hasPlace = false; // there is a <dblclk> to keep it in
+    QByteArray element; // the <event> as written; empty when there is none
+    QString command;
+    bool enabled = false;
+};
+OpusBlankClick opusBlankClick(const QByteArray& prefs);
+// The <event> that runs `command`.
+QByteArray opusBlankClickEvent(const QString& command);
+// `prefs` with that <event> replaced by `element` (an empty one takes it
+// away), a <bg_commands> put in for it if need be; every other byte as it
+// was. Empty when there is no place for it.
+QByteArray withOpusBlankClick(const QByteArray& prefs, const QByteArray& element);
+
 } // namespace ws::pathtext

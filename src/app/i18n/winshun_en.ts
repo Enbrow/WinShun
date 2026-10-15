@@ -1712,6 +1712,50 @@
         <translation>double click;blank;folder menu;desktop</translation>
     </message>
     <message>
+        <source>已在 Opus 的设置里加好</source>
+        <translation>Set up in Opus</translation>
+    </message>
+    <message>
+        <source>Opus 里设的是别处的 Win顺，更新一下就好</source>
+        <translation>Opus runs WinShun from another folder: update it</translation>
+    </message>
+    <message>
+        <source>要在 Opus 的设置里加一条命令，Win顺 可以替你加</source>
+        <translation>Opus needs a command in its settings, which WinShun can add for you</translation>
+    </message>
+    <message>
+        <source>Opus 里双击空白处已设成“%1”；换成 Win顺 的菜单后，点“取消设置”能换回来</source>
+        <translation>A double click on blank space in Opus runs “%1”; after switching to WinShun&apos;s menu, Undo brings it back</translation>
+    </message>
+    <message>
+        <source>正在设置 Opus…</source>
+        <translation>Setting up Opus…</translation>
+    </message>
+    <message>
+        <source>Opus 还没有设置文件（运行一次 Opus 就有了），或 Win顺 认不出它：照下面的步骤在 Opus 里设一次</source>
+        <translation>Opus has no settings file yet (run it once), or WinShun does not understand it: set it up in Opus as below</translation>
+    </message>
+    <message>
+        <source>会重启 Opus，再点一次</source>
+        <translation>Restarts Opus: click again</translation>
+    </message>
+    <message>
+        <source>取消设置</source>
+        <translation>Undo</translation>
+    </message>
+    <message>
+        <source>换成 Win顺 的菜单</source>
+        <translation>Use WinShun&apos;s menu</translation>
+    </message>
+    <message>
+        <source>正在设置…</source>
+        <translation>Setting up…</translation>
+    </message>
+    <message>
+        <source>自动设置</source>
+        <translation>Set up</translation>
+    </message>
+    <message>
         <source>对话框旁的搜索框</source>
         <translation>Search bar by file dialogs</translation>
     </message>
@@ -1976,8 +2020,8 @@
         <translation>File manager for opening folders</translation>
     </message>
     <message>
-        <source>文件管理器;资源管理器;打开文件夹;打开所在位置;Total Commander;Directory Opus;TC;Opus</source>
-        <translation>file manager;explorer;open folder;open file location;Total Commander;Directory Opus;TC;Opus</translation>
+        <source>文件管理器;资源管理器;打开文件夹;打开所在位置;Total Commander;Directory Opus;TC;Opus;XYplorer;自定义;其他;Tessoa;custom</source>
+        <translation>file manager;explorer;open folder;open file location;Total Commander;Directory Opus;TC;Opus;XYplorer;custom;other;Tessoa</translation>
     </message>
     <message>
         <source>Ctrl+G 转到文件管理器的文件夹</source>
@@ -2227,6 +2271,77 @@
         <translation>quick access;go to often;shortcuts</translation>
     </message>
     <message>
+        <source>用哪个 Ctrl</source>
+        <translation>Which Ctrl</translation>
+    </message>
+    <message>
+        <source>左 Ctrl;右 Ctrl;左边;右边;冲突;PowerToys;查找鼠标;left ctrl;right ctrl</source>
+        <translation>left ctrl;right ctrl;left;right;conflict;PowerToys;Find My Mouse;both ctrl</translation>
+    </message>
+    <message>
+        <source>同一个 Ctrl 连按两下才算。和别的软件撞了时，可以只用一边</source>
+        <translation>Both taps on the same Ctrl. When another program uses them too, keep to one side</translation>
+    </message>
+    <message>
+        <source>左右都行</source>
+        <translation>Either</translation>
+    </message>
+    <message>
+        <source>左 Ctrl</source>
+        <translation>Left Ctrl</translation>
+    </message>
+    <message>
+        <source>右 Ctrl</source>
+        <translation>Right Ctrl</translation>
+    </message>
+    <message>
+        <source>PowerToys 的“查找鼠标”也是双击左 Ctrl，两边会一起出来。</source>
+        <translation>PowerToys&apos; Find My Mouse also comes on a double left Ctrl: both show up together.</translation>
+    </message>
+    <message>
+        <source>PowerToys 的“查找鼠标”也是双击右 Ctrl，两边会一起出来。</source>
+        <translation>PowerToys&apos; Find My Mouse also comes on a double right Ctrl: both show up together.</translation>
+    </message>
+    <message>
+        <source>Win顺 改用右 Ctrl</source>
+        <translation>Use the right Ctrl for WinShun</translation>
+    </message>
+    <message>
+        <source>Win顺 改用左 Ctrl</source>
+        <translation>Use the left Ctrl for WinShun</translation>
+    </message>
+    <message>
+        <source>在 Directory Opus 的空白处双击</source>
+        <translation>Double-click blank space in Directory Opus</translation>
+    </message>
+    <message>
+        <source>双击;空白;文件夹菜单;Directory Opus;Opus;dopus</source>
+        <translation>double-click;blank;folder menu;Directory Opus;Opus;dopus</translation>
+    </message>
+    <message>
+        <source>更新</source>
+        <comment>动词：把 Opus 里的命令换成这一份 Win顺 的</comment>
+        <translation>Update</translation>
+    </message>
+    <message>
+        <source>打开 Opus 设置</source>
+        <translation>Open Opus Preferences</translation>
+    </message>
+    <message>
+        <source>1. 打开 Opus 的“首选项 › 文件显示栏 › 鼠标 › 背景事件”（英文版：Preferences › File Displays › Mouse › Background Events），勾上“左键双击”下的“默认”
+2. 把它右边的命令（预填的 Go UP BACK 是回上一级）换成下面这条，点“确定”</source>
+        <translation>1. In Opus, open Preferences › File Displays › Mouse › Background Events and tick Default under Left double-click
+2. Replace the command beside it (the preset Go UP BACK goes up a level) with the one below and click OK</translation>
+    </message>
+    <message>
+        <source>已复制</source>
+        <translation>Copied</translation>
+    </message>
+    <message>
+        <source>复制</source>
+        <translation>Copy</translation>
+    </message>
+    <message>
         <source>界面大小</source>
         <translation>Size</translation>
     </message>
@@ -2296,7 +2411,7 @@
     </message>
     <message>
         <source>通过索引服务读取磁盘的主文件表和变更日志，Win顺 以普通权限运行</source>
-        <translation>The index service reads the disks' master file tables and change journals; WinShun runs with your normal rights</translation>
+        <translation>The index service reads the disks&apos; master file tables and change journals; WinShun runs with your normal rights</translation>
     </message>
     <message>
         <source>Win顺 以管理员身份运行，自己读取主文件表和变更日志；开机自启也以管理员身份</source>
@@ -2324,7 +2439,7 @@
     </message>
     <message>
         <source>已安装 Windows 服务“Win顺 索引服务”，它替普通权限的 Win顺 读取主文件表</source>
-        <translation>The Windows service "WinShun Index Service" is installed: it reads the master file tables for a WinShun running with normal rights</translation>
+        <translation>The Windows service &quot;WinShun Index Service&quot; is installed: it reads the master file tables for a WinShun running with normal rights</translation>
     </message>
     <message>
         <source>安装一个 Windows 服务，替普通权限的 Win顺 读取主文件表，建索引快得多；需要管理员权限一次</source>
@@ -2820,8 +2935,44 @@
         <translation>All settings go back to how they were when installed</translation>
     </message>
     <message>
-        <source>打开文件夹、打开文件所在位置时用它</source>
-        <translation>Used to open folders and the folder a file is in</translation>
+        <source>打开文件夹、打开文件所在位置时用它；没装的不列</source>
+        <translation>Used to open folders and the folder a file is in; one not installed is not listed</translation>
+    </message>
+    <message>
+        <source>其他（自定义）</source>
+        <translation>Other (custom)</translation>
+    </message>
+    <message>
+        <source>其他文件管理器的命令</source>
+        <translation>Commands for another file manager</translation>
+    </message>
+    <message>
+        <source>文件管理器;自定义;命令;命令行;其他;Tessoa;custom;command</source>
+        <translation>file manager;custom;command;command line;other;Tessoa</translation>
+    </message>
+    <message>
+        <source>命令里的 {path} 会换成文件夹或文件的完整路径，Win顺 自动加引号。这样的文件管理器 Win顺 读不到它正在显示的文件夹：对话框里的 Ctrl+G 和搜索框的建议只认资源管理器、Total Commander、Directory Opus 和 XYplorer</source>
+        <translation>{path} in a command stands for the full path of the folder or file; WinShun quotes it. WinShun cannot read which folders such a file manager shows: Ctrl+G in dialogs and the search bar’s suggestions know only File Explorer, Total Commander, Directory Opus and XYplorer</translation>
+    </message>
+    <message>
+        <source>打开文件夹</source>
+        <translation>Open a folder</translation>
+    </message>
+    <message>
+        <source>例如 %1</source>
+        <translation>e.g. %1</translation>
+    </message>
+    <message>
+        <source>浏览…</source>
+        <translation>Browse…</translation>
+    </message>
+    <message>
+        <source>打开所在位置（选中文件）</source>
+        <translation>Open file location (with the file selected)</translation>
+    </message>
+    <message>
+        <source>可不填：就打开文件所在的文件夹</source>
+        <translation>Optional: without it, the file’s folder opens</translation>
     </message>
     <message>
         <source>前九条的图标上标着快捷键，按 %1+1 粘贴第一条，加按 Shift 粘贴为纯文本</source>
@@ -3217,10 +3368,6 @@
         <translation>WinShun</translation>
     </message>
     <message>
-        <source>Win顺 — 双击 Ctrl 打开</source>
-        <translation>WinShun — press Ctrl twice to open</translation>
-    </message>
-    <message>
         <source>“%1” 已被其他程序或系统占用，请换一个。</source>
         <translation>“%1” is already used by another program or by Windows. Please choose another.</translation>
     </message>
@@ -3370,7 +3517,19 @@
     </message>
     <message>
         <source>索引服务没有运行（Windows 服务“WinShun”已停止或被禁用）</source>
-        <translation>the index service is not running (the Windows service "WinShun" is stopped or disabled)</translation>
+        <translation>the index service is not running (the Windows service &quot;WinShun&quot; is stopped or disabled)</translation>
+    </message>
+    <message>
+        <source>Win顺 — %1 打开</source>
+        <translation>WinShun — %1 to open</translation>
+    </message>
+    <message>
+        <source>双击左 Ctrl</source>
+        <translation>Left Ctrl twice</translation>
+    </message>
+    <message>
+        <source>双击右 Ctrl</source>
+        <translation>Right Ctrl twice</translation>
     </message>
     <message>
         <source>没有安装索引服务</source>
@@ -3378,19 +3537,19 @@
     </message>
     <message>
         <source>索引服务的版本和 Win顺 不配，请重新运行安装程序</source>
-        <translation>the index service's version does not match WinShun's; run the installer again</translation>
+        <translation>the index service&apos;s version does not match WinShun&apos;s; run the installer again</translation>
     </message>
     <message>
         <source>现在：以管理员身份直接读取磁盘的主文件表和变更日志</source>
-        <translation>Now: reading the disks' master file tables and change journals directly, as administrator</translation>
+        <translation>Now: reading the disks&apos; master file tables and change journals directly, as administrator</translation>
     </message>
     <message>
         <source>现在：通过索引服务读取磁盘的主文件表和变更日志</source>
-        <translation>Now: reading the disks' master file tables and change journals through the index service</translation>
+        <translation>Now: reading the disks&apos; master file tables and change journals through the index service</translation>
     </message>
     <message>
         <source>现在：通过索引服务读取磁盘的主文件表和变更日志（服务版本 %1）</source>
-        <translation>Now: reading the disks' master file tables and change journals through the index service (service version %1)</translation>
+        <translation>Now: reading the disks&apos; master file tables and change journals through the index service (service version %1)</translation>
     </message>
     <message>
         <source>现在：按文件夹遍历，因为%1</source>
@@ -3402,11 +3561,11 @@
     </message>
     <message>
         <source>“管理员直读”要以管理员身份运行；这次是以普通权限启动的，点“以管理员身份重新启动”。</source>
-        <translation>Direct (administrator) needs WinShun to run as administrator; this time it started with normal rights. Click "Restart as administrator".</translation>
+        <translation>Direct (administrator) needs WinShun to run as administrator; this time it started with normal rights. Click &quot;Restart as administrator&quot;.</translation>
     </message>
     <message>
         <source>这个账户不是管理员，“管理员直读”在这里没有意义，请改选别的方式。</source>
-        <translation>This account is not an administrator's, so Direct (administrator) means nothing here; choose another mode.</translation>
+        <translation>This account is not an administrator&apos;s, so Direct (administrator) means nothing here; choose another mode.</translation>
     </message>
     <message>
         <source>开机自启的任务还在以管理员身份启动 Win顺：下次登录由它启动时会改成普通权限。</source>
@@ -3442,7 +3601,7 @@
     </message>
     <message>
         <source>索引服务已安装并启动。移动了 Win顺 的文件夹后要重新安装。</source>
-        <translation>The index service is installed and running. After moving WinShun's folder, install it again.</translation>
+        <translation>The index service is installed and running. After moving WinShun&apos;s folder, install it again.</translation>
     </message>
     <message>
         <source>索引服务已卸载。</source>
@@ -5344,6 +5503,14 @@
         <translation>%1 and more</translation>
     </message>
     <message>
+        <source>Opus 没有关闭（也许有复制之类的任务还在进行），稍后再试</source>
+        <translation>Opus did not close (a copy may still be going); try again later</translation>
+    </message>
+    <message>
+        <source>认不出 Opus 的设置文件，请照下面的步骤在 Opus 里设一次</source>
+        <translation>WinShun does not understand Opus&apos;s settings file: set it up in Opus as below</translation>
+    </message>
+    <message>
         <source>Win顺 搜索</source>
         <translation>WinShun Search</translation>
     </message>
@@ -5663,12 +5830,36 @@
         <translation>Give the type a name</translation>
     </message>
     <message>
+        <source>改不了 Opus 的设置文件，请照下面的步骤在 Opus 里设一次</source>
+        <translation>Could not change Opus&apos;s settings file: set it up in Opus as below</translation>
+    </message>
+    <message>
         <source>已有这个类型</source>
         <translation>There is a type of that name already</translation>
     </message>
     <message>
         <source>填上扩展名，例如 md, log</source>
         <translation>Fill in extensions, such as md, log</translation>
+    </message>
+    <message>
+        <source>还没填打开文件夹的命令，先用资源管理器</source>
+        <translation>No command to open a folder yet: File Explorer is used until there is one</translation>
+    </message>
+    <message>
+        <source>找不到打开文件夹的程序：%1</source>
+        <translation>The program that opens a folder was not found: %1</translation>
+    </message>
+    <message>
+        <source>找不到打开所在位置的程序：%1</source>
+        <translation>The program that opens a file location was not found: %1</translation>
+    </message>
+    <message>
+        <source>选择文件管理器的程序</source>
+        <translation>Choose the file manager’s program</translation>
+    </message>
+    <message>
+        <source>程序</source>
+        <translation>Programs</translation>
     </message>
 </context>
 <context>

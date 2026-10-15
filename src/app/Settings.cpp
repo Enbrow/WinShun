@@ -600,14 +600,17 @@ void Settings::load()
     dialogAutoJumpAsked = readOrDefault(s, u"Launcher/DialogAutoJumpAsked"_s, dialogAutoJump);
     dialogBarExcludedApps = readOrDefault(s, u"Launcher/DialogBarExcludedApps"_s, d.dialogBarExcludedApps);
     fileManager = readOrDefault(s, u"Launcher/FileManager"_s, d.fileManager).trimmed().toLower();
-    if (fileManager != u"totalcmd" && fileManager != u"dopus")
+    if (fileManager != u"totalcmd" && fileManager != u"dopus" && fileManager != u"xyplorer" && fileManager != u"custom")
         fileManager = d.fileManager;
+    fileManagerOpenCommand = readOrDefault(s, u"Launcher/FileManagerOpenCommand"_s, d.fileManagerOpenCommand).trimmed();
+    fileManagerRevealCommand = readOrDefault(s, u"Launcher/FileManagerRevealCommand"_s, d.fileManagerRevealCommand).trimmed();
     explorerMenu = readOrDefault(s, u"Launcher/ExplorerMenu"_s, d.explorerMenu);
     folderMenu = readOrDefault(s, u"Launcher/FolderMenu"_s, d.folderMenu).trimmed().toLower();
     if (folderMenu != u"on" && folderMenu != u"off")
         folderMenu = d.folderMenu;
     folderMenuExplorer = readOrDefault(s, u"Launcher/FolderMenuExplorer"_s, d.folderMenuExplorer);
     folderMenuDesktop = readOrDefault(s, u"Launcher/FolderMenuDesktop"_s, d.folderMenuDesktop);
+    folderMenuOpusBefore = readOrDefault(s, u"Launcher/FolderMenuOpusBefore"_s, d.folderMenuOpusBefore);
 
     foldersFirst = readOrDefault(s, u"Results/FoldersFirst"_s, d.foldersFirst);
     showModified = readOrDefault(s, u"Results/ShowModified"_s, d.showModified);
@@ -744,10 +747,13 @@ void Settings::save() const
     s.setValue(u"Launcher/DialogAutoJumpAsked"_s, dialogAutoJumpAsked);
     s.setValue(u"Launcher/DialogBarExcludedApps"_s, dialogBarExcludedApps);
     s.setValue(u"Launcher/FileManager"_s, fileManager);
+    s.setValue(u"Launcher/FileManagerOpenCommand"_s, fileManagerOpenCommand);
+    s.setValue(u"Launcher/FileManagerRevealCommand"_s, fileManagerRevealCommand);
     s.setValue(u"Launcher/ExplorerMenu"_s, explorerMenu);
     s.setValue(u"Launcher/FolderMenu"_s, folderMenu);
     s.setValue(u"Launcher/FolderMenuExplorer"_s, folderMenuExplorer);
     s.setValue(u"Launcher/FolderMenuDesktop"_s, folderMenuDesktop);
+    s.setValue(u"Launcher/FolderMenuOpusBefore"_s, folderMenuOpusBefore);
     s.setValue(u"Results/FoldersFirst"_s, foldersFirst);
     s.setValue(u"Results/ShowModified"_s, showModified);
     s.setValue(u"Results/Sort"_s, sort);

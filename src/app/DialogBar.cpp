@@ -56,6 +56,9 @@ QString managerName(filemanager::Kind kind)
         return u"Total Commander"_s;
     case filemanager::Kind::DirectoryOpus:
         return u"Directory Opus"_s;
+    case filemanager::Kind::XYplorer:
+        return u"XYplorer"_s;
+    case filemanager::Kind::Custom: // cannot be asked: never among them
     case filemanager::Kind::Explorer:
         break;
     }

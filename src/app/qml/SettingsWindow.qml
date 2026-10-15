@@ -107,6 +107,8 @@ Window {
             editor.refreshTaskbarState()
             editor.refreshFileManagers()
             editor.refreshNumberKeys()
+            editor.refreshDoubleCtrlClash()
+            editor.refreshOpusFolderMenu()
         }
     }
 
@@ -115,6 +117,8 @@ Window {
         switch (name) {
         case "totalcmd": return "Total Commander"
         case "dopus": return "Directory Opus"
+        case "xyplorer": return "XYplorer"
+        case "custom": return qsTr("其他（自定义）")
         default: return qsTr("资源管理器")
         }
     }
@@ -1264,14 +1268,92 @@ Window {
                 SettingRow {
                     shown: window.editor.fileManagers.length > 1
                     title: qsTr("用哪个文件管理器打开文件夹")
-                    keywords: qsTr("文件管理器;资源管理器;打开文件夹;打开所在位置;Total Commander;Directory Opus;TC;Opus").split(";")
-                    description: qsTr("打开文件夹、打开文件所在位置时用它")
+                    keywords: qsTr("文件管理器;资源管理器;打开文件夹;打开所在位置;Total Commander;Directory Opus;TC;Opus;XYplorer;自定义;其他;Tessoa;custom").split(";")
+                    description: qsTr("打开文件夹、打开文件所在位置时用它；没装的不列")
 
                     body: ScopeTabs { // under the text: the names are long
                         labels: window.editor.fileManagers.map(name => window.fileManagerName(name))
                         current: Math.max(0, window.editor.fileManagers.indexOf(window.editor.fileManager))
                         onActivated: (index) => window.editor.fileManager = window.editor.fileManagers[index]
                     }
+                }
+
+                SettingRow {
+                    id: customManagerRow
+                    shown: window.editor.fileManager === "custom"
+                    title: qsTr("其他文件管理器的命令")
+                    keywords: qsTr("文件管理器;自定义;命令;命令行;其他;Tessoa;custom;command").split(";")
+                    description: qsTr("命令里的 {path} 会换成文件夹或文件的完整路径，Win顺 自动加引号。这样的文件管理器 Win顺 读不到它正在显示的文件夹：对话框里的 Ctrl+G 和搜索框的建议只认资源管理器、Total Commander、Directory Opus 和 XYplorer")
+                    values: [window.editor.fileManagerOpenCommand, window.editor.fileManagerRevealCommand]
+
+                    body: [
+                        Text {
+                            text: qsTr("打开文件夹")
+                            color: Theme.text
+                            font.pixelSize: Theme.fontCaption
+                        },
+                        Row {
+                            width: parent.width
+                            spacing: 8
+
+                            InputBox {
+                                id: openCommandBox
+                                width: parent.width - browseOpen.width - parent.spacing
+                                text: window.editor.fileManagerOpenCommand
+                                // The path outside qsTr(): lupdate reads backslashes in QML strings wrongly.
+                                placeholder: qsTr("例如 %1").arg("\"C:\\Program Files\\Tessoa\\tessoa.exe\" {path}")
+                                onEditingFinished: window.editor.fileManagerOpenCommand = text
+                            }
+                            FlatButton {
+                                id: browseOpen
+                                text: qsTr("浏览…")
+                                onClicked: {
+                                    const command = window.editor.pickFileManagerProgram()
+                                    if (command.length > 0) {
+                                        openCommandBox.text = command
+                                        window.editor.fileManagerOpenCommand = command
+                                    }
+                                }
+                            }
+                        },
+                        Text {
+                            text: qsTr("打开所在位置（选中文件）")
+                            color: Theme.text
+                            font.pixelSize: Theme.fontCaption
+                        },
+                        Row {
+                            width: parent.width
+                            spacing: 8
+
+                            InputBox {
+                                id: revealCommandBox
+                                width: parent.width - browseReveal.width - parent.spacing
+                                text: window.editor.fileManagerRevealCommand
+                                placeholder: qsTr("可不填：就打开文件所在的文件夹")
+                                onEditingFinished: window.editor.fileManagerRevealCommand = text
+                            }
+                            FlatButton {
+                                id: browseReveal
+                                text: qsTr("浏览…")
+                                onClicked: {
+                                    const command = window.editor.pickFileManagerProgram()
+                                    if (command.length > 0) {
+                                        revealCommandBox.text = command
+                                        window.editor.fileManagerRevealCommand = command
+                                    }
+                                }
+                            }
+                        },
+                        Text {
+                            visible: window.editor.fileManagerProblem.length > 0
+                            width: parent.width
+                            text: window.editor.fileManagerProblem
+                            textFormat: Text.PlainText
+                            color: Theme.danger
+                            font.pixelSize: Theme.fontCaption
+                            wrapMode: Text.Wrap
+                        }
+                    ]
                 }
 
                 SettingRow {
@@ -1315,6 +1397,127 @@ Window {
                     ToggleSwitch {
                         checked: window.editor.folderMenuDesktop
                         onToggled: (on) => window.editor.folderMenuDesktop = on
+                    }
+                }
+
+                SettingRow {
+                    id: opusMenuRow
+                    // on | stale | off | taken | manual | busy (SettingsEditor::opusFolderMenu)
+                    readonly property string setup: window.editor.opusFolderMenu
+                    property bool copied: false
+                    property bool confirming: false // Opus runs: it restarts after a second click
+                    shown: window.editor.folderMenu && window.editor.fileManagers.indexOf("dopus") >= 0
+                    title: qsTr("在 Directory Opus 的空白处双击")
+                    keywords: qsTr("双击;空白;文件夹菜单;Directory Opus;Opus;dopus").split(";")
+                    description: {
+                        let text
+                        switch (setup) {
+                        case "on":
+                            text = qsTr("已在 Opus 的设置里加好")
+                            break
+                        case "stale":
+                            text = qsTr("Opus 里设的是别处的 Win顺，更新一下就好")
+                            break
+                        case "off":
+                            text = qsTr("要在 Opus 的设置里加一条命令，Win顺 可以替你加")
+                            break
+                        case "taken":
+                            text = qsTr("Opus 里双击空白处已设成“%1”；换成 Win顺 的菜单后，点“取消设置”能换回来")
+                                .arg(window.editor.opusFolderMenuTaken)
+                            break
+                        case "busy":
+                            text = qsTr("正在设置 Opus…")
+                            break
+                        default:
+                            text = qsTr("Opus 还没有设置文件（运行一次 Opus 就有了），或 Win顺 认不出它：照下面的步骤在 Opus 里设一次")
+                        }
+                        const problem = window.editor.opusFolderMenuProblem
+                        return problem ? text + "\n" + problem : text
+                    }
+                    // By hand: when Win顺 cannot do it, or could not this time.
+                    readonly property bool byHand: setup === "manual"
+                        || (setup !== "busy" && window.editor.opusFolderMenuProblem !== "")
+                    bodyShown: byHand
+
+                    FlatButton {
+                        visible: opusMenuRow.setup !== "manual"
+                        enabled: opusMenuRow.setup !== "busy"
+                        flat: opusMenuRow.setup === "on" && !opusMenuRow.confirming
+                        text: opusMenuRow.confirming ? qsTr("会重启 Opus，再点一次")
+                            : opusMenuRow.setup === "on" ? qsTr("取消设置")
+                            : opusMenuRow.setup === "stale" ? qsTr("更新", "动词：把 Opus 里的命令换成这一份 Win顺 的")
+                            : opusMenuRow.setup === "taken" ? qsTr("换成 Win顺 的菜单")
+                            : opusMenuRow.setup === "busy" ? qsTr("正在设置…")
+                            : qsTr("自动设置")
+                        onClicked: {
+                            window.editor.refreshOpusFolderMenu()
+                            if (window.editor.opusRunning && !opusMenuRow.confirming) {
+                                opusMenuRow.confirming = true
+                                opusConfirmReset.restart()
+                                return
+                            }
+                            opusMenuRow.confirming = false
+                            window.editor.setOpusFolderMenu(opusMenuRow.setup !== "on")
+                        }
+                    }
+                    FlatButton { // one button on the right: after a failed try it goes under the steps
+                        visible: opusMenuRow.setup === "manual"
+                        flat: true
+                        text: qsTr("打开 Opus 设置")
+                        onClicked: window.editor.openOpusPreferences()
+                    }
+
+                    Timer {
+                        id: opusConfirmReset
+                        interval: 4000
+                        onTriggered: opusMenuRow.confirming = false
+                    }
+
+                    body: Column {
+                        width: parent.width
+                        spacing: 8
+
+                        Text {
+                            width: parent.width
+                            text: qsTr("1. 打开 Opus 的“首选项 › 文件显示栏 › 鼠标 › 背景事件”（英文版：Preferences › File Displays › Mouse › Background Events），勾上“左键双击”下的“默认”\n2. 把它右边的命令（预填的 Go UP BACK 是回上一级）换成下面这条，点“确定”")
+                            color: Theme.subtext
+                            font.pixelSize: Theme.fontCaption
+                            lineHeight: 1.3
+                            wrapMode: Text.Wrap
+                        }
+                        Row {
+                            width: parent.width
+                            spacing: 8
+
+                            InputBox {
+                                id: opusCommand
+                                width: parent.width - copyOpusCommand.width - parent.spacing
+                                    - (openOpusPrefs.visible ? openOpusPrefs.width + parent.spacing : 0)
+                                text: window.editor.opusFolderMenuCommand()
+                                readOnly: true
+                            }
+                            FlatButton {
+                                id: copyOpusCommand
+                                text: opusMenuRow.copied ? qsTr("已复制") : qsTr("复制")
+                                onClicked: {
+                                    window.editor.copyText(opusCommand.text)
+                                    opusMenuRow.copied = true
+                                    copiedReset.restart()
+                                }
+                            }
+                            FlatButton {
+                                id: openOpusPrefs
+                                visible: opusMenuRow.setup !== "manual" // there it is on the right
+                                text: qsTr("打开 Opus 设置")
+                                onClicked: window.editor.openOpusPreferences()
+                            }
+                        }
+                    }
+
+                    Timer {
+                        id: copiedReset
+                        interval: 2000
+                        onTriggered: opusMenuRow.copied = false
                     }
                 }
 
