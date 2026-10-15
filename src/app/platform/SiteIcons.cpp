@@ -2,6 +2,7 @@
 
 #include "Http.h"
 #include "SiteIconImage.h"
+#include "SvgIcon.h"
 #include "WebShortcut.h"
 
 #include <QBuffer>
@@ -62,6 +63,16 @@ QString fileOf(const QString& folder, const QString& key)
 QString outcome(const http::Response& r)
 {
     return r.status != 0 ? u"HTTP %1, %2 bytes"_s.arg(r.status).arg(r.body.size()) : u"error %1"_s.arg(r.error);
+}
+
+// A picture as kept (before siteicon::normalized): PNG and ICO as a site's
+// are read, SVG drawn at the size kept for a picture of the user's.
+constexpr int kKeptSide = 256;
+QImage decodeAny(QByteArrayView bytes, const QString& contentType = {})
+{
+    if (contentType.contains(u"svg"_s, Qt::CaseInsensitive) || svgicon::looksLikeSvg(bytes))
+        return svgicon::render(bytes, kKeptSide);
+    return siteicon::decode(bytes);
 }
 
 void work()
@@ -186,7 +197,7 @@ Fetched fetchNow(const QString& homeUrl)
     int tries = 0;
     const auto tryOne = [&](const QString& address) {
         const http::Response r = http::get(address, {{u"Accept"_s, u"image/*"_s}}, kTimeoutMs, kMaxIcon);
-        const QImage image = r.status == 200 ? siteicon::decode(r.body) : QImage();
+        const QImage image = r.status == 200 ? decodeAny(r.body, r.contentType) : QImage();
         f.tried.append(u"%1: %2%3"_s.arg(address, outcome(r),
             image.isNull() ? u", not an icon read"_s : u", %1x%2"_s.arg(image.width()).arg(image.height())));
         if (image.isNull() || std::min(image.width(), image.height()) < kMinSide)
@@ -227,16 +238,22 @@ QString customFolder()
 
 QString keepCustom(QByteArrayView bytes)
 {
+    if (bytes.size() > kMaxIcon)
+        return {};
+    return keepCustomImage(decodeAny(bytes));
+}
+
+QString keepCustomImage(const QImage& image)
+{
     const QString folder = customFolder();
-    if (bytes.size() > kMaxIcon || folder.isEmpty())
+    if (folder.isEmpty() || image.isNull() || image.width() < kMinSide || image.height() < kMinSide)
         return {};
-    const QImage image = siteicon::decode(bytes);
-    if (image.isNull() || image.width() < kMinSide || image.height() < kMinSide)
-        return {};
-    // Sharp in the settings' rows and the launcher's at 200 % and more.
+    // Sharp in the settings' rows and the launcher's at 200 % and more; an
+    // SVG drawn at this size and then made smaller is drawn as sharp as at
+    // the row's size (each pixel the average of the many it covers).
     QByteArray png;
     QBuffer buffer(&png);
-    if (!buffer.open(QIODevice::WriteOnly) || !siteicon::normalized(image, 256).save(&buffer, "PNG"))
+    if (!buffer.open(QIODevice::WriteOnly) || !siteicon::normalized(image, kKeptSide).save(&buffer, "PNG"))
         return {};
     const QString name = QString::fromLatin1(QCryptographicHash::hash(png, QCryptographicHash::Sha1).toHex().left(16)) + u".png"_s;
     const QString file = folder + u'\\' + name;

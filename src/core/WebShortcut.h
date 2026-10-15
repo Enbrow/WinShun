@@ -28,8 +28,15 @@ struct WebShortcut {
     // A picture its user chose ("3f2a….png", see isValidCustomIconName),
     // kept by Win顺; empty: its site's own icon.
     QString icon;
+    // Where the site's search suggestions come from as one types after the
+    // keyword ("https://api.bing.com/osjson.aspx?query=%s", %s as in `url`);
+    // empty: none. See WebSuggest.h for what replies are read.
+    QString suggest;
 
     bool searches() const { return url.contains(u"%s"); }
+    // `suggest` with %s replaced by the words, as searchUrl does; empty when
+    // it has none or the shortcut does not search.
+    QString suggestUrl(const QString& words) const;
     // What its rows' icon is asked for by (FileIconProvider::webIconUrl):
     // "custom:<icon>" for a picture of the user's, else the home page.
     QString iconRef() const;
@@ -85,6 +92,18 @@ std::vector<WebHit> searchWebShortcuts(const WebShortcuts& shortcuts, const Name
 // program); http and https need a host.
 QString normalizeWebUrl(const QString& text);
 
+// A suggestion address as typed in the settings, or empty if it is not one
+// (an http(s) address with %s): tidied as normalizeWebUrl does, and
+// Listary's {query} read as %s, so one copied from there works too.
+QString normalizeSuggestUrl(const QString& text);
+
+// The suggestion address Win顺 knows for a search address's site (百度,
+// 必应, 哔哩哔哩, 淘宝, Google), each checked to answer without signing in;
+// empty for any other site. For the defaults, for shortcuts written before
+// there were suggestions (no Suggest= in the file), and to offer in the
+// settings for a new one.
+QString knownSuggestUrl(const QString& searchUrl);
+
 // A keyword one can type: not empty, no spaces or quotes.
 bool isValidWebKeyword(QStringView keyword) noexcept;
 
@@ -95,8 +114,9 @@ QString displayWebUrl(const QString& url);
 // ---- import and export ---------------------------------------------------
 // A file of web shortcuts, to take them to another computer or share them:
 // JSON, {"format": "winshun-web-shortcuts", "version": 1, "shortcuts": [{
-// "keyword", "name", "url", "home"?, "icon"? }]}, an icon as a PNG in a
-// data: address, so the file is all one needs.
+// "keyword", "name", "url", "home"?, "icon"?, "suggest"? }]}, an icon as a
+// PNG in a data: address, so the file is all one needs. Without "suggest"
+// (a file from before suggestions), the one Win顺 knows for the site.
 
 // A custom icon's name as Win顺 keeps it: 16 hex digits of its PNG's
 // SHA-1 and ".png". Anything else (a path, "..") is not one.
@@ -145,8 +165,11 @@ QString siteIconKey(const QString& homeUrl);
 // /favicon.ico of the page's site, which nearly every site has. `touchIcons`
 // (apple-touch-icon, made for phones' home screens: 120-512 px, largest
 // first) are sharper but often another picture (bilibili's says "WEB"): only
-// for a site whose browser icon is too small. SVG is left out: Win顺 does
-// not decode it. `pageUrl` is where the page was read from, after redirects.
+// for a site whose browser icon is too small. An SVG icon (drawn at any
+// size) comes after the large ones and before the other icons: a picture
+// declared 64 px or more is the site's own drawing as it meant it, an SVG
+// is drawn by QtSvg, which gets some (filters, CSS) wrong. `pageUrl` is
+// where the page was read from, after redirects.
 struct SiteIconCandidates {
     QStringList icons;
     QStringList touchIcons;

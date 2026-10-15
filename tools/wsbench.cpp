@@ -191,8 +191,10 @@
 #include "platform/PaddleOcr.h"
 #include "Unc.h"
 #include "WebShortcut.h"
+#include "WebSuggest.h"
 #include "Win32Util.h"
 #include "Wtf8.h"
+#include "platform/Http.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -201,6 +203,7 @@
 #include <QDirIterator>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QUrl>
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
@@ -4623,6 +4626,37 @@ int runSiteIcon(QStringList args)
     return 0;
 }
 
+// ---- search suggestions (--suggest) ---------------------------------------------
+
+// Asks a suggestion address (WebShortcut::suggest, %s for the words) as the
+// launcher does (WebSuggester: the shared WinHTTP session, 1.5 s per step),
+// each set of words twice: the second ask shows what a kept connection
+// saves. What came, its Content-Type, and the suggestions read from it.
+int runSuggest(QStringList args)
+{
+    if (args.size() < 2 || !args[0].contains(u"%s")) {
+        std::printf("wsbench --suggest <address with %%s> <words>...\n");
+        return 1;
+    }
+    const QString endpoint = args.takeFirst();
+    for (const QString& words : std::as_const(args)) {
+        for (int round = 0; round < 2; ++round) {
+            QElapsedTimer t;
+            t.start();
+            const QString url = QString(endpoint).replace(u"%s"_s, QString::fromLatin1(QUrl::toPercentEncoding(words)));
+            const ws::http::Response r = ws::http::get(url, {{u"Accept"_s, u"application/json, text/javascript, */*;q=0.5"_s}},
+                1500, 256 * 1024, ws::http::Session::Shared);
+            const double ms = msSince(t);
+            const QStringList found = ws::websuggest::parse(ws::websuggest::decodeReply(r.body, r.contentType), words);
+            std::printf("%ls  \"%ls\"  HTTP %d (error %lu), %lld bytes, \"%ls\", %.0f ms\n    %ls\n",
+                qUtf16Printable(QUrl(url).host()), qUtf16Printable(words), r.status, r.error,
+                static_cast<long long>(r.body.size()), qUtf16Printable(r.contentType), ms,
+                qUtf16Printable(found.isEmpty() ? u"(none)"_s : found.join(u" | "_s)));
+        }
+    }
+    return 0;
+}
+
 // ---- the words in pictures (--ocr) ---------------------------------------------
 
 // Reads pictures as the clipboard history does (PaddleOcr, models and
@@ -4693,6 +4727,10 @@ int main(int argc, char* argv[])
     if (args.contains(u"--site-icon"_s)) {
         args.removeAll(u"--site-icon"_s);
         return runSiteIcon(args);
+    }
+    if (args.contains(u"--suggest"_s)) {
+        args.removeAll(u"--suggest"_s);
+        return runSuggest(args);
     }
     if (args.contains(u"--mft-time"_s)) {
         args.removeAll(u"--mft-time"_s);

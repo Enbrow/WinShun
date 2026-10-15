@@ -170,6 +170,9 @@ struct SearchResult {
     // Web shortcuts only; `target` is the address to open.
     QString keyword; // "gh"
     QString words; // searched for; empty: the site itself
+    // One of the site's search suggestions for the words typed after its
+    // keyword (WebShortcut::suggest), listed under the search's own row.
+    bool suggestion = false;
 
     // Plugin rows only (AppKind::Plugin); `path` is "winshun-plugin:…" (pluginPath).
     PluginRowRef plugin;

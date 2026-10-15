@@ -49,9 +49,11 @@ Fetched fetchNow(const QString& homeUrl);
 // A web shortcut's own icon (WebShortcut::icon), kept as PNG in custom\ of
 // the folder, named after its content: the same picture twice is one file.
 
-// A picture file's bytes (PNG or ICO, read as a site's are: siteicon::decode)
-// kept as an icon; its name, or empty for anything else.
+// A picture file's bytes (PNG or ICO, read as a site's are: siteicon::decode;
+// or SVG, drawn by svgicon) kept as an icon; its name, or empty for anything else.
 QString keepCustom(QByteArrayView bytes);
+// The same for a picture already read (an SVG pasted, drawn by svgicon::render).
+QString keepCustomImage(const QImage& image);
 // As kept; null when not (or for a name that is no custom icon's).
 QImage loadCustom(const QString& name);
 QByteArray customPng(const QString& name); // its file as kept, to export

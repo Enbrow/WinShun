@@ -9,7 +9,7 @@ namespace ws::siteicon {
 
 // The picture in an icon a site sent: a PNG, or an ICO (each of its images a
 // PNG or a Windows bitmap) for which the largest it holds. Null for anything
-// else (JPEG, GIF, WebP, SVG: few sites' only icon) and anything damaged.
+// else (JPEG, GIF, WebP: few sites' only icon; SVG is svgicon's) and anything damaged.
 // Read by Qt's own PNG reader and the ICO reader here, never by Windows'
 // codecs: those load whatever codecs are installed, and Win顺 runs as
 // administrator with bytes from the internet.

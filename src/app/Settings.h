@@ -199,8 +199,14 @@ struct Settings {
 
     // [WebSearch]: keywords the user gives web pages ("gh" opens GitHub, "gh
     // WinShun" searches it; see WebShortcut). At first just one, "winshun".
-    // Written as an array: size=, 1\Keyword=, 1\Name=, 1\Url=, 1\Home=.
+    // Written as an array: size=, 1\Keyword=, 1\Name=, 1\Url=, 1\Home=,
+    // 1\Icon=, 1\Suggest= (written even empty: an entry without it is one
+    // from before suggestions, and gets the one Win顺 knows for its site).
     WebShortcuts webShortcuts;
+    // Suggestions=: the sites' search suggestions under a keyword's search
+    // (WebSuggester). On: only words typed after a site's keyword go out,
+    // to that site, which the user is about to search anyway.
+    bool webSuggestions = true;
 
     // [Shares]: network shares searched too, written as an array: size=,
     // 1\Path=, 1\Name=. A mapped drive (Z:\...) is kept as the share it maps.

@@ -44,6 +44,7 @@ qt_add_library(wscore STATIC
     Unc.cpp Unc.h
     VolumeProtocol.cpp VolumeProtocol.h
     WebShortcut.cpp WebShortcut.h
+    WebSuggest.cpp WebSuggest.h
     Win32Util.cpp Win32Util.h
     WorkerPool.cpp WorkerPool.h
     Wtf8.cpp Wtf8.h

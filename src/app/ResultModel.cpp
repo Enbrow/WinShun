@@ -127,6 +127,8 @@ QString appOrigin(const SearchResult& r)
 {
     switch (r.app) {
     case AppKind::Web:
+        if (r.suggestion)
+            return ResultModel::tr("%1 的搜索建议").arg(r.name);
         return r.words.isEmpty() ? ResultModel::tr("%1 · 关键词 %2").arg(displayWebUrl(r.target), r.keyword)
                                  : displayWebUrl(r.target);
     case AppKind::Store:
@@ -196,8 +198,12 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
         return {};
     switch (role) {
     case NameRole:
+        if (r->suggestion) // the words alone: five times 在 百度 中搜索“…” would hide them
+            return r->words;
         return r->isWeb() && !r->words.isEmpty() ? webSearchTitle(*r) : r->name;
     case NameHtmlRole: {
+        if (r->suggestion) // what was typed stands out in it, as in a file's name
+            return highlighted(r->words, nameMatches(r->words, m_highlights), m_highlightColor);
         if (r->isWeb() && !r->words.isEmpty()) { // the words stand out, whatever the query's terms
             std::pair<qsizetype, qsizetype> words;
             const QString title = webSearchTitle(*r, &words);
@@ -253,6 +259,8 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
         return r->isPlace();
     case WebRole:
         return r->isWeb();
+    case SuggestionRole:
+        return r->suggestion;
     case PackagedAppRole:
         return r->isPackagedApp();
     case ElevatableRole:
@@ -315,6 +323,7 @@ QHash<int, QByteArray> ResultModel::roleNames() const
         {IsAppRole, "isApp"},
         {PlaceRole, "place"},
         {WebRole, "web"},
+        {SuggestionRole, "suggestion"},
         {PackagedAppRole, "packagedApp"},
         {ElevatableRole, "elevatable"},
         {RevealableRole, "revealable"},
@@ -525,6 +534,18 @@ bool ResultModel::remove(const QString& path)
     emit countChanged();
     keepSelectionInList();
     return true;
+}
+
+void ResultModel::removeRange(int row, int rows)
+{
+    rows = std::min(rows, count() - row);
+    if (row < 0 || rows <= 0)
+        return;
+    beginRemoveRows({}, row, row + rows - 1);
+    m_items.remove(row, rows);
+    endRemoveRows();
+    emit countChanged();
+    keepSelectionInList();
 }
 
 int ResultModel::removeAll(const QSet<QString>& paths)

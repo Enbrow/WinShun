@@ -67,6 +67,7 @@ public:
         // F:\模型\3轴弯管机模型): start, length, start, length...; none for a content match.
         FolderMatchesRole,
         NameMatchesRole, // the same for the terms in a file's or folder's name; none for an app
+        SuggestionRole, // a web search on one of the site's suggestions (SearchResult::suggestion)
     };
 
     explicit ResultModel(QObject* parent = nullptr);
@@ -90,6 +91,7 @@ public:
     void append(const SearchResults& items);
     void insert(int row, const SearchResult& item);
     bool remove(const QString& path); // false if no row has that path
+    void removeRange(int row, int rows); // `rows` rows from `row` (fewer at the end)
     int removeAll(const QSet<QString>& paths); // number of rows removed
     void clear();
     void retranslate(); // the language changed: apps' second line, web searches' title, places of content matches

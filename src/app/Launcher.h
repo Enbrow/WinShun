@@ -7,6 +7,7 @@
 #include "SearchEngine.h"
 #include "SearchTypes.h"
 #include "WebShortcut.h"
+#include "WebSuggester.h"
 
 #include <QElapsedTimer>
 #include <QObject>
@@ -295,6 +296,9 @@ public:
     void setContentOptions(bool enabled, QStringList extensions, const ContentSizeLimits& sizeLimits,
         bool inLowPriority, bool documents);
     void setWebShortcuts(const WebShortcuts& shortcuts);
+    // 网页搜索建议 (Settings::webSuggestions): a site keyword and words typed
+    // ("baidu 显卡") list the site's suggestions under its search's row.
+    void setWebSuggestions(bool on);
     // Its user's favorites (may be none): with every request, and the
     // rows refreshed when they change.
     void setFavorites(Favorites* favorites);
@@ -557,6 +561,15 @@ private:
     QString shownExtensions() const;
     void startContentSearch();
     void showRows(SearchResults rows, QStringList highlights);
+    // Web suggestions (WebSuggester). Part of search(): the site's asked for
+    // the words typed after its keyword, or the rows go (another site, no
+    // words, a plugin's keyword, another scope, the panel). The answer's rows
+    // (m_suggestRows) go right under the search's own row, wherever it is
+    // (placeSuggestions; showRows puts them back into each new list).
+    void suggest();
+    void onSuggestions(const QString& endpoint, const QString& words, const QStringList& suggestions);
+    void placeSuggestions();
+    void dropSuggestions();
     void perform(const SearchResult& result, Action action);
     void performApp(const SearchResult& app, Action action);
     void performPlace(const SearchResult& place, Action action);
@@ -722,6 +735,9 @@ private:
     ContentSizeLimits m_contentSizeLimits;
     bool m_contentInLowPriority = false; // 内容 also looks in system, program and tool folders
     WebShortcuts m_web;
+    bool m_webSuggestions = true;
+    WebSuggester m_suggester;
+    SearchResults m_suggestRows; // the latest answer's, for the site typed; kept until the next answer
     QPointer<Favorites> m_favorites;
     bool m_contentDocuments = true; // and in Word, Excel, PowerPoint and PDF files
     bool m_contentEnabled = true;

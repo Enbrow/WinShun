@@ -18,9 +18,32 @@ struct InternetHandle {
 };
 using Handle = std::unique_ptr<void, InternetHandle>;
 
+HINTERNET openSession()
+{
+    const std::wstring agent = (QCoreApplication::applicationName() + u'/' + QCoreApplication::applicationVersion())
+                                   .toStdWString();
+    // Automatic proxy: the system's settings, including PAC scripts (Windows 8.1+).
+    return ::WinHttpOpen(agent.c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
+        WINHTTP_NO_PROXY_BYPASS, 0);
+}
+
+// Never closed: a call may still be using it while Win顺 ends. WinHTTP's
+// handles may be used from several threads at once.
+HINTERNET sharedSession()
+{
+    static const HINTERNET session = [] {
+        const HINTERNET s = openSession();
+        if (s) // the name lookup's timeout is the session's alone (WinHTTP's own: none); the rest are per request
+            ::WinHttpSetTimeouts(s, 2000, 2000, 2000, 2000);
+        return s;
+    }();
+    return session;
+}
+
 } // namespace
 
-Response get(const QString& url, const QList<std::pair<QString, QString>>& headers, int timeoutMs, qsizetype maxBytes)
+Response get(const QString& url, const QList<std::pair<QString, QString>>& headers, int timeoutMs, qsizetype maxBytes,
+    Session sessionKind)
 {
     Response response;
     const auto fail = [&response] {
@@ -39,15 +62,19 @@ Response get(const QString& url, const QList<std::pair<QString, QString>>& heade
     const std::wstring path = std::wstring(parts.lpszUrlPath, parts.dwUrlPathLength)
         + std::wstring(parts.lpszExtraInfo, parts.dwExtraInfoLength);
 
-    const std::wstring agent = (QCoreApplication::applicationName() + u'/' + QCoreApplication::applicationVersion())
-                                   .toStdWString();
-    // Automatic proxy: the system's settings, including PAC scripts (Windows 8.1+).
-    const Handle session(::WinHttpOpen(agent.c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
-        WINHTTP_NO_PROXY_BYPASS, 0));
+    Handle own;
+    HINTERNET session = nullptr;
+    if (sessionKind == Session::Shared) {
+        session = sharedSession();
+    } else {
+        own.reset(openSession());
+        session = own.get();
+        if (session) // the name lookup's timeout is the session's alone
+            ::WinHttpSetTimeouts(session, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
+    }
     if (!session)
         return fail();
-    ::WinHttpSetTimeouts(session.get(), timeoutMs, timeoutMs, timeoutMs, timeoutMs);
-    const Handle connection(::WinHttpConnect(session.get(), host.c_str(), parts.nPort, 0));
+    const Handle connection(::WinHttpConnect(session, host.c_str(), parts.nPort, 0));
     if (!connection)
         return fail();
     const DWORD flags = parts.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0;
@@ -55,6 +82,7 @@ Response get(const QString& url, const QList<std::pair<QString, QString>>& heade
         WINHTTP_DEFAULT_ACCEPT_TYPES, flags));
     if (!request)
         return fail();
+    ::WinHttpSetTimeouts(request.get(), timeoutMs, timeoutMs, timeoutMs, timeoutMs);
     std::wstring headerText;
     for (const auto& [name, value] : headers)
         headerText += (name + u": "_qs + value + u"\r\n"_qs).toStdWString();
@@ -77,6 +105,15 @@ Response get(const QString& url, const QList<std::pair<QString, QString>>& heade
     }
     if (response.finalUrl.isEmpty())
         response.finalUrl = url;
+    DWORD typeBytes = 0;
+    ::WinHttpQueryHeaders(request.get(), WINHTTP_QUERY_CONTENT_TYPE, WINHTTP_HEADER_NAME_BY_INDEX, nullptr, &typeBytes,
+        WINHTTP_NO_HEADER_INDEX);
+    if (typeBytes > 0) {
+        std::wstring type(typeBytes / sizeof(wchar_t), L'\0');
+        if (::WinHttpQueryHeaders(request.get(), WINHTTP_QUERY_CONTENT_TYPE, WINHTTP_HEADER_NAME_BY_INDEX, type.data(),
+                &typeBytes, WINHTTP_NO_HEADER_INDEX))
+            response.contentType = QString::fromWCharArray(type.c_str());
+    }
     while (maxBytes <= 0 || response.body.size() < maxBytes) {
         DWORD available = 0;
         if (!::WinHttpQueryDataAvailable(request.get(), &available))

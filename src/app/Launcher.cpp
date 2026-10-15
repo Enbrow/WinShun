@@ -216,6 +216,7 @@ Launcher::Launcher(IndexService* index, AppCatalog* apps, SystemCatalog* places,
     });
 
     connect(&m_results, &ResultModel::selectionChanged, this, &Launcher::refreshStatus);
+    connect(&m_suggester, &WebSuggester::answered, this, &Launcher::onSuggestions);
     connect(m_engine, &SearchEngine::resultsReady, this, &Launcher::onResults);
     connect(m_engine, &SearchEngine::contentResults, this, &Launcher::onContentResults);
     connect(m_engine, &SearchEngine::contentProgress, this, &Launcher::onContentProgress);
@@ -591,8 +592,26 @@ void Launcher::setWebShortcuts(const WebShortcuts& shortcuts)
     if (shortcuts == m_web)
         return;
     m_web = shortcuts;
+    // A suggestion address edited or added counts from the next key typed:
+    // nothing kept from before is shown again, and the rows on screen (whose
+    // site may have changed its name or address) wait for the new answer.
+    m_suggester.clearCache();
+    dropSuggestions();
     if (m_window && m_window->isVisible() && m_scope == All && !m_query.trimmed().isEmpty())
         search();
+}
+
+void Launcher::setWebSuggestions(bool on)
+{
+    if (on == m_webSuggestions)
+        return;
+    m_webSuggestions = on;
+    if (!on) {
+        m_suggester.cancel();
+        dropSuggestions();
+    } else if (m_window && m_window->isVisible() && m_scope == All && !m_query.trimmed().isEmpty()) {
+        search();
+    }
 }
 
 void Launcher::setFavorites(Favorites* favorites)
@@ -847,6 +866,7 @@ void Launcher::handleHidden()
     m_contentDebounce.stop();
     m_slowSearch.stop();
     m_searchSlow = false;
+    m_suggester.cancel(); // nobody is looking; shown again, the same words come from the cache
     if (m_contentRunning || m_pending || m_walkRunning) {
         m_engine->cancel();
         m_requestId = 0;
@@ -909,6 +929,7 @@ void Launcher::search(bool more)
     // either way: the window shows with whatever it has). As typed: the
     // space after a keyword is what opens its command (Catalog::match).
     startPluginQuery(m_query, std::move(keyword));
+    suggest(); // after the plugins: a plugin's keyword takes the list, and no site is asked
     m_withContent = m_contentEnabled && m_scope == All && !contentNeedle().isEmpty();
     m_unconfirmed.clear();
     // Quietly, unless the rows came from a content scan that was cut short
@@ -995,6 +1016,22 @@ void Launcher::search(bool more)
 // moves the selection back to the first one; a refresh keeps it.
 void Launcher::showRows(SearchResults rows, QStringList highlights)
 {
+    // The site's suggestions under its search's row, as they were: a new
+    // list for the next word typed keeps them until the site answers for it
+    // (rows coming and going at every key would make the window jump).
+    if (!m_suggestRows.isEmpty() && !m_keyword) {
+        rows.removeIf([](const SearchResult& r) { return r.suggestion; });
+        if (const std::optional<TypedKeyword> typed = typedKeyword(m_web, m_query)) {
+            const QString path = webPath(m_web[typed->index].keyword, typed->words);
+            for (qsizetype i = 0; i < rows.size(); ++i) {
+                if (rows[i].path == path) {
+                    for (qsizetype s = 0; s < m_suggestRows.size(); ++s)
+                        rows.insert(i + 1 + s, m_suggestRows[s]);
+                    break;
+                }
+            }
+        }
+    }
     m_results.assign(std::move(rows), std::move(highlights));
     m_shownText = m_query.trimmed();
     m_shownScope = m_scope;
@@ -1029,6 +1066,97 @@ void Launcher::showPluginRows(SearchResults rows)
 {
     showRows(std::move(rows), m_keyword ? ws::parseQuery(m_keyword->words).highlights : QStringList());
     refreshStatus();
+}
+
+// Only for a site's keyword followed by words: nothing typed otherwise ever
+// leaves the computer, and these words go to the site the user is about to
+// search anyway.
+void Launcher::suggest()
+{
+    std::optional<TypedKeyword> typed;
+    if (m_webSuggestions && m_scope == All && !m_keyword && !m_panel)
+        typed = typedKeyword(m_web, m_query);
+    const WebShortcut* web = typed && !typed->words.isEmpty() ? &m_web[typed->index] : nullptr;
+    if (!web || web->suggestUrl(typed->words).isEmpty()) {
+        m_suggester.cancel();
+        dropSuggestions();
+        return;
+    }
+    if (!m_suggestRows.isEmpty() && m_suggestRows.first().keyword != web->keyword)
+        dropSuggestions(); // another site's: not under this one's row
+    // One of them typed out in full is the search's own row now.
+    m_suggestRows.removeIf([&](const SearchResult& r) { return r.words.compare(typed->words, Qt::CaseInsensitive) == 0; });
+    m_suggester.ask(web->suggest, typed->words);
+}
+
+void Launcher::onSuggestions(const QString& endpoint, const QString& words, const QStringList& suggestions)
+{
+    const std::optional<TypedKeyword> typed = m_scope == All && !m_keyword ? typedKeyword(m_web, m_query) : std::nullopt;
+    if (!typed || typed->words != words || m_web[typed->index].suggest != endpoint)
+        return; // typed on meanwhile: that is being asked
+    const WebShortcut& web = m_web[typed->index];
+    SearchResults rows;
+    for (const QString& s : suggestions) {
+        // A web search's row, as SearchEngine makes one (fromWeb): Enter
+        // searches the site for it, as typed out.
+        SearchResult r;
+        r.name = web.name;
+        r.path = webPath(web.keyword, s);
+        r.app = AppKind::Web;
+        r.target = web.searchUrl(s);
+        r.keyword = web.keyword;
+        r.words = s;
+        r.icon = web.iconRef();
+        r.suggestion = true;
+        r.exact = true; // a plugin's row goes after them, as after the search's own (plugin::Merge::placeFor)
+        r.score = 1000; // the search's own row's (SearchEngine's kTypedKeywordScore): above any plugin's 0–100
+        rows.append(r);
+    }
+    m_suggestRows = rows;
+    placeSuggestions();
+}
+
+// Under the search's row, in place of those there: rows the same in the
+// same place are not touched, so the list does not flicker as they come.
+void Launcher::placeSuggestions()
+{
+    const std::optional<TypedKeyword> typed = typedKeyword(m_web, m_query);
+    const int at = typed ? m_results.indexOf(webPath(m_web[typed->index].keyword, typed->words)) : -1;
+    if (at < 0)
+        return; // the rows are still the last query's: showRows puts them in
+    int had = 0;
+    while (const SearchResult* r = m_results.at(at + 1 + had)) {
+        if (!r->suggestion)
+            break;
+        ++had;
+    }
+    const int now = static_cast<int>(m_suggestRows.size());
+    for (int i = 0; i < std::min(had, now); ++i) {
+        if (*m_results.at(at + 1 + i) != m_suggestRows[i])
+            m_results.update(at + 1 + i, m_suggestRows[i]);
+    }
+    for (int i = had; i < now; ++i)
+        m_results.insert(at + 1 + i, m_suggestRows[i]);
+    // By place: while being rewritten, two rows may have had one path.
+    m_results.removeRange(at + 1 + now, had - now);
+    refreshKeyHints();
+    refreshStatus();
+}
+
+void Launcher::dropSuggestions()
+{
+    m_suggestRows.clear();
+    bool removed = false;
+    for (int row = m_results.count() - 1; row >= 0; --row) {
+        if (m_results.at(row)->suggestion) {
+            m_results.removeRange(row, 1); // by place, not by path: the search's own row may share one
+            removed = true;
+        }
+    }
+    if (removed) {
+        refreshKeyHints();
+        refreshStatus();
+    }
 }
 
 
@@ -2542,10 +2670,16 @@ void Launcher::performWeb(const SearchResult& web, Action action)
 {
     switch (action) {
     case Open:
-    case RunAsAdmin:
-        shell::openUrl(web.target);
+    case RunAsAdmin: {
+        // WINSHUN_WEB_DRYRUN (tests): said in the log (WINSHUN_LOG_INFO), not opened.
+        static const bool dryRun = qEnvironmentVariableIsSet("WINSHUN_WEB_DRYRUN");
+        qInfo().noquote() << (dryRun ? u"Web: would open %1%2"_s : u"Web: open %1%2"_s)
+                                 .arg(web.target, web.suggestion ? u" (a suggestion)"_s : QString());
+        if (!dryRun)
+            shell::openUrl(web.target);
         emit dismissRequested();
         break;
+    }
     case Reveal:
         flash(tr("“%1”没有可以打开的位置").arg(web.name));
         break;
@@ -3244,7 +3378,7 @@ bool Launcher::clearToKeyword()
 const SearchResult* Launcher::completionRow(int row) const
 {
     const SearchResult* r = m_results.at(row);
-    if (r && r->isPlugin() && !r->plugin->autocomplete.isEmpty())
+    if (r && ((r->isPlugin() && !r->plugin->autocomplete.isEmpty()) || r->suggestion))
         return r;
     if (m_keyword)
         return nullptr;
@@ -3276,7 +3410,8 @@ bool Launcher::autocomplete(int row)
     const SearchResult* r = completionRow(row);
     if (!r)
         return false;
-    setQuery(r->plugin->autocomplete);
+    // A site's suggestion: into the box after its keyword, to type on from.
+    setQuery(r->suggestion ? r->keyword + u' ' + r->words : r->plugin->autocomplete);
     return true;
 }
 

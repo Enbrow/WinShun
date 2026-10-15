@@ -30,10 +30,12 @@ qt_add_executable(tst_backup tst_backup.cpp ${PROJECT_SOURCE_DIR}/src/app/Backup
 target_include_directories(tst_backup PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(tst_backup PRIVATE winshun_options miniz Qt6::Core Qt6::Test)
 
-# Sites' icons as read from what a site sends (PNG, ICO), damaged ones too.
-qt_add_executable(tst_siteicon tst_siteicon.cpp ${PROJECT_SOURCE_DIR}/src/app/SiteIconImage.cpp)
+# Sites' icons as read from what a site sends (PNG, ICO), damaged ones too;
+# SVG icons (SvgIcon) drawn, and those naming anything outside turned away.
+qt_add_executable(tst_siteicon tst_siteicon.cpp ${PROJECT_SOURCE_DIR}/src/app/SiteIconImage.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/SvgIcon.cpp)
 target_include_directories(tst_siteicon PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
-target_link_libraries(tst_siteicon PRIVATE Qt6::Gui Qt6::Test)
+target_link_libraries(tst_siteicon PRIVATE Qt6::Gui Qt6::Svg Qt6::Test)
 
 # The words in pictures: PP-OCRv6 through ONNX Runtime, the real models.
 qt_add_executable(tst_ocr tst_ocr.cpp ${PROJECT_SOURCE_DIR}/src/app/platform/PaddleOcr.cpp)

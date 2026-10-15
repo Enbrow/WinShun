@@ -13,7 +13,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick Sql LinguistTools)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick Sql Svg LinguistTools)
 qt_standard_project_setup(REQUIRES 6.8)
 
 option(WINSHUN_BUILD_TESTS "Build unit tests" ON)
@@ -72,10 +72,10 @@ install(DIRECTORY "${bundled_plugins_dir}/" DESTINATION plugins)
 
 # Developer tool: index memory and search timings on the real snapshot.
 qt_add_executable(wsbench tools/wsbench.cpp src/app/Settings.cpp
-    src/app/SiteIconImage.cpp src/app/platform/Http.cpp src/app/platform/SiteIcons.cpp # --site-icon
+    src/app/SiteIconImage.cpp src/app/SvgIcon.cpp src/app/platform/Http.cpp src/app/platform/SiteIcons.cpp # --site-icon, --suggest
     src/app/platform/PaddleOcr.cpp) # --ocr
 target_include_directories(wsbench PRIVATE src/app src/app/platform) # Settings: the user's crawl rules for --sync
-target_link_libraries(wsbench PRIVATE wscore wsextract wsmcp wsplugin Qt6::Gui psapi winhttp advapi32 onnxruntime_headers) # wsmcp: --mcp-host; wsplugin: --plugin; advapi32: --open-probe
+target_link_libraries(wsbench PRIVATE wscore wsextract wsmcp wsplugin Qt6::Gui Qt6::Svg psapi winhttp advapi32 onnxruntime_headers) # wsmcp: --mcp-host; wsplugin: --plugin; advapi32: --open-probe
 add_dependencies(wsbench WinShunPluginHost bundled_plugins) # --plugin starts it from next to wsbench; the bundled plugins next to it too
 set_target_properties(wsbench PROPERTIES WIN32_EXECUTABLE OFF)
 

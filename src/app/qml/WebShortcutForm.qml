@@ -3,7 +3,8 @@ import WinShun
 
 // Adding or changing a web shortcut in the settings (网页搜索): its keyword,
 // its name, the address it searches with %s where the words go, and the page
-// the keyword alone opens, and a picture of the user's for its icon.
+// the keyword alone opens, where its search suggestions come from, and a
+// picture of the user's for its icon (a file, or SVG code pasted).
 // SettingsEditor checks and saves it, or says what is wrong. Enter saves,
 // Esc puts it away.
 Item {
@@ -11,17 +12,30 @@ Item {
 
     required property SettingsEditor editor
     property int index: -1 // the one being changed; -1: a new one
-    property var shortcut: ({ keyword: "", name: "", url: "", home: "", icon: "", homeUrl: "" })
+    property var shortcut: ({ keyword: "", name: "", url: "", home: "", icon: "", homeUrl: "", suggest: "" })
     property string error
     property string icon: form.shortcut.icon || "" // a picture chosen (SettingsEditor::pickWebIcon); empty: the site's
+    // The suggestion address filled in for the search address typed (a new
+    // one only, SettingsEditor::knownSuggestUrl): replaced as the address
+    // changes, unless its user wrote another.
+    property string offeredSuggest
 
     signal finished()
 
     function save() {
         form.error = form.editor.saveWebShortcut(form.index, keywordField.text, nameField.text, urlField.text,
-                                                 homeField.text, form.icon)
+                                                 homeField.text, form.icon, suggestField.text)
         if (form.error.length === 0)
             form.finished()
+    }
+
+    function takeIcon(picked) {
+        if (picked.error) {
+            form.error = picked.error
+        } else if (picked.icon) {
+            form.icon = picked.icon
+            form.error = ""
+        }
     }
 
     implicitHeight: fields.implicitHeight + 28
@@ -111,6 +125,15 @@ Item {
             hint: qsTr("要搜的文字用 %s 代替。最简单的办法：在这个网站上搜索 %s，再把浏览器地址栏里的网址整个粘贴过来。没有 %s 的网址只能打开，不能搜索")
             text: form.shortcut.url
             onAccepted: form.save()
+            onTextChanged: {
+                if (form.index >= 0)
+                    return
+                const known = form.editor.knownSuggestUrl(text)
+                if (suggestField.text.length === 0 || suggestField.text === form.offeredSuggest) {
+                    suggestField.text = known
+                    form.offeredSuggest = known
+                }
+            }
         }
 
         Field {
@@ -119,6 +142,16 @@ Item {
             label: qsTr("主页（可不填）")
             placeholder: qsTr("只输入关键词时打开的网址；不填就打开搜索网址所在网站的首页")
             text: form.shortcut.home
+            onAccepted: form.save()
+        }
+
+        Field {
+            id: suggestField
+            width: parent.width
+            label: qsTr("搜索建议接口（可不填）")
+            placeholder: "https://api.bing.com/osjson.aspx?query=%s"
+            hint: qsTr("在关键词后输入文字时，从这个地址取搜索建议，列在搜索那一行下面；要搜的文字同样用 %s 代替。认得 OpenSearch 格式（必应、Google 等）、百度的 JSONP 和常见的 JSON 列表。不填就没有建议")
+            text: form.shortcut.suggest || ""
             onAccepted: form.save()
         }
 
@@ -164,15 +197,12 @@ Item {
                 FlatButton {
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("选择图片")
-                    onClicked: {
-                        const picked = form.editor.pickWebIcon()
-                        if (picked.error) {
-                            form.error = picked.error
-                        } else if (picked.icon) {
-                            form.icon = picked.icon
-                            form.error = ""
-                        }
-                    }
+                    onClicked: form.takeIcon(form.editor.pickWebIcon())
+                }
+                FlatButton {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("粘贴 SVG")
+                    onClicked: form.takeIcon(form.editor.pasteWebIcon())
                 }
                 FlatButton {
                     visible: form.icon.length > 0
@@ -184,7 +214,7 @@ Item {
             }
             Text {
                 width: parent.width
-                text: qsTr("PNG 或 ICO，方形最好；不选就用网站自己的图标")
+                text: qsTr("PNG、ICO 或 SVG 文件，方形最好；也可以先复制图标的 SVG 代码（如 iconfont 的“复制 SVG 代码”），再点“粘贴 SVG”。不选就用网站自己的图标")
                 color: Theme.subtext
                 font.pixelSize: Theme.fontCaption
                 wrapMode: Text.Wrap

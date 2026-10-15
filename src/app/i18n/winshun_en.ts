@@ -1538,6 +1538,10 @@
         <translation>Favorite</translation>
     </message>
     <message>
+        <source>建议</source>
+        <translation>Suggestion</translation>
+    </message>
+    <message>
         <source>应用</source>
         <translation>App</translation>
     </message>
@@ -2842,6 +2846,18 @@
         <translation>Off: no “Content” in the search box and “All” finds names only; WinShun reads no file’s text, and the content index is cleared</translation>
     </message>
     <message>
+        <source>网页搜索建议</source>
+        <translation>Web search suggestions</translation>
+    </message>
+    <message>
+        <source>搜索建议;联想;补全;suggest;suggestion</source>
+        <translation>search suggestions;autocomplete;complete;suggest;suggestion</translation>
+    </message>
+    <message>
+        <source>在网站关键词后输入文字时，列出这个网站的搜索建议。只有这时才会把输入的文字发给那个网站</source>
+        <translation>When you type words after a site keyword, list that site's search suggestions. Only then is what you type sent to that site</translation>
+    </message>
+    <message>
         <source>输入程序文件名，例如 KeePass.exe</source>
         <translation>Program file name, e.g. KeePass.exe</translation>
     </message>
@@ -3597,6 +3613,14 @@
         <translation>Opened by the keyword alone; left empty, the search address’s site</translation>
     </message>
     <message>
+        <source>搜索建议接口（可不填）</source>
+        <translation>Suggestion address (optional)</translation>
+    </message>
+    <message>
+        <source>在关键词后输入文字时，从这个地址取搜索建议，列在搜索那一行下面；要搜的文字同样用 %s 代替。认得 OpenSearch 格式（必应、Google 等）、百度的 JSONP 和常见的 JSON 列表。不填就没有建议</source>
+        <translation>When you type words after the keyword, search suggestions are fetched from this address and listed below the search row; put %s where the words go here too. Understands OpenSearch (Bing, Google and others), Baidu's JSONP and common JSON lists. Leave it empty for no suggestions</translation>
+    </message>
+    <message>
         <source>图标</source>
         <translation>Icon</translation>
     </message>
@@ -3605,12 +3629,16 @@
         <translation>Choose image</translation>
     </message>
     <message>
+        <source>粘贴 SVG</source>
+        <translation>Paste SVG</translation>
+    </message>
+    <message>
         <source>用网站的图标</source>
         <translation>Use the site&apos;s icon</translation>
     </message>
     <message>
-        <source>PNG 或 ICO，方形最好；不选就用网站自己的图标</source>
-        <translation>PNG or ICO, square is best. Without one, the site&apos;s own icon is used</translation>
+        <source>PNG、ICO 或 SVG 文件，方形最好；也可以先复制图标的 SVG 代码（如 iconfont 的“复制 SVG 代码”），再点“粘贴 SVG”。不选就用网站自己的图标</source>
+        <translation>A PNG, ICO or SVG file, square is best; or copy the icon's SVG code first (such as iconfont's “Copy SVG code”) and click “Paste SVG”. Without one, the site's own icon is used</translation>
     </message>
     <message>
         <source>添加</source>
@@ -5873,6 +5901,10 @@
         <translation>Search %1 for “%2”</translation>
     </message>
     <message>
+        <source>%1 的搜索建议</source>
+        <translation>Search suggestion from %1</translation>
+    </message>
+    <message>
         <source>%1 · 关键词 %2</source>
         <translation>%1 · keyword %2</translation>
     </message>
@@ -5983,16 +6015,44 @@
         <translation>Cannot open the home page’s address: it should start with https://</translation>
     </message>
     <message>
+        <source>搜索建议的接口地址应当以 https:// 开头，要搜的文字用 %s 代替</source>
+        <translation>The suggestion address should start with https://, with %s where the words go</translation>
+    </message>
+    <message>
+        <source>这个网址里没有 %s，不能搜索，也就没有搜索建议</source>
+        <translation>This address has no %s, so it cannot search and has no suggestions</translation>
+    </message>
+    <message>
+        <source>SVG 太大了：图标的 SVG 代码请在 %1 KB 以内</source>
+        <translation>The SVG is too large: keep the icon's SVG code within %1 KB</translation>
+    </message>
+    <message>
+        <source>读不出这段 SVG：请复制完整的 &lt;svg …&gt;…&lt;/svg&gt; 代码</source>
+        <translation>Can't read this SVG: copy the whole &lt;svg …&gt;…&lt;/svg&gt; code</translation>
+    </message>
+    <message>
+        <source>这段 SVG 引用了外部的文件或网址，Win顺 不会去读：请用只含图形本身的 SVG</source>
+        <translation>This SVG refers to outside files or web addresses, which WinShun won't read: use an SVG that holds only the drawing itself</translation>
+    </message>
+    <message>
+        <source>这段 SVG 画出来是空的：它没有大小（viewBox），或者没有可见的图形</source>
+        <translation>This SVG draws nothing: it has no size (viewBox) or nothing visible</translation>
+    </message>
+    <message>
+        <source>保存不了这个图标</source>
+        <translation>Couldn't save this icon</translation>
+    </message>
+    <message>
         <source>选择图标</source>
         <translation>Choose an icon</translation>
     </message>
     <message>
-        <source>图片（PNG、ICO）</source>
-        <translation>Pictures (PNG, ICO)</translation>
-    </message>
-    <message>
         <source>所有文件</source>
         <translation>All files</translation>
+    </message>
+    <message>
+        <source>图片（PNG、ICO、SVG）</source>
+        <translation>Images (PNG, ICO, SVG)</translation>
     </message>
     <message>
         <source>读不了这个文件</source>
@@ -6003,8 +6063,16 @@
         <translation>The picture is too large: use a PNG under 1 MB</translation>
     </message>
     <message>
-        <source>用不了这张图片：请用 PNG 或 ICO，至少 16×16</source>
-        <translation>Can&apos;t use this picture: use a PNG or ICO of at least 16×16</translation>
+        <source>用不了这张图片：请用 PNG、ICO 或 SVG，至少 16×16</source>
+        <translation>Can't use this image: use a PNG, ICO or SVG of at least 16×16</translation>
+    </message>
+    <message>
+        <source>剪贴板里没有文字：先复制图标的 SVG 代码（如 iconfont 的“复制 SVG 代码”）</source>
+        <translation>There is no text on the clipboard: copy the icon's SVG code first (such as iconfont's “Copy SVG code”)</translation>
+    </message>
+    <message>
+        <source>剪贴板里的不是 SVG 代码：它应当以 &lt;svg 开头</source>
+        <translation>The clipboard doesn't hold SVG code: it should start with &lt;svg</translation>
     </message>
     <message>
         <source>导入网页搜索</source>

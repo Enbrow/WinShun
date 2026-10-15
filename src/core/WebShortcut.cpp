@@ -62,6 +62,13 @@ QString WebShortcut::iconRef() const
     return icon.isEmpty() ? homeUrl() : u"custom:"_s + icon;
 }
 
+QString WebShortcut::suggestUrl(const QString& words) const
+{
+    if (suggest.isEmpty() || !searches())
+        return {};
+    return QString(suggest).replace(u"%s"_s, QString::fromLatin1(QUrl::toPercentEncoding(words)));
+}
+
 WebShortcuts defaultWebShortcuts()
 {
     // Each with its home page: what the keyword alone opens, and where the
@@ -70,7 +77,7 @@ WebShortcuts defaultWebShortcuts()
     // put a site above the files looked for; the name finds it by pinyin
     // anyway ("bd" for 百度, "jd" for 京东). None is one of the winshun.web
     // plugin's (bd, gh, yt, wiki, bing, bili), whose keyword mode would win.
-    return {
+    WebShortcuts shortcuts {
         {u"baidu"_s, u"百度"_s, u"https://www.baidu.com/s?wd=%s"_s, u"https://www.baidu.com/"_s},
         {u"biying"_s, u"必应"_s, u"https://www.bing.com/search?q=%s"_s, u"https://www.bing.com/"_s},
         {u"bilibili"_s, u"哔哩哔哩"_s, u"https://search.bilibili.com/all?keyword=%s"_s, u"https://www.bilibili.com/"_s},
@@ -83,6 +90,9 @@ WebShortcuts defaultWebShortcuts()
         {u"fanyi"_s, u"百度翻译"_s, u"https://fanyi.baidu.com/mtpe-individual/multimodal?query=%s"_s, u"https://fanyi.baidu.com/"_s},
         {u"winshun"_s, u"WinShun"_s, u"https://github.com/LingCore/WinShun"_s, {}},
     };
+    for (WebShortcut& s : shortcuts)
+        s.suggest = knownSuggestUrl(s.url);
+    return shortcuts;
 }
 
 WebShortcuts withNewDefaults(WebShortcuts shortcuts, const WebShortcuts& defaults)
@@ -166,6 +176,36 @@ QString normalizeWebUrl(const QString& text)
     return url;
 }
 
+QString normalizeSuggestUrl(const QString& text)
+{
+    QString url = text.trimmed();
+    url.replace(u"{query}"_s, u"%s"_s, Qt::CaseInsensitive);
+    url = normalizeWebUrl(url);
+    // Its own address, read by Win顺 with the words in it: http(s) only.
+    if (url.isEmpty() || !url.contains(u"%s") || !isHttp(parsed(url)))
+        return {};
+    return url;
+}
+
+QString knownSuggestUrl(const QString& searchUrl)
+{
+    // Each answered a plain request (no cookies, Win顺's user agent) on
+    // 2026-10-15. 知乎 (403), 京东 and 微博 (a visitor check's page), 小红书
+    // (406) and 抖音 (nothing) did not: they have none.
+    const QString host = parsed(searchUrl).host().toLower();
+    if (host == u"www.baidu.com" || host == u"baidu.com")
+        return u"https://suggestion.baidu.com/su?wd=%s&action=opensearch"_s; // OpenSearch, in GBK
+    if (host == u"www.bing.com" || host == u"bing.com" || host == u"cn.bing.com")
+        return u"https://api.bing.com/osjson.aspx?query=%s"_s;
+    if (host == u"search.bilibili.com" || host == u"www.bilibili.com")
+        return u"https://s.search.bilibili.com/main/suggest?term=%s"_s;
+    if (host == u"s.taobao.com" || host == u"www.taobao.com")
+        return u"https://suggest.taobao.com/sug?code=utf-8&q=%s"_s;
+    if (host == u"www.google.com" || host == u"google.com")
+        return u"https://suggestqueries.google.com/complete/search?client=firefox&q=%s"_s;
+    return {};
+}
+
 bool isValidWebKeyword(QStringView keyword) noexcept
 {
     return !keyword.isEmpty()
@@ -221,6 +261,7 @@ QByteArray writeWebShortcutsFile(const WebShortcuts& shortcuts,
         };
         if (!shortcut.home.isEmpty())
             entry.insert(u"home"_s, shortcut.home);
+        entry.insert(u"suggest"_s, shortcut.suggest); // even empty: none, not "the one Win顺 knows"
         if (!shortcut.icon.isEmpty()) {
             if (const QByteArray png = iconPng(shortcut.icon); !png.isEmpty())
                 entry.insert(u"icon"_s, QString::fromLatin1("data:image/png;base64," + png.toBase64()));
@@ -264,6 +305,8 @@ std::optional<WebShortcutFile> readWebShortcutsFile(QByteArrayView json, bool* n
         }
         if (shortcut.name.isEmpty())
             shortcut.name = shortcut.keyword;
+        shortcut.suggest = entry.contains(u"suggest"_s) ? normalizeSuggestUrl(entry.value(u"suggest"_s).toString())
+                                                        : knownSuggestUrl(shortcut.url);
         // "data:image/png;base64,…": any picture's type, decoded (and checked) later.
         const QString icon = entry.value(u"icon"_s).toString();
         const qsizetype comma = icon.indexOf(u',');
@@ -316,7 +359,7 @@ SiteIconCandidates siteIconCandidates(QByteArrayView html, const QString& pageUr
     const QUrl page(pageUrl, QUrl::TolerantMode);
     struct Candidate {
         QString url;
-        int rank; // 0 sized icon, 1 other icon, 2 apple-touch-icon
+        int rank; // 0 sized icon, 1 SVG icon, 2 other icon, 3 apple-touch-icon
         int size; // declared, else a guess for ordering
         qsizetype order;
     };
@@ -340,25 +383,25 @@ SiteIconCandidates siteIconCandidates(QByteArrayView html, const QString& pageUr
             continue; // mask-icon (one colour), fluid-icon, stylesheets
         href.replace(u"&amp;"_s, u"&"_s);
         const QUrl url = page.resolved(QUrl(href, QUrl::TolerantMode));
-        if (href.isEmpty() || !isHttp(url) || type.contains(u"svg", Qt::CaseInsensitive)
-            || url.path().endsWith(u".svg", Qt::CaseInsensitive))
+        if (href.isEmpty() || !isHttp(url))
             continue;
+        const bool svg = type.contains(u"svg", Qt::CaseInsensitive) || url.path().endsWith(u".svg", Qt::CaseInsensitive);
         int size = 0; // "16x16 32x32": the largest
         for (const QString& s : sizes.split(u' ', Qt::SkipEmptyParts))
             size = std::max(size, s.section(u'x', 0, 0, QString::SectionCaseInsensitiveSeps).toInt());
-        const int rank = touch ? 2 : size >= 64 ? 0 : 1;
+        const int rank = touch ? 3 : svg ? 1 : size >= 64 ? 0 : 2;
         found.push_back({url.toString(), rank, touch && size == 0 ? 180 : size, static_cast<qsizetype>(found.size())});
     }
-    // Larger first among the sized and the touch icons; the other icons as
-    // the page has them (their sizes, when given, are 16 or 32).
+    // Larger first among the sized and the touch icons; the SVG and the
+    // other icons as the page has them (their sizes, when given, are 16 or 32).
     std::stable_sort(found.begin(), found.end(), [](const Candidate& a, const Candidate& b) {
         if (a.rank != b.rank)
             return a.rank < b.rank;
-        return a.rank != 1 && a.size != b.size ? a.size > b.size : a.order < b.order;
+        return (a.rank == 0 || a.rank == 3) && a.size != b.size ? a.size > b.size : a.order < b.order;
     });
     SiteIconCandidates out;
     for (const Candidate& c : found) {
-        if (c.rank < 2 && !out.icons.contains(c.url))
+        if (c.rank < 3 && !out.icons.contains(c.url))
             out.icons.append(c.url);
     }
     if (isHttp(page) && !page.host().isEmpty()) {
@@ -367,7 +410,7 @@ SiteIconCandidates siteIconCandidates(QByteArrayView html, const QString& pageUr
             out.icons.append(favicon);
     }
     for (const Candidate& c : found) {
-        if (c.rank == 2 && !out.icons.contains(c.url) && !out.touchIcons.contains(c.url))
+        if (c.rank == 3 && !out.icons.contains(c.url) && !out.touchIcons.contains(c.url))
             out.touchIcons.append(c.url);
     }
     return out;

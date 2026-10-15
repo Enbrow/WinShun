@@ -8,6 +8,7 @@
 #include "PluginSettings.h"
 #include "Query.h"
 #include "ShareLister.h"
+#include "SvgIcon.h"
 #include "SystemCatalog.h"
 #include "WebShortcut.h"
 #include "Win32Util.h"
@@ -19,6 +20,7 @@
 #include "platform/TaskbarSearch.h"
 #include "platform/TaskbarSearchBox.h"
 
+#include <QClipboard>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
@@ -166,6 +168,14 @@ void SettingsEditor::setThumbnails(bool on)
     if (m_settings.thumbnails == on)
         return;
     m_settings.thumbnails = on;
+    commit();
+}
+
+void SettingsEditor::setWebSuggestions(bool on)
+{
+    if (m_settings.webSuggestions == on)
+        return;
+    m_settings.webSuggestions = on;
     commit();
 }
 
@@ -1096,6 +1106,7 @@ QVariantList SettingsEditor::webShortcuts() const
             {u"homeUrl"_s, shortcut.homeUrl()},
             {u"icon"_s, shortcut.icon},
             {u"iconRef"_s, shortcut.iconRef()},
+            {u"suggest"_s, shortcut.suggest},
         });
     }
     return list;
@@ -1201,8 +1212,13 @@ constexpr qsizetype kMaxWebFile = 16 << 20; // a file of shortcuts, icons and al
 
 } // namespace
 
+QString SettingsEditor::knownSuggestUrl(const QString& url) const
+{
+    return ws::knownSuggestUrl(normalizeWebUrl(url));
+}
+
 QString SettingsEditor::saveWebShortcut(int index, const QString& keyword, const QString& name, const QString& url,
-    const QString& home, const QString& icon)
+    const QString& home, const QString& icon, const QString& suggest)
 {
     WebShortcuts& shortcuts = m_settings.webShortcuts;
     if (index >= shortcuts.size())
@@ -1226,6 +1242,11 @@ QString SettingsEditor::saveWebShortcut(int index, const QString& keyword, const
     shortcut.home = normalizeWebUrl(home);
     if (shortcut.home.isEmpty() && !home.trimmed().isEmpty())
         return tr("打不开主页的网址：它应当以 https:// 开头");
+    shortcut.suggest = normalizeSuggestUrl(suggest);
+    if (shortcut.suggest.isEmpty() && !suggest.trimmed().isEmpty())
+        return tr("搜索建议的接口地址应当以 https:// 开头，要搜的文字用 %s 代替");
+    if (!shortcut.suggest.isEmpty() && !shortcut.searches())
+        return tr("这个网址里没有 %s，不能搜索，也就没有搜索建议");
     if (isValidCustomIconName(icon))
         shortcut.icon = icon;
     shortcut.name = name.trimmed();
@@ -1262,11 +1283,42 @@ void SettingsEditor::openWebShortcut(int index)
         shell::openUrl(m_settings.webShortcuts[index].homeUrl());
 }
 
+// SVG code (pasted, or a .svg picked) drawn and kept, or why not.
+QVariantMap SettingsEditor::keepSvgIcon(QByteArrayView svg)
+{
+    svgicon::Problem problem = svgicon::Problem::None;
+    const QImage image = svgicon::render(svg, 256, &problem);
+    QString error;
+    switch (problem) {
+    case svgicon::Problem::None:
+        break;
+    case svgicon::Problem::TooLarge:
+        error = tr("SVG 太大了：图标的 SVG 代码请在 %1 KB 以内").arg(svgicon::kMaxBytes / 1024);
+        break;
+    case svgicon::Problem::NotSvg:
+        error = tr("读不出这段 SVG：请复制完整的 <svg …>…</svg> 代码");
+        break;
+    case svgicon::Problem::External:
+        error = tr("这段 SVG 引用了外部的文件或网址，Win顺 不会去读：请用只含图形本身的 SVG");
+        break;
+    case svgicon::Problem::Empty:
+        error = tr("这段 SVG 画出来是空的：它没有大小（viewBox），或者没有可见的图形");
+        break;
+    }
+    if (!error.isEmpty())
+        return {{u"error"_s, error}};
+    const QString icon = siteicons::keepCustomImage(image);
+    if (icon.isEmpty())
+        return {{u"error"_s, tr("保存不了这个图标")}};
+    m_pickedWebIcon = icon;
+    return {{u"icon"_s, icon}, {u"iconRef"_s, u"custom:"_s + icon}};
+}
+
 QVariantMap SettingsEditor::pickWebIcon()
 {
     const HWND owner = m_window ? reinterpret_cast<HWND>(m_window->winId()) : nullptr;
     const QString path = shell::pickFile(owner, tr("选择图标"),
-        {{tr("图片（PNG、ICO）"), u"*.png;*.ico"_s}, {tr("所有文件"), u"*.*"_s}});
+        {{tr("图片（PNG、ICO、SVG）"), u"*.png;*.ico;*.svg"_s}, {tr("所有文件"), u"*.*"_s}});
     if (path.isEmpty())
         return {};
     QFile file(path);
@@ -1274,11 +1326,25 @@ QVariantMap SettingsEditor::pickWebIcon()
         return {{u"error"_s, tr("读不了这个文件")}};
     if (file.size() > 1 << 20)
         return {{u"error"_s, tr("图片太大了：请用 1 MB 以内的 PNG")}};
-    const QString icon = siteicons::keepCustom(file.readAll());
+    const QByteArray bytes = file.readAll();
+    if (svgicon::looksLikeSvg(bytes))
+        return keepSvgIcon(bytes);
+    const QString icon = siteicons::keepCustom(bytes);
     if (icon.isEmpty())
-        return {{u"error"_s, tr("用不了这张图片：请用 PNG 或 ICO，至少 16×16")}};
+        return {{u"error"_s, tr("用不了这张图片：请用 PNG、ICO 或 SVG，至少 16×16")}};
     m_pickedWebIcon = icon;
     return {{u"icon"_s, icon}, {u"iconRef"_s, u"custom:"_s + icon}};
+}
+
+QVariantMap SettingsEditor::pasteWebIcon()
+{
+    const QString text = QGuiApplication::clipboard()->text().trimmed();
+    if (text.isEmpty())
+        return {{u"error"_s, tr("剪贴板里没有文字：先复制图标的 SVG 代码（如 iconfont 的“复制 SVG 代码”）")}};
+    const QByteArray svg = text.toUtf8();
+    if (!svgicon::looksLikeSvg(svg))
+        return {{u"error"_s, tr("剪贴板里的不是 SVG 代码：它应当以 <svg 开头")}};
+    return keepSvgIcon(svg);
 }
 
 QString SettingsEditor::importWebShortcuts()

@@ -173,7 +173,7 @@ template <typename T> T readOrDefault(QSettings& s, const QString& key, const T&
     return s.value(key).value<T>();
 }
 
-void writeWebShortcuts(QSettings& s, const WebShortcuts& shortcuts)
+void writeWebShortcuts(QSettings& s, const WebShortcuts& shortcuts, bool suggestions)
 {
     s.remove(u"WebSearch"_s); // no entries left over from a longer list
     s.beginWriteArray(u"WebSearch"_s, static_cast<int>(shortcuts.size()));
@@ -185,19 +185,21 @@ void writeWebShortcuts(QSettings& s, const WebShortcuts& shortcuts)
         s.setValue(u"Home"_s, shortcuts[i].home);
         if (!shortcuts[i].icon.isEmpty())
             s.setValue(u"Icon"_s, shortcuts[i].icon);
+        s.setValue(u"Suggest"_s, shortcuts[i].suggest); // even empty: none, as its user left it
     }
     s.endArray();
     s.setValue(u"WebSearch/Defaults"_s, kWebDefaultsVersion); // the list as its user left it, new defaults seen
+    s.setValue(u"WebSearch/Suggestions"_s, suggestions); // within the group: written again with it
 }
 
 // The file may have been edited by hand: addresses are tidied as the settings
 // window would ("github.com/..." gets https://), an entry without a name takes
 // its keyword, and one that cannot be used (no keyword to type, an address
 // Win顺 does not open) is left out.
-WebShortcuts readWebShortcuts(QSettings& s, const WebShortcuts& fallback)
+WebShortcuts readWebShortcuts(QSettings& s, const WebShortcuts& fallback, bool suggestions)
 {
     if (!s.contains(u"WebSearch/size"_s)) { // never written: the defaults, and into the file with them
-        writeWebShortcuts(s, fallback);
+        writeWebShortcuts(s, fallback, suggestions);
         return fallback;
     }
     WebShortcuts shortcuts;
@@ -213,6 +215,9 @@ WebShortcuts readWebShortcuts(QSettings& s, const WebShortcuts& fallback)
             shortcut.icon = icon; // a name of ours, never a path
         if (!isValidWebKeyword(shortcut.keyword) || shortcut.url.isEmpty())
             continue; // nothing to type, or nothing to open
+        // No Suggest= at all: written before there were suggestions.
+        shortcut.suggest = s.contains(u"Suggest"_s) ? normalizeSuggestUrl(s.value(u"Suggest"_s).toString())
+                                                    : knownSuggestUrl(shortcut.url);
         if (shortcut.name.isEmpty())
             shortcut.name = shortcut.keyword;
         shortcuts.append(shortcut);
@@ -221,7 +226,7 @@ WebShortcuts readWebShortcuts(QSettings& s, const WebShortcuts& fallback)
     // Written by an older Win顺: the defaults added since, once.
     if (s.value(u"WebSearch/Defaults"_s, 1).toInt() < kWebDefaultsVersion) {
         shortcuts = withNewDefaults(shortcuts, fallback);
-        writeWebShortcuts(s, shortcuts);
+        writeWebShortcuts(s, shortcuts, suggestions);
     }
     return shortcuts;
 }
@@ -713,7 +718,9 @@ void Settings::load()
     taskbarSearchBox = readOrDefault(s, u"Taskbar/SearchBox"_s, d.taskbarSearchBox);
     taskbarStartGap = readOrDefault(s, u"Taskbar/StartGap"_s, d.taskbarStartGap);
 
-    webShortcuts = readWebShortcuts(s, d.webShortcuts);
+    // Before the list: writing it (defaults new to the file) rewrites the whole group.
+    webSuggestions = readOrDefault(s, u"WebSearch/Suggestions"_s, d.webSuggestions);
+    webShortcuts = readWebShortcuts(s, d.webShortcuts, webSuggestions);
     fileTypes = readFileTypes(s, d.fileTypes);
 
     shares = readShares(s);
@@ -803,7 +810,7 @@ void Settings::save() const
     s.setValue(u"Taskbar/StartMenuTyping"_s, taskbarStartTyping);
     s.setValue(u"Taskbar/SearchBox"_s, taskbarSearchBox);
     s.setValue(u"Taskbar/StartGap"_s, taskbarStartGap);
-    writeWebShortcuts(s, webShortcuts);
+    writeWebShortcuts(s, webShortcuts, webSuggestions);
     writeFileTypes(s, fileTypes);
     writeShares(s, shares);
     s.setValue(u"Network/VerifyHours"_s, networkVerifyHours);

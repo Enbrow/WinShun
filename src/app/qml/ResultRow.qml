@@ -11,7 +11,9 @@ import WinShun
 // program file, if it has one), copy path. A place in Windows (a page of
 // Settings, a Control Panel task, a system tool) is tagged "系统", says where
 // in Windows it is, and has only the copy button, which copies its command.
-// A web shortcut's site or search is tagged "网页" and copies its address.
+// A web shortcut's site or search is tagged "网页" and copies its address; a
+// search on one of its suggestions (under the search's own row) reads just
+// the suggestion and is tagged "建议".
 // A file or folder says when it was last written, at the end of its name's
 // line (also on the current row, where the buttons take the right end).
 // A picture, a video, a PDF shows its thumbnail for an icon, once loaded.
@@ -45,6 +47,7 @@ Item {
     required property bool isApp // or a place, or a plugin's row
     required property bool place // or a web page
     required property bool web
+    required property bool suggestion // a web search on one of the site's suggestions: tagged 建议
     required property bool packagedApp
     required property bool elevatable
     required property bool revealable
@@ -261,7 +264,8 @@ Item {
             y: row.onPixel((badge.height - height) / 2)
             text: row.plugin ? row.source : row.missing ? qsTr("已不存在")
                 : row.favorite ? (row.favoriteKeyword.length > 0 ? qsTr("收藏 · %1").arg(row.favoriteKeyword) : qsTr("收藏"))
-                : row.recent ? qsTr("最近") : row.web ? qsTr("网页") : row.place ? qsTr("系统") : qsTr("应用")
+                : row.recent ? qsTr("最近") : row.suggestion ? qsTr("建议") : row.web ? qsTr("网页")
+                : row.place ? qsTr("系统") : qsTr("应用")
             color: Theme.accent
             font.pixelSize: Theme.uiCaption
         }

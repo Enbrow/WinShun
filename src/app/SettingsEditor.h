@@ -112,6 +112,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool foldersFirst READ foldersFirst WRITE setFoldersFirst NOTIFY changed FINAL)
     Q_PROPERTY(bool showModified READ showModified WRITE setShowModified NOTIFY changed FINAL)
     Q_PROPERTY(bool thumbnails READ thumbnails WRITE setThumbnails NOTIFY changed FINAL)
+    Q_PROPERTY(bool webSuggestions READ webSuggestions WRITE setWebSuggestions NOTIFY changed FINAL)
     Q_PROPERTY(QString sort READ sort WRITE setSort NOTIFY changed FINAL) // match | newest | oldest
     Q_PROPERTY(QString startList READ startList WRITE setStartList NOTIFY changed FINAL) // opened | modified | none
     Q_PROPERTY(bool clearOnOpen READ clearOnOpen WRITE setClearOnOpen NOTIFY changed FINAL)
@@ -405,6 +406,8 @@ public:
     void setShowModified(bool on);
     bool thumbnails() const { return m_settings.thumbnails; }
     void setThumbnails(bool on);
+    bool webSuggestions() const { return m_settings.webSuggestions; }
+    void setWebSuggestions(bool on);
     QString sort() const { return m_settings.sort; }
     void setSort(const QString& sort);
     QString startList() const { return m_settings.startList; }
@@ -500,14 +503,21 @@ public:
     Q_INVOKABLE void removeDoubleCtrlExcludedApp(int index);
     // Adds a web shortcut (`index` -1) or changes the one at `index`. Returns
     // why it cannot be saved, or an empty string once it is.
-    // `icon`: a picture chosen with pickWebIcon, empty for the site's own.
+    // `icon`: a picture chosen with pickWebIcon or pasteWebIcon, empty for
+    // the site's own. `suggest`: its suggestion address, empty for none.
     Q_INVOKABLE QString saveWebShortcut(int index, const QString& keyword, const QString& name, const QString& url,
-        const QString& home, const QString& icon = {});
+        const QString& home, const QString& icon = {}, const QString& suggest = {});
+    // The suggestion address Win顺 knows for a search address's site
+    // (knownSuggestUrl), offered in the form of a new shortcut; empty if none.
+    Q_INVOKABLE QString knownSuggestUrl(const QString& url) const;
     Q_INVOKABLE void removeWebShortcut(int index);
     Q_INVOKABLE void openWebShortcut(int index); // its site, to try it
     // Asks for a PNG or ICO to show for a shortcut and keeps it: {icon: its
     // name} to save with it, {error: why not}, or {} when cancelled.
     Q_INVOKABLE QVariantMap pickWebIcon();
+    // The same from SVG code on the clipboard (iconfont's 复制 SVG 代码):
+    // checked, drawn and kept as a picked one is.
+    Q_INVOKABLE QVariantMap pasteWebIcon();
     // Asks for a file and adds the shortcuts in it (a keyword already here is
     // replaced), or writes them all to one: what came of it, to show.
     Q_INVOKABLE QString importWebShortcuts();
@@ -608,6 +618,7 @@ private:
     friend class PluginSettings; // edits m_settings' plugin sections and commits
     friend class FavoritesSettings; // reads the web shortcuts' keywords and the window
     void commit();
+    QVariantMap keepSvgIcon(QByteArrayView svg); // pickWebIcon's and pasteWebIcon's answer for SVG code
     void setIndexFolder(const QString& folder);
     void setMcpMessage(const QString& message);
 

@@ -1105,6 +1105,7 @@ void App::applySettings(bool initial)
     m_launcher->setContentOptions(m_settings.contentSearch, m_settings.contentExtensions,
         m_settings.contentSizeLimits(), m_settings.contentInLowPriority, m_settings.contentDocuments);
     m_launcher->setWebShortcuts(m_settings.webShortcuts);
+    m_launcher->setWebSuggestions(m_settings.webSuggestions);
     m_launcher->setFileTypes(m_settings.namedFileTypes()); // after applyAppearance: the built-in ones' names
     applyPlugins();
     if (!initial) {

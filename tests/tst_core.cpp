@@ -34,6 +34,7 @@
 #include "Unc.h"
 #include "VolumeProtocol.h"
 #include "WebShortcut.h"
+#include "WebSuggest.h"
 #include "Win32Util.h"
 #include "Writer.h"
 #include "Wtf8.h"
@@ -1017,9 +1018,21 @@ private slots:
             }
         }
         QCOMPARE(sites.size(), 10);
+        // Suggestions where the site answers a plain request (checked live 2026-10-15), none elsewhere.
+        QStringList suggesting;
+        for (const WebShortcut& s : shortcuts) {
+            QCOMPARE(s.suggest, knownSuggestUrl(s.url));
+            if (!s.suggest.isEmpty()) {
+                QCOMPARE(normalizeSuggestUrl(s.suggest), s.suggest);
+                suggesting.append(s.keyword);
+            }
+        }
+        QCOMPARE(suggesting, (QStringList {u"baidu"_s, u"biying"_s, u"bilibili"_s, u"taobao"_s}));
         const auto typed = typedKeyword(shortcuts, u"baidu 天气 预报"_s);
         QVERIFY(typed);
         QCOMPARE(shortcuts[typed->index].searchUrl(typed->words), u"https://www.baidu.com/s?wd=%E5%A4%A9%E6%B0%94%20%E9%A2%84%E6%8A%A5"_s);
+        QCOMPARE(shortcuts[typed->index].suggestUrl(typed->words),
+            u"https://suggestion.baidu.com/su?wd=%E5%A4%A9%E6%B0%94%20%E9%A2%84%E6%8A%A5&action=opensearch"_s);
         QVERIFY(!typedKeyword(shortcuts, u"bd"_s)); // found by its name instead (pinyin initials)
         const auto byName = searchWebShortcuts(shortcuts, NameMatcher(ws::parseQuery(u"jd"_s)));
         QVERIFY(!byName.empty());
@@ -1063,7 +1076,8 @@ private slots:
         QVERIFY(!isValidCustomIconName(u""));
 
         WebShortcuts shortcuts {
-            {u"gh"_s, u"GitHub"_s, u"https://github.com/search?q=%s"_s, {}, u"0123456789abcdef.png"_s},
+            {u"gh"_s, u"GitHub"_s, u"https://github.com/search?q=%s"_s, {}, u"0123456789abcdef.png"_s,
+                u"https://example.com/sug?q=%s"_s},
             {u"zhihu"_s, u"知乎"_s, u"https://www.zhihu.com/search?q=%s"_s, u"https://www.zhihu.com/"_s, {}},
             {u"gone"_s, u"图标没了"_s, u"https://example.com/"_s, {}, u"fedcba9876543210.png"_s},
         };
@@ -1080,6 +1094,8 @@ private slots:
         QCOMPARE(read->entries[1].shortcut.home, u"https://www.zhihu.com/"_s);
         QCOMPARE(read->entries[1].shortcut.name, u"知乎"_s);
         QVERIFY(read->entries[2].iconData.isEmpty());
+        QCOMPARE(read->entries[0].shortcut.suggest, u"https://example.com/sug?q=%s"_s);
+        QVERIFY(read->entries[1].shortcut.suggest.isEmpty()); // written empty: none, not the one known for the site
 
         // Tidied as the settings file is; the unusable skipped; the later of two keywords wins.
         // Not a raw string: moc takes the // of its addresses for a comment and loses the class (pitfalls).
@@ -1100,6 +1116,10 @@ private slots:
         QCOMPARE(tidied->entries[0].iconData, QByteArray::fromBase64("iVBORw=="));
         QVERIFY(tidied->entries[1].iconData.isEmpty()); // a path is no picture
         QCOMPARE(tidied->entries[1].shortcut.name, u"y"_s);
+        // A file from before suggestions: the one known for the site, if any.
+        QCOMPARE(tidied->entries[0].shortcut.suggest, knownSuggestUrl(u"https://www.baidu.com/s?wd=%s"_s));
+        QVERIFY(!tidied->entries[0].shortcut.suggest.isEmpty());
+        QVERIFY(tidied->entries[1].shortcut.suggest.isEmpty());
 
         bool newer = false;
         QVERIFY(!readWebShortcutsFile("{}", &newer));
@@ -1139,7 +1159,7 @@ private slots:
         QVERIFY(siteIconKey(u"obsidian://search?query="_s).isEmpty());
 
         // As www.bilibili.com and www.zhihu.com have them (2026-10), and the
-        // kinds left out: one colour, SVG, other relations, attributes alike.
+        // kinds left out: one colour, other relations, attributes alike.
         // (Not a raw string literal: moc reads this file and stumbles on one.)
         const QByteArray html = "<html><head>\n"
                                 "<link rel=\"stylesheet\" href=\"/a.css\">\n"
@@ -1157,6 +1177,7 @@ private slots:
         QCOMPARE(found.icons,
             (QStringList {
                 u"https://www.example.com/start/icons/big.png?v=1&x=2"_s, // declared large
+                u"https://www.example.com/favicon.svg"_s, // SVG: any size, after the large ones (not mask-icon's)
                 u"https://i0.hdslb.com/images/favicon.ico"_s, // the other icons, as the page has them
                 u"https://www.example.com/right.ico"_s,
                 u"https://www.example.com/favicon.ico"_s, // the site's, last
@@ -1171,6 +1192,98 @@ private slots:
         QCOMPARE(siteIconCandidates({}, u"https://weibo.com/"_s).icons, (QStringList {u"https://weibo.com/favicon.ico"_s}));
         QVERIFY(siteIconCandidates({}, u"https://weibo.com/"_s).touchIcons.isEmpty());
         QVERIFY(siteIconCandidates({}, u"obsidian://x"_s).icons.isEmpty());
+    }
+
+    void webSuggestAddresses()
+    {
+        QCOMPARE(normalizeSuggestUrl(u" api.bing.com/osjson.aspx?query=%s "_s), u"https://api.bing.com/osjson.aspx?query=%s"_s);
+        QCOMPARE(normalizeSuggestUrl(u"https://example.com/sug?q={query}"_s), u"https://example.com/sug?q=%s"_s); // Listary's
+        QCOMPARE(normalizeSuggestUrl(u"https://example.com/sug?q=%25s"_s), u"https://example.com/sug?q=%s"_s);
+        QVERIFY(normalizeSuggestUrl(u"https://example.com/sug"_s).isEmpty()); // no words: nothing to suggest for
+        QVERIFY(normalizeSuggestUrl(u"obsidian://search?query=%s"_s).isEmpty()); // read by Win顺: http(s) only
+        QVERIFY(normalizeSuggestUrl(u"file:///C:/x?%s"_s).isEmpty());
+        QVERIFY(normalizeSuggestUrl({}).isEmpty());
+
+        QCOMPARE(knownSuggestUrl(u"https://cn.bing.com/search?q=%s"_s), u"https://api.bing.com/osjson.aspx?query=%s"_s);
+        QVERIFY(knownSuggestUrl(u"https://fanyi.baidu.com/x?q=%s"_s).isEmpty()); // not 百度's search
+        QVERIFY(knownSuggestUrl(u"https://www.zhihu.com/search?q=%s"_s).isEmpty()); // 403 without signing in
+
+        WebShortcut page {u"blog"_s, u"Blog"_s, u"https://example.com/blog"_s, {}, {}, u"https://example.com/s?q=%s"_s};
+        QVERIFY(page.suggestUrl(u"x"_s).isEmpty()); // a page takes no words
+        const WebShortcut site {u"ex"_s, u"Ex"_s, u"https://example.com/?q=%s"_s, {}, {}, u"https://example.com/s?q=%s&n=5"_s};
+        QCOMPARE(site.suggestUrl(u"a b&c"_s), u"https://example.com/s?q=a%20b%26c&n=5"_s);
+    }
+
+    void webSuggestReplies()
+    {
+        using ws::websuggest::decodeReply;
+        using ws::websuggest::parse;
+        // 百度's JSONP, in GBK: unquoted keys, as its su?wd= sends it (显卡, 显卡天梯图).
+        const QByteArray gbk = "window.baidu.sug({q:\"\xCF\xD4\xBF\xA8\",p:false,s:[\"\xCF\xD4\xBF\xA8\xCC\xEC\xCC\xDD\xCD\xBC\","
+                               "\"\xCF\xD4\xBF\xA8\"]});";
+        const QString text = decodeReply(gbk, u"text/javascript; charset=gbk");
+        QVERIFY(text.contains(u"显卡天梯图"_s));
+        // The word typed is left out: the row above searches it.
+        QCOMPARE(parse(text, u"显卡"_s), (QStringList {u"显卡天梯图"_s}));
+        // No charset named, not UTF-8: GB18030 all the same.
+        QCOMPARE(decodeReply(QByteArray("\xCF\xD4\xBF\xA8"), {}), u"显卡"_s);
+        QCOMPARE(decodeReply(QByteArray("\xE6\x98\xBE\xE5\x8D\xA1"), {}), u"显卡"_s); // UTF-8 stays UTF-8
+        QCOMPARE(decodeReply(QByteArray("\xEF\xBB\xBF[1]"), u"text/plain; charset=gbk"), u"[1]"_s); // a BOM wins
+
+        // OpenSearch (必应, Google: extra members after the list), and the cap.
+        QCOMPARE(parse(u"[\"gpu\",[\"gpu z\",\"GPU Z\",\"gpu\",\"gpu test\",\" gpu  tweak \",\"e\",\"f\",\"g\"],[],{\"x\":[[512]]}]", u"gpu"_s),
+            (QStringList {u"gpu z"_s, u"gpu test"_s, u"gpu tweak"_s, u"e"_s, u"f"_s}));
+        QCOMPARE(parse(u"[\"x\",[\"a\",\"b\"]]", u"x"_s, 1), (QStringList {u"a"_s}));
+        // JSONP around OpenSearch, a callback with dots, and a trailing semicolon.
+        QCOMPARE(parse(u"jQuery.cb_1( [\"q\", [\"a\"]] );", u"q"_s), (QStringList {u"a"_s}));
+        // 淘宝: arrays of [word, count].
+        QCOMPARE(parse(u"{\"result\":[[\"显卡支架\",\"100\"],[\"显卡二手\",\"100\"]]}", u"显卡"_s),
+            (QStringList {u"显卡支架"_s, u"显卡二手"_s}));
+        // 哔哩哔哩: objects, "value" plain (its "name" carries markup).
+        QCOMPARE(parse(u"{\"code\":0,\"result\":{\"tag\":[{\"value\":\"显卡推荐\",\"name\":\"<em class=\\\"h\\\">显卡</em>推荐\"}]}}", u"显卡"_s),
+            (QStringList {u"显卡推荐"_s}));
+        // 百度's sugrec: objects under g, the word under q.
+        QCOMPARE(parse(u"{\"q\":\"显卡\",\"p\":false,\"g\":[{\"type\":\"sug\",\"q\":\"显卡价格\"}]}", u"显卡"_s),
+            (QStringList {u"显卡价格"_s}));
+        // JavaScript's 'strings', with a quote of the other kind inside, and an escaped one.
+        QCOMPARE(parse(u"cb({s:['say \"hi\"', 'it\\'s']})", u""_s), (QStringList {u"say \"hi\""_s, u"it's"_s}));
+        // A key-like word inside a string is left alone.
+        QCOMPARE(parse(u"cb({s:[\"a, b: c\"]})", u""_s), (QStringList {u"a, b: c"_s}));
+
+        // Anything else: nothing, quietly.
+        QVERIFY(parse(u"<!DOCTYPE html><html>Sina Visitor System</html>", u"x"_s).isEmpty());
+        QVERIFY(parse(u"", u"x"_s).isEmpty());
+        QVERIFY(parse(u"{\"code\":403,\"message\":\"forbidden\"}", u"x"_s).isEmpty());
+        QVERIFY(parse(u"[1, 2, 3]", u"x"_s).isEmpty());
+        QVERIFY(parse(u"alert(1)", u"x"_s).isEmpty());
+        QVERIFY(parse(u"x = (function(){})()", u"x"_s).isEmpty());
+    }
+
+    void webSuggestCache()
+    {
+        using ws::websuggest::Cache;
+        Cache cache;
+        const QString bing = u"https://api.bing.com/osjson.aspx?query=%s"_s;
+        const QString mine = u"https://example.com/sug?q=%s"_s;
+        cache.insert(bing, u"显卡"_s, {u"显卡驱动"_s}, 1000);
+        QCOMPARE(cache.find(bing, u"显卡"_s, 1000 + Cache::kKeepMs), (QStringList {u"显卡驱动"_s}));
+        QVERIFY(!cache.find(bing, u"显卡"_s, 1001 + Cache::kKeepMs)); // gone stale
+        QVERIFY(!cache.find(bing, u"显"_s, 1000)); // other words
+        // The address changed in the settings (the Lertaro bug): the same words
+        // from the new address are not the old answer.
+        QVERIFY(!cache.find(mine, u"显卡"_s, 1000));
+        cache.insert(mine, u"显卡"_s, {}, 1000); // "no suggestions" is an answer too
+        QCOMPARE(cache.find(mine, u"显卡"_s, 1000), QStringList());
+        QCOMPARE(cache.find(bing, u"显卡"_s, 1000), (QStringList {u"显卡驱动"_s}));
+        cache.clear();
+        QVERIFY(!cache.find(bing, u"显卡"_s, 1000));
+        QCOMPARE(cache.size(), 0);
+        // Full: what went stale goes, then the oldest.
+        for (int i = 0; i < Cache::kMaxEntries + 10; ++i)
+            cache.insert(bing, QString::number(i), {}, i);
+        QVERIFY(cache.size() <= Cache::kMaxEntries);
+        QVERIFY(!cache.find(bing, u"0"_s, 300));
+        QVERIFY(cache.find(bing, QString::number(Cache::kMaxEntries + 9), Cache::kMaxEntries + 9));
     }
 
     void releaseVersions()

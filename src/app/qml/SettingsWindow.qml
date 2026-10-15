@@ -2963,6 +2963,17 @@ Window {
                         }
                     }]
                 }
+
+                SettingRow {
+                    title: qsTr("网页搜索建议")
+                    keywords: qsTr("搜索建议;联想;补全;suggest;suggestion").split(";")
+                    description: qsTr("在网站关键词后输入文字时，列出这个网站的搜索建议。只有这时才会把输入的文字发给那个网站")
+
+                    ToggleSwitch {
+                        checked: window.editor.webSuggestions
+                        onToggled: (on) => window.editor.webSuggestions = on
+                    }
+                }
             }
 
             FavoritesSection {

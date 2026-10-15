@@ -2,6 +2,7 @@
 // Windows bitmaps, and whatever else a site may send, damaged or not.
 
 #include "SiteIconImage.h"
+#include "SvgIcon.h"
 
 #include <QBuffer>
 #include <QPainter>
@@ -295,6 +296,92 @@ private slots:
         // A tile brings its own background; nothing at all shows no plate.
         QVERIFY(!siteicon::fadesInto(solid(64, 64, Qt::black), true));
         QVERIFY(!siteicon::fadesInto(solid(32, 32, Qt::transparent), true));
+    }
+
+    // SVG icons (SvgIcon): iconfont's code as copied, drawn with its colours;
+    // anything naming what is outside it turned away.
+    void svgDrawn()
+    {
+        // As iconfont's "复制 SVG 代码" gives it (not a raw string: moc reads this file).
+        const QByteArray iconfont = "<svg t=\"1697000000000\" class=\"icon\" viewBox=\"0 0 1024 1024\" version=\"1.1\" "
+                                    "xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" p-id=\"4012\" "
+                                    "width=\"200\" height=\"200\"><path d=\"M512 64L960 512 512 960 64 512z\" fill=\"#D4237A\" "
+                                    "p-id=\"4013\"></path><path d=\"M512 384a128 128 0 1 0 0 256 128 128 0 1 0 0-256z\" "
+                                    "fill=\"#FFFFFF\"></path></svg>";
+        QVERIFY(svgicon::looksLikeSvg(iconfont));
+        svgicon::Problem problem = svgicon::Problem::TooLarge;
+        const QImage image = svgicon::render(iconfont, 256, &problem);
+        QCOMPARE(problem, svgicon::Problem::None);
+        QCOMPARE(image.size(), QSize(256, 256));
+        QCOMPARE(image.pixel(128, 40), qRgb(0xD4, 0x23, 0x7A)); // its own colour
+        QCOMPARE(image.pixel(128, 128), qRgb(0xFF, 0xFF, 0xFF));
+        QCOMPARE(qAlpha(image.pixel(10, 10)), 0); // outside the diamond
+
+        // A file as iconfont downloads it: a BOM, the XML declaration, a DOCTYPE.
+        const QByteArray file = "\xEF\xBB\xBF<?xml version=\"1.0\" standalone=\"no\"?><!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" "
+                                "\"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">" + iconfont;
+        QVERIFY(svgicon::looksLikeSvg(file));
+        QCOMPARE(svgicon::render(file, 64).pixel(32, 8), qRgb(0xD4, 0x23, 0x7A));
+
+        // Wider than high: centred, its aspect kept.
+        const QImage wide = svgicon::render("<svg viewBox=\"0 0 200 100\"><rect width=\"200\" height=\"100\" fill=\"#00f\"/></svg>", 100);
+        QCOMPARE(qAlpha(wide.pixel(50, 10)), 0);
+        QCOMPARE(wide.pixel(50, 50), qRgb(0, 0, 0xFF));
+        // currentColor: black, as a browser shows it with no colour given (the dark theme puts it on a plate).
+        QCOMPARE(svgicon::render("<svg viewBox=\"0 0 10 10\"><rect width=\"10\" height=\"10\" fill=\"currentColor\"/></svg>", 20)
+                     .pixel(10, 10), qRgb(0, 0, 0));
+        // A gradient and a <use> within it, a picture in a data: address: all its own.
+        QCOMPARE(svgicon::render("<svg viewBox=\"0 0 10 10\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"><defs><linearGradient id=\"g\">"
+                                 "<stop offset=\"0\" stop-color=\"#f00\"/></linearGradient><rect id=\"r\" width=\"10\" height=\"10\"/></defs>"
+                                 "<use xlink:href=\"#r\" fill=\"url(#g)\"/><image href=\"data:image/png;base64,iVBORw0KGgo=\"/></svg>", 20, &problem)
+                     .pixel(10, 10), qRgb(0xFF, 0, 0));
+        // A script is left as it is: QtSvg runs none, and only the picture is kept.
+        QVERIFY(!svgicon::render("<svg viewBox=\"0 0 10 10\"><script>alert(1)</script><rect width=\"10\" height=\"10\"/></svg>", 16).isNull());
+
+        // Drawn large and made smaller (as kept, then as a row draws it) is as
+        // sharp as drawn at the row's size: each pixel the average of those it covers.
+        for (int px : {20, 30, 45}) {
+            const QImage direct = svgicon::render(iconfont, px);
+            const QImage scaled = svgicon::render(iconfont, 256).scaled(px, px, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            double alphaDiff = 0;
+            for (int y = 0; y < px; ++y) {
+                for (int x = 0; x < px; ++x)
+                    alphaDiff += std::abs(qAlpha(direct.pixel(x, y)) - qAlpha(scaled.pixel(x, y)));
+            }
+            const double mean = alphaDiff / (px * px);
+            qInfo("SVG at %d px: drawn there vs from 256 px, mean alpha difference %.2f of 255", px, mean);
+            QVERIFY(mean < 6);
+        }
+    }
+
+    void svgRefused()
+    {
+        svgicon::Problem problem = svgicon::Problem::None;
+        const auto refused = [&](const QByteArray& svg) {
+            problem = svgicon::Problem::None;
+            return svgicon::render(svg, 32, &problem).isNull() ? problem : svgicon::Problem::None;
+        };
+        const QByteArray shape = "<rect width=\"10\" height=\"10\"/>";
+        const auto svg = [&](const QByteArray& inside) { return "<svg viewBox=\"0 0 10 10\">" + inside + shape + "</svg>"; };
+        // What would be read from outside: QtSvg reads a local file for <image href>.
+        QCOMPARE(refused(svg("<image href=\"C:/Windows/Web/Wallpaper/Windows/img0.jpg\" width=\"10\" height=\"10\"/>")),
+            svgicon::Problem::External);
+        QCOMPARE(refused(svg("<image xlink:href='file:///C:/secret.png'/>")), svgicon::Problem::External);
+        QCOMPARE(refused(svg("<use href=\"http://example.com/a.svg#x\"/>")), svgicon::Problem::External);
+        QCOMPARE(refused(svg("<image href=\"data:image/svg+xml;base64,PHN2Zz4=\"/>")), svgicon::Problem::External);
+        QCOMPARE(refused(svg("<rect width=\"1\" height=\"1\" style=\"fill:url(http://example.com/x)\"/>")), svgicon::Problem::External);
+        QCOMPARE(refused(svg("<style>@import url(\"https://example.com/a.css\");</style>")), svgicon::Problem::External);
+        QCOMPARE(refused("<?xml version=\"1.0\"?><!DOCTYPE svg [<!ENTITY x SYSTEM \"file:///C:/secret.txt\">]><svg>&x;</svg>"),
+            svgicon::Problem::External);
+        // Not SVG, too large, nothing to see.
+        QCOMPARE(refused("<html><body>Not found</body></html>"), svgicon::Problem::NotSvg);
+        QCOMPARE(refused("<?xml version=\"1.0\"?><html/>"), svgicon::Problem::NotSvg);
+        QCOMPARE(refused("{\"svg\": 1}"), svgicon::Problem::NotSvg);
+        QCOMPARE(refused(svg(QByteArray(svgicon::kMaxBytes, ' '))), svgicon::Problem::TooLarge);
+        QCOMPARE(refused("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>"), svgicon::Problem::Empty);
+        QCOMPARE(refused("<svg viewBox=\"0 0 10 10\"></svg>"), svgicon::Problem::Empty);
+        QCOMPARE(refused("<svg viewBox=\"0 0 10 10\"><rect width=\"10\" height=\"10\" fill=\"none\"/></svg>"), svgicon::Problem::Empty);
+        QVERIFY(!svgicon::looksLikeSvg("\x89PNG\r\n\x1a\n"));
     }
 };
 

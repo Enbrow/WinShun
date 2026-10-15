@@ -55,8 +55,10 @@ qt_add_executable(WinShun WIN32
     RecentFolders.cpp RecentFolders.h
     Settings.cpp Settings.h
     SiteIconImage.cpp SiteIconImage.h
+    SvgIcon.cpp SvgIcon.h
     TextField.cpp TextField.h
     ThumbnailProvider.cpp ThumbnailProvider.h
+    WebSuggester.cpp WebSuggester.h
     WindowLogo.cpp WindowLogo.h
     platform/ClipboardWatcher.cpp platform/ClipboardWatcher.h
     platform/ComWorker.cpp platform/ComWorker.h
@@ -262,6 +264,7 @@ target_include_directories(WinShun PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(WinShun PRIVATE
     wscore wsmcp wsplugin
     Qt6::Gui Qt6::Qml Qt6::Quick
+    Qt6::Svg # SvgIcon: web shortcuts' SVG icons, drawn once into the PNG kept
     comctl32 d2d1 dwmapi dwrite imm32 oleacc oleaut32 shcore shell32 shlwapi ole32 user32 uxtheme version winhttp winmm
     credui iphlpapi mpr psapi windowscodecs
     mfplat mfreadwrite mfuuid delayimp
