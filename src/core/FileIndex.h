@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -64,6 +65,23 @@ using FileTime = std::uint32_t;
 // time 0) or 1980-01-01 (the DOS epoch, a day either way in local time).
 inline constexpr FileTime kFirstKnownTime = 315'619'200; // 1980-01-02 00:00 UTC
 constexpr FileTime knownTime(FileTime time) noexcept { return time < kFirstKnownTime ? 0 : time; }
+
+// Later than this is a clock gone wrong (a camera's, another computer's, an
+// installer's 2076), not new work: a day from now, taken once per search.
+inline FileTime trustedUntil() noexcept
+{
+    const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    return static_cast<FileTime>(std::clamp<std::int64_t>(now + 86'400, 0, 0xFFFF'FFFF));
+}
+
+// A time to order by: none (0, last both ways) when not known or later than
+// `until`. Such a file still shows its own date; it is just not "the newest".
+constexpr FileTime sortTime(FileTime time, FileTime until) noexcept
+{
+    const FileTime known = knownTime(time);
+    return known > until ? 0 : known;
+}
 
 // A file's size, packed into 32 bits: the bits of the size as a float. Exact
 // up to 16 MB, within a hundred-thousandth above (a list says "1.2 GB", a

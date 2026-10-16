@@ -31,6 +31,9 @@ struct NameSearchOptions {
     EntryFilter filter;
     // A column's order (the search panel) in place of the rank; Rank: rankBy.
     SortOrder order;
+    // Ordered as not known when later than this (sortTime, trustedUntil):
+    // the hits' `modified` is then 0, the caller shows the index's own.
+    FileTime trustedUntil = 0xFFFF'FFFFu;
 };
 
 struct NameSearchOutput {

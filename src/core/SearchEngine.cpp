@@ -873,8 +873,10 @@ void promoteFavorites(SearchResults& results, qint64& total, const SearchEngine:
 bool rankedBefore(const SearchResult& a, const SearchResult& b, RankBy by) noexcept
 {
     if (by != RankBy::Match) {
-        const FileTime ta = knownTime(a.modified);
-        const FileTime tb = knownTime(b.modified);
+        // Dated more than a day ahead: ordered as not known (sortTime).
+        const FileTime until = trustedUntil();
+        const FileTime ta = sortTime(a.modified, until);
+        const FileTime tb = sortTime(b.modified, until);
         if (ta != tb) {
             if (ta == 0 || tb == 0)
                 return tb == 0;
@@ -979,12 +981,11 @@ void SearchEngine::runNameSearch(const Job& job)
     if (query.isEmpty() && request.startList == StartList::Modified && !listing) {
         // The files written last (in 文件夹, the folders they are in), newest first.
         // A day ahead at most: later is a clock gone wrong, not new work.
-        const auto now = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
         const NewestOptions options {.limit = static_cast<std::size_t>(request.limit),
             .folders = foldersOnly,
             .perFolder = kModifiedPerFolder,
             .perTree = kModifiedPerTree,
-            .notAfter = static_cast<FileTime>(std::clamp<std::int64_t>(now + 86'400, 0, 0xFFFF'FFFF)),
+            .notAfter = trustedUntil(),
             .extensions = types};
         const auto index = m_index->index();
         const auto lock = index->readLock();
@@ -1063,7 +1064,8 @@ void SearchEngine::runNameSearch(const Job& job)
                 .rankBy = rankBy,
                 .kindsApart = true,
                 .filter = filter,
-                .order = request.order};
+                .order = request.order,
+                .trustedUntil = trustedUntil()};
             const NameSearchOutput out
                 = searchNames(*index, matcher, options, m_pool, [&] { return isStale(job.id); });
             names = Clock::now() - began - lockWait;
@@ -1081,7 +1083,7 @@ void SearchEngine::runNameSearch(const Job& job)
                     continue;
                 }
                 SearchResult r = fromIndex(*index, hit.id);
-                r.modified = hit.modified;
+                r.modified = knownTime(index->modified(hit.id)); // its own, though ordered as unknown when ahead
                 results.push_back(std::move(r));
             }
         }
@@ -1207,14 +1209,15 @@ void SearchEngine::runNameSearch(const Job& job)
             if (isStale(job.id))
                 return;
             const auto keep = std::min(led.size(), kPathsLed);
-            std::ranges::partial_sort(led, led.begin() + static_cast<std::ptrdiff_t>(keep), [](const Led& a, const Led& b) {
+            const FileTime until = trustedUntil();
+            std::ranges::partial_sort(led, led.begin() + static_cast<std::ptrdiff_t>(keep), [until](const Led& a, const Led& b) {
                 if (a.opened != b.opened)
                     return a.opened < b.opened;
                 if (a.aside != b.aside)
                     return !a.aside;
                 if (a.depth != b.depth)
                     return a.depth < b.depth;
-                return a.row.modified > b.row.modified;
+                return sortTime(a.row.modified, until) > sortTime(b.row.modified, until);
             });
             led.resize(keep);
             if (!led.empty()) {
@@ -1259,7 +1262,8 @@ void SearchEngine::runNameSearch(const Job& job)
                     .rankBy = rankBy,
                     .kindsApart = true,
                     .filter = filter,
-                    .order = request.order};
+                    .order = request.order,
+                    .trustedUntil = trustedUntil()};
                 const NameSearchOutput out = searchNames(*index, spoken, options, m_pool, [&] { return isStale(job.id); });
                 if (out.cancelled || isStale(job.id))
                     return;
@@ -1294,7 +1298,7 @@ void SearchEngine::runNameSearch(const Job& job)
                     const auto lock = index->readLock();
                     for (const NameHit& hit : hits) {
                         SearchResult r = fromIndex(*index, hit.id);
-                        r.modified = hit.modified;
+                        r.modified = knownTime(index->modified(hit.id));
                         results.push_back(std::move(r));
                     }
                 }
@@ -1405,11 +1409,14 @@ void SearchEngine::runDriveWalk(const Job& job)
     const auto send = [&](bool finished) {
         if (stale())
             return;
-        std::ranges::stable_sort(batch, [rankBy](const Hit& a, const Hit& b) {
-            if (rankBy != RankBy::Match && a.row.modified != b.row.modified) {
-                if (a.row.modified == 0 || b.row.modified == 0)
-                    return b.row.modified == 0;
-                return rankBy == RankBy::Newest ? a.row.modified > b.row.modified : a.row.modified < b.row.modified;
+        const FileTime until = trustedUntil();
+        std::ranges::stable_sort(batch, [rankBy, until](const Hit& a, const Hit& b) {
+            const FileTime ta = sortTime(a.row.modified, until);
+            const FileTime tb = sortTime(b.row.modified, until);
+            if (rankBy != RankBy::Match && ta != tb) {
+                if (ta == 0 || tb == 0)
+                    return tb == 0;
+                return rankBy == RankBy::Newest ? ta > tb : ta < tb;
             }
             return a.score > b.score;
         });
@@ -1473,6 +1480,7 @@ void SearchEngine::runContentSearch(const Job& job)
     timer.start();
     const Request& request = job.request;
     const bool byTime = request.rankBy != RankBy::Match;
+    const FileTime until = trustedUntil(); // candidates by time: one dated ahead as not known
     emit resultsReady(job.id, {}, 0, 0);
     if (request.text.trimmed().isEmpty()) {
         emit contentProgress(job.id, 0, 0, true);
@@ -1570,7 +1578,7 @@ void SearchEngine::runContentSearch(const Job& job)
             if (id == kNoEntry || index->entry(id).isDeleted())
                 continue;
             candidates.push_back({id, priorityOf(index->entry(id), id, inProfile), false,
-                byTime ? knownTime(index->modified(id)) : FileTime {0}});
+                byTime ? sortTime(index->modified(id), until) : FileTime {0}});
         }
     } else {
         // Every entry is looked at: a chunk of them per worker (on one
@@ -1654,7 +1662,7 @@ void SearchEngine::runContentSearch(const Job& job)
                 }
                 const std::uint8_t priority = priorityOf(e, id, inProfile);
                 found[c].push_back({id, static_cast<std::uint8_t>(likely ? priority : 4 + priority), indexed,
-                    byTime ? knownTime(index->modified(id)) : FileTime {0}});
+                    byTime ? sortTime(index->modified(id), until) : FileTime {0}});
             }
         });
         if (isStale(job.id))

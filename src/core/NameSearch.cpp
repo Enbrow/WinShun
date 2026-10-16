@@ -423,7 +423,7 @@ NameSearchOutput search(const FileIndex& index, const NameMatcher& matcher, cons
             ++matches;
             score += staticBonus(e);
             TopHits<decltype(order)>& heap = apart && e.isDir() ? folders : top;
-            NameHit hit {id, score, modified, size};
+            NameHit hit {id, score, modified > options.trustedUntil ? FileTime {0} : modified, size};
             if (!heap.mayAccept(hit))
                 continue;
             hit.score -= std::min(index.depth(id), 12);

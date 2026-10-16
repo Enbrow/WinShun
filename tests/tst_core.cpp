@@ -4022,6 +4022,28 @@ private slots:
         QVERIFY(!rankedBefore(undatedRow, older, RankBy::Oldest));
         QVERIFY(rankedBefore(twin, newer, RankBy::Newest));
         QVERIFY(!rankedBefore(newer, twin, RankBy::Oldest));
+
+        // Dated far ahead (an installer's 2076): a clock gone wrong, ordered
+        // as not known, last both ways; a day ahead is still trusted.
+        const FileTime until = trustedUntil();
+        const SearchResult ahead = row(0xC000'0000u, 50); // 2072
+        QVERIFY(rankedBefore(newer, ahead, RankBy::Newest));
+        QVERIFY(rankedBefore(older, ahead, RankBy::Oldest));
+        QCOMPARE(sortTime(0xC000'0000u, until), FileTime {0});
+        QCOMPARE(sortTime(until - 3600, until), until - 3600);
+        QCOMPARE(sortTime(1, until), FileTime {0});
+
+        // The panel's newest first: the one dated ahead last, its own date
+        // still known to the index.
+        const EntryId future = index.add(root, "same-ahead.txt", 0);
+        index.setModified(future, 0xC000'0000u);
+        const auto newestFirst = searchNames(index, NameMatcher(ws::parseQuery(u"same"_s)),
+            {.limit = 5, .order = {SortKey::Modified, true}, .trustedUntil = until}, pool, {});
+        QVERIFY(!newestFirst.hits.empty());
+        QVERIFY(newestFirst.hits.front().id != future);
+        QCOMPARE(newestFirst.hits.back().id, future);
+        QCOMPARE(newestFirst.hits.back().modified, FileTime {0});
+        QCOMPARE(index.modified(future), 0xC000'0000u);
     }
 
     void newestFiles()
