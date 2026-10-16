@@ -75,6 +75,14 @@ public:
     // client area as with ownFrame, so nothing looks different.
     void setResizable(bool on);
     bool resizable() const { return m_resizable; }
+    // Its left and right edges widen it (the launcher): there, but over a
+    // control, hit testing answers HTLEFT / HTRIGHT, so the pointer is the
+    // system's sizing arrow; a press emits sideGrabbed (the caller follows
+    // the mouse from there, Placement::beginSizing), a double click
+    // sideDoubleClicked. No sizing frame (WS_THICKFRAME): with one, Windows
+    // would snap the window when it is dragged by its header to a screen's
+    // edge. Not while it is resizable (the panel's edges are the system's).
+    void setSideSizing(bool on) { m_sideSizing = on; }
 
     QPointF pointer() const { return m_pointer; }
     bool maximizeHovered() const { return m_maximizeHovered; }
@@ -87,12 +95,15 @@ signals:
     void doubleClicked(); // on a drag area
     void handleClicked(); // see addHandle
     void frameShown(); // see afterNextFrame
+    void sideGrabbed(bool left); // see setSideSizing
+    void sideDoubleClicked();
 
 private:
     struct Hook; // the window procedure subclass
     friend struct Hook;
 
     int hitTest(int screenX, int screenY) const; // HT* code
+    bool sidesOnly() const { return m_sideSizing && !m_resizable && !m_ownFrame; } // see setSideSizing
     bool onHandle(int screenX, int screenY) const; // a handle under that point (see addHandle)
     QPointF toWindow(int screenX, int screenY) const; // logical pixels
     void setPointer(QPointF pointer);
@@ -112,6 +123,7 @@ private:
     bool m_maximizePressed = false;
     bool m_noActivate = false;
     bool m_resizable = false;
+    bool m_sideSizing = false;
     // afterNextFrame, set on the render thread: armed, then synchronised.
     std::atomic<bool> m_frameArmed = false;
     std::atomic<bool> m_frameSynced = false;

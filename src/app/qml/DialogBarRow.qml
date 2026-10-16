@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import WinShun
 
@@ -5,24 +7,59 @@ import WinShun
 // folder it is in, and on the right where it comes from ("资源管理器", "固定",
 // "最近"…), or a key to press. Where there is room, when it was last written
 // at the end of its name's line. While the number keys' modifier is held,
-// its number on the right (Ctrl+1 goes to the first row shown).
+// its number on the right (Ctrl+1 goes to the first row shown). A long name
+// keeps its end; cut, the whole of it shows as the mouse rests on it (NameTip).
 Item {
     id: row
 
     required property int index
     required property string name
     required property string nameHtml
+    required property var nameMatches // where the terms are in the name: start, length, ...
     required property string folder
     required property string path
     required property string icon
     required property string thumbnail // a picture's, video's, PDF's (see ResultRow)
     required property bool isDir
     required property string modified // "昨天 14:32"; empty when not known
+    required property string modifiedDate // "2026-10-15 14:32", for the tip
+    required property string size // "1.2 MB", for the tip
+    required property bool offline
     property string tag
     property bool showModified: true
     property int hint: 0 // the number keys' modifier held: this row's number, 0 for none
     property string hintModifier: "Ctrl" // ... that modifier
     property bool hintTaken: false // another program holds that chord as a global hotkey: shown struck through
+    property NameTip nameTip: null // the window's tip for a name or folder cut short
+
+    readonly property var results: ListView.view ? ListView.view.model : null // the bar's ResultModel
+
+    // As ResultRow's: the whole name and folder (NameTip) when either is cut.
+    function cut(shown: string, whole: string): bool {
+        return shown.split("…").length > whole.split("…").length
+    }
+    readonly property bool nameCut: nameText.truncated || cut(nameText.text, name)
+    readonly property bool folderCut: folderText.truncated
+    readonly property bool wantsTip: nameTip !== null && (nameCut || folderCut) && area.containsMouse && !area.pressed
+                                     && area.mouseX >= iconSlot.x && area.mouseX < textColumn.x + textColumn.width
+    onWantsTipChanged: offerTip()
+    function offerTip() {
+        if (!nameTip)
+            return
+        if (!wantsTip) {
+            nameTip.withdraw(row)
+            return
+        }
+        nameTip.offer(row, nameText, {
+            name: name, folder: folder, path: path, size: size, modified: modifiedDate, onDisk: !offline
+        })
+    }
+    function dropTip() {
+        if (nameTip && nameTip.source === row)
+            nameTip.dismiss()
+    }
+    onPathChanged: dropTip() // delegate reused for another entry
+    Component.onDestruction: dropTip()
 
     readonly property bool current: ListView.isCurrentItem
 
@@ -89,6 +126,7 @@ Item {
     }
 
     Column {
+        id: textColumn
         y: row.onPixel((row.height - height) / 2)
         anchors.left: iconSlot.right
         anchors.leftMargin: 12
@@ -102,8 +140,11 @@ Item {
 
             Text {
                 id: nameText
-                width: Math.min(implicitWidth, parent.width - (date.visible ? date.width + 10 : 0))
-                text: row.nameHtml
+                readonly property real room: parent.width - (date.visible ? date.width + 10 : 0)
+                width: Math.min(implicitWidth, room)
+                // Shortened around its matches, its end kept (see ResultRow).
+                text: row.results ? row.results.elidedHtml(row.name, row.nameMatches, room, font, row.results.highlightColor)
+                                  : row.nameHtml
                 textFormat: Text.StyledText
                 elide: Text.ElideRight
                 color: Theme.text
@@ -123,6 +164,7 @@ Item {
             }
         }
         Text {
+            id: folderText
             width: parent.width
             text: row.folder
             textFormat: Text.PlainText
@@ -159,6 +201,8 @@ Item {
         anchors.fill: parent
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onPressed: if (row.nameTip) row.nameTip.dismiss()
+        onPositionChanged: if (!pressed) row.offerTip() // moved: a tip dismissed (a key, a scroll) may come again
         onClicked: (mouse) => {
             if (mouse.button === Qt.RightButton)
                 row.menuRequested(row.index, area.mapToGlobal(mouse.x, mouse.y))

@@ -837,6 +837,14 @@ void SettingsEditor::setHistoryCount(int count)
     emit historyCountChanged();
 }
 
+void SettingsEditor::setLauncherWidthSet(bool set)
+{
+    if (m_launcherWidthSet == set)
+        return;
+    m_launcherWidthSet = set;
+    emit launcherWidthSetChanged();
+}
+
 void SettingsEditor::setExplorerMenu(bool on)
 {
     if (m_settings.explorerMenu == on)

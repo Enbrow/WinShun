@@ -58,6 +58,14 @@ namespace ws {
 // moves with SetWindowPos, in physical pixels off where it rests (Qt keeps
 // that place: moved meanwhile, it slides on to the new one); the content
 // follows a little behind (contentShift, for QML).
+//
+// The launcher's width is its user's too (rememberWidth): dragged at its left
+// or right edge (WindowFrame::setSideSizing, beginSizing) it grows or shrinks
+// on both sides at once, its centre staying where it is (its spot is that
+// centre; by the taskbar, the button), as long as the work area allows. The
+// width is remembered (state.ini [<group>] Width, logical pixels) and the same
+// on every monitor, but never wider than one's work area; a double click on
+// the edge (resetWidth) puts it back.
 class Placement : public QObject {
     Q_OBJECT
     QML_ELEMENT
@@ -76,6 +84,11 @@ class Placement : public QObject {
     // How much of the window, from its left, its spot is the centre of (the
     // clipboard's list: its preview makes it wider to the right); 0: all.
     Q_PROPERTY(int anchorWidth READ anchorWidth WRITE setAnchorWidth NOTIFY anchorWidthChanged FINAL)
+    // The launcher's width (logical pixels) where it is placed now: its
+    // user's (see above) within that work area; 0 when not managed here.
+    Q_PROPERTY(int boxWidth READ boxWidth NOTIFY boxWidthChanged FINAL)
+    // Its edge held, widening it (beginSizing).
+    Q_PROPERTY(bool sizing READ sizing NOTIFY sizingChanged FINAL)
 
 public:
     // `group`: the state file's section with its spot ("Launcher"). A window
@@ -139,6 +152,18 @@ public:
     // without moving.
     Q_INVOKABLE int roomRight() const;
 
+    // Its width is managed here (the launcher's): `defaultWidth` until its
+    // user changes it, never under `minimumWidth` (logical pixels).
+    void rememberWidth(int defaultWidth, int minimumWidth);
+    int boxWidth() const { return m_boxWidth; }
+    bool sizing() const { return m_sizing; }
+    bool customWidth() const { return m_defaultWidth > 0 && m_wantedWidth != m_defaultWidth; }
+    // A press on its left or right edge (WindowFrame::sideGrabbed): the
+    // window follows the pointer until the button is let go; Esc puts it back.
+    void beginSizing(bool left);
+    // Back to the default width, centred where it is (a double click on the edge, the settings).
+    Q_INVOKABLE void resetWidth();
+
 signals:
     void movingChanged();
     void atTaskbarChanged();
@@ -147,6 +172,9 @@ signals:
     void anchorWidthChanged();
     void contentShiftChanged();
     void slideStepped();
+    void boxWidthChanged();
+    void sizingChanged();
+    void widthReset(); // resetWidth() changed it
 
 private:
     struct Hook; // the window procedure subclass
@@ -168,6 +196,14 @@ private:
         QEasingCurve moveCurve, shiftCurve;
     };
 
+    int widthNow() const; // what it is as placed: the launcher's own width, else the window's
+    int widthOn(QScreen* screen) const; // the launcher's width on that screen's work area
+    void fitWidth(QScreen* screen); // before placing it there
+    void stepSizing(); // the pointer moved, the edge held
+    void endSizing(bool cancel);
+    // Physical pixels wide, centred on `centre` (physical), within the work area.
+    void applyWidth(int width, qreal centre);
+    void keepWidth(); // as it is now: remembered, and m_left (dropped) where it went
     QPoint settleOn(QScreen* screen); // where the window goes there; sets room
     QPoint settleBy(QScreen* screen); // ... by the box; sets room, and with it the height (QML)
     QPoint settleByTaskbar(QScreen* screen); // ... over the taskbar; likewise
@@ -222,6 +258,14 @@ private:
     qreal m_opacity = 1;
     QPointF m_contentShift;
     int m_overTop = 0;
+    int m_defaultWidth = 0; // see rememberWidth; 0: not managed
+    int m_minWidth = 0;
+    int m_wantedWidth = 0; // its user's
+    int m_boxWidth = 0; // ... within the work area it is on
+    bool m_sizing = false;
+    bool m_sizeLeft = false;
+    RECT m_sizeStart {}; // the window as the edge was grabbed, physical pixels
+    POINT m_sizeFrom {}; // ... and the pointer
 };
 
 } // namespace ws

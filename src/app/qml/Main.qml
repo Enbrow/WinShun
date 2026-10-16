@@ -330,11 +330,13 @@ Window {
         onTriggered: window.dimRows = window.stale
     }
 
-    // Its size, unless it is the panel: then the app sizes it, and its user resizes it.
+    // Its size, unless it is the panel: then the app sizes it, and its user
+    // resizes it. Its width is its user's (Placement.boxWidth: dragged at its
+    // left or right edge, 760 until then).
     Binding {
         target: window
         property: "width"
-        value: 760
+        value: window.placement.boxWidth > 0 ? window.placement.boxWidth : 760
         when: !window.panel
         restoreMode: Binding.RestoreNone
     }
@@ -477,6 +479,7 @@ Window {
             view.positionViewAtIndex(index, ListView.Contain)
             globalPos = view.currentItem.mapToGlobal(56, viewRowHeight - 6)
         }
+        nameTip.dismiss()
         menuLoader.active = true
         // Not a line starting with "(": it would continue the line above, "true(...)".
         const menu = menuLoader.item as ContextMenu
@@ -515,7 +518,17 @@ Window {
         if (!visible) {
             closeContextMenu()
             menuLoader.active = false
+            nameTip.dismiss()
         }
+    }
+    onActiveChanged: if (!active) nameTip.dismiss() // on its way out, or behind another window
+
+    // The whole name and folder of a row that shows them cut, as the mouse
+    // rests on it (NameTip; the box's rows and the panel's).
+    NameTip {
+        id: nameTip
+        objectName: "nameTip" // App's --dump reads it
+        host: window.launcher
     }
 
     // Along the strip under the box: in 文件 the kinds, in 内容 the folders.
@@ -529,6 +542,7 @@ Window {
     }
 
     function handleKey(event) {
+        nameTip.dismiss() // as Windows' tips go on a key
         if (menuOpen && contextMenu.handleKey(event)) {
             event.accepted = true
             return
@@ -702,6 +716,7 @@ Window {
                 window.act(action)
         }
         function onShown() {
+            nameTip.dismiss()
             // Still cloaked here (App::showLauncher): nobody sees the jump.
             window.launcher.keyboardMoved() // the pointer is where it was, wherever the window came up
             window.homeIndex = -1
@@ -709,6 +724,7 @@ Window {
             searchBar.focusAndSelect()
         }
         function onResultsReplaced() {
+            nameTip.dismiss() // another row under the pointer, maybe
             window.launcher.keyboardMoved() // other rows under a pointer that did not move
             window.selectionAnchor = -1
             window.closeContextMenu() // its row now holds another result
@@ -726,12 +742,14 @@ Window {
             window.openContextMenu(row)
         }
         function onQueryChanged() {
+            nameTip.dismiss() // typed: the keys go to the field, not handleKey
             if (boxBar.text !== window.launcher.query)
                 boxBar.text = window.launcher.query
             if (panelPage.searchBar.text !== window.launcher.query)
                 panelPage.searchBar.text = window.launcher.query
         }
         function onPanelChanged() { // the other bar has the keyboard now, the words as they were
+            nameTip.dismiss()
             window.closeContextMenu()
             window.searchBar.focusAtEnd()
         }
@@ -754,9 +772,15 @@ Window {
     }
     Connections {
         target: window.placement
-        function onMovingChanged() { // the menu would stay behind
-            if (window.placement.moving)
+        function onMovingChanged() { // the menu and the tip would stay behind
+            if (window.placement.moving) {
                 window.closeContextMenu()
+                nameTip.dismiss()
+            }
+        }
+        function onSizingChanged() { // widened: rows under the pointer change
+            window.closeContextMenu()
+            nameTip.dismiss()
         }
     }
 
@@ -779,6 +803,7 @@ Window {
         onRowClicked: (index, modifiers) => window.rowClicked(index, modifiers)
         onRowMenuRequested: (index, globalPos, modifiers) => window.rowMenuRequested(index, globalPos, modifiers)
         onRowDragRequested: (index) => window.launcher.dragOut(index)
+        nameTip: nameTip
     }
 
     // A row clicked (the box's or the panel's): Ctrl toggles it in the
@@ -980,6 +1005,7 @@ Window {
                 boundsBehavior: Flickable.StopAtBounds
                 highlightMoveDuration: 0
                 reuseItems: true
+                onContentYChanged: nameTip.dismiss() // scrolled: another row under the pointer
                 onCurrentIndexChanged: {
                     positionViewAtIndex(currentIndex, ListView.Contain)
                     if (currentIndex >= 0)
@@ -1086,6 +1112,7 @@ Window {
                     hint: window.numberOf(index)
                     hintModifier: window.numberModifier
                     hintTaken: resultRow.hint > 0 && !window.numberUsable(resultRow.hint)
+                    nameTip: nameTip
                     // Drawn on whole device pixels, wherever the list has
                     // scrolled to (ResultRow puts its text on whole device
                     // pixels within). Between them (at 150 % most scroll
@@ -1114,10 +1141,13 @@ Window {
             }
 
             ListScrollBar {
+                id: boxScrollBar
                 flickable: boxList
                 anchors.right: parent.right
                 anchors.top: boxList.top
                 anchors.bottom: parent.bottom
+                // Its own at the window's right edge, not the edge that widens the window.
+                Component.onCompleted: window.frame.addControl(boxScrollBar)
             }
 
             Text { // held open while file contents are still being searched, or a plugin answers

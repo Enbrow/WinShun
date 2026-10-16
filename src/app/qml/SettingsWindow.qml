@@ -1810,6 +1810,18 @@ Window {
                 }
 
                 SettingRow {
+                    title: qsTr("搜索框宽度")
+                    keywords: qsTr("宽度;加宽;拉宽;调宽;变宽;窄;文件名太长;显示不全;width;wide").split(";")
+                    description: qsTr("拖动搜索框的左边或右边调宽，名字长也看得全；双击边缘恢复默认。名字仍放不下时，鼠标停在那一行上会显示完整的名字和位置")
+
+                    FlatButton {
+                        text: qsTr("恢复默认宽度")
+                        enabled: window.editor.launcherWidthSet
+                        onClicked: window.editor.resetLauncherWidth()
+                    }
+                }
+
+                SettingRow {
                     title: qsTr("任务栏图标")
                     keywords: qsTr("托盘;通知区域;单色;黑白;彩色;图标;tray;icon").split(";")
                     description: qsTr("通知区域和任务栏搜索框里的图标。单色随任务栏的浅色、深色变成黑或白，和系统图标一致")

@@ -80,9 +80,11 @@ public:
     const SearchResult* at(int row) const;
     int indexOf(const QString& path) const; // -1 if no row has that path
     Q_INVOKABLE QString pathAt(int row) const; // empty if out of range
-    // `text` with `matches` (FolderMatchesRole) highlighted, shortened in the
-    // middle to `width` in `font` as Text.ElideMiddle would, but around them:
-    // they stay in sight, with the start and the end of the text.
+    // `text` with `matches` (NameMatchesRole, FolderMatchesRole) highlighted,
+    // shortened in the middle to `width` in `font` as Text.ElideMiddle would,
+    // but around them: they stay in sight, with the start and the end of the
+    // text. Without matches, in its middle: a name keeps its extension and
+    // what is just before it (elide::shortenedHtml).
     Q_INVOKABLE static QString elidedHtml(
         const QString& text, const QVariantList& matches, qreal width, const QFont& font, const QColor& color);
 

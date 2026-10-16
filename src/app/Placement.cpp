@@ -182,6 +182,36 @@ struct Placement::Hook {
             shapeMove(rect, self->m_window->width(), self->m_window->height(), self->m_window->devicePixelRatio());
             return TRUE;
         }
+        // Its edge held (beginSizing): the pointer and the button are ours
+        // until it is let go; Qt hears of none of it.
+        case WM_MOUSEMOVE:
+            if (self->m_sizing) {
+                self->stepSizing();
+                return 0;
+            }
+            break;
+        case WM_LBUTTONUP:
+            if (self->m_sizing) {
+                self->endSizing(false);
+                return 0;
+            }
+            break;
+        case WM_KEYDOWN:
+        case WM_SYSKEYDOWN:
+            if (self->m_sizing) {
+                if (wParam == VK_ESCAPE)
+                    self->endSizing(true);
+                return 0;
+            }
+            break;
+        case WM_CANCELMODE:
+            if (self->m_sizing)
+                self->endSizing(true);
+            break;
+        case WM_CAPTURECHANGED: // taken by someone else (endSizing gives it up after clearing m_sizing)
+            if (self->m_sizing)
+                self->endSizing(false);
+            break;
         case WM_WINDOWPOSCHANGING: {
             // Sliding behind the taskbar: whatever would put it in front
             // (activating it does), just under the taskbar instead.
@@ -234,8 +264,10 @@ void Placement::placeOn(QScreen* screen)
     m_box.reset();
     setTaskbar({});
     m_dropped = false;
-    if (m_window && screen)
+    if (m_window && screen) {
+        fitWidth(screen);
         moveWindow(settleOn(screen));
+    }
 }
 
 void Placement::attach(const QRect& box)
@@ -302,6 +334,7 @@ void Placement::attachTaskbar(const taskbar::Spot& spot)
     m_taskbarSpot = spot;
     setTaskbar(TaskbarBox {logicalBar, spot.edge,
         {down(spot.anchor.x, origin.x()), down(spot.anchor.y, origin.y())}, bar});
+    fitWidth(screen);
     moveWindow(settleByTaskbar(screen));
 }
 
@@ -411,7 +444,7 @@ void Placement::setRoom(int room)
 QPoint Placement::settleOn(QScreen* screen)
 {
     const QRect area = screen->availableGeometry();
-    const int width = m_window->width();
+    const int width = widthNow();
     const int anchorWidth = m_anchorWidth > 0 ? std::min(m_anchorWidth, width) : width;
     int x = qRound(area.x() + m_anchor.x() * area.width() - anchorWidth / 2.0);
     int y = qRound(area.y() + m_anchor.y() * area.height());
@@ -465,7 +498,7 @@ QPoint Placement::settleByTaskbar(QScreen* screen)
     const NativeArea native = nativeArea(screen);
     const int right = native.work.x() + native.work.width();
     const int bottom = native.work.y() + native.work.height();
-    const int width = m_window->width();
+    const int width = widthNow();
     const int height = m_window->height();
     const auto alongX = [&](int x) {
         x = std::clamp(x, area.left() + kTaskbarGap, std::max(area.left() + kTaskbarGap, area.right() + 1 - kTaskbarGap - width));
@@ -512,7 +545,7 @@ int Placement::roomRight() const
 
 void Placement::refit()
 {
-    if (!m_window || m_moving || m_panel || m_glide.state() == QAbstractAnimation::Running)
+    if (!m_window || m_moving || m_sizing || m_panel || m_glide.state() == QAbstractAnimation::Running)
         return;
     QScreen* screen = m_window->screen();
     if (!screen)
@@ -523,7 +556,7 @@ void Placement::refit()
         moveWindow(settleBy(screen));
     } else if (m_dropped) {
         const QRect area = screen->availableGeometry();
-        const int width = m_window->width();
+        const int width = widthNow();
         const NativeArea native = nativeArea(screen);
         int x = std::clamp(m_left, area.left(), std::max(area.left(), area.x() + area.width() - width));
         x = native.keepInside(x, width, native.work.left(), native.work.x() + native.work.width(), native.origin.x());
@@ -914,6 +947,152 @@ void Placement::stepSlide(int elapsed)
         emit contentShiftChanged();
     }
     emit slideStepped();
+}
+
+void Placement::rememberWidth(int defaultWidth, int minimumWidth)
+{
+    m_defaultWidth = defaultWidth;
+    m_minWidth = minimumWidth;
+    const QSettings state(m_stateFile, QSettings::IniFormat);
+    const int saved = state.value(m_group + u"/Width"_s).toInt();
+    m_wantedWidth = saved >= minimumWidth && saved <= 20000 ? saved : defaultWidth;
+    m_boxWidth = widthOn(m_window ? m_window->screen() : QGuiApplication::primaryScreen());
+    emit boxWidthChanged();
+}
+
+int Placement::widthNow() const
+{
+    return m_defaultWidth > 0 && !m_panel && m_boxWidth > 0 ? m_boxWidth : m_window->width();
+}
+
+int Placement::widthOn(QScreen* screen) const
+{
+    if (!screen)
+        return m_wantedWidth;
+    // Off the work area's edges by the gap the taskbar's windows keep.
+    const int most = screen->availableGeometry().width() - 2 * kTaskbarGap;
+    return std::max(std::min(m_minWidth, most), std::min(m_wantedWidth, most));
+}
+
+void Placement::fitWidth(QScreen* screen)
+{
+    if (m_defaultWidth <= 0 || m_panel || !screen)
+        return;
+    const int width = widthOn(screen);
+    if (width == m_boxWidth)
+        return;
+    m_boxWidth = width;
+    emit boxWidthChanged(); // QML sizes the window (Main.qml); placed by it from here on
+}
+
+void Placement::beginSizing(bool left)
+{
+    if (!m_window || !m_hwnd || m_panel || m_defaultWidth <= 0 || m_moving)
+        return;
+    m_glide.stop();
+    settleSlide(); // grabbed on its way in: where it was going
+    const HWND hwnd = reinterpret_cast<HWND>(m_hwnd);
+    ::GetWindowRect(hwnd, &m_sizeStart);
+    ::GetCursorPos(&m_sizeFrom);
+    m_sizeLeft = left;
+    m_sizing = true;
+    ::SetCapture(hwnd); // the move and the release, wherever the pointer goes
+    emit sizingChanged();
+}
+
+void Placement::stepSizing()
+{
+    POINT cursor {};
+    ::GetCursorPos(&cursor);
+    // Both edges move: the one held with the pointer, the other as far the other way.
+    const LONG moved = m_sizeLeft ? m_sizeFrom.x - cursor.x : cursor.x - m_sizeFrom.x;
+    applyWidth(int(m_sizeStart.right - m_sizeStart.left + 2 * moved), (m_sizeStart.left + m_sizeStart.right) / 2.0);
+}
+
+void Placement::endSizing(bool cancel)
+{
+    if (!m_sizing)
+        return;
+    m_sizing = false; // before giving up the capture: WM_CAPTURECHANGED comes at once
+    const HWND hwnd = reinterpret_cast<HWND>(m_hwnd);
+    if (::GetCapture() == hwnd)
+        ::ReleaseCapture();
+    if (cancel) {
+        const RECT& r = m_sizeStart;
+        ::SetWindowPos(hwnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
+            SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE);
+    } else {
+        keepWidth();
+    }
+    emit sizingChanged();
+}
+
+void Placement::applyWidth(int width, qreal centre)
+{
+    QScreen* screen = m_window ? m_window->screen() : nullptr;
+    if (!screen || !m_hwnd)
+        return;
+    const NativeArea native = nativeArea(screen);
+    const int most = native.work.width() - 2 * qRound(kTaskbarGap * native.scale);
+    const int least = std::min(qRound(m_minWidth * native.scale), most);
+    width = std::clamp(width, least, std::max(least, most));
+    const int left = native.work.x();
+    const int right = native.work.x() + native.work.width();
+    const int x = std::clamp(int(std::lround(centre - width / 2.0)), left, std::max(left, right - width));
+    const HWND hwnd = reinterpret_cast<HWND>(m_hwnd);
+    RECT now {};
+    ::GetWindowRect(hwnd, &now);
+    if (now.left == x && now.right - now.left == width)
+        return;
+    ::SetWindowPos(hwnd, nullptr, x, now.top, width, now.bottom - now.top,
+        SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE);
+}
+
+void Placement::keepWidth()
+{
+    QScreen* screen = m_window ? m_window->screen() : nullptr;
+    if (!screen || !m_hwnd)
+        return;
+    RECT r {};
+    ::GetWindowRect(reinterpret_cast<HWND>(m_hwnd), &r);
+    const NativeArea native = nativeArea(screen);
+    // In Qt's terms (from the screen's origin, scaled; see NativeArea).
+    const int width = qRound((r.right - r.left) / native.scale);
+    if (m_dropped)
+        m_left = native.origin.x() + qRound((r.left - native.origin.x()) / native.scale);
+    if (width == m_boxWidth)
+        return;
+    // Narrowed by the work area, it was not its user's doing: the wish stays.
+    if (width != widthOn(screen) || m_wantedWidth <= width) {
+        m_wantedWidth = width;
+        QSettings state(m_stateFile, QSettings::IniFormat);
+        if (m_wantedWidth == m_defaultWidth)
+            state.remove(m_group + u"/Width"_s);
+        else
+            state.setValue(m_group + u"/Width"_s, m_wantedWidth);
+    }
+    m_boxWidth = width;
+    emit boxWidthChanged();
+}
+
+void Placement::resetWidth()
+{
+    if (m_defaultWidth <= 0 || m_sizing)
+        return;
+    const bool changed = m_wantedWidth != m_defaultWidth;
+    m_wantedWidth = m_defaultWidth;
+    QSettings(m_stateFile, QSettings::IniFormat).remove(m_group + u"/Width"_s);
+    QScreen* screen = m_window ? m_window->screen() : nullptr;
+    if (m_window && m_window->isVisible() && !m_panel && screen) {
+        // One move and resize, about its centre, as dragging the edge does.
+        RECT r {};
+        ::GetWindowRect(reinterpret_cast<HWND>(m_hwnd), &r);
+        applyWidth(qRound(widthOn(screen) * nativeArea(screen).scale), (r.left + r.right) / 2.0);
+        keepWidth();
+    }
+    fitWidth(screen);
+    if (changed)
+        emit widthReset();
 }
 
 void Placement::save() const

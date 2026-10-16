@@ -986,6 +986,17 @@
     </message>
 </context>
 <context>
+    <name>NameTip</name>
+    <message>
+        <source>修改于 %1</source>
+        <translation>Modified %1</translation>
+    </message>
+    <message>
+        <source>创建于 %1</source>
+        <translation>Created %1</translation>
+    </message>
+</context>
+<context>
     <name>Panel</name>
     <message>
         <source>筛选</source>
@@ -2682,6 +2693,22 @@
         <translation>Roomy</translation>
     </message>
     <message>
+        <source>搜索框宽度</source>
+        <translation>Search box width</translation>
+    </message>
+    <message>
+        <source>宽度;加宽;拉宽;调宽;变宽;窄;文件名太长;显示不全;width;wide</source>
+        <translation>width;wider;widen;narrow;long file names;cut off;truncated;resize</translation>
+    </message>
+    <message>
+        <source>拖动搜索框的左边或右边调宽，名字长也看得全；双击边缘恢复默认。名字仍放不下时，鼠标停在那一行上会显示完整的名字和位置</source>
+        <translation>Drag the left or right edge of the search box to widen it so long names show in full; double-click the edge for the default. Where a name still does not fit, rest the pointer on its row to see the full name and location</translation>
+    </message>
+    <message>
+        <source>恢复默认宽度</source>
+        <translation>Default width</translation>
+    </message>
+    <message>
         <source>任务栏图标</source>
         <translation>Taskbar icon</translation>
     </message>
@@ -3902,6 +3929,10 @@
     <message>
         <source>索引服务没有运行（Windows 服务“WinShun”已停止或被禁用）</source>
         <translation>the index service is not running (the Windows service &quot;WinShun&quot; is stopped or disabled)</translation>
+    </message>
+    <message>
+        <source>已恢复默认宽度</source>
+        <translation>Default width restored</translation>
     </message>
     <message>
         <source>Win顺 — %1 打开</source>

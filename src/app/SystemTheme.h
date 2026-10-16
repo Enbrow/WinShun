@@ -36,6 +36,8 @@ class SystemTheme : public QObject, public QAbstractNativeEventFilter {
     // standard, roomy; see uisize::), and its header's height, as C++ places by.
     Q_PROPERTY(QString uiSize READ uiSize NOTIFY uiSizeChanged FINAL)
     Q_PROPERTY(int headerHeight READ headerHeight NOTIFY uiSizeChanged FINAL)
+    // How long the mouse rests before a tip shows (SPI_GETMOUSEHOVERTIME, ms).
+    Q_PROPERTY(int hoverTime READ hoverTime NOTIFY changed FINAL)
 
 public:
     explicit SystemTheme(QObject* parent = nullptr);
@@ -47,6 +49,7 @@ public:
     QString iconFont() const { return m_iconFont; }
     static QString iconFontName(); // iconFont(), for C++ (FileIconProvider draws glyph icons)
     bool animations() const;
+    static int hoverTime();
     bool materials() const;
     bool backdropSystem() const;
     bool roundedCorners() const;

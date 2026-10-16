@@ -16,10 +16,16 @@
 #include <windowsx.h>
 
 #include <algorithm>
+#include <cmath>
 
 namespace ws {
 
 namespace {
+
+// Logical pixels along the left and right edges that widen a window with
+// side sizing: the inset of the launcher's rows, whose highlight starts
+// there, so a click on a row never sizes the window instead.
+constexpr qreal kSideEdge = 6;
 
 bool covers(const QPointer<QQuickItem>& item, QPointF pos)
 {
@@ -112,6 +118,10 @@ struct WindowFrame::Hook {
                 self->setMaximizeState(true, true);
                 return 0; // not to the system, which would track a button of its own
             }
+            if ((wParam == HTLEFT || wParam == HTRIGHT) && self->sidesOnly()) {
+                emit self->sideGrabbed(wParam == HTLEFT); // followed from here (setSideSizing)
+                return 0;
+            }
             // The system's way there puts the window in front first (measured:
             // Windows reported it in front during the drag); straight to
             // moving it, the program behind keeps the front.
@@ -144,6 +154,10 @@ struct WindowFrame::Hook {
         case WM_NCLBUTTONDBLCLK:
             if (wParam == HTMAXBUTTON) {
                 self->setMaximizeState(true, true);
+                return 0;
+            }
+            if ((wParam == HTLEFT || wParam == HTRIGHT) && self->sidesOnly()) {
+                emit self->sideDoubleClicked();
                 return 0;
             }
             // Its first click did what a click there does; the second is not
@@ -321,6 +335,18 @@ int WindowFrame::hitTest(int screenX, int screenY) const
         if (left)
             return HTLEFT;
         if (right)
+            return HTRIGHT;
+    }
+    if (sidesOnly() && !onControl && !::IsZoomed(hwnd)) {
+        POINT point {screenX, screenY};
+        ::ScreenToClient(hwnd, &point);
+        RECT client {};
+        ::GetClientRect(hwnd, &client);
+        const qreal dpr = m_window ? m_window->devicePixelRatio() : 1.0;
+        const LONG edge = std::max(2L, std::lround(kSideEdge * dpr));
+        if (point.x < edge)
+            return HTLEFT;
+        if (point.x >= client.right - edge)
             return HTRIGHT;
     }
     if (onMaximize)

@@ -37,6 +37,7 @@ Window {
         } else {
             closeMenu()
             hideNumbers()
+            nameTip.dismiss()
         }
     }
     // Hidden: also free the menu window until it is needed again.
@@ -44,7 +45,17 @@ Window {
         if (!visible) {
             closeMenu()
             menuLoader.active = false
+            nameTip.dismiss()
         }
+    }
+    // Moved with the dialog: the tip would stay behind.
+    onXChanged: nameTip.dismiss()
+    onYChanged: nameTip.dismiss()
+
+    // The whole name and folder of a row that shows them cut (NameTip).
+    NameTip {
+        id: nameTip
+        host: window.bar
     }
 
     Binding {
@@ -134,6 +145,7 @@ Window {
     }
 
     function handleKey(event) {
+        nameTip.dismiss() // as Windows' tips go on a key
         if (menuOpen && contextMenu.handleKey(event)) {
             event.accepted = true
             return
@@ -205,6 +217,7 @@ Window {
                 window.bar.choose(list.currentIndex, open)
         }
         function onResultsReplaced() {
+            nameTip.dismiss() // another row under the pointer, maybe
             // A row's menu goes when its row now holds another; the bar's own stays.
             if (window.menuOpen && window.contextMenu.row >= 0
                     && window.bar.results.pathAt(window.contextMenu.row) !== window.contextMenu.key)
@@ -215,6 +228,7 @@ Window {
             list.positionViewAtBeginning()
         }
         function onQueryChanged() {
+            nameTip.dismiss()
             if (input.text !== window.bar.query)
                 input.text = window.bar.query
         }
@@ -486,6 +500,7 @@ Window {
         boundsBehavior: Flickable.StopAtBounds
         highlightMoveDuration: 0
         onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+        onContentYChanged: nameTip.dismiss() // scrolled: another row under the pointer
         Accessible.role: Accessible.List
         Accessible.name: placeholder.text
 
@@ -497,6 +512,7 @@ Window {
             hint: window.numberOf(index)
             hintModifier: window.numberModifier
             hintTaken: rowItem.hint > 0 && !window.numberUsable(rowItem.hint)
+            nameTip: nameTip
             // On whole device pixels wherever the list has scrolled to (see
             // Main.qml). Below the bar the rows start at 49 logical pixels:
             // at 150 % on a half pixel even before any scrolling.

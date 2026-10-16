@@ -11,6 +11,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cmath>
 
 using namespace Qt::StringLiterals;
@@ -118,6 +119,14 @@ bool SystemTheme::animations() const
 {
     BOOL on = TRUE;
     return !::SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &on, 0) || on;
+}
+
+int SystemTheme::hoverTime()
+{
+    UINT ms = 400; // Windows' default
+    if (!::SystemParametersInfoW(SPI_GETMOUSEHOVERTIME, 0, &ms, 0))
+        ms = 400;
+    return static_cast<int>(std::clamp<UINT>(ms, 100, 3000));
 }
 
 bool SystemTheme::materials() const

@@ -43,6 +43,7 @@ Item {
     property real dateX: 700
     property real sizeWidth: 90
     property real dateWidth: 140
+    property NameTip nameTip: null // the window's tip for a name or folder cut short
 
     readonly property bool contentMode: line > 0
     readonly property bool current: ListView.isCurrentItem
@@ -54,6 +55,37 @@ Item {
     signal dragRequested(int index)
 
     function onPixel(y) { return Math.round(y * Screen.devicePixelRatio) / Screen.devicePixelRatio }
+
+    // As ResultRow's: the whole name and folder (NameTip) when either is cut,
+    // or the folder is not shown (a content match shows its line there).
+    function cut(shown: string, whole: string): bool {
+        return shown.split("…").length > whole.split("…").length
+    }
+    readonly property bool nameCut: title.truncated || cut(title.text, name)
+    readonly property bool folderCut: contentMode ? folder.length > 0
+                                    : folderText.truncated || (folderText.marked && cut(folderText.text, folder))
+    readonly property bool wantsTip: nameTip !== null && (nameCut || folderCut) && area.containsMouse && !area.pressed
+                                     && area.mouseX < sizeX
+    onWantsTipChanged: offerTip()
+    function offerTip() {
+        if (!nameTip)
+            return
+        if (!wantsTip) {
+            nameTip.withdraw(row)
+            return
+        }
+        nameTip.offer(row, title, {
+            name: name, folder: folder, path: path, size: size, modified: modifiedDate,
+            onDisk: !isApp && !offline && !missing
+        })
+    }
+    function dropTip() {
+        if (nameTip && nameTip.source === row)
+            nameTip.dismiss()
+    }
+    onPathChanged: dropTip() // delegate reused for another result
+    ListView.onPooled: dropTip()
+    Component.onDestruction: dropTip()
 
     Rectangle {
         anchors.fill: parent
@@ -99,7 +131,7 @@ Item {
         width: Math.max(0, row.pathX - 12 - x)
         y: row.onPixel((row.height - height) / 2)
         opacity: row.offline || row.missing ? 0.6 : 1
-        text: row.results && row.nameMatches.length > 0
+        text: row.results && !row.isApp // the end kept, matches or none (see ResultRow)
               ? row.results.elidedHtml(row.name, row.nameMatches, width, font, row.results.highlightColor)
               : row.nameHtml
         textFormat: Text.StyledText
@@ -110,6 +142,7 @@ Item {
     }
 
     Text { // the folder (or the matching line; an app's origin), its matches in sight
+        id: folderText
         readonly property bool marked: !row.contentMode && row.folderMatches.length > 0 && row.results !== null
         x: row.pathX
         width: Math.max(0, row.sizeX - 12 - x)
@@ -161,13 +194,19 @@ Item {
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         onPressed: (mouse) => {
+            if (row.nameTip)
+                row.nameTip.dismiss()
             draggedOut = false
             pressedAt = Qt.point(mouse.x, mouse.y)
             preventStealing = mouse.button === Qt.LeftButton && !row.isApp && !row.offline && !row.missing
                               && mouse.source === Qt.MouseEventNotSynthesized
         }
         onPositionChanged: (mouse) => {
-            if (!pressed || !preventStealing || draggedOut || !(mouse.buttons & Qt.LeftButton))
+            if (!pressed) { // moved: a tip dismissed (a key, a scroll) may come again
+                row.offerTip()
+                return
+            }
+            if (!preventStealing || draggedOut || !(mouse.buttons & Qt.LeftButton))
                 return
             if (Math.hypot(mouse.x - pressedAt.x, mouse.y - pressedAt.y) < Application.styleHints.startDragDistance)
                 return
@@ -182,11 +221,5 @@ Item {
             else
                 row.clicked(row.index, mouse.modifiers)
         }
-    }
-
-    HoverTip { // the whole path, and the time in full
-        target: area.containsMouse && !row.isApp && !row.contentMode ? row : null
-        text: row.path
-        delay: 700
     }
 }

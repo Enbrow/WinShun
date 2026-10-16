@@ -734,6 +734,22 @@ bool App::createWindow()
     m_preview->setLauncherWindow(m_window);
     m_placement->setWindow(m_window);
     m_frame->setWindow(m_window);
+    // Its width is its user's: dragged at the left or right edge, both edges
+    // move (the centre stays); a double click there goes back to 760.
+    m_placement->rememberWidth(760, 640);
+    m_frame->setSideSizing(true);
+    connect(m_frame.get(), &WindowFrame::sideGrabbed, m_placement.get(), &Placement::beginSizing);
+    connect(m_frame.get(), &WindowFrame::sideDoubleClicked, m_placement.get(), &Placement::resetWidth);
+    connect(m_placement.get(), &Placement::widthReset, this, [this] {
+        if (launcherShown())
+            m_launcher->flash(tr("已恢复默认宽度"));
+    });
+    const auto tellSettings = [this] {
+        if (m_settingsEditor)
+            m_settingsEditor->setLauncherWidthSet(m_placement->customWidth());
+    };
+    connect(m_placement.get(), &Placement::boxWidthChanged, this, tellSettings);
+    connect(m_placement.get(), &Placement::widthReset, this, tellSettings);
     m_launcherLogo = new WindowLogo(m_window);
     m_launcherLogo->follow(m_placement.get());
     m_searchField = m_window->findChild<QQuickItem*>(u"searchField"_s);
@@ -1719,6 +1735,11 @@ void App::showSettings()
             m_launcher->clearHistory();
             editor->setHistoryCount(0);
         });
+        editor->setLauncherWidthSet(m_placement->customWidth());
+        connect(editor, &SettingsEditor::launcherWidthResetRequested, this, [this, editor] {
+            m_placement->resetWidth();
+            editor->setLauncherWidthSet(m_placement->customWidth());
+        });
         connect(editor, &SettingsEditor::shareVerifyRequested, this,
             [this](const QString& path) { m_index->shares().verifyNow(path.toStdWString()); });
         connect(editor, &SettingsEditor::shareAcceptRequested, this,
@@ -2128,6 +2149,16 @@ void App::dumpLauncher(const QString& file) const
         ::GetWindowRect(reinterpret_cast<HWND>(m_window->winId()), &r);
         state[u"native"_s] = QJsonArray {int(r.left), int(r.top), int(r.right - r.left), int(r.bottom - r.top)};
         state[u"dpr"_s] = m_window->devicePixelRatio();
+        state[u"boxWidth"_s] = m_placement->boxWidth();
+        state[u"customWidth"_s] = m_placement->customWidth();
+        // The tip over a row whose name is cut (NameTip.qml): up, where, saying what.
+        if (const auto* tip = m_window->findChild<QQuickWindow*>(u"nameTip"_s)) {
+            const QRect t = tip->geometry();
+            state[u"tip"_s] = QJsonObject {{u"visible"_s, tip->isVisible()},
+                {u"geometry"_s, QJsonArray {t.x(), t.y(), t.width(), t.height()}},
+                {u"name"_s, tip->property("name").toString()}, {u"folder"_s, tip->property("folder").toString()},
+                {u"details"_s, tip->property("details").toString()}};
+        }
     }
     state[u"query"_s] = m_launcher->query();
     state[u"scope"_s] = static_cast<int>(m_launcher->scope());

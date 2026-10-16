@@ -55,6 +55,8 @@ Item {
     required property bool selected // one of several picked with Ctrl / Shift
     required property string modified // "昨天 14:32"; empty for an app, or not known
     required property string modifiedFull
+    required property string modifiedDate // "2026-10-15 14:32", for the tip
+    required property string size // "1.2 MB", for the tip
     required property bool offline // on a network share that cannot be reached now: dimmed, tagged
     required property bool plugin // a plugin's row
     required property string source // ... the plugin's name
@@ -65,6 +67,8 @@ Item {
     property int hint: 0 // its number for the number keys (Ctrl+1…), on its icon; 0 for none
     property string hintModifier: "Ctrl" // ... with this held
     property bool hintTaken: false // another program holds that chord as a global hotkey: shown struck through
+    // The window's tip for a name or folder cut short (one for all its rows).
+    property NameTip nameTip: null
 
     readonly property bool contentMode: line > 0 // a content match (also mixed into 全部)
     readonly property bool current: ListView.isCurrentItem
@@ -91,7 +95,41 @@ Item {
     function upToPixel(y) { return Math.ceil(y * Screen.devicePixelRatio - 1e-6) / Screen.devicePixelRatio }
 
     onShowActionsChanged: if (!showActions) deleteArmed = false
-    onPathChanged: deleteArmed = false // delegate reused for another result
+    onPathChanged: { // delegate reused for another result
+        deleteArmed = false
+        dropTip()
+    }
+
+    // Shortened: more "…" shown than the text has (elidedHtml puts its own in).
+    function cut(shown: string, whole: string): bool {
+        return shown.split("…").length > whole.split("…").length
+    }
+    readonly property bool nameCut: title.truncated || cut(title.text, name)
+    readonly property bool folderCut: contentMode ? contentFolder.truncated
+                                    : folderLine.truncated || (folderLine.marked && cut(folderLine.text, folder))
+    // Over its icon or text (not the date, the buttons) with something cut:
+    // the tip with all of it (NameTip), once the mouse rests there.
+    readonly property bool wantsTip: nameTip !== null && (nameCut || folderCut) && area.containsMouse && !area.pressed
+                                     && area.mouseX >= iconSlot.x && area.mouseX < textColumn.x + textColumn.width
+    onWantsTipChanged: offerTip()
+    function offerTip() {
+        if (!nameTip)
+            return
+        if (!wantsTip) {
+            nameTip.withdraw(row)
+            return
+        }
+        nameTip.offer(row, title, {
+            name: name, folder: folder, path: path, size: size, modified: modifiedDate,
+            onDisk: !isApp && !offline && !missing
+        })
+    }
+    function dropTip() {
+        if (nameTip && nameTip.source === row)
+            nameTip.dismiss()
+    }
+    ListView.onPooled: dropTip()
+    Component.onDestruction: dropTip()
 
     Timer {
         id: disarmTimer
@@ -160,6 +198,7 @@ Item {
     }
 
     Column {
+        id: textColumn
         opacity: row.offline || row.missing ? 0.6 : 1
         y: row.onPixel((row.height - height) / 2)
         anchors.left: iconSlot.right
@@ -175,8 +214,11 @@ Item {
             Text {
                 id: title
                 width: Math.min(implicitWidth, parent.width)
-                // A long name is shortened around its matches, not past them.
-                text: row.results && row.nameMatches.length > 0
+                // A long name is shortened around its matches, not past them,
+                // and keeps its end (the extension, "(2)", "v3") with or
+                // without any. An app's (and a web search's) is short, its
+                // highlights its own.
+                text: row.results && !row.isApp
                       ? row.results.elidedHtml(row.name, row.nameMatches, parent.width, font, row.results.highlightColor)
                       : row.nameHtml
                 textFormat: Text.StyledText
@@ -186,6 +228,7 @@ Item {
             }
 
             Text { // content search: where the file lives, next to its name
+                id: contentFolder
                 visible: row.contentMode
                 y: row.onPixel(title.baselineOffset - baselineOffset) // on the name's baseline
                 anchors.left: title.right
@@ -200,6 +243,7 @@ Item {
         }
 
         Text {
+            id: folderLine
             // A term found in a folder rather than the name stands out there,
             // and stays in sight when the path is shortened.
             readonly property bool marked: !row.contentMode && row.folderMatches.length > 0 && row.results !== null
@@ -295,13 +339,19 @@ Item {
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         onPressed: (mouse) => {
+            if (row.nameTip)
+                row.nameTip.dismiss()
             draggedOut = false
             pressedAt = Qt.point(mouse.x, mouse.y)
             preventStealing = mouse.button === Qt.LeftButton && !row.isApp && !row.offline && !row.missing
                               && mouse.source === Qt.MouseEventNotSynthesized
         }
         onPositionChanged: (mouse) => {
-            if (!pressed || !preventStealing || draggedOut || !(mouse.buttons & Qt.LeftButton))
+            if (!pressed) { // moved: a tip dismissed (a key, a scroll) may come again
+                row.offerTip()
+                return
+            }
+            if (!preventStealing || draggedOut || !(mouse.buttons & Qt.LeftButton))
                 return
             if (Math.hypot(mouse.x - pressedAt.x, mouse.y - pressedAt.y) < Application.styleHints.startDragDistance)
                 return

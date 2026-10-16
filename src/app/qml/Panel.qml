@@ -17,6 +17,7 @@ Item {
     required property Launcher launcher
     required property WindowFrame frame
     required property Placement placement
+    property NameTip nameTip: null // the window's, for a name or folder cut short (Main.qml)
     readonly property alias view: list
     readonly property alias searchBar: bar
     readonly property int rowHeight: Theme.panelRowHeight
@@ -529,6 +530,7 @@ Item {
         highlightMoveDuration: 0
         reuseItems: true
         onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+        onContentYChanged: if (panel.nameTip) panel.nameTip.dismiss() // scrolled: another row under the pointer
 
         // Scrolled to the end: a page more (Launcher.loadMore), as the box's list.
         function loadMoreAtEnd() {
@@ -551,6 +553,7 @@ Item {
             dateX: panel.dateX
             sizeWidth: panel.sizeWidth
             dateWidth: panel.dateWidth
+            nameTip: panel.nameTip
             // On whole device pixels, as the box's rows (see Main.qml).
             transform: Translate {
                 y: {
@@ -566,10 +569,13 @@ Item {
     }
 
     ListScrollBar {
+        id: listScrollBar
         flickable: list
         anchors.right: parent.right
         anchors.top: list.top
         anchors.bottom: list.bottom
+        // Its own at the window's right edge, not the edge that resizes the window.
+        Component.onCompleted: panel.frame.addControl(listScrollBar)
     }
 
     Text { // nothing to list, or not yet

@@ -48,6 +48,7 @@ qt_add_executable(WinShun WIN32
     main.cpp
     App.cpp App.h
     ColorText.cpp ColorText.h
+    Elide.cpp Elide.h
     FileIconProvider.cpp FileIconProvider.h
     McpClients.cpp McpClients.h
     Migration.cpp Migration.h
@@ -126,6 +127,7 @@ set(qml_files
     qml/PreviewWindow.qml
     qml/HoverTip.qml
     qml/ShortcutTip.qml
+    qml/NameTip.qml
     qml/DropMenu.qml
     qml/Footer.qml
     qml/KeyHint.qml
@@ -212,6 +214,7 @@ qt_add_qml_module(WinShun
         DialogBar.cpp DialogBar.h
         FavoritesSettings.cpp FavoritesSettings.h
         FileDropTarget.cpp FileDropTarget.h
+        FileFacts.cpp FileFacts.h
         FilePreview.cpp FilePreview.h
         FolderMenu.cpp FolderMenu.h
         GleaningScene.cpp GleaningScene.h
