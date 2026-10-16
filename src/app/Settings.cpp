@@ -91,6 +91,12 @@ const QStringList kLowPriorityNames {
 // the file itself when its whole name is typed; nor appref-ms, whose apps
 // are in the Start menu too.
 const QStringList kDefaultPreferredTypes {u"exe"_s, u"bat"_s, u"cmd"_s, u"ps1"_s, u"msi"_s};
+// Unlike most keys, written only when not the default: a later version's
+// better list reaches everyone who never changed it. Not done for all keys:
+// the uninstaller reads [Clipboard] WinV and [Taskbar] WinS from the file, and
+// some defaults are the machine's at the first start (clipboard history,
+// renderer, low memory), which must stay as they were.
+const QString kPreferredTypesKey = u"Results/PreferredTypes"_s;
 
 // Plain-text formats: the scanner reads their raw bytes. Documents (docx,
 // xlsx, pdf...) are read by WinShunExtract.exe instead, under their own
@@ -604,7 +610,7 @@ void Settings::load()
     doubleCtrlPauseInFullScreen
         = readOrDefault(s, u"Launcher/DoubleCtrlPauseInFullScreen"_s, d.doubleCtrlPauseInFullScreen);
     doubleCtrlExcludedApps = readOrDefault(s, u"Launcher/DoubleCtrlExcludedApps"_s, d.doubleCtrlExcludedApps);
-    hotkey =readOrDefault(s, u"Launcher/Hotkey"_s, d.hotkey);
+    hotkey = readOrDefault(s, u"Launcher/Hotkey"_s, d.hotkey);
     renderer = resolveRenderer(readOrDefault(s, u"Launcher/Renderer"_s, d.renderer).trimmed().toLower());
     recordHistory = readOrDefault(s, u"Launcher/History"_s, d.recordHistory);
     dialogJump = readOrDefault(s, u"Launcher/DialogJump"_s, d.dialogJump);
@@ -635,8 +641,14 @@ void Settings::load()
     folderMenuOpusBefore = readOrDefault(s, u"Launcher/FolderMenuOpusBefore"_s, d.folderMenuOpusBefore);
 
     foldersFirst = readOrDefault(s, u"Results/FoldersFirst"_s, d.foldersFirst);
-    // As written by hand too: ".EXE; bat" is exe and bat.
-    preferredTypes = fileExtensions(readOrDefault(s, u"Results/PreferredTypes"_s, d.preferredTypes).join(u' '));
+    // In the file only when changed (save): one never changed follows the
+    // default as later versions set it. As written by hand too: ".EXE; bat"
+    // is exe and bat; empty, none.
+    preferredTypes = s.contains(kPreferredTypesKey)
+        ? fileExtensions(s.value(kPreferredTypesKey).toStringList().join(u' '))
+        : d.preferredTypes;
+    if (preferredTypes == d.preferredTypes)
+        s.remove(kPreferredTypesKey); // as the first build with it wrote it
     showModified = readOrDefault(s, u"Results/ShowModified"_s, d.showModified);
     thumbnails = readOrDefault(s, u"Results/Thumbnails"_s, d.thumbnails);
     if (!s.contains(u"Results/Sort"_s) && s.value(u"Results/SortByModified"_s).toBool())
@@ -788,7 +800,10 @@ void Settings::save() const
     s.setValue(u"Launcher/FolderMenuHotkey"_s, folderMenuHotkey);
     s.setValue(u"Launcher/FolderMenuOpusBefore"_s, folderMenuOpusBefore);
     s.setValue(u"Results/FoldersFirst"_s, foldersFirst);
-    s.setValue(u"Results/PreferredTypes"_s, preferredTypes);
+    if (preferredTypes == defaultPreferredTypes())
+        s.remove(kPreferredTypesKey);
+    else
+        s.setValue(kPreferredTypesKey, preferredTypes);
     s.setValue(u"Results/ShowModified"_s, showModified);
     s.setValue(u"Results/Thumbnails"_s, thumbnails);
     s.setValue(u"Results/Sort"_s, sort);
