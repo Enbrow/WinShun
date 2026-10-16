@@ -525,7 +525,7 @@
   - 按屏幕刷新率限速（先挪一次，一帧之内再来的只记最新位置，到点再挪；屏幕一帧只显示一次，多挪的看不见）。原型（`WINSHUN_DIAG_HZ=60` 模拟 60 Hz）：对话框 231–237/s（逐个事件挪是 161–166），搜索框每秒 57 次，按 1500 像素/秒的拖动平均差 14 像素，松手后最多晚一帧到位。240 Hz 的屏幕上事件和帧差不多一样多，一点不省（实测 162–164/s）；省的是 60 Hz 屏（论坛用户那种迷你主机）和高回报率鼠标。定时器不对齐 vsync，拖得快时可能看出搜索框晚一帧；真要对齐可按 `DwmGetCompositionTimingInfo` 的下一次合成时间挪。
   - 拖动时藏起来：再挂 `EVENT_SYSTEM_MOVESIZESTART`/`END`，开始时藏、结束时放好再显示，一点不拖慢，但拖的时候看不到搜索框，行为变了。
   - 拖动时换成分层窗口的“截图”：开始时 `grabWindow` 一张、用 `UpdateLayeredWindow` 跟着挪（0.15 ms，几乎不拖慢），结束时换回真窗口；代价是复杂，拖的时候没有 DWM 的阴影。
-  这台机器上 `SetWindowPos` 为什么要这么久（别处通常是零点几毫秒）没查到底：一个什么都没做的探针进程里也被装进了 `uiautomationcore.dll`、`OLEACC.dll`（有程序挂了进程内的辅助功能钩子），可能有关，也可能就是 `SetWindowPos` 这条路本身；所以别的机器上可能便宜些，也可能更贵（论坛用户的核显迷你主机上自己的选择框落后几百像素，说明那里也不便宜）。
+  这台机器上 `SetWindowPos` 为什么要这么久（别处通常是零点几毫秒）没查到函数：xperf 按模块取样（探针 800 次挪动，约 1.3 s）时间几乎全在内核，`ntoskrnl.exe` 约 650 ms、`win32kfull.sys` 约 370 ms、`win32kbase.sys` 约 280 ms，显卡驱动 `nvlddmkm.sys` 13 ms；探针里虽被装进了 `UIAutomationCore.dll`（有程序挂了进程内的辅助功能钩子），它只占 3 ms，不是钩子回调。所以是窗口管理器这条路本身，别的机器上可能便宜些，也可能更贵（论坛用户的核显迷你主机上自己的选择框落后几百像素，说明那里也不便宜）。
 - **测试**：探针 `follower.cpp`（模式 hook / busy / popup / owned / layered / gui，选项 notop、small、nocopy、nosize、nosend、lwa、ulwpos、vsync、throttle；`selftest` 不拖对话框、单测一次挪动的代价）和带搜索框取样的 `m.cs`（`Drag2`：搜索框落后对话框多少像素、多少毫秒）在 2026-10-16 这次会话的临时目录里；Win顺 一侧的开关（`WINSHUN_DIAG_BAR=still|nologo|noshadow|rawmove|throttle|coalesce`，日志里每次隐藏时一行 `DIAG`）只做在测试版里，没有提交。每种情况之间插一次“没有搜索框”的基准，排除机器状态漂移。
 
 ## 文件索引（NTFS）
