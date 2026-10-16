@@ -70,6 +70,8 @@
 
 它直接读 NTFS 主文件表（MFT）建索引，三百多万个文件几秒建好，增删改名实时跟上，**不用装 Everything**。不需要账号，不上传数据。界面有简体中文和英文。
 
+📖 每个功能怎么用，见 **[使用说明](docs/使用说明.md)**。
+
 ### 功能
 
 #### 🔍 文件搜索
@@ -260,7 +262,7 @@ Listary、PowerToys 的“查找鼠标”默认也用双击 Ctrl，关掉其中�
 
 It also brings a clipboard history, a search bar for file dialogs, a taskbar search box, plugins and an MCP server for AI assistants.
 
-It reads the NTFS master file table (MFT) directly, indexing three million files in a few seconds and following every change live: **no Everything install needed**. It needs no account and uploads nothing. The interface comes in English and Simplified Chinese. Screenshots: [above](#screenshots).
+It reads the NTFS master file table (MFT) directly, indexing three million files in a few seconds and following every change live: **no Everything install needed**. It needs no account and uploads nothing. The interface comes in English and Simplified Chinese. Screenshots: [above](#screenshots). A step-by-step guide to every feature (in Chinese): [docs/使用说明.md](docs/使用说明.md).
 
 ### Features
 
