@@ -56,6 +56,8 @@ DialogJump::~DialogJump()
         ::UnhookWinEvent(m_foregroundHook);
     if (m_locationHook)
         ::UnhookWinEvent(m_locationHook);
+    if (m_dragHook)
+        ::UnhookWinEvent(m_dragHook);
     g_instance = nullptr;
     setRegistered(false);
 }
@@ -74,11 +76,17 @@ void CALLBACK DialogJump::onForeground(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LO
 
 void CALLBACK DialogJump::onLocation(HWINEVENTHOOK, DWORD event, HWND hwnd, LONG object, LONG, DWORD, DWORD)
 {
+    if (!g_instance || !hwnd || hwnd != g_instance->m_dialog)
+        return;
+    if (event == EVENT_SYSTEM_MOVESIZESTART || event == EVENT_SYSTEM_MOVESIZEEND) {
+        if (g_instance->m_callbacks.dialogDragged)
+            g_instance->m_callbacks.dialogDragged(event == EVENT_SYSTEM_MOVESIZESTART);
+        return;
+    }
     // The hook hears the whole thread: the caret, the cursor, every control.
     if (event != EVENT_OBJECT_SHOW && event != EVENT_OBJECT_HIDE && event != EVENT_OBJECT_LOCATIONCHANGE)
         return;
-    if (g_instance && object == OBJID_WINDOW && hwnd && hwnd == g_instance->m_dialog
-        && g_instance->m_callbacks.dialogMoved)
+    if (object == OBJID_WINDOW && g_instance->m_callbacks.dialogMoved)
         g_instance->m_callbacks.dialogMoved();
 }
 
@@ -150,9 +158,11 @@ void DialogJump::setDialog(HWND dialog, bool fromManager)
     if (!dialog && !m_dialog)
         return;
     if (dialog != m_dialog) {
-        if (m_locationHook) {
-            ::UnhookWinEvent(m_locationHook);
-            m_locationHook = nullptr;
+        for (HWINEVENTHOOK* hook : {&m_locationHook, &m_dragHook}) {
+            if (*hook) {
+                ::UnhookWinEvent(*hook);
+                *hook = nullptr;
+            }
         }
         m_dialog = dialog;
         if (dialog) {
@@ -161,6 +171,10 @@ void DialogJump::setDialog(HWND dialog, bool fromManager)
             const DWORD thread = ::GetWindowThreadProcessId(dialog, &process);
             // Shown, hidden, moved: a dialog comes to the front before it shows.
             m_locationHook = ::SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_LOCATIONCHANGE, nullptr,
+                &DialogJump::onLocation, process, thread, WINEVENT_OUTOFCONTEXT);
+            // Dragged or sized by its frame (with the mouse, or Alt+Space then
+            // the arrow keys): the bar keeps out of the way till it is let go.
+            m_dragHook = ::SetWinEventHook(EVENT_SYSTEM_MOVESIZESTART, EVENT_SYSTEM_MOVESIZEEND, nullptr,
                 &DialogJump::onLocation, process, thread, WINEVENT_OUTOFCONTEXT);
         }
     }

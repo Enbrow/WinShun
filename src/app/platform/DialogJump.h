@@ -32,6 +32,10 @@ public:
         // (nullptr). A companion coming to the front changes nothing.
         std::function<void(HWND dialog)> dialogChanged;
         std::function<void()> dialogMoved; // the one in front: shown, hidden, moved, resized, minimised
+        // The one in front taken by its frame (true) and let go (false):
+        // moved or sized by the user. Each move of a window beside it costs
+        // the dialog's own drag ~2 ms (docs/pitfalls.md, #222).
+        std::function<void(bool dragged)> dialogDragged;
         // The dialog went to the file manager's folder by itself (setAutoJump), from
         // `from` (empty: no folder on disk). Called on another thread.
         std::function<void(HWND dialog, std::wstring from)> autoJumped;
@@ -80,6 +84,7 @@ private:
     Callbacks m_callbacks;
     HWINEVENTHOOK m_foregroundHook = nullptr;
     HWINEVENTHOOK m_locationHook = nullptr; // the dialog's thread
+    HWINEVENTHOOK m_dragHook = nullptr; // the dialog's thread: taken by its frame, let go
     HWND m_dialog = nullptr; // the file dialog in front
     std::vector<HWND> m_companions;
     bool m_hotkeyEnabled = false;

@@ -151,6 +151,9 @@ public:
 
     void setDialog(HWND dialog); // in front, or nullptr (DialogJump::dialogChanged)
     void dialogMoved();
+    // Taken by its frame (true): the bar hides till the dialog is let go, as
+    // moving it after each step would slow the drag (DialogJump::dialogDragged).
+    void dialogDragged(bool dragged);
     // The dialog went to the file manager's folder by itself, from `from` (DialogJump::autoJumped).
     void setOrigin(HWND dialog, const QString& from);
     bool isShown() const; // under a dialog now
@@ -248,6 +251,7 @@ private:
     QString m_dialogApp; // its program file, "notepad.exe"
     filedialog::Kind m_kind = filedialog::Kind::None;
     bool m_inFront = false; // m_dialog (or the bar) is in front
+    bool m_dragged = false; // m_dialog is being moved or sized by its frame
     bool m_recordHistory = true;
     QStringList m_excludedApps;
     HWND m_hiddenUnder = nullptr; // HideHere

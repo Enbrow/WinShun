@@ -345,6 +345,7 @@ bool DialogBar::isShown() const
 void DialogBar::setDialog(HWND dialog)
 {
     m_inFront = dialog != nullptr;
+    m_dragged = false; // let go of while not in front: no word of it comes
     if (!dialog) {
         hideWindow(); // the same dialog coming back finds the bar as it was
         return;
@@ -386,6 +387,15 @@ void DialogBar::dialogMoved()
         follow();
 }
 
+void DialogBar::dialogDragged(bool dragged)
+{
+    m_dragged = dragged;
+    if (dragged)
+        hideWindow();
+    else if (m_inFront)
+        follow(); // where it was let go
+}
+
 void DialogBar::setOrigin(HWND dialog, const QString& from)
 {
     m_originDialog = dialog;
@@ -398,7 +408,7 @@ void DialogBar::follow()
     if (!m_window || !m_dialog)
         return;
     // A dialog comes to the front before it shows; it may be minimised.
-    if (hidden() || !::IsWindow(m_dialog) || !::IsWindowVisible(m_dialog) || ::IsIconic(m_dialog)) {
+    if (m_dragged || hidden() || !::IsWindow(m_dialog) || !::IsWindowVisible(m_dialog) || ::IsIconic(m_dialog)) {
         hideWindow();
         return;
     }

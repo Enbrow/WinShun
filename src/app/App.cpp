@@ -2247,6 +2247,10 @@ void App::applyDialogs()
             if (m_dialogBar)
                 m_dialogBar->dialogMoved();
         };
+        callbacks.dialogDragged = [this](bool dragged) {
+            if (m_dialogBar)
+                m_dialogBar->dialogDragged(dragged);
+        };
         callbacks.autoJumped = [this](HWND dialog, std::wstring from) { // on DialogJump's thread
             QMetaObject::invokeMethod(this, [this, dialog, from = QString::fromStdWString(from)] {
                 if (m_dialogBar)
