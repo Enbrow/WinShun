@@ -81,7 +81,7 @@
 - **双击 Ctrl** 打开，再按一次或 `Esc` 关闭；三百多万个文件里搜一次只要几毫秒。
 - **拼音和首字母**：`ndbg` → 年度报告，`baog` → 报告；多音字按常用读音。打错了同音字（年度报高）找不到时，自动按读音再找一遍。
 - **搜整台电脑**：所有本地磁盘，U 盘可选（没收录的 U 盘插着时，列表末尾会提示你顺手搜一下它）；**NAS、内网共享文件夹（SMB）** 也能加进来一起搜，服务器关机时收录过的照样能搜到。
-- **排序懂你**：自己的文件在前，系统目录、`node_modules` 在后，名字完全一样的最前。每行显示修改日期，`Ctrl+S` 在最匹配、最新、最早之间切换。不输入时列出最近打开或最近修改的文件。
+- **排序懂你**：自己的文件在前，系统目录、`node_modules` 在后，名字完全一样的最前。每行显示修改日期，`Ctrl+S` 在最匹配、最新、最早之间切换。不输入时列出最近打开或最近修改的文件，也可以不列；还可以设成每次打开时清空搜索。
 - **程序优先**：搜 `curl`，`curl.exe` 排在文件夹 `curl` 和 `curl.h` 前面；优先哪些类型可以自己改（默认 exe、bat、cmd、ps1、msi，像 Listary 的“优先显示的文件类型”）。
 - **数字键直达**：结果的图标上标着序号，`Ctrl+1`～`Ctrl+9` 打开第几行（也可改成 `Alt`）。
 - **按类型找**：选中 **文件** 后，下面一排是文件夹、文档、图片、视频、压缩包等类型，`Ctrl+Tab` 依次切换；点 `+` 或在设置里自己加类型。
@@ -89,6 +89,8 @@
 - **长文件名**：名字放不下时在中间缩短，扩展名和结尾留着（“…第二版.xlsx”）；鼠标停在这一行上，显示完整的名字、位置、大小、修改和创建时间。拖动搜索框的左边或右边可以调宽（记住宽度，双击边缘恢复默认）。
 - **钉住**：按 `Ctrl+T` 或点搜索框右上角的图钉，点别处、打开文件后搜索框都不收起，`Esc` 关闭；按住左边的放大镜拖动窗口，单击它打开设置。
 - **预览**：在结果上按 `Alt+P`（或右键“预览”）看一眼文件，启动器不关：图片、文本（自动认 UTF-8 / GBK）、Word / Excel / PowerPoint / PDF（用资源管理器预览窗格的同一套预览程序）、文件夹里有什么；上下键换一行就换一个文件，再按 `Alt+P` 或 `Esc` 关掉。后台开着 QuickLook 或 Seer 时交给它们。
+- **缩略图**：图片、视频、PDF 等在结果里直接显示缩略图，代替类型图标，“打开”“另存为”对话框旁的搜索框里也一样；设置 › 结果列表里可以关。
+- **右键菜单**：右键一行有打开位置、复制路径、加入收藏等；按住 `Shift` 右键（或菜单里的“更多选项”），出现 Windows 自己的完整右键菜单，和资源管理器里一样，选中几行也行；复制、剪切、删除之后搜索框不关。
 - **拖出去就能用**：结果直接拖进微信、邮件、资源管理器。
 - **实时更新**：读 USN 变更日志，改名、新建、删除马上搜得到；拔 U 盘不会提示“设备正在使用”。
 
@@ -111,7 +113,7 @@
   - 文档：**Word、Excel、PowerPoint、PDF、WPS**，结果里显示第几页、第几张幻灯片或哪个表的第几行。
 - **怎么找**：可以写多个词、用引号找整个短语，结果按相关度排。
 - **只搜某个文件夹**：词后面加文件夹名和斜杠，`年度报告 abc/` 只在叫 abc 的文件夹里找（`/abc` 放在最后也行，`工作/abc/` 只要“工作”里的那个）；同名的文件夹都搜，搜索框下面列出它们，`Ctrl+Tab` 挑其中一个。也可以点下面的收藏文件夹，或在结果的文件夹上右键“在此文件夹中搜内容”。
-- **编码和速度**：自动识别 UTF-8、UTF-16、GBK 编码；有内容索引，几十万个文件也很快。超过大小上限的、系统目录里的、类型没列出的文件默认不搜，搜完会告诉你各有几个，点一下就临时把它们也搜了。
+- **编码和速度**：自动识别 UTF-8、UTF-16、GBK 编码；有内容索引，几十万个文件也很快。第一次建内容索引时，索引服务直接从磁盘读文本文件，杀毒软件不用一个个检查，快得多。超过大小上限的、系统目录里的、类型没列出的文件默认不搜，搜完会告诉你各有几个，点一下就临时把它们也搜了。
 - **安全**：文档由一个权限受限的独立进程读取。
 
 #### 🚀 应用和系统设置
@@ -147,7 +149,8 @@
 
 - **双击空白处**：在资源管理器或桌面的空白处双击，弹出收藏的、最近的、别的窗口里开着的文件夹，选一个就在这个窗口里转过去（桌面上开新窗口），和 Listary 一样；还能在当前文件夹里搜、把它加进收藏。
 - 菜单不抢焦点，方向键、回车、Esc、首字母都能用；点别处或再双击就关。Listary 在运行时让给它。
-- **用快捷键弹出**：双击被别的程序占了（Directory Opus 等），就在设置里给文件夹菜单设一个快捷键，在任何窗口里按：资源管理器、桌面、Directory Opus、Total Commander、XYplorer、“打开”“另存为”对话框里选中的文件夹在那个窗口里打开，别的窗口里用文件管理器打开；再按一次关闭。
+- **Directory Opus 里也能双击**：Win顺 可以替你在 Opus 的设置里加好这条命令（Opus 会重启一下），关掉或卸载时换回原来的。
+- **用快捷键弹出**：双击被别的程序占了，或者想在 Total Commander、XYplorer 里用，就在设置里给文件夹菜单设一个快捷键，在任何窗口里按：资源管理器、桌面、Directory Opus、Total Commander、XYplorer、“打开”“另存为”对话框里选中的文件夹在那个窗口里打开，别的窗口里用文件管理器打开；再按一次关闭。
 - **右键“用 Win顺 搜索此处”**：文件夹、文件夹的空白处和磁盘的右键菜单里都有（Windows 11 在“显示更多选项”里），搜索框带着这个文件夹打开，接着打字就在里面找。设置里可以关。
 - **直接打字搜索**：在资源管理器的文件列表里随意打字，Win顺 就带着打的字、在这个窗口的文件夹里搜，和 Listary 一样；中文输入法照常组拼音，`Esc` 回到资源管理器。设置里打开（它代替了资源管理器自己的按首字母跳到文件，所以默认关）。
 
@@ -182,6 +185,7 @@
 
 - **外观**：浅色、深色跟随系统，Windows 11 云母（Mica）效果和圆角；图标在 150% 缩放下也清晰。界面大小有紧凑、标准、宽松三档，托盘和任务栏的图标可以换成单色。
 - **设置**：可以搜索（`Ctrl+F`，`kjj` 找到“快捷键”），改了立即生效。
+- **文件管理器**：打开文件夹、打开所在位置时用资源管理器、Total Commander、Directory Opus 或 XYplorer（装了的才列出）；别的文件管理器也行，在设置 › 打开 Win顺 › 对话框里填它的命令。
 - **备份**：设置 → 高级里选一个文件夹（放在同步盘里就是云备份），设置、收藏、对话框的固定项、自己加的网页图标和插件会自动备份，保留最近 10 份，随时恢复。
 - **更新**：有新版本时在托盘提醒，Win顺 不会自己下载、替换程序文件。
 
@@ -195,6 +199,7 @@
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | 在 **文件** 里切换类型，在 **内容** 里切换文件夹 |
 | `Ctrl+S` | 最匹配 → 最新在前 → 最早在前 |
 | `Ctrl+E` / `Ctrl+T` | 展开为搜索面板 / 钉住搜索框（点别处不收起） |
+| `Alt+P` / `Shift+右键` | 预览当前行 / Windows 自己的右键菜单 |
 | `Ctrl+G`（对话框里） | 转到文件管理器正在显示的文件夹 |
 | `Win+V` / `Win+S`（设置里打开后） | 剪贴板历史 / 任务栏上方的搜索框 |
 | 自设的组合键（设置 › 打开 Win顺 › 对话框） | 在任何窗口里弹出文件夹菜单，再按一次关闭 |
@@ -224,7 +229,7 @@
 Win顺 自己建索引，不用装 Everything。文件名、拼音、应用和文件内容在一个框里搜，针对中文做了优化。对话框里有和 Listary 一样的 `Ctrl+G` 和搜索框，但不嵌进资源管理器窗口。
 
 **双击 Ctrl 和别的软件冲突？**
-Listary、PowerToys 的“查找鼠标”默认也用双击 Ctrl，关掉其中一边就行。也可以在 Win顺 里改用别的组合键。游戏全屏、藏起鼠标时，Win顺 默认不响应双击 Ctrl。
+Listary、PowerToys 的“查找鼠标”默认也用双击 Ctrl，关掉其中一边就行，或者让 Win顺 只认左 Ctrl 或右 Ctrl（设置 › 打开 Win顺 › 用哪个 Ctrl）。也可以在 Win顺 里改用别的组合键。游戏全屏、藏起鼠标时，Win顺 默认不响应双击 Ctrl。
 
 **AutoHotkey 改的键在 Win顺 里不起作用？**
 选了“管理员直读”时，Win顺 以管理员身份运行，Windows 不让普通权限的程序拦截发给它的按键。换回别的索引方式，或用 AutoHotkey 的 UI Access 模式、以管理员身份运行脚本。
@@ -275,40 +280,45 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Speed**: press Ctrl twice; a search over three million files takes milliseconds.
   - **Pinyin**: `ndbg` finds 年度报告; a mistyped homophone (年度报高) is retried by sound.
   - **Where**: all local drives, USB drives if you like (an unindexed one that is plugged in is offered at the end of the list), and **NAS / SMB network shares**, still searchable while their server is off.
-  - **Order**: your own files first, the date modified on each row, `Ctrl+S` for best match / newest / oldest. Recent files are listed when the box is empty.
+  - **Order**: your own files first, the date modified on each row, `Ctrl+S` for best match / newest / oldest. Recent files are listed when the box is empty, or nothing if you like; the search can also start empty each time it opens.
   - **Programs first**: `curl` lists `curl.exe` before the folder `curl` and `curl.h`; which file types go first is yours to change (exe, bat, cmd, ps1 and msi to begin with, like Listary's preferred file types).
   - **Shortcuts**: `Ctrl+1`…`Ctrl+9` opens a row (its number is on its icon).
   - **Search panel**: too many hits? The small button at the box's corner or `Ctrl+E` grows the same window into a panel, as Listary has it: filters down the left (scope, kind, date modified, size, folder), the rows in columns on the right (name, path, size, date modified) with sortable headers; with nothing typed it browses the whole index by those filters (milliseconds over three million files). `size:>10mb` and `dm:7d` work in the box too. Press it again to collapse.
   - **Long names**: a name that does not fit is shortened in the middle, keeping its extension and end ("…v3 final.xlsx"); rest the pointer on the row to see the full name, location, size, modified and created times. Drag the left or right edge of the search box to widen it (the width is remembered; double-click an edge for the default).
   - **Pin**: `Ctrl+T` or the pin at the box's corner keeps the search box up through clicks elsewhere and opened files; `Esc` closes it. Drag the window by the magnifier on the left; click it for the settings.
   - **Preview**: `Alt+P` on a result (or Preview in its menu) shows the file without leaving the launcher: pictures, text (UTF-8 or GBK, detected), Word, Excel, PowerPoint and PDF (through the same preview handlers as File Explorer's preview pane), what a folder holds; the arrows move it to the next row, `Alt+P` again or `Esc` closes it. QuickLook or Seer, when running in the background, shows it instead.
+  - **Thumbnails**: pictures, videos, PDFs and the like show their thumbnail instead of their type's icon, in the results and in the search bar beside Open / Save dialogs; Settings › Result list can turn them off.
+  - **Context menu**: right-click a row for its location, Copy path, Add to favorites and more; `Shift`+right-click (or More options in that menu) brings up Windows' own full context menu, as in File Explorer, for one row or several; after copy, cut or delete the search box stays open.
   - **By kind**: under **Files**, a row of kinds (folders, documents, pictures, videos, archives…); `Ctrl+Tab` steps through them, `+` adds your own.
   - **Drag out**: drag results into a chat, a mail or Explorer.
+  - **Live updates**: the USN change journal is read, so renamed, new and deleted files are found at once; unplugging a USB drive never says it is in use.
   - **Query syntax**: `"exact phrase"`, `!exclude`, `!node_modules\`, wildcards `*` `?`, `ext:pdf,docx`, `folder\name`, and paths (`D:\My Files\`, `tools/out/`).
 - 📄 **Full-text search**
   - **What**: the **Content** scope searches inside txt, md, logs, source code and **Word, Excel, PowerPoint, PDF and WPS** files, showing the page, slide or sheet and row.
   - **In one folder**: add a folder's name and a slash, `annual report abc/`, to search only in folders named abc (`/abc` last works too; `work/abc/` takes the one in work); folders of the same name are all searched and listed under the box, `Ctrl+Tab` picks one. Or pick a favorite folder there, or right-click a folder in the results → Search contents in this folder.
-  - **How**: ranked by relevance, with a content index for speed; UTF-8, UTF-16 and GBK are detected. Files over the size limit, in system folders or of unlisted text types are skipped; the list says how many of each, and one click searches them too.
+  - **How**: ranked by relevance, with a content index for speed; UTF-8, UTF-16 and GBK are detected. The first content index reads text files straight from the disk through the index service, so antivirus does not check them one by one and it is done much sooner. Files over the size limit, in system folders or of unlisted text types are skipped; the list says how many of each, and one click searches them too.
   - **Safety**: documents are read by a separate process with restricted rights.
 - 🚀 **Apps and settings**
   - **Apps**: everything in the Start menu (Store apps included), by name, pinyin, initials (`vsc`) or program file (`winword`).
   - **Settings**: about 1,200 Windows settings pages and Control Panel items (`ncpa.cpl`, “network adapter”), plus Group Policy, Disk Management, hosts, AppData and more.
-- 🌐 **Web search**: `zhihu 显卡`, `baidu 天气`: a keyword and a space search that site. Ten Chinese sites are built in; add your own with `%s` in the URL. The site's search suggestions show below as you type (Enter searches one, Tab puts it in the box), and a site's icon can be an SVG file or pasted SVG code.
+- 🌐 **Web search**: `zhihu 显卡`, `baidu 天气`: a keyword and a space search that site. Ten Chinese sites are built in; add your own with `%s` in the URL, and import or export the list and icons. The site's search suggestions show below as you type (Enter searches one, Tab puts it in the box), and a site's icon can be an SVG file or pasted SVG code.
 - ⭐ **Favorites**: right-click → Add to favorites. They come first when the box is empty; give one a keyword to open it, and `Tab` searches inside a favorite folder.
 - 🧩 **Plugins**
   - **Bundled**: `= 1+2*3`, `12 inch to cm`, `#ff8800`, timestamps, UUID, Base64, hashes; `kill` processes, `bm` browser bookmarks, `tr` translation.
   - **Search by meaning** (off by default): `? last year's expense rules` finds a document that says “travel cost requests”. It uses the model you pick: Ollama or LM Studio on your PC uploads nothing; for SiliconFlow, Model Studio, OpenAI and others you enter your own key, and before the first run it says how much text would be sent and waits for your Enter. See [plugins/winshun.semantic](plugins/winshun.semantic/README.md).
   - **Your own**: zero-code `plugin.json`, scripts in any language, or resident processes, with SDKs for Python, PowerShell and C++. Plugins run with normal rights under a memory limit. See [docs/plugins.en.md](docs/plugins.en.md).
 - 📂 **Open / Save dialogs**
-  - **Search bar**: a search bar under every file dialog; type a name (pinyin too), press Enter, and the dialog goes there.
+  - **Search bar**: a search bar under every file dialog; type a name (pinyin too), press Enter, and the dialog goes there; web page uploads and WPS dialogs too.
   - **`Ctrl+G`**: jumps to the folder open in File Explorer, Total Commander, Directory Opus or XYplorer, like Listary.
   - **Suggestions**: open folders, a path you just copied, favorites and recent folders.
   - **Going there by itself**: optional, as the dialog opens, or only when you come back to it from the file manager.
 - 🗂️ **In File Explorer: a double click, a right-click**
   - **Folder menu**: double-click the blank space of a File Explorer folder or of the desktop: favorite, recent and open folders; pick one and the same window goes there (the desktop opens a new one), like Listary. Also: search this folder, add it to the favorites.
   - It never takes the focus: arrows, Enter, Esc and first letters work; a click elsewhere or another double click closes it. It stays out of the way while Listary runs.
-  - **By a shortcut**: when another program has the double click (Directory Opus, say), give the folder menu a shortcut in the settings and press it in any window: in File Explorer, on the desktop, in Directory Opus, Total Commander, XYplorer and Open / Save dialogs the folder picked opens in that window; anywhere else, in your file manager. Press it again to close the menu.
+  - **In Directory Opus too**: WinShun can add its command to Opus's settings for you (Opus restarts once), and puts the old one back when turned off or uninstalled.
+  - **By a shortcut**: when another program has the double click, or for Total Commander and XYplorer, give the folder menu a shortcut in the settings and press it in any window: in File Explorer, on the desktop, in Directory Opus, Total Commander, XYplorer and Open / Save dialogs the folder picked opens in that window; anywhere else, in your file manager. Press it again to close the menu.
   - **“Search here with WinShun”** on the right-click menu of folders, a folder's blank space and drives (under “Show more options” on Windows 11): the search window opens with that folder typed. It can be turned off.
+  - **Type to search**: type anywhere in a File Explorer file list and WinShun searches that window's folder for what you typed, like Listary; a Chinese input method composes as usual, and `Esc` goes back to File Explorer. Turn it on in the settings (it replaces Explorer's own jump to a file by its first letters, so it is off by default).
 - 📋 **Clipboard history (replaces Win+V)**
   - **What**: text, pictures and files, opened with `Win+V` or your own shortcut, by the text cursor, without taking the focus.
   - **Search**: pinyin, `@app` filters, and **words in copied pictures** (PaddleOCR text recognition, on your PC and offline, good with numbers and small print in screenshots).
@@ -323,7 +333,8 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Safety**: read-only by default, limited to what the AI client may see, with folders kept from AI and a call log.
 - 🎨 **Looks and settings**
   - **Looks**: light and dark themes following Windows, Windows 11 Mica and rounded corners, sharp icons at any scaling; compact, standard or roomy sizes, and a monochrome tray and taskbar icon if you like.
-  - **Settings**: searchable (`Ctrl+F`).
+  - **Settings**: searchable (`Ctrl+F`); changes apply at once.
+  - **File manager**: folders and file locations open in File Explorer, Total Commander, Directory Opus or XYplorer (those installed are listed), or in any other file manager whose commands you enter under Settings › Open WinShun › Dialogs.
   - **Backup**: choose a folder under Settings → Advanced (a synced folder makes it a cloud backup); settings, favorites, dialog pins, your own web icons and plugins are backed up as they change, the last 10 kept, ready to restore.
   - **Updates**: announced in the tray; WinShun never replaces its own files.
 
@@ -337,6 +348,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | In **Files**, step through the kinds; in **Content**, through the folders |
 | `Ctrl+S` | Best match → newest first → oldest first |
 | `Ctrl+E` / `Ctrl+T` | Expand to the search panel / pin the search box (stays up through clicks elsewhere) |
+| `Alt+P` / `Shift`+right-click | Preview the row / Windows' own context menu |
 | `Ctrl+G` (in a file dialog) | Go to the folder shown in your file manager |
 | `Win+V` / `Win+S` (once turned on) | Clipboard history / search above the taskbar |
 | A shortcut you set (Settings › Open WinShun › Dialogs) | The folder menu in any window; again to close it |
@@ -366,7 +378,7 @@ Requires Windows 10 or 11, 64-bit.
 WinShun builds its own index, so Everything is not needed. File names, pinyin, apps and file contents are searched from one box, tuned for Chinese. File dialogs get Listary's `Ctrl+G` and a search bar, but WinShun does not embed itself in Explorer windows.
 
 **Ctrl twice clashes with another program?**
-Listary and PowerToys' Find My Mouse use it too: turn it off on one side, or give WinShun another shortcut. Full-screen games and games that hide the mouse are ignored by default.
+Listary and PowerToys' Find My Mouse use it too: turn it off on one side, let WinShun count only the left or the right Ctrl (Settings › Open WinShun › Which Ctrl), or give WinShun another shortcut. Full-screen games and games that hide the mouse are ignored by default.
 
 **AutoHotkey remaps don't work in WinShun?**
 With “Direct (administrator)” chosen, WinShun runs as administrator, and Windows keeps normal-rights programs from intercepting keys sent to it. Pick another index access, or run the script with UI Access or as administrator.
