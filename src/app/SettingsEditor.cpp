@@ -155,6 +155,20 @@ void SettingsEditor::setFoldersFirst(bool on)
     commit();
 }
 
+void SettingsEditor::setPreferredTypes(const QString& text)
+{
+    const QStringList types = Settings::fileExtensions(text);
+    if (types == m_settings.preferredTypes)
+        return;
+    m_settings.preferredTypes = types;
+    commit();
+}
+
+void SettingsEditor::resetPreferredTypes()
+{
+    setPreferredTypes(Settings::defaultPreferredTypes().join(u' '));
+}
+
 void SettingsEditor::setShowModified(bool on)
 {
     if (m_settings.showModified == on)

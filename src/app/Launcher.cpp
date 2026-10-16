@@ -439,6 +439,7 @@ void Launcher::searchLeftOut(const QString& kind)
     }
     SearchEngine::Request request;
     request.rankBy = rankBy();
+    request.preferredTypes = m_preferredTypes;
     if (kind.startsWith(kDriveHint)) {
         request.text = m_query;
         request.scope = m_scope == Folders ? ws::Scope::Folders : ws::Scope::Files; // 全部: its files and folders
@@ -647,6 +648,16 @@ void Launcher::setResultOptions(KindOrder kindOrder, bool showModified, bool thu
     m_numberKeys = keys;
     emit resultOptionsChanged();
     if (reorder && m_window && m_window->isVisible() && m_scope != Content)
+        search();
+}
+
+void Launcher::setPreferredTypes(const QStringList& types)
+{
+    if (types == m_preferredTypes)
+        return;
+    m_preferredTypes = types;
+    // Their order shows only ranked by match, among names (not 内容's rows).
+    if (m_window && m_window->isVisible() && m_scope != Content && rankBy() == RankBy::Match)
         search();
 }
 
@@ -902,7 +913,8 @@ void Launcher::search(bool more)
     std::optional<KeywordMode> keyword = matchKeyword(m_query);
     const QString keywordKey = keyword ? keyword->pluginId + u'/' + keyword->commandId : QString();
     m_refresh = m_haveResults && !m_replacePending && text == m_shownText && m_scope == m_shownScope
-        && fileExtensions() == m_shownExtensions && rankBy() == m_shownRankBy && m_kindOrder == m_shownKindOrder && keywordKey == m_shownKeyword
+        && fileExtensions() == m_shownExtensions && rankBy() == m_shownRankBy && m_kindOrder == m_shownKindOrder
+        && m_preferredTypes == m_shownPreferredTypes && keywordKey == m_shownKeyword
         && (m_scope != Content || (m_contentFolder == m_shownContentFolder && pickKey(m_contentPick) == m_shownPick))
         && (!text.isEmpty() || m_startList == m_shownStartList) && panelKey() == m_shownPanelKey;
     m_replacePending = !m_refresh;
@@ -988,7 +1000,8 @@ void Launcher::search(bool more)
     request.extensions = fileExtensions();
     request.kindOrder = m_kindOrder;
     request.rankBy = rankBy();
-    request.startList = m_startList == RecentlyModified ? ws::StartList::Modified : ws::StartList::Opened;
+    request.preferredTypes = m_preferredTypes;
+    request.startList =m_startList == RecentlyModified ? ws::StartList::Modified : ws::StartList::Opened;
     request.limit = kPage * m_pages;
     if (m_panel) { // its filters and order; nothing typed lists everything
         request.filter = panelFilter();
@@ -1039,6 +1052,7 @@ void Launcher::showRows(SearchResults rows, QStringList highlights)
     m_shownRankBy = rankBy();
     m_shownStartList = m_startList;
     m_shownKindOrder = m_kindOrder;
+    m_shownPreferredTypes = m_preferredTypes;
     m_shownKeyword = m_keyword ? m_keyword->pluginId + u'/' + m_keyword->commandId : QString();
     m_shownContentFolder = m_contentFolder;
     m_shownPick = pickKey(m_contentPick);

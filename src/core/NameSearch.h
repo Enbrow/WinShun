@@ -5,12 +5,54 @@
 #include "SearchTypes.h"
 #include "WorkerPool.h"
 
+#include <array>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ws {
+
+// The file types listed first among names that match about as well
+// (优先显示的文件类型, as Listary has it; forum #104, #116): programs and
+// scripts, so that "curl" finds curl.exe before the folder curl and curl.h.
+// A few extensions in a small fixed table: asked about every match of a
+// search over millions of entries, it costs a length test and a compare.
+class PreferredTypes {
+public:
+    PreferredTypes() = default;
+    // Without the dot, any ASCII case; one longer than 16 bytes, or past
+    // the 32nd, is left out.
+    explicit PreferredTypes(const std::vector<std::string>& extensions);
+
+    bool empty() const noexcept { return m_count == 0; }
+    // `extension` without the dot, as a name has it (any ASCII case).
+    bool has(std::string_view extension) const noexcept;
+    // Whether a file of this name (UTF-8) is of one: what follows its last dot.
+    bool hasName(std::string_view name) const noexcept;
+
+    // How much more a match of such a file scores (NameSearch): as much as
+    // a name that has the words at its start scores above one that has them
+    // at the start of a later word (NameMatcher), so that "curlie.exe" goes
+    // before "curl_notes.txt", but the names that match much better stay
+    // before it.
+    static constexpr int kBonus = 12;
+
+private:
+    static constexpr std::size_t kMax = 32;
+    static constexpr std::size_t kLongest = 16;
+    using Key = std::array<std::uint64_t, 2>; // the bytes folded, zero-padded
+    static Key keyOf(std::string_view extension) noexcept;
+
+    // Most extensions are ruled out by their length and first letter, one
+    // bit each, before any key is compared.
+    std::uint32_t m_lengths = 0; // bit n: one of them n bytes long
+    std::array<std::uint64_t, 4> m_firsts {}; // bit c: one of them starts with byte c (folded)
+    std::uint8_t m_count = 0;
+    std::array<Key, kMax> m_keys {};
+};
 
 struct NameHit {
     EntryId id = kNoEntry;
@@ -34,6 +76,12 @@ struct NameSearchOptions {
     // Ordered as not known when later than this (sortTime, trustedUntil):
     // the hits' `modified` is then 0, the caller shows the index's own.
     FileTime trustedUntil = 0xFFFF'FFFFu;
+    // Files of these types score PreferredTypes::kBonus more; one named just
+    // what was typed (NameMatcher::isExactName) also loses nothing for being
+    // in a system or program folder (EntryFlag::LowPriority): that is where
+    // programs are, C:\Windows\System32\curl.exe. Only for the best match
+    // (RankBy::Match, SortKey::Rank): by time or by a column, left aside.
+    PreferredTypes preferred;
 };
 
 struct NameSearchOutput {

@@ -110,6 +110,10 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString contentIndexStatus READ contentIndexStatus NOTIFY contentIndexStatusChanged FINAL)
     // 结果列表
     Q_PROPERTY(bool foldersFirst READ foldersFirst WRITE setFoldersFirst NOTIFY changed FINAL)
+    // 优先显示的文件类型 as shown and typed: "exe; bat; cmd"; written, read as
+    // Settings::fileExtensions does (dots, spaces, commas, any case).
+    Q_PROPERTY(QString preferredTypes READ preferredTypes WRITE setPreferredTypes NOTIFY changed FINAL)
+    Q_PROPERTY(bool preferredTypesDefault READ preferredTypesDefault NOTIFY changed FINAL)
     Q_PROPERTY(bool showModified READ showModified WRITE setShowModified NOTIFY changed FINAL)
     Q_PROPERTY(bool thumbnails READ thumbnails WRITE setThumbnails NOTIFY changed FINAL)
     Q_PROPERTY(bool webSuggestions READ webSuggestions WRITE setWebSuggestions NOTIFY changed FINAL)
@@ -402,6 +406,10 @@ public:
 
     bool foldersFirst() const { return m_settings.foldersFirst; }
     void setFoldersFirst(bool on);
+    QString preferredTypes() const { return m_settings.preferredTypes.join(u"; "); }
+    void setPreferredTypes(const QString& text);
+    bool preferredTypesDefault() const { return m_settings.preferredTypes == Settings::defaultPreferredTypes(); }
+    Q_INVOKABLE void resetPreferredTypes();
     bool showModified() const { return m_settings.showModified; }
     void setShowModified(bool on);
     bool thumbnails() const { return m_settings.thumbnails; }

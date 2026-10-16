@@ -1,6 +1,8 @@
 // Loads the saved index and reports memory use and search timings.
 //
-//   wsbench [snapshot] [--stats] [--check] [query ...]
+//   wsbench [snapshot] [--stats] [--check] [--top] [--prefer exe,bat] [query ...]
+//                      --prefer: those file types first among comparable
+//                      matches (the launcher's 优先显示的文件类型);
 //                      --stats: how the entries and names are made up;
 //                      --check: compares each query's results with matching
 //                      every entry one by one (exit code: the queries that differ)
@@ -5049,13 +5051,22 @@ int main(int argc, char* argv[])
             : name == u"size" ? ws::SortKey::Size : name == u"modified" ? ws::SortKey::Modified : ws::SortKey::Rank;
         args.remove(at, 2);
     }
+    // --prefer exe,bat,cmd: those types first among comparable matches, as
+    // the launcher's 优先显示的文件类型 has them (PreferredTypes).
+    std::vector<std::string> preferred;
+    if (const qsizetype at = args.indexOf(u"--prefer"_s); at >= 0 && at + 1 < args.size()) {
+        for (const QString& ext : args[at + 1].split(QRegularExpression(u"[,;\\s]+"_s), Qt::SkipEmptyParts))
+            preferred.push_back(ext.toLower().toStdString());
+        args.remove(at, 2);
+    }
     int failures = 0;
     ws::WorkerPool pool(ws::WorkerPool::defaultThreadCount());
     const auto lock = index->readLock();
     for (const QString& q : args) {
         const ws::ParsedQuery parsed = ws::parseQuery(q);
         const ws::NameMatcher matcher(parsed);
-        const ws::NameSearchOptions options {.limit = 100, .filter = parsed.filter, .order = order};
+        const ws::NameSearchOptions options {
+            .limit = 100, .filter = parsed.filter, .order = order, .preferred = ws::PreferredTypes(preferred)};
         double best = 1e9;
         ws::NameSearchOutput out;
         if (trim) {

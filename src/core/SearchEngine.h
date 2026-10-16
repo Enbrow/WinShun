@@ -131,6 +131,11 @@ public:
         // Files and folders, and content matches (全部: its apps, places and
         // web shortcuts stay first, by match).
         RankBy rankBy = RankBy::Match;
+        // Ranked by match: files of these types (extensions without the dot,
+        // any case) before others that match about as well, and first among
+        // those named just what was typed ("curl": curl.exe before the folder
+        // curl and curl.h); see PreferredTypes. Empty: none.
+        QStringList preferredTypes;
         StartList startList = StartList::Opened; // nothing typed: what was opened, or written, last
         // Names; with nothing typed, the files written last. Asked again with
         // a higher one (the launcher, as its user scrolls down), the list

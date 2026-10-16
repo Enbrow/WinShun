@@ -1090,6 +1090,7 @@ void App::applySettings(bool initial)
     m_launcher->setRecordHistory(m_settings.recordHistory);
     m_launcher->setResultOptions(m_settings.foldersFirst ? KindOrder::FoldersFirst : KindOrder::FilesFirst,
         m_settings.showModified, m_settings.thumbnails, m_settings.numberKeys);
+    m_launcher->setPreferredTypes(m_settings.preferredTypes);
     m_launcher->setSort(m_settings.sort == u"newest" ? Launcher::NewestFirst
             : m_settings.sort == u"oldest"           ? Launcher::OldestFirst
                                                      : Launcher::BestMatch);

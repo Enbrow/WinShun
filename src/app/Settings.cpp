@@ -83,6 +83,15 @@ const QStringList kLowPriorityNames {
     u"bower_components"_s,
 };
 
+// 优先显示的文件类型: programs and scripts, as forum #104 asked (Listary's
+// list), so that a program's name finds the program before its folder and
+// its header ("curl": curl.exe, then the folder curl and curl.h). Not lnk:
+// the Start menu's shortcuts are apps in 全部 already, and Windows keeps one
+// in Recent for every file opened ("报告.docx.lnk"), which would go before
+// the file itself when its whole name is typed; nor appref-ms, whose apps
+// are in the Start menu too.
+const QStringList kDefaultPreferredTypes {u"exe"_s, u"bat"_s, u"cmd"_s, u"ps1"_s, u"msi"_s};
+
 // Plain-text formats: the scanner reads their raw bytes. Documents (docx,
 // xlsx, pdf...) are read by WinShunExtract.exe instead, under their own
 // setting (Content/Documents). The first three name the scope in the
@@ -537,12 +546,18 @@ FileTypes Settings::namedFileTypes() const
     return types;
 }
 
+QStringList Settings::defaultPreferredTypes()
+{
+    return kDefaultPreferredTypes;
+}
+
 Settings Settings::defaults()
 {
     Settings d;
     d.excludedPaths = kDefaultExcludedPaths;
     d.excludedNames = kDefaultExcludedNames;
     d.contentExtensions = kDefaultContentExtensions;
+    d.preferredTypes = defaultPreferredTypes();
     d.clipboard = windowsClipboardHistory(); // whoever kept Windows' clipboard history keeps ours
     d.clipboardExcludedApps = kDefaultClipboardExcludedApps;
     d.webShortcuts = defaultWebShortcuts();
@@ -620,6 +635,8 @@ void Settings::load()
     folderMenuOpusBefore = readOrDefault(s, u"Launcher/FolderMenuOpusBefore"_s, d.folderMenuOpusBefore);
 
     foldersFirst = readOrDefault(s, u"Results/FoldersFirst"_s, d.foldersFirst);
+    // As written by hand too: ".EXE; bat" is exe and bat.
+    preferredTypes = fileExtensions(readOrDefault(s, u"Results/PreferredTypes"_s, d.preferredTypes).join(u' '));
     showModified = readOrDefault(s, u"Results/ShowModified"_s, d.showModified);
     thumbnails = readOrDefault(s, u"Results/Thumbnails"_s, d.thumbnails);
     if (!s.contains(u"Results/Sort"_s) && s.value(u"Results/SortByModified"_s).toBool())
@@ -771,6 +788,7 @@ void Settings::save() const
     s.setValue(u"Launcher/FolderMenuHotkey"_s, folderMenuHotkey);
     s.setValue(u"Launcher/FolderMenuOpusBefore"_s, folderMenuOpusBefore);
     s.setValue(u"Results/FoldersFirst"_s, foldersFirst);
+    s.setValue(u"Results/PreferredTypes"_s, preferredTypes);
     s.setValue(u"Results/ShowModified"_s, showModified);
     s.setValue(u"Results/Thumbnails"_s, thumbnails);
     s.setValue(u"Results/Sort"_s, sort);

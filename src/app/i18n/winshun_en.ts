@@ -2786,6 +2786,22 @@
         <translation>Oldest first</translation>
     </message>
     <message>
+        <source>优先显示的文件类型</source>
+        <translation>File types shown first</translation>
+    </message>
+    <message>
+        <source>可执行;程序;脚本;优先;排在前面;扩展名;exe;bat;cmd;ps1;msi;Listary</source>
+        <translation>executable;program;script;prefer;priority;first;extension;exe;bat;cmd;ps1;msi;Listary</translation>
+    </message>
+    <message>
+        <source>按“最匹配”排序时，名字差不多的结果里这些类型排在前面，例如搜 curl 时 curl.exe 排在文件夹 curl 和 curl.h 前面。用分号或逗号隔开，留空就不优先</source>
+        <translation>Sorted by best match, files of these types go before others that match about as well: searching for curl lists curl.exe before the folder curl and curl.h. Separate them with semicolons or commas; leave it empty to prefer none</translation>
+    </message>
+    <message>
+        <source>例如 exe; bat; cmd</source>
+        <translation>For example exe; bat; cmd</translation>
+    </message>
+    <message>
         <source>不输入时显示</source>
         <translation>With nothing typed, show</translation>
     </message>
@@ -2855,7 +2871,7 @@
     </message>
     <message>
         <source>在网站关键词后输入文字时，列出这个网站的搜索建议。只有这时才会把输入的文字发给那个网站</source>
-        <translation>When you type words after a site keyword, list that site's search suggestions. Only then is what you type sent to that site</translation>
+        <translation>When you type words after a site keyword, list that site&apos;s search suggestions. Only then is what you type sent to that site</translation>
     </message>
     <message>
         <source>输入程序文件名，例如 KeePass.exe</source>
@@ -3618,7 +3634,7 @@
     </message>
     <message>
         <source>在关键词后输入文字时，从这个地址取搜索建议，列在搜索那一行下面；要搜的文字同样用 %s 代替。认得 OpenSearch 格式（必应、Google 等）、百度的 JSONP 和常见的 JSON 列表。不填就没有建议</source>
-        <translation>When you type words after the keyword, search suggestions are fetched from this address and listed below the search row; put %s where the words go here too. Understands OpenSearch (Bing, Google and others), Baidu's JSONP and common JSON lists. Leave it empty for no suggestions</translation>
+        <translation>When you type words after the keyword, search suggestions are fetched from this address and listed below the search row; put %s where the words go here too. Understands OpenSearch (Bing, Google and others), Baidu&apos;s JSONP and common JSON lists. Leave it empty for no suggestions</translation>
     </message>
     <message>
         <source>图标</source>
@@ -3638,7 +3654,7 @@
     </message>
     <message>
         <source>PNG、ICO 或 SVG 文件，方形最好；也可以先复制图标的 SVG 代码（如 iconfont 的“复制 SVG 代码”），再点“粘贴 SVG”。不选就用网站自己的图标</source>
-        <translation>A PNG, ICO or SVG file, square is best; or copy the icon's SVG code first (such as iconfont's “Copy SVG code”) and click “Paste SVG”. Without one, the site's own icon is used</translation>
+        <translation>A PNG, ICO or SVG file, square is best; or copy the icon&apos;s SVG code first (such as iconfont&apos;s “Copy SVG code”) and click “Paste SVG”. Without one, the site&apos;s own icon is used</translation>
     </message>
     <message>
         <source>添加</source>
@@ -6024,15 +6040,15 @@
     </message>
     <message>
         <source>SVG 太大了：图标的 SVG 代码请在 %1 KB 以内</source>
-        <translation>The SVG is too large: keep the icon's SVG code within %1 KB</translation>
+        <translation>The SVG is too large: keep the icon&apos;s SVG code within %1 KB</translation>
     </message>
     <message>
         <source>读不出这段 SVG：请复制完整的 &lt;svg …&gt;…&lt;/svg&gt; 代码</source>
-        <translation>Can't read this SVG: copy the whole &lt;svg …&gt;…&lt;/svg&gt; code</translation>
+        <translation>Can&apos;t read this SVG: copy the whole &lt;svg …&gt;…&lt;/svg&gt; code</translation>
     </message>
     <message>
         <source>这段 SVG 引用了外部的文件或网址，Win顺 不会去读：请用只含图形本身的 SVG</source>
-        <translation>This SVG refers to outside files or web addresses, which WinShun won't read: use an SVG that holds only the drawing itself</translation>
+        <translation>This SVG refers to outside files or web addresses, which WinShun won&apos;t read: use an SVG that holds only the drawing itself</translation>
     </message>
     <message>
         <source>这段 SVG 画出来是空的：它没有大小（viewBox），或者没有可见的图形</source>
@@ -6040,7 +6056,7 @@
     </message>
     <message>
         <source>保存不了这个图标</source>
-        <translation>Couldn't save this icon</translation>
+        <translation>Couldn&apos;t save this icon</translation>
     </message>
     <message>
         <source>选择图标</source>
@@ -6064,15 +6080,15 @@
     </message>
     <message>
         <source>用不了这张图片：请用 PNG、ICO 或 SVG，至少 16×16</source>
-        <translation>Can't use this image: use a PNG, ICO or SVG of at least 16×16</translation>
+        <translation>Can&apos;t use this image: use a PNG, ICO or SVG of at least 16×16</translation>
     </message>
     <message>
         <source>剪贴板里没有文字：先复制图标的 SVG 代码（如 iconfont 的“复制 SVG 代码”）</source>
-        <translation>There is no text on the clipboard: copy the icon's SVG code first (such as iconfont's “Copy SVG code”)</translation>
+        <translation>There is no text on the clipboard: copy the icon&apos;s SVG code first (such as iconfont&apos;s “Copy SVG code”)</translation>
     </message>
     <message>
         <source>剪贴板里的不是 SVG 代码：它应当以 &lt;svg 开头</source>
-        <translation>The clipboard doesn't hold SVG code: it should start with &lt;svg</translation>
+        <translation>The clipboard doesn&apos;t hold SVG code: it should start with &lt;svg</translation>
     </message>
     <message>
         <source>导入网页搜索</source>

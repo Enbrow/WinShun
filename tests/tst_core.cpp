@@ -15,6 +15,7 @@
 #include "FileIndex.h"
 #include "FileText.h"
 #include "History.h"
+#include "IndexService.h"
 #include "NameSearch.h"
 #include "Ntfs.h"
 #include "NtfsBulk.h"
@@ -4044,6 +4045,179 @@ private slots:
         QCOMPARE(newestFirst.hits.back().id, future);
         QCOMPARE(newestFirst.hits.back().modified, FileTime {0});
         QCOMPARE(index.modified(future), 0xC000'0000u);
+    }
+
+    // 优先显示的文件类型 (PreferredTypes): any case, without the dot; a
+    // name's extension as the index has it (after its last dot).
+    void preferredTypesTable()
+    {
+        const PreferredTypes none;
+        QVERIFY(none.empty());
+        QVERIFY(!none.has("exe"));
+        QVERIFY(!none.hasName("curl.exe"));
+
+        const PreferredTypes types({"exe", "PS1", "", "averyveryverylongone", "exe"});
+        QVERIFY(!types.empty());
+        QVERIFY(types.has("exe"));
+        QVERIFY(types.has("EXE"));
+        QVERIFY(types.has("ps1"));
+        QVERIFY(!types.has("ex"));
+        QVERIFY(!types.has("exe2"));
+        QVERIFY(!types.has(""));
+        QVERIFY(!types.has("averyveryverylongone")); // longer than any extension kept
+        QVERIFY(types.hasName("curl.EXE"));
+        QVERIFY(types.hasName("node-v22.tar.exe"));
+        QVERIFY(!types.hasName("curl.exe.bak"));
+        QVERIFY(!types.hasName("exe"));
+        QVERIFY(!types.hasName("curl."));
+
+        // At most 32 kept.
+        std::vector<std::string> many;
+        for (int i = 0; i < 40; ++i)
+            many.push_back("x" + std::to_string(i));
+        const PreferredTypes full(many);
+        QVERIFY(full.has("x31"));
+        QVERIFY(!full.has("x32"));
+    }
+
+    // The scores the types listed first get (forum #104, #116), in the
+    // search over the index: comparable matches go their way, much better
+    // ones stay ahead, and a program named just what was typed loses nothing
+    // for being in a program folder. Only by match.
+    void nameSearchPreferredTypes()
+    {
+        FileIndex index;
+        const EntryId f = index.addRoot("F:");
+        const EntryId test = index.add(f, "wsexetest", EntryFlag::Directory);
+        const EntryId folder = index.add(test, "curl", EntryFlag::Directory);
+        const EntryId header = index.add(test, "curl.h", 0);
+        const EntryId exe = index.add(test, "curl.exe", 0);
+        index.add(test, "curl-config", 0);
+        index.add(test, "libcurl.dll", 0);
+        const EntryId notes = index.add(test, "curl tools.txt", 0); // at the start, as:
+        const EntryId updater = index.add(test, "curl-updater.exe", 0);
+        const EntryId c = index.addRoot("C:");
+        const auto aside = static_cast<std::uint8_t>(EntryFlag::Directory | EntryFlag::LowPriority);
+        const EntryId windows = index.add(c, "Windows", aside);
+        const EntryId system32 = index.add(windows, "System32", aside);
+        const EntryId systemCurl = index.add(system32, "curl.exe", EntryFlag::LowPriority);
+        const EntryId helper = index.add(system32, "curl-helper.exe", EntryFlag::LowPriority);
+        WorkerPool pool(4);
+        const NameMatcher matcher(ws::parseQuery(u"curl"_s));
+        const PreferredTypes programs({"exe", "bat", "cmd", "ps1", "msi"});
+
+        const auto scores = [&](const NameSearchOptions& options) {
+            std::unordered_map<EntryId, int> out;
+            for (const NameHit& hit : searchNames(index, matcher, options, pool, {}).hits)
+                out[hit.id] = hit.score;
+            return out;
+        };
+        auto plain = scores({.limit = 20, .kindsApart = true});
+        QCOMPARE(plain.size(), std::size_t {9});
+        // As before: the folder, the header, then the program.
+        QVERIFY(plain[folder] > plain[header]);
+        QVERIFY(plain[header] > plain[exe]);
+        QVERIFY(plain[notes] > plain[updater]);
+        QVERIFY(plain[header] > plain[systemCurl]);
+
+        auto preferred = scores({.limit = 20, .kindsApart = true, .preferred = programs});
+        QCOMPARE(preferred[exe], plain[exe] + PreferredTypes::kBonus);
+        QVERIFY(preferred[exe] > preferred[header]);
+        QVERIFY(preferred[updater] > preferred[notes]); // comparable: the program first
+        // Much better matches stay ahead: the folder named so, the header named so.
+        QVERIFY(preferred[folder] > preferred[updater]);
+        QVERIFY(preferred[header] > preferred[updater]);
+        // C:\Windows\System32\curl.exe is the curl asked for, in a program folder or not...
+        QVERIFY(preferred[systemCurl] > preferred[header]);
+        QCOMPARE(preferred[systemCurl], plain[systemCurl] + PreferredTypes::kBonus + 35);
+        // ... but the rest of a program folder stays below the user's own.
+        QVERIFY(preferred[helper] < preferred[notes]);
+        QCOMPARE(preferred[helper], plain[helper] + PreferredTypes::kBonus);
+        QCOMPARE(preferred[folder], plain[folder]);
+
+        // By time, or by a column, the scores are as they were (ties only).
+        QVERIFY(scores({.limit = 20, .rankBy = RankBy::Newest, .kindsApart = true, .preferred = programs})
+            == scores({.limit = 20, .rankBy = RankBy::Newest, .kindsApart = true}));
+        QVERIFY(scores({.limit = 20, .order = {SortKey::Name, false}, .preferred = programs})
+            == scores({.limit = 20, .order = {SortKey::Name, false}}));
+        // Empty: nothing listed first.
+        QVERIFY(scores({.limit = 20, .kindsApart = true, .preferred = PreferredTypes()}) == plain);
+        // Another list: the header's type.
+        auto headers = scores({.limit = 20, .kindsApart = true, .preferred = PreferredTypes({"H"})});
+        QVERIFY(headers[header] > headers[exe]);
+        QCOMPARE(headers[exe], plain[exe]);
+    }
+
+    // The same through the engine (arrange): among the names typed just so,
+    // the types listed first come first, in 全部 and 文件, folders first or
+    // not; a folder named so still goes before a program that only begins
+    // so; by time, nothing changes.
+    void preferredTypesFirst()
+    {
+        QTemporaryDir dir;
+        IndexService::Options options;
+        options.content.enabled = false;
+        IndexService service(dir.path() + u"/index"_s, options);
+        {
+            const auto index = service.index();
+            const auto lock = index->writeLock();
+            const EntryId f = index->addRoot("F:");
+            const EntryId test = index->add(f, "wsexetest", EntryFlag::Directory);
+            index->add(test, "curl", EntryFlag::Directory);
+            for (const char* name : {"curl.h", "curl.exe", "curl-config", "libcurl.dll", "tools-helper.exe"})
+                index->add(test, name, 0);
+            index->add(test, "tools", EntryFlag::Directory);
+            const EntryId c = index->addRoot("C:");
+            const auto aside = static_cast<std::uint8_t>(EntryFlag::Directory | EntryFlag::LowPriority);
+            const EntryId system32 = index->add(index->add(c, "Windows", aside), "System32", aside);
+            index->add(system32, "curl.exe", EntryFlag::LowPriority);
+            FileTime t = 1'700'000'000;
+            for (std::size_t i = 0; i < index->slotCount(); ++i)
+                index->setModified(static_cast<EntryId>(i), t += 100); // each a little later
+        }
+        SearchEngine engine(&service);
+        QSignalSpy spy(&engine, &SearchEngine::resultsReady);
+        const auto search = [&](const QString& text, Scope scope, const QStringList& preferred,
+                                KindOrder kindOrder = KindOrder::FilesFirst, RankBy rankBy = RankBy::Match) {
+            spy.clear();
+            SearchEngine::Request request;
+            request.text = text;
+            request.scope = scope;
+            request.preferredTypes = preferred;
+            request.kindOrder = kindOrder;
+            request.rankBy = rankBy;
+            engine.submit(std::move(request));
+            QStringList paths;
+            if (!spy.wait(5000))
+                return QStringList {u"(no results)"_s};
+            for (const SearchResult& r : spy.at(0).at(1).value<SearchResults>())
+                paths.append(r.path);
+            return paths;
+        };
+        const QStringList programs {u"exe"_s, u"bat"_s, u"cmd"_s, u"ps1"_s, u"msi"_s};
+        const QString exe = u"F:\\wsexetest\\curl.exe"_s;
+        const QString systemExe = u"C:\\Windows\\System32\\curl.exe"_s;
+        const QString folder = u"F:\\wsexetest\\curl"_s;
+        const QString header = u"F:\\wsexetest\\curl.h"_s;
+
+        // Forum #116: "curl" lists curl.exe first, not the folder curl or curl.h.
+        for (const Scope scope : {Scope::All, Scope::Files}) {
+            const QStringList found = search(u"curl"_s, scope, programs);
+            QCOMPARE(found.mid(0, 4), (QStringList {exe, systemExe, folder, header}));
+            QCOMPARE(found.size(), 6);
+        }
+        QCOMPARE(search(u"curl"_s, Scope::All, programs, KindOrder::FoldersFirst).mid(0, 4),
+            (QStringList {exe, systemExe, folder, header}));
+        // Empty: as before.
+        QCOMPARE(search(u"curl"_s, Scope::All, {}).mid(0, 4), (QStringList {folder, header, exe, systemExe}));
+        // Another list.
+        QCOMPARE(search(u"curl"_s, Scope::All, {u"h"_s}).first(), header);
+        // The folder named "tools" before the program that only begins so.
+        QCOMPARE(search(u"tools"_s, Scope::All, programs),
+            (QStringList {u"F:\\wsexetest\\tools"_s, u"F:\\wsexetest\\tools-helper.exe"_s}));
+        // Newest first: the list does not care.
+        QCOMPARE(search(u"curl"_s, Scope::Files, programs, KindOrder::FilesFirst, RankBy::Newest),
+            search(u"curl"_s, Scope::Files, {}, KindOrder::FilesFirst, RankBy::Newest));
     }
 
     void newestFiles()

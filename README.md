@@ -80,6 +80,7 @@
 - **拼音和首字母**：`ndbg` → 年度报告，`baog` → 报告；多音字按常用读音。打错了同音字（年度报高）找不到时，自动按读音再找一遍。
 - **搜整台电脑**：所有本地磁盘，U 盘可选（没收录的 U 盘插着时，列表末尾会提示你顺手搜一下它）；**NAS、内网共享文件夹（SMB）** 也能加进来一起搜，服务器关机时收录过的照样能搜到。
 - **排序懂你**：自己的文件在前，系统目录、`node_modules` 在后，名字完全一样的最前。每行显示修改日期，`Ctrl+S` 在最匹配、最新、最早之间切换。不输入时列出最近打开或最近修改的文件。
+- **程序优先**：搜 `curl`，`curl.exe` 排在文件夹 `curl` 和 `curl.h` 前面；优先哪些类型可以自己改（默认 exe、bat、cmd、ps1、msi，像 Listary 的“优先显示的文件类型”）。
 - **数字键直达**：结果的图标上标着序号，`Ctrl+1`～`Ctrl+9` 打开第几行（也可改成 `Alt`）。
 - **按类型找**：选中 **文件** 后，下面一排是文件夹、文档、图片、视频、压缩包等类型，`Ctrl+Tab` 依次切换；点 `+` 或在设置里自己加类型。
 - **搜索面板**：结果太多时，点搜索框右上角的小按钮或按 `Ctrl+E`，同一个窗口展开成面板（像 Listary）：左边按范围、类型、修改时间、大小、位置筛选，右边名称 / 路径 / 大小 / 修改时间四列，点列头排序；什么都不输入也能按条件浏览整个索引（三百万个文件也是毫秒级）。`size:>10mb`、`dm:7d` 这类写法直接打在搜索框里也行。再按一次就缩回搜索框。
@@ -271,6 +272,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Pinyin**: `ndbg` finds 年度报告; a mistyped homophone (年度报高) is retried by sound.
   - **Where**: all local drives, USB drives if you like (an unindexed one that is plugged in is offered at the end of the list), and **NAS / SMB network shares**, still searchable while their server is off.
   - **Order**: your own files first, the date modified on each row, `Ctrl+S` for best match / newest / oldest. Recent files are listed when the box is empty.
+  - **Programs first**: `curl` lists `curl.exe` before the folder `curl` and `curl.h`; which file types go first is yours to change (exe, bat, cmd, ps1 and msi to begin with, like Listary's preferred file types).
   - **Shortcuts**: `Ctrl+1`…`Ctrl+9` opens a row (its number is on its icon).
   - **Search panel**: too many hits? The small button at the box's corner or `Ctrl+E` grows the same window into a panel, as Listary has it: filters down the left (scope, kind, date modified, size, folder), the rows in columns on the right (name, path, size, date modified) with sortable headers; with nothing typed it browses the whole index by those filters (milliseconds over three million files). `size:>10mb` and `dm:7d` work in the box too. Press it again to collapse.
   - **Pin**: `Ctrl+T` or the pin at the box's corner keeps the search box up through clicks elsewhere and opened files; `Esc` closes it. Drag the window by the magnifier on the left; click it for the settings.

@@ -2310,6 +2310,31 @@ Window {
                 }
 
                 SettingRow {
+                    title: qsTr("优先显示的文件类型")
+                    keywords: qsTr("可执行;程序;脚本;优先;排在前面;扩展名;exe;bat;cmd;ps1;msi;Listary").split(";")
+                    values: [window.editor.preferredTypes]
+                    description: qsTr("按“最匹配”排序时，名字差不多的结果里这些类型排在前面，例如搜 curl 时 curl.exe 排在文件夹 curl 和 curl.h 前面。用分号或逗号隔开，留空就不优先")
+
+                    FlatButton {
+                        visible: !window.editor.preferredTypesDefault
+                        text: qsTr("恢复默认")
+                        onClicked: window.editor.resetPreferredTypes()
+                    }
+
+                    body: [
+                        InputBox {
+                            width: Math.min(parent.width, 360)
+                            text: window.editor.preferredTypes
+                            placeholder: qsTr("例如 exe; bat; cmd")
+                            onEditingFinished: {
+                                window.editor.preferredTypes = text
+                                text = Qt.binding(() => window.editor.preferredTypes) // as kept: "EXE,.bat" shows "exe; bat"
+                            }
+                        }
+                    ]
+                }
+
+                SettingRow {
                     title: qsTr("不输入时显示")
                     keywords: qsTr("最近;最近打开;最近修改;最近使用;历史;recent").split(";")
                     description: qsTr("打开搜索框还没输入时列出什么：最近打开的 5 项，或最近修改的文件（往下滚动接着列出）；底栏也能切换（Ctrl+S）。选“不显示”只列收藏")

@@ -304,6 +304,8 @@ public:
     void setFavorites(Favorites* favorites);
     bool hasFavorites() const;
     void setResultOptions(KindOrder kindOrder, bool showModified, bool thumbnails, const QString& numberKeys);
+    // 优先显示的文件类型 (Settings::preferredTypes): searched again in the new order when shown.
+    void setPreferredTypes(const QStringList& types);
     Sort sort() const { return m_sort; }
     void setSort(Sort sort);
     StartList startList() const { return m_startList; }
@@ -643,6 +645,7 @@ private:
     RankBy m_shownRankBy = RankBy::Match;
     StartList m_shownStartList = RecentlyOpened;
     KindOrder m_shownKindOrder = KindOrder::FilesFirst;
+    QStringList m_shownPreferredTypes;
     QStringList m_shownExtensions; // of the kind of file chosen (fileExtensions())
     // The command whose list the rows are ("<plugin>/<command>"; empty: the
     // name search's): "=" and "= " trim to the same text, but one lists
@@ -718,6 +721,7 @@ private:
 
     bool m_recordHistory = true;
     KindOrder m_kindOrder = KindOrder::FilesFirst;
+    QStringList m_preferredTypes; // files of these types first among those that match about as well
     Sort m_sort = BestMatch;
     StartList m_startList = RecentlyOpened;
     bool m_showModified = true;

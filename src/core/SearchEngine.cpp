@@ -681,11 +681,29 @@ void markRecent(SearchResults& results, const QStringList& history)
     }
 }
 
+// Those of `rows` named just what was typed first, in their order; among
+// them the files of the types listed first (Request::preferredTypes), so
+// that "curl" lists curl.exe before the folder curl and curl.h, whichever
+// of files and folders goes first after them (KindOrder). Returns where the
+// others start.
+SearchResults::iterator exactFirst(SearchResults::iterator begin, SearchResults::iterator end, const NameMatcher& matcher,
+    const PreferredTypes& preferred)
+{
+    const auto exactEnd = std::stable_partition(begin, end,
+        [&](const SearchResult& r) { return matcher.isExactName(wtf8::fromUtf16(wtf8::view(r.name)), r.isDir); });
+    if (!preferred.empty()) {
+        std::stable_partition(begin, exactEnd, [&](const SearchResult& r) {
+            return !r.isDir && !r.isApp() && preferred.hasName(wtf8::fromUtf16(wtf8::view(r.name)));
+        });
+    }
+    return exactEnd;
+}
+
 // The files and folders found, in their order: by match, a few opened
 // lately first (promoteHistory), then those named just what was typed
-// ("readme" finds README.md and the folder readme), then the files and the
-// folders apart, as asked, each best first. By time, the two kinds apart,
-// newest first.
+// ("readme" finds README.md and the folder readme; programs and scripts
+// first: exactFirst), then the files and the folders apart, as asked, each
+// best first. By time, the two kinds apart, newest first.
 void arrange(SearchResults& results, const SearchEngine::Request& request, const NameMatcher& matcher, RankBy rankBy,
     RecentOnDisk& onDisk)
 {
@@ -703,8 +721,7 @@ void arrange(SearchResults& results, const SearchEngine::Request& request, const
     auto rest = results.begin() + promoted; // after promoteHistory: it puts `results` together anew
     if (rankBy == RankBy::Match) {
         const auto exactBegin = rest;
-        rest = std::stable_partition(rest, results.end(),
-            [&](const SearchResult& r) { return matcher.isExactName(wtf8::fromUtf16(wtf8::view(r.name)), r.isDir); });
+        rest = exactFirst(rest, results.end(), matcher, PreferredTypes(foldedExtensions(request.preferredTypes)));
         for (auto it = exactBegin; it != rest; ++it)
             it->exact = true; // a plugin's rows keep below them (plugin::Merge)
     } else {
@@ -1041,6 +1058,7 @@ void SearchEngine::runNameSearch(const Job& job)
         total = results.size();
     } else {
         const NameMatcher matcher(withTypes(query, types));
+        const PreferredTypes preferred(foldedExtensions(request.preferredTypes)); // searchNames: by match only
         const auto index = m_index->index();
         const RankBy rankBy = request.rankBy;
         // A path typed or pasted ("C:\Users\me\Tencent Files\x"): what that
@@ -1065,7 +1083,8 @@ void SearchEngine::runNameSearch(const Job& job)
                 .kindsApart = true,
                 .filter = filter,
                 .order = request.order,
-                .trustedUntil = trustedUntil()};
+                .trustedUntil = trustedUntil(),
+                .preferred = preferred};
             const NameSearchOutput out
                 = searchNames(*index, matcher, options, m_pool, [&] { return isStale(job.id); });
             names = Clock::now() - began - lockWait;
@@ -1100,8 +1119,8 @@ void SearchEngine::runNameSearch(const Job& job)
             // folder, the folder itself (listTyped puts it first).
             SearchResults rows = pathtext::listTyped(typedPath, foldersOnly, static_cast<int>(request.limit));
             rows.removeIf([&](const SearchResult& r) { return !ofType(r.path, r.isDir, types); });
-            std::stable_partition(rows.begin(), rows.end(),
-                [&](const SearchResult& r) { return matcher.isExactName(wtf8::fromUtf16(wtf8::view(r.name)), r.isDir); });
+            exactFirst(rows.begin(), rows.end(), matcher,
+                rankBy == RankBy::Match && request.order.key == SortKey::Rank ? PreferredTypes(foldedExtensions(request.preferredTypes)) : PreferredTypes());
             total -= results.removeIf([&](const SearchResult& deeper) {
                 return std::any_of(rows.cbegin(), rows.cend(),
                     [&](const SearchResult& r) { return r.path.compare(deeper.path, Qt::CaseInsensitive) == 0; });
@@ -1263,7 +1282,8 @@ void SearchEngine::runNameSearch(const Job& job)
                     .kindsApart = true,
                     .filter = filter,
                     .order = request.order,
-                    .trustedUntil = trustedUntil()};
+                    .trustedUntil = trustedUntil(),
+                    .preferred = preferred};
                 const NameSearchOutput out = searchNames(*index, spoken, options, m_pool, [&] { return isStale(job.id); });
                 if (out.cancelled || isStale(job.id))
                     return;
@@ -1397,6 +1417,9 @@ void SearchEngine::runDriveWalk(const Job& job)
     const NameMatcher matcher(withTypes(query, types));
     const RankBy rankBy = request.rankBy;
     const auto stale = [&] { return isStale(job.id); };
+    std::optional<PreferredTypes> preferred;
+    if (rankBy == RankBy::Match && !request.preferredTypes.isEmpty())
+        preferred.emplace(foldedExtensions(request.preferredTypes));
 
     struct Hit {
         SearchResult row;
@@ -1462,6 +1485,8 @@ void SearchEngine::runDriveWalk(const Job& job)
             SearchResult r;
             r.path = qpath;
             r.name = QString::fromWCharArray(fd.cFileName);
+            if (preferred && !isDir && preferred->hasName(wtf8::fromUtf16(wtf8::view(r.name))))
+                score += PreferredTypes::kBonus; // as a name search ranks the types listed first
             r.isDir = isDir;
             r.modified = knownTime(fileTimeOf(win32::ticks(fd.ftLastWriteTime)));
             batch.push_back({std::move(r), score});

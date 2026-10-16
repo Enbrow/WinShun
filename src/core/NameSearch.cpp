@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstring>
 #include <unordered_map>
 
 namespace ws {
@@ -14,6 +15,8 @@ namespace {
 constexpr std::size_t kSliceSize = 16384; // divides FileIndex::kChunkSize
 static_assert(FileIndex::kChunkSize % kSliceSize == 0);
 
+constexpr int kLowPriorityCost = 35; // under system, program and tool folders
+
 // Ranking signals that do not depend on the query.
 int staticBonus(const Entry& e) noexcept
 {
@@ -21,9 +24,24 @@ int staticBonus(const Entry& e) noexcept
     if (e.isDir())
         bonus += 2;
     if (e.flags & EntryFlag::LowPriority)
-        bonus -= 35;
+        bonus -= kLowPriorityCost;
     if (e.flags & EntryFlag::Hidden)
         bonus -= 15;
+    return bonus;
+}
+
+// What a file of a type listed first (PreferredTypes) scores more; 0 for
+// any other. Named just what was typed, it is the program asked for: what
+// being in a program folder took off is given back. Asked for matches only.
+int preferredBonus(const FileIndex& index, const Entry& e, const NameMatcher& matcher, const PreferredTypes& preferred)
+{
+    std::size_t extLength = 0;
+    const std::string_view name = index.fileName(e, extLength);
+    if (extLength == 0 || !preferred.has(name.substr(name.size() - extLength)))
+        return 0;
+    int bonus = PreferredTypes::kBonus;
+    if ((e.flags & EntryFlag::LowPriority) && matcher.isExactName(name, false))
+        bonus += kLowPriorityCost;
     return bonus;
 }
 
@@ -361,6 +379,9 @@ NameSearchOutput search(const FileIndex& index, const NameMatcher& matcher, cons
     // Files and folders apart only in the ranked list (KindOrder); a column's
     // order is one list.
     const bool apart = options.kindsApart && !options.foldersOnly && options.order.key == SortKey::Rank;
+    // The types listed first: by how well they match only.
+    const bool prefer = !options.preferred.empty() && !options.foldersOnly && options.rankBy == RankBy::Match
+        && options.order.key == SortKey::Rank;
     const EntryFilter& filter = options.filter;
     // The size of each match is read only when something asks for it.
     const bool wantSize = filter.bySize() || options.order.key == SortKey::Size;
@@ -422,6 +443,11 @@ NameSearchOutput search(const FileIndex& index, const NameMatcher& matcher, cons
                 continue;
             ++matches;
             score += staticBonus(e);
+            // Before mayAccept, which takes the score for the most it can be:
+            // asking it first with the most this could add let many more
+            // through each slice's heap (1 ms slower for "a", not faster).
+            if (prefer && !e.isDir())
+                score += preferredBonus(index, e, matcher, options.preferred);
             TopHits<decltype(order)>& heap = apart && e.isDir() ? folders : top;
             NameHit hit {id, score, modified > options.trustedUntil ? FileTime {0} : modified, size};
             if (!heap.mayAccept(hit))
@@ -463,6 +489,52 @@ NameSearchOutput search(const FileIndex& index, const NameMatcher& matcher, cons
 }
 
 } // namespace
+
+PreferredTypes::PreferredTypes(const std::vector<std::string>& extensions)
+{
+    for (const std::string& ext : extensions) {
+        if (ext.empty() || ext.size() > kLongest || m_count == kMax || has(ext))
+            continue;
+        m_keys[m_count++] = keyOf(ext);
+        m_lengths |= std::uint32_t {1} << ext.size();
+        // Both cases of a letter: has() tests the byte as it is.
+        const unsigned char lower = text::fold(ext.front());
+        const auto upper = static_cast<unsigned char>(lower >= 'a' && lower <= 'z' ? lower - 32 : lower);
+        for (const unsigned char first : {lower, upper})
+            m_firsts[first >> 6] |= std::uint64_t {1} << (first & 63);
+    }
+}
+
+PreferredTypes::Key PreferredTypes::keyOf(std::string_view extension) noexcept
+{
+    std::array<unsigned char, sizeof(Key)> bytes {};
+    for (std::size_t i = 0; i < extension.size(); ++i)
+        bytes[i] = text::fold(extension[i]);
+    Key key;
+    std::memcpy(key.data(), bytes.data(), sizeof key);
+    return key;
+}
+
+bool PreferredTypes::has(std::string_view extension) const noexcept
+{
+    if (extension.empty() || extension.size() > kLongest || !(m_lengths >> extension.size() & 1))
+        return false;
+    const auto first = static_cast<unsigned char>(extension.front());
+    if (!(m_firsts[first >> 6] >> (first & 63) & 1))
+        return false;
+    const Key key = keyOf(extension);
+    for (std::size_t i = 0; i < m_count; ++i) {
+        if (m_keys[i] == key)
+            return true;
+    }
+    return false;
+}
+
+bool PreferredTypes::hasName(std::string_view name) const noexcept
+{
+    const std::size_t length = extensionLength(name, false); // as the index has it
+    return length > 0 && has(name.substr(name.size() - length));
+}
 
 NameSearchOutput searchNames(const FileIndex& index, const NameMatcher& matcher, const NameSearchOptions& options,
     WorkerPool& pool, const std::function<bool()>& isCancelled)
