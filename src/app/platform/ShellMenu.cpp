@@ -7,6 +7,7 @@
 #include <shlobj.h>
 
 #include <string>
+#include <string_view>
 
 namespace ws::shellmenu {
 
@@ -42,6 +43,12 @@ bool writeString(const std::wstring& key, const wchar_t* name, const std::wstrin
         == ERROR_SUCCESS;
 }
 
+// Whether it was there and is now gone.
+bool deleteValue(const std::wstring& key, const wchar_t* name)
+{
+    return ::RegDeleteKeyValueW(HKEY_CURRENT_USER, key.c_str(), name) == ERROR_SUCCESS;
+}
+
 } // namespace
 
 void apply(bool on, const QString& title)
@@ -63,7 +70,12 @@ void apply(bool on, const QString& title)
         }
         changed |= writeString(key, L"MUIVerb", title.toStdWString());
         changed |= writeString(key, L"Icon", folder + L"\\WinShun.exe,0");
-        changed |= writeString(key, L"MultiSelectModel", L"Single");
+        // Empty space has nothing selected, so "Single" hides the verb there
+        // (0.8.0 wrote it everywhere; take it back off).
+        if (std::wstring_view(key).find(L"\\Background\\") == std::wstring_view::npos)
+            changed |= writeString(key, L"MultiSelectModel", L"Single");
+        else
+            changed |= deleteValue(key, L"MultiSelectModel");
         changed |= writeString(commandKey, nullptr, command);
     }
     if (changed)

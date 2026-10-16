@@ -2099,3 +2099,9 @@
 - **现象**：2026-10-15 合并 #26 后复测，脚本发 Shift+Menu，弹出的是 Win顺 自己的菜单而不是系统菜单；子代理用自己的脚本测是好的，鼠标 Shift+右键也是好的。
 - **原因**：中文输入法开着时 Menu 键到窗口是 `VK_PROCESSKEY`，Win顺 靠扫描码认出它（见上面 #26 一节）；脚本的 `SendInput` 只填了虚拟键码，扫描码是 0，认不出来，就当成普通的 Menu 键。真键盘总带扫描码，用户那里没有这个问题。
 - **做法**：测试脚本的 `KEYBDINPUT.wScan` 一律填 `MapVirtualKey(vk, MAPVK_VK_TO_VSC)`，Menu、方向键、Insert/Delete 等再加 `KEYEVENTF_EXTENDEDKEY`。结果和真键盘对不上时，先查脚本发的键。
+
+### 文件夹空白处的右键动词不能带 `MultiSelectModel=Single`
+
+- **现象**：0.8.0 的「用 Win顺 搜索此处」在选中的文件夹、盘符上有，在文件夹空白处右键没有（论坛 #209、#215）。用户把 `Directory\Background\shell\WinShun.SearchHere` 下的 `MultiSelectModel` 删掉就好了。
+- **原因**：三个键统一写了 `MultiSelectModel=Single`。空白处没有选中项，外壳按“恰好选中一项”去比，就把动词藏了。
+- **做法**：`ShellMenu.cpp` 只给 `Directory`、`Drive` 写 `Single`，`Background` 不写，已有的删掉（老用户启动新版即修好）。验证用 `IShellFolder::CreateViewObject(IID_IContextMenu)` 取空白处菜单、`GetUIObjectOf` 取文件夹本身的菜单，列出菜单项对比，不必点界面。
