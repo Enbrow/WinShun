@@ -211,10 +211,11 @@ def overlap(a, b):
     return w * h / min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
 
 
-def shoot(delay=0.0, winshun=False, margin=64, tries=12):
+def shoot(delay=0.0, winshun=False, margin=64, tries=12, beside=False):
     """The window in front, or with `winshun` WinShun's frontmost one (the
     clipboard pops up without taking the focus), and WinShun's windows by it
-    (the logo), with transparency."""
+    (the logo; with `beside` also its others against it, such as the preview
+    beside the launcher), with transparency."""
     d = Desktop()
     time.sleep(delay)
     order = d.windows()
@@ -236,6 +237,8 @@ def shoot(delay=0.0, winshun=False, margin=64, tries=12):
     if main in ours:
         targets += [h for h in order if h not in ours and d.class_name(h) == "#32770"
                     and near(d.frame(h), d.frame(main), 24) and overlap(d.frame(h), d.frame(main)) < 0.1]
+        if beside:
+            targets += [h for h in ours if h != main and not logo(h) and near(d.frame(h), d.frame(main), 24)]
     else:
         targets += [h for h in ours if not logo(h) and near(d.frame(h), d.frame(main), 24)]
     targets += [h for h in ours if logo(h) and any(near(d.frame(h), d.frame(t), 160) for t in targets)]

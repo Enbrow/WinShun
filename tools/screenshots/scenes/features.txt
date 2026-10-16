@@ -1,0 +1,37 @@
+# The search panel and the preview, light (more.txt runs it; README_ONLY).
+# Starts and ends at 全部 with the launcher closed.
+
+# The search panel: words in 全部, Ctrl+E grows the launcher into it;
+# Ctrl+E again before Esc, so that it opens as a box the next time.
+open x
+sleep 300
+tap 08
+type 年度报告
+sleep 1200
+chord 11 45
+sleep 1800
+tap 23
+sleep 500
+matte L-panel
+chord 11 45
+sleep 800
+tap 1B
+sleep 600
+
+# The preview: the demo's cover picture (封面.png: its only row; fengmian
+# also finds a Control Panel item), Alt+P.
+# The preview sits beside the launcher (or over its right part), a window
+# of its own: `beside` takes it into the matte. Esc closes the preview,
+# a second Esc the launcher.
+open x
+sleep 300
+tap 08
+type 封面.png
+sleep 1200
+chord 12 50
+sleep 2500
+matte L-preview beside
+tap 1B
+sleep 600
+tap 1B
+sleep 600

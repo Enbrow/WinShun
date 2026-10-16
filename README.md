@@ -41,6 +41,8 @@
   <img src="docs/images/search.jpg" width="49%" alt="打拼音首字母秒找文件：ndbg 找到年度报告 / pinyin initials ndbg find 年度报告">
   <img src="docs/images/numbers.jpg" width="49%" alt="图标上的序号，Ctrl+1～9 直接打开 / row numbers on the icons, Ctrl+1–9 opens a row">
   <img src="docs/images/newest.jpg" width="49%" alt="按修改时间排序，找最新的那一版 / sort by date modified, newest first">
+  <img src="docs/images/panel.jpg" width="49%" alt="搜索面板：Ctrl+E 展开，左边筛选，右边分列排序 / search panel: Ctrl+E for filters and sortable columns">
+  <img src="docs/images/preview.jpg" width="49%" alt="Alt+P 预览文件，启动器不关 / Alt+P previews a file beside the launcher">
   <img src="docs/images/content.jpg" width="49%" alt="文件内容全文搜索：Word、Excel、PPT、PDF、代码 / full-text search inside documents and code">
   <img src="docs/images/folder.jpg" width="49%" alt="只搜一个文件夹里的字：第三季度销售额 财务/ / content search in one folder: words, then folder/">
   <img src="docs/images/semantic.jpg" width="49%" alt="按意思找：? 去年报销的规定 找到差旅费用管理办法 / search by meaning: find documents by what they are about">

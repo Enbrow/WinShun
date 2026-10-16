@@ -1,6 +1,7 @@
 # The README's pictures that the post has no room for (shots.py README_ONLY),
 # light: search by meaning, the content search in one folder, the menu on a
-# double-click in an Explorer folder, the appearance settings. Search by
+# double-click in an Explorer folder, the appearance settings, the search
+# panel and the preview (features.txt). Search by
 # meaning takes this user's model service and key from their settings (the
 # profile points it at the demo folder): its index is built here, a few
 # files' text sent to that service. Explorer windows of one's own: close them
@@ -68,6 +69,8 @@ sleep 1000
 matte L-appearance
 chord 12 73
 sleep 500
+
+run scenes\features.txt
 
 run scenes\foldermenu.txt
 

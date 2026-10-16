@@ -14,7 +14,7 @@
 #   clickws <x> <y> (on a window of WinShun's) | clickbox <x> <y> (on its taskbar box) | wheel <dx> <dy> <delta>
 #   dragws <x1> <y1> <x2> <y2> (left button held from one point to the other, both on a window of WinShun's)
 #   shot <name> (the front window) | shotabs <name> <x> <y> <w> <h>        -> work\shots\<name>.png
-#   matte <name> [winshun] (cut out by shots.py shoot)                      -> work\shots\<name>.png
+#   matte <name> [winshun|beside] (cut out by shots.py shoot)               -> work\shots\<name>.png
 #   scene [--theme light|dark] [--wallpaper NAME] | restore
 #   profile start | profile stop (WinShun on work\profile, made afresh; then the user's own again)
 #   notepad <file> | paint <file> (files of this folder) | explorer open <folder of the demo> | explorer close
@@ -211,9 +211,10 @@ function RunLines($lines) {
                 $g = [Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen([int]$p[1], [int]$p[2], 0, 0, $bmp.Size); $g.Dispose()
                 Save $bmp $p[0]
             }
-            'matte' { # <name> [winshun]
+            'matte' { # <name> [winshun|beside]
                 $m = $arg -split '\s+'
                 if ($m.Count -gt 1 -and $m[1] -eq 'winshun') { Shots shoot -o (Join-Path $shots "$($m[0]).png") --winshun }
+                elseif ($m.Count -gt 1 -and $m[1] -eq 'beside') { Guard; Shots shoot -o (Join-Path $shots "$($m[0]).png") --beside }
                 else { Guard; Shots shoot -o (Join-Path $shots "$($m[0]).png") }
             }
             'scene' { Shots scene @($arg -split '\s+') }

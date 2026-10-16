@@ -271,7 +271,14 @@ def window_box(alpha):
     shadow nor the logo peeking out from behind it."""
     opaque = alpha >= 0.9
     ys, xs = np.nonzero(opaque.mean(axis=1) > 0.5)[0], np.nonzero(opaque.mean(axis=0) > 0.5)[0]
-    return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+    box = int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+    # Two windows side by side (the preview beside the launcher): much of
+    # what is opaque lies outside that box. Then the box round both, which
+    # still leaves out the logo (a sliver of any row or column).
+    if opaque[box[1]:box[3], box[0]:box[2]].sum() < 0.85 * opaque.sum():
+        ys, xs = np.nonzero(opaque.mean(axis=1) > 0.15)[0], np.nonzero(opaque.mean(axis=0) > 0.15)[0]
+        box = int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+    return box
 
 
 def logo_boxes(alpha, box):
@@ -1162,7 +1169,7 @@ def cover(window, preset="xhs", bg="silk", title=TITLE, badges=BADGES, keys=("Ct
 # the taskbar box (2560x1600, physical px): the launcher, the taskbar's top and
 # bottom, the part of the taskbar taken as it is (Start and the box), the box.
 # A new screen shot needs these measured again.
-TASKBAR = {"frame": (18, 617, 1158, 1510), "bar": (1528, 1600), "real": (226, 687), "box": (308, 1540, 668, 1588)}
+TASKBAR = {"frame": (18, 617, 1158, 1510), "bar": (1528, 1600), "real": (168, 629), "box": (250, 1540, 610, 1588)}
 
 
 def taskbar_page(window, screen, title, subtitle, preset="xhs", bg="letters", seed=7, places=TASKBAR):

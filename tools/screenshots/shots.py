@@ -94,6 +94,8 @@ README_ONLY = (
     ("folder", "L-content-folder", "只搜[一个文件夹]里的字", "第三季度销售额 财务/ → 只在“财务”里找"),
     ("foldermenu", "L-foldermenu", "资源管理器里，[双击空白处]", "收藏的、最近的、开着的文件夹，一下就到"),
     ("appearance", "L-appearance", "外观[随你调]", "主题、透明效果、界面大小，任务栏图标可换单色"),
+    ("panel", "L-panel", "结果太多，[展开面板]", "Ctrl+E：左边筛选，右边分列排序"),
+    ("preview", "L-preview", "Alt+P，[先看一眼]", "图片、文本、Office、PDF，启动器不关"),
 )
 ENDING_PAGE = "17-follow"  # who made it, where to get it, follow
 
@@ -193,6 +195,7 @@ def main() -> None:
     c.add_argument("-o", "--out", required=True)
     c.add_argument("--delay", type=float, default=0.0, help="seconds to wait first, to bring the window up")
     c.add_argument("--winshun", action="store_true", help="WinShun's frontmost window, not the one in front")
+    c.add_argument("--beside", action="store_true", help="and WinShun's windows against it (the preview)")
     c = commands.add_parser("matte")
     c.add_argument("black")
     c.add_argument("white")
@@ -246,7 +249,7 @@ def main() -> None:
         return render(args.sets, args.shots, args.out)
     if args.command == "shoot":
         import capture
-        image = capture.shoot(args.delay, args.winshun)
+        image = capture.shoot(args.delay, args.winshun, beside=args.beside)
     elif args.command == "matte":
         import capture
         black, white = Image.open(args.black), Image.open(args.white)
