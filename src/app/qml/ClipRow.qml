@@ -5,7 +5,8 @@ import WinShun
 // icon, a colour's swatch, or a sign for text and links), its first line
 // (or where the query matched), where it came from and when. A click
 // shows it in the preview; its paste button or a double click pastes it
-// (ClipboardPage.qml). The first nine show on the icon the number that
+// (ClipboardPage.qml). With clickToPaste a click pastes it, as in Windows'
+// own history, and that button shows the preview instead. The first nine show on the icon the number that
 // pastes them (Alt+1…); picked rows show the order they will be pasted in;
 // the current and the hovered row show buttons: paste, pin, delete.
 Item {
@@ -29,6 +30,8 @@ Item {
     property string hintModifier: "Alt" // ... with this held
     property bool hintTaken: false // another program holds that chord as a global hotkey: shown struck through
     property string pasteTip: qsTr("粘贴") // where the paste button pastes ("粘贴到搜索框")
+    property bool clickToPaste: false // a click pastes (Clipboard::clickToPaste)
+    property bool largePictures: false // a picture's thumbnail larger (Clipboard::largePictures)
 
     readonly property bool current: ListView.isCurrentItem
     readonly property int selectedCount: ListView.view ? ListView.view.model.selectedCount : 0
@@ -36,6 +39,7 @@ Item {
 
     signal clicked(int index, int modifiers)
     signal pasteRequested(int index) // its paste button, a double click
+    signal previewRequested(int index) // that button, with clickToPaste
     signal dragRequested(int index)
     signal moveRequested(int from, int to) // its handle dragged over row `to`
     signal moveHeld(bool held) // its handle pressed, let go
@@ -80,9 +84,10 @@ Item {
         x: 16
         anchors.verticalCenter: parent.verticalCenter
         // Pictures larger, on a taller row (ClipboardPage.pictureRowHeight):
-        // what is in them shows (GitHub #9); 108 x 68 holds a 16:10 screen whole.
-        width: row.kind === 4 ? 108 : 32
-        height: row.kind === 4 ? 68 : 32
+        // what is in them shows (GitHub #9); 108 x 68 holds a 16:10 screen whole,
+        // 208 x 130 (largePictures) its details too (forum #137).
+        width: row.kind !== 4 ? 32 : row.largePictures ? 208 : 108
+        height: row.kind !== 4 ? 32 : row.largePictures ? 130 : 68
 
         Rectangle { // text and links: a sign on a soft tile
             anchors.fill: parent
@@ -293,7 +298,9 @@ Item {
         onDoubleClicked: (mouse) => {
             if (draggedOut)
                 return
-            if (mouse.button === Qt.LeftButton && (mouse.modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) === 0)
+            // With clickToPaste the first click pasted it already.
+            if (mouse.button === Qt.LeftButton && (mouse.modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) === 0
+                && !row.clickToPaste)
                 row.pasteRequested(row.index)
         }
 
@@ -326,12 +333,12 @@ Item {
                         row.moveRequested(row.index, to)
                 }
             }
-            RowAction {
+            RowAction { // a click pastes already (clickToPaste): the preview here instead
                 id: pasteAction
-                glyph: "" // Paste
-                tip: row.pasteTip
-                tipShortcut: "Enter"
-                onClicked: row.pasteRequested(row.index)
+                glyph: row.clickToPaste ? "" : "" // View, Paste
+                tip: row.clickToPaste ? qsTr("预览") : row.pasteTip
+                tipShortcut: row.clickToPaste ? "Alt+P" : "Enter"
+                onClicked: row.clickToPaste ? row.previewRequested(row.index) : row.pasteRequested(row.index)
             }
             RowAction {
                 id: pinAction

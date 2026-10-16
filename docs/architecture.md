@@ -61,6 +61,8 @@ Hotkey=                  ; 另一个打开剪贴板的组合键，例如 Win+Alt
 MaxItems=200             ; 分组以外最多保留几条（10–300）；默认内存超过 16 GB 200 条，否则 100 条
 MaxDays=30               ; 多少天没再复制或粘贴过就删除；0 = 一直保留（分组里的都一直保留）
 Images=true              ; 也记录图片
+ClickToPaste=false       ; 单击就粘贴（和 Windows 自带的一样；论坛 #137）；关时单击选中、双击粘贴。开着时行上的“粘贴”按钮换成“预览”，Ctrl/Shift+单击仍是多选
+LargePictures=false      ; 图片行更高（142，缩略图 208×130，否则 80、108×68），看得清细节
 ExcludedApps=KeePass.exe, KeePassXC.exe, 1Password.exe, Bitwarden.exe ; 不记录这些程序复制的内容
 
 [Taskbar]

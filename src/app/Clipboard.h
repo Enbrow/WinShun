@@ -74,6 +74,13 @@ class Clipboard : public QObject {
     // Bits 1 << n of the digits n left to another program's global hotkey
     // (numberkeys::heldMask): their rows show the chord struck through.
     Q_PROPERTY(int numberKeysLeft READ numberKeysLeft NOTIFY numberKeysChanged FINAL)
+    // A click pastes the row, as Windows' own history does (forum #137: the
+    // PC driven from a phone, where a double click is hard to hit); off, it
+    // picks the row and a double click pastes (Settings::clipboardClickToPaste).
+    Q_PROPERTY(bool clickToPaste READ clickToPaste NOTIFY rowOptionsChanged FINAL)
+    // Pictures on taller rows, their thumbnails large enough to make out
+    // (Settings::clipboardLargePictures).
+    Q_PROPERTY(bool largePictures READ largePictures NOTIFY rowOptionsChanged FINAL)
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged FINAL)
     Q_PROPERTY(int category READ category WRITE setCategory NOTIFY categoryChanged FINAL)
     // [{title, group (id, 0 for the kinds), size (entries in a group)}]
@@ -125,6 +132,9 @@ public:
     void setNumberKeys(const QString& keys); // "alt", "ctrl" or "off"
     int numberKeysLeft() const { return static_cast<int>(m_numberKeysLeft); }
     void setNumberKeysLeft(unsigned digits);
+    bool clickToPaste() const { return m_clickToPaste; }
+    bool largePictures() const { return m_largePictures; }
+    void setRowOptions(bool clickToPaste, bool largePictures);
     QString query() const { return m_query; }
     void setQuery(const QString& query);
     int category() const { return m_category; }
@@ -205,6 +215,7 @@ public:
 
 signals:
     void numberKeysChanged();
+    void rowOptionsChanged();
     void activeChanged();
     void keysRoutedChanged();
     void pinnedChanged();
@@ -284,6 +295,8 @@ private:
     QString m_shortcut;
     QString m_numberKeys = QStringLiteral("alt");
     unsigned m_numberKeysLeft = 0;
+    bool m_clickToPaste = false;
+    bool m_largePictures = false;
     QString m_query;
     int m_category = 0;
     qint64 m_categoryGroup = 0; // the group the category tab is, kept when groups come and go

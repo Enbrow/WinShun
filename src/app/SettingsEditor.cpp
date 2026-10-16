@@ -1089,6 +1089,22 @@ void SettingsEditor::setClipboardMaxDays(int days)
     commit();
 }
 
+void SettingsEditor::setClipboardClickToPaste(bool on)
+{
+    if (m_settings.clipboardClickToPaste == on)
+        return;
+    m_settings.clipboardClickToPaste = on;
+    commit();
+}
+
+void SettingsEditor::setClipboardLargePictures(bool on)
+{
+    if (m_settings.clipboardLargePictures == on)
+        return;
+    m_settings.clipboardLargePictures = on;
+    commit();
+}
+
 void SettingsEditor::setClipboardImages(bool on)
 {
     if (m_settings.clipboardImages == on)

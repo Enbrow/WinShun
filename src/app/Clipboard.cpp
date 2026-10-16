@@ -217,6 +217,16 @@ void Clipboard::setNumberKeys(const QString& keys)
     emit numberKeysChanged();
 }
 
+void Clipboard::setRowOptions(bool clickToPaste, bool largePictures)
+{
+    if (clickToPaste == m_clickToPaste && largePictures == m_largePictures)
+        return;
+    m_clickToPaste = clickToPaste;
+    m_largePictures = largePictures;
+    emit rowOptionsChanged();
+    refreshStatus(); // pinned, it says how to paste
+}
+
 void Clipboard::setNumberKeysLeft(unsigned digits)
 {
     if (digits == m_numberKeysLeft)
@@ -353,7 +363,7 @@ void Clipboard::refreshStatus()
     else if (!m_recording)
         status = tr("没有在记录剪贴板");
     else if (m_pinned && !m_keysRouted)
-        status = tr("已钉住：双击一条，粘贴到正在用的程序");
+        status = m_clickToPaste ? tr("已钉住：点一条，粘贴到正在用的程序") : tr("已钉住：双击一条，粘贴到正在用的程序");
     else if (!m_query.trimmed().isEmpty() || m_category != 0)
         status = tr("%Ln 条", nullptr, m_model.count());
     else

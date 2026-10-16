@@ -153,9 +153,9 @@
 
 - **记什么**：复制过的文字、图片、文件都记下来。
 - **怎么打开**：`Win+V` 或自设的快捷键；开在输入光标旁，不抢焦点。
-- **怎么粘贴**：双击或 `Enter` 粘贴，`Shift+Enter` 粘贴为纯文本，`Alt+1`～`9` 直接粘贴第几条（序号标在图标上）。
+- **怎么粘贴**：双击或 `Enter` 粘贴（也可以设成像 Windows 自带的那样单击就粘贴），`Shift+Enter` 粘贴为纯文本，`Alt+1`～`9` 直接粘贴第几条（序号标在图标上）。
 - **能搜**：拼音搜索，`@wx` 只看微信里复制的；**图片里的字也能搜**（PaddleOCR 文字识别，在本机，不联网，截图里的数字和小字也认得准）。
-- **预览**：全文、大图、颜色值的 HEX / RGB / HSL。
+- **预览**：全文、大图、颜色值的 HEX / RGB / HSL；图片缩略图可以调大，不打开预览也看得清。
 - **拖出图片**：按住一张图片拖到文件夹里，就存成 PNG 文件。
 - **整理**：固定、分组、多选按顺序合并粘贴，钉住后可以一条接一条地往表格里填；固定的可以排在最前，顺序可以拖动或用 `Ctrl+↑`/`↓` 自己排。
 - **隐私**：密码管理器复制的密码不记录，历史只存在本机。
@@ -312,6 +312,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Search**: pinyin, `@app` filters, and **words in copied pictures** (PaddleOCR text recognition, on your PC and offline, good with numbers and small print in screenshots).
   - **Preview**: full text, pictures, HEX / RGB / HSL color values.
   - **Drag pictures out**: hold a picture and drop it on a folder to save it as a PNG file.
+  - **Paste**: double-click or `Enter`, or one click as in Windows' own history (an option); larger picture thumbnails as another.
   - **Organize**: pins, groups, multi-paste in order, and `Alt+1`…`Alt+9`; pinned items can come first, and the order is yours to drag or move with `Ctrl+↑`/`↓`.
   - **Privacy**: passwords from password managers are not kept, and the history stays on your PC.
 - 🔎 **Taskbar search box (replaces Windows search)**: WinShun's own search box on the Windows 11 taskbar (a pinned button on Windows 10), optionally right of Start where Windows' own box sits (alongside TranslucentTB too); a whole box, its icon and label, or its icon alone, as Windows' own search; it can take over `Win+S` and typing in the Start menu.

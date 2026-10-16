@@ -26,7 +26,8 @@ Item {
     signal previewOpening() // just before: the window sizes it (ClipboardWindow.qml)
 
     readonly property int rowHeight: Theme.rowHeight // what the window's height is counted in
-    readonly property int pictureRowHeight: 80 // a picture's row: its thumbnail larger (ClipRow)
+    // A picture's row: its thumbnail larger (ClipRow), larger still with largePictures.
+    readonly property int pictureRowHeight: clipboard.largePictures ? 142 : 80
     // Opened from a field of Win顺's own: Enter pastes there, Esc goes back.
     readonly property bool intoField: clipboard.fieldName.length > 0
     readonly property string pasteLabel: intoField ? qsTr("粘贴到%1").arg(clipboard.fieldName) : qsTr("粘贴")
@@ -575,6 +576,8 @@ Item {
                         hintModifier: page.numberKey === Qt.Key_Control ? "Ctrl" : "Alt"
                         hintTaken: clipRow.hint > 0 && !page.numberUsable(clipRow.hint)
                         pasteTip: page.pasteLabel
+                        clickToPaste: page.clipboard.clickToPaste
+                        largePictures: page.clipboard.largePictures
                         onDragRequested: (index) => page.clipboard.dragOut(index)
                         onMoveHeld: (held) => list.dragging = held
                         onMoveRequested: (from, to) => {
@@ -597,10 +600,17 @@ Item {
                                 page.selectTo(index, ctrl)
                             } else if (ctrl) {
                                 page.toggleRow(index)
+                            } else if (page.clipboard.clickToPaste) {
+                                // As Enter: a picked row pastes all the picked ones; another, just itself.
+                                if (page.selectedCount > 0 && !page.clipboard.items.isSelected(index))
+                                    page.clipboard.clearSelection()
+                                list.currentIndex = index
+                                page.clipboard.paste(index, false)
                             } else {
                                 page.togglePreview(index) // the row shown already: closes
                             }
                         }
+                        onPreviewRequested: (index) => page.togglePreview(index)
                         onPasteRequested: (index) => {
                             list.currentIndex = index
                             page.clipboard.paste(index, false) // a picked row pastes all the picked ones

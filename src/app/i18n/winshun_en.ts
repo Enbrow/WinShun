@@ -230,6 +230,10 @@
         <translation>Drag to reorder</translation>
     </message>
     <message>
+        <source>预览</source>
+        <translation>Preview</translation>
+    </message>
+    <message>
         <source>取消固定</source>
         <translation>Unpin</translation>
     </message>
@@ -2937,6 +2941,30 @@
         <translation>When you type words after a site keyword, list that site&apos;s search suggestions. Only then is what you type sent to that site</translation>
     </message>
     <message>
+        <source>单击粘贴</source>
+        <translation>Click to paste</translation>
+    </message>
+    <message>
+        <source>单击;点击;点一下;直接粘贴;双击;远程;手机;触屏</source>
+        <translation>click;single click;one click;paste directly;double click;remote;phone;touch</translation>
+    </message>
+    <message>
+        <source>点一下就粘贴，和 Windows 自带的剪贴板一样，手机远程操作时也方便。按住 Ctrl 或 Shift 点击仍是多选；关掉时单击选中、双击粘贴</source>
+        <translation>One click pastes, as in Windows&apos; own clipboard history, which also helps when you control the PC from a phone. Ctrl+click and Shift+click still pick several; off, a click selects and a double click pastes</translation>
+    </message>
+    <message>
+        <source>大图片缩略图</source>
+        <translation>Large picture thumbnails</translation>
+    </message>
+    <message>
+        <source>缩略图;图片;截图;放大;看清;细节</source>
+        <translation>thumbnail;picture;screenshot;larger;see;details</translation>
+    </message>
+    <message>
+        <source>图片的那一行更高，缩略图大到能看清细节，不用打开预览</source>
+        <translation>Pictures get taller rows, their thumbnails large enough to see the details without opening the preview</translation>
+    </message>
+    <message>
         <source>输入程序文件名，例如 KeePass.exe</source>
         <translation>Program file name, e.g. KeePass.exe</translation>
     </message>
@@ -4309,7 +4337,11 @@
     </message>
     <message>
         <source>已钉住：双击一条，粘贴到正在用的程序</source>
-        <translation>Pinned: double-click an entry to paste it into the program you are using</translation>
+        <translation>Pinned: double-click to paste into the active program</translation>
+    </message>
+    <message>
+        <source>已钉住：点一条，粘贴到正在用的程序</source>
+        <translation>Pinned: click to paste into the active program</translation>
     </message>
     <message numerus="yes">
         <source>%Ln 条</source>

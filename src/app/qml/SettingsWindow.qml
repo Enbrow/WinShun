@@ -3071,6 +3071,28 @@ Window {
                 }
 
                 SettingRow {
+                    title: qsTr("单击粘贴")
+                    keywords: qsTr("单击;点击;点一下;直接粘贴;双击;远程;手机;触屏").split(";")
+                    description: qsTr("点一下就粘贴，和 Windows 自带的剪贴板一样，手机远程操作时也方便。按住 Ctrl 或 Shift 点击仍是多选；关掉时单击选中、双击粘贴")
+
+                    ToggleSwitch {
+                        checked: window.editor.clipboardClickToPaste
+                        onToggled: (on) => window.editor.clipboardClickToPaste = on
+                    }
+                }
+
+                SettingRow {
+                    title: qsTr("大图片缩略图")
+                    keywords: qsTr("缩略图;图片;截图;放大;看清;细节").split(";")
+                    description: qsTr("图片的那一行更高，缩略图大到能看清细节，不用打开预览")
+
+                    ToggleSwitch {
+                        checked: window.editor.clipboardLargePictures
+                        onToggled: (on) => window.editor.clipboardLargePictures = on
+                    }
+                }
+
+                SettingRow {
                     id: clipboardAppsRow
                     title: qsTr("不记录这些程序复制的内容")
                     keywords: qsTr("密码;隐私;排除;程序;exe;KeePass").split(";")

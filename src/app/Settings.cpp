@@ -737,6 +737,8 @@ void Settings::load()
     clipboardMaxItems = std::clamp(readOrDefault(s, u"Clipboard/MaxItems"_s, d.clipboardMaxItems), 10, 300);
     clipboardMaxDays = std::clamp(readOrDefault(s, u"Clipboard/MaxDays"_s, d.clipboardMaxDays), 0, 3650);
     clipboardImages = readOrDefault(s, u"Clipboard/Images"_s, d.clipboardImages);
+    clipboardClickToPaste = readOrDefault(s, u"Clipboard/ClickToPaste"_s, d.clipboardClickToPaste);
+    clipboardLargePictures = readOrDefault(s, u"Clipboard/LargePictures"_s, d.clipboardLargePictures);
     clipboardExcludedApps = readOrDefault(s, u"Clipboard/ExcludedApps"_s, d.clipboardExcludedApps);
     clipboardNumberKeys = readOrDefault(s, u"Clipboard/NumberKeys"_s, d.clipboardNumberKeys).trimmed().toLower();
     if (clipboardNumberKeys != u"ctrl" && clipboardNumberKeys != u"off")
@@ -840,6 +842,8 @@ void Settings::save() const
     s.setValue(u"Clipboard/MaxItems"_s, clipboardMaxItems);
     s.setValue(u"Clipboard/MaxDays"_s, clipboardMaxDays);
     s.setValue(u"Clipboard/Images"_s, clipboardImages);
+    s.setValue(u"Clipboard/ClickToPaste"_s, clipboardClickToPaste);
+    s.setValue(u"Clipboard/LargePictures"_s, clipboardLargePictures);
     s.setValue(u"Clipboard/ExcludedApps"_s, clipboardExcludedApps);
     s.setValue(u"Clipboard/NumberKeys"_s, clipboardNumberKeys);
     s.setValue(u"Taskbar/WinS"_s, taskbarWinS);
