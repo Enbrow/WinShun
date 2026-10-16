@@ -41,8 +41,21 @@ Window {
            | Qt.WindowTransparentForInput
     color: Theme.menuBackground
 
-    // The row's facts: {name, folder, path, size, modified, onDisk (a file or folder: when created is asked)}.
+    // Dismissed: not back until the mouse really moves. A row that changes
+    // under a still mouse (a key moves the current row onto it and its
+    // buttons show, the list scrolled) gets hover moves from Qt all the same,
+    // at the same place: where the mouse last was over a row (lastAt) when
+    // the tip was dismissed, offers are not taken.
+    property var lastAt: null
+    property var quietAt: null
+
+    // The row's facts: {name, folder, path, size, modified, onDisk (a file or
+    // folder: when created is asked), at (the mouse, global)}.
     function offer(row: Item, text: Item, facts: var) {
+        if (quietAt !== null && Math.abs(facts.at.x - quietAt.x) < 1 && Math.abs(facts.at.y - quietAt.y) < 1)
+            return
+        quietAt = null
+        lastAt = facts.at
         if (row === source && (visible || delay.running)) {
             linger.stop() // back on it before it went
             return // still the same: nothing new (called as the mouse moves)
@@ -82,6 +95,7 @@ Window {
         hiddenAt = 0
         source = null
         visible = false
+        quietAt = lastAt
     }
 
     function present() {
@@ -94,9 +108,11 @@ Window {
         const top = source.mapToGlobal(0, 0).y
         const bottom = top + source.height
         const area = host.screenArea(Qt.point(at.x, at.y))
-        // As wide as the row's text and then some (a name cut by a little
-        // fits on one line), else wrapped; never wider than the screen.
-        maxTextWidth = Math.max(160, Math.min(Math.max(560, textItem.width + 160),
+        // The name on one line where the screen has room (wrapped, a long
+        // name without spaces breaks anywhere: "…FINAL_v3." and "docx" on
+        // two lines); the folder wraps at that width, or at the row's text
+        // and then some; never wider than the screen.
+        maxTextWidth = Math.max(160, Math.min(Math.max(560, textItem.width + 160, Math.ceil(nameWidth.advanceWidth) + 1),
                                               (area.width > 0 ? area.width : 1e6) - 2 * padX - 16))
         lines.forceLayout() // its size now: placed by it
         const w = Math.ceil(lines.width) + 2 * padX

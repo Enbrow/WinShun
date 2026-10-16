@@ -76,7 +76,7 @@ Item {
         }
         nameTip.offer(row, title, {
             name: name, folder: folder, path: path, size: size, modified: modifiedDate,
-            onDisk: !isApp && !offline && !missing
+            onDisk: !isApp && !offline && !missing, at: area.mapToGlobal(area.mouseX, area.mouseY)
         })
     }
     function dropTip() {
@@ -200,6 +200,13 @@ Item {
             pressedAt = Qt.point(mouse.x, mouse.y)
             preventStealing = mouse.button === Qt.LeftButton && !row.isApp && !row.offline && !row.missing
                               && mouse.source === Qt.MouseEventNotSynthesized
+        }
+        // The wheel hides the tip even where the list does not scroll (Windows' own tips do);
+        // passed on, so the list still scrolls.
+        onWheel: (wheel) => {
+            if (row.nameTip)
+                row.nameTip.dismiss()
+            wheel.accepted = false
         }
         onPositionChanged: (mouse) => {
             if (!pressed) { // moved: a tip dismissed (a key, a scroll) may come again
