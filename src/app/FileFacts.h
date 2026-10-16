@@ -12,7 +12,7 @@ namespace ws {
 // What the index does not keep about a file or folder, asked of the disk off
 // the GUI thread for the tip over a row whose name is cut (NameTip.qml): when
 // it was created. The index has its size and when it was last written.
-// Network paths are not asked (a server that does not answer would hold a
+// Network paths, mapped drive letters too, are not asked (a server that does not answer would hold a
 // worker for half a minute); answers are kept for the session.
 class FileFacts : public QObject {
     Q_OBJECT

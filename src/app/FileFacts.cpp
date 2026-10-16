@@ -28,6 +28,16 @@ QString createdOf(const QString& path)
     return QDateTime::fromMSecsSinceEpoch(ms).toLocalTime().toString(u"yyyy-MM-dd HH:mm"_s);
 }
 
+// A drive letter mapped to a share ("Z:"): as slow as the share when it is
+// gone, and the exit waits for what is being read.
+bool onNetworkDrive(const QString& path)
+{
+    if (path.size() < 2 || path[1] != u':')
+        return false;
+    const wchar_t root[] {static_cast<wchar_t>(path[0].unicode()), L':', L'\\', L'\0'};
+    return ::GetDriveTypeW(root) == DRIVE_REMOTE;
+}
+
 } // namespace
 
 FileFacts::FileFacts(QObject* parent)
@@ -44,7 +54,7 @@ FileFacts::~FileFacts()
 
 void FileFacts::ask(const QString& path)
 {
-    if (path.isEmpty() || path.startsWith(u"\\\\"_s) || path.startsWith(u"//"_s))
+    if (path.isEmpty() || path.startsWith(u"\\\\"_s) || path.startsWith(u"//"_s) || onNetworkDrive(path))
         return;
     if (const auto it = m_known.constFind(path); it != m_known.cend()) {
         if (!it->isEmpty())
