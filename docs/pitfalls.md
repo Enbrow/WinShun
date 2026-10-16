@@ -1491,6 +1491,12 @@
 - **原因**：Windows PowerShell 5.1 把数组元素用空格直接拼成命令行，不给带空格的元素加引号。
 - **做法**：自己拼引号：`-ArgumentList ('--query "' + $q + '"')`。拿不准时截一张屏，看程序实际收到了什么。
 
+### 用脚本往 Excel 里加宏：`AccessVBOM` 删了又被 Excel 写回去
+
+- **现象**：测“浏览文件夹”对话框（2026-10-16）时，脚本临时把 `HKCU\Software\Microsoft\Office\16.0\Excel\Security\AccessVBOM` 设成 1，加完 VBA 模块马上删掉；跑完一看又是 1。`$xl.Quit()` 之后 EXCEL.EXE 还要好几秒才退。
+- **原因**：Excel 启动时读这些信任设置，退出时把内存里的那份写回注册表，盖掉了中途删的结果。
+- **做法**：等 EXCEL.EXE 都退出了再删 `AccessVBOM`，删完再读一次确认。宏里弹的对话框属于 EXCEL.EXE（不是脚本的进程），按进程名找它的 `#32770`。
+
 ## README 和帖子的截图（tools/screenshots/）
 
 用法见 `tools/screenshots/README.md`，一次拍全部用 `agent.ps1 scenes\all.txt`，出图用 `shots.py render`。流程：`profile` 做一个只索引演示文件夹的配置，`WinShun.exe --profile <文件夹>` 用它启动；`scene` 换主题和壁纸；用真实输入把窗口摆出来，`shoot` 抠出来；`compose` 放到背景上（README 和帖子里封面以后的几张），`cover` 做帖子的封面（窗口立体地斜放，配大标题、桂冠里的两句话和两个 Ctrl 键）；最后 `restore`，用户自己的 Win顺 重新启动。

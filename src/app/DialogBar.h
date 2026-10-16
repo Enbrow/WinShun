@@ -169,7 +169,7 @@ public:
     QString explorerPath() const { return m_explorer.isEmpty() ? QString() : m_explorer.constFirst(); }
     QString explorerSource() const;
     QString originName() const;
-    bool foldersOnly() const { return m_kind == filedialog::Kind::Folder; }
+    bool foldersOnly() const { return m_kind == filedialog::Kind::Folder || m_kind == filedialog::Kind::Browse; }
     bool canOpen() const { return m_kind == filedialog::Kind::Open; } // not the XP style: it may be for saving
     bool nothingFound() const { return m_nothingFound; }
     QString browsedFolder() const { return m_browsed; }

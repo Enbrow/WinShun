@@ -8,6 +8,7 @@
 #include <ole2.h> // before uiautomation.h: WIN32_LEAN_AND_MEAN leaves it out of windows.h
 
 #include <commctrl.h>
+#include <shlobj.h> // BFFM_SETSELECTIONW
 #include <uiautomation.h>
 #include <wrl/client.h>
 
@@ -32,6 +33,7 @@ namespace {
 constexpr int kFileNameEdit = 0x480; // edt1; a folder picker's "Folder:" box
 constexpr int kFileNameCombo = 0x47C; // cmb13
 constexpr int kFileTypeCombo = 0x470; // cmb1
+constexpr int kBrowseTree = 0x3741; // SHBrowseForFolder's tree, in the old style (no BIF_NEWDIALOGSTYLE)
 
 bool hasClass(HWND hwnd, const wchar_t* name)
 {
@@ -211,6 +213,50 @@ bool goByName(HWND dialog, const std::wstring& folder)
         waitFor([&] { return caption(crumbs) != shown; }, 1500ms);
     setText(box, typed);
     return true;
+}
+
+// SHBrowseForFolder's dialog ("浏览文件夹", from VBA macros and
+// Shell.Application.BrowseForFolder): a tree of folders and OK, no address
+// bar. The tree sits in a control of its own (BIF_NEWDIALOGSTYLE) or right
+// in the dialog.
+HWND browseTree(HWND dialog)
+{
+    if (const HWND tree = descend(dialog, {L"SHBrowseForFolder ShellNameSpace Control", L"SysTreeView32"}))
+        return tree;
+    const HWND tree = ::GetDlgItem(dialog, kBrowseTree);
+    return tree && hasClass(tree, L"SysTreeView32") ? tree : nullptr;
+}
+
+// The tree opened at the folder and the folder selected, as the program
+// itself would from its callback: OK then picks it. Both messages take the
+// path as a pointer into the dialog's own memory, so it is written there
+// first (the dialog's program has our rights or less: DialogJump leaves an
+// elevated one alone).
+bool goByTree(HWND dialog, const std::wstring& folder)
+{
+    DWORD process = 0;
+    if (!::GetWindowThreadProcessId(dialog, &process))
+        return false;
+    const HANDLE handle = ::OpenProcess(PROCESS_VM_OPERATION | PROCESS_VM_WRITE, FALSE, process);
+    if (!handle)
+        return false;
+    const SIZE_T bytes = (folder.size() + 1) * sizeof(wchar_t);
+    void* remote = ::VirtualAllocEx(handle, nullptr, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    bool answered = true;
+    bool went = false;
+    if (remote && ::WriteProcessMemory(handle, remote, folder.c_str(), bytes, nullptr)) {
+        const LPARAM path = reinterpret_cast<LPARAM>(remote);
+        // Expanded first, so that the selection, made last, is where the
+        // tree scrolls to.
+        answered = send(dialog, BFFM_SETEXPANDED, TRUE, path) && send(dialog, BFFM_SETSELECTIONW, TRUE, path);
+        went = answered;
+    }
+    // Unanswered (hung): it may still read the path later; a few bytes are
+    // left there rather than freed under it.
+    if (remote && answered)
+        ::VirtualFreeEx(handle, remote, 0, MEM_RELEASE);
+    ::CloseHandle(handle);
+    return went;
 }
 
 // WPS Office's own file dialog. Its address bar shows crumbs, and a text box
@@ -485,6 +531,8 @@ Kind kind(HWND hwnd)
     // The Windows XP style, still shown for GetOpenFileName with a hook or template.
     if (::FindWindowExW(hwnd, nullptr, L"SHELLDLL_DefView", nullptr) && fileNameBox(hwnd) && ::GetDlgItem(hwnd, IDOK))
         return Kind::Legacy;
+    if (browseTree(hwnd) && ::GetDlgItem(hwnd, IDOK))
+        return Kind::Browse;
     return Kind::None;
 }
 
@@ -552,6 +600,8 @@ bool goTo(HWND dialog, const std::wstring& folder)
     const Kind k = kind(dialog);
     if (k == Kind::Legacy)
         return goByName(dialog, folder);
+    if (k == Kind::Browse)
+        return goByTree(dialog, folder);
     if (k == Kind::None)
         return false;
     if (kingsoft::isOne(dialog))

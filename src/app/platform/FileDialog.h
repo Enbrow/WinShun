@@ -7,7 +7,9 @@
 
 // The Open and Save dialogs of Windows in other programs, driven from outside
 // with window messages alone, as a user would drive them: nothing is loaded
-// into the other program and no keys are synthesised (see DialogJump).
+// into the other program and no keys are synthesised (see DialogJump). The
+// one exception: SHBrowseForFolder's dialog takes a folder only as a string
+// in its own memory (BFFM_SETSELECTION), so the path is written there.
 //
 // And WPS Office's own (Kingsoft's "KcfdFileDialog"): a Qt window whose
 // controls are no windows, so only UI Automation sees them. Asked on a worker
@@ -20,6 +22,7 @@ enum class Kind {
     Save,
     Folder, // a folder picker (FOS_PICKFOLDERS)
     Legacy, // the Windows XP style, still shown for GetOpenFileName with a hook or template
+    Browse, // "浏览文件夹": SHBrowseForFolder's tree (VBA macros, Shell.Application.BrowseForFolder)
 };
 
 // A WPS Office dialog is one once probe() has said so.
@@ -35,7 +38,7 @@ Kind probe(HWND hwnd);
 
 // The folder the dialog shows, as its address bar names it; empty for a
 // place that is no folder on disk (This PC, a library), in the Windows XP
-// style, which has no address bar, and in WPS Office's, whose crumbs UI
+// style and SHBrowseForFolder's, which have no address bar, and in WPS Office's, whose crumbs UI
 // Automation does not tell right.
 std::wstring currentFolder(HWND dialog);
 

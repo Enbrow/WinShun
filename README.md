@@ -140,7 +140,7 @@
 
 #### 📂 “打开”“另存为”对话框
 
-- **对话框旁的搜索框**：输入文件夹或文件名（拼音也行），回车，对话框直接转过去；网页上传文件、WPS 的对话框也认。
+- **对话框旁的搜索框**：输入文件夹或文件名（拼音也行），回车，对话框直接转过去；网页上传文件、WPS 的对话框、VBA 宏弹出的“浏览文件夹”也认。
 - **`Ctrl+G`**：转到资源管理器、Total Commander、Directory Opus 或 XYplorer 正在显示的文件夹，和 Listary 的同名快捷键一样。
 - **不输入时**：列出打开着的文件夹、刚复制的路径、收藏和最近用过的文件夹。
 - **自动转过去**：可以设成对话框一出现就转到文件管理器的文件夹，或者先停在上次的位置，从文件管理器切回来时再转。
@@ -308,7 +308,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Search by meaning** (off by default): `? last year's expense rules` finds a document that says “travel cost requests”. It uses the model you pick: Ollama or LM Studio on your PC uploads nothing; for SiliconFlow, Model Studio, OpenAI and others you enter your own key, and before the first run it says how much text would be sent and waits for your Enter. See [plugins/winshun.semantic](plugins/winshun.semantic/README.md).
   - **Your own**: zero-code `plugin.json`, scripts in any language, or resident processes, with SDKs for Python, PowerShell and C++. Plugins run with normal rights under a memory limit. See [docs/plugins.en.md](docs/plugins.en.md).
 - 📂 **Open / Save dialogs**
-  - **Search bar**: a search bar under every file dialog; type a name (pinyin too), press Enter, and the dialog goes there; web page uploads and WPS dialogs too.
+  - **Search bar**: a search bar under every file dialog; type a name (pinyin too), press Enter, and the dialog goes there; web page uploads, WPS dialogs and the "Browse For Folder" box of VBA macros too.
   - **`Ctrl+G`**: jumps to the folder open in File Explorer, Total Commander, Directory Opus or XYplorer, like Listary.
   - **Suggestions**: open folders, a path you just copied, favorites and recent folders.
   - **Going there by itself**: optional, as the dialog opens, or only when you come back to it from the file manager.
