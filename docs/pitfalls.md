@@ -2313,3 +2313,15 @@
 - **现象**：在 `cd F:\wswt\<工作区>` 之后用 `[IO.File]::ReadAllText('tests/tst_core.cpp')` 读、改、写回，改的却是主工作区 `F:\电脑便捷工具` 里的同名文件（2026-10-16，`git status` 才发现）。
 - **原因**：`cd`（`Set-Location`）只改 PowerShell 的位置；.NET 的相对路径按进程的当前目录（`[Environment]::CurrentDirectory`）解析，那是工具启动时的目录。
 - **做法**：.NET 方法一律传绝对路径（或 `(Resolve-Path x).Path`）；改文件优先用编辑工具。改完看一眼 `git status`，主工作区和别人的工作区也看。
+
+### 留空的类型列表存成 `@Invalid()`，重启后仍是空的
+
+- **现象**：设置里把“优先显示的文件类型”清空，INI 里写的是 `PreferredTypes=@Invalid()`，看着像坏值，担心下次启动被当成没设、又回到默认的五种。
+- **原因**：`QSettings` 把空的 `QStringList` 存成 `@Invalid()`；`readOrDefault` 只看 `contains(key)`，键在，就读出空列表，不回默认。
+- **做法**：已实测（2026-10-16，清空后重启测试那份，`curl` 仍是文件夹在前）。要改成“空即默认”的读法时记得这一条会把用户关掉的功能又打开。
+
+### 测试：`tail -f` 盯着的日志，提权的代理写不进去
+
+- **现象**：会话脚本拿到锁、提权代理一启动就以退出码 1 结束，日志里一行它自己的都没有。
+- **原因**：Git Bash 的 `tail -f` 开着日志文件，代理里 `Add-Content` 写同一个文件失败，`catch` 里再写日志又失败，异常一路抛出脚本。
+- **做法**：代理写自己的日志（`[IO.File]::AppendAllText` 带重试），监视用循环按行数读新增的部分，不用 `tail -f`；结束写一个 done.flag。
