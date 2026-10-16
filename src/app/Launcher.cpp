@@ -1001,7 +1001,7 @@ void Launcher::search(bool more)
     request.kindOrder = m_kindOrder;
     request.rankBy = rankBy();
     request.preferredTypes = m_preferredTypes;
-    request.startList =m_startList == RecentlyModified ? ws::StartList::Modified : ws::StartList::Opened;
+    request.startList = m_startList == RecentlyModified ? ws::StartList::Modified : ws::StartList::Opened;
     request.limit = kPage * m_pages;
     if (m_panel) { // its filters and order; nothing typed lists everything
         request.filter = panelFilter();

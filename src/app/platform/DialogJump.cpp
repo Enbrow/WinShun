@@ -105,8 +105,9 @@ void DialogJump::follow(HWND foreground)
     // Win顺's own (shell::pickFolder and the other pickers): left alone. They
     // run their modal loop on this, the GUI, thread, through which these
     // out-of-context events also come: moving the bar after each step of a
-    // drag (2+ ms each, nearly all in moving its window) held up the dialog's own drag
-    // loop, which fell hundreds of pixels behind the pointer (linux.do #222).
+    // drag (2+ ms each, nearly all in moving its window) held up the dialog's
+    // own drag loop, which fell hundreds of pixels behind the pointer
+    // (linux.do #222).
     DWORD process = 0;
     if (foreground && ::GetWindowThreadProcessId(foreground, &process) && process == ::GetCurrentProcessId()) {
         setDialog(nullptr, false);
