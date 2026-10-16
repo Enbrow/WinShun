@@ -1127,6 +1127,27 @@ Window {
                 }
 
                 SettingRow {
+                    // Under the box's own switch: how wide it may be, as
+                    // Windows' own search has it (Settings › Taskbar ›
+                    // Search). Narrower ones still where that does not fit.
+                    shown: taskbarButtonRow.boxes && taskbarButtonRow.boxOn
+                    title: qsTr("搜索框样式")
+                    keywords: qsTr("样式;仅图标;只显示图标;图标和标签;标签;放大镜;按钮;搜索框;icon;label").split(";")
+                    description: window.editor.taskbarSearchBoxStyle === "icon"
+                                 ? qsTr("一个搜索图标，像任务栏上的按钮")
+                                 : window.editor.taskbarSearchBoxStyle === "label"
+                                   ? qsTr("图标加“搜索”两个字，点它打开搜索")
+                                   : qsTr("点它直接打字；任务栏挤时自动变窄")
+
+                    ScopeTabs {
+                        readonly property var styles: ["box", "label", "icon"]
+                        labels: [qsTr("搜索框"), qsTr("图标和标签"), qsTr("仅图标")]
+                        current: Math.max(0, styles.indexOf(window.editor.taskbarSearchBoxStyle))
+                        onActivated: (index) => window.editor.taskbarSearchBoxStyle = styles[index]
+                    }
+                }
+
+                SettingRow {
                     id: startGapRow
 
                     // Under the box's own switch: the icons moved over for it
@@ -1147,13 +1168,15 @@ Window {
                         case "applied":
                             return qsTr("已放在开始按钮右边")
                         case "conflict":
-                            return qsTr("另一个改任务栏的工具占着（%1），两者只能用一个")
+                            return qsTr("资源管理器里另一个改任务栏的工具不让留位置（%1），搜索框先放在图标旁边")
                                 .arg(window.editor.startGapReason)
                         case "incompatible":
                             return qsTr("重启资源管理器后生效")
                         case "nogap":
+                            return qsTr("没能在开始按钮旁留出位置，搜索框先放在图标旁边；重启资源管理器后再试")
                         case "failed":
-                            return qsTr("没能在开始按钮旁留出位置，先放在原处")
+                            return qsTr("没能在开始按钮旁留出位置（%1），搜索框先放在图标旁边")
+                                .arg(window.editor.startGapReason)
                         default:
                             return qsTr("正在留出位置…")
                         }
@@ -1789,7 +1812,7 @@ Window {
                 SettingRow {
                     title: qsTr("任务栏图标")
                     keywords: qsTr("托盘;通知区域;单色;黑白;彩色;图标;tray;icon").split(";")
-                    description: qsTr("通知区域和任务栏搜索框里的 Win顺 图标。单色随任务栏的浅色、深色变成黑或白，和系统图标一致")
+                    description: qsTr("通知区域和任务栏搜索框里的图标。单色随任务栏的浅色、深色变成黑或白，和系统图标一致")
 
                     ScopeTabs {
                         labels: [qsTr("彩色"), qsTr("单色")]

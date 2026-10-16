@@ -1900,12 +1900,56 @@
         <translation>Going onto the taskbar…</translation>
     </message>
     <message>
+        <source>搜索框样式</source>
+        <translation>Search box style</translation>
+    </message>
+    <message>
+        <source>样式;仅图标;只显示图标;图标和标签;标签;放大镜;按钮;搜索框;icon;label</source>
+        <translation>style;icon only;show icon only;icon and label;label;magnifier;button;search box;icon;label</translation>
+    </message>
+    <message>
+        <source>一个搜索图标，像任务栏上的按钮</source>
+        <translation>A search icon, like a button on the taskbar</translation>
+    </message>
+    <message>
+        <source>图标加“搜索”两个字，点它打开搜索</source>
+        <translation>The icon and the word “Search”; click it to search</translation>
+    </message>
+    <message>
+        <source>点它直接打字；任务栏挤时自动变窄</source>
+        <translation>Click it and type; narrower on a crowded taskbar</translation>
+    </message>
+    <message>
+        <source>搜索框</source>
+        <translation>Search box</translation>
+    </message>
+    <message>
+        <source>图标和标签</source>
+        <translation>Icon and label</translation>
+    </message>
+    <message>
+        <source>仅图标</source>
+        <translation>Icon only</translation>
+    </message>
+    <message>
         <source>等搜索框放上任务栏</source>
         <translation>Waiting for the search box to be on the taskbar</translation>
     </message>
     <message>
         <source>搜索框在图标旁边；按住它的图标拖到开始按钮上，图标就会让位</source>
         <translation>The box is beside the icons; hold its icon and drag it onto Start to make the icons move over</translation>
+    </message>
+    <message>
+        <source>资源管理器里另一个改任务栏的工具不让留位置（%1），搜索框先放在图标旁边</source>
+        <translation>Another taskbar tool in Explorer kept it from making room (%1): the box is beside the icons for now</translation>
+    </message>
+    <message>
+        <source>没能在开始按钮旁留出位置，搜索框先放在图标旁边；重启资源管理器后再试</source>
+        <translation>Couldn’t make room by the Start button: the box is beside the icons for now; restart Explorer to try again</translation>
+    </message>
+    <message>
+        <source>没能在开始按钮旁留出位置（%1），搜索框先放在图标旁边</source>
+        <translation>Couldn’t make room by the Start button (%1): the box is beside the icons for now</translation>
     </message>
     <message>
         <source>资源管理器右键“用 Win顺 搜索此处”</source>
@@ -2324,16 +2368,8 @@
         <translation>Right of the Start button now</translation>
     </message>
     <message>
-        <source>另一个改任务栏的工具占着（%1），两者只能用一个</source>
-        <translation>Another taskbar tool (%1) is using this: only one of them can</translation>
-    </message>
-    <message>
         <source>重启资源管理器后生效</source>
         <translation>Takes effect after Explorer restarts</translation>
-    </message>
-    <message>
-        <source>没能在开始按钮旁留出位置，先放在原处</source>
-        <translation>Couldn’t make room by the Start button: it stays where it was</translation>
     </message>
     <message>
         <source>正在留出位置…</source>
@@ -2350,6 +2386,10 @@
     <message>
         <source>固定</source>
         <translation>Pin</translation>
+    </message>
+    <message>
+        <source>通知区域和任务栏搜索框里的图标。单色随任务栏的浅色、深色变成黑或白，和系统图标一致</source>
+        <translation>The icons in the notification area and the taskbar search box. Monochrome turns black or white with the taskbar&apos;s light or dark mode, like Windows&apos; own icons</translation>
     </message>
     <message>
         <source>排除;忽略;隐藏;黑名单;exclude</source>
@@ -2648,10 +2688,6 @@
     <message>
         <source>托盘;通知区域;单色;黑白;彩色;图标;tray;icon</source>
         <translation>tray;notification area;monochrome;mono;colour;color;icon</translation>
-    </message>
-    <message>
-        <source>通知区域和任务栏搜索框里的 Win顺 图标。单色随任务栏的浅色、深色变成黑或白，和系统图标一致</source>
-        <translation>WinShun&apos;s icon in the notification area and the taskbar search box. Monochrome turns black or white with the taskbar&apos;s light or dark mode, like Windows&apos; own icons</translation>
     </message>
     <message>
         <source>彩色</source>

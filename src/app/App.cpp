@@ -1415,6 +1415,10 @@ void App::updateSearchBoxLook()
     look.label = tr("搜索").toStdWString();
     look.accent = RGB(accent.red(), accent.green(), accent.blue());
     look.monoIcon = m_settings.taskbarIcon == u"mono";
+    using Style = taskbar::SearchBox::Style;
+    look.style = m_settings.taskbarSearchBoxStyle == u"icon" ? Style::Icon
+        : m_settings.taskbarSearchBoxStyle == u"label"       ? Style::Label
+                                                             : Style::Box;
     m_searchBox->setLook(std::move(look));
 }
 

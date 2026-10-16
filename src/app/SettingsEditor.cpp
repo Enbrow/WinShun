@@ -951,6 +951,14 @@ void SettingsEditor::setTaskbarSearchBox(bool on)
     commit();
 }
 
+void SettingsEditor::setTaskbarSearchBoxStyle(const QString& style)
+{
+    if (m_settings.taskbarSearchBoxStyle == style || (style != u"box" && style != u"label" && style != u"icon"))
+        return;
+    m_settings.taskbarSearchBoxStyle = style;
+    commit();
+}
+
 void SettingsEditor::setTaskbarStartGap(bool on)
 {
     if (m_settings.taskbarStartGap == on)

@@ -24,6 +24,15 @@ int stageTap();
 // pid), asks it for a margin in DIPs, and says how that went. The TAP clears
 // the margin by itself when this process ends, however it ends.
 //
+// Other programs use the same diagnostics in Explorer (TranslucentTB), and
+// each gets an instance of its own, but the tree's changes go to the one
+// attached last only: one attached after ours leaves the TAP blind to a
+// Start button made anew (the margin it set stays on the old one; gone with
+// it, the box sees no gap and falls back, noGapSeen), and ours attached after
+// another blinds that one the same way (by its source, TranslucentTB keeps
+// the taskbars it has styled; one made later, as on a screen plugged in,
+// waits for it to start again). Ours attaches once per Explorer.
+//
 // Its own thread: nothing here waits on the box's or the GUI's. The box
 // (SearchBox) decides the DIPs from the form it wants and verifies the gap by
 // measuring; the status is for the settings page.
@@ -31,11 +40,11 @@ class StartGap {
 public:
     enum class State {
         Off, // nothing asked for, or the default asked for and back
-        Attaching, // staging the DLL, looking for conflicts, attaching
+        Attaching, // staging the DLL, attaching
         Ready, // a TAP on the primary taskbar, no Start button seen by it yet
         Applied, // the margin asked for is on the Start button
         NoGapSeen, // ... but the box measured no such gap (noGapSeen): it fell back
-        Conflict, // another program has Explorer's XAML diagnostics: `reason` names it
+        Conflict, // Explorer's XAML diagnostics let no TAP of ours in (another program's answering for it): `reason` says how
         Incompatible, // a TAP of another protocol version is resident: an Explorer restart replaces it
         Failed, // `reason` has what failed
     };

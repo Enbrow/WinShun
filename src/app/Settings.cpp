@@ -745,6 +745,9 @@ void Settings::load()
     taskbarWinS = readOrDefault(s, u"Taskbar/WinS"_s, d.taskbarWinS);
     taskbarStartTyping = readOrDefault(s, u"Taskbar/StartMenuTyping"_s, d.taskbarStartTyping);
     taskbarSearchBox = readOrDefault(s, u"Taskbar/SearchBox"_s, d.taskbarSearchBox);
+    taskbarSearchBoxStyle = readOrDefault(s, u"Taskbar/SearchBoxStyle"_s, d.taskbarSearchBoxStyle).trimmed().toLower();
+    if (taskbarSearchBoxStyle != u"label" && taskbarSearchBoxStyle != u"icon")
+        taskbarSearchBoxStyle = d.taskbarSearchBoxStyle;
     taskbarStartGap = readOrDefault(s, u"Taskbar/StartGap"_s, d.taskbarStartGap);
 
     // Before the list: writing it (defaults new to the file) rewrites the whole group.
@@ -842,6 +845,7 @@ void Settings::save() const
     s.setValue(u"Taskbar/WinS"_s, taskbarWinS);
     s.setValue(u"Taskbar/StartMenuTyping"_s, taskbarStartTyping);
     s.setValue(u"Taskbar/SearchBox"_s, taskbarSearchBox);
+    s.setValue(u"Taskbar/SearchBoxStyle"_s, taskbarSearchBoxStyle);
     s.setValue(u"Taskbar/StartGap"_s, taskbarStartGap);
     writeWebShortcuts(s, webShortcuts, webSuggestions);
     writeFileTypes(s, fileTypes);

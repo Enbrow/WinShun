@@ -34,9 +34,12 @@ constexpr DWORD kSitedMs = 15000; // from the call to the TAP's first word
 constexpr DWORD kAppliedMs = 5000; // from "ready" to the Start button seen and done
 constexpr int kAttachTries = 30; // a second apart: Explorer starting, its taskbar not up yet
 
-// Programs known to take Explorer's one XAML diagnostics slot, by process
+// Other programs known to use Explorer's XAML diagnostics too, by process
 // name and by what is loaded in explorer (TranslucentTB's TAP stays after
-// TranslucentTB.exe ends).
+// TranslucentTB.exe ends). Named in the log and in a failure's reason only:
+// each attach gets a diagnostics instance of its own, so they do not keep
+// ours out (TranslucentTB does not, tested both ways round, see
+// docs/pitfalls.md); what does is told by the attach itself.
 constexpr const wchar_t* kProcesses[] = {L"translucenttb.exe", L"windhawk.exe", L"explorerblurmica.exe"};
 constexpr const wchar_t* kModules[] = {L"explorertap.dll", L"windhawk", L"explorerblurmica"};
 
@@ -194,7 +197,7 @@ int stageTap()
 
 namespace {
 
-std::vector<std::wstring> conflicts(DWORD explorerPid)
+std::vector<std::wstring> othersInExplorer(DWORD explorerPid)
 {
     std::vector<std::wstring> found;
     const HANDLE processes = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -513,14 +516,12 @@ struct StartGap::Impl {
             report(State::Failed, why);
             return E_FAIL;
         }
-        const std::vector<std::wstring> found = conflicts(pid);
-        if (!found.empty()) {
-            std::wstring reason;
-            for (const std::wstring& f : found)
-                reason += (reason.empty() ? L"" : L", ") + f;
-            report(State::Conflict, reason);
-            return E_ACCESSDENIED;
-        }
+        std::wstring others; // for the log, and a failure's reason
+        for (const std::wstring& f : othersInExplorer(pid))
+            others += (others.empty() ? L"" : L", ") + f;
+        if (!others.empty())
+            trace(L"also using Explorer's XAML diagnostics: %ls", others.c_str());
+        const std::wstring also = others.empty() ? std::wstring() : L" (also there: " + others + L")";
         if (!xaml)
             xaml = ::LoadLibraryExW(L"Windows.UI.Xaml.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
         const auto initialize = xaml ? reinterpret_cast<InitializeFn>(::GetProcAddress(xaml, "InitializeXamlDiagnosticsEx")) : nullptr;
@@ -551,7 +552,7 @@ struct StartGap::Impl {
             if (!c) {
                 // Said yes and did nothing: another consumer answering for it
                 // (the Windhawk styler blocks that way), or the DLL not loaded.
-                report(State::Conflict, L"Explorer's XAML diagnostics answered but the TAP never came");
+                report(State::Conflict, L"Explorer's XAML diagnostics answered but the TAP never came" + also);
                 return E_ACCESSDENIED;
             }
             switch (c->state()) {
@@ -568,7 +569,7 @@ struct StartGap::Impl {
         }
         if (last == HRESULT_FROM_WIN32(ERROR_NOT_FOUND))
             return last;
-        report(State::Conflict, L"every endpoint refused, last " + hex(last));
+        report(State::Conflict, L"every endpoint refused, last " + hex(last) + also);
         return last;
     }
 };

@@ -150,6 +150,7 @@ class SettingsEditor : public QObject {
     // the taskbar for it (11), whether it is on the taskbar now (not where
     // the icons leave no room for it).
     Q_PROPERTY(bool taskbarSearchBox READ taskbarSearchBox WRITE setTaskbarSearchBox NOTIFY changed FINAL)
+    Q_PROPERTY(QString taskbarSearchBoxStyle READ taskbarSearchBoxStyle WRITE setTaskbarSearchBoxStyle NOTIFY changed FINAL) // box | label | icon
     Q_PROPERTY(bool searchBoxSupported READ searchBoxSupported CONSTANT FINAL)
     Q_PROPERTY(bool searchBoxShown READ searchBoxShown NOTIFY searchBoxShownChanged FINAL)
     Q_PROPERTY(QString searchBoxHidden READ searchBoxHidden NOTIFY searchBoxShownChanged FINAL)
@@ -439,6 +440,8 @@ public:
     void setTaskbarStartTyping(bool on);
     bool taskbarSearchBox() const { return m_settings.taskbarSearchBox; }
     void setTaskbarSearchBox(bool on);
+    QString taskbarSearchBoxStyle() const { return m_settings.taskbarSearchBoxStyle; }
+    void setTaskbarSearchBoxStyle(const QString& style);
     bool searchBoxSupported() const;
     bool searchBoxShown() const { return m_searchBoxHidden.isEmpty(); }
     QString searchBoxHidden() const { return m_searchBoxHidden; } // why not: "pending", "noroom"... (App)

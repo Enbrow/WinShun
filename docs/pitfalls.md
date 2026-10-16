@@ -941,9 +941,9 @@
   - `OnVisualTreeChange` 返回失败，运行时枚举现有的树会整个中止，之后再也收不到变化；回调里的 `VisualElement` 字符串是交给我们的，要自己 `SysFreeString`。
   - `AdviseVisualTreeChange` 在 XAML 线程上调可能卡住，要在自己的线程上调。
   - 用 `IVisualTreeService::CreateInstance("Windows.UI.Xaml.Thickness", "0,0,N,0")` + `SetProperty` 设 Margin 返回 E_INVALIDARG。
-  - 同一个 Explorer 里只能有一个诊断的使用者（TranslucentTB、Windhawk 的 Taskbar Styler 都是）。
+  - ~~同一个 Explorer 里只能有一个诊断的使用者~~：错的，见下面的“和 TranslucentTB 一起开”。可以有好几个，但树的变化只告诉最后连上的那个。
   - DLL 加载以后卸不掉，直到 Explorer 重启。
-- **做法**：只传绝对路径；每次调用开一个新线程；回调永远返回 S_OK，字符串在作用域结束时释放；工作线程上 advise；设 Margin 用 C++/WinRT 的 `FrameworkElement::Margin`，并且派回 XAML 线程（`DispatcherQueue`）；注入前先查冲突的程序和模块；DLL 复制到 ProgramData 按哈希命名的文件夹再加载，模块钉住（`GET_MODULE_HANDLE_EX_FLAG_PIN`），`DllCanUnloadNow` 返回 S_FALSE。
+- **做法**：只传绝对路径；每次调用开一个新线程；回调永远返回 S_OK，字符串在作用域结束时释放；工作线程上 advise；设 Margin 用 C++/WinRT 的 `FrameworkElement::Margin`，并且派回 XAML 线程（`DispatcherQueue`）；不事先查别的程序（2026-10-16 去掉，只看调用的结果）；DLL 复制到 ProgramData 按哈希命名的文件夹再加载，模块钉住（`GET_MODULE_HANDLE_EX_FLAG_PIN`），`DllCanUnloadNow` 返回 S_FALSE。
 - **怎么查**：scratchpad `xamltap/` 的 `TapProbe.exe`（`--status` 读共享内存里 DLL 的状态并用 UI 自动化量开始按钮和下一个图标之间的空当，`--margin N --wait S --clear` 单独试边距）。DLL 的 `OutputDebugString` 用 DebugView 看。
 
 ### 拖搜索框时空当开合的几个连锁坑
@@ -958,6 +958,42 @@
   - 实测时又找到一个（2026-10-12，逐帧记 `GetWindowRect`，加临时日志看每次读数和每个决定）：边距一设上，UI 自动化先报开始按钮的终点（约 330 毫秒），再报回原处，然后才真的滑（约 300 毫秒）。框松手后跟着这些读数走，先按旧位置往右、再到终点、半秒后又跳回去滑一遍。
   - 用户自己一拖就发现（2026-10-12）：拖不到开始按钮右边，日志里空当几十毫秒开一次关一次。图标居中时空当一开，开始按钮往左挪约 300 像素，按开始按钮现在的位置算的“开始按钮区”跟着挪走，框的中点落到区外，空当关上；开始按钮回来，又落进区里……每帧都在开关。我的测试是停在区里不动，没碰到；而且以前的区只到开始按钮右边一个框高，人会把框的左端对着开始按钮右边放，中点早就出了区。
 - **做法**：开始按钮区按“没有我们的空当时”开始按钮的位置算（`closedStart`：空当没开、也没在要、放掉后过了 1 秒才记），从开始按钮到它右边一个框宽，空当开着时再并上空当本身：开着的区总包住关着的区，进出都不会来回切；拖动中 `apply`、`refit` 按 `dragSide` 要空当，不 `setTarget`；松手落进还在开的空当时框先不动，量到了一次滑进去，之后到图标静下来 600 毫秒前不跟读数（`landed`）；开着设置时只有放回开始按钮右边才存成 `auto`；`defaultSide` 也认“要了、在路上”的空当（`Room::startWanted`）；拖动能不能指望空当看 StartGap 是否放弃了（`unavailable`：冲突、失败、报了却量不到），不看是否成功过；空当在路上时 `wantGap` 不换样子。
+
+### “放在开始按钮右边”和 TranslucentTB 一起开：说被占，重启电脑后又好了
+
+- **现象**：linux.do #153：开着 TranslucentTB 时打开“放在开始按钮右边”，设置页说“另一个改任务栏的工具占着”；重启电脑后框却在开始按钮右边，TranslucentTB 的透明也还在。
+- **原因**：是我们自己挡的。注入前先查 `translucenttb.exe` 进程和 Explorer 里的 `ExplorerTAP.dll`，有就报 `Conflict` 不注入，依据是“一个 Explorer 只能有一个 XAML 诊断的使用者”。这不对：WinUI 的 `DebugTool.cpp` 每次连接都新建一个 `XamlDiagnostics`，各自 advise。开机时 Win顺（计划任务）比 TranslucentTB（商店应用的启动任务）先起来，查不到它，就注入成功了。实测（2026-10-16，150%，深色，TapProbe 加截图逐像素比任务栏底色）：TranslucentTB 先、我们后，S_OK，空当 384 像素，透明照旧；Explorer 刚重启、我们先、它后，两个都好。
+- **做法**：去掉事先的检查，只看 `InitializeXamlDiagnosticsEx` 和 DLL 有没有出现；那几个程序名只写进日志和失败的原因。以后再想“检测到某某就不做”，先两种先后都实测一遍，看它到底改了什么（TranslucentTB 只改 `TaskbarFrame` 里 `BackgroundFill`、`BackgroundStroke` 两个矩形的填充，挂任务栏的子类，钩 `SetWindowCompositionAttribute`，不碰开始按钮）。
+
+### 后连上的 XAML 诊断把先来的变成“聋子”
+
+- **现象**：我们的 DLL 在 Explorer 里设好边距后再开 TranslucentTB，任务栏上再多一个按钮，DLL 记的“新加元素”数停在 353 不动（共享内存里的计数）。
+- **原因**：WinUI 的 `DiagnosticsInterop` 进程里只记一个 `m_diagnostics`，每次 `Launch` 换成最新的那个，`SignalMutation` 只发给它。先来的那个已经拿到的元素还能用（边距照样设、照样清），只是再也收不到新元素。
+- **做法**：DLL 只靠变化找开始按钮，所以后来的工具一连上，开始按钮被重建就找不到新的；框量不到空当会自己退回图标旁边（`noGapSeen`），设置页让用户重启资源管理器。换对齐方式不重建开始按钮（实测：先左后居中，边距还在）。反过来我们后连上，TranslucentTB 就收不到新的任务栏（按它的源码）。每个 Explorer 只注入一次，Win顺 重启用已经在里面的那份，别多连。
+
+### TranslucentTB 自己会让 Explorer 崩
+
+- **现象**：2026-10-16 测试时，我们的 DLL 在一个开了 4 天的 Explorer 里，再开 TranslucentTB，Explorer 立刻崩了重启；TranslucentTB 弹出“初始化 XAML 诊断失败（0x80070102 超时）”。
+- **原因**：崩在 `ExplorerTAP.dll`（TranslucentTB 的），c0000409 子码 7（`FAST_FAIL_FATAL_APP_EXIT`，即 `std::terminate`）：它的 `VisualTreeWatcher` 构造时起一个线程 `check_hresult(AdviseVisualTreeChange())`，失败就抛异常、没人接。WinUI 的 advise 要往每个 XAML 线程的 `DispatcherQueue` 投递，有一个投不进去就失败。本机的 WER 记录里 9/17、9/24、9/25、10/1 还有四次一样崩在 `ExplorerTAP.dll`，那时 Explorer 里没有我们的 DLL。新开的 Explorer 里两种先后都没再崩过；这一次是不是和我们有关没能复现确认。
+- **做法**：查 Explorer 崩溃先看 `%ProgramData%\Microsoft\Windows\WER\ReportArchive\AppCrash_explorer.exe_*\Report.wer` 里的出错模块和有没有我们的 DLL，别先怀疑自己。要抓 dump：`HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\explorer.exe`（DumpType 2 一个 1 GB），测完删掉这个键和 dump。
+
+### 切换 Windows 搜索的样式时 Explorer 崩在 SystemTray.dll
+
+- **现象**：用设置 › 个性化 › 任务栏 › 搜索来回切“仅搜索图标 / 搜索图标和标签 / 隐藏”量 Windows 自己的按钮，有一次 Explorer 崩了重启。
+- **原因**：栈在 `SystemTray.dll`：`NotifyIconView::OnLoaded` 里 `INotifyIconDragVisual::BitmapSource` 是空的（麦克风的托盘图标），栈上没有任何 TAP 的帧。看着是 Windows 自己的毛病，当时我们的和 TranslucentTB 的 DLL 都在里面，不排除有关。
+- **做法**：量完一种样式就等任务栏静下来再切；测试前先记下 `SearchboxTaskbarMode`，测完改回来、核对。
+
+### 任务栏上子窗口的提示压在任务栏上
+
+- **现象**：给任务栏里的仅图标按钮加了系统的 tooltip（`TTF_SUBCLASS`），提示出在鼠标处，盖住了旁边的开始按钮，还是浅色的；Windows 自己按钮的提示在任务栏上方、深色。
+- **原因**：tooltip 控件默认放在鼠标下面，屏幕底下放不下就翻到鼠标上面，还是在任务栏里；它不知道“任务栏”这回事。主题跟着应用，不跟任务栏。
+- **做法**：处理 `TTN_SHOW`，自己 `SetWindowPos` 到框的正上方，底边离任务栏 12 逻辑像素，返回 TRUE；任务栏是深色时 `SetWindowTheme(tip, L"DarkMode_Explorer", nullptr)`，主题变了再设一次（`readTheme`）。tooltip 不能属于任务栏的窗口（别的进程），建成无主的 `WS_EX_TOPMOST` 弹出窗口，加 `TTS_ALWAYSTIP`。
+
+### 测试：量任务栏按钮的悬停
+
+- **现象**：想量 Windows 搜索按钮的悬停底板：`SetCursorPos` 到按钮上，截图前后一样；UI 自动化 `FromPoint` 抛异常；改完 Settings 里的搜索样式找不到菜单项；用记事本加一个任务栏按钮测，测完按 pid 关不掉。
+- **原因**：XAML 的悬停要真的鼠标移动消息，`SetCursorPos` 不发；`SendInput` 的 `INPUT` 结构在 64 位下要按 `MOUSEINPUT` 的对齐算大小，多了填充 `SendInput` 返回 0；`AutomationElement.FromPoint` 要 `System.Windows.Point`，得先加载 WindowsBase；菜单项叫 `仅“搜索”图标`（中文引号），不是“仅搜索图标”；Windows 11 的记事本是商店应用，窗口属于另一个进程；而且脚本自己发的输入会把“用户空闲多久”清零。
+- **做法**：`SetCursorPos` 到目标旁 1 像素，再 `SendInput` 相对移动 1 像素；UI 自动化先 `Add-Type -AssemblyName WindowsBase`；按 UI 自动化读出的名字选菜单项；加任务栏按钮用自己 PowerShell 进程里开的 WinForms 窗口；等空闲放在发输入之前。`TaskbarAl` 这类值测前不存在的，测后要删掉而不是写回 0，再广播 `TraySettings`。
 
 ### 脚本里启动了 Win顺，`Start-Process -Wait` 就一直不返回
 

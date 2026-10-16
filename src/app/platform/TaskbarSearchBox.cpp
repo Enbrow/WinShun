@@ -4,10 +4,12 @@
 
 #include <ole2.h> // before uiautomation.h: WIN32_LEAN_AND_MEAN leaves it out of windows.h
 
+#include <commctrl.h>
 #include <d2d1.h>
 #include <dwmapi.h>
 #include <dwrite.h>
 #include <uiautomation.h>
+#include <uxtheme.h>
 #include <wrl/client.h>
 
 #include <QDebug>
@@ -56,6 +58,16 @@ constexpr double kIconSize = 16;
 constexpr double kIconGap = 10;
 constexpr float kFontSize = 14;
 constexpr double kMargin = 6; // round the box in its window: for growing when lifted, its shadow, its glow
+// Its icon alone is a taskbar button, as Windows' own search icon is
+// (measured 2026-10-16 at 150%, dark taskbar: a slot 44 DIPs wide, the plate
+// 40 × 40 with 4 DIP corners, 4 from the taskbar's top and bottom and 2 from
+// the slot's ends, shown on hover only; the glyph 24 DIPs).
+constexpr double kButtonSide = 2; // the plate from the slot's ends
+constexpr double kButtonEdge = 4; // ... from the taskbar's top and bottom
+constexpr double kButtonPlate = 40; // tallest
+constexpr double kButtonRadius = 4;
+constexpr double kButtonGlyph = 24;
+constexpr double kTipGap = 12; // its tooltip's bottom above the taskbar, as Windows' own buttons' (measured over Start)
 constexpr double kSnap = 16; // dropped this near either end of a stretch: right against it
 constexpr double kFollowStep = 14; // a step this small: the taskbar animating (see follow)
 constexpr double kFormSlack = 24; // room past what a form needs before a wider one is asked for (wantGap)
@@ -589,7 +601,10 @@ struct SearchBox::Impl {
         bool haveStartGap = false; // ... and an icon after it: startTo measured
         double startFrom = 0, startTo = 0; // between them
         double startWanted = 0; // the gap asked for and on its way, without the gaps at its ends; 0: none
-        LONG y = 0, h = 0;
+        LONG y = 0, h = 0; // the box's, and the label form's
+        LONG buttonY = 0, buttonH = 0; // the icon form's plate
+        double buttonW = 0; // ... and its slot
+        double gap = 0; // kept from the icons and the ends, physical pixels: a button's slot goes right up to them
         double from(Spot::Side side) const
         {
             return side == Spot::Side::Before ? beforeFrom : side == Spot::Side::After ? afterFrom : startFrom;
@@ -626,6 +641,7 @@ struct SearchBox::Impl {
     SIZE windowSize {};
     int marginX = 0;
     int marginY = 0;
+    LONG barH = 0; // the taskbar's height, for marginY
     float frac = 0; // the pill's left edge, between pixels
     double lastTick = 0;
 
@@ -653,6 +669,7 @@ struct SearchBox::Impl {
     bool iconDown = false; // the button held down on the icon: a click, or a drag
     bool iconPressed = false; // ... the press shows on the icon alone while active
     bool lifted = false; // being dragged
+    HWND tip = nullptr; // its tooltip (makeTip)
     POINT downAt {};
     double grabX = 0; // the pointer's x from the pill's left edge while dragged, physical pixels
     Spot::Side dragSide = Spot::Side::Auto; // the side under the box's middle while dragged: the gap asked for or let go as it changes
@@ -690,6 +707,8 @@ struct SearchBox::Impl {
     ComPtr<ID2D1Bitmap> icon;
     UINT iconDpi = 0;
     std::optional<COLORREF> iconInk; // one colour (monoIcon): this one; else its own colours
+    ComPtr<ID2D1Bitmap> searchIcon; // the magnifier, for the icon alone (the pinned button's, search.ico)
+    int searchIconPx = 0; // its size (buttonGlyph)
     HDC memory = nullptr;
     HBITMAP bitmap = nullptr;
     HGDIOBJ oldBitmap = nullptr;
@@ -858,6 +877,7 @@ struct SearchBox::Impl {
             && (contrast.dwFlags & HCF_HIGHCONTRASTON);
         BOOL on = TRUE;
         animations = !::SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &on, 0) || on;
+        themeTip();
     }
 
     void startAttaching()
@@ -887,6 +907,7 @@ struct SearchBox::Impl {
             windowsBuild(), iconsCentred() ? L"centred" : L"left", ::GetDpiForWindow(bar)));
         tray = bar;
         box = window;
+        makeTip(window);
         ++generation;
         windowPos = {};
         windowSize = {};
@@ -898,6 +919,62 @@ struct SearchBox::Impl {
         unmeasuredTries = 0;
         requestMeasure();
         return true;
+    }
+
+    // Its name over the label or the icon alone, as the taskbar's own buttons
+    // have theirs (the whole box has its placeholder to say it). Owned by no
+    // window: the taskbar is another process's. Always shown, though no
+    // window of this thread is active; its text asked for each time (tipText).
+    void makeTip(HWND window)
+    {
+        tip = ::CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
+            CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, nullptr, nullptr, ::GetModuleHandleW(nullptr),
+            nullptr);
+        if (!tip)
+            return;
+        TTTOOLINFOW tool {};
+        tool.cbSize = sizeof tool;
+        tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+        tool.hwnd = window;
+        tool.uId = reinterpret_cast<UINT_PTR>(window);
+        tool.lpszText = LPSTR_TEXTCALLBACKW;
+        ::SendMessageW(tip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&tool));
+        themeTip();
+    }
+
+    // Dark on a dark taskbar, as the taskbar's own tooltips are (the common
+    // controls' dark theme, as Explorer's own windows use it).
+    void themeTip() const
+    {
+        if (tip)
+            ::SetWindowTheme(tip, dark && !highContrast ? L"DarkMode_Explorer" : nullptr, nullptr);
+    }
+
+    // Above the taskbar, centred over the box, as the taskbar's own buttons
+    // have theirs (else it is at the pointer, over the taskbar).
+    bool placeTip() const
+    {
+        const HWND window = box.load();
+        RECT tipRect {}, barRect {}, boxRect {};
+        if (!window || !::GetWindowRect(tip, &tipRect) || !::GetWindowRect(tray, &barRect) || !::GetWindowRect(window, &boxRect))
+            return false;
+        MONITORINFO monitor {sizeof monitor};
+        ::GetMonitorInfoW(::MonitorFromWindow(tray, MONITOR_DEFAULTTONEAREST), &monitor);
+        const LONG w = tipRect.right - tipRect.left;
+        const LONG h = tipRect.bottom - tipRect.top;
+        const LONG x = std::clamp<LONG>((boxRect.left + boxRect.right - w) / 2, monitor.rcMonitor.left,
+            std::max(monitor.rcMonitor.left, monitor.rcMonitor.right - w));
+        const LONG y = barRect.top - std::lround(kTipGap * scale()) - h;
+        return ::SetWindowPos(tip, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE) != FALSE;
+    }
+
+    // None (so none shown) on the whole box, while the launcher is open over
+    // it, or held or dragged.
+    const wchar_t* tipText() const
+    {
+        if (form == Form::Box || drawnText.active || lifted || iconDown)
+            return L"";
+        return drawnLook.name.c_str();
     }
 
     void detach()
@@ -1113,8 +1190,14 @@ struct SearchBox::Impl {
         }
         room.h = std::lround(barHeight * 2.0 / 3.0); // as Windows' own box
         room.y = bar.top + (barHeight - room.h) / 2;
+        // As tall as the taskbar's own buttons: 4 DIPs off its edges, smaller
+        // buttons (a lower taskbar) included.
+        room.buttonH = buttonPlate(barHeight);
+        room.buttonY = bar.top + (barHeight - room.buttonH) / 2;
+        room.buttonW = room.buttonH + 2 * std::round(kButtonSide * s);
+        room.gap = gap;
+        barH = barHeight;
         marginX = static_cast<int>(std::lround(kMargin * s));
-        marginY = static_cast<int>(std::min<LONG>(std::lround(kMargin * s), (barHeight - room.h) / 2));
         return Fit::Fits;
     }
 
@@ -1163,7 +1246,7 @@ struct SearchBox::Impl {
         case Form::Icon:
             break;
         }
-        return std::ceil(room.h / s) + 2 * kGap;
+        return std::ceil(room.buttonW / s); // a button's slot, as the taskbar's own: no gaps
     }
 
     // What is free beside the icons, our gap counted in: the room without
@@ -1186,9 +1269,9 @@ struct SearchBox::Impl {
         const double s = scale();
         const double free = freeRoom(room);
         Form f;
-        if (free >= dipsFor(Form::Box, room) * s)
+        if (allowed(Form::Box) && free >= dipsFor(Form::Box, room) * s)
             f = Form::Box;
-        else if (free >= dipsFor(Form::Label, room) * s)
+        else if (allowed(Form::Label) && free >= dipsFor(Form::Label, room) * s)
             f = Form::Label;
         else if (free >= dipsFor(Form::Icon, room) * s)
             f = Form::Icon;
@@ -1199,10 +1282,11 @@ struct SearchBox::Impl {
         // On its way (asked for, not measured yet): the readings in between
         // say nothing about the form (UI Automation has the icons' ends early).
         if (wantedDips > 0 && !gapVerified && (gapApplied || nowMs() - dragAskedAt < kGapWaitMs)
-            && free >= dipsFor(Form::Icon, room) * s)
+            && allowed(wantedForm) && free >= dipsFor(Form::Icon, room) * s)
             f = wantedForm;
         // Kept while the room is within a step of what the form has: no flapping at the edge.
-        if (wantedDips > 0 && f != wantedForm && std::abs(free - dipsFor(wantedForm, room) * s) < kFormSlack * s)
+        if (wantedDips > 0 && f != wantedForm && allowed(wantedForm)
+            && std::abs(free - dipsFor(wantedForm, room) * s) < kFormSlack * s)
             f = wantedForm;
         wantedForm = f;
         ask(dipsFor(f, room));
@@ -1283,20 +1367,44 @@ struct SearchBox::Impl {
             requestMeasure(); // a fresh reading decides the side
     }
 
-    // The widest form a stretch `room` wide takes, and its width: the box up
-    // to kMaxWidth, else the label form as wide as its label needs, else the
-    // icon in a circle as high as the box.
-    std::optional<Shape> shapeFor(double room, LONG h)
+    // The widest form a stretch `width` wide takes (no wider than the user's
+    // style), and its width: the box up to kMaxWidth, else the label form as
+    // wide as its label needs, else the icon alone, a taskbar button's slot.
+    std::optional<Shape> shapeFor(double width, const Room& room)
     {
         const double s = scale();
-        if (room >= std::lround(kTextWidth * s))
-            return Shape {Form::Box, std::floor(std::min(room, static_cast<double>(std::lround(kMaxWidth * s))))};
-        if (const double label = labelForm(); label > 0 && room >= label)
+        if (allowed(Form::Box) && width >= std::lround(kTextWidth * s))
+            return Shape {Form::Box, std::floor(std::min(width, static_cast<double>(std::lround(kMaxWidth * s))))};
+        if (const double label = labelForm(); allowed(Form::Label) && label > 0 && width >= label)
             return Shape {Form::Label, label};
-        if (room >= h)
-            return Shape {Form::Icon, static_cast<double>(h)};
+        if (width + 2 * ends(Form::Icon, room) >= room.buttonW)
+            return Shape {Form::Icon, room.buttonW};
         return std::nullopt;
     }
+
+    // The icon form's plate, as high as the taskbar's own buttons: 4 DIPs off
+    // its edges, at most 40 (smaller buttons, a lower taskbar: smaller).
+    LONG buttonPlate(LONG barHeight) const
+    {
+        const double s = scale();
+        return std::max<LONG>(1, std::min<LONG>(std::lround(kButtonPlate * s), barHeight - 2 * std::lround(kButtonEdge * s)));
+    }
+
+    // Its magnifier: 24 DIPs as Windows' own, but no more than 3/5 of a
+    // lower plate (Windows' smaller taskbar buttons keep a margin round theirs).
+    int buttonGlyph() const
+    {
+        const long full = std::lround(kButtonGlyph * scale());
+        return static_cast<int>(barH > 0 ? std::min(full, std::lround(buttonPlate(barH) * 0.6)) : full);
+    }
+
+    // The user's style lets the box take this form.
+    bool allowed(Form f) const { return static_cast<int>(f) >= static_cast<int>(drawnLook.style); }
+
+    // How far into the gaps kept at a stretch's ends a form goes: a button's
+    // slot right up to the icons and the ends, as the taskbar's own buttons
+    // sit (its plate is inset in it); the other forms keep the gaps.
+    static double ends(Form f, const Room& room) { return f == Form::Icon ? room.gap : 0; }
 
     // The label form's width: the icon and the short label, padded.
     double labelForm()
@@ -1329,7 +1437,7 @@ struct SearchBox::Impl {
         if (wanted == Spot::Side::After)
             std::swap(tries[1], tries[2]);
         for (const Spot::Side side : tries) {
-            if (const std::optional<Shape> shape = shapeFor(room.width(side), room.h))
+            if (const std::optional<Shape> shape = shapeFor(room.width(side), room))
                 return Side {side, *shape};
         }
         return std::nullopt;
@@ -1344,8 +1452,9 @@ struct SearchBox::Impl {
         if (!side)
             return std::nullopt;
         const double width = side->shape.width;
-        const double from = room.from(side->side);
-        const double to = room.to(side->side);
+        const Form shape = side->shape.form;
+        const double from = room.from(side->side) - ends(shape, room);
+        const double to = room.to(side->side) + ends(shape, room);
         const double offset = std::lround(where.offset * s);
         double x = 0;
         if (side->side == Spot::Side::Before) // against the icons: the right end
@@ -1355,9 +1464,9 @@ struct SearchBox::Impl {
         Target t;
         t.x = std::round(std::clamp(x, from, to - width));
         t.w = width;
-        t.y = room.y;
-        t.h = room.h;
-        t.form = side->shape.form;
+        t.y = shape == Form::Icon ? room.buttonY : room.y;
+        t.h = shape == Form::Icon ? room.buttonH : room.h;
+        t.form = shape;
         t.side = side->side;
         return t;
     }
@@ -1369,12 +1478,14 @@ struct SearchBox::Impl {
         const double s = scale();
         const double middle = x + width / 2;
         Spot::Side side = sideAt(room, middle);
+        double into = 0; // ends()
         if (const std::optional<Side> fit = sideFor(room, side)) {
             side = fit->side;
             width = fit->shape.width;
+            into = ends(fit->shape.form, room);
         }
-        const double from = room.from(side);
-        const double to = room.to(side);
+        const double from = room.from(side) - into;
+        const double to = room.to(side) + into;
         width = std::min(width, to - from);
         x = std::clamp(middle - width / 2, from, std::max(from, to - width));
         const bool before = side == Spot::Side::Before;
@@ -1615,6 +1726,7 @@ struct SearchBox::Impl {
             return;
         const double left = std::floor(pillX);
         frac = static_cast<float>(pillX - left);
+        marginY = static_cast<int>(std::clamp<LONG>((barH - pillH) / 2, 0, std::lround(kMargin * scale())));
         POINT pos {static_cast<LONG>(left) - marginX, pillY - marginY};
         ::ScreenToClient(tray, &pos);
         const SIZE size {static_cast<LONG>(std::ceil(frac + pillW)) + 2 * marginX, pillH + 2 * marginY};
@@ -1639,12 +1751,12 @@ struct SearchBox::Impl {
                 placeholderT.snap(0);
                 placeholderT.go(1, now, 200, kFastIn);
             }
-            relabelled = look.label != drawnLook.label;
+            relabelled = look.label != drawnLook.label || look.style != drawnLook.style;
             drawnLook = look;
             next = text;
         }
         if (relabelled)
-            refit(); // the label form's width
+            refit(); // the label form's width, or the forms it may take
         if (next.active != drawnText.active) {
             scroll = 0;
             if (animations) {
@@ -1837,6 +1949,9 @@ struct SearchBox::Impl {
         // edge: the line round it while typing, the grey of our windows' edge
         // (Theme.windowEdge): it stands for the launcher's field then.
         D2D1_COLOR_F fill, hoverFill, pressedFill, activeFill, border, edge, text, placeholder, selection, caret;
+        // The icon form's plate (a taskbar button's): WinUI's SubtleFillColorSecondary
+        // and Tertiary, as measured on Windows' own search icon (5.8 % white on dark).
+        D2D1_COLOR_F buttonHover, buttonPressed, buttonTop;
     };
 
     Palette palette() const
@@ -1847,17 +1962,18 @@ struct SearchBox::Impl {
             const D2D1_COLOR_F ink = colorOf(::GetSysColor(COLOR_WINDOWTEXT));
             const D2D1_COLOR_F highlight = colorOf(::GetSysColor(COLOR_HIGHLIGHT));
             return {window, window, window, window, ink, highlight, ink, colorOf(::GetSysColor(COLOR_GRAYTEXT)),
-                highlight, ink};
+                highlight, ink, gray(0, 0), gray(0, 0), gray(0, 0)};
         }
         D2D1_COLOR_F selection = accent;
         if (dark) {
             selection.a = 0.45f;
             return {gray(1, 0.06f), gray(1, 0.11f), gray(1, 0.03f), gray(0.11f, 0.94f), gray(1, 0.09f),
-                gray(0x6A / 255.0f, 1), gray(1, 1), gray(1, 0.66f), selection, gray(1, 1)};
+                gray(0x6A / 255.0f, 1), gray(1, 1), gray(1, 0.66f), selection, gray(1, 1), gray(1, 0.058f), gray(1, 0.039f),
+                gray(1, 0.045f)};
         }
         selection.a = 0.32f;
         return {gray(1, 0.6f), gray(1, 0.82f), gray(1, 0.42f), gray(1, 0.98f), gray(0, 0.08f), gray(0xB4 / 255.0f, 1),
-            gray(0, 0.9f), gray(0, 0.6f), selection, gray(0, 0.9f)};
+            gray(0, 0.9f), gray(0, 0.6f), selection, gray(0, 0.9f), gray(0, 0.037f), gray(0, 0.024f), gray(0, 0)};
     }
 
     // The words in the box: the placeholder (or what to search, while typing
@@ -1879,6 +1995,7 @@ struct SearchBox::Impl {
     {
         renderTarget.Reset();
         icon.Reset();
+        searchIcon.Reset();
         if (memory) {
             ::SelectObject(memory, oldBitmap);
             ::DeleteDC(std::exchange(memory, nullptr));
@@ -1943,13 +2060,16 @@ struct SearchBox::Impl {
     }
 
     // Win顺's icon at its exact size (the .ico has 16 to 48 in steps), or
-    // drawn in one colour.
+    // drawn in one colour; the magnifier the same, in one colour its own
+    // shape filled with the ink (its glass stays faint, as Windows' is).
     void ensureIcon()
     {
         const std::optional<COLORREF> ink = wantedInk();
-        if (icon && iconDpi == dpi && iconInk == ink)
+        const int glyph = buttonGlyph();
+        if (icon && searchIcon && iconDpi == dpi && iconInk == ink && searchIconPx == glyph)
             return;
         icon.Reset();
+        searchIcon.Reset();
         iconDpi = dpi;
         iconInk = ink;
         const int px = static_cast<int>(std::lround(kIconSize * dpi / 96.0));
@@ -1958,12 +2078,22 @@ struct SearchBox::Impl {
             renderTarget->CreateBitmap(D2D1::SizeU(px, px), image.constBits(), static_cast<UINT32>(image.bytesPerLine()),
                 D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)),
                 &icon);
-            return;
+        } else {
+            icon = iconBitmap(L"IDI_ICON1", px, std::nullopt);
         }
-        const auto handle = static_cast<HICON>(
-            ::LoadImageW(::GetModuleHandleW(nullptr), L"IDI_ICON1", IMAGE_ICON, px, px, LR_DEFAULTCOLOR));
+        searchIconPx = glyph;
+        searchIcon = iconBitmap(L"IDI_SEARCH", glyph, ink);
+    }
+
+    // An icon of the exe's at px (Windows picks the nearest size it has and
+    // scales it), premultiplied; with an ink, its alpha in that colour.
+    ComPtr<ID2D1Bitmap> iconBitmap(const wchar_t* name, int px, std::optional<COLORREF> ink)
+    {
+        ComPtr<ID2D1Bitmap> result;
+        const auto handle
+            = static_cast<HICON>(::LoadImageW(::GetModuleHandleW(nullptr), name, IMAGE_ICON, px, px, LR_DEFAULTCOLOR));
         if (!handle)
-            return;
+            return result;
         ICONINFO info {};
         if (::GetIconInfo(handle, &info)) {
             BITMAPINFO bi {};
@@ -1975,13 +2105,14 @@ struct SearchBox::Impl {
             if (read) {
                 for (std::uint32_t& p : pixels) { // straight alpha to premultiplied
                     const std::uint32_t a = p >> 24;
-                    const auto channel = [&](int shift) { return (((p >> shift) & 0xFF) * a + 127) / 255 << shift; };
+                    const std::uint32_t c = ink ? (GetRValue(*ink) << 16) | (GetGValue(*ink) << 8) | GetBValue(*ink) : p;
+                    const auto channel = [&](int shift) { return (((c >> shift) & 0xFF) * a + 127) / 255 << shift; };
                     p = (a << 24) | channel(16) | channel(8) | channel(0);
                 }
                 renderTarget->CreateBitmap(D2D1::SizeU(px, px), pixels.data(), px * 4,
                     D2D1::BitmapProperties(
                         D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)),
-                    &icon);
+                    &result);
             }
             if (info.hbmColor)
                 ::DeleteObject(info.hbmColor);
@@ -1989,6 +2120,7 @@ struct SearchBox::Impl {
                 ::DeleteObject(info.hbmMask);
         }
         ::DestroyIcon(handle);
+        return result;
     }
 
     void render()
@@ -2019,7 +2151,10 @@ struct SearchBox::Impl {
         const float idle = 1 - activeAmount;
         const float lift = liftT.value;
         const float press = static_cast<float>(std::clamp(pressS.value, -0.5, 1.0));
-        const float pill = iconPressed ? 0 : press * idle; // the box itself gives a little when pressed
+        // Its icon alone: a taskbar button, a plate under the glyph on hover
+        // or while open, none at rest; pressed, only the glyph gives.
+        const bool button = form == Form::Icon;
+        const float pill = iconPressed || button ? 0 : press * idle; // the box itself gives a little when pressed
 
         // Pressed, lifted, appearing: about its middle.
         const float grow = (1 - 0.035f * pill) * (1 + 0.04f * lift) * (0.9f + 0.1f * shownT.value);
@@ -2035,10 +2170,11 @@ struct SearchBox::Impl {
         renderTarget->SetTransform(base);
         ComPtr<ID2D1SolidColorBrush> brush;
         renderTarget->CreateSolidColorBrush(p.fill, &brush);
-        const float radius = h / 2;
+        const float radius = button ? std::round(static_cast<float>(kButtonRadius) * s) : h / 2;
+        const float inset = button ? std::round(static_cast<float>(kButtonSide) * s) : 0; // the plate in the slot
         const auto rounded = [&](float out, float dy = 0) {
-            return D2D1_ROUNDED_RECT {
-                D2D1::RectF(-out, -out + dy, w + out, h + out + dy), std::max(0.0f, radius + out), std::max(0.0f, radius + out)};
+            return D2D1_ROUNDED_RECT {D2D1::RectF(inset - out, -out + dy, w - inset + out, h + out + dy),
+                std::max(0.0f, radius + out), std::max(0.0f, radius + out)};
         };
 
         if (lift > 0) { // off the taskbar: a soft shadow under it
@@ -2057,22 +2193,48 @@ struct SearchBox::Impl {
         // The pill, with a line round it, 1 logical px as round our windows;
         // with high contrast the highlight's, thicker, while typing in it.
         const float stroke = highContrast ? s * (1 + activeAmount) : s;
-        D2D1_COLOR_F fill = mix(p.fill, p.hoverFill, std::max(hoverT.value, lift));
-        fill = mix(fill, p.pressedFill, std::clamp(pill, 0.0f, 1.0f));
-        // Open while narrow: lit, as a taskbar button whose window is open.
-        brush->SetColor(mix(fill, whole ? p.activeFill : p.hoverFill, activeAmount));
-        renderTarget->FillRoundedRectangle(rounded(-stroke / 2), brush.Get());
-        brush->SetColor(mix(p.border, whole ? p.edge : p.border, activeAmount));
-        renderTarget->DrawRoundedRectangle(rounded(-stroke / 2), brush.Get(), stroke);
+        if (button) {
+            // As the taskbar's own buttons (Windows' subtle fills): shown on
+            // hover, lifted or open, fainter pressed; a faint lighter top edge
+            // on dark. Never quite clear: a layered window's pixels with no
+            // alpha let the pointer through to the taskbar, and the plate is
+            // what is pointed at.
+            const float shown = std::max({hoverT.value, lift, activeAmount});
+            D2D1_COLOR_F plate = mix(p.buttonHover, p.buttonPressed, std::clamp(press, 0.0f, 1.0f) * hoverT.value);
+            plate.a = std::max(plate.a * shown, 1.0f / 255);
+            brush->SetColor(plate);
+            renderTarget->FillRoundedRectangle(rounded(0), brush.Get());
+            if (highContrast && shown > 0) {
+                brush->SetColor(faded(p.edge, shown));
+                renderTarget->DrawRoundedRectangle(rounded(-s / 2), brush.Get(), s);
+            } else if (p.buttonTop.a > 0 && shown > 0) {
+                ComPtr<ID2D1GradientStopCollection> stops;
+                const D2D1_GRADIENT_STOP top[] = {{0, faded(p.buttonTop, shown)}, {1, faded(p.buttonTop, 0)}};
+                ComPtr<ID2D1LinearGradientBrush> edge;
+                if (SUCCEEDED(renderTarget->CreateGradientStopCollection(top, 2, &stops))
+                    && SUCCEEDED(renderTarget->CreateLinearGradientBrush(
+                        D2D1::LinearGradientBrushProperties(D2D1::Point2F(0, 0), D2D1::Point2F(0, 3 * s)), stops.Get(), &edge)))
+                    renderTarget->DrawRoundedRectangle(rounded(-s / 2), edge.Get(), s);
+            }
+        } else {
+            D2D1_COLOR_F fill = mix(p.fill, p.hoverFill, std::max(hoverT.value, lift));
+            fill = mix(fill, p.pressedFill, std::clamp(pill, 0.0f, 1.0f));
+            // Open while narrow: lit, as a taskbar button whose window is open.
+            brush->SetColor(mix(fill, whole ? p.activeFill : p.hoverFill, activeAmount));
+            renderTarget->FillRoundedRectangle(rounded(-stroke / 2), brush.Get());
+            brush->SetColor(mix(p.border, whole ? p.edge : p.border, activeAmount));
+            renderTarget->DrawRoundedRectangle(rounded(-stroke / 2), brush.Get(), stroke);
+        }
 
-        const float iconSize = std::round(static_cast<float>(kIconSize) * s);
-        const float iconX = std::min(std::round(static_cast<float>(kPadding) * s), std::round((w - iconSize) / 2)); // narrow: centred
-        if (icon) {
+        const float iconSize = button ? static_cast<float>(searchIconPx) : std::round(static_cast<float>(kIconSize) * s);
+        const float iconX = button ? std::round((w - iconSize) / 2)
+                                   : std::min(std::round(static_cast<float>(kPadding) * s), std::round((w - iconSize) / 2)); // narrow: centred
+        if (const ComPtr<ID2D1Bitmap>& glyph = button ? searchIcon : icon) {
             const float y = std::round((h - iconSize) / 2);
             const float k = static_cast<float>(iconS.value) * (1 - 0.14f * std::max(0.0f, press));
             renderTarget->SetTransform(
                 D2D1::Matrix3x2F::Scale(k, k, D2D1::Point2F(iconX + iconSize / 2, y + iconSize / 2)) * base);
-            renderTarget->DrawBitmap(icon.Get(), D2D1::RectF(iconX, y, iconX + iconSize, y + iconSize), 1.0f,
+            renderTarget->DrawBitmap(glyph.Get(), D2D1::RectF(iconX, y, iconX + iconSize, y + iconSize), 1.0f,
                 still && k == 1 ? D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR : D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
             renderTarget->SetTransform(base);
         }
@@ -2370,8 +2532,22 @@ struct SearchBox::Impl {
         case WM_DPICHANGED_AFTERPARENT:
             self->requestMeasure();
             return 0;
+        case WM_NOTIFY: {
+            const auto* header = reinterpret_cast<const NMHDR*>(lParam);
+            if (header->hwndFrom != self->tip)
+                break;
+            if (header->code == TTN_GETDISPINFOW) {
+                reinterpret_cast<NMTTDISPINFOW*>(lParam)->lpszText = const_cast<wchar_t*>(self->tipText());
+                return 0;
+            }
+            if (header->code == TTN_SHOW)
+                return self->placeTip() ? TRUE : FALSE; // TRUE: where we put it
+            break;
+        }
         case WM_DESTROY:
             self->box = nullptr;
+            if (self->tip)
+                ::DestroyWindow(std::exchange(self->tip, nullptr));
             self->textLayout.Reset();
             if (!self->destroying) { // with its taskbar: Explorer ended
                 if (self->hook)

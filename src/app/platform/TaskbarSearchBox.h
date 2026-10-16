@@ -31,7 +31,8 @@ namespace ws::taskbar {
 // Start where Windows' own box sits: the box says how many DIPs it needs
 // (gapWanted), and goes there once the gap is measured. As wide as that stretch
 // allows, as Windows' own search: the whole box, then its icon and a short
-// label, then its icon alone; typing shows in the whole box only (wide), else
+// label, then its icon alone, a taskbar button like Windows' search icon (no
+// wider than the user's Style); typing shows in the whole box only (wide), else
 // the launcher opens over it with its own field. On the other side only where
 // not even the icon fits. When the taskbar moves its icons (a location event on
 // its thread), they are measured again on every frame until they settle, and
@@ -100,12 +101,17 @@ public:
         int selectionEnd = 0;
         std::wstring composition; // an input method's, at the cursor
     };
+    // The widest form the user lets it take, as Windows' own search has it
+    // (Settings › Personalisation › Taskbar › Search): the box, its icon and
+    // label, its icon alone. Narrower ones still where that one does not fit.
+    enum class Style { Box, Label, Icon };
     struct Look {
-        std::wstring name; // for screen readers: "Win顺 搜索"
+        std::wstring name; // for screen readers and the tooltip: "Win顺 搜索"
         std::wstring placeholder;
         std::wstring label; // short, where the box is narrow: "搜索"
         COLORREF accent = RGB(0x00, 0x67, 0xC0); // under selected text
         bool monoIcon = false; // Win顺's icon in the taskbar's text colour (monologo), not its own colours
+        Style style = Style::Box;
     };
 
     // The callbacks run on the box's own thread.
