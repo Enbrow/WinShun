@@ -83,7 +83,7 @@ qt_add_executable(WinShun WIN32
     platform/ShellMenu.cpp platform/ShellMenu.h
     platform/ShortcutCapture.cpp platform/ShortcutCapture.h
     platform/SiteIcons.cpp platform/SiteIcons.h
-    platform/StartMenuTyping.cpp platform/StartMenuTyping.h
+    platform/TypeToSearch.cpp platform/TypeToSearch.h
     platform/TaskbarSearch.cpp platform/TaskbarSearch.h
     platform/TaskbarSearchBox.cpp platform/TaskbarSearchBox.h
     platform/TaskbarStartGap.cpp platform/TaskbarStartGap.h

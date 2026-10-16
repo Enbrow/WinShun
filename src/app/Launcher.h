@@ -381,6 +381,7 @@ signals:
     void resultsReplaced(); // results for a new query: select the first row
     void namesShown(); // a name search finished and its rows are in the model
     void dismissRequested();
+    void escaped(); // Esc closed it (dismiss), before dismissRequested: nothing opened
     // Not started: it would have needed administrator rights to start at all
     // (see shell::open). The launcher is closed by then.
     void openFailed(const QString& name);

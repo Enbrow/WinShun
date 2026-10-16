@@ -23,6 +23,7 @@
 #include "Query.h"
 #include "Release.h"
 #include "SearchEngine.h"
+#include "SearchTyping.h"
 #include "SettingsMatch.h"
 #include "ShareIndexer.h"
 #include "ShareLister.h"
@@ -5823,6 +5824,60 @@ private slots:
             d.leftDown(0xFFFFFF00u, 100, 100, view, false);
             QVERIFY(d.leftDown(0x00000010u, 100, 100, view, false));
         }
+    }
+
+    // Typing in a File Explorer folder window: which keys, where the focus
+    // is, start a search with Win顺 (platform/TypeToSearch decides by it).
+    void searchTyping()
+    {
+        using namespace searchtyping;
+        const auto starts = [](unsigned vk, bool press = true, bool combination = false, Focus focus = Focus::ItemsView,
+                                bool elevated = false) { return explorerStarts(vk, press, combination, focus, elevated); };
+        // Letters, digits, punctuation, the number pad: typing.
+        QVERIFY(starts('A'));
+        QVERIFY(starts('Z'));
+        QVERIFY(starts('0'));
+        QVERIFY(starts(kVkNumpad0));
+        QVERIFY(starts(kVkDivide));
+        QVERIFY(starts(kVkOem1)); // ;
+        QVERIFY(starts(kVkOem3)); // `
+        QVERIFY(starts(kVkOem4)); // [
+        QVERIFY(starts(kVkOem8));
+        QVERIFY(starts(kVkOem102)); // the key by the left Shift on some layouts
+        // Commands of Explorer's view, and keys that do nothing in an empty box.
+        QVERIFY(!starts(kVkSpace)); // Listary leaves it to Explorer too
+        QVERIFY(!starts(kVkBack));
+        QVERIFY(!starts(kVkReturn));
+        QVERIFY(!starts(kVkEscape));
+        QVERIFY(!starts(kVkTab));
+        QVERIFY(!starts(kVkDelete));
+        QVERIFY(!starts(kVkLeft));
+        QVERIFY(!starts(kVkF1));
+        QVERIFY(!starts(kVkF1 + 1)); // F2: rename
+        QVERIFY(!starts(kVkF24));
+        QVERIFY(!starts(kVkProcessKey)); // never seen by the hook; harmless all the same
+        // Modifiers alone, and anything with Ctrl, Alt or Win held.
+        QVERIFY(!starts(kVkShift));
+        QVERIFY(!starts(kVkLShift));
+        QVERIFY(!starts(kVkControl));
+        QVERIFY(!starts(kVkMenu));
+        QVERIFY(!starts(kVkRMenu));
+        QVERIFY(!starts(kVkLWin));
+        QVERIFY(!starts(kVkRWin));
+        QVERIFY(!starts(kVkCapital));
+        QVERIFY(!starts(kVkNumlock));
+        QVERIFY(!starts('A', true, true)); // Ctrl+A
+        QVERIFY(!starts('1', true, true)); // Alt+1
+        // Releases: never (the press was taken, or not).
+        QVERIFY(!starts('A', false));
+        // Not with the focus elsewhere in the window: a name being renamed
+        // (an Edit), the address bar, the search box, the navigation pane.
+        QVERIFY(!starts('A', true, false, Focus::Other));
+        // Not an elevated Explorer: Windows would neither show the hook its
+        // keys nor let them be handed back.
+        QVERIFY(!starts('A', true, false, Focus::ItemsView, true));
+        QVERIFY(isModifier(kVkShift) && isModifier(kVkRMenu) && isModifier(kVkLWin));
+        QVERIFY(!isModifier('A') && !isModifier(kVkSpace));
     }
 
     // The folder menu's hotkey (GitHub #25): a press opens, closes or

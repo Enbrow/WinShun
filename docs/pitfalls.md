@@ -2105,3 +2105,44 @@
 - **现象**：0.8.0 的「用 Win顺 搜索此处」在选中的文件夹、盘符上有，在文件夹空白处右键没有（论坛 #209、#215）。用户把 `Directory\Background\shell\WinShun.SearchHere` 下的 `MultiSelectModel` 删掉就好了。
 - **原因**：三个键统一写了 `MultiSelectModel=Single`。空白处没有选中项，外壳按“恰好选中一项”去比，就把动词藏了。
 - **做法**：`ShellMenu.cpp` 只给 `Directory`、`Drive` 写 `Single`，`Background` 不写，已有的删掉（老用户启动新版即修好）。验证用 `IShellFolder::CreateViewObject(IID_IContextMenu)` 取空白处菜单、`GetUIObjectOf` 取文件夹本身的菜单，列出菜单项对比，不必点界面。
+## 在资源管理器里直接打字搜索（论坛 #215、#157、#190）
+
+### 钩子里的键是真键码，不是 `VK_PROCESSKEY`
+
+- **现象**：担心中文输入法开着时低级钩子看到的也是 `VK_PROCESSKEY`，要像结果列表的 Menu 键那样靠扫描码辨认。
+- **实际**：`WH_KEYBOARD_LL` 在输入法之前，`vkCode` 就是字母本身（实测微软拼音中文状态下打 `ndbg`，钩子记到的是 `0x4e`）；`VK_PROCESSKEY` 是窗口 `TranslateMessage` 之后才有的。存着的键用 `SendInput` 重发进 Win顺 的框，照常经 Win顺 线程的输入法组字：框里显示 `n'd'b'g`，候选“你打不过、年度报告”。所以这里不用扫描码那一套；`Esc` 要按两次（先取消组字）。
+
+### 焦点在哪，按窗口类一条规则就够
+
+- **做法**：`GetGUIThreadInfo` 取前台线程的焦点窗口，必须是 `SHELLDLL_DefView` 下的 `DirectUIHWND`（`folderview::classify`）。实测（Windows 11 25H2）各处的焦点链：文件列表 `DirectUIHWND<SHELLDLL_DefView<CabinetWClass`；按 `F2` 重命名 `Edit<CtrlNotifySink<CabinetWClass`；`Alt+D` 地址栏是 XAML 的 `InputSiteWindowClass<Microsoft.UI.Content.DesktopChildSiteBridge<CabinetWClass`。后两种自然不匹配，不用列黑名单。
+- `SHELLDLL_DefView` 不是标签页的直接子窗口：`CabinetWClass › ShellTabWindowClass › DUIViewWndClassName › DirectUIHWND › CtrlNotifySink › SHELLDLL_DefView › DirectUIHWND`。测试脚本用 `FindWindowEx` 只找直接子窗口，报“没有 DefView”；要 `EnumChildWindows` 按类名找后代。
+
+### 第一次问资源管理器要 160 毫秒，之后 4–9 毫秒
+
+- **现象**：日志里第一次 `Explorer typing: folder "F:\wsexptest" 159 ms`，后面每次 4–9 ms。
+- **原因**：`ComWorker` 线程第一次用 `IShellWindows`（建套间、连资源管理器）。键在钩子里存着，用户看不出来，不用预热。
+
+### 提权的测试脚本开出来的资源管理器是提权的
+
+- **现象**：提权的 PowerShell 里 `Start-Process explorer.exe F:\wsexptest`，窗口所在的 `explorer.exe` 是新进程、提权的；功能有意不理提权的资源管理器（`integrity::higherThanOurs`），什么都不发生。
+- **做法**：`runas /trustlevel:0x20000 "explorer.exe \"路径\""` 以基本用户令牌启动，窗口是普通权限的（这台机器上文件夹窗口开在单独的 `explorer.exe` 进程里，pid 不是外壳的那个，正常）。用 `GetTokenInformation(TokenElevation)` 记下窗口进程是否提权，别猜。
+
+### 第二个键打下去时启动器已经在前台了
+
+- **现象**：脚本按“前台必须是资源管理器”守卫每一个键，第二个键（间隔 70 ms）常常被中止：第一个键截下后启动器 0–47 ms 就到了前台。头一次碰巧过了。
+- **做法**：打字的守卫同时认资源管理器和 Win顺 两个进程（本来就是这样：后面的键要么被钩子存着，要么直接进了启动器）。别把守卫放宽到“任何进程”。
+
+### 用户在用电脑时，脚本的 `SetForegroundWindow` 不起作用，点击也会落到别的窗口
+
+- **现象**：一次运行里 `BringFront` 返回 False，随后点文件列表空白处的守卫报“点落在 Chrome_RenderWidgetHostHWND（VS Code）上”，脚本中止、恢复现场。
+- **做法**：这正是守卫的用处；等一会儿再跑，不要去掉守卫或改成强行点击。
+
+### PowerShell 的 `-replace` 不分大小写
+
+- **现象**：用 `-replace 'typetosearch::', 'searchtyping::'` 改命名空间，把类名 `TypeToSearch::` 也全改了。
+- **做法**：改代码用 `-creplace`，或者用编辑工具逐处改；改完 `Select-String` 核对一遍。
+
+### 读 `WinShun.log` 里的中文路径成了乱码
+
+- **现象**：测试日志里 `Explorer typing: folder "F:\wsexptest\ä¸­æ–‡ç›®å½•"`，Win顺 的框里却是对的。
+- **原因**：日志是 UTF-8，脚本 `Get-Content -Tail` 没加 `-Encoding UTF8`（PowerShell 5.1 默认按系统代码页读）。只是读错，不是功能的问题。

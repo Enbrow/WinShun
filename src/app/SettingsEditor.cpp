@@ -813,6 +813,14 @@ void SettingsEditor::setExplorerMenu(bool on)
     commit();
 }
 
+void SettingsEditor::setExplorerTyping(bool on)
+{
+    if (m_settings.explorerTyping == on)
+        return;
+    m_settings.explorerTyping = on;
+    commit();
+}
+
 void SettingsEditor::setFolderMenu(bool on)
 {
     if (folderMenu() == on)

@@ -27,6 +27,7 @@
 class QQmlApplicationEngine;
 class QQuickItem;
 class QQuickWindow;
+class QScreen;
 class QWinEventNotifier;
 
 namespace ws {
@@ -34,6 +35,7 @@ namespace ws {
 class AppCatalog;
 class ClipStore;
 class Clipboard;
+class ComWorker;
 class DialogBar;
 class DialogJump;
 class Favorites;
@@ -49,7 +51,7 @@ class NetworkNotifier;
 class Placement;
 class SearchEngine;
 class SettingsEditor;
-class StartMenuTyping;
+class TypeToSearch;
 class Updater;
 class Backup;
 class VolumeNotifier;
@@ -97,7 +99,10 @@ public:
     // With `spot`, over the taskbar, as Windows' own search (taskbar::);
     // `inBox`: over Win顺's box there, its field drawn in the box when the
     // box is wide enough for it.
-    void showLauncher(const QString& query = {}, const std::optional<taskbar::Spot>& spot = {}, bool inBox = false);
+    // `on`: the screen to open on (typed in an Explorer window there), else
+    // the one under the mouse.
+    void showLauncher(const QString& query = {}, const std::optional<taskbar::Spot>& spot = {}, bool inBox = false,
+        QScreen* on = nullptr);
     void hideLauncher();
     void showClipboard();
     void showSettings();
@@ -160,7 +165,14 @@ private:
     // launcher over the taskbar, or away again.
     void toggleAtTaskbar(bool clicked);
     void startScreenClip(); // Win+Shift+S, which Explorer gives up with Win+S
-    void startMenuTyped(); // typed in the Start menu (StartMenuTyping): the launcher over the taskbar
+    void applyTypeToSearch(); // typing in the Start menu, in Explorer (TypeToSearch), as the settings say
+    void startMenuTyped(); // typed in the Start menu (TypeToSearch): the launcher over the taskbar
+    // Typed in the Explorer window `root` (TypeToSearch): its `tab`'s folder
+    // is asked for on a worker, then the launcher opens in that folder, on
+    // that window's screen, and the keys follow; with no folder there, the
+    // keys go back to Explorer.
+    void explorerTyped(HWND root, HWND tab);
+    void explorerFolderKnown(HWND root, const QString& folder);
     // Win顺's own search box on the taskbar ([Taskbar] SearchBox, taskbar::SearchBox).
     void applySearchBox();
     void setSearchBoxShown(taskbar::SearchBox::Hidden why); // it is on the taskbar (None), or why not
@@ -310,7 +322,9 @@ private:
     QElapsedTimer m_launcherHidden; // since the launcher last went away
     QElapsedTimer m_launcherShown; // since it was last asked for
     bool m_launcherClosing = false; // sliding out (hideLauncher)
-    std::unique_ptr<StartMenuTyping> m_startTyping; // while [Taskbar] StartMenuTyping is on
+    std::unique_ptr<ComWorker> m_typingWorker; // asks Explorer its folder (explorerTyped); before m_typing
+    std::unique_ptr<TypeToSearch> m_typing; // while [Taskbar] StartMenuTyping or [Launcher] ExplorerTyping is on
+    HWND m_typingExplorer = nullptr; // the launcher is up from typing in this Explorer window: Esc goes back to it
     std::unique_ptr<taskbar::SearchBox> m_searchBox; // while [Taskbar] SearchBox is on (Windows 11)
     bool m_searchBoxShown = false; // ... and it is on the taskbar
     taskbar::SearchBox::Hidden m_searchBoxHidden = taskbar::SearchBox::Hidden::Pending; // ... or why not
@@ -325,7 +339,7 @@ private:
     QTimer m_boxPressGrace;
     QPointer<QQuickItem> m_searchField; // the launcher's (SearchBar.qml): the input method asks it where the caret is
     taskbar::SearchBox::Text m_fieldShown; // what it last reported (mirrorField), for the box
-    bool m_deliverTyping = false; // the launcher was asked for by typing in the Start menu
+    bool m_deliverTyping = false; // the launcher was asked for by typing in the Start menu or in Explorer
     QString m_clipboardShortcut; // what opens the clipboard: "Win+V", another shortcut, or nothing
     std::unique_ptr<MessageWindow> m_messages;
     std::unique_ptr<Updater> m_updater;

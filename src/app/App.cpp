@@ -34,8 +34,10 @@
 #include "WindowFrame.h"
 #include "WindowLogo.h"
 #include "platform/ClipboardWatcher.h"
+#include "platform/ComWorker.h"
 #include "platform/Credentials.h"
 #include "platform/DialogJump.h"
+#include "platform/FileManagers.h"
 #include "platform/Foreground.h"
 #include "platform/IdleTrim.h"
 #include "platform/Integrity.h"
@@ -48,7 +50,7 @@
 #include "platform/ShellContextMenu.h"
 #include "platform/ShellMenu.h"
 #include "platform/SiteIcons.h"
-#include "platform/StartMenuTyping.h"
+#include "platform/TypeToSearch.h"
 #include "platform/TaskbarSearch.h"
 #include "platform/TextCaret.h"
 #include "platform/VolumeNotifier.h"
@@ -100,6 +102,17 @@ constexpr int kFolderMenuHotkeyId = 7; // the folder menu in the window in front
 // clipboard would open late; it opens by the mouse pointer then.
 constexpr auto kCaretWait = 100ms;
 constexpr DWORD kSlowMenuMs = 100; // a tray menu slower than this to appear is logged
+
+// The screen a monitor is, as Qt knows it; the primary when none is.
+QScreen* screenOf(HMONITOR monitor)
+{
+    for (QScreen* screen : QGuiApplication::screens()) {
+        const auto* native = screen->nativeInterface<QNativeInterface::QWindowsScreen>();
+        if (native && native->handle() == monitor)
+            return screen;
+    }
+    return QGuiApplication::primaryScreen();
+}
 
 // The favorites' keywords (keyword, name), which the plugins' give way to.
 QList<std::pair<QString, QString>> favoriteKeywords(const Favorites& favorites)
@@ -421,6 +434,14 @@ bool App::start(const StartOptions& options)
         = std::make_unique<Launcher>(m_index.get(), m_apps.get(), m_places.get(), m_engine.get(), m_history.get());
     m_launcher->setFavorites(m_favorites.get());
     connect(m_launcher.get(), &Launcher::dismissRequested, this, &App::hideLauncher);
+    // Opened by typing in an Explorer window, Esc hands the keyboard back to
+    // it (allowed: the launcher is in front), as closing a menu would; not a
+    // result opened, whose program is coming to the front instead.
+    connect(m_launcher.get(), &Launcher::escaped, this, [this] {
+        const HWND back = std::exchange(m_typingExplorer, nullptr);
+        if (back && ::IsWindow(back) && m_window && m_window->isActive())
+            ::SetForegroundWindow(back);
+    });
     connect(m_launcher.get(), &Launcher::openFailed, this, [this](const QString& name) {
         m_messages->showNotification(tr("没有打开“%1”").arg(name),
             integrity::processElevated()
@@ -1151,14 +1172,30 @@ void App::applyTaskbar()
     m_winSApplied = m_settings.taskbarWinS;
     applyTaskbarHotkeys();
 
-    if (m_settings.taskbarStartTyping && !m_startTyping) {
-        // Called on its thread: hop to the GUI thread.
-        m_startTyping = std::make_unique<StartMenuTyping>(StartMenuTyping::Callbacks {
-            [this] { QMetaObject::invokeMethod(this, &App::startMenuTyped, Qt::QueuedConnection); }});
-    } else if (!m_settings.taskbarStartTyping) {
-        m_startTyping.reset();
-    }
+    applyTypeToSearch();
     applySearchBox();
+}
+
+void App::applyTypeToSearch()
+{
+    const TypeToSearch::Surfaces wanted {m_settings.taskbarStartTyping, m_settings.explorerTyping};
+    if (m_typing && m_typing->surfaces().startMenu == wanted.startMenu
+        && m_typing->surfaces().explorer == wanted.explorer)
+        return;
+    m_typing.reset();
+    if (!wanted.startMenu && !wanted.explorer)
+        return;
+    // Called on its thread: hop to the GUI thread.
+    TypeToSearch::Callbacks callbacks;
+    callbacks.typed = [this] { QMetaObject::invokeMethod(this, &App::startMenuTyped, Qt::QueuedConnection); };
+    callbacks.typedInExplorer = [this](HWND root, HWND tab, unsigned vk) {
+        QMetaObject::invokeMethod(this, [this, root, tab, vk] {
+            qInfo().noquote() << u"Explorer typing: key 0x%1 in window 0x%2"_s.arg(vk, 2, 16, QLatin1Char('0'))
+                                     .arg(reinterpret_cast<quintptr>(root), 0, 16);
+            explorerTyped(root, tab);
+        }, Qt::QueuedConnection);
+    };
+    m_typing = std::make_unique<TypeToSearch>(wanted, std::move(callbacks));
 }
 
 // For the settings page: empty while the box is on the taskbar.
@@ -1381,8 +1418,47 @@ void App::startMenuTyped()
 
 void App::deliverTyping()
 {
-    if (std::exchange(m_deliverTyping, false) && m_startTyping)
-        m_startTyping->deliver();
+    if (std::exchange(m_deliverTyping, false) && m_typing)
+        m_typing->deliver();
+}
+
+void App::explorerTyped(HWND root, HWND tab)
+{
+    // Asking Explorer waits on it (COM; a few milliseconds, more when it is
+    // busy): on a worker of its own, never the GUI thread. The hook holds the
+    // keys meanwhile.
+    if (!m_typingWorker)
+        m_typingWorker = std::make_unique<ComWorker>();
+    m_typingWorker->post([this, root, tab] {
+        QElapsedTimer clock;
+        clock.start();
+        const QString folder = QString::fromStdWString(filemanager::explorerFolder(tab));
+        qInfo().noquote() << u"Explorer typing: folder \"%1\" %2 ms"_s.arg(folder).arg(clock.elapsed());
+        QMetaObject::invokeMethod(this, [this, root, folder] { explorerFolderKnown(root, folder); },
+            Qt::QueuedConnection);
+    });
+}
+
+void App::explorerFolderKnown(HWND root, const QString& folder)
+{
+    if (!m_typing)
+        return;
+    // No folder on disk there (Home, This PC, the Recycle Bin, a search): the
+    // keys were Explorer's after all, which jumps by them as it would have.
+    if (folder.isEmpty() || !m_settings.explorerTyping || !m_window) {
+        qInfo() << "Explorer typing: no folder there, the keys go back to Explorer";
+        m_typing->giveBack();
+        return;
+    }
+    // The folder typed, the words to come after it (as Explorer's "search
+    // here", GitHub #20); on the monitor of that window, which need not be
+    // the mouse's. The keys follow once the launcher has the keyboard.
+    m_deliverTyping = true;
+    showLauncher(folder.endsWith(u'\\') ? folder + u' ' : folder + u"\\ "_s, {}, false,
+        screenOf(::MonitorFromWindow(root, MONITOR_DEFAULTTONEAREST)));
+    m_typingExplorer = root;
+    if (m_window && m_window->isActive())
+        deliverTyping();
 }
 
 void App::applyTaskbarHotkeys()
@@ -2194,10 +2270,11 @@ void App::toggleClipboard()
         showClipboard();
 }
 
-void App::showLauncher(const QString& query, const std::optional<taskbar::Spot>& spot, bool inBox)
+void App::showLauncher(const QString& query, const std::optional<taskbar::Spot>& spot, bool inBox, QScreen* on)
 {
     if (!m_window)
         return;
+    m_typingExplorer = nullptr; // opened anew: set again by explorerFolderKnown when that is why
     if (m_idleTrim->takeTrimmed() && m_index->index()) {
         // The index's pages back while the window comes up, before the first
         // search needs them (IdleTrim, FileIndex::warm).
@@ -2226,8 +2303,9 @@ void App::showLauncher(const QString& query, const std::optional<taskbar::Spot>&
     if (spot) {
         m_placement->attachTaskbar(*spot);
     } else {
-        // On the monitor under the mouse, where the user last put it (see Placement).
-        QScreen* screen = QGuiApplication::screenAt(QCursor::pos());
+        // On the monitor asked for, else the one under the mouse; where the
+        // user last put it (see Placement).
+        QScreen* screen = on ? on : QGuiApplication::screenAt(QCursor::pos());
         m_placement->placeOn(screen ? screen : QGuiApplication::primaryScreen());
     }
     if (!query.isEmpty())

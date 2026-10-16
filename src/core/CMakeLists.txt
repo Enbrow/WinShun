@@ -38,6 +38,7 @@ qt_add_library(wscore STATIC
     ShareIndexer.cpp ShareIndexer.h
     ShareLister.cpp ShareLister.h
     Snapshot.cpp Snapshot.h
+    SearchTyping.h
     SystemCatalog.cpp SystemCatalog.h
     TextUtil.cpp TextUtil.h
     Unc.cpp Unc.h

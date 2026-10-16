@@ -605,6 +605,7 @@ void Settings::load()
     fileManagerOpenCommand = readOrDefault(s, u"Launcher/FileManagerOpenCommand"_s, d.fileManagerOpenCommand).trimmed();
     fileManagerRevealCommand = readOrDefault(s, u"Launcher/FileManagerRevealCommand"_s, d.fileManagerRevealCommand).trimmed();
     explorerMenu = readOrDefault(s, u"Launcher/ExplorerMenu"_s, d.explorerMenu);
+    explorerTyping = readOrDefault(s, u"Launcher/ExplorerTyping"_s, d.explorerTyping);
     folderMenu = readOrDefault(s, u"Launcher/FolderMenu"_s, d.folderMenu).trimmed().toLower();
     if (folderMenu != u"on" && folderMenu != u"off")
         folderMenu = d.folderMenu;
@@ -753,6 +754,7 @@ void Settings::save() const
     s.setValue(u"Launcher/FileManagerOpenCommand"_s, fileManagerOpenCommand);
     s.setValue(u"Launcher/FileManagerRevealCommand"_s, fileManagerRevealCommand);
     s.setValue(u"Launcher/ExplorerMenu"_s, explorerMenu);
+    s.setValue(u"Launcher/ExplorerTyping"_s, explorerTyping);
     s.setValue(u"Launcher/FolderMenu"_s, folderMenu);
     s.setValue(u"Launcher/FolderMenuExplorer"_s, folderMenuExplorer);
     s.setValue(u"Launcher/FolderMenuDesktop"_s, folderMenuDesktop);

@@ -1369,6 +1369,17 @@ Window {
                 }
 
                 SettingRow {
+                    title: qsTr("在资源管理器里直接打字搜索")
+                    keywords: qsTr("打字;输入;直接搜索;当前文件夹;资源管理器;Listary;type to search;explorer").split(";")
+                    description: qsTr("文件列表有焦点时直接打字，就在这个窗口显示的文件夹里搜，和 Listary 一样；代替了资源管理器自己的“按首字母跳到文件”")
+
+                    ToggleSwitch {
+                        checked: window.editor.explorerTyping
+                        onToggled: (on) => window.editor.explorerTyping = on
+                    }
+                }
+
+                SettingRow {
                     title: qsTr("双击空白处弹出文件夹菜单")
                     keywords: qsTr("双击;空白;空白处;收藏;收藏夹;最近;文件夹菜单;资源管理器;桌面;Listary;double-click;folder menu").split(";")
                     description: qsTr("在资源管理器或桌面的空白处双击，列出收藏的、最近的和别的窗口里的文件夹，选一个就在这个窗口里打开；Listary 在运行时由它来弹")

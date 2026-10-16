@@ -1,6 +1,9 @@
-#include "StartMenuTyping.h"
+#include "TypeToSearch.h"
 
+#include "FolderViewHit.h"
+#include "Integrity.h"
 #include "KeyRouter.h" // kOwnInput
+#include "SearchTyping.h"
 
 #include <cwchar>
 #include <latch>
@@ -10,45 +13,15 @@ namespace ws {
 namespace {
 
 // Low-level hooks and out-of-context events are called on the thread that set them.
-thread_local StartMenuTyping* t_typing = nullptr;
+thread_local TypeToSearch* t_typing = nullptr;
 
 constexpr UINT kDeliverMessage = WM_APP + 1; // to the hook's thread (deliver)
+constexpr UINT kGiveBackMessage = WM_APP + 2; // to the hook's thread (giveBack)
 constexpr UINT kHoldTimeoutMs = 3000; // the launcher comes in well under a second; keys held longer are dropped
 
 bool held(int vk)
 {
     return (::GetAsyncKeyState(vk) & 0x8000) != 0;
-}
-
-bool isModifier(UINT vk)
-{
-    switch (vk) {
-    case VK_SHIFT:
-    case VK_LSHIFT:
-    case VK_RSHIFT:
-    case VK_CONTROL:
-    case VK_LCONTROL:
-    case VK_RCONTROL:
-    case VK_MENU:
-    case VK_LMENU:
-    case VK_RMENU:
-    case VK_LWIN:
-    case VK_RWIN:
-    case VK_CAPITAL:
-    case VK_NUMLOCK:
-        return true;
-    default:
-        return false;
-    }
-}
-
-// Keys that start a search: letters, digits, punctuation, the number pad's
-// digits and signs. Not Space or Backspace, which do nothing in an empty
-// search box. Once a search has started, every key is held back.
-bool startsTyping(UINT vk)
-{
-    return (vk >= '0' && vk <= '9') || (vk >= 'A' && vk <= 'Z') || (vk >= VK_NUMPAD0 && vk <= VK_DIVIDE)
-        || (vk >= VK_OEM_1 && vk <= VK_OEM_3) || (vk >= VK_OEM_4 && vk <= VK_OEM_8) || vk == VK_OEM_102;
 }
 
 // The Start menu, or Windows' search, which takes it over when typed in.
@@ -90,8 +63,9 @@ INPUT keyInput(WORD vk, WORD scanCode, DWORD flags)
 
 } // namespace
 
-StartMenuTyping::StartMenuTyping(Callbacks callbacks)
-    : m_callbacks(std::move(callbacks))
+TypeToSearch::TypeToSearch(Surfaces surfaces, Callbacks callbacks)
+    : m_surfaces(surfaces)
+    , m_callbacks(std::move(callbacks))
 {
     std::latch ready(1);
     m_thread = std::jthread([this, &ready] {
@@ -107,13 +81,15 @@ StartMenuTyping::StartMenuTyping(Callbacks callbacks)
             THREAD_POWER_THROTTLING_EXECUTION_SPEED, 0};
         ::SetThreadInformation(::GetCurrentThread(), ThreadPowerThrottling, &throttling, sizeof throttling);
         const HWINEVENTHOOK foreground = ::SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr,
-            &StartMenuTyping::foregroundProc, 0, 0, WINEVENT_OUTOFCONTEXT);
+            &TypeToSearch::foregroundProc, 0, 0, WINEVENT_OUTOFCONTEXT);
         ready.count_down();
         foregroundChanged(::GetForegroundWindow()); // open already
         // The hook and the events are called from inside GetMessage.
         while (::GetMessageW(&msg, nullptr, 0, 0) > 0) {
             if (msg.hwnd == nullptr && msg.message == kDeliverMessage)
                 typeHeld();
+            else if (msg.hwnd == nullptr && msg.message == kGiveBackMessage)
+                returnHeld();
             else if (msg.hwnd == nullptr && msg.message == WM_TIMER && msg.wParam == m_timer)
                 dropHeld();
             else
@@ -126,26 +102,31 @@ StartMenuTyping::StartMenuTyping(Callbacks callbacks)
     ready.wait();
 }
 
-StartMenuTyping::~StartMenuTyping()
+TypeToSearch::~TypeToSearch()
 {
     ::PostThreadMessageW(m_threadId.load(), WM_QUIT, 0, 0); // ends the message loop
     if (m_thread.joinable())
         m_thread.join();
 }
 
-void StartMenuTyping::deliver()
+void TypeToSearch::deliver()
 {
     ::PostThreadMessageW(m_threadId.load(), kDeliverMessage, 0, 0);
 }
 
-LRESULT CALLBACK StartMenuTyping::keyboardProc(int code, WPARAM wParam, LPARAM lParam)
+void TypeToSearch::giveBack()
+{
+    ::PostThreadMessageW(m_threadId.load(), kGiveBackMessage, 0, 0);
+}
+
+LRESULT CALLBACK TypeToSearch::keyboardProc(int code, WPARAM wParam, LPARAM lParam)
 {
     if (code == HC_ACTION && t_typing && t_typing->handleKey(wParam, *reinterpret_cast<const KBDLLHOOKSTRUCT*>(lParam)))
         return 1; // seen by nobody else
     return ::CallNextHookEx(nullptr, code, wParam, lParam);
 }
 
-void CALLBACK StartMenuTyping::foregroundProc(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD)
+void CALLBACK TypeToSearch::foregroundProc(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD)
 {
     // The window really in front now, not the one the event names: that
     // can be a part of it, or already gone.
@@ -153,49 +134,94 @@ void CALLBACK StartMenuTyping::foregroundProc(HWINEVENTHOOK, DWORD, HWND, LONG, 
         t_typing->foregroundChanged(::GetForegroundWindow());
 }
 
-void StartMenuTyping::foregroundChanged(HWND window)
+void TypeToSearch::foregroundChanged(HWND window)
 {
-    m_startInFront = isStartMenu(window);
+    m_startInFront = m_surfaces.startMenu && isStartMenu(window);
     if (!m_startInFront)
         m_windowsSearch = false; // Left Alt counts for one opening
-    setHooked(m_startInFront || m_holding);
+    // An Explorer folder window: told by its classes alone; whether it is
+    // elevated is asked here, once, not at every key. Explorer raises this
+    // event when it goes to another folder too (docs/pitfalls.md), so a
+    // window that was something else (Home) and now shows a folder is seen
+    // as often as needed; which folder is asked only when typed in.
+    m_explorer = nullptr;
+    if (m_surfaces.explorer && !m_startInFront
+        && folderview::classifyWindow(window).surface == folderview::Surface::Explorer
+        && !integrity::higherThanOurs(window))
+        m_explorer = window;
+    setHooked(m_startInFront || m_explorer || m_holding);
 }
 
-void StartMenuTyping::setHooked(bool hooked)
+void TypeToSearch::setHooked(bool hooked)
 {
     if (hooked == (m_hook != nullptr))
         return;
     if (hooked) {
-        m_hook = ::SetWindowsHookExW(WH_KEYBOARD_LL, &StartMenuTyping::keyboardProc, ::GetModuleHandleW(nullptr), 0);
+        m_hook = ::SetWindowsHookExW(WH_KEYBOARD_LL, &TypeToSearch::keyboardProc, ::GetModuleHandleW(nullptr), 0);
     } else {
         ::UnhookWindowsHookEx(m_hook);
         m_hook = nullptr;
     }
 }
 
-bool StartMenuTyping::handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event)
+// Whether the files and folders shown in m_explorer have the keyboard focus
+// (not a name being renamed, the address bar, the search box, the navigation
+// pane), and which tab they are. GetGUIThreadInfo reads the other thread's
+// state without sending it anything: safe inside the hook, microseconds.
+bool TypeToSearch::explorerFocused(HWND& tab) const
 {
-    // Ours: being typed again, the Esc that closes the Start menu for the
-    // launcher (win::bringToFront). Other programs' are typing all the same
-    // (keys remapped by AutoHotkey or PowerToys, the on-screen keyboard).
+    GUITHREADINFO info {sizeof info};
+    if (!::GetGUIThreadInfo(::GetWindowThreadProcessId(m_explorer, nullptr), &info) || !info.hwndFocus)
+        return false;
+    const folderview::Hit hit = folderview::classify(info.hwndFocus, {});
+    if (hit.surface != folderview::Surface::Explorer || hit.root != m_explorer)
+        return false;
+    tab = hit.tab;
+    return true;
+}
+
+bool TypeToSearch::handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event)
+{
+    // Ours: being typed again, given back, the Esc that closes the Start
+    // menu for the launcher (win::bringToFront). Other programs' are typing
+    // all the same (keys remapped by AutoHotkey or PowerToys, the on-screen
+    // keyboard).
     if (event.dwExtraInfo == kOwnInput)
         return false;
     const UINT vk = event.vkCode;
     const bool press = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
-    if (isModifier(vk)) {
-        if (press && vk == VK_LMENU && !m_holding)
+    if (searchtyping::isModifier(vk)) {
+        if (press && vk == VK_LMENU && !m_holding && m_startInFront)
             m_windowsSearch = true;
         return false; // seen as they are; the keys held back carry Shift with them
     }
     const bool combination = held(VK_CONTROL) || held(VK_MENU) || held(VK_LWIN) || held(VK_RWIN);
     if (!m_holding) {
-        if (!press || combination || m_windowsSearch || !m_startInFront || !startsTyping(vk))
+        if (!press || combination)
             return false;
+        HWND tab = nullptr;
+        if (m_startInFront) {
+            if (m_windowsSearch || !searchtyping::startsTyping(vk))
+                return false;
+        } else if (m_explorer) {
+            // The key alone first; what has the focus is asked only for one
+            // that would start a search.
+            if (!searchtyping::explorerStarts(vk, press, combination, searchtyping::Focus::ItemsView, false)
+                || !explorerFocused(tab))
+                return false;
+        } else {
+            return false;
+        }
         m_holding = true;
+        m_holdingForExplorer = m_explorer != nullptr;
         m_held.clear();
         m_timer = ::SetTimer(nullptr, 0, kHoldTimeoutMs, nullptr);
-        if (m_callbacks.typed)
+        if (m_holdingForExplorer) {
+            if (m_callbacks.typedInExplorer)
+                m_callbacks.typedInExplorer(m_explorer, tab, vk);
+        } else if (m_callbacks.typed) {
             m_callbacks.typed();
+        }
     } else if (combination) {
         return false;
     }
@@ -204,14 +230,11 @@ bool StartMenuTyping::handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event)
     return true;
 }
 
-void StartMenuTyping::typeHeld()
+void TypeToSearch::typeHeld()
 {
     if (!m_holding)
         return;
-    m_holding = false;
-    ::KillTimer(nullptr, m_timer);
-    m_timer = 0;
-    setHooked(m_startInFront); // the launcher is in front: gone
+    endHolding();
     // In order, with Shift around the keys pressed with it (unless it is
     // held now).
     const bool shiftNow = held(VK_SHIFT);
@@ -231,13 +254,37 @@ void StartMenuTyping::typeHeld()
         ::SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
 }
 
-void StartMenuTyping::dropHeld()
+// The same keys, to the window they were typed in: Explorer is still in
+// front (the launcher never showed), and jumps by them as it would have.
+void TypeToSearch::returnHeld()
+{
+    if (!m_holding)
+        return;
+    typeHeld();
+}
+
+void TypeToSearch::dropHeld()
+{
+    if (!m_holding)
+        return;
+    // Typed in Explorer, the keys are the user's: back to it rather than
+    // lost. In the Start menu they would go into Windows' search, which was
+    // not wanted: dropped.
+    if (m_holdingForExplorer) {
+        returnHeld();
+        return;
+    }
+    endHolding();
+    m_held.clear();
+}
+
+void TypeToSearch::endHolding()
 {
     m_holding = false;
-    m_held.clear();
+    m_holdingForExplorer = false;
     ::KillTimer(nullptr, m_timer);
     m_timer = 0;
-    setHooked(m_startInFront);
+    setHooked(m_startInFront || m_explorer); // the launcher is in front: gone
 }
 
 } // namespace ws

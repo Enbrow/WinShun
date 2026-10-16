@@ -60,6 +60,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString fileManagerRevealCommand READ fileManagerRevealCommand WRITE setFileManagerRevealCommand NOTIFY changed FINAL)
     Q_PROPERTY(QString fileManagerProblem READ fileManagerProblem NOTIFY changed FINAL)
     Q_PROPERTY(bool explorerMenu READ explorerMenu WRITE setExplorerMenu NOTIFY changed FINAL)
+    Q_PROPERTY(bool explorerTyping READ explorerTyping WRITE setExplorerTyping NOTIFY changed FINAL)
     // The folder menu on a double click (Settings::folderMenu: on unless "off").
     Q_PROPERTY(bool folderMenu READ folderMenu WRITE setFolderMenu NOTIFY changed FINAL)
     Q_PROPERTY(bool folderMenuExplorer READ folderMenuExplorer WRITE setFolderMenuExplorer NOTIFY changed FINAL)
@@ -261,6 +262,8 @@ public:
     Q_INVOKABLE QString pickFileManagerProgram();
     bool explorerMenu() const { return m_settings.explorerMenu; }
     void setExplorerMenu(bool on);
+    bool explorerTyping() const { return m_settings.explorerTyping; }
+    void setExplorerTyping(bool on);
     bool folderMenu() const { return m_settings.folderMenu != u"off"; }
     void setFolderMenu(bool on);
     bool folderMenuExplorer() const { return m_settings.folderMenuExplorer; }

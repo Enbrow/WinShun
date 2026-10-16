@@ -84,6 +84,10 @@ struct Settings {
     QString fileManagerOpenCommand;
     QString fileManagerRevealCommand;
     bool explorerMenu = true; // "用 Win顺 搜索此处" in Explorer's right-click menu (shellmenu::)
+    // Typing in a File Explorer folder window searches there with Win顺
+    // (TypeToSearch), in place of Explorer's own jump to a name by its first
+    // letters: off unless asked for, so that an upgrade changes nothing.
+    bool explorerTyping = false;
     // auto | on | off: a double click on the blank space of a File Explorer
     // folder or of the desktop brings up a menu of favorite and recent
     // folders (FolderMenu, GitHub #22); auto: not while Listary runs, which
@@ -185,7 +189,7 @@ struct Settings {
 
     // [Taskbar]: Win顺 in the place of Windows' search (see taskbar::)
     bool taskbarWinS = false; // Win+S opens it over the taskbar, instead of Windows' search (see winv::)
-    bool taskbarStartTyping = false; // typing in the Start menu searches with Win顺 (StartMenuTyping)
+    bool taskbarStartTyping = false; // typing in the Start menu searches with Win顺 (TypeToSearch)
     bool taskbarSearchBox = false; // Win顺's own search box on the taskbar (taskbar::SearchBox)
     bool taskbarStartGap = false; // ... right of Start, the icons moved over for it (taskbar::StartGap)
 

@@ -1845,6 +1845,7 @@ void Launcher::editFolderChips()
 
 void Launcher::dismiss()
 {
+    emit escaped();
     emit dismissRequested();
 }
 

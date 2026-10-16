@@ -2343,6 +2343,18 @@
         <translation>Use the left Ctrl for WinShun</translation>
     </message>
     <message>
+        <source>在资源管理器里直接打字搜索</source>
+        <translation>Type to search in File Explorer</translation>
+    </message>
+    <message>
+        <source>打字;输入;直接搜索;当前文件夹;资源管理器;Listary;type to search;explorer</source>
+        <translation>typing;type;type to search;current folder;File Explorer;Listary;explorer</translation>
+    </message>
+    <message>
+        <source>文件列表有焦点时直接打字，就在这个窗口显示的文件夹里搜，和 Listary 一样；代替了资源管理器自己的“按首字母跳到文件”</source>
+        <translation>Just type while the file list has the focus to search the folder that window shows, as in Listary; it takes the place of Explorer's own jump to a file by its first letters</translation>
+    </message>
+    <message>
         <source>在 Directory Opus 的空白处双击</source>
         <translation>Double-click blank space in Directory Opus</translation>
     </message>
