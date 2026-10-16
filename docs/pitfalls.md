@@ -962,7 +962,7 @@
 ### “放在开始按钮右边”和 TranslucentTB 一起开：说被占，重启电脑后又好了
 
 - **现象**：linux.do #153：开着 TranslucentTB 时打开“放在开始按钮右边”，设置页说“另一个改任务栏的工具占着”；重启电脑后框却在开始按钮右边，TranslucentTB 的透明也还在。
-- **原因**：是我们自己挡的。注入前先查 `translucenttb.exe` 进程和 Explorer 里的 `ExplorerTAP.dll`，有就报 `Conflict` 不注入，依据是“一个 Explorer 只能有一个 XAML 诊断的使用者”。这不对：WinUI 的 `DebugTool.cpp` 每次连接都新建一个 `XamlDiagnostics`，各自 advise。开机时 Win顺（计划任务）比 TranslucentTB（商店应用的启动任务）先起来，查不到它，就注入成功了。实测（2026-10-16，150%，深色，TapProbe 加截图逐像素比任务栏底色）：TranslucentTB 先、我们后，S_OK，空当 384 像素，透明照旧；Explorer 刚重启、我们先、它后，两个都好。
+- **原因**：是我们自己挡的。注入前先查 `translucenttb.exe` 进程和 Explorer 里的 `ExplorerTAP.dll`，有就报 `Conflict` 不注入，依据是“一个 Explorer 只能有一个 XAML 诊断的使用者”。这不对：WinUI 的 `DebugTool.cpp` 每次连接都新建一个 `XamlDiagnostics`，各自 advise。开机时 Win顺（计划任务）多半比 TranslucentTB（商店应用的启动任务）先起来，查不到它，就注入成功了（推断）。实测（2026-10-16，150%，深色，TapProbe 加截图逐像素比任务栏底色）：TranslucentTB 先、我们后，S_OK，空当 384 像素，透明照旧；Explorer 刚重启、我们先、它后，两个都好。
 - **做法**：去掉事先的检查，只看 `InitializeXamlDiagnosticsEx` 和 DLL 有没有出现；那几个程序名只写进日志和失败的原因。以后再想“检测到某某就不做”，先两种先后都实测一遍，看它到底改了什么（TranslucentTB 只改 `TaskbarFrame` 里 `BackgroundFill`、`BackgroundStroke` 两个矩形的填充，挂任务栏的子类，钩 `SetWindowCompositionAttribute`，不碰开始按钮）。
 
 ### 后连上的 XAML 诊断把先来的变成“聋子”
