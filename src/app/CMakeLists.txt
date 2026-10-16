@@ -105,6 +105,8 @@ set(qml_files
     qml/ScopeTabs.qml
     qml/TypeStrip.qml
     qml/ResultRow.qml
+    qml/Panel.qml
+    qml/PanelRow.qml
     qml/FileThumbnail.qml
     qml/ClipboardWindow.qml
     qml/ClipboardPage.qml

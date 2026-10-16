@@ -115,6 +115,20 @@ public:
     void setOverTop(int height) { m_overTop = height; }
     static bool animationsOn(); // the system's "animation effects"
 
+    // The search panel (Launcher::panel): the window as large as its user
+    // left it (state.ini [Panel]: its size, and its spot as fractions of the
+    // work area, as the launcher's), within the work area of `screen`; about
+    // 1100 by 700 logical pixels at first, centred, a tenth of the way down.
+    // Meanwhile it is neither refitted nor glided; moved or sized by its
+    // user, that is what is remembered. leavePanel() remembers and goes back
+    // to being placed as before (the caller places it again). The taskbar
+    // spot it was opened over, if any, is kept for that (taskbarSpot).
+    bool panel() const { return m_panel; }
+    QRect panelRect(QScreen* screen) const;
+    void enterPanel(QScreen* screen);
+    void leavePanel();
+    std::optional<taskbar::Spot> taskbarSpot() const { return m_taskbar ? m_taskbarSpot : std::nullopt; }
+
     // Glides back to the home spot and stays there from now on.
     Q_INVOKABLE void moveHome();
     // Its rows and type changed size (界面大小): a window up now (the
@@ -162,6 +176,7 @@ private:
     void setRoom(int room);
     void setMoving(bool moving);
     void rememberSpot(); // after a move
+    void savePanel(); // the panel's size and spot, after a move or a resize
     void glideTo(const QPoint& target);
     void save() const;
     void moveWindow(const QPoint& position); // to its place (logical pixels), keeping a slide's offset
@@ -182,7 +197,11 @@ private:
     int m_anchorWidth = 0;
     std::optional<QRect> m_box; // attached to it
     std::optional<TaskbarBox> m_taskbar; // over it
+    std::optional<taskbar::Spot> m_taskbarSpot; // ... as attachTaskbar was given it
     QPointer<QScreen> m_taskbarScreen; // the taskbar's
+    bool m_panel = false; // see enterPanel
+    QPointF m_panelAnchor {0.5, 0.1}; // the panel's spot: centre across, top down (fractions of the work area)
+    QSize m_panelSize; // logical pixels; empty: not set yet
     bool m_dropped = false; // was attached, then moved by the user: stays there
     int m_left = 0; // attached or dropped: where its left edge goes
     bool m_above = false; // attached over the box: its bottom stays at the box

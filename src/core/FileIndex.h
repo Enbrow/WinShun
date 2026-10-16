@@ -2,8 +2,10 @@
 
 #include <QString>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -62,6 +64,75 @@ using FileTime = std::uint32_t;
 // time 0) or 1980-01-01 (the DOS epoch, a day either way in local time).
 inline constexpr FileTime kFirstKnownTime = 315'619'200; // 1980-01-02 00:00 UTC
 constexpr FileTime knownTime(FileTime time) noexcept { return time < kFirstKnownTime ? 0 : time; }
+
+// A file's size, packed into 32 bits: the bits of the size as a float. Exact
+// up to 16 MB, within a hundred-thousandth above (a list says "1.2 GB", a
+// filter asks for "over 100 MB": neither needs the byte). Packed so, sizes
+// compare as the unsigned integers they are (a sort by size never unpacks),
+// and a column of them costs 4 bytes an entry. kUnknownSize (no float a size
+// packs to) is a file whose size was never read: a snapshot from before
+// sizes were kept, a folder.
+using FileSize = std::uint32_t;
+inline constexpr FileSize kUnknownSize = 0xFFFF'FFFFu;
+inline FileSize packSize(std::uint64_t bytes) noexcept
+{
+    const float f = static_cast<float>(bytes);
+    FileSize packed = 0;
+    static_assert(sizeof packed == sizeof f);
+    std::memcpy(&packed, &f, sizeof packed);
+    return packed;
+}
+inline std::uint64_t unpackSize(FileSize packed) noexcept
+{
+    if (packed == kUnknownSize)
+        return 0;
+    float f = 0;
+    std::memcpy(&f, &packed, sizeof f);
+    // In double: a float's integer is exact there, and the half added does
+    // not round it up (16777215 + 0.5f is 16777216 as a float).
+    return f <= 0 ? 0 : static_cast<std::uint64_t>(static_cast<double>(f) + 0.5);
+}
+
+// Bounds an entry must fit besides its name: the search panel's filters, and
+// size: / dm: typed in the query (Query.h). A bound on the time leaves out
+// entries whose time is not known (knownTime); a bound on the size leaves
+// out folders and files whose size is not known. `folders`: under one of
+// them (sorted ids); empty: anywhere.
+struct EntryFilter {
+    FileTime after = 0; // written at or after this (0: no bound)
+    FileTime before = 0; // ... and before this (0: none)
+    FileSize minSize = 0; // packed: at least this
+    FileSize maxSize = kUnknownSize; // ... and at most this (kUnknownSize: none)
+    std::vector<EntryId> folders;
+
+    bool byTime() const noexcept { return after != 0 || before != 0; }
+    bool bySize() const noexcept { return minSize != 0 || maxSize != kUnknownSize; }
+    bool any() const noexcept { return byTime() || bySize() || !folders.empty(); }
+    // Both filters at once: the narrower bounds.
+    void merge(const EntryFilter& other)
+    {
+        after = std::max(after, other.after);
+        before = before == 0 ? other.before : other.before == 0 ? before : std::min(before, other.before);
+        minSize = std::max(minSize, other.minSize);
+        maxSize = std::min(maxSize, other.maxSize);
+        for (const EntryId f : other.folders)
+            folders.push_back(f);
+    }
+    // Whether an entry with these fits (folders aside); for a folder entry
+    // the size is kUnknownSize.
+    bool fits(FileTime modified, FileSize size, bool isDir) const noexcept
+    {
+        if (byTime()) {
+            const FileTime known = knownTime(modified);
+            if (known == 0 || known < after || (before != 0 && known >= before))
+                return false;
+        }
+        if (bySize() && (isDir || size == kUnknownSize || size < minSize || size > maxSize))
+            return false;
+        return true;
+    }
+    friend bool operator==(const EntryFilter&, const EntryFilter&) = default;
+};
 
 // A FILETIME's count (100-nanosecond intervals since 1601) as a FileTime.
 constexpr FileTime fileTimeOf(std::int64_t ticks) noexcept
@@ -174,11 +245,15 @@ public:
     // Kept apart from the entries, which name searches go through: only the
     // matches have theirs looked at.
     FileTime modified(EntryId id) const noexcept { return m_times[id >> kChunkBits][id & (kChunkSize - 1)]; }
+    // A file's size, packed (packSize); kUnknownSize for a folder, or a file
+    // whose size was never read. Kept apart as the times are.
+    FileSize size(EntryId id) const noexcept { return m_sizes[id >> kChunkBits][id & (kChunkSize - 1)]; }
 
     // Bytes held, by part (for measuring). Caller holds a read lock.
     struct MemoryUse {
         std::size_t entries = 0;
         std::size_t times = 0;
+        std::size_t sizes = 0;
         std::size_t names = 0; // name chunks allocated
         std::size_t nameBytes = 0; // ... of which used
         std::size_t folderRecords = 0;
@@ -223,6 +298,7 @@ public:
     bool move(EntryId id, EntryId newParent, std::string_view newName);
     void setFlags(EntryId id, std::uint8_t flags);
     void setModified(EntryId id, FileTime time) noexcept { m_times[id >> kChunkBits][id & (kChunkSize - 1)] = time; }
+    void setSize(EntryId id, FileSize size) noexcept { m_sizes[id >> kChunkBits][id & (kChunkSize - 1)] = size; }
 
     // While interning is on, identical names share one copy (only a third of
     // the names on a typical disk are unique: index.js, __init__.py, ...).
@@ -364,6 +440,7 @@ private:
     mutable std::shared_mutex m_writerGate; // see longReadLock()
     std::vector<std::unique_ptr<Entry[]>> m_chunks;
     std::vector<std::unique_ptr<FileTime[]>> m_times; // parallel to m_chunks
+    std::vector<std::unique_ptr<FileSize[]>> m_sizes; // likewise; kUnknownSize until set
     std::vector<std::unique_ptr<char[]>> m_names;
     std::size_t m_count = 0;
     std::size_t m_nameUsed = kNameChunkSize; // forces allocation on first use

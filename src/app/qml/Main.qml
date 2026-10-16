@@ -19,6 +19,16 @@ Window {
     // The clipboard dropped down under the search box (see above).
     readonly property bool clipboardBelow: clipboard.active && clipboard.field === searchBar.field
 
+    // Grown into the search panel (Launcher.panel, Panel.qml): the filters
+    // down the left, the rows in columns. The app sizes the window for it
+    // (App::setPanel), so the bindings on the window's size let go then;
+    // the rows' list and the search bar are the panel's own, and everything
+    // here that works a list or the bar goes through `view` and `searchBar`.
+    readonly property bool panel: launcher.panel
+    readonly property ListView view: panel ? panelPage.view : boxList
+    readonly property SearchBar searchBar: panel ? panelPage.searchBar : boxBar
+    readonly property int viewRowHeight: panel ? panelPage.rowHeight : rowHeight
+
     readonly property int rowHeight: Theme.rowHeight // 界面大小
     readonly property int maxRows: 8
     readonly property int minRows: 3 // the window settles no lower than these fit below
@@ -81,14 +91,14 @@ Window {
     property var emptyShownHints: []
     property bool dimEmpty: false // held long enough to notice (as dimRows): it is the last query's
     function settleEmpty() {
-        if (trimmedQuery.length > 0 && list.count === 0 && !launcher.searching && shownRows === 0) {
+        if (trimmedQuery.length > 0 && view.count === 0 && !launcher.searching && shownRows === 0) {
             emptyShownTitle = emptyTitle
             emptyShownHint = emptyHint
             emptyShownHints = hints
             showEmptyState = true
             emptyDimDelay.stop()
             dimEmpty = false
-        } else if (showEmptyState && trimmedQuery.length > 0 && list.count === 0 && launcher.searching) {
+        } else if (showEmptyState && trimmedQuery.length > 0 && view.count === 0 && launcher.searching) {
             if (!dimEmpty && !emptyDimDelay.running)
                 emptyDimDelay.start()
         } else {
@@ -115,19 +125,19 @@ Window {
     // lists them instead, and ↓ ↑ Enter work there too. The one running
     // shows how far it is; Enter or a click on it stops it.
     readonly property var hints: launcher.leftOutHints
-    readonly property bool showHints: hints.length > 0 && list.count > 0
+    readonly property bool showHints: hints.length > 0 && view.count > 0 && !panel
     readonly property int hintHeight: Theme.hintRowHeight
     // Room for the rows after the last result: when every result is shown
     // without scrolling (else they come into view at the end), and the window
     // keeps its own height (at the taskbar the list area is as tall as it gets).
     readonly property int hintSpace: showHints && !fullHeight && shownRows < fitRows ? hints.length * hintHeight : 0
     property int hintIndex: -1 // the hint the keyboard is on; -1: none
-    property int rowsBeforeHints: 0 // list.count when the keyboard went onto the hints: where what one brings starts
+    property int rowsBeforeHints: 0 // view.count when the keyboard went onto the hints: where what one brings starts
     function enterHints() {
-        rowsBeforeHints = list.count
+        rowsBeforeHints = view.count
         hintIndex = 0
-        list.currentIndex = -1
-        list.positionViewAtEnd()
+        view.currentIndex = -1
+        view.positionViewAtEnd()
     }
     function takeHint(index) {
         if (index < 0 || index >= hints.length)
@@ -149,14 +159,14 @@ Window {
             hintIndex = Math.min(hintIndex, hints.length - 1)
         } else {
             hintIndex = -1
-            if (list.count > 0)
-                list.currentIndex = Math.min(rowsBeforeHints, list.count - 1)
+            if (view.count > 0)
+                view.currentIndex = Math.min(rowsBeforeHints, view.count - 1)
         }
     }
     // Nothing is named as typed, and these rows sound like it: a heading over
     // them (Launcher.approximateHeading), above the list so the rows stay
     // where the number keys count them.
-    readonly property int headingHeight: launcher.approximateHeading.length > 0 && list.count > 0 ? Theme.labelRowHeight : 0
+    readonly property int headingHeight: launcher.approximateHeading.length > 0 && view.count > 0 ? Theme.labelRowHeight : 0
     // Opened from the taskbar (its button, Win+S), the window stands on the
     // taskbar: the list area keeps the height of all the rows that fit, so
     // the search box stays where it is as results come and go.
@@ -165,17 +175,17 @@ Window {
     // There, with nothing typed: the apps opened most in a row over the
     // recent ones, as Windows' own search starts out.
     readonly property bool showHome: fullHeight && trimmedQuery.length === 0 && launcher.frequentApps.length > 0
-    // The app the keyboard is on (↑ from the first row); -1: in the list.
+    // The app the keyboard is on (↑ from the first row); -1: in the view.
     property int homeIndex: -1
     onShowHomeChanged: if (!showHome) homeIndex = -1
     function enterHome() {
         homeIndex = 0
-        list.currentIndex = -1
+        view.currentIndex = -1
     }
     function leaveHome() {
         homeIndex = -1
-        if (list.count > 0)
-            list.currentIndex = 0
+        if (view.count > 0)
+            view.currentIndex = 0
     }
 
     // Nothing found: under the search box, or in the list area at full height.
@@ -320,8 +330,23 @@ Window {
         onTriggered: window.dimRows = window.stale
     }
 
-    width: 760
-    height: layout.implicitHeight
+    // Its size, unless it is the panel: then the app sizes it, and its user resizes it.
+    Binding {
+        target: window
+        property: "width"
+        value: 760
+        when: !window.panel
+        restoreMode: Binding.RestoreNone
+    }
+    Binding {
+        target: window
+        property: "height"
+        value: layout.implicitHeight
+        when: !window.panel
+        restoreMode: Binding.RestoreNone
+    }
+    minimumWidth: panel ? 640 : 0
+    minimumHeight: panel ? 360 : 0
     // See-through to Mica, as the settings window (see there).
     color: Theme.backdrop && SystemTheme.materials && window.active ? "transparent" : Theme.background
     flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
@@ -337,7 +362,7 @@ Window {
         property: "currentRow"
         // On a hint after the last row, that row: what the search brings
         // goes after it (never above the row the keyboard is on).
-        value: window.hintIndex >= 0 ? list.count - 1 : list.currentIndex
+        value: window.hintIndex >= 0 ? view.count - 1 : view.currentIndex
     }
     Binding { // with the fewest rows: kept room for below the window
         target: window.placement
@@ -353,14 +378,14 @@ Window {
                 hintIndex = Math.min(hints.length - 1, hintIndex + 1)
             else if (hintIndex > 0)
                 hintIndex -= 1
-            else if (list.count > 0)
-                list.currentIndex = list.count - 1 // onCurrentIndexChanged leaves the hints
-        } else if (list.count > 0) {
-            const next = list.currentIndex + delta
-            if (delta === 1 && next >= list.count && showHints)
+            else if (view.count > 0)
+                view.currentIndex = view.count - 1 // onCurrentIndexChanged leaves the hints
+        } else if (view.count > 0) {
+            const next = view.currentIndex + delta
+            if (delta === 1 && next >= view.count && showHints)
                 enterHints() // ↓ past the last row
             else
-                list.currentIndex = Math.max(0, Math.min(list.count - 1, next))
+                view.currentIndex = Math.max(0, Math.min(view.count - 1, next))
         } else if (hints.length > 0) { // nothing found: along the hints under 没有找到, the first already shown as current
             hintIndex = Math.max(0, Math.min(hints.length - 1, Math.max(hintIndex, 0) + delta))
         }
@@ -373,20 +398,20 @@ Window {
     readonly property int selectedCount: launcher.results.selectedCount
     function toggleRow(index) {
         window.launcher.toggleSelected(index)
-        list.currentIndex = index
+        view.currentIndex = index
         selectionAnchor = index
     }
     function selectTo(index, add) {
-        if (list.count === 0 || index < 0)
+        if (view.count === 0 || index < 0)
             return
-        if (selectionAnchor < 0 || selectionAnchor >= list.count)
-            selectionAnchor = Math.max(0, list.currentIndex)
+        if (selectionAnchor < 0 || selectionAnchor >= view.count)
+            selectionAnchor = Math.max(0, view.currentIndex)
         window.launcher.selectRange(selectionAnchor, index, add)
-        list.currentIndex = index
+        view.currentIndex = index
     }
     function extendSelection(delta) {
-        if (list.count > 0)
-            selectTo(Math.max(0, Math.min(list.count - 1, list.currentIndex + delta)), false)
+        if (view.count > 0)
+            selectTo(Math.max(0, Math.min(view.count - 1, view.currentIndex + delta)), false)
     }
 
     // Ctrl+1… (or Alt+1…, Launcher.numberKeys) opens the nth row shown,
@@ -398,9 +423,9 @@ Window {
     // as a global hotkey stays its (numberkeys::heldMask).
     readonly property int numberKey: launcher.numberKeys === "ctrl" ? Qt.Key_Control
                                    : launcher.numberKeys === "alt" ? Qt.Key_Alt : -1
-    readonly property int firstShownRow: Math.max(0, Math.floor((list.contentY + rowHeight / 2) / rowHeight))
-    readonly property int lastShownRow: Math.min(list.count - 1, firstShownRow + 8,
-                                                 Math.floor((list.contentY + list.height - rowHeight / 2) / rowHeight))
+    readonly property int firstShownRow: Math.max(0, Math.floor((view.contentY + viewRowHeight / 2) / viewRowHeight))
+    readonly property int lastShownRow: Math.min(view.count - 1, firstShownRow + 8,
+                                                 Math.floor((view.contentY + view.height - viewRowHeight / 2) / viewRowHeight))
     readonly property string numberModifier: numberKey === Qt.Key_Alt ? "Alt" : "Ctrl"
     // A digit another program holds as a global hotkey is its (Launcher.numberKeysLeft):
     // the row still shows the chord, struck through (ResultRow.hintTaken).
@@ -415,7 +440,7 @@ Window {
         if (!numberUsable(number) || row > lastShownRow)
             return
         window.launcher.clearSelection() // that row alone
-        list.currentIndex = row
+        view.currentIndex = row
         window.launcher.trigger(row, Launcher.Open)
     }
     // Exactly the modifier of the number keys (the number pad counts with Ctrl only: Alt+0169 types ©).
@@ -432,8 +457,8 @@ Window {
     function act(action) {
         if (selectedCount > 0)
             window.launcher.triggerSelection(action)
-        else if (list.count > 0 && list.currentIndex >= 0)
-            window.launcher.trigger(list.currentIndex, action)
+        else if (view.count > 0 && view.currentIndex >= 0)
+            window.launcher.trigger(view.currentIndex, action)
     }
 
     readonly property ContextMenu contextMenu: menuLoader.item as ContextMenu
@@ -442,15 +467,15 @@ Window {
     // `globalPos` is where the mouse was; without it (Menu key, Shift+F10)
     // the menu opens under the current row.
     function openContextMenu(index, globalPos) {
-        if (index < 0 || index >= list.count)
+        if (index < 0 || index >= view.count)
             return
         if (!window.launcher.results.isSelected(index))
             window.launcher.clearSelection() // as in Explorer: the menu is for this row alone
-        list.currentIndex = index
+        view.currentIndex = index
         const fromKeyboard = globalPos === undefined
         if (fromKeyboard) {
-            list.positionViewAtIndex(index, ListView.Contain)
-            globalPos = list.currentItem.mapToGlobal(56, rowHeight - 6)
+            view.positionViewAtIndex(index, ListView.Contain)
+            globalPos = view.currentItem.mapToGlobal(56, viewRowHeight - 6)
         }
         menuLoader.active = true
         // Not a line starting with "(": it would continue the line above, "true(...)".
@@ -470,19 +495,19 @@ Window {
     // has none (an app, a place, a web page, a plugin's): the caller shows
     // Win顺's menu instead.
     function openSystemMenu(index, globalPos) {
-        if (index < 0 || index >= list.count || !window.launcher.hasSystemMenu(index))
+        if (index < 0 || index >= view.count || !window.launcher.hasSystemMenu(index))
             return false
         closeContextMenu()
         if (!window.launcher.results.isSelected(index))
             window.launcher.clearSelection() // as in Explorer: the menu is for this row alone
-        list.currentIndex = index
+        view.currentIndex = index
         window.launcher.showSystemMenu(index, globalPos)
         return true
     }
     function rowPoint(index) { // under the row's icon, where the keyboard's menus open
-        list.currentIndex = index
-        list.positionViewAtIndex(index, ListView.Contain)
-        return list.currentItem.mapToGlobal(56, rowHeight - 6)
+        view.currentIndex = index
+        view.positionViewAtIndex(index, ListView.Contain)
+        return view.currentItem.mapToGlobal(56, viewRowHeight - 6)
     }
 
     // Hidden: also free the menu window until it is needed again.
@@ -536,7 +561,7 @@ Window {
         switch (event.key) {
         case Qt.Key_Down: shift ? extendSelection(1) : moveSelection(1); break
         case Qt.Key_Up:
-            if (!shift && showHome && list.currentIndex <= 0)
+            if (!shift && showHome && view.currentIndex <= 0)
                 enterHome()
             else
                 shift ? extendSelection(-1) : moveSelection(-1)
@@ -547,7 +572,7 @@ Window {
         case Qt.Key_Enter: {
             // On a hint after the last row, or in the empty state with some:
             // that part is searched too (the first, with none chosen there).
-            if (hintIndex >= 0 || (list.count === 0 && hints.length > 0)) {
+            if (hintIndex >= 0 || (view.count === 0 && hints.length > 0)) {
                 takeHint(Math.max(hintIndex, 0))
                 break
             }
@@ -576,8 +601,8 @@ Window {
             // ("kill" typed alone, or "kil" that it begins with) takes it
             // too, from whichever row the keyboard is on (Launcher.completionRow).
             if (window.launcher.pluginKeyword.length > 0)
-                window.launcher.autocomplete(list.currentIndex)
-            else if (!window.launcher.autocomplete(list.currentIndex)) {
+                window.launcher.autocomplete(view.currentIndex)
+            else if (!window.launcher.autocomplete(view.currentIndex)) {
                 // Always the scopes; the strip under the box is Ctrl+Tab's (GitHub #16, #29).
                 window.launcher.cycleScope(1)
             }
@@ -587,12 +612,17 @@ Window {
                 return
             window.launcher.switchOrder()
             break
+        case Qt.Key_E: // the search panel, and back (the button at the box's corner)
+            if (!ctrl || shift)
+                return
+            window.launcher.togglePanel()
+            break
         case Qt.Key_Menu: // Shift+Menu: the system's menu for the row; the Menu key alone comes back as a context-menu event (Win顺's menu)
-            if (!shift || list.currentIndex < 0 || !openSystemMenu(list.currentIndex, rowPoint(list.currentIndex)))
+            if (!shift || view.currentIndex < 0 || !openSystemMenu(view.currentIndex, rowPoint(view.currentIndex)))
                 return
             break
         case Qt.Key_F10: // Ctrl+Shift+F10 the same (Shift+F10 is Win顺's menu, as the Menu key)
-            if (!ctrl || !shift || list.currentIndex < 0 || !openSystemMenu(list.currentIndex, rowPoint(list.currentIndex)))
+            if (!ctrl || !shift || view.currentIndex < 0 || !openSystemMenu(view.currentIndex, rowPoint(view.currentIndex)))
                 return
             break
         case Qt.Key_Backtab:
@@ -618,9 +648,9 @@ Window {
 
     function selectFirst() {
         hintIndex = -1
-        if (list.count > 0 && homeIndex < 0)
-            list.currentIndex = 0
-        list.positionViewAtBeginning()
+        if (view.count > 0 && homeIndex < 0)
+            view.currentIndex = 0
+        view.positionViewAtBeginning()
     }
 
     Connections {
@@ -645,18 +675,24 @@ Window {
         }
         function onStatusChanged() { Qt.callLater(window.settleRows) }
         function onBetterFirstRow() {
-            if (window.homeIndex < 0 && list.count > 0)
-                list.currentIndex = 0
+            if (window.homeIndex < 0 && view.count > 0)
+                view.currentIndex = 0
         }
         function onContextMenuKeyPressed(system) { // Menu key, Shift+F10; Shift+Menu when an IME kept the key itself
-            const row = list.currentIndex
-            if (system && row >= 0 && row < list.count && window.openSystemMenu(row, window.rowPoint(row)))
+            const row = view.currentIndex
+            if (system && row >= 0 && row < view.count && window.openSystemMenu(row, window.rowPoint(row)))
                 return
             window.openContextMenu(row)
         }
         function onQueryChanged() {
-            if (searchBar.text !== window.launcher.query)
-                searchBar.text = window.launcher.query
+            if (boxBar.text !== window.launcher.query)
+                boxBar.text = window.launcher.query
+            if (panelPage.searchBar.text !== window.launcher.query)
+                panelPage.searchBar.text = window.launcher.query
+        }
+        function onPanelChanged() { // the other bar has the keyboard now, the words as they were
+            window.closeContextMenu()
+            window.searchBar.focusAtEnd()
         }
     }
 
@@ -687,9 +723,45 @@ Window {
             closeContextMenu()
     }
 
+    // The panel over everything of the box (which keeps its layout, out of
+    // sight, for when it is back): its own bar and list.
+    Panel {
+        id: panelPage
+        anchors.fill: parent
+        visible: window.panel
+        launcher: window.launcher
+        placement: window.placement
+        frame: window.frame
+        dimmed: window.dimRows
+        onKeyPressed: (event) => window.handleKey(event)
+        onRowClicked: (index, modifiers) => window.rowClicked(index, modifiers)
+        onRowMenuRequested: (index, globalPos, modifiers) => window.rowMenuRequested(index, globalPos, modifiers)
+        onRowDragRequested: (index) => window.launcher.dragOut(index)
+    }
+
+    // A row clicked (the box's or the panel's): Ctrl toggles it in the
+    // selection, Shift takes the rows up to it, plain opens it; the right
+    // button with Shift the system's menu, else Win顺's.
+    function rowClicked(index, modifiers) {
+        const ctrl = (modifiers & Qt.ControlModifier) !== 0
+        if (modifiers & Qt.ShiftModifier) {
+            selectTo(index, ctrl)
+        } else if (ctrl) {
+            toggleRow(index)
+        } else {
+            view.currentIndex = index
+            launcher.trigger(index, Launcher.Open) // a selected row opens the selection
+        }
+    }
+    function rowMenuRequested(index, globalPos, modifiers) {
+        if (!(modifiers & Qt.ShiftModifier) || !openSystemMenu(index))
+            openContextMenu(index, globalPos)
+    }
+
     Column {
         id: layout
         width: window.width
+        visible: !window.panel
         // Opening, the content comes in a little behind the window (Placement.slideIn).
         transform: Translate {
             x: window.placement.contentShift.x
@@ -697,7 +769,7 @@ Window {
         }
 
         SearchBar {
-            id: searchBar
+            id: boxBar
             width: parent.width
             launcher: window.launcher
             placement: window.placement
@@ -843,7 +915,7 @@ Window {
                     x: 20
                     height: Theme.labelRowHeight
                     verticalAlignment: Text.AlignVCenter
-                    visible: list.count > 0
+                    visible: view.count > 0
                     text: window.launcher.startList === Launcher.NoStartList ? qsTr("收藏")
                           : window.launcher.hasFavorites
                           ? (window.launcher.startList === Launcher.RecentlyModified ? qsTr("收藏和最近修改") : qsTr("收藏和最近"))
@@ -854,7 +926,7 @@ Window {
             }
 
             ListView {
-                id: list
+                id: boxList
                 anchors.fill: parent
                 anchors.topMargin: (window.showHome ? home.height : 0) + window.headingHeight
                 topMargin: 4
@@ -877,13 +949,13 @@ Window {
                 // reaches them with ↓ past the last row (window.hintIndex).
                 footer: Column {
                     id: hintRows
-                    width: list.width
+                    width: boxList.width
                     visible: window.showHints
                     transform: Translate { // on whole device pixels, as the rows are (see the delegate)
                         y: {
                             const dpr = Screen.devicePixelRatio
-                            const listTop = layout.y + listArea.y + list.y
-                            const deviceY = (listTop + list.contentItem.y + hintRows.y) * dpr
+                            const listTop = layout.y + listArea.y + boxList.y
+                            const deviceY = (listTop + boxList.contentItem.y + hintRows.y) * dpr
                             return (Math.round(deviceY) - deviceY) / dpr
                         }
                     }
@@ -961,12 +1033,12 @@ Window {
                 onAtYEndChanged: Qt.callLater(loadMoreAtEnd)
                 Connections {
                     target: window.launcher
-                    function onStatusChanged() { Qt.callLater(list.loadMoreAtEnd) }
+                    function onStatusChanged() { Qt.callLater(boxList.loadMoreAtEnd) }
                 }
 
                 delegate: ResultRow {
                     id: resultRow
-                    width: list.width
+                    width: boxList.width
                     height: window.rowHeight
                     showModified: window.launcher.showModified
                     hint: window.numberOf(index)
@@ -983,40 +1055,26 @@ Window {
                     transform: Translate {
                         y: {
                             const dpr = Screen.devicePixelRatio
-                            // Not mapToItem(): it would not be asked again once the layout places the list.
-                            const listTop = layout.y + listArea.y + list.y
-                            const deviceY = (listTop + list.contentItem.y + resultRow.y) * dpr
+                            // Not mapToItem(): it would not be asked again once the layout places the boxList.
+                            const listTop = layout.y + listArea.y + boxList.y
+                            const deviceY = (listTop + boxList.contentItem.y + resultRow.y) * dpr
                             return (Math.round(deviceY) - deviceY) / dpr
                         }
                     }
-                    onClicked: (index, modifiers) => {
-                        const ctrl = (modifiers & Qt.ControlModifier) !== 0
-                        if (modifiers & Qt.ShiftModifier) {
-                            window.selectTo(index, ctrl)
-                        } else if (ctrl) {
-                            window.toggleRow(index)
-                        } else {
-                            list.currentIndex = index
-                            window.launcher.trigger(index, Launcher.Open) // a selected row opens the selection
-                        }
-                    }
+                    onClicked: (index, modifiers) => window.rowClicked(index, modifiers)
                     onActionRequested: (index, action) => {
-                        list.currentIndex = index
+                        boxList.currentIndex = index
                         window.launcher.trigger(index, action)
                     }
-                    onMenuRequested: (index, globalPos, modifiers) => {
-                        // Shift+right-click: the system's menu, for a file or folder; Win顺's for the rest.
-                        if (!(modifiers & Qt.ShiftModifier) || !window.openSystemMenu(index))
-                            window.openContextMenu(index, globalPos)
-                    }
+                    onMenuRequested: (index, globalPos, modifiers) => window.rowMenuRequested(index, globalPos, modifiers)
                     onDragRequested: (index) => window.launcher.dragOut(index)
                 }
             }
 
             ListScrollBar {
-                flickable: list
+                flickable: boxList
                 anchors.right: parent.right
-                anchors.top: list.top
+                anchors.top: boxList.top
                 anchors.bottom: parent.bottom
             }
 
@@ -1025,7 +1083,7 @@ Window {
                 anchors.centerIn: parent
                 // A plugin's wait shows only once it has lasted a moment
                 // (pluginWaiting is empty before that), fading in.
-                visible: list.count === 0 && window.launcher.searching
+                visible: boxList.count === 0 && window.launcher.searching
                          && (!keywordMode || window.launcher.pluginWaiting.length > 0)
                 opacity: visible ? 1 : 0
                 Behavior on opacity { NumberAnimation { duration: 100 } }
@@ -1045,10 +1103,10 @@ Window {
 
             Text { // at full height, nothing typed and nothing opened yet (under the apps, if any)
                 anchors.horizontalCenter: parent.horizontalCenter
-                y: list.y + Math.round((list.height - height) / 2)
+                y: boxList.y + Math.round((boxList.height - height) / 2)
                 width: parent.width - 80
                 horizontalAlignment: Text.AlignHCenter
-                visible: window.fullHeight && window.trimmedQuery.length === 0 && list.count === 0
+                visible: window.fullHeight && window.trimmedQuery.length === 0 && boxList.count === 0
                 text: qsTr("输入名称或拼音，搜索文件、应用和设置")
                 color: Theme.faint
                 font.pixelSize: Theme.uiBody

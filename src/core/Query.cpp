@@ -283,6 +283,236 @@ ContentQuery splitContentQuery(const QString& text)
     return query;
 }
 
+namespace {
+
+// "10mb", "1.5 g", "200": bytes, or nothing.
+std::optional<std::uint64_t> parseSizeValue(QStringView s)
+{
+    s = s.trimmed();
+    qsizetype digits = 0;
+    while (digits < s.size() && (s[digits].isDigit() || s[digits] == u'.'))
+        ++digits;
+    if (digits == 0)
+        return std::nullopt;
+    bool ok = false;
+    const double value = s.first(digits).toDouble(&ok);
+    if (!ok || value < 0)
+        return std::nullopt;
+    const QString unit = s.sliced(digits).trimmed().toString().toLower();
+    double scale = 1;
+    if (unit.isEmpty() || unit == u"b")
+        scale = 1;
+    else if (unit == u"k" || unit == u"kb")
+        scale = 1024.0;
+    else if (unit == u"m" || unit == u"mb")
+        scale = 1024.0 * 1024;
+    else if (unit == u"g" || unit == u"gb")
+        scale = 1024.0 * 1024 * 1024;
+    else if (unit == u"t" || unit == u"tb")
+        scale = 1024.0 * 1024 * 1024 * 1024;
+    else
+        return std::nullopt;
+    const double bytes = value * scale;
+    return bytes >= 1.8e19 ? std::numeric_limits<std::uint64_t>::max() : static_cast<std::uint64_t>(bytes + 0.5);
+}
+
+// "2026", "2026-1", "2026-01-15" (or with / or .): the first moment of that
+// year, month or day, and the first moment after it.
+std::optional<std::pair<QDateTime, QDateTime>> parseDateValue(QStringView s)
+{
+    const QStringList parts = s.trimmed().toString().split(QRegularExpression(u"[-/.]"_s), Qt::SkipEmptyParts);
+    if (parts.isEmpty() || parts.size() > 3)
+        return std::nullopt;
+    int numbers[3] = {0, 1, 1};
+    for (qsizetype i = 0; i < parts.size(); ++i) {
+        bool ok = false;
+        numbers[i] = parts[i].toInt(&ok);
+        if (!ok)
+            return std::nullopt;
+    }
+    if (numbers[0] < 1980 || numbers[0] > 2200)
+        return std::nullopt;
+    const QDate date(numbers[0], numbers[1], numbers[2]);
+    if (!date.isValid())
+        return std::nullopt;
+    const QDate end = parts.size() == 1 ? date.addYears(1) : parts.size() == 2 ? date.addMonths(1) : date.addDays(1);
+    return std::pair {date.startOfDay(), end.startOfDay()};
+}
+
+FileTime fileTimeAt(const QDateTime& when)
+{
+    const qint64 secs = when.toSecsSinceEpoch();
+    return secs <= 0 ? 0 : secs >= 0xFFFF'FFFFll ? 0xFFFF'FFFFu : static_cast<FileTime>(secs);
+}
+
+} // namespace
+
+bool parseSizeToken(QStringView token, EntryFilter& filter)
+{
+    QStringView s = token.sliced(5).trimmed(); // after "size:"
+    if (s.isEmpty())
+        return false;
+    const QString word = s.toString().toLower();
+    // Everything's names for the usual sizes.
+    struct Bucket {
+        const char16_t* name;
+        std::uint64_t from;
+        std::uint64_t to; // exclusive; 0: no bound
+    };
+    static constexpr Bucket kBuckets[] = {
+        {u"empty", 0, 1},
+        {u"tiny", 0, 10 << 10},
+        {u"small", 10 << 10, 100 << 10},
+        {u"medium", 100 << 10, 1 << 20},
+        {u"large", 1 << 20, 16 << 20},
+        {u"huge", 16 << 20, 128 << 20},
+        {u"gigantic", 128 << 20, 0},
+    };
+    for (const Bucket& b : kBuckets) {
+        if (word == b.name) {
+            filter.minSize = std::max(filter.minSize, packSize(b.from));
+            if (b.to != 0)
+                filter.maxSize = std::min(filter.maxSize, packSize(b.to - 1));
+            return true;
+        }
+    }
+    // A range: "1mb..5mb", "1mb-5mb" (the dash not inside a number's unit).
+    qsizetype dots = s.indexOf(u"..");
+    qsizetype dash = dots >= 0 ? -1 : s.indexOf(u'-', 1);
+    if (dots >= 0 || dash >= 0) {
+        const qsizetype at = dots >= 0 ? dots : dash;
+        const auto from = parseSizeValue(s.first(at));
+        const auto to = parseSizeValue(s.sliced(at + (dots >= 0 ? 2 : 1)));
+        if (!from || !to || *from > *to)
+            return false;
+        filter.minSize = std::max(filter.minSize, packSize(*from));
+        filter.maxSize = std::min(filter.maxSize, packSize(*to));
+        return true;
+    }
+    enum { AtLeast, Above, AtMost, Below } how = AtLeast;
+    if (s.startsWith(u">=")) {
+        s = s.sliced(2);
+    } else if (s.startsWith(u"<=")) {
+        s = s.sliced(2);
+        how = AtMost;
+    } else if (s.startsWith(u'>')) {
+        s = s.sliced(1);
+        how = Above;
+    } else if (s.startsWith(u'<')) {
+        s = s.sliced(1);
+        how = Below;
+    } else if (s.startsWith(u'=')) {
+        s = s.sliced(1);
+    }
+    const auto value = parseSizeValue(s);
+    if (!value)
+        return false;
+    switch (how) {
+    case AtLeast:
+        filter.minSize = std::max(filter.minSize, packSize(*value));
+        break;
+    case Above:
+        filter.minSize = std::max(filter.minSize, packSize(*value + 1));
+        break;
+    case AtMost:
+        filter.maxSize = std::min(filter.maxSize, packSize(*value));
+        break;
+    case Below:
+        if (*value == 0)
+            return false;
+        filter.maxSize = std::min(filter.maxSize, packSize(*value - 1));
+        break;
+    }
+    return true;
+}
+
+bool parseDateToken(QStringView token, const QDateTime& now, EntryFilter& filter)
+{
+    QStringView s = token.sliced(3).trimmed(); // after "dm:"
+    if (s.isEmpty())
+        return false;
+    const QString word = s.toString().toLower();
+    const QDate today = now.date();
+    const auto since = [&](const QDateTime& from) {
+        filter.after = std::max(filter.after, fileTimeAt(from));
+        return true;
+    };
+    const auto between = [&](const QDateTime& from, const QDateTime& to) {
+        filter.after = std::max(filter.after, fileTimeAt(from));
+        const FileTime before = fileTimeAt(to);
+        filter.before = filter.before == 0 ? before : std::min(filter.before, before);
+        return true;
+    };
+    if (word == u"today")
+        return since(today.startOfDay());
+    if (word == u"yesterday")
+        return between(today.addDays(-1).startOfDay(), today.startOfDay());
+    if (word == u"thisweek")
+        return since(today.addDays(1 - today.dayOfWeek()).startOfDay());
+    if (word == u"thismonth")
+        return since(QDate(today.year(), today.month(), 1).startOfDay());
+    if (word == u"thisyear")
+        return since(QDate(today.year(), 1, 1).startOfDay());
+    // "7d", "2w", "3m", "1y": within the last so many.
+    if (word.size() >= 2 && word.back().isLetter()) {
+        bool ok = false;
+        const int n = word.first(word.size() - 1).toInt(&ok);
+        if (ok && n >= 0) {
+            switch (word.back().unicode()) {
+            case u'd':
+                return since(now.addDays(-n));
+            case u'w':
+                return since(now.addDays(-7LL * n));
+            case u'm':
+                return since(now.addMonths(-n));
+            case u'y':
+                return since(now.addYears(-n));
+            default:
+                break;
+            }
+        }
+    }
+    if (const qsizetype dots = s.indexOf(u".."); dots >= 0) {
+        const auto from = parseDateValue(s.first(dots));
+        const auto to = parseDateValue(s.sliced(dots + 2));
+        if (!from || !to || from->first > to->first)
+            return false;
+        return between(from->first, to->second);
+    }
+    if (s.startsWith(u">=") || s.startsWith(u'>')) {
+        const bool inclusive = s.startsWith(u">=");
+        const auto value = parseDateValue(s.sliced(inclusive ? 2 : 1));
+        return value && since(inclusive ? value->first : value->second);
+    }
+    if (s.startsWith(u"<=") || s.startsWith(u'<')) {
+        const bool inclusive = s.startsWith(u"<=");
+        const auto value = parseDateValue(s.sliced(inclusive ? 2 : 1));
+        if (!value)
+            return false;
+        const FileTime before = fileTimeAt(inclusive ? value->second : value->first);
+        filter.before = filter.before == 0 ? before : std::min(filter.before, before);
+        return true;
+    }
+    const auto value = parseDateValue(s);
+    return value && between(value->first, value->second);
+}
+
+QString sizeText(std::uint64_t bytes)
+{
+    static constexpr const char16_t* kUnits[] = {u"B", u"KB", u"MB", u"GB", u"TB"};
+    double value = static_cast<double>(bytes);
+    std::size_t unit = 0;
+    while (value >= 1000 && unit + 1 < std::size(kUnits)) {
+        value /= 1024;
+        ++unit;
+    }
+    if (unit == 0)
+        return QString::number(bytes) + u" B";
+    // Three figures: 1.23 MB, 12.3 MB, 123 MB.
+    const int decimals = value < 10 ? 2 : value < 100 ? 1 : 0;
+    return QString::number(value, 'f', decimals) + u' ' + kUnits[unit];
+}
+
 ParsedQuery parseQuery(const QString& text)
 {
     ParsedQuery q;
@@ -292,7 +522,12 @@ ParsedQuery parseQuery(const QString& text)
     const QStringList tokens = typed.folder.isEmpty()
         ? queryWords(text)
         : QStringList {(typed.folder.endsWith(u'\\') ? typed.folder : typed.folder + u'\\') + typed.name.trimmed()};
+    const QDateTime now = QDateTime::currentDateTime();
     for (QString token : tokens) {
+        if (token.startsWith(u"size:", Qt::CaseInsensitive) && parseSizeToken(token, q.filter))
+            continue;
+        if (token.startsWith(u"dm:", Qt::CaseInsensitive) && parseDateToken(token, now, q.filter))
+            continue;
         if (token.startsWith(u"ext:", Qt::CaseInsensitive)) {
             const QStringList exts = token.mid(4).split(QRegularExpression(u"[,;|]"_s), Qt::SkipEmptyParts);
             for (QString ext : exts) {

@@ -55,6 +55,7 @@ public:
     struct Item {
         bool isDir = false;
         std::uint32_t modified = 0; // seconds since 1970, UTC
+        std::int64_t size = -1; // a file's bytes; -1 for a folder
     };
 
     RecentOnDisk() = default;
@@ -195,8 +196,10 @@ private:
             if (::GetFileAttributesExW(longPath(path).c_str(), GetFileExInfoStandard, &data)) {
                 const auto written = (static_cast<std::uint64_t>(data.ftLastWriteTime.dwHighDateTime) << 32) | data.ftLastWriteTime.dwLowDateTime;
                 const auto seconds = static_cast<qint64>(written / 10'000'000) - 11'644'473'600; // since 1601 → since 1970
-                item = Item {bool(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY),
-                    static_cast<std::uint32_t>(std::clamp<qint64>(seconds, 0, std::numeric_limits<std::uint32_t>::max()))};
+                const bool isDir = data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
+                item = Item {isDir,
+                    static_cast<std::uint32_t>(std::clamp<qint64>(seconds, 0, std::numeric_limits<std::uint32_t>::max())),
+                    isDir ? -1 : static_cast<std::int64_t>((static_cast<std::uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow)};
             } else {
                 // Not "the server is not there" (ERROR_BAD_NETPATH and the like), "access denied", "no disk".
                 const DWORD error = ::GetLastError();
@@ -379,6 +382,8 @@ SearchResult fromIndex(const FileIndex& index, EntryId id)
     r.name = wtf8::toQString(index.name(e));
     r.path = index.path(id);
     r.isDir = e.isDir();
+    if (const FileSize size = e.isDir() ? kUnknownSize : index.size(id); size != kUnknownSize)
+        r.size = static_cast<std::int64_t>(unpackSize(size));
     return r;
 }
 
@@ -394,6 +399,7 @@ SearchResult fromDisk(const QString& path, const RecentOnDisk::Item& item)
     r.isDir = item.isDir;
     r.recent = true;
     r.modified = item.modified;
+    r.size = item.size;
     return r;
 }
 
@@ -683,7 +689,17 @@ void markRecent(SearchResults& results, const QStringList& history)
 void arrange(SearchResults& results, const SearchEngine::Request& request, const NameMatcher& matcher, RankBy rankBy,
     RecentOnDisk& onDisk)
 {
-    const qsizetype promoted = rankBy == RankBy::Match ? promoteHistory(results, request, matcher, onDisk) : 0;
+    if (request.order.key != SortKey::Rank) { // a column's order: as it came, nothing put first
+        markRecent(results, request.history);
+        if (results.size() > request.limit)
+            results.resize(request.limit);
+        return;
+    }
+    // Recent items first, as rows of their own (they need not be in the
+    // index): not into a list narrowed by when, how large or where, which
+    // the history knows nothing of (a recent file would show through the filter).
+    const bool filtered = request.filter.any() || !request.folders.isEmpty() || parseQuery(request.text).filter.any();
+    const qsizetype promoted = rankBy == RankBy::Match && !filtered ? promoteHistory(results, request, matcher, onDisk) : 0;
     auto rest = results.begin() + promoted; // after promoteHistory: it puts `results` together anew
     if (rankBy == RankBy::Match) {
         const auto exactBegin = rest;
@@ -955,7 +971,12 @@ void SearchEngine::runNameSearch(const Job& job)
     const bool foldersOnly = request.scope == Scope::Folders;
     // 文件 with a type chosen: only its files, whatever is typed or listed.
     const std::vector<std::string> types = foldersOnly ? std::vector<std::string>() : foldedExtensions(request.extensions);
-    if (query.isEmpty() && request.startList == StartList::Modified) {
+    // Narrowed by when, how large or where (the panel's filters, size: and
+    // dm: typed): files and folders alone, in the index's own terms. Nothing
+    // typed in the panel lists them all the same (browse).
+    const bool filtered = request.filter.any() || !request.folders.isEmpty() || query.filter.any();
+    const bool listing = filtered || (request.browse && query.isEmpty());
+    if (query.isEmpty() && request.startList == StartList::Modified && !listing) {
         // The files written last (in 文件夹, the folders they are in), newest first.
         // A day ahead at most: later is a clock gone wrong, not new work.
         const auto now = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
@@ -978,7 +999,7 @@ void SearchEngine::runNameSearch(const Job& job)
         }
         markRecent(results, request.history);
         total = results.size();
-    } else if (query.isEmpty()) {
+    } else if (query.isEmpty() && !listing) {
         qsizetype next = 0;
         while (results.size() < kRecentOnEmptyQuery && next < request.history.size() && !isStale(job.id)) {
             std::vector<RecentItem> round;
@@ -1025,13 +1046,24 @@ void SearchEngine::runNameSearch(const Job& job)
         // folder holds and is so named, from the disk as Explorer lists it,
         // then what lies deeper in it and is so named, from the index.
         const pathtext::TypedPath typedPath = pathtext::splitTyped(request.text);
+        EntryFilter filter = request.filter;
+        filter.merge(query.filter);
         {
             const auto lock = index->readLock();
             lockWait = Clock::now() - began;
+            // The folders to look under, as the index has them (one not in
+            // it finds nothing: a folder of its own that is not there).
+            for (const QString& folder : request.folders) {
+                const EntryId id = index->findPath(folder.toStdWString());
+                filter.folders.push_back(id == kNoEntry ? kNoEntry - 1 : id);
+            }
+            std::ranges::sort(filter.folders);
             const NameSearchOptions options {.limit = static_cast<std::size_t>(request.limit),
                 .foldersOnly = foldersOnly,
                 .rankBy = rankBy,
-                .kindsApart = true};
+                .kindsApart = true,
+                .filter = filter,
+                .order = request.order};
             const NameSearchOutput out
                 = searchNames(*index, matcher, options, m_pool, [&] { return isStale(job.id); });
             names = Clock::now() - began - lockWait;
@@ -1061,7 +1093,7 @@ void SearchEngine::runNameSearch(const Job& job)
         const bool listable = !unc::isUnc(typedPath.folder.toStdWString())
             || (!m_index->shares().offline(typedPath.folder.toStdWString())
                 && share::reachable(unc::host(typedPath.folder.toStdWString())));
-        if (!typedPath.folder.isEmpty() && listable) {
+        if (!typedPath.folder.isEmpty() && listable && !filtered) {
             // The ones named just so first; with nothing more typed than the
             // folder, the folder itself (listTyped puts it first).
             SearchResults rows = pathtext::listTyped(typedPath, foldersOnly, static_cast<int>(request.limit));
@@ -1088,7 +1120,7 @@ void SearchEngine::runNameSearch(const Job& job)
         // puts its site or search on top. Then every app found, the best few
         // places and the web shortcuts by name, best first; then the files
         // and folders.
-        if (request.scope == Scope::All && typedPath.folder.isEmpty()) {
+        if (request.scope == Scope::All && typedPath.folder.isEmpty() && !listing) {
             struct Ranked {
                 int score;
                 SearchResult result;
@@ -1144,8 +1176,9 @@ void SearchEngine::runNameSearch(const Job& job)
         // "src\app\App.cpp"): where it leads first, so Enter goes there, not
         // to the best of what lies in it or is named like it. Several such
         // places: the one opened last, then your own, then the shallowest.
-        if (const pathtext::RelativePath typed = typedPath.folder.isEmpty() ? pathtext::splitRelative(request.text)
-                                                                            : pathtext::RelativePath();
+        if (const pathtext::RelativePath typed = typedPath.folder.isEmpty() && !filtered
+                ? pathtext::splitRelative(request.text)
+                : pathtext::RelativePath();
             !typed.names.isEmpty()) {
             std::vector<std::string> names;
             for (const QString& name : typed.names)
@@ -1202,7 +1235,7 @@ void SearchEngine::runNameSearch(const Job& job)
 
         // Favorites first, but not before what a typed path leads to, nor
         // among rows ranked by time (marked there only).
-        const bool promote = rankBy == RankBy::Match && typedPath.folder.isEmpty()
+        const bool promote = rankBy == RankBy::Match && typedPath.folder.isEmpty() && !listing
             && pathtext::splitRelative(request.text).names.isEmpty();
         promoteFavorites(results, total, request, matcher, promote, *apps, *places, *m_onDisk, m_index, types);
 
@@ -1214,7 +1247,9 @@ void SearchEngine::runNameSearch(const Job& job)
         // an entry found by several keeps its best score.
         if (results.isEmpty() && typedPath.folder.isEmpty() && pathtext::splitRelative(request.text).names.isEmpty()
             && !isStale(job.id)) {
-            const std::vector<ParsedQuery> readings = homophoneQueries(query);
+            std::vector<ParsedQuery> readings = homophoneQueries(query);
+            for (ParsedQuery& reading : readings)
+                reading.filter = query.filter; // the bounds stay as typed
             std::unordered_map<EntryId, NameHit> best;
             for (const ParsedQuery& reading : readings) {
                 const NameMatcher spoken(withTypes(reading, types));
@@ -1222,7 +1257,9 @@ void SearchEngine::runNameSearch(const Job& job)
                 const NameSearchOptions options {.limit = static_cast<std::size_t>(request.limit),
                     .foldersOnly = foldersOnly,
                     .rankBy = rankBy,
-                    .kindsApart = true};
+                    .kindsApart = true,
+                    .filter = filter,
+                    .order = request.order};
                 const NameSearchOutput out = searchNames(*index, spoken, options, m_pool, [&] { return isStale(job.id); });
                 if (out.cancelled || isStale(job.id))
                     return;
@@ -1271,7 +1308,7 @@ void SearchEngine::runNameSearch(const Job& job)
 
     // Nothing typed: every favorite first, in its user's order; the recent
     // items after them (not twice).
-    if (query.isEmpty() && !request.favorites.isEmpty() && !isStale(job.id)) {
+    if (query.isEmpty() && !listing && !request.favorites.isEmpty() && !isStale(job.id)) {
         QList<const Favorite*> shown;
         for (const Favorite& f : request.favorites) {
             if (favoriteShown(request.scope, f, types))
@@ -1549,6 +1586,7 @@ void SearchEngine::runContentSearch(const Job& job)
         std::vector<std::vector<EntryId>> largeOf(index->chunkCount());
         std::vector<int> lowPriorityOf(index->chunkCount(), 0);
         std::vector<std::vector<int>> otherTypesOf(index->chunkCount()); // per kind (otherTypes.count()), made when first met
+        const bool bounded = request.filter.byTime() || request.filter.bySize(); // the panel's: when written, how large
         m_pool.parallelFor(index->chunkCount(), [&](std::size_t c) {
             if (isStale(job.id))
                 return;
@@ -1591,6 +1629,8 @@ void SearchEngine::runContentSearch(const Job& job)
                     break;
                 }
                 const auto id = static_cast<EntryId>(first + i);
+                if (bounded && !request.filter.fits(index->modified(id), index->size(id), false))
+                    continue; // neither read nor counted as passed over
                 bool indexed = false;
                 bool likely = false;
                 while (k < lookup.known.size() && (lookup.known[k] & ~kMatch) < id)

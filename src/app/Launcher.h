@@ -145,6 +145,37 @@ class Launcher : public QObject {
     Q_PROPERTY(QString contentWords READ contentWords NOTIFY folderChipsChanged FINAL)
     Q_PROPERTY(QString contentWhere READ contentWhere NOTIFY folderChipsChanged FINAL)
     Q_PROPERTY(QString whereMissing READ whereMissing NOTIFY folderChipsChanged FINAL)
+    // The search panel (the forum's #209, Listary's): the same window grown
+    // into a panel, filters down its left and the rows in columns (Main.qml,
+    // Panel.qml), on Ctrl+E or the button at the box's corner, and back the
+    // same way. The app sizes the window (App::setPanel) and then says so
+    // here; togglePanel() asks it to.
+    Q_PROPERTY(bool panel READ panel NOTIFY panelChanged FINAL)
+    // Its filters, applied in the panel alone (the box is the plain quick
+    // search): when written (dateChoice: 0 不限, 1 今天, 2 最近 7 天, 3 最近
+    // 30 天, 4 今年, 5 自定义 with dateFrom and dateTo as "yyyy-MM-dd", either
+    // blank for no bound), how large (sizeChoice: 0 不限, 1 under 1 MB, 2
+    // 1–100 MB, 3 100 MB–1 GB, 4 over 1 GB, 5 自定义 with sizeMin and
+    // sizeMax in MB, blank for no bound), where (folderFilter: a folder's
+    // full path, or empty for anywhere; 内容 looks there too). A bound on
+    // the time or the size leaves out apps and places, and what has none.
+    Q_PROPERTY(int dateChoice READ dateChoice NOTIFY filtersChanged FINAL)
+    Q_PROPERTY(QString dateFrom READ dateFrom NOTIFY filtersChanged FINAL)
+    Q_PROPERTY(QString dateTo READ dateTo NOTIFY filtersChanged FINAL)
+    Q_PROPERTY(int sizeChoice READ sizeChoice NOTIFY filtersChanged FINAL)
+    Q_PROPERTY(QString sizeMin READ sizeMin NOTIFY filtersChanged FINAL)
+    Q_PROPERTY(QString sizeMax READ sizeMax NOTIFY filtersChanged FINAL)
+    Q_PROPERTY(QString folderFilter READ folderFilter NOTIFY filtersChanged FINAL)
+    Q_PROPERTY(bool filtersActive READ filtersActive NOTIFY filtersChanged FINAL)
+    // The favorite folders (Favorites), for 位置: [{name, path}].
+    Q_PROPERTY(QVariantList favoriteFolders READ favoriteFolders NOTIFY favoritesChanged FINAL)
+    // The panel's order: a column (ws::SortKey: 0 as ranked, 1 name, 2 path,
+    // 3 size, 4 modified) and its direction (sortBy).
+    Q_PROPERTY(int panelSortKey READ panelSortKey NOTIFY panelSortChanged FINAL)
+    Q_PROPERTY(bool panelSortDescending READ panelSortDescending NOTIFY panelSortChanged FINAL)
+    // How many files and folders the last name search found in all (the
+    // panel's footer says so); 0 while not known.
+    Q_PROPERTY(int totalMatches READ totalMatches NOTIFY statusChanged FINAL)
 
 public:
     // As ws::Scope. 文件夹 is shown within 文件, as a chip of its strip
@@ -373,6 +404,33 @@ public:
     Q_INVOKABLE bool clearContentWords();
     Q_INVOKABLE void dismiss();
 
+    // The search panel (see the properties above).
+    bool panel() const { return m_panel; }
+    void setPanel(bool on); // by the app, the window sized for it (App::setPanel)
+    Q_INVOKABLE void togglePanel(); // panelToggleRequested: the app does it
+    int dateChoice() const { return m_dateChoice; }
+    QString dateFrom() const { return m_dateFrom; }
+    QString dateTo() const { return m_dateTo; }
+    int sizeChoice() const { return m_sizeChoice; }
+    QString sizeMin() const { return m_sizeMin; }
+    QString sizeMax() const { return m_sizeMax; }
+    QString folderFilter() const { return m_folderFilter; }
+    bool filtersActive() const;
+    QVariantList favoriteFolders() const;
+    Q_INVOKABLE void setDateChoice(int choice);
+    Q_INVOKABLE void setDateRange(const QString& from, const QString& to); // 自定义
+    Q_INVOKABLE void setSizeChoice(int choice);
+    Q_INVOKABLE void setSizeRange(const QString& minMb, const QString& maxMb); // 自定义
+    Q_INVOKABLE void setFolderFilter(const QString& path);
+    Q_INVOKABLE void pickFolderFilter(); // the folder dialog
+    Q_INVOKABLE void clearFilters();
+    int panelSortKey() const { return static_cast<int>(m_panelSort.key); }
+    bool panelSortDescending() const { return m_panelSort.descending; }
+    // A column's header clicked: by it (name and path up, size and time
+    // down); clicked again, the other way round. 0: as ranked.
+    Q_INVOKABLE void sortBy(int key);
+    int totalMatches() const { return static_cast<int>(std::min<qint64>(m_totalMatches, 1'000'000'000)); }
+
 signals:
     void queryChanged();
     void scopeChanged();
@@ -419,6 +477,10 @@ signals:
     void betterFirstRow();
     void pluginChanged();
     void folderChipsChanged();
+    void panelChanged();
+    void panelToggleRequested();
+    void filtersChanged();
+    void panelSortChanged();
 
 private:
     class ModelSink; // the result model as plugin::Merge sees it
@@ -455,6 +517,11 @@ private:
     void applyEffects(const QList<ws::plugin::Effect>& effects);
     void showPluginRows(SearchResults rows); // keyword mode: the whole list (showRows)
     RankBy rankBy() const; // as the current scope has it
+    // The panel's filters as the engine takes them (the dates as of now),
+    // and what of the panel the rows are for (as m_shownText is): the
+    // filters, the order, and whether nothing typed lists everything.
+    EntryFilter panelFilter() const;
+    QString panelKey() const;
     bool showsStartList() const; // nothing typed, and a list for it
     QString contentNeedle() const;
     QString shownExtensions() const;
@@ -591,6 +658,18 @@ private:
     ContentScope m_contentScope; // as the last content scan made it out (onContentScope)
     QString m_shownContentFolder; // what the rows are for, as m_shownText
     QString m_shownPick;
+    QString m_shownPanelKey; // panelKey() of the rows
+
+    // The search panel (see the properties).
+    bool m_panel = false;
+    int m_dateChoice = 0;
+    QString m_dateFrom;
+    QString m_dateTo;
+    int m_sizeChoice = 0;
+    QString m_sizeMin;
+    QString m_sizeMax;
+    QString m_folderFilter;
+    SortOrder m_panelSort;
 
     bool m_recordHistory = true;
     KindOrder m_kindOrder = KindOrder::FilesFirst;

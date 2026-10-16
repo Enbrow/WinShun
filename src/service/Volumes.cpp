@@ -99,7 +99,7 @@ void serveOpenMft(Server& server, Connection& conn, std::span<const std::byte> p
                     status = MftStatus::VolumeLost;
                     break;
                 }
-                block.begin(reader.firstRecord());
+                block.begin(reader.firstRecord(), conn.minor >= kMinorSizes);
                 for (std::size_t i = 0; i < reader.blockRecords(); ++i) {
                     const bool parsed = reader.parse(i, record);
                     inUse += parsed && record.inUse ? 1 : 0;
@@ -109,7 +109,7 @@ void serveOpenMft(Server& server, Connection& conn, std::span<const std::byte> p
                         ok = conn.channel.write(block.finish(reader.bytesDone()), timeout);
                         if (!ok)
                             break;
-                        block.begin(reader.firstRecord() + static_cast<std::uint32_t>(i) + 1);
+                        block.begin(reader.firstRecord() + static_cast<std::uint32_t>(i) + 1, conn.minor >= kMinorSizes);
                     }
                 }
                 if (ok && block.count() > 0)

@@ -3,6 +3,7 @@
 #include "FileIndex.h"
 #include "Pinyin.h"
 
+#include <QDateTime>
 #include <QString>
 #include <QStringList>
 
@@ -23,6 +24,13 @@ namespace ws {
 //   proj\readme     "readme" in the name, under a folder containing "proj"
 //   C:\My Files\a   a path from a drive (or share) is one term, spaces and all
 //   ext:pdf,docx    only files with these extensions
+//   size:>10mb      only files of such a size: >, >=, <, <=, 1mb..5mb (or 1mb-5mb),
+//                   units b k/kb m/mb g/gb t/tb (1024 each), or empty, tiny (< 10 KB),
+//                   small (< 100 KB), medium (< 1 MB), large (< 16 MB), huge (< 128 MB),
+//                   gigantic (the rest), as Everything names them
+//   dm:7d           written in the last 7 days (w: weeks, m: months, y: years);
+//                   today, yesterday, thisweek, thismonth, thisyear; 2026, 2026-01,
+//                   2026-01-15, >2026-01-15, <2026-02, 2026-01-15..2026-02-01
 struct QueryTerm {
     std::string text; // folded UTF-8; the last segment for path terms
     std::vector<std::string> ancestors; // folded folder segments, outermost first
@@ -34,10 +42,20 @@ struct QueryTerm {
 struct ParsedQuery {
     std::vector<QueryTerm> terms;
     std::vector<std::string> extensions; // folded, without the dot
+    EntryFilter filter; // size: and dm: (never folders)
     QStringList highlights; // plain terms to highlight in result names
 
-    bool isEmpty() const noexcept { return terms.empty() && extensions.empty(); }
+    // Nothing to find by: a filter alone (size:>1gb) lists what fits it.
+    bool isEmpty() const noexcept { return terms.empty() && extensions.empty() && !filter.any(); }
 };
+
+// What a size: or dm: token stands for (parseQuery takes them from the
+// query); false for anything else, or one it cannot read (left in the query
+// as a word). `now`: local time, for today, 7d and the like.
+bool parseSizeToken(QStringView token, EntryFilter& filter);
+bool parseDateToken(QStringView token, const QDateTime& now, EntryFilter& filter);
+// A size in bytes written briefly: "1.2 MB", "356 KB", "0 B".
+QString sizeText(std::uint64_t bytes);
 
 // What was typed, split at whitespace; "within quotes" is one word, spaces
 // and all (the quotes go).

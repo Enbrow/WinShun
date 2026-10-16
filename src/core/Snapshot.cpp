@@ -30,7 +30,8 @@ namespace {
 //   4 x { count:u32 { len:u16 text:wchar[len] }* }   crawl rules (version 3 on)
 //   nameCount:u32 { bytes:u32 { name:u8[] 0 }[kGroup] }*   (version 6 on; at the end, fewer)
 //   entryCount:u32 { backBytes:u32 back:leb[kGroup] flags:u8[kGroup] nameBytes:u32 name:leb[kGroup]
-//                    timeBytes:u32 time:leb[kGroup] (version 7 on) }*
+//                    timeBytes:u32 time:leb[kGroup] (version 7 on)
+//                    sizeBytes:u32 size:leb[kGroup] (version 8 on: 0 not known, else bytes + 1) }*
 //   tableCount:u32 { root:u32 count:u32 folderBytes:u32 folder:leb[count] recordBytes:u32 record:leb[count] }*
 //   attachmentSize:u64 attachment:u8[attachmentSize]   (version 4 on)
 //   end:u32
@@ -61,7 +62,7 @@ namespace {
 // the index is walked or rebuilt. Files written before are read as they are.
 constexpr char kMagic[8] = {'Q', 'F', 'I', 'N', 'D', 'E', 'X', '\0'};
 constexpr char kPackedMagic[8] = {'Q', 'F', 'I', 'N', 'D', 'E', 'X', 'Z'};
-constexpr std::uint32_t kVersion = 7;
+constexpr std::uint32_t kVersion = 8;
 constexpr std::size_t kGroup = 1 << 16;
 constexpr std::uint32_t kOldestVersion = 2; // without the rules
 constexpr std::uint32_t kEndMarker = 0x21444E45; // "END!"
@@ -488,6 +489,7 @@ bool save(const FileIndex& index, const std::vector<VolumeInfo>& volumes,
     std::string flags;
     std::string names;
     std::string times;
+    std::string sizes;
     const auto group = [&] {
         w.put(static_cast<std::uint32_t>(backs.size()));
         w.bytes(backs.data(), backs.size());
@@ -496,10 +498,13 @@ bool save(const FileIndex& index, const std::vector<VolumeInfo>& volumes,
         w.bytes(names.data(), names.size());
         w.put(static_cast<std::uint32_t>(times.size()));
         w.bytes(times.data(), times.size());
+        w.put(static_cast<std::uint32_t>(sizes.size()));
+        w.bytes(sizes.data(), sizes.size());
         backs.clear();
         flags.clear();
         names.clear();
         times.clear();
+        sizes.clear();
     };
     std::uint32_t written = 0;
     std::uint32_t firstUnused = 0; // the number of the first name no entry so far has
@@ -514,6 +519,10 @@ bool save(const FileIndex& index, const std::vector<VolumeInfo>& volumes,
         const std::int64_t step = std::int64_t {time} - timeBefore;
         putLeb(times, step < 0 ? (static_cast<std::uint64_t>(-step) << 1) - 1 : static_cast<std::uint64_t>(step) << 1);
         timeBefore = time;
+        // Sizes as bytes (what the packed float stands for; packs back to the
+        // same): a few bytes each, where the packed bits would take five.
+        const FileSize size = index.size(id);
+        putLeb(sizes, size == kUnknownSize ? 0 : unpackSize(size) + 1);
         if (++written % kGroup == 0)
             group();
     });
@@ -703,6 +712,14 @@ std::optional<Contents> load(const QString& filePath)
                 if (!times)
                     return std::nullopt;
             }
+            std::optional<std::vector<std::uint64_t>> sizes;
+            if (version >= 8) {
+                const auto sizeBytes = r.get<std::uint32_t>();
+                p = r.ok() ? r.bytes(sizeBytes) : nullptr;
+                sizes = p ? lebColumn(p, sizeBytes, n) : std::nullopt;
+                if (!sizes)
+                    return std::nullopt;
+            }
             for (std::size_t k = 0; k < n; ++k) {
                 const std::uint64_t code = (*codes)[k];
                 const std::uint64_t number = code == 0 ? firstUnused++ : code - 1;
@@ -717,6 +734,8 @@ std::optional<Contents> load(const QString& filePath)
                         return std::nullopt;
                     index->setModified(id, static_cast<FileTime>(time));
                 }
+                if (sizes && (*sizes)[k] != 0)
+                    index->setSize(id, packSize((*sizes)[k] - 1));
             }
         }
     }

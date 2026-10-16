@@ -61,7 +61,7 @@ struct WindowFrame::Hook {
         auto* self = reinterpret_cast<WindowFrame*>(data);
         switch (message) {
         case WM_NCCALCSIZE:
-            if (!self->m_ownFrame)
+            if (!self->m_ownFrame && !self->m_resizable)
                 break;
             // All of it is client area. Maximised, a window overhangs the
             // monitor by its frame: then its client area is the work area, and
@@ -262,7 +262,7 @@ int WindowFrame::hitTest(int screenX, int screenY) const
     const QPointF pos = toWindow(screenX, screenY);
     const bool onMaximize = m_ownFrame && covers(m_maximizeButton, pos);
     const bool onControl = onMaximize || anyCovers(m_controls, pos);
-    if (m_ownFrame && !::IsZoomed(hwnd)) {
+    if ((m_ownFrame || m_resizable) && !::IsZoomed(hwnd)) {
         // Resize edges as thick as the system frame, inside the window.
         POINT point {screenX, screenY};
         ::ScreenToClient(hwnd, &point);
@@ -292,6 +292,21 @@ int WindowFrame::hitTest(int screenX, int screenY) const
     if (anyCovers(m_dragAreas, pos))
         return HTCAPTION;
     return HTCLIENT;
+}
+
+void WindowFrame::setResizable(bool on)
+{
+    if (on == m_resizable || !m_hwnd || m_ownFrame)
+        return;
+    m_resizable = on;
+    // The sizing frame (what lets the system size it at the edges): with
+    // WM_NCCALCSIZE answered above, none of it shows. Qt keeps the window
+    // frameless in its own terms, so its geometry stays the whole window.
+    const HWND hwnd = reinterpret_cast<HWND>(m_hwnd);
+    const LONG_PTR style = ::GetWindowLongPtrW(hwnd, GWL_STYLE);
+    ::SetWindowLongPtrW(hwnd, GWL_STYLE, on ? style | WS_THICKFRAME : style & ~WS_THICKFRAME);
+    ::SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+        SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE);
 }
 
 void WindowFrame::setPointer(QPointF pointer)

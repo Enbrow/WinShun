@@ -45,6 +45,12 @@ struct FileRecord {
     std::uint32_t attributes = 0; // FILE_ATTRIBUTE_*, from $STANDARD_INFORMATION (base records only)
     std::int64_t modified = 0; // FILETIME of the last write, from there too
     bool hasAttributeList = false; // some attributes live in extension records
+    // The file's size (its unnamed $DATA stream: what GetFileSizeEx says),
+    // when this record holds that stream's start: a resident one, or the
+    // first piece of a non-resident one (an extension record may hold it
+    // for a file with very many attributes). `sizeKnown` false otherwise.
+    std::uint64_t size = 0;
+    bool sizeKnown = false;
     std::vector<Name> names; // one per hard link; DOS 8.3 aliases are left out
 };
 

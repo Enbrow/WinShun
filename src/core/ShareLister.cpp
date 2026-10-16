@@ -388,7 +388,7 @@ bool Lister::operator()(const Crawler::Root& dir, DirListing& out)
                 // For reparse points, EaSize holds the reparse tag.
                 m_crawler.addToListing(out, dir, {}, name, Crawler::attributeFlags(info->FileAttributes),
                     Crawler::shouldDescend(info->FileAttributes, info->EaSize), 0,
-                    fileTimeOf(info->LastWriteTime.QuadPart));
+                    fileTimeOf(info->LastWriteTime.QuadPart), packSize(static_cast<std::uint64_t>(info->EndOfFile.QuadPart)));
             }
             if (info->NextEntryOffset == 0)
                 break;

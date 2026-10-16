@@ -80,6 +80,7 @@
 - **排序懂你**：自己的文件在前，系统目录、`node_modules` 在后，名字完全一样的最前。每行显示修改日期，`Ctrl+S` 在最匹配、最新、最早之间切换。不输入时列出最近打开或最近修改的文件。
 - **数字键直达**：结果的图标上标着序号，`Ctrl+1`～`Ctrl+9` 打开第几行（也可改成 `Alt`）。
 - **按类型找**：选中 **文件** 后，下面一排是文件夹、文档、图片、视频、压缩包等类型，`Ctrl+Tab` 依次切换；点 `+` 或在设置里自己加类型。
+- **搜索面板**：结果太多时，点搜索框右上角的小按钮或按 `Ctrl+E`，同一个窗口展开成面板（像 Listary）：左边按范围、类型、修改时间、大小、位置筛选，右边名称 / 路径 / 大小 / 修改时间四列，点列头排序；什么都不输入也能按条件浏览整个索引（三百万个文件也是毫秒级）。`size:>10mb`、`dm:7d` 这类写法直接打在搜索框里也行。再按一次就缩回搜索框。
 - **拖出去就能用**：结果直接拖进微信、邮件、资源管理器。
 - **实时更新**：读 USN 变更日志，改名、新建、删除马上搜得到；拔 U 盘不会提示“设备正在使用”。
 
@@ -265,6 +266,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Where**: all local drives, USB drives if you like (an unindexed one that is plugged in is offered at the end of the list), and **NAS / SMB network shares**, still searchable while their server is off.
   - **Order**: your own files first, the date modified on each row, `Ctrl+S` for best match / newest / oldest. Recent files are listed when the box is empty.
   - **Shortcuts**: `Ctrl+1`…`Ctrl+9` opens a row (its number is on its icon).
+  - **Search panel**: too many hits? The small button at the box's corner or `Ctrl+E` grows the same window into a panel, as Listary has it: filters down the left (scope, kind, date modified, size, folder), the rows in columns on the right (name, path, size, date modified) with sortable headers; with nothing typed it browses the whole index by those filters (milliseconds over three million files). `size:>10mb` and `dm:7d` work in the box too. Press it again to collapse.
   - **By kind**: under **Files**, a row of kinds (folders, documents, pictures, videos, archives…); `Ctrl+Tab` steps through them, `+` adds your own.
   - **Drag out**: drag results into a chat, a mail or Explorer.
   - **Query syntax**: `"exact phrase"`, `!exclude`, `!node_modules\`, wildcards `*` `?`, `ext:pdf,docx`, `folder\name`, and paths (`D:\My Files\`, `tools/out/`).

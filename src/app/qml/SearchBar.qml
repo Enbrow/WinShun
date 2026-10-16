@@ -17,6 +17,9 @@ Item {
     // state reported, see Launcher.inTaskbarBox), here only the tabs show.
     // The field stays, out of sight, with the keyboard.
     readonly property bool inBox: launcher.inTaskbarBox
+    // The search panel's own bar (Panel.qml): the button at the right
+    // corner collapses the panel instead of expanding the box into it.
+    property bool panelMode: false
     // The pointer over the header: Windows takes its drag area as a title bar,
     // so QML hears of the pointer there only from the frame.
     readonly property bool hovered: hover.hovered || contains(mapFromItem(null, frame.pointer))
@@ -33,6 +36,12 @@ Item {
     function focusAndSelect() {
         input.forceActiveFocus()
         input.selectAll()
+    }
+    // The keyboard back in the field, the caret after the words (from the
+    // panel's filters; the other bar on expanding or collapsing).
+    function focusAtEnd() {
+        input.forceActiveFocus()
+        input.cursorPosition = input.length
     }
 
     function reportField() {
@@ -58,6 +67,7 @@ Item {
         frame.addDragArea(bar)
         frame.addControl(input)
         frame.addControl(tabs)
+        frame.addControl(expand)
     }
 
     HoverHandler { id: hover } // over the field and the tabs
@@ -121,7 +131,7 @@ Item {
 
     TextInput {
         id: input
-        objectName: "searchField" // App answers the input method for it while it is in the box
+        objectName: bar.panelMode ? "panelSearchField" : "searchField" // App answers the input method for it while it is in the box
         anchors.left: icon.right
         anchors.leftMargin: 14
         anchors.right: tabs.left
@@ -192,11 +202,49 @@ Item {
         }
     }
 
+    // Expands the box into the search panel (Launcher.panel), or collapses
+    // it: at the corner, small and plain, as Listary has it (Ctrl+E too).
+    Rectangle {
+        id: expand
+
+        readonly property bool tipWanted: expandArea.containsMouse
+        readonly property string tip: bar.panelMode ? qsTr("收回搜索框") : qsTr("展开为搜索面板")
+
+        anchors.right: parent.right
+        anchors.rightMargin: 10
+        y: bar.onPixel((bar.height - height) / 2)
+        width: Theme.chipHeight
+        height: Theme.chipHeight
+        radius: 4
+        color: expandArea.pressed ? Theme.controlPressed : expandArea.containsMouse ? Theme.chipHover : "transparent"
+        Accessible.role: Accessible.Button
+        Accessible.name: tip
+
+        Glyph {
+            anchors.centerIn: parent
+            glyph: bar.panelMode ? "\uE73F" : "\uE740" // BackToWindow, FullScreen
+            size: 12
+            color: expandArea.containsMouse ? Theme.text : Theme.subtext
+        }
+        MouseArea {
+            id: expandArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: bar.launcher.togglePanel()
+        }
+        HoverTip {
+            target: expand.tipWanted ? expand : null
+            text: expand.tip
+            shortcut: "Ctrl+E"
+        }
+    }
+
     ScopeTabs {
         id: tabs
         scaled: true
-        anchors.right: parent.right
-        anchors.rightMargin: 12
+        anchors.right: expand.left
+        anchors.rightMargin: 6
         anchors.leftMargin: 16
         y: bar.onPixel((bar.height - height) / 2)
         // 文件夹 is a chip of the strip under the box (TypeStrip): 文件 stays current.

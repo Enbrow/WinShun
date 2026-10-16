@@ -65,6 +65,11 @@ public:
     // KeyRouter): a click does not activate the window either, and its frame
     // counts as active all the same, for the Mica backdrop.
     void setNoActivate(bool on);
+    // A frameless window that can be resized at its edges meanwhile (the
+    // launcher as the search panel): the system's sizing frame, all of it
+    // client area as with ownFrame, so nothing looks different.
+    void setResizable(bool on);
+    bool resizable() const { return m_resizable; }
 
     QPointF pointer() const { return m_pointer; }
     bool maximizeHovered() const { return m_maximizeHovered; }
@@ -98,6 +103,7 @@ private:
     bool m_maximizeHovered = false;
     bool m_maximizePressed = false;
     bool m_noActivate = false;
+    bool m_resizable = false;
     // afterNextFrame, set on the render thread: armed, then synchronised.
     std::atomic<bool> m_frameArmed = false;
     std::atomic<bool> m_frameSynced = false;

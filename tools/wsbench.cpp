@@ -3640,11 +3640,11 @@ int runShare(QStringList args)
         indexer.stop();
         const auto lock = index->readLock();
         const ws::FileIndex::MemoryUse use = index->memoryUse();
-        std::printf("index: %zu live entries, %.1f MB (entries %.1f, times %.1f, names %.1f, folders %.1f, tables %.1f)\n",
+        std::printf("index: %zu live entries, %.1f MB (entries %.1f, times %.1f, sizes %.1f, names %.1f, folders %.1f, tables %.1f)\n",
             index->liveCount(),
-            (use.entries + use.times + use.names + use.folderRecords + use.childTables + use.intern) / 1048576.0,
-            use.entries / 1048576.0, use.times / 1048576.0, use.names / 1048576.0, use.folderRecords / 1048576.0,
-            use.childTables / 1048576.0);
+            (use.entries + use.times + use.sizes + use.names + use.folderRecords + use.childTables + use.intern) / 1048576.0,
+            use.entries / 1048576.0, use.times / 1048576.0, use.sizes / 1048576.0, use.names / 1048576.0,
+            use.folderRecords / 1048576.0, use.childTables / 1048576.0);
         // The awkward names: the longest path, the deepest, those not in ASCII.
         ws::EntryId longest = ws::kNoEntry, deepest = ws::kNoEntry;
         std::size_t longestLength = 0;
@@ -4781,10 +4781,10 @@ int main(int argc, char* argv[])
     {
         const ws::FileIndex::MemoryUse use = index->memoryUse();
         const auto mb = [](std::size_t bytes) { return static_cast<double>(bytes) / (1024.0 * 1024.0); };
-        std::printf("index parts  entries %.1f, times %.1f, names %.1f (%.1f used), folder records %.1f, child tables %.1f, "
-                    "intern %.1f MB\n",
-            mb(use.entries), mb(use.times), mb(use.names), mb(use.nameBytes), mb(use.folderRecords), mb(use.childTables),
-            mb(use.intern));
+        std::printf("index parts  entries %.1f, times %.1f, sizes %.1f, names %.1f (%.1f used), folder records %.1f, "
+                    "child tables %.1f, intern %.1f MB\n",
+            mb(use.entries), mb(use.times), mb(use.sizes), mb(use.names), mb(use.nameBytes), mb(use.folderRecords),
+            mb(use.childTables), mb(use.intern));
     }
     if (args.removeAll(u"--newest"_s) > 0) {
         // What the launcher lists with nothing typed and 最近修改 chosen: the
@@ -5000,11 +5000,24 @@ int main(int argc, char* argv[])
     const bool trim = args.removeAll(u"--trim"_s) > 0;
     // ... with FileIndex::warm() in between, as the launcher does when shown.
     const bool warm = args.removeAll(u"--warm"_s) > 0;
+    // --order name|path|size|modified, a - after it for descending: the search
+    // panel's column orders (SortKey) in place of the rank.
+    ws::SortOrder order;
+    if (const qsizetype at = args.indexOf(u"--order"_s); at >= 0 && at + 1 < args.size()) {
+        QString name = args[at + 1].toLower();
+        order.descending = name.endsWith(u'-');
+        name.remove(u'-');
+        order.key = name == u"name" ? ws::SortKey::Name : name == u"path" ? ws::SortKey::Path
+            : name == u"size" ? ws::SortKey::Size : name == u"modified" ? ws::SortKey::Modified : ws::SortKey::Rank;
+        args.remove(at, 2);
+    }
     int failures = 0;
     ws::WorkerPool pool(ws::WorkerPool::defaultThreadCount());
     const auto lock = index->readLock();
     for (const QString& q : args) {
-        const ws::NameMatcher matcher(ws::parseQuery(q));
+        const ws::ParsedQuery parsed = ws::parseQuery(q);
+        const ws::NameMatcher matcher(parsed);
+        const ws::NameSearchOptions options {.limit = 100, .filter = parsed.filter, .order = order};
         double best = 1e9;
         ws::NameSearchOutput out;
         if (trim) {
@@ -5021,13 +5034,13 @@ int main(int argc, char* argv[])
                 warmMs = static_cast<double>(timer.nsecsElapsed()) / 1e6;
             }
             timer.restart();
-            out = ws::searchNames(*index, matcher, {.limit = 100}, pool, {});
+            out = ws::searchNames(*index, matcher, options, pool, {});
             std::printf("%-16s trim %.1f ms (working set %.1f MB), warm %.1f ms, search after: %6.1f ms\n",
                 qPrintable(q), trimMs, trimmedMB, warmMs, static_cast<double>(timer.nsecsElapsed()) / 1e6);
         }
         for (int run = 0; run < 5; ++run) {
             timer.restart();
-            out = ws::searchNames(*index, matcher, {.limit = 100}, pool, {});
+            out = ws::searchNames(*index, matcher, options, pool, {});
             best = std::min(best, static_cast<double>(timer.nsecsElapsed()) / 1e6);
         }
         std::printf("%-16s %9zu matches  %6.1f ms   top: %s\n", qPrintable(q), out.totalMatches, best,
@@ -5038,7 +5051,8 @@ int main(int argc, char* argv[])
             ws::NameMatcher::Folders seen;
             for (std::size_t i = 0; i < index->slotCount(); ++i) {
                 const ws::Entry& e = index->entry(static_cast<ws::EntryId>(i));
-                if (!(e.flags & (ws::EntryFlag::Deleted | ws::EntryFlag::Root)) && matcher.match(*index, e, seen) >= 0)
+                if (!(e.flags & (ws::EntryFlag::Deleted | ws::EntryFlag::Root)) && matcher.match(*index, e, seen) >= 0
+                    && parsed.filter.fits(index->modified(static_cast<ws::EntryId>(i)), index->size(static_cast<ws::EntryId>(i)), e.isDir()))
                     ++brute;
             }
             std::printf("  check: %zu matches by every entry -> %s\n", brute, brute == out.totalMatches ? "same" : "DIFFERENT");

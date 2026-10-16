@@ -64,6 +64,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QGuiApplication>
 #include <QInputMethod>
 #include <QJsonDocument>
@@ -442,6 +444,7 @@ bool App::start(const StartOptions& options)
         if (back && ::IsWindow(back) && m_window && m_window->isActive())
             ::SetForegroundWindow(back);
     });
+    connect(m_launcher.get(), &Launcher::panelToggleRequested, this, &App::togglePanel);
     connect(m_launcher.get(), &Launcher::openFailed, this, [this](const QString& name) {
         m_messages->showNotification(tr("没有打开“%1”").arg(name),
             integrity::processElevated()
@@ -2018,8 +2021,52 @@ void App::handleCommand(const QString& command)
         showSettings();
     else if (command.startsWith(u"query:"))
         showLauncher(command.mid(6));
+    else if (command.startsWith(u"dump:"))
+        dumpLauncher(command.mid(5));
     else
         showLauncher();
+}
+
+void App::dumpLauncher(const QString& file) const
+{
+    QJsonObject state;
+    state[u"visible"_s] = m_window && m_window->isVisible();
+    state[u"panel"_s] = m_launcher->panel();
+    if (m_window) {
+        const QRect g = m_window->geometry();
+        state[u"geometry"_s] = QJsonArray {g.x(), g.y(), g.width(), g.height()};
+        RECT r {};
+        ::GetWindowRect(reinterpret_cast<HWND>(m_window->winId()), &r);
+        state[u"native"_s] = QJsonArray {int(r.left), int(r.top), int(r.right - r.left), int(r.bottom - r.top)};
+        state[u"dpr"_s] = m_window->devicePixelRatio();
+    }
+    state[u"query"_s] = m_launcher->query();
+    state[u"scope"_s] = static_cast<int>(m_launcher->scope());
+    state[u"fileType"_s] = m_launcher->fileType();
+    state[u"dateChoice"_s] = m_launcher->dateChoice();
+    state[u"sizeChoice"_s] = m_launcher->sizeChoice();
+    state[u"folderFilter"_s] = m_launcher->folderFilter();
+    state[u"sortKey"_s] = m_launcher->panelSortKey();
+    state[u"sortDescending"_s] = m_launcher->panelSortDescending();
+    state[u"totalMatches"_s] = m_launcher->totalMatches();
+    state[u"status"_s] = m_launcher->statusText();
+    state[u"searching"_s] = m_launcher->searching();
+    state[u"selected"_s] = m_launcher->results()->selectedCount();
+    state[u"currentRow"_s] = m_launcher->currentRow();
+    QJsonArray rows;
+    const ResultModel* model = m_launcher->results();
+    for (int i = 0; i < model->count(); ++i) {
+        const SearchResult* r = model->at(i);
+        const QModelIndex at = model->index(i);
+        rows.append(QJsonObject {{u"name"_s, r->name}, {u"path"_s, r->path}, {u"isDir"_s, r->isDir},
+            {u"size"_s, static_cast<double>(r->size)}, {u"sizeText"_s, model->data(at, ResultModel::SizeRole).toString()},
+            {u"modified"_s, static_cast<double>(r->modified)},
+            {u"modifiedDate"_s, model->data(at, ResultModel::ModifiedDateRole).toString()}, {u"app"_s, r->isApp()}});
+    }
+    state[u"rows"_s] = rows;
+    QFile out(file);
+    if (out.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        out.write(QJsonDocument(state).toJson());
 }
 
 void App::applyFolderMenu()
@@ -2300,7 +2347,9 @@ void App::showLauncher(const QString& query, const std::optional<taskbar::Spot>&
         m_searchBox->setText({.active = m_launcherOverBox});
     else if (m_searchBox && wasClosing && wasInBox) // the field has not changed, nor said so again
         m_searchBox->setText(m_fieldShown);
-    if (spot) {
+    if (m_launcher->panel()) {
+        // Up as the panel (asked for again while it is): as it is.
+    } else if (spot) {
         m_placement->attachTaskbar(*spot);
     } else {
         // On the monitor asked for, else the one under the mouse; where the
@@ -2778,6 +2827,61 @@ void App::finishHidingLauncher()
     m_window->hide();
     revealLauncher(); // hidden before its first frame: drop the cloak
     m_launcher->handleHidden();
+    if (m_launcher->panel())
+        setPanel(false); // the next opening is the box (hidden: nothing to see of it)
+}
+
+void App::togglePanel()
+{
+    if (m_window && m_window->isVisible() && !m_launcherClosing)
+        setPanel(!m_launcher->panel());
+}
+
+void App::setPanel(bool on)
+{
+    if (!m_window || on == m_launcher->panel())
+        return;
+    if (on) {
+        if (!m_window->isVisible() || m_launcherClosing || m_revealing || m_prewarming.load())
+            return;
+        // Over Win顺's box on the taskbar: the field comes back into the
+        // window, the box goes idle (the panel is a window of its own).
+        if (m_launcher->inTaskbarBox())
+            m_launcher->setInTaskbarBox(false);
+        if (m_searchBox && m_launcherOverBox) {
+            m_searchBox->setText({});
+            updateSearchBoxLook();
+        }
+        m_launcherOverBox = false;
+        m_frame->setResizable(true);
+        m_launcher->setPanel(true); // Main.qml lets go of the window's size and lays the panel out
+        m_placement->enterPanel(m_window->screen()); // one move and resize: the panel's size at its spot
+        return;
+    }
+    // Back to the box. A window made smaller shows its last frame cut until
+    // it draws the next (pitfalls: the type strip): cloaked meanwhile, and
+    // seen again once a frame of the box is on the screen.
+    const std::optional<taskbar::Spot> spot = m_placement->taskbarSpot();
+    const bool seen = m_window->isVisible() && !m_launcherClosing && !m_revealing && !m_prewarming.load();
+    if (seen) {
+        win::setCloaked(m_window, true);
+        auto connection = std::make_shared<QMetaObject::Connection>();
+        const auto uncloak = [this, connection] {
+            QObject::disconnect(*connection);
+            if (m_window && !m_revealing && !m_prewarming.load())
+                win::setCloaked(m_window, false);
+        };
+        *connection = connect(m_frame.get(), &WindowFrame::frameShown, this, uncloak);
+        QTimer::singleShot(250ms, this, uncloak); // should no frame come
+        m_frame->afterNextFrame();
+    }
+    m_placement->leavePanel();
+    m_frame->setResizable(false);
+    m_launcher->setPanel(false); // Main.qml: the box's size again, before it is placed
+    if (spot)
+        m_placement->attachTaskbar(*spot);
+    else
+        m_placement->placeOn(m_window->screen() ? m_window->screen() : QGuiApplication::primaryScreen());
 }
 
 void App::showTrayMenu()

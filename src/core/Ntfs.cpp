@@ -173,6 +173,8 @@ bool parseFileRecord(std::byte* data, std::size_t size, FileRecord& out)
     out.attributes = 0;
     out.modified = 0;
     out.hasAttributeList = false;
+    out.size = 0;
+    out.sizeKnown = false;
     out.names.clear();
     if (!applyFixups(data, size))
         return false;
@@ -185,6 +187,21 @@ bool parseFileRecord(std::byte* data, std::size_t size, FileRecord& out)
     return forEachAttribute(data, size, [&](std::uint32_t type, const std::byte* attribute, std::size_t length) {
         if (type == kAttributeList) {
             out.hasAttributeList = true;
+            return;
+        }
+        if (type == kData) {
+            // The unnamed stream alone (a named one is an alternate stream):
+            // resident, its value; non-resident, the real size in the header
+            // of its first piece (lowest VCN 0; a later piece says nothing).
+            if (length < 0x18 || attribute[9] != std::byte {0})
+                return;
+            if (attribute[8] == std::byte {0}) {
+                out.size = load<std::uint32_t>(attribute + 0x10);
+                out.sizeKnown = true;
+            } else if (length >= 0x38 && load<std::uint64_t>(attribute + 0x10) == 0) {
+                out.size = load<std::uint64_t>(attribute + 0x30);
+                out.sizeKnown = true;
+            }
             return;
         }
         const auto value = residentValue(attribute, length);

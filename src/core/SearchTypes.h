@@ -29,6 +29,17 @@ enum class RankBy : std::uint8_t { Match, Newest, Oldest };
 // (History), or the files written last (the folders, in 文件夹).
 enum class StartList : std::uint8_t { Opened, Modified };
 
+// How files and folders are listed in the search panel: as ranked (RankBy),
+// or by one of its columns, up or down. By name and by size, a tie goes as
+// ranked; by path, a folder's files stay together (its path, then the
+// name). A size or a time not known comes last either way.
+enum class SortKey : std::uint8_t { Rank, Name, Path, Size, Modified };
+struct SortOrder {
+    SortKey key = SortKey::Rank;
+    bool descending = false;
+    friend bool operator==(const SortOrder&, const SortOrder&) = default;
+};
+
 // A kind of file 文件 can be narrowed to (图片: jpg, png…), as the strip
 // under the search box offers them; its user's to name and change.
 struct FileType {
@@ -115,6 +126,9 @@ struct SearchResult {
     // Files and folders: when last written, in seconds since 1970 (UTC);
     // 0 when not known.
     std::uint32_t modified = 0;
+    // A file's size in bytes (as the index has it: within a hundred-thousandth
+    // past 16 MB, FileSize); -1 for a folder, or when not known.
+    std::int64_t size = -1;
     bool offline = false; // on a network share that cannot be reached now (ShareIndexer::offline)
     // Found by how its name reads, not by what was typed (年度报告 for
     // 年度报高; homophoneQueries): listed under a heading that says so.

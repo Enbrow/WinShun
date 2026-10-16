@@ -492,13 +492,14 @@ bool decode(std::span<const std::byte> payload, BulkDataHeader& m, std::span<con
 
 // ---- MftBlock ----------------------------------------------------------------
 
-void BlockWriter::begin(std::uint32_t firstRecord)
+void BlockWriter::begin(std::uint32_t firstRecord, bool withSizes)
 {
     m_writer.reset();
     m_writer.u32(firstRecord);
     m_writer.u32(0); // count, patched
     m_writer.u64(0); // bytesDone, patched
     m_count = 0;
+    m_withSizes = withSizes;
 }
 
 void BlockWriter::add(const ntfs::FileRecord& record, bool parsed)
@@ -516,14 +517,17 @@ void BlockWriter::add(const ntfs::FileRecord& record, bool parsed)
     m_writer.u32(record.baseRecord);
     m_writer.u32(record.attributes);
     m_writer.i64(record.modified);
-    m_writer.u8(static_cast<std::uint8_t>(
-        (record.directory ? kRecordDirectory : 0) | (record.hasAttributeList ? kRecordAttributeList : 0)));
+    m_writer.u8(static_cast<std::uint8_t>((record.directory ? kRecordDirectory : 0)
+        | (record.hasAttributeList ? kRecordAttributeList : 0)
+        | (m_withSizes && record.sizeKnown ? kRecordSizeKnown : 0)));
     const std::size_t names = std::min(record.names.size(), kMaxNames);
     m_writer.u8(static_cast<std::uint8_t>(names));
     for (std::size_t i = 0; i < names; ++i) {
         m_writer.u64(record.names[i].parent);
         m_writer.string(record.names[i].name); // NTFS names are at most 255 units: never cut
     }
+    if (m_withSizes)
+        m_writer.u64(record.sizeKnown ? record.size : 0);
 }
 
 std::span<const std::byte> BlockWriter::finish(std::uint64_t bytesDone)
@@ -533,10 +537,11 @@ std::span<const std::byte> BlockWriter::finish(std::uint64_t bytesDone)
     return m_writer.finish(Type::MftBlock);
 }
 
-bool BlockReader::load(std::vector<std::byte>&& payload)
+bool BlockReader::load(std::vector<std::byte>&& payload, bool withSizes)
 {
     m_offsets.clear();
     m_payload.clear();
+    m_withSizes = withSizes;
     Reader r(payload);
     std::uint32_t first = 0;
     std::uint32_t count = 0;
@@ -564,6 +569,9 @@ bool BlockReader::load(std::vector<std::byte>&& payload)
             if (!r.u64(parent) || !r.string(name) || name.empty())
                 return false;
         }
+        std::uint64_t size = 0;
+        if (withSizes && !r.u64(size))
+            return false;
     }
     if (!r.done())
         return false; // bytes after the last record: not ours
@@ -582,6 +590,8 @@ bool BlockReader::record(std::size_t i, ntfs::FileRecord& out) const
     out.attributes = 0;
     out.modified = 0;
     out.hasAttributeList = false;
+    out.size = 0;
+    out.sizeKnown = false;
     out.names.clear();
     if (i >= m_offsets.size())
         return false;
@@ -609,6 +619,10 @@ bool BlockReader::record(std::size_t i, ntfs::FileRecord& out) const
         r.u64(name.parent);
         r.string(name.name);
         out.names.push_back(name);
+    }
+    if (m_withSizes) {
+        r.u64(out.size);
+        out.sizeKnown = flags & kRecordSizeKnown;
     }
     return true;
 }

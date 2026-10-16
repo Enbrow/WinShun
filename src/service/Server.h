@@ -30,6 +30,7 @@ struct Connection {
     volproto::Channel channel;
     std::uint32_t id = 0;
     DWORD pid = 0; // the client process, as the pipe reports it
+    std::uint16_t minor = 0; // the protocol minor the client speaks (its Hello)
     std::wstring root; // "C:" while bound
     bool bound = false; // holds (or is about to hold) a handle on `root`; under Server's mutex
     Bind kind = Bind::Journal; // while bound

@@ -5,6 +5,7 @@
 #include "FileIconProvider.h"
 #include "ThumbnailProvider.h"
 #include "Pinyin.h"
+#include "Query.h"
 #include "SystemCatalog.h"
 #include "WebShortcut.h"
 #include "Wtf8.h"
@@ -266,6 +267,12 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
         return r->isApp() ? QString() : modifiedText(r->modified, QDateTime::currentDateTime());
     case ModifiedFullRole:
         return r->isApp() ? QString() : modifiedFullText(r->modified);
+    case ModifiedDateRole:
+        if (r->isApp() || knownTime(r->modified) == 0)
+            return QString();
+        return QDateTime::fromSecsSinceEpoch(r->modified).toLocalTime().toString(u"yyyy-MM-dd HH:mm"_s);
+    case SizeRole:
+        return r->isApp() || r->isDir || r->size < 0 ? QString() : sizeText(static_cast<std::uint64_t>(r->size));
     case OfflineRole:
         return r->offline;
     case PluginRole:
@@ -315,6 +322,8 @@ QHash<int, QByteArray> ResultModel::roleNames() const
         {SelectedRole, "selected"},
         {ModifiedRole, "modified"},
         {ModifiedFullRole, "modifiedFull"},
+        {ModifiedDateRole, "modifiedDate"},
+        {SizeRole, "size"},
         {OfflineRole, "offline"},
         {PluginRole, "plugin"},
         {SourceRole, "source"},

@@ -1255,6 +1255,203 @@ private slots:
         QCOMPARE(ws::parseQuery(uR"(D:\Projects\ ext:pdf)"_s).extensions, std::vector<std::string> {"pdf"}); // no path: as before
     }
 
+    // size: and dm: narrow by size and time (EntryFilter); what cannot be
+    // read stays a word.
+    void parseQueryFilters()
+    {
+        const std::uint64_t mb = 1 << 20;
+        ParsedQuery q = ws::parseQuery(u"report size:>10mb"_s);
+        QCOMPARE(q.terms.size(), std::size_t {1});
+        QVERIFY(q.filter.bySize() && !q.filter.byTime());
+        QCOMPARE(q.filter.minSize, packSize(10 * mb + 1));
+        QCOMPARE(q.filter.maxSize, kUnknownSize);
+        QVERIFY(!q.isEmpty());
+        QVERIFY(!ws::parseQuery(u"size:>1gb"_s).isEmpty()); // a filter alone lists what fits it
+        q = ws::parseQuery(u"SIZE:1mb..5MB"_s);
+        QCOMPARE(q.filter.minSize, packSize(mb));
+        QCOMPARE(q.filter.maxSize, packSize(5 * mb));
+        q = ws::parseQuery(u"size:<=1.5k"_s);
+        QCOMPARE(q.filter.minSize, FileSize {0});
+        QCOMPARE(q.filter.maxSize, packSize(1536));
+        q = ws::parseQuery(u"size:large"_s);
+        QCOMPARE(q.filter.minSize, packSize(mb));
+        QCOMPARE(q.filter.maxSize, packSize(16 * mb - 1));
+        q = ws::parseQuery(u"size:>100mb size:<1gb"_s); // both: the narrower bounds
+        QCOMPARE(q.filter.minSize, packSize(100 * mb + 1));
+        QCOMPARE(q.filter.maxSize, packSize(1024 * mb - 1));
+        q = ws::parseQuery(u"size:abc"_s); // not a size: a word
+        QCOMPARE(q.terms.size(), std::size_t {1});
+        QVERIFY(!q.filter.any());
+
+        const QDateTime now(QDate(2026, 10, 15), QTime(14, 30));
+        EntryFilter f;
+        QVERIFY(ws::parseDateToken(u"dm:today", now, f));
+        QCOMPARE(f.after, static_cast<FileTime>(QDate(2026, 10, 15).startOfDay().toSecsSinceEpoch()));
+        QCOMPARE(f.before, FileTime {0});
+        f = {};
+        QVERIFY(ws::parseDateToken(u"dm:7d", now, f));
+        QCOMPARE(f.after, static_cast<FileTime>(now.addDays(-7).toSecsSinceEpoch()));
+        f = {};
+        QVERIFY(ws::parseDateToken(u"dm:2026-01", now, f));
+        QCOMPARE(f.after, static_cast<FileTime>(QDate(2026, 1, 1).startOfDay().toSecsSinceEpoch()));
+        QCOMPARE(f.before, static_cast<FileTime>(QDate(2026, 2, 1).startOfDay().toSecsSinceEpoch()));
+        f = {};
+        QVERIFY(ws::parseDateToken(u"dm:2025-12-30..2026-01-02", now, f));
+        QCOMPARE(f.after, static_cast<FileTime>(QDate(2025, 12, 30).startOfDay().toSecsSinceEpoch()));
+        QCOMPARE(f.before, static_cast<FileTime>(QDate(2026, 1, 3).startOfDay().toSecsSinceEpoch()));
+        f = {};
+        QVERIFY(ws::parseDateToken(u"dm:<2026", now, f));
+        QCOMPARE(f.after, FileTime {0});
+        QCOMPARE(f.before, static_cast<FileTime>(QDate(2026, 1, 1).startOfDay().toSecsSinceEpoch()));
+        f = {};
+        QVERIFY(!ws::parseDateToken(u"dm:soon", now, f));
+        QVERIFY(!ws::parseDateToken(u"dm:2026-13", now, f));
+        QVERIFY(ws::parseQuery(u"dm:yesterday"_s).filter.byTime());
+        QCOMPARE(ws::parseQuery(u"dm:never"_s).terms.size(), std::size_t {1});
+
+        // What the filter lets through: bounds on the time leave out a time
+        // not known (1970, 1980: knownTime); on the size, folders and sizes
+        // not known.
+        EntryFilter bounds;
+        bounds.after = 1'700'000'000;
+        QVERIFY(bounds.fits(1'700'000'000, kUnknownSize, true));
+        QVERIFY(!bounds.fits(1'699'999'999, kUnknownSize, true));
+        QVERIFY(!bounds.fits(0, kUnknownSize, false));
+        QVERIFY(!bounds.fits(10, kUnknownSize, false)); // 1970: not known
+        bounds.before = 1'700'000'100;
+        QVERIFY(bounds.fits(1'700'000'099, kUnknownSize, false));
+        QVERIFY(!bounds.fits(1'700'000'100, kUnknownSize, false));
+        EntryFilter sizes;
+        sizes.minSize = packSize(1000);
+        QVERIFY(sizes.fits(0, packSize(1000), false));
+        QVERIFY(!sizes.fits(0, packSize(999), false));
+        QVERIFY(!sizes.fits(0, kUnknownSize, false));
+        QVERIFY(!sizes.fits(0, kUnknownSize, true));
+
+        QCOMPARE(ws::sizeText(0), u"0 B"_s);
+        QCOMPARE(ws::sizeText(999), u"999 B"_s);
+        QCOMPARE(ws::sizeText(1536), u"1.50 KB"_s);
+        QCOMPARE(ws::sizeText(12 * mb + mb / 3), u"12.3 MB"_s);
+        QCOMPARE(ws::sizeText(1'300'000'000), u"1.21 GB"_s);
+        // Packed sizes: exact to 16 MB, close above, in order always.
+        QCOMPARE(unpackSize(packSize(0)), std::uint64_t {0});
+        QCOMPARE(unpackSize(packSize(16'777'215)), std::uint64_t {16'777'215});
+        QVERIFY(packSize(16'777'217) > packSize(16'777'215));
+        const std::uint64_t big = 7'000'000'000'000ull;
+        QVERIFY(unpackSize(packSize(big)) > big - big / 100'000 && unpackSize(packSize(big)) < big + big / 100'000);
+        QVERIFY(packSize(big) < kUnknownSize && packSize(big) > packSize(1 << 30));
+    }
+
+    // The panel's filters and column orders (NameSearchOptions::filter,
+    // order): every search is a pass over the index, so a synthetic one of
+    // files with known times and sizes says what must come out.
+    void nameSearchFiltersAndOrders()
+    {
+        FileIndex index;
+        const EntryId root = index.addRoot("D:");
+        const EntryId work = index.add(root, "work", EntryFlag::Directory);
+        const EntryId old = index.add(root, "old", EntryFlag::Directory);
+        constexpr FileTime day = 86'400;
+        constexpr FileTime t0 = 1'760'000'000; // 2025-10
+        struct Spec {
+            const char* name;
+            EntryId parent;
+            FileTime modified;
+            std::uint64_t size; // kUnknownSize bits: not known
+        };
+        const Spec specs[] = {
+            {"a.txt", work, t0 + 10 * day, 100},
+            {"b.txt", work, t0 + 9 * day, 2'000'000},
+            {"c.txt", old, t0 + 1 * day, 50'000},
+            {"d.txt", old, t0 + 20 * day, 0xFFFF'FFFFull},
+            {"e.txt", old, 0, 300}, // never known when
+            {"f.log", work, t0 + 5 * day, 400},
+        };
+        std::vector<EntryId> ids;
+        for (const Spec& s : specs) {
+            const EntryId id = index.add(s.parent, s.name, 0);
+            index.setModified(id, s.modified);
+            if (s.size != 0xFFFF'FFFFull)
+                index.setSize(id, packSize(s.size));
+            ids.push_back(id);
+        }
+        const EntryId sub = index.add(work, "sub", EntryFlag::Directory);
+        index.setModified(sub, t0 + 8 * day);
+        WorkerPool pool(4);
+        const auto names = [&](const NameSearchOutput& out) {
+            QStringList list;
+            for (const NameHit& h : out.hits)
+                list.append(QString::fromUtf8(index.name(h.id)));
+            return list;
+        };
+        const NameMatcher everything(ws::parseQuery(u""_s)); // the panel with nothing typed (browse)
+        const NameMatcher txt(ws::parseQuery(u"ext:txt"_s));
+
+        NameSearchOptions o;
+        o.limit = 100;
+        o.order = {SortKey::Name, false};
+        auto out = searchNames(index, everything, o, pool, {});
+        QCOMPARE(out.totalMatches, std::size_t {9}); // two folders, the sub folder, six files
+        QCOMPARE(names(out), (QStringList {u"a.txt"_s, u"b.txt"_s, u"c.txt"_s, u"d.txt"_s, u"e.txt"_s, u"f.log"_s, u"old"_s, u"sub"_s, u"work"_s}));
+        o.order = {SortKey::Name, true};
+        QCOMPARE(names(searchNames(index, everything, o, pool, {})).first(), u"work"_s);
+
+        // By size: the largest first; a size not known (and every folder) last.
+        o.order = {SortKey::Size, true};
+        out = searchNames(index, txt, o, pool, {});
+        QCOMPARE(names(out).first(3), (QStringList {u"b.txt"_s, u"c.txt"_s, u"e.txt"_s}));
+        QCOMPARE(names(out).last(), u"d.txt"_s);
+        o.order = {SortKey::Size, false};
+        out = searchNames(index, txt, o, pool, {});
+        QCOMPARE(names(out).first(2), (QStringList {u"a.txt"_s, u"e.txt"_s}));
+        QCOMPARE(names(out).last(), u"d.txt"_s);
+        QCOMPARE(out.hits.front().size, packSize(100));
+
+        // By time: a time not known last either way.
+        o.order = {SortKey::Modified, true};
+        out = searchNames(index, txt, o, pool, {});
+        QCOMPARE(names(out), (QStringList {u"d.txt"_s, u"a.txt"_s, u"b.txt"_s, u"c.txt"_s, u"e.txt"_s}));
+        o.order = {SortKey::Modified, false};
+        out = searchNames(index, txt, o, pool, {});
+        QCOMPARE(names(out), (QStringList {u"c.txt"_s, u"b.txt"_s, u"a.txt"_s, u"d.txt"_s, u"e.txt"_s}));
+
+        // By path: a folder's files together (its path, then the name), folders by their own.
+        o.order = {SortKey::Path, false};
+        out = searchNames(index, everything, o, pool, {});
+        QCOMPARE(names(out), (QStringList {u"old"_s, u"work"_s, u"c.txt"_s, u"d.txt"_s, u"e.txt"_s, u"a.txt"_s, u"b.txt"_s, u"f.log"_s, u"sub"_s}));
+
+        // Filters: when written (a time not known left out), how large
+        // (folders and sizes not known left out), under which folders.
+        o.order = {};
+        o.filter.after = t0 + 5 * day;
+        out = searchNames(index, everything, o, pool, {});
+        QCOMPARE(out.totalMatches, std::size_t {5}); // a, b, d, f, sub
+        o.filter.before = t0 + 10 * day;
+        out = searchNames(index, everything, o, pool, {});
+        QCOMPARE(out.totalMatches, std::size_t {3}); // b, f, sub
+        o.filter = {};
+        o.filter.minSize = packSize(300);
+        o.filter.maxSize = packSize(50'000);
+        out = searchNames(index, everything, o, pool, {});
+        QCOMPARE(out.totalMatches, std::size_t {3}); // c, e, f
+        o.filter = {};
+        o.filter.folders = {old};
+        out = searchNames(index, everything, o, pool, {});
+        QCOMPARE(out.totalMatches, std::size_t {3});
+        o.filter.folders = {old, work};
+        std::ranges::sort(o.filter.folders);
+        o.filter.minSize = packSize(1000);
+        out = searchNames(index, txt, o, pool, {});
+        QCOMPARE(names(out), (QStringList {u"b.txt"_s, u"c.txt"_s}));
+        // A page more comes in the same order (ids break every tie).
+        o.filter = {};
+        o.order = {SortKey::Name, false};
+        o.limit = 3;
+        const auto page1 = names(searchNames(index, everything, o, pool, {}));
+        o.limit = 6;
+        QCOMPARE(names(searchNames(index, everything, o, pool, {})).first(3), page1);
+    }
+
     // The query read aloud (homophoneQueries), for names that sound the same.
     void homophoneQueries()
     {
@@ -1860,6 +2057,7 @@ private slots:
         t.index.setModified(t.report, 1'700'000'123);
         t.index.setModified(t.windows, 0xFFFF'FFFF);
         t.index.setModified(t.docs, 5);
+        t.index.setSize(t.report, packSize(123'456));
         const std::vector<VolumeInfo> volumes {{L"C:", 0x1234, true}};
         const std::vector<JournalPosition> journals {{0xABCDEF, 123456789}};
         QTemporaryDir dir;
@@ -1880,6 +2078,9 @@ private slots:
         QCOMPARE(loaded->modified(loaded->findPath(L"C:\\Windows")), FileTime {0xFFFF'FFFF});
         QCOMPARE(loaded->modified(loaded->findPath(L"C:\\Users\\me\\Documents")), FileTime {5});
         QCOMPARE(loaded->modified(loaded->findPath(L"C:\\Users")), FileTime {0});
+        QCOMPARE(loaded->size(report), packSize(123'456)); // version 8: sizes too
+        QCOMPARE(loaded->size(loaded->findPath(L"C:\\Users\\me\\Documents")), kUnknownSize);
+        QCOMPARE(loaded->size(loaded->findPath(L"C:\\Windows")), kUnknownSize);
         QVERIFY(loaded->entry(loaded->findPath(L"C:\\Windows")).flags & EntryFlag::LowPriority);
         QCOMPARE(loaded->findPath(L"C:\\Users\\me\\Documents\\notes.txt"), kNoEntry);
 
@@ -2092,6 +2293,29 @@ private slots:
         QVERIFY(ntfs::parseFileRecord(copy.data(), copy.size(), record));
         QCOMPARE(record.baseRecord, std::uint32_t {42});
         QCOMPARE(record.names.size(), std::size_t {1});
+        QVERIFY(!record.sizeKnown); // no $DATA here
+
+        // The file's size: a resident $DATA's value, a non-resident one's
+        // real size (from the piece at VCN 0 only); a named stream is not it.
+        RecordBuilder small(0x0001);
+        small.fileName(5, u"small.txt", 1);
+        small.resident(0x80, std::vector<std::byte>(37));
+        copy = small.finish();
+        QVERIFY(ntfs::parseFileRecord(copy.data(), copy.size(), record));
+        QVERIFY(record.sizeKnown);
+        QCOMPARE(record.size, std::uint64_t {37});
+        RecordBuilder large(0x0001);
+        large.fileName(5, u"large.bin", 1);
+        large.nonResidentData({std::byte {0x11}, std::byte {0x01}, std::byte {0x02}, std::byte {0}}, 0, 4096, 3000, 3000, 0);
+        copy = large.finish();
+        QVERIFY(ntfs::parseFileRecord(copy.data(), copy.size(), record));
+        QVERIFY(record.sizeKnown);
+        QCOMPARE(record.size, std::uint64_t {3000});
+        RecordBuilder later(0x0001, 0x0003'0000'0000'002Aull); // a later piece of a fragmented file: says nothing
+        later.nonResident(0x80, {std::byte {0x11}, std::byte {0x01}, std::byte {0x02}, std::byte {0}}, 9, 40960, 5);
+        copy = later.finish();
+        QVERIFY(ntfs::parseFileRecord(copy.data(), copy.size(), record));
+        QVERIFY(!record.sizeKnown);
     }
 
     void mftRunList()
@@ -2746,13 +2970,22 @@ private slots:
         ntfs::FileRecord ext;
         QVERIFY(ntfs::parseFileRecord(extBytes.data(), extBytes.size(), ext));
 
+        RecordBuilder fileBuilder(0x0001);
+        fileBuilder.fileName(5, u"data.bin", 1);
+        fileBuilder.resident(0x80, std::vector<std::byte>(300));
+        std::vector<std::byte> fileBytes = fileBuilder.finish();
+        ntfs::FileRecord file;
+        QVERIFY(ntfs::parseFileRecord(fileBytes.data(), fileBytes.size(), file));
+        QVERIFY(file.sizeKnown && file.size == 300);
+
         BlockWriter bw;
         bw.begin(1000);
         bw.add(folder, true);
         bw.add(free, true);
         bw.add(folder, false); // garbage on the volume
         bw.add(ext, true);
-        QCOMPARE(bw.count(), 4u);
+        bw.add(file, true);
+        QCOMPARE(bw.count(), 5u);
         const std::span<const std::byte> frame = bw.finish(12345);
         Type type {};
         std::uint32_t length = 0;
@@ -2764,7 +2997,7 @@ private slots:
         BlockReader br;
         QVERIFY(br.load(std::vector<std::byte>(payload)));
         QCOMPARE(br.firstRecord(), 1000u);
-        QCOMPARE(br.count(), 4u);
+        QCOMPARE(br.count(), 5u);
         QCOMPARE(br.bytesDone(), std::uint64_t {12345});
         ntfs::FileRecord out;
         QVERIFY(br.record(0, out));
@@ -2784,7 +3017,24 @@ private slots:
         QCOMPARE(out.baseRecord, 42u);
         QCOMPARE(out.names.size(), std::size_t {1});
         QCOMPARE(std::u16string(out.names[0].name), std::u16string(u"link.txt"));
-        QVERIFY(!br.record(4, out)); // past the end
+        QVERIFY(!out.sizeKnown);
+        QVERIFY(br.record(4, out));
+        QVERIFY(out.sizeKnown);
+        QCOMPARE(out.size, std::uint64_t {300});
+        QVERIFY(!br.record(5, out)); // past the end
+
+        // The other end at minor 1: no sizes in the records, either way.
+        BlockWriter old;
+        old.begin(1000, false);
+        old.add(file, true);
+        const std::span<const std::byte> oldFrame = old.finish(1);
+        const std::vector<std::byte> oldPayload(oldFrame.begin() + Writer::kHeaderBytes, oldFrame.end());
+        BlockReader oldReader;
+        QVERIFY(!oldReader.load(std::vector<std::byte>(oldPayload), true)); // told wrongly: cut short
+        QVERIFY(oldReader.load(std::vector<std::byte>(oldPayload), false));
+        QVERIFY(oldReader.record(0, out));
+        QVERIFY(out.inUse && !out.sizeKnown && out.size == 0);
+        QCOMPARE(std::u16string(out.names[0].name), std::u16string(u"data.bin"));
 
         // Mangled: each refused whole, and the reader keeps nothing.
         const auto refused = [&](std::vector<std::byte> bad, const char* what) {
@@ -2793,7 +3043,7 @@ private slots:
             QCOMPARE(r.count(), 0u);
         };
         std::vector<std::byte> bad = payload;
-        put<std::uint32_t>(bad, 4, 5); // one record more than there is
+        put<std::uint32_t>(bad, 4, 6); // one record more than there is
         refused(bad, "count past the end");
         bad = payload;
         bad.pop_back(); // the last name cut short

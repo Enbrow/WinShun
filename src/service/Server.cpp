@@ -344,6 +344,7 @@ bool Server::handshake(Connection& conn)
         conn.channel.write(w.finish(Type::HelloRefused), m_options.writeTimeoutMs);
         return false;
     }
+    conn.minor = hello.minor;
     unsigned held = 0;
     {
         const std::lock_guard lock(m_mutex);

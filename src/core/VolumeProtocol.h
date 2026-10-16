@@ -35,7 +35,11 @@
 namespace ws::volproto {
 
 constexpr std::uint16_t kMajor = 1; // different on the two ends: they cannot talk
-constexpr std::uint16_t kMinor = 1; // only ever adds fields at the end of a payload; 1: bulk reads
+// Only ever adds fields at the end of a payload; 1: bulk reads; 2: each
+// in-use record of an MftBlock ends with the file's size (both ends at 2 or
+// more: the writer is told the other end's minor, see BlockWriter::begin).
+constexpr std::uint16_t kMinor = 2;
+constexpr std::uint16_t kMinorSizes = 2;
 constexpr std::uint32_t kCapabilityBulkRead = 1; // HelloOk::capabilities
 constexpr std::size_t kMaxBulkWants = 4u << 20; // files one bulk session may ask about
 constexpr wchar_t kPipeName[] = L"WinShun.Volumes"; // one service for the whole machine
@@ -287,11 +291,14 @@ bool decode(std::span<const std::byte> payload, BulkDataHeader& m, std::span<con
 enum class RecordKind : std::uint8_t { Invalid = 0, Free = 1, InUse = 2 }; // Invalid: not an intact record
 constexpr std::uint8_t kRecordDirectory = 1;
 constexpr std::uint8_t kRecordAttributeList = 2;
+constexpr std::uint8_t kRecordSizeKnown = 4; // minor 2: the size that follows is the file's (FileRecord::sizeKnown)
 
 // Writes an MftBlock record by record, as the service parses them.
 class BlockWriter {
 public:
-    void begin(std::uint32_t firstRecord);
+    // `withSizes`: the reader speaks minor 2 or more (its Hello said so):
+    // every in-use record carries the file's size.
+    void begin(std::uint32_t firstRecord, bool withSizes = true);
     // The next record in order: parsed, or not one (`parsed` false).
     void add(const ntfs::FileRecord& record, bool parsed);
     std::uint32_t count() const noexcept { return m_count; }
@@ -301,13 +308,15 @@ public:
 private:
     Writer m_writer;
     std::uint32_t m_count = 0;
+    bool m_withSizes = true;
 };
 
 // Reads an MftBlock: checked whole on load(), then any record by number.
 class BlockReader {
 public:
     // Takes the payload; false when it is malformed (nothing is kept then).
-    bool load(std::vector<std::byte>&& payload);
+    // `withSizes`: the writer speaks minor 2 or more (its HelloOk said so).
+    bool load(std::vector<std::byte>&& payload, bool withSizes = true);
     std::uint32_t firstRecord() const noexcept { return m_firstRecord; }
     std::uint32_t count() const noexcept { return static_cast<std::uint32_t>(m_offsets.size()); }
     std::uint64_t bytesDone() const noexcept { return m_bytesDone; }
@@ -320,6 +329,7 @@ private:
     std::vector<std::uint32_t> m_offsets; // of each record's kind byte
     std::uint32_t m_firstRecord = 0;
     std::uint64_t m_bytesDone = 0;
+    bool m_withSizes = true;
 };
 
 // ---- the pipe -------------------------------------------------------------------

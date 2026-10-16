@@ -126,6 +126,7 @@ FileIndex::MemoryUse FileIndex::memoryUse() const noexcept
     MemoryUse use;
     use.entries = m_chunks.size() * kChunkSize * sizeof(Entry);
     use.times = m_times.size() * kChunkSize * sizeof(FileTime);
+    use.sizes = m_sizes.size() * kChunkSize * sizeof(FileSize);
     use.names = m_names.size() * (kNameChunkSize + text::kReadPastEnd);
     use.nameBytes = m_names.empty() ? 0 : (m_names.size() - 1) * kNameChunkSize + m_nameUsed; // roughly: chunks end early
     for (const auto& [root, table] : m_folderRecords)
@@ -139,11 +140,13 @@ FileIndex::MemoryUse FileIndex::memoryUse() const noexcept
 void FileIndex::warm() const noexcept
 {
     std::vector<WIN32_MEMORY_RANGE_ENTRY> ranges;
-    ranges.reserve(m_chunks.size() * 2 + m_names.size());
+    ranges.reserve(m_chunks.size() * 3 + m_names.size());
     for (const auto& chunk : m_chunks)
         ranges.push_back({chunk.get(), kChunkSize * sizeof(Entry)});
     for (const auto& chunk : m_times)
         ranges.push_back({chunk.get(), kChunkSize * sizeof(FileTime)});
+    for (const auto& chunk : m_sizes)
+        ranges.push_back({chunk.get(), kChunkSize * sizeof(FileSize)});
     for (const auto& chunk : m_names)
         ranges.push_back({chunk.get(), kNameChunkSize});
     // Pages written out to the pagefile: read in large requests, not one by
@@ -163,6 +166,9 @@ EntryId FileIndex::allocate()
     if ((m_count >> kChunkBits) == m_chunks.size()) {
         m_chunks.push_back(std::make_unique<Entry[]>(kChunkSize));
         m_times.push_back(std::make_unique<FileTime[]>(kChunkSize));
+        auto sizes = std::make_unique_for_overwrite<FileSize[]>(kChunkSize);
+        std::fill_n(sizes.get(), kChunkSize, kUnknownSize); // not read yet
+        m_sizes.push_back(std::move(sizes));
     }
     assert(m_count < kNoEntry);
     return static_cast<EntryId>(m_count++);
@@ -314,6 +320,7 @@ std::size_t FileIndex::compact(bool always, const std::function<void(const Renum
         const EntryId to = renumber(id);
         mut(to) = e;
         setModified(to, modified(id));
+        setSize(to, size(id));
     }
     for (EntryId& r : m_roots)
         r = renumber(r);
@@ -328,6 +335,8 @@ std::size_t FileIndex::compact(bool always, const std::function<void(const Renum
     m_chunks.shrink_to_fit();
     m_times.resize(m_chunks.size());
     m_times.shrink_to_fit();
+    m_sizes.resize(m_chunks.size());
+    m_sizes.shrink_to_fit();
     m_childTables = decltype(m_childTables)(); // by old ids; rebuilt on demand
     m_generation.fetch_add(1, std::memory_order_release);
     if (renumbered)

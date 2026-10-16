@@ -16,6 +16,7 @@ struct NameHit {
     EntryId id = kNoEntry;
     int score = 0;
     FileTime modified = 0;
+    FileSize size = kUnknownSize; // read when the search is by size, or filters by it
 };
 
 struct NameSearchOptions {
@@ -23,8 +24,13 @@ struct NameSearchOptions {
     bool foldersOnly = false;
     RankBy rankBy = RankBy::Match;
     // The best `limit` files and the best `limit` folders, each apart: for a
-    // list that puts one kind before the other (KindOrder).
+    // list that puts one kind before the other (KindOrder). Not in a
+    // column's order (SortOrder): that is one list.
     bool kindsApart = false;
+    // Besides the names: when written, how large, under which folders.
+    EntryFilter filter;
+    // A column's order (the search panel) in place of the rank; Rank: rankBy.
+    SortOrder order;
 };
 
 struct NameSearchOutput {

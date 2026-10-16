@@ -110,6 +110,17 @@ public:
         // extensions (without the dot, any case), typed or not; with ext:
         // typed too, those of both. Empty: any file or folder.
         QStringList extensions;
+        // The search panel's filters: when written and how large (with
+        // size: and dm: typed, the narrower of the two), and the folders to
+        // look under (full paths; empty: anywhere). Names only; 内容 takes
+        // its folders as contentFolders.
+        EntryFilter filter;
+        QStringList folders;
+        // The panel's column order; Rank: rankBy.
+        SortOrder order;
+        // The panel: with nothing typed, every file and folder the filters
+        // let through (in `order`), not the start list.
+        bool browse = false;
         // Set: not a name search but a walk of this drive ("E:", one the
         // index leaves out: RemovableDrive), on the disk, for the files and
         // folders named as `text` says (scope, extensions and rankBy as for

@@ -104,6 +104,15 @@ public:
     void showLauncher(const QString& query = {}, const std::optional<taskbar::Spot>& spot = {}, bool inBox = false,
         QScreen* on = nullptr);
     void hideLauncher();
+    // The launcher as the search panel (Launcher::panel): the window sized
+    // for it (Placement::enterPanel) and resizable, or back as the box at
+    // its spot (or over the taskbar it came from). Opening anew is always
+    // the box: the panel is a mode its user asks for. Hidden as the panel,
+    // it goes back quietly.
+    void setPanel(bool on);
+    void togglePanel();
+    // --dump <file> from another copy (tests): the launcher's state and rows as JSON.
+    void dumpLauncher(const QString& file) const;
     void showClipboard();
     void showSettings();
     void showUpdate(); // the settings window with the update dialog

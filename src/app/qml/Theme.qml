@@ -109,6 +109,7 @@ QtObject {
     readonly property int labelRowHeight: [24, 28, 32][step] // headings between the rows
     readonly property int hintRowHeight: [32, 36, 40][step]
     readonly property int fileRowHeight: [36, 40, 44][step] // the clipboard preview's list of files
+    readonly property int panelRowHeight: [36, 42, 48][step] // the search panel's rows, one line each
     readonly property int searchIconSize: [20, 22, 24][step]
 
     readonly property string iconFont: SystemTheme.iconFont

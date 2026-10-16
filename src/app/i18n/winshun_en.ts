@@ -653,6 +653,10 @@
         <translation>Switch the order; with nothing typed, opened or modified lately</translation>
     </message>
     <message>
+        <source>展开为搜索面板，或收回搜索框</source>
+        <translation>Expand to the search panel, or collapse it</translation>
+    </message>
+    <message>
         <source>打开第几行（图标上标着快捷键）</source>
         <translation>Open the nth row (the shortcut on its icon)</translation>
     </message>
@@ -971,6 +975,164 @@
     <message>
         <source>不认识的客户端</source>
         <translation>Unknown client</translation>
+    </message>
+</context>
+<context>
+    <name>Panel</name>
+    <message>
+        <source>筛选</source>
+        <translation>Filters</translation>
+    </message>
+    <message>
+        <source>清除全部</source>
+        <translation>Clear all</translation>
+    </message>
+    <message>
+        <source>范围</source>
+        <translation>Scope</translation>
+    </message>
+    <message>
+        <source>全部</source>
+        <translation>All</translation>
+    </message>
+    <message>
+        <source>文件</source>
+        <translation>Files</translation>
+    </message>
+    <message>
+        <source>文件夹</source>
+        <translation>Folders</translation>
+    </message>
+    <message>
+        <source>内容</source>
+        <translation>Content</translation>
+    </message>
+    <message>
+        <source>类型</source>
+        <translation>Kind</translation>
+    </message>
+    <message>
+        <source>不限</source>
+        <translation>Any</translation>
+    </message>
+    <message>
+        <source>修改时间</source>
+        <translation>Date modified</translation>
+    </message>
+    <message>
+        <source>今天</source>
+        <translation>Today</translation>
+    </message>
+    <message>
+        <source>最近 7 天</source>
+        <translation>Last 7 days</translation>
+    </message>
+    <message>
+        <source>最近 30 天</source>
+        <translation>Last 30 days</translation>
+    </message>
+    <message>
+        <source>今年</source>
+        <translation>This year</translation>
+    </message>
+    <message>
+        <source>自定义</source>
+        <translation>Custom</translation>
+    </message>
+    <message>
+        <source>起 2026-01-01</source>
+        <translation>From 2026-01-01</translation>
+    </message>
+    <message>
+        <source>止</source>
+        <translation>To</translation>
+    </message>
+    <message>
+        <source>大小</source>
+        <translation>Size</translation>
+    </message>
+    <message>
+        <source>小于 1 MB</source>
+        <translation>Under 1 MB</translation>
+    </message>
+    <message>
+        <source>1 MB – 100 MB</source>
+        <translation>1 MB – 100 MB</translation>
+    </message>
+    <message>
+        <source>100 MB – 1 GB</source>
+        <translation>100 MB – 1 GB</translation>
+    </message>
+    <message>
+        <source>大于 1 GB</source>
+        <translation>Over 1 GB</translation>
+    </message>
+    <message>
+        <source>最小 MB</source>
+        <translation>Min MB</translation>
+    </message>
+    <message>
+        <source>最大 MB</source>
+        <translation>Max MB</translation>
+    </message>
+    <message>
+        <source>位置</source>
+        <translation>Location</translation>
+    </message>
+    <message>
+        <source>选择文件夹…</source>
+        <translation>Choose a folder…</translation>
+    </message>
+    <message>
+        <source>名称</source>
+        <translation>Name</translation>
+    </message>
+    <message>
+        <source>路径</source>
+        <translation>Path</translation>
+    </message>
+    <message>
+        <source>正在搜索文件内容…</source>
+        <translation>Searching file contents…</translation>
+    </message>
+    <message>
+        <source>正在搜索…</source>
+        <translation>Searching…</translation>
+    </message>
+    <message>
+        <source>没有找到“%1”</source>
+        <translation>Nothing found for “%1”</translation>
+    </message>
+    <message>
+        <source>没有符合筛选条件的文件</source>
+        <translation>No files match the filters</translation>
+    </message>
+    <message>
+        <source>输入名称或拼音，或在左侧加筛选条件</source>
+        <translation>Type a name or pinyin, or add filters on the left</translation>
+    </message>
+</context>
+<context>
+    <name>PanelRow</name>
+    <message>
+        <source>网页</source>
+        <translation>Web</translation>
+    </message>
+    <message>
+        <source>系统</source>
+        <translation>System</translation>
+    </message>
+    <message>
+        <source>应用</source>
+        <translation>App</translation>
+    </message>
+    <message>
+        <source>离线</source>
+        <translation>Offline</translation>
+    </message>
+    <message>
+        <source>已不存在</source>
+        <translation>Gone</translation>
     </message>
 </context>
 <context>
@@ -1418,6 +1580,17 @@
     <message>
         <source>内容</source>
         <translation>Content</translation>
+    </message>
+</context>
+<context>
+    <name>SearchBar</name>
+    <message>
+        <source>收回搜索框</source>
+        <translation>Collapse to the search box</translation>
+    </message>
+    <message>
+        <source>展开为搜索面板</source>
+        <translation>Expand to the search panel</translation>
     </message>
 </context>
 <context>
@@ -4845,6 +5018,17 @@
     <message>
         <source>搜索应用和文件</source>
         <translation>Search apps and files</translation>
+    </message>
+    <message>
+        <source>选择要在其中搜索的文件夹</source>
+        <translation>Choose the folder to search in</translation>
+    </message>
+    <message numerus="yes">
+        <source>共 %Ln 项</source>
+        <translation>
+            <numerusform>%Ln item in all</numerusform>
+            <numerusform>%Ln items in all</numerusform>
+        </translation>
     </message>
     <message numerus="yes">
         <source>已选择 %Ln 项</source>

@@ -529,6 +529,18 @@
 - **原因**：`X:\` 规整后是 `X:`。排除规则只在遍历时比对“子文件夹”的完整路径，盘的根本身从不被比对；`Crawler::isExcludedPath` 从第一个反斜杠之后才开始查祖先；`removeExcluded` 还特意跳过根。盘作为“卷”照样被列出、读 MFT 或遍历。
 - **做法**：在 `IndexService::run` 列出卷之后，把根被排除的卷直接去掉，接下来 `dropStaleRoots` 会像拔掉的盘一样删掉它的根和条目、内容索引也不再读它；取消排除时规则一变就重新列卷，它会回来并重读。`isExcludedPath` 也先查盘根，`applyRuleChanges` 不去探 `X:`（那探的是该盘的当前目录）。`wsbench --exclude-drive P: Q:`（管理员）走一遍“建 → 排除 → 取消 → 再排除 → 两种重启”，用 VHD 挂一个 NTFS、一个 exFAT 分区测。
 
+### 搜索面板按路径排序，一次要 5 秒
+
+- **现象**（2026-10-15，`wsbench --order path " "`，330 万项）：不输入、按“路径”列排序一次 5.1 秒；按名称 9.5 毫秒、按大小 6.1 毫秒。
+- **原因**：比较两项的路径时各自造它们所在文件夹的路径，按分片各缓存一份。MFT 的记录号不按文件夹连续，一个文件夹的文件散在很多分片里，每个分片都把它的路径再造一遍，几百万次。
+- **做法**：每次搜索先给所有文件夹按树的顺序编号（`NameSearch.cpp` 的 `folderRanks`：根和子文件夹各按名字排，父在前），比较时只比两个整数，相同再比名字。42 万个文件夹编号约 38 毫秒，整个浏览 42 毫秒；搜到几千项时也是这 38 毫秒打底。
+
+### 打包的文件大小：16777215 + 0.5f 等于 16777216
+
+- **现象**：`unpackSize(packSize(16777215))` 测出来是 16777216。
+- **原因**：大小存成 float 的位（`FileSize`，4 字节，1600 万以内精确），解包时想四舍五入写了 `f + 0.5f`，这一加在 float 里就进位了。
+- **做法**：先转成 double 再加 0.5 取整。顺带一提：float 的位按无符号整数比较就是按大小比较，排序和筛选不用解包；`0xFFFFFFFF` 是 NaN，当“不知道”用。
+
 ## 内容索引
 
 ### 索引说“可能含有”的文件太多，内容搜索还是慢
@@ -734,6 +746,29 @@
   - **换了识别器要重读旧图**：剪贴板库 `state` 里记 `recognizer`（`ppocr-v6-tiny` / `windows`），不一样就在启动 20 秒后把所有图片重读一遍（没读过的先读），全部读回来才记下；中途退出下次再来。
   - **还认不对的**：很细的斜杠（“0 / 8” 认成 “018”，换 small 也一样）；图标常被认成字母（“X”“A”“2”）。
 - **测法**：`wsbench --ocr <图片或文件夹> [--threads N] [--quiet]`，打印每张的字和用时；`tst_ocr` 用画出来的字测小字、深色、长图分段。
+
+## 搜索面板（Ctrl+E，linux.do #209）
+
+### 面板里的筛选输入框把键盘留住了
+
+- **现象**（2026-10-15 测试脚本）：在“自定义”日期框里输完日期，接着按 Ctrl+A、退格、打字、Esc，全进了那个小框：搜索词没清掉，Esc 也关不了窗口，脚本后面按坐标点的都点偏了。
+- **原因**：InputBox 里的 TextInput 拿到焦点后一直留着；启动器的按键处理只接搜索框发来的 `keyPressed`，别的输入框不认识 Esc、Ctrl+A。
+- **做法**：`Panel.qml` 的 `BoundBox`：Enter 和 Esc 都把键盘交还搜索框（`SearchBar.focusAtEnd()`，光标放在词尾、不全选），Tab 跳到旁边那个框。展开、收回时也用 `focusAtEnd`，不像打开时那样全选：用户正在打的词不该被下一个键替掉。
+
+### 两个搜索框，`findChild("searchField")` 找到的是面板那个
+
+- **现象**：面板有自己的一份 `SearchBar`（和框的那份换着显示，各自有 TextInput），`App` 用 `findChild<QQuickItem*>("searchField")` 给任务栏框里的输入法定位，`findChild` 按创建顺序取第一个——面板在 `Main.qml` 里写在前面，拿到的就是面板的框。
+- **做法**：面板那份的 `objectName` 另起名（`panelSearchField`）。同一个 `objectName` 以后再出现第二份时先想想谁在 `findChild`。
+
+### 展开、收回时窗口尺寸的绑定要让开
+
+- **现象**：`Main.qml` 的 `width: 760`、`height: layout.implicitHeight` 是绑定；C++ 给面板 `setGeometry` 之后，只要列表增减一行、`layout.implicitHeight` 一变，窗口就被绑定拽回框的尺寸。
+- **做法**：用 `Binding { when: !window.panel; restoreMode: Binding.RestoreNone }` 挂这两个绑定：面板时绑定整个拿掉，大小归原生窗口（用户拖边框改大小）；收回时绑定回来，窗口自己缩回去，然后再 `placeOn` 放回原位。
+
+### 测试脚本：先确认是框还是面板，再按坐标点
+
+- **现象**（2026-10-15）：上一批命令最后把面板收回成了框，下一批还按面板的坐标点“止”输入框，点在了框的第 7 行上——打开了一个 zip（Bandizip 弹出来）。守卫只查前台是不是 Win顺。
+- **做法**：`agent.ps1` 加了 `need panel` / `need box`：先 `--dump` 读出当前模式，不对就整批作废；每批开头都写一条。在结果行附近点之前先打一个没有结果的词（zqxwvj）这一条以前就有，这次没照做。另外两条顺手记下：`--profile <文件夹>` 的设置文件在 `<文件夹>\WinShun\WinShun.ini`，不是 `<文件夹>\WinShun.ini`（`QSettings::setPath` 的 UserScope 会再加一层组织名）；测试数据里的反斜杠别经 bash 的 heredoc 写（会被吞掉，favorites.json 里的路径成了 `F:wspaneltestdocs`），用 PowerShell 或编辑工具写。
 
 ## 任务栏搜索（任务栏按钮、Win+S）
 
@@ -2100,11 +2135,6 @@
 - **原因**：中文输入法开着时 Menu 键到窗口是 `VK_PROCESSKEY`，Win顺 靠扫描码认出它（见上面 #26 一节）；脚本的 `SendInput` 只填了虚拟键码，扫描码是 0，认不出来，就当成普通的 Menu 键。真键盘总带扫描码，用户那里没有这个问题。
 - **做法**：测试脚本的 `KEYBDINPUT.wScan` 一律填 `MapVirtualKey(vk, MAPVK_VK_TO_VSC)`，Menu、方向键、Insert/Delete 等再加 `KEYEVENTF_EXTENDEDKEY`。结果和真键盘对不上时，先查脚本发的键。
 
-### 文件夹空白处的右键动词不能带 `MultiSelectModel=Single`
-
-- **现象**：0.8.0 的「用 Win顺 搜索此处」在选中的文件夹、盘符上有，在文件夹空白处右键没有（论坛 #209、#215）。用户把 `Directory\Background\shell\WinShun.SearchHere` 下的 `MultiSelectModel` 删掉就好了。
-- **原因**：三个键统一写了 `MultiSelectModel=Single`。空白处没有选中项，外壳按“恰好选中一项”去比，就把动词藏了。
-- **做法**：`ShellMenu.cpp` 只给 `Directory`、`Drive` 写 `Single`，`Background` 不写，已有的删掉（老用户启动新版即修好）。验证用 `IShellFolder::CreateViewObject(IID_IContextMenu)` 取空白处菜单、`GetUIObjectOf` 取文件夹本身的菜单，列出菜单项对比，不必点界面。
 ## 在资源管理器里直接打字搜索（论坛 #215、#157、#190）
 
 ### 钩子里的键是真键码，不是 `VK_PROCESSKEY`
@@ -2146,3 +2176,9 @@
 
 - **现象**：测试日志里 `Explorer typing: folder "F:\wsexptest\ä¸­æ–‡ç›®å½•"`，Win顺 的框里却是对的。
 - **原因**：日志是 UTF-8，脚本 `Get-Content -Tail` 没加 `-Encoding UTF8`（PowerShell 5.1 默认按系统代码页读）。只是读错，不是功能的问题。
+
+### 文件夹空白处的右键动词不能带 `MultiSelectModel=Single`
+
+- **现象**：0.8.0 的「用 Win顺 搜索此处」在选中的文件夹、盘符上有，在文件夹空白处右键没有（论坛 #209、#215）。用户把 `Directory\Background\shell\WinShun.SearchHere` 下的 `MultiSelectModel` 删掉就好了。
+- **原因**：三个键统一写了 `MultiSelectModel=Single`。空白处没有选中项，外壳按“恰好选中一项”去比，就把动词藏了。
+- **做法**：`ShellMenu.cpp` 只给 `Directory`、`Drive` 写 `Single`，`Background` 不写，已有的删掉（老用户启动新版即修好）。验证用 `IShellFolder::CreateViewObject(IID_IContextMenu)` 取空白处菜单、`GetUIObjectOf` 取文件夹本身的菜单，列出菜单项对比，不必点界面。

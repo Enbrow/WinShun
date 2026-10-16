@@ -40,6 +40,7 @@ private:
         std::uint32_t nameOffset; // in the index's name storage
         std::uint8_t flags; // EntryFlag: Directory, Hidden, Offline
         FileTime modified;
+        FileSize size; // files: packed; kUnknownSize when the record did not say
     };
     struct Folder {
         Name name;
@@ -78,7 +79,7 @@ private:
     void applyOne(const ntfs::UsnRecord& record, std::vector<Crawler::Root>& walks);
     void noteWritten(const ntfs::UsnRecord& record);
     void noteTime(const ntfs::UsnRecord& record);
-    void readTimes(); // of m_toRead, without the lock
+    void readTimes(); // ... and sizes, of m_toRead, without the lock
     void remove(const Item& item);
     void move(const Item& item, const OldName* old, std::vector<Crawler::Root>& walks);
     void ensure(const Item& item, bool walk, std::vector<Crawler::Root>& walks);
@@ -98,7 +99,8 @@ private:
     Written m_onWritten;
     std::vector<EntryId> m_written; // of the current batch
     // Of the current batch: items whose times were set (copied or unpacked
-    // files keep the original's), to be read from the disk.
+    // files keep the original's), and files closed after being written (the
+    // journal says nothing about sizes), to be read from the disk.
     std::vector<std::pair<EntryId, std::wstring>> m_toRead;
 };
 

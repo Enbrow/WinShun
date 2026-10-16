@@ -122,6 +122,19 @@ Placement::Placement(QString stateFile, QString group, QObject* parent)
         }
     }
 
+    {
+        bool okX = false;
+        bool okY = false;
+        const double x = state.value(u"Panel/CenterX"_s).toDouble(&okX);
+        const double y = state.value(u"Panel/Top"_s).toDouble(&okY);
+        if (okX && okY && x >= 0 && x <= 1 && y >= 0 && y <= 1)
+            m_panelAnchor = {x, y};
+        const int w = state.value(u"Panel/Width"_s).toInt();
+        const int h = state.value(u"Panel/Height"_s).toInt();
+        if (w >= 400 && h >= 300 && w <= 20000 && h <= 20000)
+            m_panelSize = {w, h};
+    }
+
     m_glide.setDuration(kGlideMs);
     m_glide.setEasingCurve(QEasingCurve::OutCubic);
     connect(&m_glide, &QVariantAnimation::valueChanged, this, [this](const QVariant& value) {
@@ -181,7 +194,8 @@ struct Placement::Hook {
         case WM_EXITSIZEMOVE:
             self->setMoving(false);
             // Qt updates the window's screen on this message too, after us.
-            QMetaObject::invokeMethod(self, &Placement::rememberSpot, Qt::QueuedConnection);
+            QMetaObject::invokeMethod(self, self->m_panel ? &Placement::savePanel : &Placement::rememberSpot,
+                Qt::QueuedConnection);
             break;
         case WM_NCDESTROY:
             ::RemoveWindowSubclass(hwnd, &Hook::proc, 0);
@@ -285,9 +299,72 @@ void Placement::attachTaskbar(const taskbar::Spot& spot)
     m_box.reset();
     m_dropped = false;
     m_taskbarScreen = screen;
+    m_taskbarSpot = spot;
     setTaskbar(TaskbarBox {logicalBar, spot.edge,
         {down(spot.anchor.x, origin.x()), down(spot.anchor.y, origin.y())}, bar});
     moveWindow(settleByTaskbar(screen));
+}
+
+QRect Placement::panelRect(QScreen* screen) const
+{
+    const QRect area = screen->availableGeometry();
+    // Its own size, else most of a small screen and a comfortable part of a large one.
+    QSize size = m_panelSize.isEmpty() ? QSize(1100, 700) : m_panelSize;
+    size = QSize(std::clamp(size.width(), std::min(400, area.width()), std::max(400, area.width() - 40)),
+        std::clamp(size.height(), std::min(300, area.height()), std::max(300, area.height() - 40)));
+    int x = qRound(area.x() + m_panelAnchor.x() * area.width() - size.width() / 2.0);
+    int y = qRound(area.y() + m_panelAnchor.y() * area.height());
+    x = std::clamp(x, area.left(), std::max(area.left(), area.x() + area.width() - size.width()));
+    y = std::clamp(y, area.top(), std::max(area.top(), area.y() + area.height() - size.height()));
+    // On whole physical pixels inside the work area, as settleOn keeps the launcher.
+    const NativeArea native = nativeArea(screen);
+    x = native.keepInside(x, size.width(), native.work.left(), native.work.x() + native.work.width(), native.origin.x());
+    y = native.keepInside(y, size.height(), native.work.top(), native.work.y() + native.work.height(), native.origin.y());
+    return {QPoint(x, y), size};
+}
+
+void Placement::enterPanel(QScreen* screen)
+{
+    if (!m_window || m_panel)
+        return;
+    m_glide.stop();
+    settleSlide();
+    m_box.reset();
+    m_dropped = false;
+    setTaskbar({}); // the spot stays in m_taskbarSpot for leavePanel's caller
+    m_panel = true;
+    const QRect rect = panelRect(screen ? screen : m_window->screen());
+    m_place = rect.topLeft();
+    m_window->setGeometry(rect);
+}
+
+void Placement::leavePanel()
+{
+    if (!m_panel)
+        return;
+    savePanel();
+    m_panel = false;
+}
+
+void Placement::savePanel()
+{
+    if (!m_window || !m_panel)
+        return;
+    const QRect frame = m_window->geometry();
+    QScreen* screen = QGuiApplication::screenAt(frame.center());
+    if (!screen)
+        screen = m_window->screen();
+    const QRect area = screen ? screen->availableGeometry() : QRect();
+    if (area.isEmpty() || frame.width() < 400 || frame.height() < 300)
+        return;
+    m_panelSize = frame.size();
+    m_panelAnchor = {std::clamp((frame.x() + frame.width() / 2.0 - area.x()) / area.width(), 0.0, 1.0),
+        std::clamp(qreal(frame.y() - area.y()) / area.height(), 0.0, 1.0)};
+    QSettings state(m_stateFile, QSettings::IniFormat);
+    state.setValue(u"Panel/CenterX"_s, m_panelAnchor.x());
+    state.setValue(u"Panel/Top"_s, m_panelAnchor.y());
+    state.setValue(u"Panel/Width"_s, m_panelSize.width());
+    state.setValue(u"Panel/Height"_s, m_panelSize.height());
 }
 
 void Placement::setRoomNeeded(int height)
@@ -435,7 +512,7 @@ int Placement::roomRight() const
 
 void Placement::refit()
 {
-    if (!m_window || m_moving || m_glide.state() == QAbstractAnimation::Running)
+    if (!m_window || m_moving || m_panel || m_glide.state() == QAbstractAnimation::Running)
         return;
     QScreen* screen = m_window->screen();
     if (!screen)
@@ -458,7 +535,7 @@ void Placement::refit()
 
 void Placement::moveHome()
 {
-    if (!m_window || m_moving || m_box || m_taskbar || m_dropped) // by a box: no spot to go back to
+    if (!m_window || m_moving || m_box || m_taskbar || m_dropped || m_panel) // by a box: no spot to go back to
         return;
     m_anchor = kHome;
     save();
@@ -478,6 +555,10 @@ void Placement::setMoving(bool moving)
 
 void Placement::rememberSpot()
 {
+    if (m_panel) {
+        savePanel();
+        return;
+    }
     if (!m_window || m_window->position() == m_moveStart) // Esc, or not moved at all
         return;
     if (m_box || m_taskbar || m_dropped) { // by a box: stays where it was let go, its spot as it was

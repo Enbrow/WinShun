@@ -246,7 +246,10 @@ int main(int argc, char* argv[])
     settingsAt.setFlags(QCommandLineOption::HiddenFromHelp);
     QCommandLineOption profile(u"profile"_s, u"Keep the settings and data in this folder."_s, u"folder"_s);
     profile.setFlags(QCommandLineOption::HiddenFromHelp); // read above
-    parser.addOptions({background, toggle, query, quit, settings, settingsAt, takeAutostart, hadAutostart, profile});
+    // For tests: the running copy writes what its launcher shows into this file (App::dumpLauncher).
+    QCommandLineOption dump(u"dump"_s, u"Write the launcher's rows and state to this file."_s, u"file"_s);
+    dump.setFlags(QCommandLineOption::HiddenFromHelp);
+    parser.addOptions({background, toggle, query, quit, settings, settingsAt, takeAutostart, hadAutostart, profile, dump});
     parser.process(app);
 
     // The installer, once it has installed this copy: an autostart set up by
@@ -284,6 +287,8 @@ int main(int argc, char* argv[])
             command = u"query:"_s + parser.value(query);
         else if (parser.isSet(toggle))
             command = u"toggle"_s;
+        else if (parser.isSet(dump))
+            command = u"dump:"_s + parser.value(dump);
         else if (parser.isSet(background))
             return 0;
         ws::MessageWindow::sendToRunningInstance(command);

@@ -3,6 +3,7 @@
 #include "TextUtil.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <unordered_map>
 
@@ -156,20 +157,213 @@ private:
 };
 
 // The best `limit` of `hits`, best first.
-template <RankBy By> void keepBest(std::vector<NameHit>& hits, std::size_t limit)
+template <typename Order> void keepBest(std::vector<NameHit>& hits, std::size_t limit, const Order& order)
 {
     const std::size_t keep = std::min(limit, hits.size());
-    std::partial_sort(hits.begin(), hits.begin() + static_cast<std::ptrdiff_t>(keep), hits.end(), better<By>);
+    std::partial_sort(hits.begin(), hits.begin() + static_cast<std::ptrdiff_t>(keep), hits.end(), order);
     hits.resize(keep);
 }
 
-template <RankBy By>
+// Fixed-capacity min-heap holding the best hits seen so far, by `order`
+// (a comparator: whether the first hit goes before the second).
+template <typename Order> class TopHits {
+public:
+    TopHits(std::size_t capacity, const Order& order)
+        : m_capacity(capacity)
+        , m_order(order)
+    {
+        m_heap.reserve(capacity);
+    }
+
+    // Whether a hit could still make it, from what is known before its last
+    // adjustments (they only lower the score).
+    bool mayAccept(const NameHit& hit) const noexcept
+    {
+        return m_heap.size() < m_capacity || m_order(hit, m_heap.front());
+    }
+
+    void push(const NameHit& hit)
+    {
+        if (m_heap.size() < m_capacity) {
+            m_heap.push_back(hit);
+            std::push_heap(m_heap.begin(), m_heap.end(), m_order);
+        } else if (m_order(hit, m_heap.front())) {
+            std::pop_heap(m_heap.begin(), m_heap.end(), m_order);
+            m_heap.back() = hit;
+            std::push_heap(m_heap.begin(), m_heap.end(), m_order);
+        }
+    }
+
+    std::vector<NameHit> take() { return std::move(m_heap); }
+
+private:
+    std::size_t m_capacity;
+    const Order& m_order;
+    std::vector<NameHit> m_heap;
+};
+
+// ---- the orders a list can be in (SortOrder) ---------------------------------------
+
+// As the rank says (RankBy): the match, or the time written.
+template <RankBy By> struct RankOrder {
+    bool operator()(const NameHit& a, const NameHit& b) const noexcept { return better<By>(a, b); }
+};
+
+// By size, a size not known (and every folder) last either way; then as a match.
+struct SizeOrder {
+    bool descending;
+    bool operator()(const NameHit& a, const NameHit& b) const noexcept
+    {
+        if (a.size != b.size) {
+            if (a.size == kUnknownSize || b.size == kUnknownSize)
+                return b.size == kUnknownSize;
+            return descending ? a.size > b.size : a.size < b.size;
+        }
+        return better<RankBy::Match>(a, b);
+    }
+};
+
+// Names (WTF-8), ASCII case aside, byte by byte: the order of their code points.
+int compareNames(std::string_view a, std::string_view b) noexcept
+{
+    const std::size_t n = std::min(a.size(), b.size());
+    for (std::size_t i = 0; i < n; ++i) {
+        const unsigned char x = text::fold(a[i]);
+        const unsigned char y = text::fold(b[i]);
+        if (x != y)
+            return x < y ? -1 : 1;
+    }
+    return a.size() == b.size() ? 0 : a.size() < b.size() ? -1 : 1;
+}
+
+struct NameOrder {
+    const FileIndex& index;
+    bool descending;
+    bool operator()(const NameHit& a, const NameHit& b) const noexcept
+    {
+        if (a.id == b.id)
+            return false;
+        const int c = compareNames(index.name(a.id), index.name(b.id));
+        if (c != 0)
+            return descending ? c > 0 : c < 0;
+        return a.id < b.id;
+    }
+};
+
+// The folders in the order of their paths: each folder's place in a walk
+// of the tree, roots and children by name (ASCII case aside), parents
+// before what is in them. One number a slot (folders alone mean anything):
+// a comparison by path is then two reads, not two paths built. Made once
+// per search in that order; 425 000 folders take some tens of milliseconds,
+// which building a path per comparison took seconds for (measured on 3.3
+// million entries: 5 s a browse, now under 100 ms).
+std::vector<std::uint32_t> folderRanks(const FileIndex& index)
+{
+    std::vector<std::uint32_t> ranks(index.slotCount(), 0);
+    std::vector<EntryId> stack;
+    std::vector<EntryId> children;
+    const auto pushSorted = [&](std::vector<EntryId>& folders) {
+        std::sort(folders.begin(), folders.end(), [&](EntryId a, EntryId b) {
+            const int c = compareNames(index.name(a), index.name(b));
+            return c != 0 ? c < 0 : a < b;
+        });
+        for (auto it = folders.rbegin(); it != folders.rend(); ++it) // the first on top
+            stack.push_back(*it);
+    };
+    std::vector<EntryId> roots(index.roots());
+    std::erase_if(roots, [&](EntryId r) { return index.entry(r).isDeleted(); });
+    pushSorted(roots);
+    std::uint32_t next = 1;
+    while (!stack.empty()) {
+        const EntryId folder = stack.back();
+        stack.pop_back();
+        ranks[folder] = next++;
+        children.clear();
+        for (EntryId c = index.entry(folder).firstChild; c != kNoEntry; c = index.entry(c).nextSibling) {
+            const Entry& e = index.entry(c);
+            if (e.isDir() && !e.isDeleted())
+                children.push_back(c);
+        }
+        pushSorted(children);
+    }
+    return ranks;
+}
+
+// By the folder each is in (its path, ASCII case aside: folderRanks), then
+// by name: a folder's files stay together.
+struct PathOrder {
+    const FileIndex& index;
+    const std::vector<std::uint32_t>& ranks;
+    bool descending;
+    bool operator()(const NameHit& a, const NameHit& b) const noexcept
+    {
+        if (a.id == b.id)
+            return false;
+        const EntryId pa = index.entry(a.id).parent;
+        const EntryId pb = index.entry(b.id).parent;
+        int c = 0;
+        if (pa != pb) {
+            const std::uint32_t ra = pa == kNoEntry ? 0 : ranks[pa];
+            const std::uint32_t rb = pb == kNoEntry ? 0 : ranks[pb];
+            c = ra < rb ? -1 : ra > rb ? 1 : 0;
+        }
+        if (c == 0)
+            c = compareNames(index.name(a.id), index.name(b.id));
+        if (c != 0)
+            return descending ? c > 0 : c < 0;
+        return a.id < b.id;
+    }
+};
+
+// Whether an entry lies under one of some folders (sorted ids), remembered
+// by its parent: siblings ask about the same one.
+class UnderAny {
+public:
+    UnderAny(const FileIndex& index, const std::vector<EntryId>& folders)
+        : m_index(index)
+        , m_folders(folders)
+    {
+        m_cache.fill({kNoEntry, false});
+    }
+    bool operator()(const Entry& e)
+    {
+        const EntryId parent = e.parent;
+        if (parent == kNoEntry)
+            return false;
+        Slot& slot = m_cache[parent & (m_cache.size() - 1)];
+        if (slot.parent != parent) {
+            bool under = false;
+            for (EntryId cur = parent; cur != kNoEntry && !under; cur = m_index.entry(cur).parent)
+                under = std::binary_search(m_folders.begin(), m_folders.end(), cur);
+            slot = {parent, under};
+        }
+        return slot.under;
+    }
+
+private:
+    struct Slot {
+        EntryId parent;
+        bool under;
+    };
+    const FileIndex& m_index;
+    const std::vector<EntryId>& m_folders;
+    std::array<Slot, 4096> m_cache {};
+};
+
+// `makeOrder(index)`: the order for one slice (or the merge), made anew each
+// time (PathOrder keeps a slice's folder paths).
+template <typename MakeOrder>
 NameSearchOutput search(const FileIndex& index, const NameMatcher& matcher, const NameSearchOptions& options,
-    WorkerPool& pool, const std::function<bool()>& isCancelled)
+    WorkerPool& pool, const std::function<bool()>& isCancelled, MakeOrder&& makeOrder)
 {
     NameSearchOutput output;
     const std::size_t limit = options.limit;
-    const bool apart = options.kindsApart && !options.foldersOnly;
+    // Files and folders apart only in the ranked list (KindOrder); a column's
+    // order is one list.
+    const bool apart = options.kindsApart && !options.foldersOnly && options.order.key == SortKey::Rank;
+    const EntryFilter& filter = options.filter;
+    // The size of each match is read only when something asks for it.
+    const bool wantSize = filter.bySize() || options.order.key == SortKey::Size;
     const std::size_t slotCount = index.slotCount();
     const std::size_t slices = (slotCount + kSliceSize - 1) / kSliceSize;
     std::vector<std::vector<NameHit>> partial(slices);
@@ -200,9 +394,11 @@ NameSearchOutput search(const FileIndex& index, const NameMatcher& matcher, cons
         const Entry* entries
             = index.chunk(first >> FileIndex::kChunkBits).data() + (first & (FileIndex::kChunkSize - 1));
 
-        TopK<By> top(limit);
-        TopK<By> folders(apart ? limit : 0);
+        const auto order = makeOrder(index);
+        TopHits<decltype(order)> top(limit, order);
+        TopHits<decltype(order)> folders(apart ? limit : 0, order);
         NameMatcher::Folders seen;
+        UnderAny under(index, filter.folders);
         std::size_t matches = 0;
         for (std::size_t i = 0; i < count; ++i) {
             const Entry& e = entries[i];
@@ -212,18 +408,26 @@ NameSearchOutput search(const FileIndex& index, const NameMatcher& matcher, cons
                 continue;
             if (names && !names->has(e.nameOffset))
                 continue;
+            // The bounds before the name: a time or a size is one read, a
+            // name a search through it.
+            const auto id = static_cast<EntryId>(first + i);
+            const FileTime modified = knownTime(index.modified(id)); // 1970: none, last either way
+            const FileSize size = wantSize && !e.isDir() ? index.size(id) : kUnknownSize;
+            if (!filter.fits(modified, size, e.isDir()))
+                continue;
+            if (!filter.folders.empty() && !under(e))
+                continue;
             int score = matcher.match(index, e, seen);
             if (score < 0)
                 continue;
             ++matches;
             score += staticBonus(e);
-            TopK<By>& heap = apart && e.isDir() ? folders : top;
-            const auto id = static_cast<EntryId>(first + i);
-            const FileTime modified = knownTime(index.modified(id)); // 1970: none, last either way
-            if (!heap.mayAccept(score, modified))
+            TopHits<decltype(order)>& heap = apart && e.isDir() ? folders : top;
+            NameHit hit {id, score, modified, size};
+            if (!heap.mayAccept(hit))
                 continue;
-            score -= std::min(index.depth(id), 12);
-            heap.push({id, score, modified});
+            hit.score -= std::min(index.depth(id), 12);
+            heap.push(hit);
         }
         total.fetch_add(matches, std::memory_order_relaxed);
         partial[slice] = top.take();
@@ -235,6 +439,7 @@ NameSearchOutput search(const FileIndex& index, const NameMatcher& matcher, cons
     if (output.cancelled)
         return output;
 
+    const auto order = makeOrder(index);
     const auto merge = [&](std::vector<std::vector<NameHit>>& parts) {
         std::vector<NameHit> hits;
         std::size_t merged = 0;
@@ -243,7 +448,7 @@ NameSearchOutput search(const FileIndex& index, const NameMatcher& matcher, cons
         hits.reserve(merged);
         for (auto& p : parts)
             hits.insert(hits.end(), p.begin(), p.end());
-        keepBest<By>(hits, limit);
+        keepBest(hits, limit, order);
         return hits;
     };
     output.hits = merge(partial);
@@ -251,7 +456,7 @@ NameSearchOutput search(const FileIndex& index, const NameMatcher& matcher, cons
         const std::vector<NameHit> folderHits = merge(partialFolders);
         output.hits.insert(output.hits.end(), folderHits.begin(), folderHits.end());
         std::inplace_merge(output.hits.begin(), output.hits.end() - static_cast<std::ptrdiff_t>(folderHits.size()),
-            output.hits.end(), better<By>);
+            output.hits.end(), order);
     }
     output.totalMatches = total.load();
     return output;
@@ -264,15 +469,33 @@ NameSearchOutput searchNames(const FileIndex& index, const NameMatcher& matcher,
 {
     if (options.limit == 0)
         return {};
+    const bool down = options.order.descending;
+    switch (options.order.key) {
+    case SortKey::Name:
+        return search(index, matcher, options, pool, isCancelled, [down](const FileIndex& i) { return NameOrder {i, down}; });
+    case SortKey::Path: {
+        const std::vector<std::uint32_t> ranks = folderRanks(index);
+        return search(index, matcher, options, pool, isCancelled,
+            [down, &ranks](const FileIndex& i) { return PathOrder {i, ranks, down}; });
+    }
+    case SortKey::Size:
+        return search(index, matcher, options, pool, isCancelled, [down](const FileIndex&) { return SizeOrder {down}; });
+    case SortKey::Modified:
+        if (down)
+            return search(index, matcher, options, pool, isCancelled, [](const FileIndex&) { return RankOrder<RankBy::Newest> {}; });
+        return search(index, matcher, options, pool, isCancelled, [](const FileIndex&) { return RankOrder<RankBy::Oldest> {}; });
+    case SortKey::Rank:
+        break;
+    }
     switch (options.rankBy) {
     case RankBy::Newest:
-        return search<RankBy::Newest>(index, matcher, options, pool, isCancelled);
+        return search(index, matcher, options, pool, isCancelled, [](const FileIndex&) { return RankOrder<RankBy::Newest> {}; });
     case RankBy::Oldest:
-        return search<RankBy::Oldest>(index, matcher, options, pool, isCancelled);
+        return search(index, matcher, options, pool, isCancelled, [](const FileIndex&) { return RankOrder<RankBy::Oldest> {}; });
     case RankBy::Match:
         break;
     }
-    return search<RankBy::Match>(index, matcher, options, pool, isCancelled);
+    return search(index, matcher, options, pool, isCancelled, [](const FileIndex&) { return RankOrder<RankBy::Match> {}; });
 }
 
 namespace {

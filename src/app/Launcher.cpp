@@ -675,16 +675,29 @@ void Launcher::setStartList(StartList list)
 
 RankBy Launcher::rankBy() const
 {
+    // The panel with nothing typed: ranked means nothing, the newest first.
+    if (m_panel && m_panelSort.key == SortKey::Rank && m_query.trimmed().isEmpty())
+        return RankBy::Newest;
     return static_cast<RankBy>(m_sort);
 }
 
 bool Launcher::showsStartList() const
 {
-    return m_scope != Content && m_query.trimmed().isEmpty();
+    return m_scope != Content && m_query.trimmed().isEmpty() && !m_panel; // the panel lists everything instead
 }
 
 void Launcher::switchOrder()
 {
+    // The panel: as ranked, newest first, oldest first, round (its columns' orders).
+    if (m_panel) {
+        if (m_panelSort.key == SortKey::Modified && m_panelSort.descending)
+            sortBy(static_cast<int>(SortKey::Modified)); // the other way round
+        else if (m_panelSort.key == SortKey::Modified)
+            sortBy(static_cast<int>(SortKey::Rank));
+        else
+            sortBy(static_cast<int>(SortKey::Modified));
+        return;
+    }
     // The footer's switch shows what it is now; the status keeps its figures.
     if (showsStartList()) {
         if (m_startList != NoStartList) // set so in the settings: kept so
@@ -729,6 +742,16 @@ void Launcher::startOver()
         m_contentFolder.clear();
         m_contentPick = {};
         emit folderChipsChanged();
+    }
+    if (filtersActive()) { // the panel's, as at first too (its order stays)
+        m_dateChoice = 0;
+        m_dateFrom.clear();
+        m_dateTo.clear();
+        m_sizeChoice = 0;
+        m_sizeMin.clear();
+        m_sizeMax.clear();
+        m_folderFilter.clear();
+        emit filtersChanged();
     }
     if (m_scope != All) {
         m_scope = All;
@@ -858,7 +881,7 @@ void Launcher::search(bool more)
     m_refresh = m_haveResults && !m_replacePending && text == m_shownText && m_scope == m_shownScope
         && fileExtensions() == m_shownExtensions && rankBy() == m_shownRankBy && m_kindOrder == m_shownKindOrder && keywordKey == m_shownKeyword
         && (m_scope != Content || (m_contentFolder == m_shownContentFolder && pickKey(m_contentPick) == m_shownPick))
-        && (!text.isEmpty() || m_startList == m_shownStartList);
+        && (!text.isEmpty() || m_startList == m_shownStartList) && panelKey() == m_shownPanelKey;
     m_replacePending = !m_refresh;
     // The text is the one shown (another scope, order, kind of file): nobody
     // is typing, so a content scan starts at once, without waiting for a pause.
@@ -943,6 +966,13 @@ void Launcher::search(bool more)
     request.rankBy = rankBy();
     request.startList = m_startList == RecentlyModified ? ws::StartList::Modified : ws::StartList::Opened;
     request.limit = kPage * m_pages;
+    if (m_panel) { // its filters and order; nothing typed lists everything
+        request.filter = panelFilter();
+        if (!m_folderFilter.isEmpty())
+            request.folders = {m_folderFilter};
+        request.order = m_panelSort;
+        request.browse = true;
+    }
     // With no start list, nothing opened shows before something is typed.
     if (m_recordHistory && !(text.isEmpty() && m_startList == NoStartList))
         request.history = m_history->items();
@@ -972,6 +1002,7 @@ void Launcher::showRows(SearchResults rows, QStringList highlights)
     m_shownKeyword = m_keyword ? m_keyword->pluginId + u'/' + m_keyword->commandId : QString();
     m_shownContentFolder = m_contentFolder;
     m_shownPick = pickKey(m_contentPick);
+    m_shownPanelKey = panelKey();
     m_haveResults = true;
     if (m_replacePending) {
         m_replacePending = false;
@@ -1030,6 +1061,11 @@ void Launcher::startContentSearch()
     request.contentExtensions = m_contentExtensions;
     request.contentSizeLimits = m_contentSizeLimits;
     request.contentDocuments = m_contentDocuments;
+    if (m_panel) {
+        request.filter = panelFilter();
+        if (!m_folderFilter.isEmpty())
+            request.contentFolders = {m_folderFilter};
+    }
     if (m_scope == Content) {
         // Asked for: system and program folders too if so set, and many
         // files at once (each open mostly waits for the antivirus).
@@ -1300,6 +1336,254 @@ void Launcher::onDriveProgress(quint64 id, int seen, bool finished)
     refreshStatus();
 }
 
+// ---- the search panel -------------------------------------------------------------
+
+void Launcher::setPanel(bool on)
+{
+    if (on == m_panel)
+        return;
+    m_panel = on;
+    emit panelChanged();
+    refreshStatus();
+    if (m_window && m_window->isVisible() && !m_keyword)
+        search(); // the rows as the panel (or the box) lists them; the same ones stay where they are
+}
+
+void Launcher::togglePanel()
+{
+    emit panelToggleRequested();
+}
+
+bool Launcher::filtersActive() const
+{
+    return m_dateChoice != 0 || m_sizeChoice != 0 || !m_folderFilter.isEmpty();
+}
+
+QVariantList Launcher::favoriteFolders() const
+{
+    QVariantList folders;
+    if (!m_favorites)
+        return folders;
+    for (const Favorite& f : m_favorites->items()) {
+        if (f.kind == Favorite::Kind::Folder)
+            folders.append(QVariantMap {{u"name"_s, f.name}, {u"path"_s, f.path}});
+    }
+    return folders;
+}
+
+namespace {
+
+QDate dateOf(const QString& text)
+{
+    return QDate::fromString(text.trimmed(), Qt::ISODate);
+}
+
+FileTime fileTimeOf(const QDateTime& when)
+{
+    const qint64 secs = when.toSecsSinceEpoch();
+    return secs <= 0 ? 0 : secs >= 0xFFFF'FFFFll ? 0xFFFF'FFFFu : static_cast<FileTime>(secs);
+}
+
+std::optional<std::uint64_t> megabytesOf(const QString& text)
+{
+    bool ok = false;
+    const double mb = text.trimmed().toDouble(&ok);
+    if (!ok || mb < 0 || mb > 1e9)
+        return std::nullopt;
+    return static_cast<std::uint64_t>(mb * 1048576.0 + 0.5);
+}
+
+} // namespace
+
+EntryFilter Launcher::panelFilter() const
+{
+    EntryFilter f;
+    const QDateTime now = QDateTime::currentDateTime();
+    const QDate today = now.date();
+    switch (m_dateChoice) {
+    case 1:
+        f.after = fileTimeOf(today.startOfDay());
+        break;
+    case 2:
+        f.after = fileTimeOf(now.addDays(-7));
+        break;
+    case 3:
+        f.after = fileTimeOf(now.addDays(-30));
+        break;
+    case 4:
+        f.after = fileTimeOf(QDate(today.year(), 1, 1).startOfDay());
+        break;
+    case 5: {
+        const QDate from = dateOf(m_dateFrom);
+        const QDate to = dateOf(m_dateTo);
+        if (from.isValid())
+            f.after = fileTimeOf(from.startOfDay());
+        if (to.isValid())
+            f.before = fileTimeOf(to.addDays(1).startOfDay());
+        if (!from.isValid() && !to.isValid())
+            f.after = 1; // a bound all the same: times not known stay out, as the choice says
+        break;
+    }
+    default:
+        break;
+    }
+    constexpr std::uint64_t mb = 1 << 20;
+    switch (m_sizeChoice) {
+    case 1:
+        f.maxSize = packSize(mb - 1);
+        break;
+    case 2:
+        f.minSize = packSize(mb);
+        f.maxSize = packSize(100 * mb);
+        break;
+    case 3:
+        f.minSize = packSize(100 * mb);
+        f.maxSize = packSize(1024 * mb);
+        break;
+    case 4:
+        f.minSize = packSize(1024 * mb + 1);
+        break;
+    case 5: {
+        const auto min = megabytesOf(m_sizeMin);
+        const auto max = megabytesOf(m_sizeMax);
+        if (min)
+            f.minSize = packSize(*min);
+        if (max)
+            f.maxSize = packSize(*max);
+        if (!min && !max)
+            f.minSize = 1; // a bound all the same (packSize(0) is 0: none)
+        break;
+    }
+    default:
+        break;
+    }
+    return f;
+}
+
+QString Launcher::panelKey() const
+{
+    if (!m_panel)
+        return {};
+    // Only what changes the rows: the box's list is the panel's when nothing
+    // narrows or reorders it, so expanding keeps the rows (and the selection).
+    QString key;
+    if (filtersActive()) {
+        key += u"f:%1,%2,%3,%4,%5,%6,%7;"_s.arg(m_dateChoice).arg(m_dateFrom, m_dateTo).arg(m_sizeChoice).arg(m_sizeMin, m_sizeMax, m_folderFilter);
+    }
+    if (m_panelSort.key != SortKey::Rank)
+        key += u"o:%1,%2;"_s.arg(static_cast<int>(m_panelSort.key)).arg(m_panelSort.descending ? 1 : 0);
+    if (m_query.trimmed().isEmpty())
+        key += u"browse;"_s;
+    return key;
+}
+
+void Launcher::setDateChoice(int choice)
+{
+    choice = std::clamp(choice, 0, 5);
+    if (choice == m_dateChoice)
+        return;
+    m_dateChoice = choice;
+    emit filtersChanged();
+    if (m_panel)
+        search();
+}
+
+void Launcher::setDateRange(const QString& from, const QString& to)
+{
+    if (from == m_dateFrom && to == m_dateTo && m_dateChoice == 5)
+        return;
+    m_dateFrom = from;
+    m_dateTo = to;
+    m_dateChoice = 5;
+    emit filtersChanged();
+    if (m_panel)
+        search();
+}
+
+void Launcher::setSizeChoice(int choice)
+{
+    choice = std::clamp(choice, 0, 5);
+    if (choice == m_sizeChoice)
+        return;
+    m_sizeChoice = choice;
+    emit filtersChanged();
+    if (m_panel)
+        search();
+}
+
+void Launcher::setSizeRange(const QString& minMb, const QString& maxMb)
+{
+    if (minMb == m_sizeMin && maxMb == m_sizeMax && m_sizeChoice == 5)
+        return;
+    m_sizeMin = minMb;
+    m_sizeMax = maxMb;
+    m_sizeChoice = 5;
+    emit filtersChanged();
+    if (m_panel)
+        search();
+}
+
+void Launcher::setFolderFilter(const QString& path)
+{
+    QString folder = QDir::toNativeSeparators(path.trimmed());
+    while (folder.size() > 3 && folder.endsWith(u'\\'))
+        folder.chop(1);
+    if (folder == m_folderFilter)
+        return;
+    m_folderFilter = folder;
+    emit filtersChanged();
+    if (m_panel)
+        search();
+}
+
+void Launcher::pickFolderFilter()
+{
+    // The dialog is a window of ours over the launcher: the launcher stays
+    // (App's activeChanged lets a command of ours keep it, systemCommandRunning).
+    const auto owner = m_window ? reinterpret_cast<HWND>(m_window->winId()) : nullptr;
+    m_systemCommand = true;
+    const QString path = shell::pickFolder(owner, tr("选择要在其中搜索的文件夹"));
+    m_systemCommand = false;
+    if (m_window)
+        m_window->requestActivate();
+    if (!path.isEmpty())
+        setFolderFilter(path);
+}
+
+void Launcher::clearFilters()
+{
+    if (!filtersActive())
+        return;
+    m_dateChoice = 0;
+    m_dateFrom.clear();
+    m_dateTo.clear();
+    m_sizeChoice = 0;
+    m_sizeMin.clear();
+    m_sizeMax.clear();
+    m_folderFilter.clear();
+    emit filtersChanged();
+    if (m_panel)
+        search();
+}
+
+void Launcher::sortBy(int key)
+{
+    const auto sortKey = static_cast<SortKey>(std::clamp(key, 0, 4));
+    SortOrder order;
+    if (sortKey == m_panelSort.key && sortKey != SortKey::Rank) {
+        order = {sortKey, !m_panelSort.descending};
+    } else {
+        // Names and paths up (a to z); sizes and times down (the largest, the newest first).
+        order = {sortKey, sortKey == SortKey::Size || sortKey == SortKey::Modified};
+    }
+    if (order == m_panelSort)
+        return;
+    m_panelSort = order;
+    emit panelSortChanged();
+    if (m_panel && m_window && m_window->isVisible() && !m_keyword)
+        search();
+}
+
 void Launcher::refreshStatus()
 {
     // Only what is worth reading: the left of the footer is the order's
@@ -1350,6 +1634,12 @@ void Launcher::refreshStatus()
         if (!m_pluginError.isEmpty())
             parts.append(m_pluginError);
         s = parts.join(u" · "_s);
+    }
+    // The panel says how many there are in all (a browse of 3 million files
+    // lists 256 at a time): a figure worth reading there.
+    if (m_panel && m_haveResults && !m_replacePending && !m_keyword && m_scope != Content && m_totalMatches > 0) {
+        const QString count = tr("共 %Ln 项", nullptr, totalMatches());
+        s = s.isEmpty() ? count : count + u" · "_s + s;
     }
     if (const int selected = m_results.selectedCount(); selected > 0)
         s = tr("已选择 %Ln 项", nullptr, selected);
@@ -1610,7 +1900,7 @@ QString Launcher::pickKey(const SearchEngine::Request::ContentPick& pick)
 void Launcher::setContentPlace(SearchEngine::Request& request) const
 {
     if (!m_contentFolder.isEmpty())
-        request.contentFolders = {m_contentFolder};
+        request.contentFolders = {m_contentFolder}; // the strip's choice, before the panel's folder
     request.contentPick = m_contentPick;
 }
 

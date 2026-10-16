@@ -67,6 +67,7 @@ bool MftTree::read(
         std::uint8_t flags;
         bool extension;
         FileTime modified;
+        FileSize size;
     };
     std::vector<Collected> block;
     std::string names;
@@ -76,6 +77,10 @@ bool MftTree::read(
         FileTime modified;
     };
     std::unordered_map<std::uint32_t, Base> bases; // records whose names may be in extensions
+    // A file with an attribute list may keep its $DATA in an extension
+    // record: its size comes from there, by base record, once all are read.
+    std::unordered_map<std::uint32_t, FileSize> extensionSizes;
+    std::vector<std::pair<std::uint32_t, std::size_t>> unsized; // files of such records (by base), in m_files
     ntfs::FileRecord record;
     while (reader.next()) {
         if (stop.stop_requested())
@@ -92,26 +97,32 @@ bool MftTree::read(
                 continue;
             const std::uint8_t flags = extension ? 0 : flagsOf(record.attributes, record.directory);
             const FileTime modified = extension ? 0 : fileTimeOf(record.modified);
+            const FileSize size = record.directory || !record.sizeKnown ? kUnknownSize : packSize(record.size);
             if (!extension && record.hasAttributeList)
                 bases[number] = {flags, modified};
+            if (extension && record.sizeKnown)
+                extensionSizes[owner] = packSize(record.size);
             for (const auto& n : record.names) {
                 const auto begin = static_cast<std::uint32_t>(names.size());
                 wtf8::append(names, n.name);
                 block.push_back({owner, ntfs::recordOf(n.parent), begin,
-                    static_cast<std::uint16_t>(names.size() - begin), flags, extension, modified});
+                    static_cast<std::uint16_t>(names.size() - begin), flags, extension, modified, size});
             }
         }
         {
             // One lock per block of records to store their names.
             auto lock = index.writeLock();
             for (const Collected& c : block) {
-                const Name name {c.parent, index.storeName({names.data() + c.begin, c.length}), c.flags, c.modified};
-                if (c.extension)
+                const Name name {c.parent, index.storeName({names.data() + c.begin, c.length}), c.flags, c.modified, c.size};
+                if (c.extension) {
                     extensionNames.emplace_back(c.record, name);
-                else if (c.flags & EntryFlag::Directory)
+                } else if (c.flags & EntryFlag::Directory) {
                     m_folders.push_back({name, c.record});
-                else
+                } else {
+                    if (c.size == kUnknownSize && bases.contains(c.record))
+                        unsized.emplace_back(c.record, m_files.size());
                     m_files.push_back(name);
+                }
             }
         }
         if (progress)
@@ -121,18 +132,28 @@ bool MftTree::read(
         return failed();
 
     // Names kept in extension records (files with very many links) take the
-    // flags and time of their base record.
+    // flags and time of their base record; a $DATA kept there gives the
+    // file its size.
+    const auto sizeOf = [&](std::uint32_t base, FileSize known) {
+        if (known != kUnknownSize)
+            return known;
+        const auto it = extensionSizes.find(base);
+        return it == extensionSizes.end() ? kUnknownSize : it->second;
+    };
     for (auto [base, name] : extensionNames) {
         const auto it = bases.find(base);
         if (it == bases.end())
             continue;
         name.flags = it->second.flags;
         name.modified = it->second.modified;
+        name.size = name.flags & EntryFlag::Directory ? kUnknownSize : sizeOf(base, name.size);
         if (name.flags & EntryFlag::Directory)
             m_folders.push_back({name, base});
         else
             m_files.push_back(name);
     }
+    for (const auto& [base, at] : unsized)
+        m_files[at].size = sizeOf(base, kUnknownSize);
     std::sort(m_folders.begin(), m_folders.end(), [](const Folder& a, const Folder& b) { return a.name.parent < b.name.parent; });
     std::sort(m_files.begin(), m_files.end(), [](const Name& a, const Name& b) { return a.parent < b.parent; });
     return true;
@@ -153,8 +174,7 @@ bool MftTree::list(const FileIndex& index, const Crawler& crawler, const Crawler
         crawler.addToListing(out, dir, name, wtf8::wview(wide), it->name.flags, true, it->record, it->name.modified);
     }
     for (auto it = firstFile; it != lastFile; ++it)
-        crawler.addToListing(
-            out, dir, index.nameAt(it->nameOffset), {}, it->flags, false, 0, it->modified);
+        crawler.addToListing(out, dir, index.nameAt(it->nameOffset), {}, it->flags, false, 0, it->modified, it->size);
     return true;
 }
 
@@ -324,7 +344,9 @@ void UsnApplier::noteTime(const ntfs::UsnRecord& r)
     const EntryId id = findItem(item);
     if (id == kNoEntry || (m_index.entry(id).flags & EntryFlag::Root))
         return;
-    if (timesSet)
+    // A file closed after being written: its size has changed too, and the
+    // journal does not say to what (a stat, cheap: it was just written).
+    if (timesSet || (!item.folder && (r.reason & USN_REASON_CLOSE)))
         m_toRead.emplace_back(id, m_index.wpath(id));
     else
         later(id);
@@ -332,18 +354,29 @@ void UsnApplier::noteTime(const ntfs::UsnRecord& r)
 
 void UsnApplier::readTimes()
 {
-    std::vector<std::pair<EntryId, FileTime>> read;
+    struct Read {
+        EntryId id;
+        FileTime time;
+        FileSize size;
+    };
+    std::vector<Read> read;
     read.reserve(m_toRead.size());
     for (const auto& [id, path] : m_toRead) {
         WIN32_FILE_ATTRIBUTE_DATA data;
-        if (::GetFileAttributesExW(win32::longPath(path).c_str(), GetFileExInfoStandard, &data))
-            read.emplace_back(id, fileTimeOf(win32::ticks(data.ftLastWriteTime)));
+        if (::GetFileAttributesExW(win32::longPath(path).c_str(), GetFileExInfoStandard, &data)) {
+            const bool folder = data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
+            read.push_back({id, fileTimeOf(win32::ticks(data.ftLastWriteTime)),
+                folder ? kUnknownSize : packSize((static_cast<std::uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow)});
+        }
     }
     m_toRead.clear();
     auto lock = m_index.writeLock();
-    for (const auto& [id, time] : read) {
-        if (id < m_index.slotCount() && !m_index.entry(id).isDeleted())
-            m_index.setModified(id, time); // ids stay: the caller keeps compaction away
+    for (const Read& r : read) {
+        if (r.id < m_index.slotCount() && !m_index.entry(r.id).isDeleted()) {
+            m_index.setModified(r.id, r.time); // ids stay: the caller keeps compaction away
+            if (r.size != kUnknownSize)
+                m_index.setSize(r.id, r.size);
+        }
     }
 }
 

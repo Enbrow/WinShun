@@ -215,7 +215,7 @@ Item {
     Choices {
         id: order
         // Not at the start with no start list (set so in the settings, GitHub #24).
-        visible: footer.launcher.pluginKeyword.length === 0
+        visible: footer.launcher.pluginKeyword.length === 0 && !footer.launcher.panel // the panel's columns order it
                  && !(footer.atStart && footer.launcher.startList === Launcher.NoStartList)
         anchors.left: parent.left
         anchors.leftMargin: 16
@@ -286,7 +286,8 @@ Item {
             ["Ctrl+Shift+Enter", qsTr("以管理员身份运行")],
             ["Ctrl+C", qsTr("复制文件")],
             ["Ctrl+Shift+C", qsTr("复制路径")],
-            ["Ctrl+S", qsTr("切换排序；不输入时切换最近打开、最近修改")]
+            ["Ctrl+S", qsTr("切换排序；不输入时切换最近打开、最近修改")],
+            ["Ctrl+E", qsTr("展开为搜索面板，或收回搜索框")]
         ].concat(footer.launcher.numberKeys === "off" ? []
                  : [[modifier + "+1…9", qsTr("打开第几行（图标上标着快捷键）")]])
          .concat([
