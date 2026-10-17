@@ -24,6 +24,7 @@ Item {
     property int direction: 0
     property int writeDepth: 0
     readonly property bool writing: writeDepth > 0
+    property bool boundsMoved: false
 
     function cancel() {
         glide.stop()
@@ -79,11 +80,17 @@ Item {
     }
 
     function writePosition(y) {
-        // Layout can change the range and retarget the glide inside this
-        // assignment. Nested writes must not clear the outer write's guard.
+        // Layout answers this assignment and can change the range several
+        // times inside it: variable-height rows are released before new ones
+        // are made, so an end can dip past the glide and come straight back.
+        // Judge the range once it has settled, after the outermost write.
         writeDepth++
         view.contentY = logicalPixelSteps ? bounded(Math.round(y)) : y
         writeDepth--
+        if (!writing && boundsMoved) {
+            boundsMoved = false
+            boundsChanged()
+        }
     }
     onPositionChanged: if (glide.running) writePosition(position)
     // A resized view can move the endpoint while a wheel glide is running.
@@ -91,6 +98,10 @@ Item {
     function boundsChanged() {
         if (!running)
             return
+        if (writing) {
+            boundsMoved = true
+            return
+        }
         const destination = aligned(requestedY)
         if (Math.abs(destination - glide.to) < 0.000001)
             return
