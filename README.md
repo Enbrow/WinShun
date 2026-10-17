@@ -58,7 +58,7 @@
   <img src="docs/images/taskbar.jpg" width="49%" alt="Win顺 任务栏搜索框 / WinShun’s search box on the taskbar">
   <img src="docs/images/ai.jpg" width="49%" alt="AI 助手 MCP：Claude、Cursor、VS Code 一键连接 / MCP server for Claude, Cursor and VS Code">
   <img src="docs/images/settings.jpg" width="49%" alt="设置可搜索：kjj 找到快捷键 / searchable settings">
-  <img src="docs/images/appearance.jpg" width="49%" alt="外观：主题、透明效果、界面大小、单色任务栏图标 / appearance: theme, transparency, UI size, monochrome taskbar icon">
+  <img src="docs/images/appearance.jpg" width="49%" alt="外观：主题、透明效果、圆角或直角、界面大小、单色任务栏图标 / appearance: theme, transparency, rounded or square corners, UI size, monochrome taskbar icon">
   <img src="docs/images/dark.jpg" width="49%" alt="深色模式，Win11 云母效果 / dark theme with Windows 11 Mica">
 </p>
 
@@ -83,7 +83,7 @@
 - **搜整台电脑**：所有本地磁盘，U 盘可选（没收录的 U 盘插着时，列表末尾会提示你顺手搜一下它）；**NAS、内网共享文件夹（SMB）** 也能加进来一起搜，服务器关机时收录过的照样能搜到。
 - **排序懂你**：自己的文件在前，系统目录、`node_modules` 在后，名字完全一样的最前。每行显示修改日期，`Ctrl+S` 在最匹配、最新、最早之间切换。不输入时列出最近打开或最近修改的文件，也可以不列；还可以设成每次打开时清空搜索。
 - **程序优先**：搜 `curl`，`curl.exe` 排在文件夹 `curl` 和 `curl.h` 前面；优先哪些类型可以自己改（默认 exe、bat、cmd、ps1、msi，像 Listary 的“优先显示的文件类型”）。
-- **数字键直达**：结果的图标上标着序号，`Ctrl+1`～`Ctrl+9` 打开第几行（也可改成 `Alt`）。
+- **数字键直达**：`Ctrl+1`～`Ctrl+9` 打开第几行（也可改成 `Alt`）；按住 `Ctrl` 时图标上显示序号，也可以设成一直显示或不显示。
 - **按类型找**：选中 **文件** 后，下面一排是文件夹、文档、图片、视频、压缩包等类型，`Ctrl+Tab` 依次切换；点 `+` 或在设置里自己加类型。
 - **搜索面板**：结果太多时，点搜索框右上角的小按钮或按 `Ctrl+E`，同一个窗口展开成面板（像 Listary）：左边按范围、类型、修改时间、大小、位置筛选，右边名称 / 路径 / 大小 / 修改时间四列，点列头排序；什么都不输入也能按条件浏览整个索引（三百万个文件也是毫秒级）。`size:>10mb`、`dm:7d` 这类写法直接打在搜索框里也行。再按一次就缩回搜索框。
 - **长文件名**：名字放不下时在中间缩短，扩展名和结尾留着（“…第二版.xlsx”）；鼠标停在这一行上，显示完整的名字、位置、大小、修改和创建时间。拖动搜索框的左边或右边可以调宽（记住宽度，双击边缘恢复默认）。
@@ -158,7 +158,7 @@
 
 - **记什么**：复制过的文字、图片、文件都记下来。
 - **怎么打开**：`Win+V` 或自设的快捷键；开在输入光标旁，不抢焦点。
-- **怎么粘贴**：双击或 `Enter` 粘贴（也可以设成像 Windows 自带的那样单击就粘贴），`Shift+Enter` 粘贴为纯文本，`Alt+1`～`9` 直接粘贴第几条（序号标在图标上）。
+- **怎么粘贴**：双击或 `Enter` 粘贴（也可以设成像 Windows 自带的那样单击就粘贴），`Shift+Enter` 粘贴为纯文本，`Alt+1`～`9` 直接粘贴第几条（按住 `Alt` 时序号显示在图标上）。
 - **能搜**：拼音搜索，`@wx` 只看微信里复制的；**图片里的字也能搜**（PaddleOCR 文字识别，在本机，不联网，截图里的数字和小字也认得准）。
 - **预览**：全文、大图、颜色值的 HEX / RGB / HSL；图片缩略图可以调大，不打开预览也看得清。
 - **拖出图片**：按住一张图片拖到文件夹里，就存成 PNG 文件。
@@ -183,7 +183,7 @@
 
 #### 🎨 外观和设置
 
-- **外观**：浅色、深色跟随系统，Windows 11 云母（Mica）效果和圆角；图标在 150% 缩放下也清晰。界面大小有紧凑、标准、宽松三档，托盘和任务栏的图标可以换成单色。
+- **外观**：浅色、深色跟随系统，Windows 11 云母（Mica）效果；圆角或直角（直角和 Windows 10 一样）；图标在 150% 缩放下也清晰。界面大小有紧凑、标准、宽松三档，托盘和任务栏的图标可以换成单色。
 - **设置**：可以搜索（`Ctrl+F`，`kjj` 找到“快捷键”），改了立即生效。
 - **文件管理器**：打开文件夹、打开所在位置时用资源管理器、Total Commander、Directory Opus 或 XYplorer（装了的才列出）；别的文件管理器也行，在设置 › 打开 Win顺 › 对话框里填它的命令。
 - **备份**：设置 → 高级里选一个文件夹（放在同步盘里就是云备份），设置、收藏、对话框的固定项、自己加的网页图标和插件会自动备份，保留最近 10 份，随时恢复。
@@ -194,7 +194,7 @@
 | 双击 `Ctrl` | 打开 / 关闭搜索框（可另设组合键，如 `Alt+Space`） |
 | `Enter` / `Ctrl+Enter` / `Ctrl+Shift+Enter` | 打开 / 打开所在文件夹 / 以管理员身份运行 |
 | `Ctrl+C` / `Ctrl+Shift+C` | 复制文件 / 复制路径 |
-| `Ctrl+1`～`Ctrl+9` | 打开第几行（图标上的数字） |
+| `Ctrl+1`～`Ctrl+9` | 打开第几行（按住 `Ctrl` 时图标上显示序号） |
 | `Tab` / `Shift+Tab` | 切换范围：全部 / 文件 / 内容（往后 / 往前） |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | 在 **文件** 里切换类型，在 **内容** 里切换文件夹 |
 | `Ctrl+S` | 最匹配 → 最新在前 → 最早在前 |
@@ -237,6 +237,9 @@ Listary、PowerToys 的“查找鼠标”默认也用双击 Ctrl，关掉其中�
 **占多少内存？索引能不放 C 盘吗？**
 - **内存**：每 100 万个文件约 30 MB，用着的时候整个程序一般 120～140 MB；不用它一分钟后，任务管理器里降到十几 MB。
 - **索引位置**：在设置 → 高级 → 索引位置里，可以移到其他内置硬盘。
+
+**索引很慢，或者出了问题？**
+到 **设置 › 高级 › 诊断日志** 点“导出诊断日志”，把打开的文件夹里的 `WinShun-diagnostics.zip` 发到 GitHub Issues 或论坛。诊断包记的是版本、系统、磁盘、索引进度和错误，不含设置、剪贴板、搜索历史和文档正文。
 
 **收费吗？会上传数据吗？**
 完全免费，MIT 开源。只在这些时候联网：到 GitHub 检查新版本（可以关掉）；第一次显示某个网页搜索或书签时取一次那个网站的图标；在网站关键词后打字时，把这些字发给那个网站取搜索建议（不打关键词时一个字也不发，可以在设置里关掉）；你自己打开“按意思找”插件并选了云服务时，把文档的文字发给你选的服务商。索引和历史只存在本机（`%LOCALAPPDATA%\WinShun`）。
@@ -282,7 +285,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Where**: all local drives, USB drives if you like (an unindexed one that is plugged in is offered at the end of the list), and **NAS / SMB network shares**, still searchable while their server is off.
   - **Order**: your own files first, the date modified on each row, `Ctrl+S` for best match / newest / oldest. Recent files are listed when the box is empty, or nothing if you like; the search can also start empty each time it opens.
   - **Programs first**: `curl` lists `curl.exe` before the folder `curl` and `curl.h`; which file types go first is yours to change (exe, bat, cmd, ps1 and msi to begin with, like Listary's preferred file types).
-  - **Shortcuts**: `Ctrl+1`…`Ctrl+9` opens a row (its number is on its icon).
+  - **Shortcuts**: `Ctrl+1`…`Ctrl+9` opens a row; hold `Ctrl` to see the numbers on the icons (or show them always, or never).
   - **Search panel**: too many hits? The small button at the box's corner or `Ctrl+E` grows the same window into a panel, as Listary has it: filters down the left (scope, kind, date modified, size, folder), the rows in columns on the right (name, path, size, date modified) with sortable headers; with nothing typed it browses the whole index by those filters (milliseconds over three million files). `size:>10mb` and `dm:7d` work in the box too. Press it again to collapse.
   - **Long names**: a name that does not fit is shortened in the middle, keeping its extension and end ("…v3 final.xlsx"); rest the pointer on the row to see the full name, location, size, modified and created times. Drag the left or right edge of the search box to widen it (the width is remembered; double-click an edge for the default).
   - **Pin**: `Ctrl+T` or the pin at the box's corner keeps the search box up through clicks elsewhere and opened files; `Esc` closes it. Drag the window by the magnifier on the left; click it for the settings.
@@ -332,7 +335,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **What**: WinShun is an MCP server. Claude Desktop, Claude Code, Cursor and VS Code connect in one click and search file names, file contents and recent changes.
   - **Safety**: read-only by default, limited to what the AI client may see, with folders kept from AI and a call log.
 - 🎨 **Looks and settings**
-  - **Looks**: light and dark themes following Windows, Windows 11 Mica and rounded corners, sharp icons at any scaling; compact, standard or roomy sizes, and a monochrome tray and taskbar icon if you like.
+  - **Looks**: light and dark themes following Windows, Windows 11 Mica, rounded or square corners (square as in Windows 10), sharp icons at any scaling; compact, standard or roomy sizes, and a monochrome tray and taskbar icon if you like.
   - **Settings**: searchable (`Ctrl+F`); changes apply at once.
   - **File manager**: folders and file locations open in File Explorer, Total Commander, Directory Opus or XYplorer (those installed are listed), or in any other file manager whose commands you enter under Settings › Open WinShun › Dialogs.
   - **Backup**: choose a folder under Settings → Advanced (a synced folder makes it a cloud backup); settings, favorites, dialog pins, your own web icons and plugins are backed up as they change, the last 10 kept, ready to restore.
@@ -343,7 +346,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 | Ctrl twice | Open / close the search bar (another shortcut, such as `Alt+Space`, can be set) |
 | `Enter` / `Ctrl+Enter` / `Ctrl+Shift+Enter` | Open / show in folder / run as administrator |
 | `Ctrl+C` / `Ctrl+Shift+C` | Copy the file / copy its path |
-| `Ctrl+1`…`Ctrl+9` | Open the nth row (the number on its icon) |
+| `Ctrl+1`…`Ctrl+9` | Open the nth row (hold `Ctrl` to see the numbers) |
 | `Tab` / `Shift+Tab` | Switch scope: All / Files / Content (forward / back) |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | In **Files**, step through the kinds; in **Content**, through the folders |
 | `Ctrl+S` | Best match → newest first → oldest first |
@@ -386,6 +389,9 @@ With “Direct (administrator)” chosen, WinShun runs as administrator, and Win
 **Memory? Index location?**
 - **Memory**: about 30 MB of index per million files; the whole app is usually 120–140 MB while in use, and drops to about 15 MB in Task Manager a minute after you stop using it.
 - **Index location**: the index can move to another built-in drive under Settings → Advanced.
+
+**Indexing is slow, or something is wrong?**
+Under **Settings › Advanced › Diagnostic logs**, click “Export diagnostic logs” and attach the `WinShun-diagnostics.zip` from the folder that opens to a GitHub issue. It holds the version, system, disks, indexing progress and errors, not your settings, clipboard, search history or document text.
 
 **Is it free? Does it collect data?**
 Free and MIT-licensed. It goes online only to check GitHub for new versions (you can turn that off), to fetch a web shortcut's or bookmark's site icon once, to ask a site for search suggestions while you type after its keyword (nothing is sent without a site keyword; you can turn this off), and, if you turn on the “Search by meaning” plugin with a cloud service, to send document text to the service you chose. The index and history stay on your PC (`%LOCALAPPDATA%\WinShun`).
