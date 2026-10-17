@@ -33,44 +33,14 @@ Window {
     readonly property int maxRows: 8
     readonly property int minRows: 3 // the window settles no lower than these fit below
     // Everything but the rows: header, the strip of kinds of file, divider,
-    // the list's margins, footer. Room is kept for the strip in every scope
-    // (so opening it never moves the window), but at the taskbar, where the
-    // list area takes its room from the rows instead.
+    // the list's margins, footer. Budget the full strip in every scope so
+    // opening it does not change the row count. At the taskbar the list
+    // gives the strip its room instead.
     readonly property int chromeHeight: searchBar.implicitHeight + (fullHeight ? 0 : typeStrip.fullHeight) + 1 + 8
                                         + footer.implicitHeight
-    // The strip opens in steps (TypeStrip): the window takes its full height
-    // at once as it opens, so it is resized once, not on every frame (a
-    // native resize per frame shows torn and stretched frames). Meanwhile the
-    // rows below glide, the room it does not fill yet left above the footer;
-    // at the taskbar the window keeps its height and the list area gives the
-    // strip its room. It closes at once, the room given back with it: given
-    // back after a closing animation, it was a second jump of the window
-    // after the click (文件 → 内容: the rows went at the click, the strip's
-    // room 160 ms later).
-    // Closed, it still keeps its room for a frame with the footer drawn up
-    // where it ends (stripLeaving): a window made smaller shows its last
-    // frame cut at the bottom until it draws the next, and cut there that
-    // frame would have no footer.
-    readonly property bool stripOut: typeStrip.targetHeight > 0 || typeStrip.height > 0
-    property bool stripLeaving: false
-    readonly property int stripRoom: stripOut || stripLeaving ? typeStrip.fullHeight : 0
-    readonly property real stripSlack: stripRoom - typeStrip.height
-    onStripOutChanged: {
-        stripLeaving = !stripOut && !fullHeight && visible
-        if (stripLeaving) {
-            frame.afterNextFrame()
-            stripLeft.restart()
-        }
-    }
-    Connections {
-        target: window.frame
-        function onFrameShown() { window.stripLeaving = false }
-    }
-    Timer { // no frame comes (hidden meanwhile)
-        id: stripLeft
-        interval: 150
-        onTriggered: window.stripLeaving = false
-    }
+    // TypeStrip's animated height sizes this window through the column, so
+    // its outer edge, rows and footer follow the same animation. At the
+    // taskbar the list gives the strip its room and the window stays full height.
     // As many rows as fit between the window's top and the bottom of the screen.
     readonly property int fitRows: Math.max(minRows, Math.min(maxRows,
                                             Math.floor((placement.room - chromeHeight) / rowHeight)))
@@ -1223,18 +1193,12 @@ Window {
             }
         }
 
-        Item { // the strip's room it does not fill yet, as it opens or closes (stripSlack)
-            width: parent.width
-            height: window.fullHeight ? 0 : window.stripSlack // at the taskbar, in the list area
-        }
-
         Footer {
             id: footer
             width: parent.width
             visible: !window.clipboardBelow
             launcher: window.launcher
             frame: window.frame
-            transform: Translate { y: window.stripLeaving ? -window.stripSlack : 0 } // up where it ends
         }
     }
 

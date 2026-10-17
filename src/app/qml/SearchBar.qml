@@ -234,7 +234,7 @@ Item {
 
     // Pins the launcher (Launcher.pinned, Ctrl+T; linux.do #157): it stays
     // up through clicks elsewhere and opened results, until Esc. Beside the
-    // panel's button, as small and plain; on, it shows so: the filled pin in
+    // panel's button; on, it shows so: the filled pin in
     // the accent colour on a raised square with an edge (as the footer's
     // chosen chips; a mark in the accent colour, never a fill of it).
     Rectangle {
@@ -247,8 +247,8 @@ Item {
         anchors.right: expand.left
         anchors.rightMargin: 4
         y: bar.onPixel((bar.height - height) / 2)
-        width: Theme.chipHeight
-        height: Theme.chipHeight
+        width: height
+        height: tabs.height
         radius: Theme.controlRadius
         color: pinArea.pressed ? Theme.controlPressed : checked ? Theme.chipActive
              : pinArea.containsMouse ? Theme.chipHover : "transparent"
@@ -262,7 +262,7 @@ Item {
             anchors.centerIn: parent
             glyph: pin.checked ? "" : "" // PinnedFill, Pin
             overlay: pin.checked ? "" : "" // the needle (lines up with PinnedFill in Fluent and MDL2)
-            size: 12
+            size: 24 / Screen.devicePixelRatio // fixed 24 device pixels, including on another screen
             color: pin.checked ? Theme.accent : pinArea.containsMouse ? Theme.text : Theme.subtext
         }
         MouseArea {
@@ -280,7 +280,7 @@ Item {
     }
 
     // Expands the box into the search panel (Launcher.panel), or collapses
-    // it: at the corner, small and plain, as Listary has it (Ctrl+E too).
+    // it: at the right corner (Ctrl+E too).
     Rectangle {
         id: expand
 
@@ -290,8 +290,8 @@ Item {
         anchors.right: parent.right
         anchors.rightMargin: 10
         y: bar.onPixel((bar.height - height) / 2)
-        width: Theme.chipHeight
-        height: Theme.chipHeight
+        width: height
+        height: tabs.height
         radius: Theme.controlRadius
         color: expandArea.pressed ? Theme.controlPressed : expandArea.containsMouse ? Theme.chipHover : "transparent"
         Accessible.role: Accessible.Button
@@ -300,7 +300,7 @@ Item {
         Glyph {
             anchors.centerIn: parent
             glyph: bar.panelMode ? "\uE73F" : "\uE740" // BackToWindow, FullScreen
-            size: 12
+            size: 24 / Screen.devicePixelRatio // fixed 24 device pixels
             color: expandArea.containsMouse ? Theme.text : Theme.subtext
         }
         MouseArea {

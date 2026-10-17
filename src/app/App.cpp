@@ -729,6 +729,15 @@ bool App::createWindow()
     if (!m_window)
         return false;
 
+    // This window changes height on every frame of the scope strip's
+    // animation. A vsync-throttled D3D11 swapchain can hold its first resize
+    // for ~100 ms, then skip most of the transition. Present without that
+    // wait; the desktop compositor still controls what reaches the screen.
+    if (m_renderer == u"d3d11") {
+        QSurfaceFormat format = m_window->requestedFormat();
+        format.setSwapInterval(0);
+        m_window->setFormat(format);
+    }
     prepareBackdrop(m_window);
     m_window->create(); // native handle now, so DWM styling applies before the first show
     m_window->installEventFilter(this);

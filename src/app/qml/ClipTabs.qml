@@ -170,7 +170,7 @@ Item {
                 Glyph {
                     anchors.centerIn: parent
                     glyph: "" // Add
-                    size: 12
+                    size: 24
                     color: addArea.containsMouse ? Theme.text : Theme.subtext
                 }
 
@@ -202,7 +202,7 @@ Item {
         Glyph {
             anchors.centerIn: parent
             glyph: "" // Sort
-            size: 14
+            size: 24
             color: tabs.clipboard.pinnedFirst ? Theme.accent : orderArea.containsMouse ? Theme.text : Theme.subtext
         }
 

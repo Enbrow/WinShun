@@ -10,8 +10,8 @@ import WinShun
 // (Launcher.folderChips: 不限 and the favorite folders, or those a folder
 // named among the words stands for), + for the favorites, and after them a
 // few words on naming one (Launcher.folderHint). It opens and closes by its height (`shown`), the
-// chips coming down from under the search box; the window keeps room for
-// all of it meanwhile (see Main.qml), so only the rows below it move. Too
+// chips coming down from under the search box; the rows, footer and window
+// edge follow its current height (see Main.qml). Too
 // many for the width, they scroll, the current one kept in view and + after them. The rest
 // of it drags the window.
 Item {
@@ -23,13 +23,15 @@ Item {
 
     readonly property int fullHeight: Theme.stripHeight // 界面大小
     readonly property int targetHeight: shown ? fullHeight : 0
-    readonly property bool folders: launcher.scope === Launcher.Content
+    // Keep the departing chips while returning to 全部; its folderChips
+    // are already empty when scopeChanged arrives.
+    property bool folders: false
     // The chip that is current, as Launcher.chooseFileType (or chooseFolderChip) takes it.
-    readonly property var current: folders ? launcher.folderChip
-                                   : launcher.scope === Launcher.Folders ? -2 : launcher.fileType
+    property var current: -1
+    property var chips: []
+    property string folderHint
     // A dot for each, by place (any number of kinds of the user's own).
     readonly property var dotColors: ["#4F9DFF", "#3FBF7F", "#A57CFF", "#FF8A5C", "#C9953A", "#7B8CFF", "#2FBFB4", "#E07BD0"]
-    readonly property var chips: folders ? launcher.folderChips : fileChips
     readonly property var fileChips: {
         const list = [{ type: -1, name: qsTr("不限"), tip: qsTr("所有文件和文件夹"), dot: "" },
                       { type: -2, name: qsTr("文件夹"), tip: qsTr("只找文件夹"), dot: "#E8B84A" }]
@@ -42,6 +44,21 @@ Item {
         }
         return list
     }
+    function updateChips() {
+        if (!launcher || launcher.scope === Launcher.All)
+            return
+        folders = launcher.scope === Launcher.Content
+        current = folders ? launcher.folderChip : launcher.scope === Launcher.Folders ? -2 : launcher.fileType
+        chips = folders ? launcher.folderChips : fileChips
+        folderHint = launcher.folderHint
+    }
+    onFileChipsChanged: updateChips()
+    Connections {
+        target: strip.launcher
+        function onScopeChanged() { strip.updateChips() }
+        function onFolderChipsChanged() { strip.updateChips() }
+        function onFileTypeChanged() { strip.updateChips() }
+    }
 
     // The chip the mouse rests on, for its tooltip.
     property Item hoveredChip: null
@@ -49,19 +66,13 @@ Item {
 
     function onPixel(v) { return Math.round(v * Screen.devicePixelRatio) / Screen.devicePixelRatio }
 
-    // Whole logical pixels, also while it moves: the window's height is the
-    // sum of this and the room it does not fill yet (Main.qml), and with a
-    // fraction in each the sum could come out a pixel short, a native resize
-    // on that frame. The rows below glide on whole pixels too.
-    // It opens with an animation but closes at once: the window gives its
-    // room back in the same go as the click, not in a second jump once it
-    // has closed (often the rows below go in that same click, and nothing
-    // would be left to glide). Written here, not bound, so that `animated`
-    // is set before the Behavior sees the new value.
+    // Whole logical pixels, also while it moves: the native window's height
+    // and its contents use the same steps, without fractional layout slack.
+    // Both directions use the current height, including a reversal halfway
+    // through. Enable the Behavior only after the initial height is set.
     property real opening: 0
     property bool animated: false
     onTargetHeightChanged: {
-        animated = targetHeight > opening
         opening = targetHeight
         if (targetHeight > 0)
             scheduleReveal()
@@ -69,14 +80,17 @@ Item {
             cancelReveal()
     }
     Behavior on opening {
-        enabled: strip.animated
+        enabled: strip.animated && SystemTheme.animations
         NumberAnimation { duration: 200; easing.type: Easing.OutCubic } // as fast as Windows' own
     }
     height: Math.round(opening)
     clip: true
+    enabled: shown
 
     Component.onCompleted: {
         opening = targetHeight
+        animated = true
+        updateChips()
         frame.addDragArea(strip)
         frame.addControl(view)
         frame.addControl(edit)
@@ -149,7 +163,10 @@ Item {
         onDraggingChanged: if (dragging) strip.cancelReveal()
         onMovementStarted: strip.cancelReveal()
         opacity: strip.shown ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 150 } }
+        Behavior on opacity {
+            enabled: strip.animated && SystemTheme.animations
+            NumberAnimation { duration: 150 }
+        }
         WheelHandler {
             target: null
             orientation: Qt.Horizontal
@@ -268,7 +285,7 @@ Item {
         y: strip.onPixel(edit.y + (edit.height - height) / 2)
         visible: shown
         opacity: view.opacity
-        text: strip.launcher.folderHint
+        text: strip.folderHint
         color: Theme.subtext
         font.pixelSize: Theme.uiCaption
     }
