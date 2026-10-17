@@ -3,6 +3,14 @@ find_package(Qt6 REQUIRED COMPONENTS Test)
 qt_add_executable(tst_core tst_core.cpp)
 target_link_libraries(tst_core PRIVATE wscore wsextract miniz Qt6::Test)
 
+qt_add_executable(tst_diagnostics tst_diagnostics.cpp ${PROJECT_SOURCE_DIR}/src/app/Diagnostics.cpp
+    ${PROJECT_SOURCE_DIR}/src/service/Log.cpp)
+target_include_directories(tst_diagnostics PRIVATE ${PROJECT_SOURCE_DIR}/src/app ${PROJECT_SOURCE_DIR}/src/service)
+target_link_libraries(tst_diagnostics PRIVATE wscore miniz Qt6::Test)
+add_test(NAME tst_diagnostics COMMAND tst_diagnostics)
+set_tests_properties(tst_diagnostics PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
 qt_add_executable(tst_clipboard tst_clipboard.cpp)
 target_link_libraries(tst_clipboard PRIVATE wscore Qt6::Test)
 

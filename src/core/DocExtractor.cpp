@@ -1,6 +1,7 @@
 #include "DocExtractor.h"
 
 #include "ContentScanner.h"
+#include "DiagnosticLog.h"
 
 #include <sddl.h>
 
@@ -422,6 +423,11 @@ DocExtractor::Result DocExtractor::extract(HANDLE file, std::uint64_t size, cons
             ::GetExitCodeProcess(p->process.get(), &exitCode);
             qWarning("WinShun: the document reader %s (exit code 0x%08lx)",
                 io == Io::TimedOut ? "took too long" : "stopped", exitCode);
+            diagnostics::record(QStringLiteral("document-extractor-error"),
+                {{QStringLiteral("reason"), io == Io::TimedOut ? QStringLiteral("timeout") : QStringLiteral("stopped")},
+                    {QStringLiteral("file_bytes"), static_cast<qint64>(size)},
+                    {QStringLiteral("timeout_ms"), timeFor(size).count()},
+                    {QStringLiteral("exit_code"), static_cast<qint64>(exitCode)}});
         }
         p.reset(); // in the middle of something: ended, and replaced when needed
         release(nullptr);

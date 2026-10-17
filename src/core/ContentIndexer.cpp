@@ -3,6 +3,7 @@
 #include "ContentScanner.h"
 #include "Crawler.h"
 #include "Documents.h"
+#include "DiagnosticLog.h"
 #include "Win32Util.h"
 #include "Wtf8.h"
 
@@ -17,8 +18,10 @@
 #include <deque>
 #include <limits>
 #include <optional>
+#include <QJsonArray>
 
 using namespace std::chrono_literals;
+using namespace Qt::StringLiterals;
 
 namespace ws {
 
@@ -43,6 +46,94 @@ constexpr std::size_t kBulkThreshold = 2000;
 constexpr FileTime kBulkRecent = 5 * 60; // seconds
 constexpr std::uint64_t kBulkBatchBytes = 64ull << 20;
 constexpr std::size_t kBulkPendingBytes = 256u << 20;
+
+std::int64_t steadyMs()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+// One slot per reader/session. Report blocked opens, hashes or document
+// reads before they return, without storing paths or file contents.
+class ActiveReads {
+    struct Slot {
+        bool active = false;
+        bool document = false;
+        bool hardDisk = false;
+        bool bulk = false;
+        std::int64_t started = 0;
+        QString volume;
+        QString extension;
+        const char* stage = "reading";
+    };
+    std::vector<Slot> m_slots;
+    std::mutex m_mutex;
+    std::atomic<int> m_slowReported {0};
+    static QJsonObject describe(const Slot& slot)
+    {
+        return {{u"kind"_s, slot.bulk ? u"bulk"_s : slot.document ? u"document"_s : u"text"_s},
+            {u"volume"_s, slot.volume}, {u"extension"_s, slot.extension}, {u"hard_disk"_s, slot.hardDisk},
+            {u"stage"_s, QString::fromLatin1(slot.stage)}, {u"elapsed_ms"_s, steadyMs() - slot.started}};
+    }
+public:
+    explicit ActiveReads(std::size_t capacity) : m_slots(diagnostics::enabled() ? capacity : 0) {}
+    class Scope {
+        ActiveReads& m_owner;
+        int m_slot;
+    public:
+        Scope(ActiveReads& owner, int slot, const std::string& volume, bool document, bool hardDisk,
+            std::wstring_view path = {}, bool bulk = false)
+            : m_owner(owner), m_slot(slot)
+        {
+            if (m_owner.m_slots.empty()) {
+                m_slot = -1;
+                return;
+            }
+            QString extension;
+            const auto at = path.find_last_of(L".\\/");
+            if (at != std::wstring_view::npos && path[at] == L'.')
+                extension = QString::fromStdWString(std::wstring(path.substr(at + 1, 16))).toLower();
+            const std::lock_guard lock(m_owner.m_mutex);
+            m_owner.m_slots[m_slot] = {true, document, hardDisk, bulk, steadyMs(), QString::fromStdString(volume),
+                std::move(extension), bulk ? "bulk-connect" : "checking-file"};
+        }
+        Scope(const Scope&) = delete;
+        void stage(const char* stage)
+        {
+            if (m_slot >= 0) {
+                const std::lock_guard lock(m_owner.m_mutex);
+                m_owner.m_slots[m_slot].stage = stage;
+            }
+        }
+        ~Scope()
+        {
+            if (m_slot < 0)
+                return;
+            Slot slot;
+            {
+                const std::lock_guard lock(m_owner.m_mutex);
+                slot = m_owner.m_slots[m_slot];
+                m_owner.m_slots[m_slot].active = false;
+            }
+            if (!slot.bulk && steadyMs() - slot.started >= 3000 && m_owner.m_slowReported.fetch_add(1) < 8)
+                diagnostics::record(u"content-slow-read"_s, describe(slot));
+        }
+    };
+    QJsonArray snapshot()
+    {
+        const std::lock_guard lock(m_mutex);
+        std::vector<Slot> active;
+        for (const Slot& slot : m_slots) {
+            if (slot.active)
+                active.push_back(slot);
+        }
+        std::sort(active.begin(), active.end(), [](const Slot& a, const Slot& b) { return a.started < b.started; });
+        QJsonArray out;
+        for (std::size_t i = 0; i < std::min<std::size_t>(8, active.size()); ++i)
+            out.append(describe(active[i]));
+        return out;
+    }
+};
 
 // WINSHUN_BULK_VERIFY=1: every file read the bulk way is read the usual way
 // too, and the grams compared (wsbench --service --content reports).
@@ -357,6 +448,32 @@ void ContentIndexer::wake()
     m_cv.notify_all();
 }
 
+QJsonObject ContentIndexer::diagnosticStatus() const
+{
+    const auto stats = m_content->stats();
+    const auto bulk = bulkStats();
+    const bool active = reading();
+    const QString phase = !active ? u"idle"_s : m_merging.load() ? u"merging"_s
+        : m_searchBoxOpen.load() ? u"paused-search-window"_s : searchBoxHolds() ? u"waiting-after-search-window"_s
+        : m_content->searching() ? u"paused-content-search"_s : u"reading"_s;
+    return {{u"phase"_s, phase}, {u"reading"_s, active},
+        {u"done"_s, static_cast<qint64>(m_passDone.load())}, {u"total"_s, static_cast<qint64>(m_passTotal.load())},
+        {u"elapsed_ms"_s, active ? steadyMs() - m_passStartedMs.load() : 0},
+        {u"no_progress_ms"_s, active ? steadyMs() - m_lastProgressMs.load() : 0},
+        {u"indexed_files"_s, static_cast<qint64>(stats.documents)}, {u"pending_files"_s, static_cast<qint64>(stats.pending)},
+        {u"document_texts"_s, static_cast<qint64>(stats.texts)},
+        {u"index_bytes"_s, static_cast<qint64>(stats.segmentBytes + stats.textBytes)},
+        {u"bulk_sessions"_s, static_cast<qint64>(bulk.sessions)},
+        {u"bulk_sessions_failed"_s, static_cast<qint64>(bulk.sessionsFailed)},
+        {u"bulk_files"_s, static_cast<qint64>(bulk.files)}, {u"bulk_bytes"_s, static_cast<qint64>(bulk.bytes)},
+        {u"bulk_too_large"_s, static_cast<qint64>(bulk.tooLarge)},
+        {u"fallback_recent"_s, static_cast<qint64>(bulk.recent)},
+        {u"fallback_no_record"_s, static_cast<qint64>(bulk.noRecord)},
+        {u"fallback_not_found"_s, static_cast<qint64>(bulk.notFound)},
+        {u"fallback_denied"_s, static_cast<qint64>(bulk.denied)},
+        {u"fallback_special_files"_s, static_cast<qint64>(bulk.fallback)}};
+}
+
 void ContentIndexer::interrupt()
 {
     std::unique_lock lock(m_mutex);
@@ -399,6 +516,7 @@ bool ContentIndexer::interrupted(std::stop_token stop)
 
 void ContentIndexer::run(std::stop_token stop)
 {
+    diagnostics::record(u"content-worker-start"_s);
     // Not background mode: it puts the thread's disk requests at very low
     // priority, and the antivirus's scan of each file opened goes with them.
     // Measured here, reading files in background mode: 4 threads 141 files a
@@ -412,6 +530,7 @@ void ContentIndexer::run(std::stop_token stop)
         // run has everything still to read, and someone waiting for it.
         std::unique_lock lock(m_mutex);
         while (!m_source.ready()) {
+            diagnostics::record(u"content-waiting-for-file-index"_s);
             m_woken = false;
             if (!m_cv.wait(lock, stop, [this] { return m_woken; }))
                 return;
@@ -419,8 +538,10 @@ void ContentIndexer::run(std::stop_token stop)
         lock.unlock();
         const bool firstRun = m_content->stats().documents == 0;
         lock.lock();
-        if (!firstRun)
+        if (!firstRun) {
+            diagnostics::record(u"content-startup-delay"_s, {{u"milliseconds"_s, m_timing.start.count()}});
             m_cv.wait_until(lock, stop, started + m_timing.start, [] { return false; });
+        }
     }
     if (stop.stop_requested())
         return;
@@ -439,6 +560,9 @@ void ContentIndexer::run(std::stop_token stop)
         bool finished = true;
         if (options.enabled && m_source.ready() && !batterySaverOn())
             finished = pass(options, stop);
+        else if (options.enabled)
+            diagnostics::record(u"content-deferred"_s,
+                {{u"reason"_s, batterySaverOn() ? u"battery-saver"_s : u"file-index-not-ready"_s}});
         {
             std::lock_guard lock(m_mutex);
             m_passRunning = false;
@@ -568,6 +692,8 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
     if (!index)
         return true;
     const std::vector<Volume> volumes = m_source.volumes();
+    const auto gatherStarted = steadyMs();
+    diagnostics::record(u"content-gather-start"_s, {{u"volumes"_s, static_cast<qint64>(volumes.size())}});
     std::vector<Work> work;
     FileIndex::IdPin pin; // the ids in `work` stay valid: no compaction until the pass is over
     {
@@ -579,6 +705,8 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
         }
         work = findWork(*index, options, volumes);
     }
+    diagnostics::record(u"content-gather-finished"_s,
+        {{u"files"_s, static_cast<qint64>(work.size())}, {u"elapsed_ms"_s, steadyMs() - gatherStarted}});
     if (work.empty()) {
         tidy(m_taken.exchange(0)); // what searches handed over
         return true;
@@ -710,11 +838,15 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
 
     m_passDone = 0;
     m_passTotal = work.size();
+    m_passStartedMs = steadyMs();
+    m_lastProgressMs = m_passStartedMs.load();
+    m_merging = false;
     m_reading = true;
     const struct Done {
         std::atomic<bool>& flag;
-        ~Done() { flag = false; }
-    } done {m_reading};
+        std::atomic<bool>& merging;
+        ~Done() { flag = false; merging = false; }
+    } done {m_reading, m_merging};
     std::atomic<bool> halt {false}; // the pass is cut short
     std::atomic<bool> hold {false}; // no file is started: the index is being merged
     std::atomic<int> busy {0}; // threads between taking a file and handing it to the index
@@ -727,6 +859,25 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
     std::condition_variable gate; // waiting threads may go on, or one has ended
     std::condition_variable room; // a queue has room again
     const int threads = documentThreads + readerThreads;
+    ActiveReads activeReads(static_cast<std::size_t>(threads) + volumes.size());
+    QJsonArray diskInfo;
+    std::size_t docCount = 0;
+    for (const Work& file : work)
+        docCount += file.document;
+    for (std::size_t v = 0; v < volumes.size(); ++v)
+        diskInfo.append(QJsonObject {{u"volume"_s, QString::fromStdString(volumes[v].root)},
+            {u"hard_disk"_s, hardDiskQueue[v] != nullptr},
+            {u"file_readers"_s, hardDiskQueue[v] ? hardDiskRoom(away) : readers(away)}});
+    QJsonArray sizeLimits;
+    for (const auto bytes : options.sizeLimits.bytes)
+        sizeLimits.append(static_cast<qint64>(bytes));
+    diagnostics::record(u"content-start"_s, {{u"total"_s, static_cast<qint64>(work.size())},
+        {u"documents"_s, static_cast<qint64>(docCount)}, {u"disks"_s, diskInfo},
+        {u"user_away"_s, away}, {u"reader_threads"_s, readers(away)},
+        {u"document_processes"_s, documentProcesses()}, {u"include_system_folders"_s, options.includeLowPriority},
+        {u"size_limits_bytes"_s, sizeLimits},
+        {u"access"_s, !access || access->kind() == ntfs::VolumeAccess::Kind::None ? u"none"_s
+                : access->kind() == ntfs::VolumeAccess::Kind::Service ? u"service"_s : u"direct"_s}});
     int running = threads; // under gateMutex
     const auto cancelled = [&] { return halt.load() || stop.stop_requested() || m_interrupt.load(); };
     const auto waitOn = [&](std::condition_variable& cv, std::chrono::milliseconds most) {
@@ -782,7 +933,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
         return nullptr;
     };
     // Reads one file into the index; false when the index has no room left.
-    const auto read = [&](const Work& w, std::wstring& path, bool hardDisk) {
+    const auto read = [&](const Work& w, std::wstring& path, bool hardDisk, int slot) {
         if (m_content->knows(w.entry))
             return true; // a search read it meanwhile (Intake)
         {
@@ -791,6 +942,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
                 return true;
             path = index->wpath(w.entry);
         }
+        ActiveReads::Scope activity(activeReads, slot, volumes[w.volume].root, w.document, hardDisk, path);
         if (w.checkOnly) {
             const auto stamp = stampOf(path);
             if (!stamp)
@@ -831,6 +983,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
             ~Background() { end(); }
         } background(disk.quiet);
         const std::optional<FileStamp> file = w.document ? statOf(path) : std::nullopt;
+        activity.stage("document-hash-or-copy");
         const std::optional<Copies::Original> original
             = file && file->size > 0 && static_cast<std::int64_t>(file->size) <= maxBytes
             ? copies.find(w.entry, path, file->size, file->stamp, cancelled)
@@ -845,8 +998,10 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
                 background.begin(disk.quiet);
         }
         if (!copied) {
+            activity.stage(w.document ? "document-open-prefetch-extract" : "text-open-read");
             const FileText text = readFile(path, maxBytes, cancelled, &m_documents, disk);
             background.end();
+            activity.stage("add-to-content-index");
             if (text.outcome == Outcome::Skipped)
                 return true;
             if (!m_content->add(
@@ -934,7 +1089,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
                     continue;
                 }
                 if (lateWork) {
-                    if (!read(*lateWork, path, hardDiskQueue[lateWork->volume] != nullptr))
+                    if (!read(*lateWork, path, hardDiskQueue[lateWork->volume] != nullptr, t))
                         full = true;
                     ++m_passDone;
                     busy.fetch_sub(1);
@@ -951,7 +1106,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
                 waitOn(room, 100ms); // the files left wait for a hard disk, an extractor or a session
                 continue;
             }
-            if (!read(*w, path, from->hardDisk))
+            if (!read(*w, path, from->hardDisk, t))
                 full = true;
             ++m_passDone;
             from->reading.fetch_sub(1);
@@ -990,6 +1145,10 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
             bulkRoom.notify_all();
         };
         const bool quiet = hardDiskQueue[bv.volume] != nullptr && !awayNow.load();
+        ActiveReads::Scope activity(activeReads, threads + static_cast<int>(bv.volume), vol.root, false,
+            hardDiskQueue[bv.volume] != nullptr, {}, true);
+        diagnostics::record(u"content-bulk-start"_s, {{u"volume"_s, QString::fromStdString(vol.root)},
+            {u"quiet"_s, quiet}, {u"files"_s, static_cast<qint64>(bv.files.size())}});
         std::unique_ptr<ntfs::BulkSource> session = access->openBulkRead(root, vol.serial, quiet);
         if (!session || !session->valid()) {
             if (session)
@@ -1032,6 +1191,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
         giveBack(back);
         back.clear();
         std::vector<ntfs::BulkFile> files;
+        activity.stage("bulk-scan-mft");
         if (cancelled() || !session->want(wants) || !session->scan(files)) {
             if (!cancelled()) {
                 qWarning("WinShun: the bulk read of %ls did not start: %ls", root.c_str(), session->error().c_str());
@@ -1085,6 +1245,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
         std::vector<bool> got(ticketWork.size(), false);
         std::size_t at = 0;
         while (at < data.size() && !cancelled() && !full.load()) {
+            activity.stage("bulk-wait-for-readers-or-search");
             std::vector<std::uint32_t> tickets;
             std::uint64_t batchBytes = 0;
             while (at < data.size() && (tickets.empty() || batchBytes + data[at]->size <= kBulkBatchBytes)) {
@@ -1101,6 +1262,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
             }
             if (cancelled() || full.load())
                 break;
+            activity.stage("bulk-read");
             const bool fetched = session->fetch(tickets, [&](std::uint32_t ticket, std::vector<std::byte>&& bytes) {
                 if (ticket >= ticketWork.size() || !byTicket[ticket] || got[ticket])
                     return;
@@ -1131,6 +1293,33 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
         finish();
     };
 
+    const auto report = [&](const QString& event, double perSecond = -1) {
+        if (!diagnostics::enabled())
+            return;
+        QJsonObject status = diagnosticStatus();
+        if (hold.load() && !m_merging.load())
+            status[u"phase"_s] = u"waiting-for-readers-before-merge"_s;
+        status[u"elapsed_ms"_s] = steadyMs() - m_passStartedMs.load();
+        if (perSecond >= 0)
+            status[u"recent_files_per_second"_s] = perSecond;
+        status[u"average_files_per_second"_s] = static_cast<double>(m_passDone.load()) * 1000
+            / std::max<std::int64_t>(1, steadyMs() - m_passStartedMs.load());
+        status[u"interrupt_requested"_s] = m_interrupt.load();
+        status[u"stopping"_s] = stop.stop_requested();
+        status[u"capacity_exhausted"_s] = full.load();
+        status[u"battery_saver"_s] = batterySaverOn();
+        status[u"user_away"_s] = away;
+        status[u"allowed_readers"_s] = allowed.load();
+        status[u"hard_disk_readers"_s] = hardDiskRoom(away);
+        status[u"busy_readers"_s] = busy.load();
+        status[u"bulk_sessions_active"_s] = feeders.load();
+        status[u"active_operations"_s] = activeReads.snapshot();
+        diagnostics::record(event, std::move(status));
+    };
+    std::int64_t lastReport = steadyMs();
+    std::size_t lastReportDone = 0;
+    std::size_t lastDone = 0;
+    QString lastPhase;
     m_content->beginReads();
     {
         std::vector<std::jthread> feederThreads; // joined after the workers: those wait for them
@@ -1143,6 +1332,22 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
         std::unique_lock lock(gateMutex);
         while (!gate.wait_for(lock, kLookAround, [&] { return running == 0; })) {
             lock.unlock();
+            const std::int64_t nowMs = steadyMs();
+            const std::size_t progressDone = m_passDone.load();
+            if (progressDone != lastDone) {
+                m_lastProgressMs = nowMs;
+                lastDone = progressDone;
+            }
+            const QString phase = m_searchBoxOpen.load() ? u"paused-search-window"_s
+                : searchBoxHolds() ? u"waiting-after-search-window"_s
+                : m_content->searching() ? u"paused-content-search"_s : u"reading"_s;
+            if (phase != lastPhase || nowMs - lastReport >= m_timing.report.count()) {
+                report(phase != lastPhase ? u"content-state"_s : u"content-progress"_s,
+                    static_cast<double>(progressDone - lastReportDone) * 1000 / std::max<std::int64_t>(1, nowMs - lastReport));
+                lastPhase = phase;
+                lastReport = nowMs;
+                lastReportDone = progressDone;
+            }
             bool letGo = false;
             if (full.load() || interrupted(stop) || batterySaverOn()) {
                 halt = true;
@@ -1170,13 +1375,28 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
                         // cannot take in documents added meanwhile: the files
                         // being read are finished first, no other started.
                         hold = true;
-                        while (busy.load() > 0 && !cancelled())
+                        report(u"content-waiting-to-merge"_s);
+                        while (busy.load() > 0 && !cancelled()) {
+                            const auto at = steadyMs();
+                            if (const auto count = m_passDone.load(); count != lastDone) {
+                                lastDone = count;
+                                m_lastProgressMs = at;
+                            }
+                            if (at - lastReport >= m_timing.report.count()) {
+                                report(u"content-progress"_s);
+                                lastReport = at;
+                            }
                             std::this_thread::sleep_for(10ms);
+                        }
                         if (busy.load() == 0) {
+                            m_merging = true;
+                            report(u"content-merge-start"_s);
                             if (m_content->needsMerge())
                                 m_content->mergeDue(readers(away));
                             if (m_content->needsTextCompaction())
                                 m_content->compactTexts();
+                            m_merging = false;
+                            report(u"content-merge-finished"_s);
                         }
                         hold = false;
                         letGo = true;
@@ -1185,7 +1405,10 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
                         // read: holding the readers for it cost the first run
                         // 14 s of 75 (most of it waiting for documents being
                         // read to finish: wsbench --service --content).
+                        m_merging = true;
+                        report(u"content-merge-tails"_s);
                         m_content->mergeTails();
+                        m_merging = false;
                     }
                 }
             }
@@ -1198,9 +1421,16 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
     } // joins
     m_content->endReads();
     m_documents.closeIdle(); // their memory back now rather than later
-    if (full.load() || halt.load() || interrupted(stop))
+    if (full.load() || halt.load() || interrupted(stop)) {
+        report(u"content-interrupted"_s);
         return false;
+    }
+    m_merging = true;
+    report(u"content-finalizing"_s);
     tidy(added.load() + m_taken.exchange(0));
+    m_merging = false;
+    m_reading = false;
+    report(u"content-finished"_s);
     return true;
 }
 

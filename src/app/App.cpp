@@ -6,6 +6,7 @@
 #include "ClipStore.h"
 #include "Clipboard.h"
 #include "DialogBar.h"
+#include "Diagnostics.h"
 #include "Favorites.h"
 #include "FavoritesSettings.h"
 #include "FileIconProvider.h"
@@ -1749,6 +1750,51 @@ void App::showSettings()
         connect(editor, &SettingsEditor::elevatedRestartRequested, this,
             [this] { restart({u"--settings"_s, u"--settings-at"_s, u"indexAccess"_s}, Elevation::Elevated); });
         connect(editor, &SettingsEditor::indexServiceInstallRequested, this, &App::installIndexService);
+        connect(editor, &SettingsEditor::diagnosticsExportRequested, this, [this] {
+            if (m_diagnosticsExporting) {
+                m_settingsEditor->finishDiagnosticsExport(tr("诊断包正在生成，完成后会打开文件夹"));
+                return;
+            }
+            const auto log = diagnostics::current();
+            if (!log) {
+                m_settingsEditor->finishDiagnosticsExport(tr("诊断记录尚未初始化，请重新启动 Win顺 后重试"));
+                return;
+            }
+            QJsonObject context {{u"content_search_enabled"_s, m_settings.contentSearch}, {u"content_index_enabled"_s, m_settings.contentIndex},
+                {u"documents_enabled"_s, m_settings.contentDocuments},
+                {u"include_system_folders"_s, m_settings.contentInLowPriority}};
+            if (const auto service = std::dynamic_pointer_cast<ntfs::ServiceVolumeAccess>(m_index->volumeAccess()))
+                context[u"index_service_version"_s] = QString::fromStdWString(service->serviceVersion());
+            auto* index = m_index.get(); // export thread joins before this object is destroyed
+            const auto access = m_index->volumeAccessKind();
+            context[u"index_access"_s] = access == ntfs::VolumeAccess::Kind::Direct ? u"direct"_s
+                : access == ntfs::VolumeAccess::Kind::Service ? u"service"_s : u"directory-walk"_s;
+            const QString dataFolder = Settings::dataDir();
+            const QString serviceFolder = QDir(QString::fromStdWString(win32::expandEnvironment(L"%ProgramData%")))
+                                              .filePath(u"WinShun"_s);
+            m_diagnosticsExporting = true;
+            m_diagnosticsExport = std::jthread([this, log, context = std::move(context), index, dataFolder, serviceFolder]() mutable {
+                context[u"file_index_ready"_s] = index->state() == IndexService::State::Ready;
+                context[u"file_index_entries"_s] = static_cast<qint64>(index->itemCount());
+                context[u"file_index_refreshing"_s] = index->isRefreshing();
+                context[u"content"_s] = index->contentIndexer()->diagnosticStatus();
+                QJsonArray disks;
+                for (const auto& root : index->volumeRoots()) {
+                    const VolumePlacement placement = placementOf(root);
+                    disks.append(QJsonObject {{u"volume"_s, QString::fromStdWString(root)},
+                        {u"type"_s, placement.seeks ? u"HDD-or-unknown"_s : u"SSD"_s}});
+                }
+                context[u"disks"_s] = disks;
+                const auto exported = diagnostics::exportArchive(*log, dataFolder, serviceFolder, std::move(context));
+                QMetaObject::invokeMethod(this, [this, exported] {
+                    m_diagnosticsExporting = false;
+                    if (m_settingsEditor)
+                        m_settingsEditor->finishDiagnosticsExport(exported.error);
+                    if (exported.error.isEmpty())
+                        shell::open(QFileInfo(exported.path).absolutePath());
+                }, Qt::QueuedConnection);
+            });
+        });
         connect(editor, &SettingsEditor::opusRestarted, this, [this] { // the settings window back over it
             if (m_settingsWindow && m_settingsWindow->isVisible()) {
                 m_settingsWindow->raise();

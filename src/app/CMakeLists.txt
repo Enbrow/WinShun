@@ -224,6 +224,7 @@ qt_add_qml_module(WinShun
         PluginSettings.cpp PluginSettings.h
         ResultModel.cpp ResultModel.h
         SettingsEditor.cpp SettingsEditor.h
+        Diagnostics.cpp Diagnostics.h
         SettingsSearch.cpp SettingsSearch.h
         SoundClip.cpp SoundClip.h
         SystemTheme.cpp SystemTheme.h

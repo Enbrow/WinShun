@@ -419,6 +419,8 @@ private:
     QTimer m_darkFrameGuard; // see applyTheme
     QElapsedTimer m_darkFrameWatch;
     bool m_darkFrame = false;
+    bool m_diagnosticsExporting = false;
+    std::jthread m_diagnosticsExport; // joined before the app's objects are destroyed
 };
 
 } // namespace ws

@@ -11,6 +11,7 @@ qt_add_library(wscore STATIC
     ContentScanner.cpp ContentScanner.h
     Crawler.cpp Crawler.h
     DocExtractor.cpp DocExtractor.h
+    DiagnosticLog.cpp DiagnosticLog.h
     Documents.h
     DoubleClickDetector.h
     DoubleTapDetector.h

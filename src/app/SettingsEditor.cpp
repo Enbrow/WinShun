@@ -1821,6 +1821,23 @@ void SettingsEditor::openDataFolder()
     shell::open(Settings::dataDir());
 }
 
+void SettingsEditor::exportDiagnostics()
+{
+    if (m_diagnosticsBusy)
+        return;
+    m_diagnosticsBusy = true;
+    m_diagnosticsStatus.clear();
+    emit diagnosticsChanged();
+    emit diagnosticsExportRequested();
+}
+
+void SettingsEditor::finishDiagnosticsExport(const QString& error)
+{
+    m_diagnosticsBusy = false;
+    m_diagnosticsStatus = error.isEmpty() ? tr("诊断包已生成，把 WinShun-diagnostics.zip 发给开发者即可") : error;
+    emit diagnosticsChanged();
+}
+
 bool SettingsEditor::chooseBackupFolder()
 {
     const HWND owner = m_window ? reinterpret_cast<HWND>(m_window->winId()) : nullptr;

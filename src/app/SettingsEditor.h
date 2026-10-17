@@ -195,6 +195,8 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool restartRequired READ restartRequired NOTIFY changed FINAL)
     Q_PROPERTY(bool isDefault READ isDefault NOTIFY changed FINAL)
     Q_PROPERTY(QString dataFolder READ dataFolder CONSTANT FINAL)
+    Q_PROPERTY(QString diagnosticsStatus READ diagnosticsStatus NOTIFY diagnosticsChanged FINAL)
+    Q_PROPERTY(bool diagnosticsBusy READ diagnosticsBusy NOTIFY diagnosticsChanged FINAL)
     // 索引位置 (set by the app): where the index files are, and how moving them goes
     Q_PROPERTY(QString indexFolder READ indexFolder NOTIFY indexFolderChanged FINAL)
     Q_PROPERTY(bool indexFolderIsDefault READ indexFolderIsDefault NOTIFY indexFolderChanged FINAL)
@@ -368,6 +370,9 @@ public:
     bool restartRequired() const { return Settings::resolveRenderer(m_settings.renderer) != m_runningRenderer; }
     bool isDefault() const;
     QString dataFolder() const { return Settings::dataDir(); }
+    QString diagnosticsStatus() const { return m_diagnosticsStatus; }
+    bool diagnosticsBusy() const { return m_diagnosticsBusy; }
+    void finishDiagnosticsExport(const QString& error);
 
     // 索引位置, as the app has it.
     struct IndexFolderState {
@@ -552,6 +557,7 @@ public:
     Q_INVOKABLE void clearHistory() { emit historyClearRequested(); }
     Q_INVOKABLE void resetLauncherWidth() { emit launcherWidthResetRequested(); }
     Q_INVOKABLE void openDataFolder();
+    Q_INVOKABLE void exportDiagnostics();
     // Automatic backups of the settings: into a folder asked for here; off.
     // Returns whether they are on now.
     Q_INVOKABLE bool chooseBackupFolder();
@@ -598,6 +604,8 @@ public:
     FavoritesSettings* favorites() const { return m_favorites; }
 
 signals:
+    void diagnosticsChanged();
+    void diagnosticsExportRequested();
     void historyCountChanged();
     void historyClearRequested();
     void launcherWidthSetChanged();
@@ -677,6 +685,8 @@ private:
     int m_clipboardCount = 0;
     QPointer<QWindow> m_window;
     QString m_pickedWebIcon; // chosen in a form not saved yet: kept from pruning
+    QString m_diagnosticsStatus;
+    bool m_diagnosticsBusy = false;
     std::vector<ShareIndexer::Status> m_shareStatuses;
     std::vector<unc::Known> m_knownShares; // read once, with the window
     SystemCatalog* m_places = nullptr; // the app's; outlives the window

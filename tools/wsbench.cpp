@@ -160,6 +160,7 @@
 #include "AppCatalog.h"
 #include "ContentIndex.h"
 #include "ContentIndexer.h"
+#include "DiagnosticLog.h"
 #include "ContentScanner.h"
 #include "Crawler.h"
 #include "DocExtractor.h"
@@ -4715,6 +4716,14 @@ int main(int argc, char* argv[])
     QCoreApplication app(argc, argv);
     std::setlocale(LC_CTYPE, ".UTF-8"); // %ls of names in any language
     QStringList args = app.arguments().mid(1);
+    // An explicit isolated profile for diagnostics/performance runs; the
+    // settings loader otherwise also performs migrations in the user's file.
+    if (const qsizetype at = args.indexOf(u"--profile"_s); at >= 0 && at + 1 < args.size()) {
+        ws::Settings::useProfile(args[at + 1]);
+        args.remove(at, 2);
+    }
+    if (args.removeAll(u"--diagnostics"_s) > 0)
+        ws::diagnostics::initialize(ws::Settings::dataDir());
     if (const qsizetype at = args.indexOf(u"--out"_s); at >= 0 && at + 1 < args.size()) {
         // For runs started elevated, whose console cannot be redirected.
         FILE* reopened = nullptr;

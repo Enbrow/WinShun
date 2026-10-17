@@ -3534,6 +3534,20 @@ Window {
                 }
 
                 SettingRow {
+                    title: qsTr("诊断日志")
+                    keywords: qsTr("诊断;日志;索引慢;排查;反馈;diagnostics;log").split(";")
+                    description: qsTr("导出后会打开文件夹，把 WinShun-diagnostics.zip 发给开发者即可。包含索引耗时和错误，可能含文件路径；不含设置、剪贴板或文档正文。诊断记录最多 3 MB，过期自动清理；诊断包只保留一份。")
+                                 + (window.editor.diagnosticsStatus.length > 0 ? "\n" + window.editor.diagnosticsStatus : "")
+
+                    FlatButton {
+                        text: window.editor.diagnosticsBusy ? qsTr("正在导出…") : qsTr("导出诊断日志")
+                        enabled: !window.editor.diagnosticsBusy
+                        glyph: ""
+                        onClicked: window.editor.exportDiagnostics()
+                    }
+                }
+
+                SettingRow {
                     title: qsTr("恢复默认设置")
                     keywords: qsTr("重置;默认;reset").split(";")
                     description: qsTr("所有设置回到刚安装时的样子")

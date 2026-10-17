@@ -1,4 +1,5 @@
 #include "App.h"
+#include "Diagnostics.h"
 #include "Backup.h"
 #include "Migration.h"
 #include "Preview.h"
@@ -40,22 +41,28 @@ void logToFile(QtMsgType type, const QMessageLogContext& context, const QString&
 {
     static const bool info = qEnvironmentVariableIsSet("WINSHUN_LOG_INFO");
     if (type != QtDebugMsg && (type != QtInfoMsg || info)) {
+        ws::diagnostics::record(u"app-message"_s,
+            {{u"level"_s, type == QtWarningMsg ? u"warning"_s : type == QtCriticalMsg ? u"error"_s
+                    : type == QtFatalMsg ? u"fatal"_s : u"info"_s},
+                {u"message"_s, message}});
         static std::mutex mutex; // messages come from every thread
         const std::lock_guard lock(mutex);
         const QString path = ws::Settings::dataDir() + u"\\WinShun.log"_s;
-        if (QFile::exists(path) && QFile(path).size() > (1 << 20)) {
+        const QByteArray text = message.left(4096).toUtf8();
+        bool canAppend = true;
+        if (QFile::exists(path) && QFile(path).size() + text.size() + 64 > (1 << 20)) {
             const QString old = ws::Settings::dataDir() + u"\\WinShun.old.log"_s;
             QFile::remove(old);
-            QFile::rename(path, old);
+            canAppend = QFile::rename(path, old);
         }
         QFile file(path);
-        if (file.open(QIODevice::Append | QIODevice::Text)) {
+        if (canAppend && file.open(QIODevice::Append | QIODevice::Text)) {
             const char* level = type == QtInfoMsg ? "info"
                 : type == QtWarningMsg         ? "warning"
                 : type == QtCriticalMsg        ? "error"
                                                : "fatal";
             file.write(QDateTime::currentDateTime().toString(Qt::ISODateWithMs).toUtf8() + ' ' + level + ": "
-                + message.toUtf8() + '\n');
+                + text + '\n');
         }
     }
     if (g_defaultHandler)
@@ -301,6 +308,8 @@ int main(int argc, char* argv[])
     if (portable)
         ws::copyIntoPortable(); // its first start: what the usual places hold
     ws::Backup::applyRestored(); // a backup chosen to restore, before the settings are read
+    ws::diagnostics::initialize(ws::Settings::dataDir());
+    ws::diagnostics::record(u"app-start"_s, ws::diagnostics::environment());
     g_defaultHandler = qInstallMessageHandler(logToFile); // the running copy only
 
     applyUiFont(); // the UI font (see above)

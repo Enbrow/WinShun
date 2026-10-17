@@ -3561,6 +3561,26 @@
         <source>扩展名，例如 dwg dxf</source>
         <translation>Extensions, such as dwg dxf</translation>
     </message>
+    <message>
+        <source>诊断日志</source>
+        <translation>Diagnostic logs</translation>
+    </message>
+    <message>
+        <source>诊断;日志;索引慢;排查;反馈;diagnostics;log</source>
+        <translation>diagnostics;log;slow indexing;troubleshooting;feedback</translation>
+    </message>
+    <message>
+        <source>导出后会打开文件夹，把 WinShun-diagnostics.zip 发给开发者即可。包含索引耗时和错误，可能含文件路径；不含设置、剪贴板或文档正文。诊断记录最多 3 MB，过期自动清理；诊断包只保留一份。</source>
+        <translation>Export opens the folder: send WinShun-diagnostics.zip to the developer. It includes indexing times and errors, and may contain file paths. Settings, clipboard and document text are excluded. Diagnostic records are capped at 3 MB; files untouched for 7 days are removed. Only the latest archive is kept.</translation>
+    </message>
+    <message>
+        <source>正在导出…</source>
+        <translation>Exporting…</translation>
+    </message>
+    <message>
+        <source>导出诊断日志</source>
+        <translation>Export diagnostic logs</translation>
+    </message>
 </context>
 <context>
     <name>ShareCard</name>
@@ -4189,6 +4209,14 @@
     <message>
         <source>这是机械硬盘：文件名搜索不受影响；内容索引会在后台预读进内存，硬盘休眠后第一次内容搜索可能要等它转起来</source>
         <translation>This is a hard disk. Searching by name is not affected; the content index is read into memory in the background, but after the disk has gone to sleep, the first content search may wait for it to spin up</translation>
+    </message>
+    <message>
+        <source>诊断记录尚未初始化，请重新启动 Win顺 后重试</source>
+        <translation>Diagnostic logging is not initialized. Restart WinShun and try again.</translation>
+    </message>
+    <message>
+        <source>诊断包正在生成，完成后会打开文件夹</source>
+        <translation>The diagnostic archive is being created. Its folder will open when ready.</translation>
     </message>
 </context>
 <context>
@@ -6484,6 +6512,10 @@
         <source>程序</source>
         <translation>Programs</translation>
     </message>
+    <message>
+        <source>诊断包已生成，把 WinShun-diagnostics.zip 发给开发者即可</source>
+        <translation>Diagnostic archive created. Send WinShun-diagnostics.zip to the developer.</translation>
+    </message>
 </context>
 <context>
     <name>ws::Updater</name>
@@ -6533,6 +6565,17 @@
     <message>
         <source>备份文件已损坏</source>
         <translation>The backup file is damaged</translation>
+    </message>
+</context>
+<context>
+    <name>ws::diagnostics</name>
+    <message>
+        <source>生成诊断包失败</source>
+        <translation>Could not create the diagnostic archive</translation>
+    </message>
+    <message>
+        <source>写入诊断包失败，请检查文件夹权限和剩余空间</source>
+        <translation>Could not save the diagnostic archive. Check folder permissions and available space.</translation>
     </message>
 </context>
 </TS>

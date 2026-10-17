@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <cstdarg>
+#include <cstdint>
 #include <cstdio>
 #include <mutex>
 #include <vector>
@@ -53,9 +54,9 @@ void write(const wchar_t* format, ...)
     std::vector<wchar_t> text(1024);
     va_list args;
     va_start(args, format);
-    const int n = ::_vsnwprintf_s(text.data(), text.size(), _TRUNCATE, format, args);
+    ::_vsnwprintf_s(text.data(), text.size(), _TRUNCATE, format, args);
     va_end(args);
-    const std::string line = utf8(stamp() + L" " + std::wstring(text.data(), n > 0 ? static_cast<std::size_t>(n) : 0) + L"\n");
+    const std::string line = utf8(stamp() + L" " + std::wstring(text.data()) + L"\n");
 
     const std::lock_guard lock(g_mutex);
     if (g_console) {
@@ -67,11 +68,12 @@ void write(const wchar_t* format, ...)
     ::CreateDirectoryW(dir.c_str(), nullptr);
     const std::wstring path = dir + L"\\service.log";
     WIN32_FILE_ATTRIBUTE_DATA info {};
-    if (::GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &info) && info.nFileSizeHigh == 0
-        && info.nFileSizeLow > kMaxBytes) {
+    if (::GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &info)
+        && ((std::uint64_t {info.nFileSizeHigh} << 32) | info.nFileSizeLow) + line.size() > kMaxBytes) {
         const std::wstring old = dir + L"\\service.old.log";
         ::DeleteFileW(old.c_str());
-        ::MoveFileW(path.c_str(), old.c_str());
+        if (!::MoveFileW(path.c_str(), old.c_str()))
+            return; // a reader may deny rename: never keep appending beyond the cap
     }
     const HANDLE file = ::CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);

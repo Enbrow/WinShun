@@ -6,6 +6,7 @@
 #include "Ntfs.h"
 
 #include <QStringList>
+#include <QJsonObject>
 
 #include <atomic>
 #include <chrono>
@@ -99,6 +100,7 @@ public:
         std::chrono::milliseconds gather {std::chrono::minutes(2)}; // after a change, wait for more
         std::chrono::milliseconds interval {std::chrono::minutes(15)}; // new files come without a change of an indexed one
         std::chrono::milliseconds cooldown {std::chrono::minutes(10)}; // a file is read at most this often
+        std::chrono::milliseconds report {std::chrono::seconds(30)}; // diagnostics heartbeat; tests shorten it
     };
 
     ContentIndexer(std::shared_ptr<ContentIndex> content, Source source, Options options, Timing timing = {});
@@ -115,6 +117,7 @@ public:
         std::size_t total = 0;
     };
     Progress progress() const noexcept { return {m_passDone.load(), m_passTotal.load()}; }
+    QJsonObject diagnosticStatus() const; // metadata only; no paths or document text
     // The search box is open: the user may search again any moment, and a
     // search reads the files it needs itself, best with the disks to itself.
     // No file is started (nor segments merged) meanwhile, nor for a few
@@ -233,6 +236,9 @@ private:
     std::atomic<std::int64_t> m_searchBoxClosed {0}; // steady clock, ms
     std::atomic<std::size_t> m_passDone {0};
     std::atomic<std::size_t> m_passTotal {0};
+    std::atomic<std::int64_t> m_passStartedMs {0};
+    std::atomic<std::int64_t> m_lastProgressMs {0};
+    std::atomic<bool> m_merging {false};
     std::atomic<std::size_t> m_copies {0};
     struct BulkCounters {
         std::atomic<std::size_t> sessions {0}, sessionsFailed {0}, files {0}, tooLarge {0}, recent {0}, noRecord {0},
