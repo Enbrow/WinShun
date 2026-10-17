@@ -1169,7 +1169,7 @@ def cover(window, preset="xhs", bg="silk", title=TITLE, badges=BADGES, keys=("Ct
 # the taskbar box (2560x1600, physical px): the launcher, the taskbar's top and
 # bottom, the part of the taskbar taken as it is (Start and the box), the box.
 # A new screen shot needs these measured again.
-TASKBAR = {"frame": (18, 617, 1158, 1510), "bar": (1528, 1600), "real": (168, 629), "box": (250, 1540, 610, 1588)}
+TASKBAR = {"frame": (50, 617, 1190, 1510), "bar": (1528, 1600), "real": (348, 809), "box": (430, 1540, 790, 1588)}
 
 
 def taskbar_page(window, screen, title, subtitle, preset="xhs", bg="letters", seed=7, places=TASKBAR):

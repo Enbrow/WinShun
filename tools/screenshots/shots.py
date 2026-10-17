@@ -10,6 +10,7 @@ How it all goes together: README.md next to this.
            backgrounds below makes the window match the image it goes on.
            What was there before is noted; `restore` puts it back.
   profile  [FOLDER] [--files DEMO] [--recent PATH ...] [--number-keys ctrl|alt|off]
+           [--number-hints held|always|off]
            A folder (work/profile) for `WinShun.exe --profile FOLDER`: the
            settings of this user, but only DEMO indexed (every other folder
            excluded; F:/Win顺演示 by default, copied from demo/ if missing),
@@ -71,7 +72,7 @@ README_WIDTH = 1080
 # 18 images: as many as a Xiaohongshu post takes.
 PAGES = (
     ("01-search", "L-search", "打拼音首字母，[秒找文件]", "ndbg → 年度报告，三百多万个文件几毫秒搜完"),
-    ("02-numbers", "L-numbers", "序号在图标上，[数字直达]", "Ctrl+1～9 打开第几行，不用先按住 Ctrl"),
+    ("02-numbers", "L-numbers", "按住 Ctrl，[数字直达]", "图标上显示序号，Ctrl+1～9 打开第几行"),
     ("03-newest", "X-newest", "找[最新的那一版]", "Ctrl+S 按修改时间排，最新的或最早的在前"),
     ("04-content", "L-content", "搜[文件里的文字]", "Word、Excel、PPT、PDF、代码，一起搜"),
     ("05-apps", "L-apps", "应用和设置，[拼音直达]", "guanliqi → 任务管理器、设备管理器……"),
@@ -93,7 +94,7 @@ README_ONLY = (
     ("semantic", "L-semantic", "记不得原词，[按意思找]", "? 去年报销的规定 → 差旅费用管理办法，用你选的模型"),
     ("folder", "L-content-folder", "只搜[一个文件夹]里的字", "第三季度销售额 财务/ → 只在“财务”里找"),
     ("foldermenu", "L-foldermenu", "资源管理器里，[双击空白处]", "收藏的、最近的、开着的文件夹，一下就到"),
-    ("appearance", "L-appearance", "外观[随你调]", "主题、透明效果、界面大小，任务栏图标可换单色"),
+    ("appearance", "L-appearance", "外观[随你调]", "主题、透明效果、圆角或直角、界面大小，图标可换单色"),
     ("panel", "L-panel", "结果太多，[展开面板]", "Ctrl+E：左边筛选，右边分列排序"),
     ("preview", "L-preview", "Alt+P，[先看一眼]", "图片、文本、Office、PDF，启动器不关"),
 )
@@ -191,6 +192,8 @@ def main() -> None:
     c.add_argument("--recent", nargs="*", help="recently opened, newest first (default: some of the demo folder)")
     c.add_argument("--number-keys", default="ctrl", choices=("ctrl", "alt", "off"),
                    help="the launcher's number keys (default: ctrl, as WinShun's own; off takes the numbers off the icons)")
+    c.add_argument("--number-hints", default="held", choices=("held", "always", "off"),
+                   help="when the numbers show on the icons (default: held, as WinShun's own: only while Ctrl is held)")
     c = commands.add_parser("shoot")
     c.add_argument("-o", "--out", required=True)
     c.add_argument("--delay", type=float, default=0.0, help="seconds to wait first, to bring the window up")
@@ -242,7 +245,7 @@ def main() -> None:
             return stage.restore()
         files = pathlib.Path(args.files) if args.files else stage.DEMO
         recent = args.recent if args.recent is not None else [stage.DEMO / name for name in stage.RECENT]             if files == stage.DEMO else []
-        return stage.make_profile(args.folder, files, recent, args.number_keys)
+        return stage.make_profile(args.folder, files, recent, args.number_keys, args.number_hints)
     if args.command == "render":
         if unknown := set(args.sets) - set(SETS):
             parser.error(f"no such set: {', '.join(sorted(unknown))} (there are {', '.join(SETS)})")

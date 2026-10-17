@@ -26,17 +26,6 @@ sleep 300
 scene --theme light --wallpaper dawn
 sleep 2500
 
-# Row numbers: on the icons as they always are, in 全部 (search.png is of 文件
-# and ndbg): typed in Chinese, which no app of this PC is called.
-open x
-sleep 300
-tap 08
-type 年度报告
-sleep 1200
-matte L-numbers
-tap 1B
-sleep 600
-
 # The newest first: 全部 → 文件 (Tab, see windows.txt), Ctrl+S once
 # (最匹配 → 最新); twice more back to 最匹配, then 文件 → 内容 → 全部.
 open ndbg
@@ -132,6 +121,23 @@ sleep 1200
 matte X-ai2
 chord 12 73
 sleep 500
+
+# Row numbers: WinShun shows them while Ctrl is held; the profile again with
+# them always on the icons, which the matte needs (no key held). In 全部
+# (search.png is of 文件 and ndbg): typed in Chinese, which no app of this
+# PC is called.
+quit
+sleep 5000
+profile start --number-hints always
+sleep 15000
+open x
+sleep 300
+tap 08
+type 年度报告
+sleep 1200
+matte L-numbers
+tap 1B
+sleep 600
 
 restore
 quit

@@ -205,12 +205,14 @@ def seed_clipboard(folder):
     return len(rows)
 
 
-def make_profile(folder, files, recent, number_keys="ctrl"):
+def make_profile(folder, files, recent, number_keys="ctrl", number_hints="held"):
     """A folder for `WinShun.exe --profile <folder>`: this user's settings,
     but nothing indexed outside `files`, no update check, the built-in web
     shortcuts only, no shares, `recent` (paths, newest first) as the recently
     opened items, the demo favorites and clipboard history, the launcher's
-    number keys `number_keys` (ctrl, alt or off).
+    number keys `number_keys` (ctrl, alt or off), shown on the icons
+    `number_hints` (held, always or off); WinShun's own look whatever this
+    user picked (rounded corners, the system's theme, standard size).
     The demo folder is put in place first if it is not there."""
     folder = pathlib.Path(folder).resolve()
     if pathlib.Path(files) == DEMO and not DEMO.exists():
@@ -229,7 +231,10 @@ def make_profile(folder, files, recent, number_keys="ctrl"):
                                    "Folder": ""})
     text = ini_set(text, "Update", {"Automatic": "false"})
     text = ini_drop(text, "WebSearch", "Shares")  # one's own sites and shares stay out; the defaults come back
-    text = ini_set(text, "Results", {"Sort": "match", "StartList": "recent", "NumberKeys": number_keys})
+    text = ini_set(text, "Results", {"Sort": "match", "StartList": "recent", "NumberKeys": number_keys,
+                                     "NumberHints": number_hints})
+    text = ini_set(text, "Appearance", {"Theme": "system", "Transparency": "on", "TaskbarIcon": "color",
+                                        "UiSize": "standard", "Language": "system", "Corners": "round"})
     text = ini_set(text, "Launcher", {"DialogAutoJumpAsked": "true"})  # no question under the dialog bar
     # Search by meaning on the demo folder, with this user's model service (and
     # its key, in Windows' credentials); its vectors are the profile's own.
