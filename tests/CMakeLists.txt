@@ -1,4 +1,4 @@
-find_package(Qt6 REQUIRED COMPONENTS Test)
+find_package(Qt6 REQUIRED COMPONENTS Test QuickTest)
 
 qt_add_executable(tst_windowvisibility tst_windowvisibility.cpp
     ${PROJECT_SOURCE_DIR}/src/app/platform/WindowEffects.cpp
@@ -12,7 +12,7 @@ set_tests_properties(tst_windowvisibility PROPERTIES
 
 qt_add_executable(tst_scrollalignment tst_scrollalignment.cpp)
 target_compile_definitions(tst_scrollalignment PRIVATE WINSHUN_QML_DIR="${PROJECT_SOURCE_DIR}/src/app/qml")
-target_link_libraries(tst_scrollalignment PRIVATE Qt6::Quick Qt6::Test)
+target_link_libraries(tst_scrollalignment PRIVATE Qt6::Quick Qt6::Test Qt6::QuickTest)
 set_target_properties(tst_scrollalignment PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE WIN32_EXECUTABLE FALSE)
 foreach(scale IN ITEMS 1 1.25 1.5 1.75 2)
     add_test(NAME tst_scrollalignment_${scale} COMMAND tst_scrollalignment -o -,txt)

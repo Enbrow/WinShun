@@ -8,6 +8,7 @@
 #include <QStyleHints>
 #include <QTest>
 #include <QWheelEvent>
+#include <QtQuickTest/quicktest.h>
 
 #include <memory>
 
@@ -125,6 +126,9 @@ private slots:
     {
         QFETCH(qreal, listY);
         view->setY(listY);
+        // Moving the view schedules a layout. If that frame lands inside the
+        // loop, Flickable's fixup rounds a sub-pixel contentY to whole pixels.
+        QVERIFY(QQuickTest::qWaitForPolish(window.get()));
         scrollTo(top());
         const qreal resting = rowY();
         const qreal dpr = window->devicePixelRatio();
