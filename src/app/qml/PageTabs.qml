@@ -76,7 +76,7 @@ Item {
         y: parent.height - height - 2
         width: 16
         height: 3
-        radius: 1.5
+        radius: Theme.smallRadius
         color: Theme.accent
 
         Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
@@ -90,7 +90,7 @@ Item {
         y: 2
         width: target ? target.width : 0
         height: parent.height - 4
-        radius: 4
+        radius: Theme.controlRadius
         color: "transparent"
         border.width: 2
         border.color: Theme.text

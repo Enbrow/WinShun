@@ -149,7 +149,7 @@ Window {
                 Rectangle {
                     visible: !entry.separator && menu.highlighted === entry.index
                     anchors.fill: parent
-                    radius: 4
+                    radius: Theme.controlRadius
                     color: Theme.menuHover
                 }
 

@@ -46,6 +46,12 @@ bool SystemTheme::roundedCorners() const
     return win::roundedCorners();
 }
 
+void SystemTheme::setRoundedCorners(bool on)
+{
+    if (win::setRoundedCorners(on) && s_instance)
+        emit s_instance->changed();
+}
+
 void SystemTheme::setBackdropOn(bool on)
 {
     if (s_backdropOn == on)

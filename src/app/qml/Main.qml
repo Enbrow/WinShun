@@ -251,7 +251,7 @@ Window {
 
                 Rectangle { // raised with the keyboard on it, or hovered, as a row
                     anchors.fill: parent
-                    radius: 6
+                    radius: Theme.largeControlRadius
                     color: emptyHint.current ? Theme.selection : emptyHintArea.containsMouse ? Theme.hover : "transparent"
                 }
                 Row {
@@ -417,10 +417,7 @@ Window {
     }
 
     // Ctrl+1… (or Alt+1…, Launcher.numberKeys) opens the nth row shown,
-    // counted from the first one at least half in view. The chords are on
-    // the rows' icons all along: shown only while the modifier was held,
-    // they came late (after a wait, so that Ctrl+C and the like would not
-    // flash them) and swapped the right of every row. The keys come here as
+    // counted from the first one at least half in view. The keys come here as
     // the window's own (no hook: GitHub #10); a digit another program holds
     // as a global hotkey stays its (numberkeys::heldMask).
     readonly property int numberKey: launcher.numberKeys === "ctrl" ? Qt.Key_Control
@@ -429,6 +426,17 @@ Window {
     readonly property int lastShownRow: Math.min(view.count - 1, firstShownRow + 8,
                                                  Math.floor((view.contentY + view.height - viewRowHeight / 2) / viewRowHeight))
     readonly property string numberModifier: numberKey === Qt.Key_Alt ? "Alt" : "Ctrl"
+    NumberHints {
+        id: numberHints
+        mode: window.launcher.numberHints
+        key: window.numberKey
+        listening: window.visible && window.active && !window.menuOpen && !window.clipboardBelow
+    }
+    Connections {
+        target: window.searchBar
+        function onKeyReleased(event) { numberHints.release(event) }
+    }
+    onActiveFocusItemChanged: numberHints.reset()
     // A digit another program holds as a global hotkey is its (Launcher.numberKeysLeft):
     // the row still shows the chord, struck through (ResultRow.hintTaken).
     function numberUsable(number) {
@@ -542,6 +550,7 @@ Window {
     }
 
     function handleKey(event) {
+        numberHints.press(event)
         nameTip.dismiss() // as Windows' tips go on a key
         if (menuOpen && contextMenu.handleKey(event)) {
             event.accepted = true
@@ -701,9 +710,14 @@ Window {
 
     function selectFirst() {
         hintIndex = -1
+        view.stopScrolling()
         if (view.count > 0 && homeIndex < 0)
             view.currentIndex = 0
         view.positionViewAtBeginning()
+        // ListView may stop at originY, leaving the top margin scrolled
+        // off. A later resultsReplaced would then move a view already at
+        // the true top down by that margin (see ClipboardPage.selectFirst).
+        view.contentY = view.originY - view.topMargin
     }
 
     Connections {
@@ -927,7 +941,7 @@ Window {
                             Rectangle {
                                 anchors.fill: parent
                                 anchors.margins: 2
-                                radius: 6
+                                radius: Theme.largeControlRadius
                                 color: tile.current ? Theme.selection : tileArea.containsMouse ? Theme.hover : "transparent"
                             }
                             Rectangle { // accent pill on the current one, as on the current row
@@ -936,7 +950,7 @@ Window {
                                 y: parent.height - 6
                                 width: 18
                                 height: 3
-                                radius: 1.5
+                                radius: Theme.smallRadius
                                 color: Theme.accent
                             }
                             Image { // as a row's icon (ResultRow.qml): its own pixels, unsmoothed
@@ -1005,9 +1019,22 @@ Window {
                 boundsBehavior: Flickable.StopAtBounds
                 highlightMoveDuration: 0
                 reuseItems: true
+                function stopScrolling() {
+                    wheelScroll.cancel()
+                    cancelFlick()
+                }
+                ListWheelScroll {
+                    id: wheelScroll
+                    view: boxList
+                    animate: SystemTheme.animations
+                }
                 onContentYChanged: nameTip.dismiss() // scrolled: another row under the pointer
                 onCurrentIndexChanged: {
                     positionViewAtIndex(currentIndex, ListView.Contain)
+                    // Rows can arrive while the opening list is still empty
+                    // and zero-height; Contain then scrolls off the top margin.
+                    if (currentIndex === 0)
+                        contentY = originY - topMargin
                     if (currentIndex >= 0)
                         window.hintIndex = -1 // back on a row, however it got there
                 }
@@ -1019,13 +1046,10 @@ Window {
                     id: hintRows
                     width: boxList.width
                     visible: window.showHints
-                    transform: Translate { // on whole device pixels, as the rows are (see the delegate)
-                        y: {
-                            const dpr = Screen.devicePixelRatio
-                            const listTop = layout.y + listArea.y + boxList.y
-                            const deviceY = (listTop + boxList.contentItem.y + hintRows.y) * dpr
-                            return (Math.round(deviceY) - deviceY) / dpr
-                        }
+                    transform: ScrollPixelAlignment {
+                        view: boxList
+                        viewY: layout.y + listArea.y + boxList.y
+                        itemY: hintRows.y
                     }
 
                     Repeater {
@@ -1049,7 +1073,7 @@ Window {
                                 anchors.rightMargin: 6
                                 anchors.topMargin: 1
                                 anchors.bottomMargin: 1
-                                radius: 6
+                                radius: Theme.largeControlRadius
                                 color: hintRow.current ? Theme.selection : hintArea.containsMouse ? Theme.hover : "transparent"
                             }
                             Rectangle { // accent pill, as on the current row
@@ -1058,7 +1082,7 @@ Window {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: 3
                                 height: 18
-                                radius: 1.5
+                                radius: Theme.smallRadius
                                 color: Theme.accent
                             }
                             Text {
@@ -1110,6 +1134,7 @@ Window {
                     height: window.rowHeight
                     showModified: window.launcher.showModified
                     hint: window.numberOf(index)
+                    hintOpacity: numberHints.hintOpacity
                     hintModifier: window.numberModifier
                     hintTaken: resultRow.hint > 0 && !window.numberUsable(resultRow.hint)
                     nameTip: nameTip
@@ -1118,17 +1143,14 @@ Window {
                     // pixels within). Between them (at 150 % most scroll
                     // positions are), text and icons round to the pixel grid
                     // each its own way, so while the list glides they take
-                    // turns moving by a pixel and the rows shake. Only the
-                    // picture moves, by under a pixel: contentY stays as
-                    // Flickable has it, so wheel, drag and flick are its own.
-                    transform: Translate {
-                        y: {
-                            const dpr = Screen.devicePixelRatio
-                            // Not mapToItem(): it would not be asked again once the layout places the boxList.
-                            const listTop = layout.y + listArea.y + boxList.y
-                            const deviceY = (listTop + boxList.contentItem.y + resultRow.y) * dpr
-                            return (Math.round(deviceY) - deviceY) / dpr
-                        }
+                    // turns moving by a pixel and the rows shake. Align the
+                    // picture without feeding rounding back into contentY;
+                    // this also covers native dragging and touch gestures.
+                    transform: ScrollPixelAlignment {
+                        view: boxList
+                        // Not mapToItem(): this also tracks layout changes.
+                        viewY: layout.y + listArea.y + boxList.y
+                        itemY: resultRow.y
                     }
                     onClicked: (index, modifiers) => window.rowClicked(index, modifiers)
                     onActionRequested: (index, action) => {

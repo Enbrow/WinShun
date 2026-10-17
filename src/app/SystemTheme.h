@@ -30,8 +30,8 @@ class SystemTheme : public QObject, public QAbstractNativeEventFilter {
     // Transparency effects on and no high contrast: otherwise Windows draws
     // no Mica.
     Q_PROPERTY(bool materials READ materials NOTIFY changed FINAL)
-    // Windows rounds the corners of our windows (11 or later).
-    Q_PROPERTY(bool roundedCorners READ roundedCorners CONSTANT FINAL)
+    // Rounded on Windows 11 when the appearance setting allows it.
+    Q_PROPERTY(bool roundedCorners READ roundedCorners NOTIFY changed FINAL)
     // How large the launcher and the clipboard are drawn (界面大小: compact,
     // standard, roomy; see uisize::), and its header's height, as C++ places by.
     Q_PROPERTY(QString uiSize READ uiSize NOTIFY uiSizeChanged FINAL)
@@ -53,6 +53,7 @@ public:
     bool materials() const;
     bool backdropSystem() const;
     bool roundedCorners() const;
+    static void setRoundedCorners(bool on);
     static bool backdropAvailable() { return s_backdropAvailable; }
     static void setBackdropAvailable(bool on) { s_backdropAvailable = on; } // before the first window
     static bool backdrop() { return s_backdropAvailable && s_backdropOn; }

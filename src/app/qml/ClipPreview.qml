@@ -10,6 +10,16 @@ Item {
     id: preview
 
     property var info: ({}) // Clipboard.preview(row)
+    readonly property string entryId: info.id ?? ""
+    property bool completed: false
+    Component.onCompleted: completed = true
+    onEntryIdChanged: {
+        if (completed) {
+            wheelScroll.cancel()
+            flick.cancelFlick()
+            flick.contentY = flick.originY - flick.topMargin
+        }
+    }
     property real parentTop // where the parent's top is in the window: to draw on whole device pixels
     signal copyRequested(string text, bool remember) // one of a colour's notations, a picture's words
 
@@ -41,6 +51,11 @@ Item {
         contentWidth: width
         contentHeight: content.implicitHeight
         boundsBehavior: Flickable.StopAtBounds
+        ListWheelScroll {
+            id: wheelScroll
+            view: flick
+            animate: SystemTheme.animations
+        }
 
         Column {
             id: content
@@ -50,12 +65,11 @@ Item {
             // of one lower: the lines of a long text sit at all sorts of
             // fractions, and those on a half pixel then always round the same
             // way (see SettingsWindow).
-            transform: Translate {
-                y: {
-                    const dpr = Screen.devicePixelRatio
-                    const deviceY = (preview.parentTop + preview.y + flick.y + flick.contentItem.y + content.y) * dpr
-                    return (Math.round(deviceY) - deviceY + 0.02) / dpr
-                }
+            transform: ScrollPixelAlignment {
+                view: flick
+                viewY: preview.parentTop + preview.y + flick.y
+                itemY: content.y
+                pixelBias: 0.02
             }
 
             ColorSwatch { // a colour value; a translucent one opaque on the left, over a checkerboard on the right
@@ -63,7 +77,7 @@ Item {
                 width: parent.width
                 height: 72
                 color: visible ? preview.info.swatch : "transparent"
-                radius: 8
+                radius: Theme.largeCardRadius
                 borderColor: Theme.chipBorder
                 cellSize: 8
                 checkerColor: Theme.checker
@@ -85,7 +99,7 @@ Item {
 
                         width: parent.width
                         height: 32
-                        radius: 6
+                        radius: Theme.largeControlRadius
                         color: notationArea.containsMouse ? Theme.hover : "transparent"
 
                         Text {
@@ -193,7 +207,7 @@ Item {
                         anchors.right: parent.right
                         width: copyWordsRow.implicitWidth + 16
                         height: 26
-                        radius: 6
+                        radius: Theme.largeControlRadius
                         color: copyWordsArea.containsMouse ? Theme.hover : "transparent"
 
                         Row {

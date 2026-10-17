@@ -98,6 +98,7 @@ public:
         DWORD helloTimeoutMs = 10'000; // for the handshake and the request after it
         DWORD writeTimeoutMs = 10'000; // a client that does not read for this long is dropped
         bool bulkReads = true; // --console --no-bulk: as a service without them (tests)
+        bool keyListener = false; // LocalSystem with the session-launch privileges
     };
     explicit Server(Options options);
     ~Server();

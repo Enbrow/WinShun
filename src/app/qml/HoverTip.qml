@@ -109,7 +109,7 @@ Item {
         id: bubble
         width: tip.fullWidth
         height: tip.height
-        radius: 6
+        radius: Theme.cardRadius
         clip: true
         color: Theme.menuBackground
         border.width: 1

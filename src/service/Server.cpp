@@ -1,4 +1,5 @@
 #include "Server.h"
+#include "InputListener.h"
 
 #include "Log.h"
 #include "Win32Util.h"
@@ -362,6 +363,8 @@ bool Server::handshake(Connection& conn)
     ok.version[1] = WINSHUN_VERSION_MINOR;
     ok.version[2] = WINSHUN_VERSION_PATCH;
     ok.capabilities = m_options.bulkReads ? kCapabilityBulkRead : 0;
+    if (m_options.keyListener)
+        ok.capabilities |= kCapabilityKeyListener;
     encode(w, ok);
     return conn.channel.write(w.finish(Type::HelloOk), m_options.writeTimeoutMs);
 }
@@ -387,6 +390,9 @@ void Server::serve(std::shared_ptr<Connection> conn)
                 break;
             case Type::OpenBulkRead:
                 serveOpenBulkRead(*this, *conn, payload);
+                break;
+            case Type::OpenKeyListener:
+                serveInputListener(*this, *conn, payload);
                 break;
             default:
                 log::write(L"pid %lu: unknown request %u", conn->pid, static_cast<unsigned>(type));

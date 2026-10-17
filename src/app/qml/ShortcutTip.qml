@@ -91,7 +91,7 @@ Window {
                     Rectangle { // a key cap, as the footer's (KeyHint)
                         width: keyText.implicitWidth + 10
                         height: 22
-                        radius: 4
+                        radius: Theme.controlRadius
                         color: Theme.keycap
                         border.width: 1
                         border.color: Theme.keycapBorder

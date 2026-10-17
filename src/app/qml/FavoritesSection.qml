@@ -83,7 +83,7 @@ SettingsSection {
 
             width: parent.width
             height: Math.max(favoriteList.implicitHeight, 48)
-            radius: 4
+            radius: Theme.controlRadius
             color: "transparent"
             border.width: 1
             border.color: Theme.cardBorder
@@ -141,7 +141,7 @@ SettingsSection {
                             visible: !favRow.editing
                             anchors.fill: parent
                             anchors.margins: 1
-                            radius: 3
+                            radius: Theme.smallControlRadius
                             color: favRow.dragged ? Theme.card : favArea.containsMouse ? Theme.navHover : "transparent"
                             border.width: favRow.dragged ? 1 : 0
                             border.color: Theme.cardBorder
@@ -241,7 +241,7 @@ SettingsSection {
                             anchors.verticalCenter: parent.verticalCenter
                             width: visible ? Math.max(36, keywordText.implicitWidth + 16) : 0
                             height: 26
-                            radius: 4
+                            radius: Theme.controlRadius
                             color: Theme.keycap
                             border.width: 1
                             border.color: Theme.keycapBorder

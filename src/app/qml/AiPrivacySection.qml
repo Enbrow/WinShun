@@ -31,7 +31,7 @@ SettingsSection {
         body: Rectangle {
             width: parent.width
             height: Math.max(pathList.implicitHeight, 40)
-            radius: 4
+            radius: Theme.controlRadius
             color: "transparent"
             border.width: 1
             border.color: Theme.cardBorder
@@ -63,7 +63,7 @@ SettingsSection {
                         Rectangle {
                             anchors.fill: parent
                             anchors.margins: 1
-                            radius: 3
+                            radius: Theme.smallControlRadius
                             color: rowArea.containsMouse ? Theme.navHover : "transparent"
                         }
                         Rectangle {

@@ -29,11 +29,16 @@ namespace ws {
 // press here would replace another's and take it away again.
 class KeyListener {
 public:
+    struct Tap {
+        std::string sent;
+        std::uint32_t key = 0;
+        std::uint32_t time = 0; // the input's clock, shared by both listeners
+    };
     struct Callbacks {
         // None: keyboards not listened to. `sent` describes the last keys
         // when a program made some of the taps (SendInput), for the log:
         // which modifier and Ctrl keys, how far apart; empty otherwise.
-        std::function<void(const std::string& sent)> doubleCtrl;
+        std::function<void(const Tap&)> doubleCtrl;
         // A double click with no other button or modifier held: the window
         // under the pointer and where (physical pixels). None: the mouse only
         // around a Ctrl press.
@@ -48,6 +53,9 @@ public:
     KeyListener& operator=(const KeyListener&) = delete;
 
     bool isActive() const noexcept { return m_active.load(); }
+    HWND window() const noexcept { return m_window.load(); }
+    void setServiceProcess(DWORD pid) noexcept { m_servicePid = pid; }
+    bool serviceActive() const noexcept;
 
     // Whether the folder menu is up (from any thread): a double click whose
     // first press closed it is not reported (DoubleClickDetector).
@@ -62,6 +70,7 @@ private:
     void onMouse(const RAWMOUSE& mouse);
     void listenToMouse(bool on);
     std::string sentTrace() const;
+    void deliver(Tap tap);
 
     // The last keys, for sentTrace: modifiers and Ctrl by name, any other
     // only as "a key" (nothing typed is kept).
@@ -82,6 +91,12 @@ private:
     std::atomic<DoubleTapDetector::Side> m_side {DoubleTapDetector::Side::Both};
     std::atomic<HWND> m_window {nullptr};
     std::atomic<bool> m_active {false};
+    std::atomic<DWORD> m_servicePid {0};
+    std::atomic<DWORD> m_readyPid {0};
+    std::atomic<ULONGLONG> m_heartbeat {0};
+    bool m_usingService = false; // listener thread only
+    bool m_delivered = false;
+    std::uint32_t m_lastDelivered = 0;
     std::jthread m_thread;
 };
 

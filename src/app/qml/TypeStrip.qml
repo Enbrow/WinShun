@@ -63,6 +63,10 @@ Item {
     onTargetHeightChanged: {
         animated = targetHeight > opening
         opening = targetHeight
+        if (targetHeight > 0)
+            scheduleReveal()
+        else
+            cancelReveal()
     }
     Behavior on opening {
         enabled: strip.animated
@@ -79,7 +83,23 @@ Item {
     }
 
     // Keeps the current chip in view (Tab past the right edge).
+    property bool revealRequested: false
+    property bool writingScroll: false
+    property real slidePosition: 0
+    function scheduleReveal() {
+        revealRequested = true
+        Qt.callLater(runReveal)
+    }
+    function runReveal() {
+        if (revealRequested && shown)
+            reveal()
+    }
+    function cancelReveal() {
+        revealRequested = false
+        slide.stop()
+    }
     function reveal() {
+        cancelReveal()
         const chip = chipRepeater.itemAt(chips.findIndex(c => c.type === current))
         if (!chip || view.contentWidth <= view.width)
             return
@@ -91,13 +111,26 @@ Item {
         else if (right > view.contentX + view.width)
             to = Math.min(view.contentWidth - view.width, right - view.width)
         if (to !== view.contentX) {
+            view.cancelFlick()
+            if (!SystemTheme.animations) {
+                view.contentX = to
+                return
+            }
+            slide.from = view.contentX
             slide.to = to
             slide.restart()
         }
     }
-    NumberAnimation { id: slide; target: view; property: "contentX"; duration: 150; easing.type: Easing.OutCubic }
-    onCurrentChanged: Qt.callLater(reveal)
-    onChipsChanged: Qt.callLater(reveal)
+    onSlidePositionChanged: {
+        if (slide.running) {
+            writingScroll = true
+            view.contentX = slidePosition
+            writingScroll = false
+        }
+    }
+    NumberAnimation { id: slide; target: strip; property: "slidePosition"; duration: 150; easing.type: Easing.OutCubic }
+    onCurrentChanged: scheduleReveal()
+    onChipsChanged: scheduleReveal()
 
     Flickable {
         id: view
@@ -112,8 +145,18 @@ Item {
         flickableDirection: Flickable.HorizontalFlick
         boundsBehavior: Flickable.StopAtBounds
         clip: true
+        onContentXChanged: if (!strip.writingScroll) strip.cancelReveal()
+        onDraggingChanged: if (dragging) strip.cancelReveal()
+        onMovementStarted: strip.cancelReveal()
         opacity: strip.shown ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 150 } }
+        WheelHandler {
+            target: null
+            orientation: Qt.Horizontal
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            blocking: false // observe, then let Flickable handle the event
+            onWheel: strip.cancelReveal()
+        }
 
         Row {
             id: row
@@ -142,7 +185,7 @@ Item {
                     // Whole pixels: a half one would leave the labels after it blurred.
                     width: (modelData.dot.length > 0 ? 10 + 8 + 6 : 12) + Math.ceil(label.implicitWidth) + 12
                     height: Theme.chipHeight
-                    radius: height / 2
+                    radius: Theme.pillRadius(height)
                     color: active ? Theme.chipActive : area.containsMouse ? Theme.chipHover : "transparent"
                     border.width: active ? 1 : 0
                     border.color: Theme.chipBorder
@@ -156,7 +199,7 @@ Item {
                         y: strip.onPixel((chip.height - height) / 2)
                         width: 8
                         height: 8
-                        radius: 2
+                        radius: Theme.progressRadius
                         color: chip.modelData.dot
                     }
 
@@ -193,7 +236,7 @@ Item {
         y: view.y + row.y
         width: Theme.chipHeight
         height: Theme.chipHeight
-        radius: height / 2
+        radius: Theme.pillRadius(height)
         opacity: view.opacity
         color: editArea.pressed ? Theme.controlPressed : editArea.containsMouse ? Theme.chipHover : "transparent"
         Accessible.role: Accessible.Button

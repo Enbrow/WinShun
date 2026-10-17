@@ -48,6 +48,7 @@
 #include "platform/NetworkNotifier.h"
 #include "platform/NumberKeys.h"
 #include "platform/Paster.h"
+#include "platform/ServiceKeyListener.h"
 #include "platform/Shell.h"
 #include "platform/ShellContextMenu.h"
 #include "platform/ShellMenu.h"
@@ -348,6 +349,7 @@ App::~App()
     siteicons::shutdown(); // an icon arriving now would be told to no one
     m_keyRouter.reset(); // no keys taken from here on
     m_drainingRouter.reset();
+    m_serviceKeyListener.reset();
     m_keyListener.reset(); // no double click told to the folder menu
     delete m_folderMenuWindow; // before its view-model and the QML engine
     m_folderMenu.reset();
@@ -989,6 +991,8 @@ void App::applyTheme()
 // Theme and language take effect at once, in every window, without a restart.
 void App::applyAppearance()
 {
+    SystemTheme::setRoundedCorners(m_settings.corners == u"round");
+    updateSearchBoxLook(); // the native child redraws on its own thread
     // 界面大小: QML follows SystemTheme; the bar by file dialogs is placed by its heights.
     if (SystemTheme::uiSize() != m_settings.uiSize) {
         SystemTheme::setUiSize(m_settings.uiSize);
@@ -1062,23 +1066,27 @@ void App::applySettings(bool initial)
         && (m_settings.folderMenuExplorer || m_settings.folderMenuDesktop);
     const int listenTo = (m_settings.doubleCtrl ? 1 : 0) | (doubleClicks ? 2 : 0);
     if (listenTo != m_keyListenerMode) {
+        m_serviceKeyListener.reset();
         m_keyListener.reset(); // the process's one mouse registration goes with it first
         m_keyListenerMode = listenTo;
         if (listenTo != 0) {
             // Called on the listener thread: hop to the GUI thread.
             KeyListener::Callbacks callbacks;
             if (m_settings.doubleCtrl)
-                callbacks.doubleCtrl = [this](const std::string& sent) {
+                callbacks.doubleCtrl = [this](const KeyListener::Tap& tap) {
                     // A program made the taps: which keys came, for "it opens by itself".
                     // A few times a run (a key remapped to Ctrl makes every one).
                     static std::atomic<int> logged {0};
-                    if (!sent.empty() && logged.fetch_add(1) < 10)
-                        qWarning().noquote() << "Double Ctrl partly sent by a program:" << QString::fromStdString(sent);
+                    if (!tap.sent.empty() && logged.fetch_add(1) < 10)
+                        qWarning().noquote() << "Double Ctrl partly sent by a program:" << QString::fromStdString(tap.sent);
                     QMetaObject::invokeMethod(this, &App::onDoubleCtrl, Qt::QueuedConnection);
                 };
             if (FolderMenu* menu = doubleClicks ? m_folderMenu.get() : nullptr)
                 callbacks.doubleClick = [menu](HWND window, POINT pt) { menu->doubleClicked(window, pt); };
             m_keyListener = std::make_unique<KeyListener>(std::move(callbacks));
+            if (m_settings.doubleCtrl && m_keyListener->isActive())
+                m_serviceKeyListener = std::make_unique<ServiceKeyListener>(m_keyListener->window(),
+                    [listener = m_keyListener.get()](DWORD pid) { listener->setServiceProcess(pid); });
         }
     }
     if (m_keyListener)
@@ -1117,6 +1125,8 @@ void App::applySettings(bool initial)
     m_preview->setBuiltInOnly(m_settings.previewWith == u"builtin");
     m_preview->setTextExtensions(m_settings.contentExtensions);
     m_clipboard->setNumberKeys(m_settings.clipboardNumberKeys);
+    m_launcher->setNumberHints(m_settings.numberHints);
+    m_clipboard->setNumberHints(m_settings.numberHints);
     m_clipboard->setRowOptions(m_settings.clipboardClickToPaste, m_settings.clipboardLargePictures);
     updateNumberKeys();
     applyHotkey();
@@ -1333,6 +1343,9 @@ void App::applySearchBox()
                     m_startGap->set(dips);
             }, Qt::QueuedConnection);
         };
+        callbacks.classicChanged = [this](bool classic) {
+            QMetaObject::invokeMethod(this, [this, classic] { setClassicTaskbar(classic); }, Qt::QueuedConnection);
+        };
         callbacks.gapMissing = [this] {
             QMetaObject::invokeMethod(this, [this] {
                 if (m_startGap)
@@ -1341,6 +1354,10 @@ void App::applySearchBox()
         };
         m_searchBox = std::make_unique<taskbar::SearchBox>(
             std::move(callbacks), taskbar::SearchBox::Look {}, loadBoxSpot());
+        // Until the box has measured it (classicChanged): no StartGap tried on it meanwhile.
+        m_classicTaskbar = taskbar::classicTaskList(::FindWindowW(L"Shell_TrayWnd", nullptr)) != nullptr;
+        if (m_settingsEditor)
+            m_settingsEditor->setClassicTaskbar(m_classicTaskbar);
         setSearchBoxShown(taskbar::SearchBox::Hidden::Pending);
         updateSearchBoxLook();
     } else if (!wanted && m_searchBox) {
@@ -1359,7 +1376,7 @@ void App::applySearchBox()
 // gone before it stops wanting it.
 void App::applyStartGap(bool boxWas)
 {
-    const bool wanted = m_searchBox && m_settings.taskbarStartGap;
+    const bool wanted = m_searchBox && m_settings.taskbarStartGap && !m_classicTaskbar; // that needs the XAML taskbar
     if (wanted && !m_startGap) {
         // Called on its thread: over to the GUI thread.
         m_startGap = std::make_unique<taskbar::StartGap>([this](const taskbar::StartGap::Status& status) {
@@ -1392,6 +1409,16 @@ void App::setStartGapStatus(const taskbar::StartGap::Status& status)
         m_settingsEditor->setStartGapState(QString::fromLatin1(names[static_cast<int>(status.state)]),
             QString::fromStdWString(status.reason));
     }
+}
+
+void App::setClassicTaskbar(bool classic)
+{
+    if (m_classicTaskbar == classic)
+        return;
+    m_classicTaskbar = classic;
+    if (m_settingsEditor)
+        m_settingsEditor->setClassicTaskbar(classic);
+    applyStartGap(false); // not the user turning it on: a spot dragged beside the icons kept
 }
 
 void App::setSearchBoxShown(taskbar::SearchBox::Hidden why)
@@ -1433,6 +1460,7 @@ void App::updateSearchBoxLook()
     look.label = tr("搜索").toStdWString();
     look.accent = RGB(accent.red(), accent.green(), accent.blue());
     look.monoIcon = m_settings.taskbarIcon == u"mono";
+    look.roundedCorners = win::roundedCorners();
     using Style = taskbar::SearchBox::Style;
     look.style = m_settings.taskbarSearchBoxStyle == u"icon" ? Style::Icon
         : m_settings.taskbarSearchBoxStyle == u"label"       ? Style::Label
@@ -1814,6 +1842,7 @@ void App::showSettings()
         applyFolderMenuHotkey(); // ... and the folder menu's
         editor->refreshTaskbarState();
         editor->setSearchBoxShown(searchBoxHiddenName(m_searchBoxHidden));
+        editor->setClassicTaskbar(m_classicTaskbar);
         setStartGapStatus(m_startGapStatus);
         editor->refreshFileManagers();
         editor->refreshMcpClients();
@@ -2189,6 +2218,7 @@ void App::dumpLauncher(const QString& file) const
     state[u"panel"_s] = m_launcher->panel();
     state[u"pinned"_s] = m_launcher->pinned();
     state[u"active"_s] = m_window && m_window->isActive();
+    state[u"doubleCtrlService"_s] = m_keyListener && m_keyListener->serviceActive();
     if (m_window) {
         const QRect g = m_window->geometry();
         state[u"geometry"_s] = QJsonArray {g.x(), g.y(), g.width(), g.height()};
@@ -2243,6 +2273,7 @@ void App::applyFolderMenu()
     // hotkey (GitHub #25).
     const bool on = m_settings.folderMenu != u"off" || !m_settings.folderMenuHotkey.trimmed().isEmpty();
     if (!on && m_folderMenu) {
+        m_serviceKeyListener.reset();
         m_keyListener.reset(); // it tells the menu double clicks: gone first
         m_keyListenerMode = 0;
         delete m_folderMenuWindow;

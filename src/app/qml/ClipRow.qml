@@ -29,6 +29,7 @@ Item {
     property int hint: 0 // the number that pastes this row (Alt+1...), on its icon; 0 for none
     property string hintModifier: "Alt" // ... with this held
     property bool hintTaken: false // another program holds that chord as a global hotkey: shown struck through
+    property real hintOpacity: 1
     property string pasteTip: qsTr("粘贴") // where the paste button pastes ("粘贴到搜索框")
     property bool clickToPaste: false // a click pastes (Clipboard::clickToPaste)
     property bool largePictures: false // a picture's thumbnail larger (Clipboard::largePictures)
@@ -56,7 +57,7 @@ Item {
         anchors.rightMargin: 6
         anchors.topMargin: 1
         anchors.bottomMargin: 1
-        radius: 6
+        radius: Theme.largeControlRadius
         color: row.order > 0 || (row.current && row.selectedCount === 0) ? Theme.selection
                : area.containsMouse ? Theme.hover : "transparent"
     }
@@ -75,7 +76,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         width: 3
         height: 18
-        radius: 1.5
+        radius: Theme.smallRadius
         color: Theme.accent
     }
 
@@ -107,7 +108,7 @@ Item {
             anchors.fill: parent
             visible: row.swatch.length > 0
             color: visible ? row.swatch : "transparent"
-            radius: 6
+            radius: Theme.cardRadius
             borderColor: Theme.chipBorder
             cellSize: 4
             checkerColor: Theme.checker
@@ -140,7 +141,7 @@ Item {
             Rectangle { // while it loads
                 anchors.fill: parent
                 visible: !thumbnail.ready
-                radius: 4
+                radius: Theme.controlRadius
                 color: Theme.track
             }
 
@@ -173,7 +174,7 @@ Item {
             y: -6
             width: Math.max(18, orderText.implicitWidth + 8)
             height: 18
-            radius: 9
+            radius: Theme.pillRadius(height)
             color: Theme.accentFill
             border.width: 2
             border.color: Theme.background
@@ -227,7 +228,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         width: badgeRow.implicitWidth + 16
         height: Theme.badgeHeight
-        radius: height / 2
+        radius: Theme.pillRadius(height)
         color: Theme.badge
 
         Row {
@@ -256,6 +257,7 @@ Item {
 
     IconNumber { // "Alt+1" (or "Ctrl+1"): pastes this row
         id: iconNumber
+        opacity: row.hintOpacity
         // From the top left corner of the icon, or of the picture as drawn
         // (narrower or flatter than its slot), rightwards, as in the launcher.
         readonly property bool picture: row.kind === 4 && thumbnail.ready
@@ -362,7 +364,7 @@ Item {
                                            : pasteAction.tipWanted ? pasteAction
                                            : pinAction.tipWanted ? pinAction
                                            : removeAction.tipWanted ? removeAction : null
-        readonly property bool onKeys: !hovered && iconNumber.taken && area.containsMouse // (a hover handler under the area gets no hover)
+        readonly property bool onKeys: !hovered && iconNumber.visible && iconNumber.taken && area.containsMouse // (a hover handler under the area gets no hover)
                                           && iconNumber.contains(iconNumber.mapFromItem(area, area.mouseX, area.mouseY))
         target: hovered ? hovered : onKeys ? iconNumber : null
         text: hovered ? hovered.tip

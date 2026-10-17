@@ -20,7 +20,7 @@ Rectangle {
 
     implicitWidth: 220
     implicitHeight: 36
-    radius: 4
+    radius: Theme.controlRadius
     color: input.activeFocus ? Theme.inputFocused : area.containsMouse ? Theme.controlHover : Theme.control
     border.width: 1
     border.color: Theme.controlBorder
@@ -70,7 +70,7 @@ Rectangle {
         x: 1
         width: parent.width - 2
         height: 2
-        radius: 1
+        radius: Theme.lineRadius
         color: Theme.accent
     }
 }

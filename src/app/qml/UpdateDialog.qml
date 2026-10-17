@@ -43,7 +43,7 @@ Item {
         anchors.centerIn: parent
         width: Math.min(520, parent.width - 48)
         height: content.implicitHeight + 48
-        radius: 8
+        radius: Theme.largeCardRadius
         color: Theme.menuBackground
         border.width: 1
         border.color: Theme.cardBorder
@@ -149,7 +149,7 @@ Item {
                 visible: card.newer && (dialog.updater.summary.length > 0 || dialog.updater.highlights.length > 0)
                 width: parent.width
                 height: Math.min(notes.implicitHeight + 24, 240)
-                radius: 6
+                radius: Theme.cardRadius
                 color: Theme.hover
                 border.width: 1
                 border.color: Theme.cardBorder

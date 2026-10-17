@@ -16,7 +16,7 @@ Rectangle {
 
     implicitWidth: Math.max(32, content.implicitWidth + (text.length > 0 ? 24 : 16))
     implicitHeight: 36
-    radius: 4
+    radius: Theme.controlRadius
     opacity: enabled ? 1 : 0.45
     activeFocusOnTab: true
     color: highlighted
@@ -61,7 +61,7 @@ Rectangle {
         visible: button.activeFocus
         anchors.fill: parent
         anchors.margins: -3
-        radius: 6
+        radius: Theme.largeControlRadius
         color: "transparent"
         border.width: 2
         border.color: Theme.text

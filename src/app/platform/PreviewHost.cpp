@@ -1,5 +1,7 @@
 #include "PreviewHost.h"
 
+#include "WindowEffects.h"
+
 #include <QPointer>
 
 #include <windows.h>
@@ -472,11 +474,7 @@ struct PreviewHost::Worker {
                                : nullptr;
         if (hwnd) {
             ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self.get()));
-            const DWORD round = 3; // DWMWCP_ROUNDSMALL: a page inside the preview window
-            using SetAttribute = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
-            if (const HMODULE dwm = ::GetModuleHandleW(L"dwmapi.dll"))
-                if (auto set = reinterpret_cast<SetAttribute>(::GetProcAddress(dwm, "DwmSetWindowAttribute")))
-                    set(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &round, sizeof round);
+            win::setWindowCorners(hwnd, true); // a page inside the preview window
             self->popup.store(hwnd);
         }
         ::SetEvent(self->ready);

@@ -139,7 +139,7 @@ Item {
         visible: row.searching && row.search.current === row
         anchors.fill: parent
         anchors.margins: 1
-        radius: 5
+        radius: Theme.insetCardRadius
         color: Theme.selection
 
         Rectangle {
@@ -147,7 +147,7 @@ Item {
             y: content.y + texts.y + (titleText.height - height) / 2 // by the title
             width: 3
             height: 16
-            radius: 1.5
+            radius: Theme.smallRadius
             color: Theme.accent
         }
     }
@@ -156,7 +156,7 @@ Item {
         id: flashMark
         anchors.fill: parent
         anchors.margins: 1
-        radius: 5
+        radius: Theme.insetCardRadius
         color: Theme.accent
         opacity: 0
         visible: opacity > 0

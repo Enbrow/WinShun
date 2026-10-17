@@ -16,9 +16,13 @@ namespace ws::win {
 // backdropSupported). The dark mode is separate, see setDarkFrame.
 void styleFramelessWindow(QWindow* window, bool backdrop = false);
 
-// Whether DWM rounds the corners of our windows (Windows 11): their edge is
-// drawn rounded to match, else square.
+// Windows 11 and the appearance preference: QML draws its edge to match.
 bool roundedCorners();
+
+// Returns whether the preference changed; also updates existing styled HWNDs.
+bool setRoundedCorners(bool on);
+// Native preview pages use smaller corners. Remember the choice for live updates.
+void setWindowCorners(HWND window, bool smallCorners = false);
 
 // Dark mode for the frame and its backdrop (DWMWA_USE_IMMERSIVE_DARK_MODE);
 // Mica follows it at once. Qt sets it too, a few milliseconds after a theme
@@ -50,7 +54,8 @@ void setCloaked(QWindow* window, bool cloaked);
 // stay above every other window while open.
 bool isShellFlyout(HWND window);
 
-// Brings a window to the foreground even when another app owns the focus.
+// Shows or restores a requested window, then brings it to the foreground
+// even when another app owns the focus.
 // Windows normally refuses this for background processes (focus stealing
 // protection), but a hotkey press is an explicit user request.
 void bringToFront(QWindow* window);

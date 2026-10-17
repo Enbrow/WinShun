@@ -40,7 +40,7 @@ Item {
         anchors.topMargin: 4
         anchors.bottomMargin: 4
         width: bar.expanded ? 8 : 3
-        radius: width / 2
+        radius: Theme.pillRadius(width)
         color: bar.expanded ? Theme.track : "transparent"
 
         Behavior on width { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
@@ -52,7 +52,7 @@ Item {
         width: track.width
         height: Math.max(24, track.height * bar.flickable.height / Math.max(1, bar.maxY - bar.minY + bar.flickable.height))
         y: track.y + bar.position * (track.height - height)
-        radius: width / 2
+        radius: Theme.pillRadius(width)
         color: area.pressed ? Theme.text : area.overThumb ? Qt.lighter(Theme.subtext, 1.15) : bar.expanded ? Theme.subtext : Theme.faint
         opacity: bar.expanded ? 1 : 0.6
 

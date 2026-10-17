@@ -69,7 +69,7 @@ Item {
 
                     width: content.implicitWidth + 24
                     height: Theme.chipHeight + 2
-                    radius: height / 2
+                    radius: Theme.pillRadius(height)
                     color: active ? Theme.chipActive : area.containsMouse ? Theme.chipHover : Theme.track
                     border.width: active ? 1 : 0
                     border.color: Theme.chipBorder
@@ -117,7 +117,7 @@ Item {
                 visible: tabs.naming
                 width: Math.max(120, field.contentWidth + 28)
                 height: Theme.chipHeight + 2
-                radius: height / 2
+                radius: Theme.pillRadius(height)
                 color: Theme.inputFocused
                 border.width: 1
                 border.color: Theme.accent
@@ -164,7 +164,7 @@ Item {
                 visible: !tabs.naming
                 width: height
                 height: Theme.chipHeight + 2
-                radius: height / 2
+                radius: Theme.pillRadius(height)
                 color: addArea.containsMouse ? Theme.chipHover : "transparent"
 
                 Glyph {
@@ -194,7 +194,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         width: height
         height: Theme.chipHeight + 2
-        radius: height / 2
+        radius: Theme.pillRadius(height)
         color: tabs.clipboard.pinnedFirst ? Theme.chipActive : orderArea.containsMouse ? Theme.chipHover : "transparent"
         border.width: tabs.clipboard.pinnedFirst ? 1 : 0
         border.color: Theme.chipBorder

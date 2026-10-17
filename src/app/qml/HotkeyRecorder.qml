@@ -44,7 +44,7 @@ Rectangle {
 
     implicitWidth: Math.max(150, label.implicitWidth + 28)
     implicitHeight: 36
-    radius: 4
+    radius: Theme.controlRadius
     activeFocusOnTab: true
     // For screen readers and UI Automation: a button that records, named
     // by what it holds.

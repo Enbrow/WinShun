@@ -30,7 +30,7 @@ Rectangle {
 
     implicitWidth: text.length > 0 ? content.implicitWidth + 20 : 32
     implicitHeight: 32
-    radius: 4
+    radius: Theme.controlRadius
     color: danger
            ? (area.pressed ? Qt.darker(Theme.dangerFill, 1.15) : area.containsMouse ? Qt.lighter(Theme.dangerFill, 1.08) : Theme.dangerFill)
            : (area.pressed ? Theme.controlPressed : area.containsMouse || checked ? Theme.controlHover : "transparent")

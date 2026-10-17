@@ -11,6 +11,9 @@
 #include <windows.h>
 #include <msctf.h>
 
+#include <atomic>
+#include <mutex>
+
 using namespace Qt::StringLiterals;
 
 namespace ws::win {
@@ -23,6 +26,11 @@ constexpr DWORD kCornerPreference = 33; // DWMWA_WINDOW_CORNER_PREFERENCE
 constexpr DWORD kBorderColor = 34; // DWMWA_BORDER_COLOR
 constexpr DWORD kSystemBackdropType = 38; // DWMWA_SYSTEMBACKDROP_TYPE
 constexpr int kCornerRound = 2; // DWMWCP_ROUND
+constexpr int kCornerSquare = 1; // DWMWCP_DONOTROUND
+constexpr int kCornerSmall = 3; // DWMWCP_ROUNDSMALL
+constexpr wchar_t kCornerStyle[] = L"WinShun.CornerStyle";
+std::atomic<bool> g_round {true};
+std::mutex g_cornerMutex; // preview HWNDs are created on another thread
 constexpr COLORREF kColorNone = 0xFFFFFFFE; // DWMWA_COLOR_NONE
 constexpr int kBackdropMica = 2; // DWMSBT_MAINWINDOW
 
@@ -85,7 +93,7 @@ void styleFramelessWindow(QWindow* window, bool backdrop)
     const HWND hwnd = handleOf(window);
     if (!hwnd)
         return;
-    ::DwmSetWindowAttribute(hwnd, kCornerPreference, &kCornerRound, sizeof kCornerRound);
+    setWindowCorners(hwnd);
     ::DwmSetWindowAttribute(hwnd, kBorderColor, &kColorNone, sizeof kColorNone);
     // A one-pixel frame extension makes DWM draw its shadow around a
     // borderless window (and keeps working on Windows 10).
@@ -116,7 +124,40 @@ bool isDarkFrame(QWindow* window)
 bool roundedCorners()
 {
     static const bool rounded = QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows11;
-    return rounded;
+    return rounded && g_round.load();
+}
+
+void setWindowCorners(HWND window, bool smallCorners)
+{
+    if (!window)
+        return;
+    std::lock_guard lock(g_cornerMutex);
+    const int style = smallCorners ? kCornerSmall : kCornerRound;
+    ::SetPropW(window, kCornerStyle, reinterpret_cast<HANDLE>(static_cast<INT_PTR>(style)));
+    const int value = roundedCorners() ? style : kCornerSquare;
+    ::DwmSetWindowAttribute(window, kCornerPreference, &value, sizeof value);
+}
+
+bool setRoundedCorners(bool on)
+{
+    std::lock_guard lock(g_cornerMutex);
+    if (g_round.exchange(on) == on)
+        return false;
+    // Includes hidden menus and the preview worker's non-Qt popup. Window
+    // properties die with the HWND, so destroyed windows cannot stay registered.
+    ::EnumWindows([](HWND window, LPARAM) -> BOOL {
+        DWORD process = 0;
+        ::GetWindowThreadProcessId(window, &process);
+        if (process == ::GetCurrentProcessId()) {
+            const auto style = reinterpret_cast<INT_PTR>(::GetPropW(window, kCornerStyle));
+            if (style == kCornerRound || style == kCornerSmall) {
+                const int value = roundedCorners() ? static_cast<int>(style) : kCornerSquare;
+                ::DwmSetWindowAttribute(window, kCornerPreference, &value, sizeof value);
+            }
+        }
+        return TRUE;
+    }, 0);
+    return true;
 }
 
 bool backdropSupported()
@@ -151,6 +192,13 @@ void bringToFront(QWindow* window)
     const HWND hwnd = handleOf(window);
     if (!hwnd)
         return;
+    // STARTF_USESHOWWINDOW/SW_HIDE can hide the first normal window even
+    // after QWindow::show() marked it visible. A later show() then does
+    // nothing. Honour this explicit request at the native boundary too.
+    if (::IsIconic(hwnd))
+        ::ShowWindow(hwnd, SW_RESTORE);
+    else if (!::IsWindowVisible(hwnd))
+        ::ShowWindow(hwnd, SW_SHOW);
     HWND foreground = ::GetForegroundWindow();
     if (foreground == hwnd)
         return;

@@ -93,9 +93,12 @@ HWND taskbarOn(HMONITOR monitor)
 }
 
 // Windows 11 centres the taskbar's icons unless told not to (TaskbarAl 0);
-// Windows 10 has them at the start, and no such value.
-bool iconsCentred()
+// Windows 10 has them at the start, and no such value. A classic taskbar on
+// Windows 11 keeps TaskbarAl, which it does not follow.
+bool iconsCentred(HWND bar)
 {
+    if (classicTaskList(bar))
+        return classicIconsCentred();
     DWORD value = 0;
     DWORD size = sizeof value;
     if (::RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
@@ -128,7 +131,7 @@ std::optional<Spot> spotOf(HWND bar, const std::optional<POINT>& pointer)
     if (pointer)
         spot.anchor = *pointer;
     else if (across)
-        spot.anchor = {iconsCentred() ? (r.left + r.right) / 2 : r.left, (r.top + r.bottom) / 2};
+        spot.anchor = {iconsCentred(bar) ? (r.left + r.right) / 2 : r.left, (r.top + r.bottom) / 2};
     else
         spot.anchor = {(r.left + r.right) / 2, r.top};
     return spot;
@@ -141,6 +144,30 @@ bool isTaskbar(HWND window)
     wchar_t name[32] {};
     return window && ::GetClassNameW(window, name, static_cast<int>(std::size(name)))
         && (std::wcscmp(name, L"Shell_TrayWnd") == 0 || std::wcscmp(name, L"Shell_SecondaryTrayWnd") == 0);
+}
+
+HWND classicTaskList(HWND bar)
+{
+    if (!bar)
+        return nullptr;
+    // Windows 11's own: its XAML in a bridge window (not in a classic one).
+    const HWND xaml = ::FindWindowExW(bar, nullptr, L"Windows.UI.Composition.DesktopWindowContentBridge", nullptr);
+    if (xaml && ::IsWindowVisible(xaml))
+        return nullptr;
+    const HWND rebar = ::FindWindowExW(bar, nullptr, L"ReBarWindow32", nullptr);
+    const HWND buttons = rebar ? ::FindWindowExW(rebar, nullptr, L"MSTaskSwWClass", nullptr) : nullptr;
+    const HWND list = buttons ? ::FindWindowExW(buttons, nullptr, L"MSTaskListWClass", nullptr) : nullptr;
+    return list && ::IsWindowVisible(list) ? list : nullptr;
+}
+
+bool classicIconsCentred()
+{
+    DWORD value = 0;
+    DWORD size = sizeof value;
+    return ::RegGetValueW(HKEY_CURRENT_USER, L"Software\\StartIsBack", L"TaskbarCenterIcons", RRF_RT_REG_DWORD,
+               nullptr, &value, &size)
+            == ERROR_SUCCESS
+        && value != 0;
 }
 
 HANDLE createEvent()
@@ -183,6 +210,13 @@ std::optional<Spot> locateAt(POINT button)
 
 bool windowsSearchShown()
 {
+    // A classic taskbar shows Windows' search box as a window of its own, or
+    // not at all (StartAllBack's has none), whatever the setting says.
+    if (const HWND bar = ::FindWindowW(L"Shell_TrayWnd", nullptr); classicTaskList(bar)) {
+        const HWND box = ::FindWindowExW(bar, nullptr, L"TrayDummySearchControl", nullptr);
+        RECT r {};
+        return box && ::IsWindowVisible(box) && ::GetWindowRect(box, &r) && r.right > r.left;
+    }
     // The policy ("Configure search on the taskbar") wins over the user's
     // choice; either way 0 is hidden. Without a value Windows shows it.
     DWORD mode = 1;

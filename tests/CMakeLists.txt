@@ -1,5 +1,57 @@
 find_package(Qt6 REQUIRED COMPONENTS Test)
 
+qt_add_executable(tst_windowvisibility tst_windowvisibility.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/WindowEffects.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/Foreground.cpp)
+target_include_directories(tst_windowvisibility PRIVATE ${PROJECT_SOURCE_DIR}/src/app ${PROJECT_SOURCE_DIR}/src/core)
+target_link_libraries(tst_windowvisibility PRIVATE winshun_options Qt6::Gui Qt6::Test dwmapi ole32 shell32 user32)
+set_target_properties(tst_windowvisibility PROPERTIES WIN32_EXECUTABLE FALSE)
+add_test(NAME tst_windowvisibility COMMAND tst_windowvisibility)
+set_tests_properties(tst_windowvisibility PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
+qt_add_executable(tst_scrollalignment tst_scrollalignment.cpp)
+target_compile_definitions(tst_scrollalignment PRIVATE WINSHUN_QML_DIR="${PROJECT_SOURCE_DIR}/src/app/qml")
+target_link_libraries(tst_scrollalignment PRIVATE Qt6::Quick Qt6::Test)
+set_target_properties(tst_scrollalignment PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE WIN32_EXECUTABLE FALSE)
+foreach(scale IN ITEMS 1 1.25 1.5 1.75 2)
+    add_test(NAME tst_scrollalignment_${scale} COMMAND tst_scrollalignment -o -,txt)
+    set_tests_properties(tst_scrollalignment_${scale} PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;QT_SCALE_FACTOR=${scale}"
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;QT_PLUGIN_PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>/../plugins")
+endforeach()
+
+qt_add_executable(tst_numberhints tst_numberhints.cpp ${PROJECT_SOURCE_DIR}/src/app/Settings.cpp)
+target_include_directories(tst_numberhints PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_link_libraries(tst_numberhints PRIVATE wscore Qt6::Quick Qt6::Test)
+target_compile_definitions(tst_numberhints PRIVATE WINSHUN_TEST_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}")
+set_target_properties(tst_numberhints PROPERTIES WIN32_EXECUTABLE FALSE)
+if(QT6_IS_SHARED_LIBS_BUILD)
+    set_target_properties(tst_numberhints PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+endif()
+add_test(NAME tst_numberhints COMMAND tst_numberhints)
+set_tests_properties(tst_numberhints PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
+qt_add_executable(tst_appearance tst_appearance.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/Settings.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/SystemTheme.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/WindowEffects.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/Foreground.cpp)
+target_include_directories(tst_appearance PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_compile_definitions(tst_appearance PRIVATE WINSHUN_QML_DIR="${PROJECT_SOURCE_DIR}/src/app/qml")
+target_link_libraries(tst_appearance PRIVATE wscore Qt6::Test Qt6::Quick dwmapi ole32 shell32 user32)
+get_target_property(appearance_qt_type Qt6::Core TYPE)
+if(appearance_qt_type STREQUAL "SHARED_LIBRARY")
+    set_target_properties(tst_appearance PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+endif()
+foreach(scale IN ITEMS 1 1.25 1.5 2)
+    add_test(NAME tst_appearance_${scale} COMMAND tst_appearance)
+    set_tests_properties(tst_appearance_${scale} PROPERTIES
+        ENVIRONMENT "QT_QUICK_BACKEND=software;QT_ENABLE_HIGHDPI_SCALING=0;QT_SCALE_FACTOR=${scale}"
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+endforeach()
+
 qt_add_executable(tst_core tst_core.cpp)
 target_link_libraries(tst_core PRIVATE wscore wsextract miniz Qt6::Test)
 
@@ -22,6 +74,14 @@ qt_add_executable(tst_service tst_service.cpp)
 target_link_libraries(tst_service PRIVATE wscore Qt6::Test)
 target_compile_definitions(tst_service PRIVATE WINSHUN_SERVICE_EXE="$<TARGET_FILE:WinShunService>")
 add_dependencies(tst_service WinShunService)
+
+qt_add_executable(tst_keylistener tst_keylistener.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/KeyListener.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/ServiceKeyListener.cpp)
+target_include_directories(tst_keylistener PRIVATE ${PROJECT_SOURCE_DIR}/src/app/platform)
+target_link_libraries(tst_keylistener PRIVATE wscore Qt6::Test user32 advapi32)
+target_compile_definitions(tst_keylistener PRIVATE WINSHUN_SERVICE_EXE="$<TARGET_FILE:WinShunService>")
+add_dependencies(tst_keylistener WinShunService)
 
 # The favorites: their file, the store, and the search's list with nothing typed.
 qt_add_executable(tst_favorites tst_favorites.cpp)
@@ -106,6 +166,7 @@ add_dependencies(tst_plugin WinShunPluginHost plugin_fake)
 
 add_test(NAME tst_core COMMAND tst_core)
 add_test(NAME tst_service COMMAND tst_service)
+add_test(NAME tst_keylistener COMMAND tst_keylistener)
 add_test(NAME tst_clipboard COMMAND tst_clipboard)
 add_test(NAME tst_favorites COMMAND tst_favorites)
 add_test(NAME tst_color COMMAND tst_color)
@@ -119,5 +180,5 @@ add_test(NAME tst_semantic COMMAND tst_semantic)
 add_test(NAME tst_mcp COMMAND tst_mcp)
 add_test(NAME tst_plugin COMMAND tst_plugin)
 # Let ctest find the Qt DLLs without a deploy step.
-set_tests_properties(tst_core tst_service tst_clipboard tst_favorites tst_backup tst_color tst_elide tst_dragout tst_siteicon tst_ocr tst_tools tst_semantic tst_mcp tst_plugin PROPERTIES
+set_tests_properties(tst_core tst_service tst_keylistener tst_clipboard tst_favorites tst_backup tst_color tst_elide tst_dragout tst_siteicon tst_ocr tst_tools tst_semantic tst_mcp tst_plugin PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")

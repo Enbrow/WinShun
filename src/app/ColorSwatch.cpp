@@ -47,19 +47,24 @@ void ColorSwatch::paint(QPainter* painter)
 
     // Rounded corners: what lies outside them is cleared, antialiased (a clip
     // path would leave them jagged).
-    painter->setRenderHint(QPainter::Antialiasing);
-    QPainterPath outside;
-    outside.setFillRule(Qt::OddEvenFill);
-    outside.addRect(box);
-    outside.addRoundedRect(box, m_radius, m_radius);
-    painter->setCompositionMode(QPainter::CompositionMode_DestinationOut);
-    painter->fillPath(outside, Qt::black);
-    painter->setCompositionMode(QPainter::CompositionMode_SourceOver);
+    if (m_radius > 0) {
+        painter->setRenderHint(QPainter::Antialiasing);
+        QPainterPath outside;
+        outside.setFillRule(Qt::OddEvenFill);
+        outside.addRect(box);
+        outside.addRoundedRect(box, m_radius, m_radius);
+        painter->setCompositionMode(QPainter::CompositionMode_DestinationOut);
+        painter->fillPath(outside, Qt::black);
+        painter->setCompositionMode(QPainter::CompositionMode_SourceOver);
+    }
 
     if (m_borderColor.alpha() > 0) {
         painter->setPen(QPen(m_borderColor, 1));
         painter->setBrush(Qt::NoBrush);
-        painter->drawRoundedRect(box.adjusted(0.5, 0.5, -0.5, -0.5), m_radius - 0.5, m_radius - 0.5);
+        if (m_radius > 0)
+            painter->drawRoundedRect(box.adjusted(0.5, 0.5, -0.5, -0.5), m_radius - 0.5, m_radius - 0.5);
+        else
+            painter->drawRect(box.adjusted(0.5, 0.5, -0.5, -0.5));
     }
 }
 

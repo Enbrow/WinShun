@@ -4,6 +4,7 @@
 #include "FavoritesSettings.h"
 #include "FileIconProvider.h"
 #include "PluginSettings.h"
+#include "ResultModel.h"
 #include "Settings.h"
 #include "SettingsEditor.h"
 #include "SystemTheme.h"
@@ -19,6 +20,7 @@
 #include <QFontMetricsF>
 #include <QGuiApplication>
 #include <QImage>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QLibraryInfo>
 #include <QQmlApplicationEngine>
@@ -45,6 +47,7 @@ namespace {
 
 constexpr auto kFlag = u"--preview-plugins";
 constexpr auto kSettingsFlag = u"--preview-settings";
+constexpr auto kResultsFlag = u"--preview-results";
 
 int g_warnings = 0;
 QtMessageHandler g_previous = nullptr;
@@ -149,7 +152,10 @@ void showOffScreen(QQuickWindow* window)
     window->setFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
     window->setProperty("_q_showWithoutActivating", true);
     window->setMaximumHeight(32000); // taller than the screen, for a whole page at a time
-    window->setPosition(20000, 20000);
+    // Win32 window coordinates are limited to 32767 physical pixels. Keep
+    // the offscreen position below that even at 200% and larger scales.
+    const int offscreen = static_cast<int>(std::floor(24000 / window->devicePixelRatio()));
+    window->setPosition(offscreen, offscreen);
     window->show();
 }
 
@@ -278,6 +284,163 @@ QObject* named(QQuickWindow* window, const char* id)
     return object;
 }
 
+// Exercise the real add/edit actions and form on the preview's temporary
+// profile. In particular, a whole-page screenshot cannot detect a form
+// appended below the viewport, or a Loader whose contents failed to appear.
+bool previewWebForms(QQuickWindow* window, SettingsEditor* editor, const QDir& out, bool tree)
+{
+    QMetaObject::invokeMethod(window, "showWebPage");
+    settle(window);
+    QObject* add = named(window, "webAddButton");
+    QObject* loader = named(window, "webDialog");
+    QObject* pageFlick = named(window, "flick");
+    if (!add || !loader || !pageFlick)
+        return false;
+    const auto check = [](bool condition, const char* message) {
+        if (!condition)
+            qWarning("web form: %s", message);
+        return condition;
+    };
+    const auto click = [](QObject* button) {
+        return button && QMetaObject::invokeMethod(button, "clicked");
+    };
+    const auto key = [&](int code, Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+        QKeyEvent press(QEvent::KeyPress, code, modifiers);
+        QCoreApplication::sendEvent(window, &press);
+        QKeyEvent release(QEvent::KeyRelease, code, modifiers);
+        QCoreApplication::sendEvent(window, &release);
+        pump(20);
+    };
+    const auto form = [&] { return qobject_cast<QQuickItem*>(loader->property("item").value<QObject*>()); };
+    const auto child = [&](const char* name) -> QQuickItem* {
+        return form() ? form()->findChild<QQuickItem*>(QString::fromLatin1(name)) : nullptr;
+    };
+    const auto inside = [](QQuickItem* item, QQuickItem* ancestor) {
+        for (; item; item = item->parentItem()) {
+            if (item == ancestor)
+                return true;
+        }
+        return false;
+    };
+    bool saved = true;
+    const auto grab = [&](const QString& name) {
+        settle(window);
+        const QString file = out.filePath(name + u".png"_s);
+        if (tree)
+            writeTree(window, file + u".tree.txt"_s);
+        saved = saveGrab(window, file) && saved;
+    };
+    const auto visibleIn = [](QQuickItem* item, QQuickItem* viewport) {
+        if (!item || !viewport || !item->isVisible() || item->width() <= 0 || item->height() <= 0)
+            return false;
+        const QPointF top = item->mapToItem(viewport, QPointF());
+        return QRectF(QPointF(), viewport->size()).contains(QRectF(top, item->size()));
+    };
+    const qsizetype before = editor->webShortcuts().size();
+    click(add);
+    settle(window);
+    if (!check(form() && child("keywordField") && child("urlField") && child("webFormSave"), "add form did not load"))
+        return false;
+    check(visibleIn(child("webFormCard"), window->contentItem()), "card extends outside the window");
+    check(visibleIn(child("keywordField"), child("webFormViewport")), "first field is outside the viewport");
+    check(visibleIn(child("webFormSave"), window->contentItem()), "save button is outside the window");
+    check(inside(window->activeFocusItem(), child("keywordField")), "keyword did not receive focus");
+    const qreal listHeight = pageFlick->property("contentHeight").toReal();
+    grab(u"web-add"_s);
+
+    // Tab through a full cycle in each direction, without entering the
+    // settings behind the overlay, and bring lower fields into view.
+    for (int direction : {1, -1}) {
+        for (int step = 0; step < 12; ++step) {
+            key(direction > 0 ? Qt::Key_Tab : Qt::Key_Backtab, direction > 0 ? Qt::NoModifier : Qt::ShiftModifier);
+            check(inside(window->activeFocusItem(), form()), "Tab left the modal");
+        }
+    }
+    QMetaObject::invokeMethod(child("suggestField"), "takeFocus");
+    settle(window);
+    check(visibleIn(window->activeFocusItem(), child("webFormViewport")), "focused input was not scrolled into view");
+    grab(u"web-scrolled"_s);
+    click(child("webFormSave"));
+    settle(window);
+    check(form() && !form()->property("error").toString().isEmpty(), "empty form did not report validation error");
+    check(visibleIn(child("webFormError"), window->contentItem()), "validation error is outside the window");
+    check(editor->webShortcuts().size() == before, "invalid form changed settings");
+    grab(u"web-error"_s);
+    key(Qt::Key_Escape);
+    check(!loader->property("active").toBool(), "Escape did not close the form");
+    check(window->activeFocusItem() == add, "focus did not return to Add");
+
+    // Reopening must create a fresh draft. Enter saves through the actual
+    // TextInput, including a model reset when the shortcut is appended.
+    click(add);
+    settle(window);
+    if (!check(child("keywordField") && child("urlField"), "reopened form is blank"))
+        return false;
+    check(form()->property("error").toString().isEmpty(), "old error survived reopening");
+    child("keywordField")->setProperty("text", u"previewweb"_s);
+    child("nameField")->setProperty("text", u"表单验证"_s);
+    child("urlField")->setProperty("text", u"https://example.com/search?q=%s"_s);
+    QMetaObject::invokeMethod(child("urlField"), "takeFocus");
+    key(Qt::Key_Return);
+    settle(window);
+    check(!loader->property("active").toBool() && editor->webShortcuts().size() == before + 1, "Enter did not add the shortcut");
+
+    QList<QQuickItem*> edits;
+    std::function<void(QQuickItem*)> collectEdits = [&](QQuickItem* item) {
+        if (item->objectName() == u"webEditButton")
+            edits.append(item);
+        for (auto* child : item->childItems())
+            collectEdits(child);
+    };
+    collectEdits(window->contentItem()); // Repeater delegates have visual, not QObject, parents
+    if (!check(!edits.isEmpty(), "no edit button in the list"))
+        return false;
+    // The last row is below the initial viewport: its editor must still
+    // appear in the center, without changing the page's scroll position.
+    pageFlick->setProperty("contentY", std::max(0.0, pageFlick->property("contentHeight").toDouble() - pageFlick->property("height").toDouble()));
+    const qreal scrollY = pageFlick->property("contentY").toReal();
+    click(edits.constLast());
+    settle(window);
+    if (!check(child("urlField"), "edit form is blank"))
+        return false;
+    check(child("keywordField")->property("text").toString() == u"previewweb", "edit did not load the selected shortcut");
+    check(inside(window->activeFocusItem(), child("urlField")), "edit URL did not receive focus");
+    check(visibleIn(child("webFormCard"), window->contentItem()), "edit card is off screen");
+    check(pageFlick->property("contentY").toReal() == scrollY, "opening the edit form moved the list");
+    grab(u"web-edit"_s);
+    child("nameField")->setProperty("text", u"已修改"_s);
+    click(child("webFormSave"));
+    settle(window);
+    check(!loader->property("active").toBool() && editor->webShortcuts().constLast().toMap().value(u"name"_s).toString() == u"已修改", "edit did not save");
+    click(add);
+    settle(window);
+    click(child("webFormCancel"));
+    settle(window);
+    check(!loader->property("active").toBool() && editor->webShortcuts().size() == before + 1, "Cancel changed settings or left the form open");
+    check(pageFlick->property("contentHeight").toReal() == listHeight + 58, "form changed the list layout");
+
+    // An empty list must not collapse the dialog, and resizing must retain
+    // the unsaved draft while keeping both its first field and actions usable.
+    while (!editor->webShortcuts().isEmpty())
+        editor->removeWebShortcut(0);
+    click(add);
+    settle(window);
+    if (!check(child("keywordField"), "empty-list add form is blank"))
+        return false;
+    child("keywordField")->setProperty("text", u"draft"_s);
+    const QSize initialSize = window->size();
+    window->resize(760, 420);
+    settle(window);
+    check(child("keywordField")->property("text").toString() == u"draft", "resizing lost the draft");
+    check(visibleIn(child("webFormCard"), window->contentItem()) && visibleIn(child("webFormSave"), window->contentItem()), "resized form is off screen");
+    grab(u"web-add-empty-compact"_s);
+    click(child("webFormCancel"));
+    window->resize(initialSize);
+    check(editor->webShortcuts().isEmpty(), "cancel saved the draft");
+    say(u"web forms checked at %1x%2, DPR %3"_s.arg(window->width()).arg(window->height()).arg(window->devicePixelRatio()));
+    return saved;
+}
+
 int runSettings(const QStringList& args)
 {
     const QDir out(valueAfter(args, kSettingsFlag));
@@ -299,6 +462,10 @@ int runSettings(const QStringList& args)
     // The settings as the window gets them: the defaults, plus what makes
     // every row show (the AI switches on, two network shares).
     Settings settings = Settings::defaults();
+    const QString corners = valueAfter(args, u"--corners", settings.corners);
+    if (corners == u"round" || corners == u"square")
+        settings.corners = corners;
+    SystemTheme::setRoundedCorners(settings.corners == u"round");
     settings.mcp = true;
     settings.mcpPlugins = true;
     const QString shareOnline = u"\\\\192.168.1.10\\资料"_s;
@@ -311,6 +478,9 @@ int runSettings(const QStringList& args)
     // The real view-model and its real neighbours, as App::showSettings makes
     // them; the renderer "running" is the one set, so that no restart is asked for.
     auto* editor = new SettingsEditor(settings, Settings::resolveRenderer(settings.renderer), &engine);
+    QObject::connect(editor, &SettingsEditor::changed, editor, [editor] {
+        SystemTheme::setRoundedCorners(editor->corners() == u"round");
+    });
     auto* frame = new WindowFrame(true, editor);
     auto* updater = new Updater(editor); // never setAutomatic() or check(): no network
     editor->plugins()->setLocale(u"zh"_s);
@@ -402,10 +572,20 @@ int runSettings(const QStringList& args)
         return finish(window, false);
     }
 
+    if (args.contains(u"--web-form"_s)) {
+        if (args.contains(u"--compact"_s))
+            window->resize(760, 420); // the supported minimum, also used on high-DPI screens
+        return finish(window, previewWebForms(window, editor, out, tree));
+    }
+
     // Every page, every tab: the window as tall as the page, so the
     // picture has all of it.
     bool saved = true;
+    bool onePage = false;
+    const int wantedPage = valueAfter(args, u"--page").toInt(&onePage);
     for (int page = 0; page < pages.size(); ++page) {
+        if (onePage && page != wantedPage)
+            continue;
         const QVariantList pageTabs = tabs.value(page).toList();
         const int count = std::max<int>(1, static_cast<int>(pageTabs.size()));
         for (int tab = 0; tab < count; ++tab) {
@@ -440,6 +620,9 @@ int runSettings(const QStringList& args)
             saved = saveGrab(window, file) && saved;
         }
     }
+
+    if (onePage)
+        return finish(window, saved);
 
     // A favorite's form open, as the launcher's 编辑收藏 opens it.
     QMetaObject::invokeMethod(window, "showFavoritesPage", Q_ARG(QVariant, QVariant(favorites.items().constFirst().path)));
@@ -500,11 +683,138 @@ int runSettings(const QStringList& args)
     return finish(window, saved);
 }
 
+// The production delegates and model, with made-up folders and local Qt key
+// events: no global shortcuts, file opening, or user's profile involved.
+int runResults(const QStringList& args)
+{
+    const QDir out(valueAfter(args, kResultsFlag));
+    QDir().mkpath(out.path());
+    const QString baseline = valueAfter(args, u"--rows-source");
+    SystemTheme::setUiSize(valueAfter(args, u"--size", u"standard"_s));
+    QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
+    QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
+    QFont font = QGuiApplication::font();
+    font.setStyleStrategy(QFont::NoSubpixelAntialias);
+    QGuiApplication::setFont(font);
+    QQmlApplicationEngine engine;
+    engine.addImageProvider(u"fileicon"_s, new FileIconProvider);
+    ResultModel results;
+    SearchResults rows;
+    for (const QString& name : {u"设计"_s, u"图纸"_s, u"照片"_s, u"合同"_s, u"资料"_s, u"归档"_s, u"参考"_s, u"备份"_s}) {
+        SearchResult row;
+        row.name = name;
+        row.path = u"F:\\项目资料\\2026\\客户项目\\工程设计与交付文档\\机械设备\\最终确认版本\\"_s + name;
+        row.isDir = true;
+        row.recent = true;
+        row.modified = static_cast<std::uint32_t>(QDateTime::currentSecsSinceEpoch() - 86400);
+        rows.push_back(row);
+    }
+    results.assign(std::move(rows), {u"项目资料"_s});
+    engine.rootContext()->setContextProperty(u"previewResults"_s, &results);
+    QString qml = uR"(
+        import QtQuick
+        import WinShun
+        %1
+        Window {
+            id: window
+            width: 800; height: 60 + 8 * Theme.rowHeight
+            color: Theme.background
+            property alias hints: hints
+            property alias field: field
+            Binding { target: previewResults; property: "highlightColor"; value: Theme.accent }
+            NumberHints { id: hints; key: Qt.Key_Control; listening: true }
+            TextInput {
+                id: field
+                x: 20; y: 16; width: parent.width - 40
+                text: "文件夹 · 可读性预览"; color: Theme.text; font.pixelSize: Theme.uiTitle
+                focus: true; cursorVisible: false
+                Keys.onPressed: event => hints.press(event)
+                Keys.onReleased: event => hints.release(event)
+            }
+            ListView {
+                y: 60; width: parent.width; height: 8 * Theme.rowHeight
+                model: previewResults; currentIndex: -1
+                delegate: %2ResultRow {
+                    width: 800; height: Theme.rowHeight
+                    hint: index + 1; hintTaken: index < 3
+                    %3
+                }
+            }
+        }
+    )"_s.arg(baseline.isEmpty() ? QString() : u"import \"%1\" as Baseline"_s.arg(QUrl::fromLocalFile(baseline).toString()),
+             baseline.isEmpty() ? QString() : u"Baseline."_s,
+             baseline.isEmpty() ? u"hintOpacity: hints.hintOpacity"_s : QString());
+    QQmlComponent component(&engine);
+    component.setData(qml.toUtf8(), QUrl(u"qrc:/results-preview.qml"_s));
+    auto* window = qobject_cast<QQuickWindow*>(component.create());
+    if (!window) {
+        say(component.errorString());
+        return 3;
+    }
+    QTimer watchdog;
+    armWatchdog(watchdog, 45);
+    showOffScreen(window);
+    settle(window);
+    pump(500);
+    auto* hints = window->property("hints").value<QObject*>();
+    auto* field = window->property("field").value<QObject*>();
+    bool saved = true;
+    const auto grab = [&](const QString& name) {
+        saved = saveGrab(window, out.filePath(name + u".png"_s)) && saved;
+    };
+    const auto key = [&](QEvent::Type type) {
+        QKeyEvent event(type, Qt::Key_Control, Qt::ControlModifier);
+        QCoreApplication::sendEvent(field, &event);
+    };
+    hints->setProperty("mode", u"always"_s);
+    pump(150);
+    grab(u"always"_s);
+    if (!baseline.isEmpty())
+        return finish(window, saved);
+    hints->setProperty("mode", u"held"_s);
+    pump(100);
+    grab(u"held-idle"_s);
+    key(QEvent::KeyPress);
+    pump(100);
+    grab(u"held-100ms"_s);
+    pump(200);
+    grab(u"held-300ms"_s);
+    if (!hints->property("shown").toBool())
+        qWarning("preview: held Ctrl did not show hints");
+    key(QEvent::KeyRelease);
+    // Off-screen windows do not get every display frame: finish the fade
+    // with explicit frames before recording its settled state.
+    QElapsedTimer fade;
+    fade.start();
+    do {
+        pump(20);
+        (void)window->grabWindow();
+    } while (hints->property("hintOpacity").toReal() > 0 && fade.elapsed() < 500);
+    settle(window, 2); // the GPU grab can still hold the preceding frame
+    grab(u"held-released"_s);
+    for (int tap = 0; tap < 2; ++tap) {
+        key(QEvent::KeyPress);
+        pump(40);
+        key(QEvent::KeyRelease);
+        pump(40);
+        if (hints->property("hintOpacity").toReal() != 0)
+            qWarning("preview: quick Ctrl tap flashed hints");
+    }
+    grab(u"quick-taps"_s);
+    hints->setProperty("mode", u"off"_s);
+    key(QEvent::KeyPress);
+    pump(300);
+    grab(u"off"_s);
+    key(QEvent::KeyRelease);
+    say(u"renderer D3D11, DPR %1; Qt events only, not a global double-Ctrl gesture"_s.arg(window->devicePixelRatio()));
+    return finish(window, saved);
+}
+
 } // namespace
 
 bool wanted(const QStringList& args)
 {
-    return args.contains(kFlag) || args.contains(kSettingsFlag);
+    return args.contains(kFlag) || args.contains(kSettingsFlag) || args.contains(kResultsFlag);
 }
 
 void note(const QString& line)
@@ -514,7 +824,8 @@ void note(const QString& line)
 
 void prepare(const QStringList& args)
 {
-    const QString folder = valueAfter(args, kSettingsFlag);
+    const bool resultsMode = args.contains(kResultsFlag);
+    const QString folder = valueAfter(args, resultsMode ? kResultsFlag : kSettingsFlag);
     if (!folder.isEmpty()) {
         QDir().mkpath(folder);
         g_logPath = QDir(folder).filePath(u"preview.log"_s);
@@ -526,8 +837,15 @@ void prepare(const QStringList& args)
     // The scale asked for, exactly: not on top of the screen's own.
     qputenv("QT_ENABLE_HIGHDPI_SCALING", "0");
     qputenv("QT_SCALE_FACTOR", valueAfter(args, u"--scale", u"1"_s).toLatin1());
-    qputenv("QT_QUICK_BACKEND", "software"); // renders without a window on screen
-    qputenv("QT_QPA_PLATFORM", "windows:fontengine=freetype");
+    const bool webForm = args.contains(u"--web-form"_s);
+    const bool nativeWeb = webForm && valueAfter(args, u"--renderer") == u"d3d11";
+    if (nativeWeb)
+        qputenv("QSG_RHI_BACKEND", "d3d11");
+    if (resultsMode || nativeWeb)
+        qunsetenv("QT_QUICK_BACKEND"); // the same native text path as the launcher
+    else
+        qputenv("QT_QUICK_BACKEND", "software"); // renders without a window on screen
+    qputenv("QT_QPA_PLATFORM", webForm && !nativeWeb ? "windows:fontengine=gdi" : "windows:fontengine=freetype");
     // Nothing of the user's is read or written: a profile folder of its own.
     Settings::useProfile(QDir::temp().filePath(u"WinShun-preview-"_s + QUuid::createUuid().toString(QUuid::WithoutBraces).left(8)));
 }
@@ -535,7 +853,8 @@ void prepare(const QStringList& args)
 int run(const QStringList& args)
 {
     const bool settingsMode = args.contains(kSettingsFlag);
-    if (valueAfter(args, settingsMode ? kSettingsFlag : kFlag).isEmpty()) {
+    const bool resultsMode = args.contains(kResultsFlag);
+    if (valueAfter(args, resultsMode ? kResultsFlag : settingsMode ? kSettingsFlag : kFlag).isEmpty()) {
         std::fprintf(stderr, "usage: WinShun --preview-plugins <file.png> [--dark] [--scale 1.5] [--dialog] [--page ai]\n"
                              "       WinShun --preview-settings <folder> [--dark] [--scale 1.5] [--tree]\n");
         return 2;
@@ -543,7 +862,7 @@ int run(const QStringList& args)
     g_previous = qInstallMessageHandler(countWarnings);
     QGuiApplication::styleHints()->setColorScheme(args.contains(u"--dark"_s) ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
     SystemTheme::setBackdropAvailable(false); // plain colours, as a window without Mica
-    return settingsMode ? runSettings(args) : runPlugins(args);
+    return resultsMode ? runResults(args) : settingsMode ? runSettings(args) : runPlugins(args);
 }
 
 } // namespace ws::preview

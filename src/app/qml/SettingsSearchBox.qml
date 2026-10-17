@@ -27,7 +27,7 @@ Rectangle {
     }
 
     implicitHeight: 36
-    radius: 4
+    radius: Theme.controlRadius
     color: warm ? WarmPalette.chip
          : input.activeFocus ? Theme.inputFocused : area.containsMouse ? Theme.controlHover : Theme.control
     border.width: warm ? 0 : 1
@@ -103,7 +103,7 @@ Rectangle {
         anchors.verticalCenter: parent.verticalCenter
         width: 28
         height: 28
-        radius: 4
+        radius: Theme.controlRadius
         color: clearArea.pressed ? (box.warm ? WarmPalette.chip : Theme.controlPressed)
              : clearArea.containsMouse ? (box.warm ? WarmPalette.chip : Theme.chipHover) : "transparent"
 
@@ -134,7 +134,7 @@ Rectangle {
         anchors.verticalCenter: parent.verticalCenter
         width: keyText.implicitWidth + 10
         height: 22
-        radius: 4
+        radius: Theme.controlRadius
         color: Theme.keycap
         border.width: 1
         border.color: Theme.keycapBorder
@@ -154,7 +154,7 @@ Rectangle {
         x: 1
         width: parent.width - 2
         height: 2
-        radius: 1
+        radius: Theme.lineRadius
         color: box.warm ? WarmPalette.accent : Theme.accent
     }
 }

@@ -82,7 +82,7 @@ Item {
         anchors.rightMargin: 6
         anchors.topMargin: 1
         anchors.bottomMargin: 1
-        radius: 6
+        radius: Theme.largeControlRadius
         color: row.current ? Theme.selection : area.containsMouse ? Theme.hover : "transparent"
     }
 
@@ -92,7 +92,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         width: 3
         height: 16
-        radius: 1.5
+        radius: Theme.smallRadius
         color: Theme.accent
     }
 

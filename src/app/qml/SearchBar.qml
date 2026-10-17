@@ -111,7 +111,7 @@ Item {
             y: 6 // even: on whole device pixels at 150 %
             width: grip.held || grip.pointed ? 48 : 36
             height: 4
-            radius: 2
+            radius: Theme.progressRadius
             color: grip.held ? Theme.accent : grip.pointed ? Theme.subtext : Theme.faint
             opacity: grip.held || grip.pointed ? 1 : bar.hovered ? 0.7 : 0
             Behavior on width { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
@@ -135,7 +135,7 @@ Item {
         y: bar.onPixel((bar.height - height) / 2)
         width: Theme.searchIconSize + 12
         height: width
-        radius: 4
+        radius: Theme.controlRadius
         color: pointed && !bar.placement.moving ? Theme.chipHover : "transparent"
         Behavior on color { ColorAnimation { duration: 100 } }
         Accessible.role: Accessible.Button
@@ -249,7 +249,7 @@ Item {
         y: bar.onPixel((bar.height - height) / 2)
         width: Theme.chipHeight
         height: Theme.chipHeight
-        radius: 4
+        radius: Theme.controlRadius
         color: pinArea.pressed ? Theme.controlPressed : checked ? Theme.chipActive
              : pinArea.containsMouse ? Theme.chipHover : "transparent"
         border.width: checked ? 1 : 0
@@ -292,7 +292,7 @@ Item {
         y: bar.onPixel((bar.height - height) / 2)
         width: Theme.chipHeight
         height: Theme.chipHeight
-        radius: 4
+        radius: Theme.controlRadius
         color: expandArea.pressed ? Theme.controlPressed : expandArea.containsMouse ? Theme.chipHover : "transparent"
         Accessible.role: Accessible.Button
         Accessible.name: tip

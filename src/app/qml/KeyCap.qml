@@ -14,7 +14,7 @@ Rectangle {
 
     width: Math.max(height, Math.ceil(label.implicitWidth) + 12)
     height: Theme.keycapHeight + 4
-    radius: 6
+    radius: Theme.largeControlRadius
     color: Theme.track
     border.width: 1
     border.color: Theme.chipBorder

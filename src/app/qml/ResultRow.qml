@@ -67,6 +67,7 @@ Item {
     property int hint: 0 // its number for the number keys (Ctrl+1…), on its icon; 0 for none
     property string hintModifier: "Ctrl" // ... with this held
     property bool hintTaken: false // another program holds that chord as a global hotkey: shown struck through
+    property real hintOpacity: 1
     // The window's tip for a name or folder cut short (one for all its rows).
     property NameTip nameTip: null
 
@@ -143,7 +144,7 @@ Item {
         anchors.rightMargin: 6
         anchors.topMargin: 1
         anchors.bottomMargin: 1
-        radius: 6
+        radius: Theme.largeControlRadius
         color: row.selected || (row.current && row.selectedCount === 0) ? Theme.selection
                : area.containsMouse ? Theme.hover : "transparent"
     }
@@ -154,7 +155,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         width: 3
         height: 18
-        radius: 1.5
+        radius: Theme.smallRadius
         color: Theme.accent
     }
 
@@ -238,7 +239,7 @@ Item {
                 textFormat: Text.PlainText
                 elide: Text.ElideMiddle
                 color: Theme.faint
-                font.pixelSize: Theme.uiBody
+                font.pixelSize: Theme.uiCaption
             }
         }
 
@@ -255,7 +256,7 @@ Item {
             elide: row.contentMode || marked ? Text.ElideRight : Text.ElideMiddle
             maximumLineCount: 1
             color: Theme.subtext
-            font.pixelSize: Theme.uiBody
+            font.pixelSize: Theme.uiCaption
         }
     }
 
@@ -271,7 +272,7 @@ Item {
         text: row.modified
         textFormat: Text.PlainText
         color: Theme.faint
-        font.pixelSize: Theme.uiBody
+        font.pixelSize: Theme.uiCaption
     }
 
     Text {
@@ -288,7 +289,7 @@ Item {
             : row.favorite ? (row.favoriteKeyword.length > 0 ? qsTr("收藏 · %1").arg(row.favoriteKeyword) : qsTr("收藏"))
             : row.recent ? qsTr("最近") : ""
         color: Theme.faint
-        font.pixelSize: Theme.uiBody
+        font.pixelSize: Theme.uiCaption
     }
 
     Rectangle {
@@ -299,7 +300,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         width: badgeText.implicitWidth + 16
         height: Theme.badgeHeight
-        radius: height / 2
+        radius: Theme.pillRadius(height)
         color: Theme.badge
 
         Text {
@@ -317,6 +318,7 @@ Item {
 
     IconNumber { // "Ctrl+1" (or "Alt+1"): opens this row
         id: iconNumber
+        opacity: row.hintOpacity
         keys: row.hint > 0 ? row.hintModifier + "+" + row.hint : ""
         taken: row.hintTaken
         // From the icon's top left corner rightwards, clear of the title. Not
@@ -457,7 +459,7 @@ Item {
             return area.containsMouse && item.contains(item.mapFromItem(area, area.mouseX, area.mouseY))
         }
         readonly property bool onDate: !hovered && date.visible && under(date)
-        readonly property bool onKeys: !hovered && !onDate && iconNumber.taken && under(iconNumber)
+        readonly property bool onKeys: !hovered && !onDate && iconNumber.visible && iconNumber.taken && under(iconNumber)
         target: hovered ? hovered : onDate ? date : onKeys ? iconNumber : null
         text: hovered ? hovered.tip : onDate ? row.modifiedFull
             : onKeys ? qsTr("%1 被别的程序占用了，在这里按也会交给那个程序。可在设置的“结果列表”里改用 %2")

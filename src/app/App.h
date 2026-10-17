@@ -46,6 +46,7 @@ class History;
 class IndexService;
 class IdleTrim;
 class KeyListener;
+class ServiceKeyListener;
 class Launcher;
 class MessageWindow;
 class NetworkNotifier;
@@ -192,6 +193,7 @@ private:
     void applySearchBox();
     void setSearchBoxShown(taskbar::SearchBox::Hidden why); // it is on the taskbar (None), or why not
     void setSearchBoxWide(bool wide); // the whole box, or its label or icon alone (SearchBox::wide)
+    void setClassicTaskbar(bool classic); // SearchBox::Callbacks::classicChanged
     void applyStartGap(bool boxWas);
     void setStartGapStatus(const taskbar::StartGap::Status& status);
     void updateSearchBoxLook(); // placeholder, accent
@@ -345,6 +347,7 @@ private:
     std::unique_ptr<taskbar::SearchBox> m_searchBox; // while [Taskbar] SearchBox is on (Windows 11)
     bool m_searchBoxShown = false; // ... and it is on the taskbar
     taskbar::SearchBox::Hidden m_searchBoxHidden = taskbar::SearchBox::Hidden::Pending; // ... or why not
+    bool m_classicTaskbar = false; // ... measured on Windows 10's taskbar (StartAllBack, ExplorerPatcher): no StartGap
     std::unique_ptr<taskbar::StartGap> m_startGap; // while [Taskbar] StartGap is on too: the room right of Start
     taskbar::StartGap::Status m_startGapStatus; // its latest, for the settings page
     // The launcher is open over the box: typing in it when the box is wide
@@ -370,6 +373,7 @@ private:
     std::unique_ptr<IdleTrim> m_idleTrim; // gives the memory back while nothing is in use
     std::vector<std::wstring> m_sharesBuilding; // being read for the first time: told when done
     std::unique_ptr<KeyListener> m_keyListener; // double Ctrl, double clicks for the folder menu
+    std::unique_ptr<ServiceKeyListener> m_serviceKeyListener; // destroyed before its target KeyListener
     int m_keyListenerMode = 0; // what it listens to: 1 double Ctrl, 2 double clicks
     std::unique_ptr<FolderMenu> m_folderMenu; // before the window: its view-model
     QPointer<QQuickWindow> m_folderMenuWindow;

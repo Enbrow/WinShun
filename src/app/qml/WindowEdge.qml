@@ -10,7 +10,7 @@ Rectangle {
     z: 1000
     color: "transparent"
     radius: Theme.windowRadius
-    antialiasing: true
+    antialiasing: radius > 0
     border.width: 1
     border.color: Theme.windowEdge
     // Maximized, the window fills the screen and has no edge.

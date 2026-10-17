@@ -38,7 +38,7 @@ Item {
             y: parent.height * 0.1
             width: parent.width * 0.84
             height: parent.height * 0.17
-            radius: height / 2
+            radius: Theme.pillRadius(height)
             color: preview.dark ? "#2B2B2B" : "#FFFFFF"
             border.width: 1
             border.color: preview.dark ? "#3A3A3A" : "#E2E2E2"
@@ -55,7 +55,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: parent.width * 0.3
                 height: 3
-                radius: 1.5
+                radius: Theme.smallRadius
                 color: preview.ink
             }
         }
@@ -73,7 +73,7 @@ Item {
                     required property int index
                     width: parent.width
                     height: preview.height * 0.15
-                    radius: 3
+                    radius: Theme.smallControlRadius
                     color: index === 0 ? (preview.dark ? "#2F2F2F" : "#EAEAEA") : "transparent"
 
                     Rectangle { // selection mark
@@ -82,7 +82,7 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 2
                         height: parent.height * 0.5
-                        radius: 1
+                        radius: Theme.lineRadius
                         color: preview.accent
                     }
                     Rectangle { // icon
@@ -99,7 +99,7 @@ Item {
                         y: parent.height * 0.28
                         width: parent.width * (0.5 - result.index * 0.08)
                         height: 3
-                        radius: 1.5
+                        radius: Theme.smallRadius
                         color: preview.ink
                     }
                     Rectangle { // folder
@@ -107,7 +107,7 @@ Item {
                         y: parent.height * 0.6
                         width: parent.width * (0.32 + result.index * 0.05)
                         height: 2
-                        radius: 1
+                        radius: Theme.lineRadius
                         color: preview.faintInk
                     }
                 }
@@ -119,7 +119,7 @@ Item {
             y: parent.height * 0.88
             width: parent.width * 0.26
             height: 2
-            radius: 1
+            radius: Theme.lineRadius
             color: preview.faintInk
         }
     }
@@ -128,7 +128,7 @@ Item {
         id: frame
         width: card.width
         height: Math.round(card.width * 0.64)
-        radius: 8
+        radius: Theme.largeCardRadius
         color: "transparent"
         border.width: card.selected ? 2 : 1
         border.color: card.selected ? Theme.accent : area.containsMouse ? Theme.subtext : Theme.cardBorder
@@ -147,7 +147,7 @@ Item {
             Preview {
                 width: pictures.width
                 height: pictures.height
-                radius: 5
+                radius: Theme.insetCardRadius
                 dark: card.mode === "dark"
             }
             Item { // "system": the right half dark
@@ -161,7 +161,7 @@ Item {
                     x: -pictures.width / 2
                     width: pictures.width
                     height: pictures.height
-                    radius: 5
+                    radius: Theme.insetCardRadius
                     dark: true
                 }
             }
@@ -189,7 +189,7 @@ Item {
             visible: card.activeFocus
             anchors.fill: parent
             anchors.margins: -4
-            radius: 11
+            radius: Theme.cardFocusRadius
             color: "transparent"
             border.width: 2
             border.color: Theme.text

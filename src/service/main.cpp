@@ -12,6 +12,9 @@
 // descriptor, and only for files the service found itself from the folder
 // record and name the client gave (never a path, a cluster or an offset). It
 // holds no volume open between requests, and keeps nothing in memory.
+// It also owns a UIAccess key-listener child per requesting GUI process,
+// in that user's session, for double Ctrl over elevated / UIAccess windows.
+// Only the listener crosses that boundary; the GUI and plugins stay normal.
 //
 //   WinShunService.exe                  as a service (the Service Control Manager starts it)
 //   WinShunService.exe --install        registers and starts it (the installer; administrator)
@@ -20,7 +23,7 @@
 //                                       the same server in this console (administrator), for
 //                                       tests: Win顺 and tst_service reach it with WINSHUN_PIPE=NAME;
 //                                       --no-privileges drops every privilege but
-//                                       SeChangeNotifyPrivilege first, as the service runs;
+//                                       SeChangeNotifyPrivilege first, disabling the input listener;
 //                                       --no-bulk: without the bulk reads, as an older service
 //
 // Like Everything's service, it filters nothing by the caller's permissions
@@ -30,6 +33,7 @@
 // docs/architecture.md says so.
 
 #include "Log.h"
+#include "InputListener.h"
 #include "Server.h"
 #include "VolumeProtocol.h"
 
@@ -54,6 +58,8 @@ constexpr wchar_t kDescription[]
 SERVICE_STATUS_HANDLE g_statusHandle = nullptr;
 HANDLE g_stopEvent = nullptr;
 DeviceWatch* g_deviceWatch = nullptr;
+
+bool dropPrivileges(bool inputListener);
 
 std::wstring ownPath()
 {
@@ -103,6 +109,7 @@ DWORD serve(const std::wstring& pipeName, HANDLE stop, HANDLE recipient, DWORD r
     Server::Options options;
     options.pipeName = pipeName;
     options.bulkReads = bulkReads;
+    options.keyListener = ws::service::canStartInputListener();
     Server server(options);
     DeviceWatch watch(recipient, recipientFlags, [&](const std::wstring& root) { server.closeVolume(root, 0, 2000); });
     g_deviceWatch = &watch;
@@ -126,6 +133,10 @@ void WINAPI serviceMain(DWORD, wchar_t**)
     if (!g_statusHandle)
         return;
     report(SERVICE_START_PENDING, NO_ERROR, 5000);
+    if (!dropPrivileges(true)) {
+        report(SERVICE_STOPPED, ::GetLastError());
+        return;
+    }
     g_stopEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
     ws::service::log::write(L"starting, version %hs", WINSHUN_VERSION);
     // RUNNING only once the pipe is there; the start takes milliseconds.
@@ -137,10 +148,10 @@ void WINAPI serviceMain(DWORD, wchar_t**)
     report(SERVICE_STOPPED, error);
 }
 
-// Drops every privilege but SeChangeNotifyPrivilege (which everyone has):
-// the volumes are opened by the DACL (administrators, the system), not by
-// privilege. --console --no-privileges shows that.
-bool dropPrivileges()
+// Keep only traversal and (if requested) the three session-launch privileges.
+// Enforced in console mode as well as by SCM, so integration tests cannot
+// accidentally pass by relying on SYSTEM's other privileges.
+bool dropPrivileges(bool inputListener)
 {
     HANDLE token = nullptr;
     if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES, &token))
@@ -151,12 +162,18 @@ bool dropPrivileges()
     bool ok = size > 0 && ::GetTokenInformation(token, TokenPrivileges, buffer.data(), size, &size);
     if (ok) {
         auto* privileges = reinterpret_cast<TOKEN_PRIVILEGES*>(buffer.data());
-        LUID keep {};
-        ::LookupPrivilegeValueW(nullptr, SE_CHANGE_NOTIFY_NAME, &keep);
+        LUID keep[4] {};
+        const wchar_t* names[] {SE_CHANGE_NOTIFY_NAME, SE_TCB_NAME, SE_ASSIGNPRIMARYTOKEN_NAME, SE_INCREASE_QUOTA_NAME};
+        const int count = inputListener ? 4 : 1;
+        for (int i = 0; i < count; ++i)
+            ::LookupPrivilegeValueW(nullptr, names[i], &keep[i]);
         for (DWORD i = 0; i < privileges->PrivilegeCount; ++i) {
             LUID_AND_ATTRIBUTES& p = privileges->Privileges[i];
-            p.Attributes = p.Luid.LowPart == keep.LowPart && p.Luid.HighPart == keep.HighPart ? SE_PRIVILEGE_ENABLED
-                                                                                                : SE_PRIVILEGE_REMOVED;
+            bool retain = false;
+            for (int k = 0; k < count; ++k)
+                retain = retain || (p.Luid.LowPart == keep[k].LowPart && p.Luid.HighPart == keep[k].HighPart);
+            if (!retain)
+                p.Attributes = SE_PRIVILEGE_REMOVED;
         }
         ok = ::AdjustTokenPrivileges(token, FALSE, privileges, 0, nullptr, nullptr) && ::GetLastError() == ERROR_SUCCESS;
     }
@@ -173,7 +190,7 @@ BOOL WINAPI onConsoleControl(DWORD)
 int runConsole(const std::wstring& pipeName, bool noPrivileges, bool noBulk)
 {
     ws::service::log::toConsole();
-    if (noPrivileges && !dropPrivileges()) {
+    if (!dropPrivileges(!noPrivileges)) {
         std::fwprintf(stderr, L"could not drop the privileges (error %lu)\n", ::GetLastError());
         return 1;
     }
@@ -251,17 +268,30 @@ int install()
     }
     SERVICE_DESCRIPTIONW description {const_cast<wchar_t*>(kDescription)};
     ::ChangeServiceConfig2W(service.value, SERVICE_CONFIG_DESCRIPTION, &description);
-    // Only the privilege everyone has: the volumes open by their DACL (the
-    // system is in it), not by any privilege.
-    wchar_t privileges[] = L"SeChangeNotifyPrivilege\0";
+    // Volume reads still use the DACL. The extra privileges only launch the
+    // user's UIAccess input listener (enabled on a private thread token).
+    wchar_t privileges[] = L"SeChangeNotifyPrivilege\0SeTcbPrivilege\0SeAssignPrimaryTokenPrivilege\0SeIncreaseQuotaPrivilege\0";
     SERVICE_REQUIRED_PRIVILEGES_INFOW required {privileges};
-    ::ChangeServiceConfig2W(service.value, SERVICE_CONFIG_REQUIRED_PRIVILEGES_INFO, &required);
+    if (!::ChangeServiceConfig2W(service.value, SERVICE_CONFIG_REQUIRED_PRIVILEGES_INFO, &required))
+        return fail(L"ChangeServiceConfig2 privileges");
     SERVICE_SID_INFO sid {SERVICE_SID_TYPE_UNRESTRICTED};
     ::ChangeServiceConfig2W(service.value, SERVICE_CONFIG_SERVICE_SID_INFO, &sid);
     // Started again a second after a crash, three times a day.
     SC_ACTION actions[3] {{SC_ACTION_RESTART, 1000}, {SC_ACTION_RESTART, 1000}, {SC_ACTION_RESTART, 1000}};
     SERVICE_FAILURE_ACTIONSW failures {86400, nullptr, nullptr, 3, actions};
     ::ChangeServiceConfig2W(service.value, SERVICE_CONFIG_FAILURE_ACTIONS, &failures);
+    // Required privileges are applied only at process creation. --install
+    // is also used to upgrade/repoint an existing service from settings.
+    SERVICE_STATUS current {};
+    if (!::QueryServiceStatus(service.value, &current))
+        return fail(L"QueryServiceStatus");
+    if (current.dwCurrentState != SERVICE_STOPPED) {
+        if (current.dwCurrentState != SERVICE_STOP_PENDING
+            && !::ControlService(service.value, SERVICE_CONTROL_STOP, &current))
+            return fail(L"ControlService stop for upgrade");
+        if (!waitForState(service.value, SERVICE_STOPPED, 15'000))
+            return fail(L"wait for service upgrade");
+    }
     if (!::StartServiceW(service.value, 0, nullptr) && ::GetLastError() != ERROR_SERVICE_ALREADY_RUNNING)
         return fail(L"StartService");
     if (!waitForState(service.value, SERVICE_RUNNING, 15'000)) {
@@ -312,6 +342,16 @@ int wmain(int argc, wchar_t** argv)
     ::SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX); // never a dialog about a drive
     if (argc > 1) {
         const std::wstring_view option = argv[1];
+        if (option == L"--listen-keys" && argc == 4) {
+            wchar_t* end = nullptr;
+            const unsigned long pid = std::wcstoul(argv[2], &end, 10);
+            if (!pid || !end || *end)
+                return ERROR_INVALID_PARAMETER;
+            const auto window = std::wcstoull(argv[3], &end, 10);
+            if (!window || !end || *end)
+                return ERROR_INVALID_PARAMETER;
+            return ws::service::runInputListener(pid, reinterpret_cast<HWND>(window));
+        }
         if (option == L"--install")
             return install();
         if (option == L"--uninstall")

@@ -1,14 +1,16 @@
 #include "KeyListener.h"
+#include "KeyListenerProtocol.h"
 
 #include <algorithm>
 #include <format>
 #include <latch>
+#include <vector>
 
 namespace ws {
 
 namespace {
 
-constexpr wchar_t kClassName[] = L"WinShun.KeyListener";
+constexpr const wchar_t* kClassName = keyproto::kWindowClass;
 constexpr USHORT kGenericDesktop = 0x01; // HID usage page
 constexpr USHORT kMouse = 0x02; // HID usage
 constexpr USHORT kKeyboard = 0x06;
@@ -52,6 +54,22 @@ bool isDown(std::uint32_t vk)
     return held(static_cast<int>(vk));
 }
 
+bool keyboardRegistered(HWND window)
+{
+    // ShortcutCapture temporarily removes this registration while recording
+    // a hotkey. Its Ctrl presses must not wake the launcher via the helper.
+    UINT count = 0;
+    if (::GetRegisteredRawInputDevices(nullptr, &count, sizeof(RAWINPUTDEVICE)) == static_cast<UINT>(-1))
+        return false;
+    std::vector<RAWINPUTDEVICE> devices(count);
+    const UINT got = ::GetRegisteredRawInputDevices(devices.data(), &count, sizeof(RAWINPUTDEVICE));
+    if (got == static_cast<UINT>(-1))
+        return false;
+    return std::any_of(devices.begin(), devices.begin() + got, [window](const RAWINPUTDEVICE& d) {
+        return d.usUsagePage == kGenericDesktop && d.usUsage == kKeyboard && d.hwndTarget == window;
+    });
+}
+
 // Raw Input names Ctrl, Shift and Alt without their side: the right Ctrl and
 // Alt come with the E0 prefix, the right Shift with its own scan code.
 std::uint32_t sidedKey(const RAWKEYBOARD& key)
@@ -74,15 +92,24 @@ constexpr const char* kRecentNames[] {"", "LCtrl", "RCtrl", "LShift", "RShift", 
 std::uint8_t recentKey(std::uint32_t vk)
 {
     switch (vk) {
-    case VK_LCONTROL: return 1;
-    case VK_RCONTROL: return 2;
-    case VK_LSHIFT: return 3;
-    case VK_RSHIFT: return 4;
-    case VK_LMENU: return 5;
-    case VK_RMENU: return 6;
-    case VK_LWIN: return 7;
-    case VK_RWIN: return 8;
-    default: return 9;
+    case VK_LCONTROL:
+        return 1;
+    case VK_RCONTROL:
+        return 2;
+    case VK_LSHIFT:
+        return 3;
+    case VK_RSHIFT:
+        return 4;
+    case VK_LMENU:
+        return 5;
+    case VK_RMENU:
+        return 6;
+    case VK_LWIN:
+        return 7;
+    case VK_RWIN:
+        return 8;
+    default:
+        return 9;
     }
 }
 
@@ -145,6 +172,30 @@ LRESULT CALLBACK KeyListener::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     }
     auto* self = reinterpret_cast<KeyListener*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     switch (msg) {
+    case keyproto::kReady:
+        if (self && wParam != 0 && wParam == self->m_servicePid.load()) {
+            self->m_readyPid = static_cast<DWORD>(wParam);
+            self->m_heartbeat = ::GetTickCount64();
+            if (!self->m_usingService) {
+                self->m_detector.reset();
+                self->m_usingService = true;
+            }
+        }
+        return 0;
+    case keyproto::kTap:
+        if (self && self->serviceActive() && static_cast<DWORD>(wParam >> 32) == self->m_servicePid.load()
+            && keyboardRegistered(hwnd)) {
+            const auto key = static_cast<std::uint32_t>(wParam & 0xFF);
+            const auto time = static_cast<std::uint32_t>(lParam);
+            const auto side = self->m_side.load();
+            if ((key == VK_LCONTROL || key == VK_RCONTROL)
+                && (side == DoubleTapDetector::Side::Both
+                    || (side == DoubleTapDetector::Side::Left && key == VK_LCONTROL)
+                    || (side == DoubleTapDetector::Side::Right && key == VK_RCONTROL))
+                && static_cast<DWORD>(::GetTickCount()) - time < 1000)
+                self->deliver({(wParam & 0x100) ? "UIAccess listener: simulated Ctrl" : "", key, time});
+        }
+        return 0;
     case WM_INPUT:
         if (self)
             self->onInput(reinterpret_cast<HRAWINPUT>(lParam));
@@ -196,6 +247,13 @@ void KeyListener::onInput(HRAWINPUT input)
     if (key.VKey == 0xFF)
         return; // the extra part of an escaped key sequence, not a key
     const bool up = key.Flags & RI_KEY_BREAK;
+    const bool external = serviceActive();
+    if (external != m_usingService) {
+        // Never join half a local gesture to one from before a lost service
+        // connection (or from before an elevated window stopped delivering).
+        m_detector = DoubleTapDetector(DoubleTapDetector::Config {.isDown = &isDown});
+        m_usingService = external;
+    }
     const std::uint32_t vk = sidedKey(key);
     const bool ctrl = DoubleTapDetector::isCtrl(vk);
     const auto time = static_cast<std::uint32_t>(::GetMessageTime()); // when it was pressed, not when we got to it
@@ -217,8 +275,26 @@ void KeyListener::onInput(HRAWINPUT input)
     const bool fire = up ? m_detector.keyUp(vk, time, pt.x, pt.y) : m_detector.keyDown(vk, time, pt.x, pt.y);
     if (ctrl && !up && mouseButtonHeld())
         m_detector.mouseUsed();
-    if (fire)
-        m_callbacks.doubleCtrl(sentTrace());
+    if (fire && !external)
+        deliver({sentTrace(), vk, time});
+}
+
+bool KeyListener::serviceActive() const noexcept
+{
+    const DWORD pid = m_servicePid.load();
+    return pid && pid == m_readyPid.load() && ::GetTickCount64() - m_heartbeat.load() < keyproto::kLeaseMs;
+}
+
+void KeyListener::deliver(Tap tap)
+{
+    // Both sources can finish the same gesture during a handover. WM_INPUT
+    // uses the same event timestamp in both processes; late duplicates lose.
+    if (m_delivered && static_cast<DWORD>(::GetTickCount()) - m_lastDelivered < 1000
+        && static_cast<std::int32_t>(tap.time - m_lastDelivered) <= 0)
+        return;
+    m_delivered = true;
+    m_lastDelivered = tap.time;
+    m_callbacks.doubleCtrl(tap);
 }
 
 // The last keys, oldest first, when a program sent any of the last four Ctrl
@@ -247,7 +323,8 @@ std::string KeyListener::sentTrace() const
             first = r.time;
         else
             trace += ", ";
-        trace += std::format("{}{}{} +{}", kRecentNames[r.key], r.up ? "↑" : "↓", r.sent ? " sent" : "", r.time - first);
+        trace
+            += std::format("{}{}{} +{}", kRecentNames[r.key], r.up ? "↑" : "↓", r.sent ? " sent" : "", r.time - first);
     }
     return trace;
 }
@@ -271,8 +348,8 @@ void KeyListener::onMouse(const RAWMOUSE& mouse)
     const auto time = static_cast<std::uint32_t>(::GetMessageTime());
     // Safe here: this thread has no window that WindowFromPoint would ask.
     const HWND window = ::WindowFromPoint(pt);
-    m_clicks.setConfig({::GetDoubleClickTime(), ::GetSystemMetrics(SM_CXDOUBLECLK) / 2,
-        ::GetSystemMetrics(SM_CYDOUBLECLK) / 2});
+    m_clicks.setConfig(
+        {::GetDoubleClickTime(), ::GetSystemMetrics(SM_CXDOUBLECLK) / 2, ::GetSystemMetrics(SM_CYDOUBLECLK) / 2});
     if (!m_clicks.leftDown(time, pt.x, pt.y, reinterpret_cast<std::uintptr_t>(window), m_menuOpen.load()))
         return;
     if (m_clicks.firstClosedMenu() || modifierHeld())

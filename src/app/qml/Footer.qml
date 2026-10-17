@@ -157,7 +157,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             width: chips.implicitWidth + 4
             height: Theme.chipHeight
-            radius: 6
+            radius: Theme.cardRadius
             color: Theme.track
 
             Row {
@@ -178,7 +178,7 @@ Item {
 
                         width: Math.ceil(label.implicitWidth) + 16 // whole pixels: the labels after it stay sharp
                         height: Theme.chipHeight - 4
-                        radius: 4
+                        radius: Theme.controlRadius
                         color: active ? Theme.chipActive : area.containsMouse ? Theme.chipHover : "transparent"
                         border.width: active ? 1 : 0
                         border.color: Theme.chipBorder

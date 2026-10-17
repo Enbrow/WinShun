@@ -661,6 +661,14 @@ void Launcher::setPreferredTypes(const QStringList& types)
         search();
 }
 
+void Launcher::setNumberHints(const QString& hints)
+{
+    if (m_numberHints == hints)
+        return;
+    m_numberHints = hints;
+    emit resultOptionsChanged();
+}
+
 void Launcher::setNumberKeysLeft(unsigned digits)
 {
     if (digits == m_numberKeysLeft)

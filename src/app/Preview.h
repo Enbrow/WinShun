@@ -2,19 +2,28 @@
 
 // Renders settings pages to PNG files without showing anything, for checking
 // their layout in both themes and scalings without touching the Win顺 that
-// is running. Two modes:
+// is running. Modes:
 //
 //   WinShun.exe --preview-plugins <file.png> [--dark] [--scale 1.5] [--dialog] [--page ai]
 //     The 插件 page on its own (PluginsPreview.qml) over made-up plugins
 //     (PluginSettings::loadPreview), or the AI 助手 page.
 //
 //   WinShun.exe --preview-settings <folder> [--dark] [--scale 1.5] [--tree]
+//     [--corners round|square] [--page 1]: one appearance for a selected page.
+//     [--web-form] [--compact]: exercise adding/editing web shortcuts, focus,
+//     validation and scrolling at 920x720 or the minimum 760x420 window.
+//     Add --renderer d3d11 for the GPU path (default: software).
 //     The whole settings window (the real SettingsWindow.qml over a real
 //     SettingsEditor, WindowFrame and Updater on a temporary profile): every
 //     page and every tab of it as <folder>\pNN-tT.png, the window as tall
 //     as the page needs, then the settings search driven with a few words
 //     (search-<word>.png, and where Enter would go, checked against the
 //     page it should be). The log is <folder>\preview.log.
+//
+//   WinShun.exe --preview-results <folder> [--dark] [--scale 1.5] [--size compact|standard|roomy]
+//     The real result model and rows over made-up folders, with D3D11 native
+//     text; hint modes and local Qt modifier events. --rows-source <folder>
+//     compares a saved ResultRow.qml and IconNumber.qml from before an edit.
 //
 // Nothing of the user's is read or written (a temporary profile), and
 // nothing that reaches the running Win顺 is started: no hotkeys, hooks,
@@ -28,7 +37,7 @@
 
 namespace ws::preview {
 
-bool wanted(const QStringList& args); // --preview-plugins or --preview-settings is among them
+bool wanted(const QStringList& args); // one of the preview flags is among them
 void prepare(const QStringList& args); // before QGuiApplication
 void note(const QString& line); // a line into the log, from the start on
 int run(const QStringList& args); // after it; the exit code

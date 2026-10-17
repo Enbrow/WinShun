@@ -118,7 +118,7 @@ Column {
     Rectangle {
         width: parent.width
         height: card.implicitHeight
-        radius: 6
+        radius: Theme.cardRadius
         color: Theme.card
         border.width: 1
         border.color: Theme.cardBorder

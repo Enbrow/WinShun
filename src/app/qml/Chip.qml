@@ -11,7 +11,7 @@ Rectangle {
 
     implicitWidth: label.implicitWidth + 40
     implicitHeight: 32
-    radius: 4
+    radius: Theme.controlRadius
     color: Theme.control
     border.width: marked ? 2 : 1
     border.color: marked ? Theme.accent : Theme.controlBorder
@@ -32,7 +32,7 @@ Rectangle {
         anchors.verticalCenter: parent.verticalCenter
         width: 22
         height: 22
-        radius: 3
+        radius: Theme.smallControlRadius
         color: area.pressed ? Theme.controlPressed : area.containsMouse ? Theme.chipHover : "transparent"
 
         Glyph {

@@ -227,6 +227,14 @@ void Clipboard::setRowOptions(bool clickToPaste, bool largePictures)
     refreshStatus(); // pinned, it says how to paste
 }
 
+void Clipboard::setNumberHints(const QString& hints)
+{
+    if (m_numberHints == hints)
+        return;
+    m_numberHints = hints;
+    emit numberKeysChanged();
+}
+
 void Clipboard::setNumberKeysLeft(unsigned digits)
 {
     if (digits == m_numberKeysLeft)
@@ -930,6 +938,7 @@ QVariantMap Clipboard::preview(int row) const
     if (!c)
         return {};
     QVariantMap map {
+        {u"id"_s, QString::number(c->id)},
         {u"kind"_s, static_cast<int>(c->kind)},
         {u"source"_s, c->source},
         {u"sourceIcon"_s, c->sourcePath.isEmpty() ? QString() : FileIconProvider::iconUrl(c->sourcePath, false)},

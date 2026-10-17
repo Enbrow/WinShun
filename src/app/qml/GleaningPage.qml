@@ -31,7 +31,7 @@ Flickable {
         implicitWidth: tagLabel.implicitWidth + 16
         implicitHeight: tagLabel.implicitHeight + 6
         baselineOffset: tagLabel.y + tagLabel.baselineOffset
-        radius: height / 2
+        radius: Theme.pillRadius(height)
         color: WarmPalette.chip
 
         Text {
@@ -278,7 +278,7 @@ Flickable {
                 anchors.verticalCenter: avatar.verticalCenter
                 width: homepage.implicitWidth + 28
                 height: homepage.implicitHeight + 14
-                radius: height / 2
+                radius: Theme.pillRadius(height)
                 color: WarmPalette.chip
 
                 Row {
@@ -387,7 +387,7 @@ Flickable {
 
                     width: writeLabel.implicitWidth + 36
                     height: writeLabel.implicitHeight + 18
-                    radius: height / 2
+                    radius: Theme.pillRadius(height)
                     gradient: Gradient {
                         GradientStop { position: 0; color: writeArea.containsMouse ? Qt.lighter(WarmPalette.accentLight, 1.06) : WarmPalette.accentLight }
                         GradientStop { position: 1; color: writeArea.containsMouse ? Qt.lighter(WarmPalette.accent, 1.06) : WarmPalette.accent }

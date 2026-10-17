@@ -57,7 +57,7 @@ Item {
         // At least menuWidth, wider for a longer entry (an English one).
         width: Math.max(dropMenu.menuWidth, Math.ceil(repeater.widest) + 8)
         height: column.implicitHeight + 8
-        radius: 6
+        radius: Theme.cardRadius
         color: Theme.menuBackground
         border.width: 1
         border.color: Theme.windowEdge
@@ -97,7 +97,7 @@ Item {
                     width: parent.width
                     onNaturalWidthChanged: repeater.fit()
                     height: 34
-                    radius: 4
+                    radius: Theme.controlRadius
                     color: entryArea.containsMouse ? Theme.menuHover : "transparent"
 
                     Glyph {

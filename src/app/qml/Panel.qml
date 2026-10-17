@@ -86,7 +86,7 @@ Item {
             anchors.fill: parent
             anchors.leftMargin: 8
             anchors.rightMargin: 8
-            radius: 4
+            radius: Theme.controlRadius
             color: choice.active ? Theme.selection : choiceArea.containsMouse ? Theme.hover : "transparent"
         }
         Rectangle { // accent pill, as on the current row
@@ -95,7 +95,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             width: 3
             height: 14
-            radius: 1.5
+            radius: Theme.smallRadius
             color: Theme.accent
         }
         Text {
@@ -146,7 +146,7 @@ Item {
 
         width: Math.ceil(chipLabel.implicitWidth) + 20 // whole pixels: the labels after it stay sharp
         height: Theme.chipHeight + 4
-        radius: height / 2
+        radius: Theme.pillRadius(height)
         color: active ? Theme.chipActive : chipArea.containsMouse ? Theme.chipHover : "transparent"
         border.width: active ? 1 : 0
         border.color: Theme.chipBorder
@@ -459,7 +459,7 @@ Item {
             anchors.fill: parent
             anchors.topMargin: 2
             anchors.bottomMargin: 2
-            radius: 4
+            radius: Theme.controlRadius
             color: headerArea.containsMouse ? Theme.hover : "transparent"
         }
         Text {
@@ -529,7 +529,20 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         highlightMoveDuration: 0
         reuseItems: true
-        onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+        function stopScrolling() {
+            wheelScroll.cancel()
+            cancelFlick()
+        }
+        ListWheelScroll {
+            id: wheelScroll
+            view: list
+            animate: SystemTheme.animations
+        }
+        onCurrentIndexChanged: {
+            positionViewAtIndex(currentIndex, ListView.Contain)
+            if (currentIndex === 0)
+                contentY = originY - topMargin
+        }
         onContentYChanged: if (panel.nameTip) panel.nameTip.dismiss() // scrolled: another row under the pointer
 
         // Scrolled to the end: a page more (Launcher.loadMore), as the box's list.
@@ -555,12 +568,10 @@ Item {
             dateWidth: panel.dateWidth
             nameTip: panel.nameTip
             // On whole device pixels, as the box's rows (see Main.qml).
-            transform: Translate {
-                y: {
-                    const dpr = Screen.devicePixelRatio
-                    const deviceY = (list.y + list.contentItem.y + panelRow.y) * dpr
-                    return (Math.round(deviceY) - deviceY) / dpr
-                }
+            transform: ScrollPixelAlignment {
+                view: list
+                viewY: list.y
+                itemY: panelRow.y
             }
             onClicked: (index, modifiers) => panel.rowClicked(index, modifiers)
             onMenuRequested: (index, globalPos, modifiers) => panel.rowMenuRequested(index, globalPos, modifiers)

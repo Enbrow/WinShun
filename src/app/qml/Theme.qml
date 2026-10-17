@@ -21,6 +21,18 @@ QtObject {
     // A light grey on the dark ones: over a dark program their shadow does
     // not show. The light ones stand apart by their shadow.
     readonly property int windowRadius: SystemTheme.roundedCorners ? 8 : 0
+    readonly property int cardRadius: SystemTheme.roundedCorners ? 6 : 0
+    readonly property int largeCardRadius: SystemTheme.roundedCorners ? 8 : 0
+    readonly property int insetCardRadius: SystemTheme.roundedCorners ? 5 : 0
+    readonly property int controlRadius: SystemTheme.roundedCorners ? 4 : 0
+    readonly property int largeControlRadius: SystemTheme.roundedCorners ? 6 : 0
+    readonly property int smallControlRadius: SystemTheme.roundedCorners ? 3 : 0
+    readonly property real smallRadius: SystemTheme.roundedCorners ? 1.5 : 0
+    readonly property int lineRadius: SystemTheme.roundedCorners ? 1 : 0
+    readonly property int progressRadius: SystemTheme.roundedCorners ? 2 : 0
+    readonly property int cardFocusRadius: SystemTheme.roundedCorners ? 11 : 0
+    // Chips and scrollbars keep their existing proportions in rounded mode.
+    function pillRadius(size: real): real { return SystemTheme.roundedCorners ? size / 2 : 0 }
     readonly property color windowEdge: dark ? "#6A6A6A" : "#B4B4B4"
     readonly property color divider: backdrop ? (dark ? Qt.rgba(1, 1, 1, 0.084) : Qt.rgba(0, 0, 0, 0.058))
                                               : dark ? "#2E2E2E" : "#EAEAEA"

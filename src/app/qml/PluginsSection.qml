@@ -193,7 +193,7 @@ SettingsSection {
                 anchors.bottom: parent.bottom
                 width: parent.width
                 height: 48
-                radius: 4
+                radius: Theme.controlRadius
                 color: Theme.selection
                 border.width: 1
                 border.color: Theme.cardBorder

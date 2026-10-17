@@ -6,6 +6,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QOperatingSystemVersion>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QStandardPaths>
@@ -572,6 +573,7 @@ Settings Settings::defaults()
     d.networkExcludedFiles = kDefaultNetworkExcludedFiles;
     d.renderer = defaultRenderer();
     d.transparency = lowMemory() ? u"off"_s : u"on"_s;
+    d.corners = QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows11 ? u"round"_s : u"square"_s;
     d.clipboardMaxItems = lowMemory() ? 100 : 200;
     return d;
 }
@@ -664,6 +666,9 @@ void Settings::load()
     numberKeys = readOrDefault(s, u"Results/NumberKeys"_s, d.numberKeys).trimmed().toLower();
     if (numberKeys != u"alt" && numberKeys != u"off")
         numberKeys = d.numberKeys;
+    numberHints = readOrDefault(s, u"Results/NumberHints"_s, d.numberHints).trimmed().toLower();
+    if (numberHints != u"always" && numberHints != u"off")
+        numberHints = d.numberHints;
     previewWith = readOrDefault(s, u"Results/PreviewWith"_s, d.previewWith).trimmed().toLower();
     if (previewWith != u"builtin")
         previewWith = d.previewWith;
@@ -683,6 +688,9 @@ void Settings::load()
     uiSize = readOrDefault(s, u"Appearance/UiSize"_s, d.uiSize).trimmed().toLower();
     if (uiSize != u"compact" && uiSize != u"roomy")
         uiSize = d.uiSize;
+    corners = readOrDefault(s, u"Appearance/Corners"_s, d.corners).trimmed().toLower();
+    if (corners != u"round" && corners != u"square")
+        corners = d.corners;
     if (transparency == u"false" || transparency == u"true") {
         transparency = transparency == u"false" ? u"off"_s : d.transparency;
         s.setValue(u"Appearance/Transparency"_s, transparency);
@@ -815,12 +823,14 @@ void Settings::save() const
     s.setValue(u"Results/StartList"_s, startList);
     s.setValue(u"Launcher/ClearOnOpen"_s, clearOnOpen);
     s.setValue(u"Results/NumberKeys"_s, numberKeys);
+    s.setValue(u"Results/NumberHints"_s, numberHints);
     s.setValue(u"Results/PreviewWith"_s, previewWith);
     s.setValue(u"Appearance/Theme"_s, theme);
     s.setValue(u"Appearance/Language"_s, language);
     s.setValue(u"Appearance/Transparency"_s, transparency);
     s.setValue(u"Appearance/TaskbarIcon"_s, taskbarIcon);
     s.setValue(u"Appearance/UiSize"_s, uiSize);
+    s.setValue(u"Appearance/Corners"_s, corners);
     s.setValue(u"Update/Automatic"_s, autoUpdate);
     s.setValue(u"Backup/Folder"_s, backupFolder);
     s.setValue(u"Index/ExcludedPaths"_s, excludedPaths);

@@ -1,6 +1,7 @@
 #include "TaskbarSearchBox.h"
 
 #include "MonoLogo.h"
+#include "TaskbarSearch.h"
 
 #include <ole2.h> // before uiautomation.h: WIN32_LEAN_AND_MEAN leaves it out of windows.h
 
@@ -342,11 +343,13 @@ struct Layout {
     std::optional<RECT> start; // the Start button by itself (in icons too)
     std::optional<RECT> afterStart; // the first of the icons right of it: the gap is between
     std::vector<RECT> obstacles; // the tray, the widgets
+    bool classic = false; // Windows 10's taskbar (classicTaskList): no gap right of Start, Start among the obstacles
+    bool centred = false; // ... its icons centred (else as iconsCentred says)
 };
 
 bool sameLayout(const Layout& a, const Layout& b)
 {
-    return a.measured == b.measured && sameRect(a.icons, b.icons) && sameRect(a.start, b.start)
+    return a.measured == b.measured && a.classic == b.classic && sameRect(a.icons, b.icons) && sameRect(a.start, b.start)
         && sameRect(a.afterStart, b.afterStart) && a.obstacles.size() == b.obstacles.size()
         && std::equal(a.obstacles.begin(), a.obstacles.end(), b.obstacles.begin(),
             [](const RECT& x, const RECT& y) { return ::EqualRect(&x, &y) != FALSE; });
@@ -373,6 +376,8 @@ private:
             layout.trouble = L"UI Automation unavailable";
             return layout;
         }
+        if (const HWND list = classicTaskList(tray))
+            return readClassic(std::move(layout), list);
         ComPtr<IUIAutomationElement> root;
         if (full || m_frameOf != tray || !m_frame) {
             const HRESULT hr = m_uia->ElementFromHandle(tray, &root);
@@ -444,6 +449,80 @@ private:
         return layout;
     }
 
+    // Windows 10's taskbar (StartAllBack, ExplorerPatcher): the task buttons
+    // are UI Automation children of their window (MSTaskListWClass), all the
+    // rest windows of their own, read as they are on every frame. Start is at
+    // the left end even with the icons centred, so it is in the way, not one
+    // of them; no gap is made right of it (that needs the XAML taskbar).
+    Layout readClassic(Layout layout, HWND list)
+    {
+        layout.classic = true;
+        layout.centred = classicIconsCentred();
+        if (m_listOf != list || !m_list) {
+            m_list.Reset();
+            m_listOf = nullptr;
+            const HRESULT hr = m_uia->ElementFromHandle(list, &m_list);
+            if (FAILED(hr) || !m_list) {
+                layout.trouble = printed(L"no UI Automation element for the task buttons (0x%08X)", static_cast<unsigned>(hr));
+                return layout;
+            }
+            m_listOf = list;
+        }
+        ComPtr<IUIAutomationElementArray> buttons;
+        if (FAILED(m_list->FindAllBuildCache(TreeScope_Children, m_anyCondition.Get(), m_cache.Get(), &buttons))
+            || !buttons) {
+            layout.trouble = L"the task buttons (MSTaskListWClass) unreadable";
+            m_list.Reset();
+            return layout;
+        }
+        int count = 0;
+        buttons->get_Length(&count);
+        for (int i = 0; i < count; ++i) {
+            ComPtr<IUIAutomationElement> button;
+            RECT r {};
+            if (FAILED(buttons->GetElement(i, &button)) || !button || FAILED(button->get_CachedBoundingRectangle(&r))
+                || r.right <= r.left || r.bottom <= r.top)
+                continue;
+            if (layout.icons)
+                ::UnionRect(&*layout.icons, &*layout.icons, &r);
+            else
+                layout.icons = r;
+        }
+        RECT listRect {};
+        ::GetWindowRect(list, &listRect);
+        if (!layout.icons) { // none pinned, none running: where the first would come
+            const LONG x = layout.centred ? (listRect.left + listRect.right) / 2 : listRect.left;
+            layout.icons = RECT {x, listRect.top, x, listRect.bottom};
+        }
+        const auto inTheWay = [&layout](HWND window) {
+            RECT r {};
+            if (::IsWindowVisible(window) && ::GetWindowRect(window, &r) && r.right > r.left && r.bottom > r.top)
+                layout.obstacles.push_back(r);
+        };
+        const auto classOf = [](HWND window) {
+            wchar_t name[64] {};
+            ::GetClassNameW(window, name, 64);
+            return std::wstring(name);
+        };
+        // Start, the tray, buttons of the taskbar's own (Task View) or of the
+        // tool's; in the rebar, toolbars beside the task buttons.
+        for (HWND child = nullptr; (child = ::FindWindowExW(layout.tray, child, nullptr, nullptr));) {
+            const std::wstring name = classOf(child);
+            if (name == kBoxClass)
+                continue;
+            if (name != L"ReBarWindow32") {
+                inTheWay(child);
+                continue;
+            }
+            for (HWND band = nullptr; (band = ::FindWindowExW(child, band, nullptr, nullptr));) {
+                if (classOf(band) != L"MSTaskSwWClass")
+                    inTheWay(band);
+            }
+        }
+        layout.measured = true;
+        return layout;
+    }
+
     bool ready()
     {
         if (m_uia)
@@ -488,6 +567,8 @@ private:
     HWND m_frameOf = nullptr;
     ComPtr<IUIAutomationElement> m_frame;
     std::vector<RECT> m_outside; // the tray's icons outside the frame, as last found
+    HWND m_listOf = nullptr; // a classic taskbar's (readClassic)
+    ComPtr<IUIAutomationElement> m_list;
 };
 
 // Joined if it ends soon; one stuck with a hung Explorer is left to end by itself.
@@ -548,11 +629,14 @@ struct SearchBox::Impl {
     // The box's thread alone from here on.
     HWND tray = nullptr;
     HWINEVENTHOOK hook = nullptr;
+    HWND classicList = nullptr; // a classic taskbar's task buttons (classicTaskList)...
+    HWINEVENTHOOK buttonsHook = nullptr; // ... coming and going
     bool destroying = false; // the box goes because we said so
     int generation = 0;
     int attachTriesLeft = 0;
     int unmeasuredTries = 0;
     Hidden hidden = Hidden::Pending; // as told (shownChanged)
+    bool classicShown = false; // as told (classicChanged)
     std::wstring attachTrouble; // why attach() last failed (for the log)
     std::wstring skipped; // why measureRoom() last skipped (for the log)
     UINT dpi = 96;
@@ -903,8 +987,11 @@ struct SearchBox::Impl {
         }
         RECT barRect {};
         ::GetWindowRect(bar, &barRect);
-        log(printed(L"onto the taskbar %ls, Windows build %lu, icons %ls, %u dpi", rectText(barRect).c_str(),
-            windowsBuild(), iconsCentred() ? L"centred" : L"left", ::GetDpiForWindow(bar)));
+        classicList = classicTaskList(bar);
+        log(printed(L"onto the %ls taskbar %ls, Windows build %lu, icons %ls, %u dpi",
+            classicList ? L"classic (Windows 10's: StartAllBack, ExplorerPatcher)" : L"Windows 11", rectText(barRect).c_str(),
+            windowsBuild(), (classicList ? classicIconsCentred() : iconsCentred()) ? L"centred" : L"left",
+            ::GetDpiForWindow(bar)));
         tray = bar;
         box = window;
         makeTip(window);
@@ -916,6 +1003,11 @@ struct SearchBox::Impl {
         // Its own thread's location changes: its buttons moving, it moving.
         hook = ::SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, nullptr, locationChanged,
             process, thread, WINEVENT_OUTOFCONTEXT);
+        // A classic taskbar says nothing of its buttons moving, only of one
+        // made or gone (the rest slide over to make room or close the gap).
+        if (classicList)
+            buttonsHook = ::SetWinEventHook(EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, nullptr, buttonsChanged, process,
+                thread, WINEVENT_OUTOFCONTEXT);
         unmeasuredTries = 0;
         requestMeasure();
         return true;
@@ -983,6 +1075,9 @@ struct SearchBox::Impl {
         ::KillTimer(helper, kHoldTimer);
         if (hook)
             ::UnhookWinEvent(std::exchange(hook, nullptr));
+        if (buttonsHook)
+            ::UnhookWinEvent(std::exchange(buttonsHook, nullptr));
+        classicList = nullptr;
         if (const HWND window = box.load()) {
             destroying = true;
             ::DestroyWindow(window);
@@ -1025,6 +1120,13 @@ struct SearchBox::Impl {
         self->requestMeasure(); // and every frame after, while they move
     }
 
+    static void CALLBACK buttonsChanged(HWINEVENTHOOK, DWORD, HWND window, LONG object, LONG child, DWORD, DWORD)
+    {
+        Impl* self = t_current;
+        if (self && window && window == self->classicList && object == OBJID_CLIENT && child != CHILDID_SELF)
+            self->requestMeasure();
+    }
+
     void measuredArrived()
     {
         std::unique_ptr<Layout> next;
@@ -1050,6 +1152,10 @@ struct SearchBox::Impl {
             return;
         }
         unmeasuredTries = 0;
+        if (next.classic != classicShown) {
+            classicShown = next.classic;
+            call(callbacks.classicChanged, next.classic);
+        }
         if (!sameLayout(next, taskbarLayout))
             layoutChangedAt = nowMs();
         taskbarLayout = next;
@@ -1210,7 +1316,8 @@ struct SearchBox::Impl {
         // Asked for by a drag and on its way: where it was let go (spotAt's default too).
         if (gapWanted && !gapUnavailable && room.startWanted > 0)
             return Spot::Side::AfterStart;
-        return room.haveIcons && iconsCentred() ? Spot::Side::Before : Spot::Side::After;
+        const bool centred = taskbarLayout.classic ? taskbarLayout.centred : iconsCentred();
+        return room.haveIcons && centred ? Spot::Side::Before : Spot::Side::After;
     }
 
     // The side a point along the taskbar is on: the gap right of Start, or
@@ -1262,7 +1369,8 @@ struct SearchBox::Impl {
     // the icons or nothing of it would fit.
     void wantGap(const Room& room, Spot::Side side)
     {
-        if (!gapWanted || side == Spot::Side::Before || side == Spot::Side::After) { // beside the icons: no empty gap left
+        if (!gapWanted || taskbarLayout.classic || side == Spot::Side::Before
+            || side == Spot::Side::After) { // beside the icons, or no gap to be made: no empty gap left
             ask(0);
             return;
         }
@@ -1455,12 +1563,16 @@ struct SearchBox::Impl {
         const Form shape = side->shape.form;
         const double from = room.from(side->side) - ends(shape, room);
         const double to = room.to(side->side) + ends(shape, room);
-        const double offset = std::lround(where.offset * s);
+        // On another side than the spot's (no room there): against the icons,
+        // the spot's distance being from the ends of the other stretch.
+        const bool own = where.side == Spot::Side::Auto || side->side == where.side;
+        const bool fromIcons = !own || where.fromIcons;
+        const double offset = own ? std::lround(where.offset * s) : 0;
         double x = 0;
         if (side->side == Spot::Side::Before) // against the icons: the right end
-            x = where.fromIcons ? to - offset - width : from + offset;
+            x = fromIcons ? to - offset - width : from + offset;
         else // after the icons, or Start: the left end
-            x = where.fromIcons ? from + offset : to - offset - width;
+            x = fromIcons ? from + offset : to - offset - width;
         Target t;
         t.x = std::round(std::clamp(x, from, to - width));
         t.w = width;
@@ -1497,7 +1609,8 @@ struct SearchBox::Impl {
         where.fromIcons = fromIcons <= fromFar;
         const double offset = std::max(0.0, where.fromIcons ? fromIcons : fromFar);
         where.offset = offset <= snap ? 0 : static_cast<int>(std::lround(offset / s));
-        const Spot::Side home = gapWanted ? Spot::Side::AfterStart : defaultSide(room); // the default, the gap wanted or not
+        const Spot::Side home = gapWanted && !taskbarLayout.classic ? Spot::Side::AfterStart
+                                                                    : defaultSide(room); // the default, the gap wanted or not
         if (where.fromIcons && where.offset == 0 && side == home)
             where.side = Spot::Side::Auto; // the default: keeps to the taskbar's alignment, and to the gap
         return where;
@@ -2170,11 +2283,12 @@ struct SearchBox::Impl {
         renderTarget->SetTransform(base);
         ComPtr<ID2D1SolidColorBrush> brush;
         renderTarget->CreateSolidColorBrush(p.fill, &brush);
-        const float radius = button ? std::round(static_cast<float>(kButtonRadius) * s) : h / 2;
+        const bool round = drawnLook.roundedCorners;
+        const float radius = round ? (button ? std::round(static_cast<float>(kButtonRadius) * s) : h / 2) : 0;
         const float inset = button ? std::round(static_cast<float>(kButtonSide) * s) : 0; // the plate in the slot
         const auto rounded = [&](float out, float dy = 0) {
             return D2D1_ROUNDED_RECT {D2D1::RectF(inset - out, -out + dy, w - inset + out, h + out + dy),
-                std::max(0.0f, radius + out), std::max(0.0f, radius + out)};
+                round ? std::max(0.0f, radius + out) : 0, round ? std::max(0.0f, radius + out) : 0};
         };
 
         if (lift > 0) { // off the taskbar: a soft shadow under it
@@ -2193,6 +2307,8 @@ struct SearchBox::Impl {
         // The pill, with a line round it, 1 logical px as round our windows;
         // with high contrast the highlight's, thicker, while typing in it.
         const float stroke = highContrast ? s * (1 + activeAmount) : s;
+        // Square edges stay on physical pixels at fractional monitor scales.
+        renderTarget->SetAntialiasMode(round ? D2D1_ANTIALIAS_MODE_PER_PRIMITIVE : D2D1_ANTIALIAS_MODE_ALIASED);
         if (button) {
             // As the taskbar's own buttons (Windows' subtle fills): shown on
             // hover, lifted or open, fainter pressed; a faint lighter top edge
@@ -2226,6 +2342,7 @@ struct SearchBox::Impl {
             renderTarget->DrawRoundedRectangle(rounded(-stroke / 2), brush.Get(), stroke);
         }
 
+        renderTarget->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
         const float iconSize = button ? static_cast<float>(searchIconPx) : std::round(static_cast<float>(kIconSize) * s);
         const float iconX = button ? std::round((w - iconSize) / 2)
                                    : std::min(std::round(static_cast<float>(kPadding) * s), std::round((w - iconSize) / 2)); // narrow: centred

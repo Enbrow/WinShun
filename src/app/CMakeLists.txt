@@ -75,6 +75,7 @@ qt_add_executable(WinShun WIN32
     platform/IdleTrim.cpp platform/IdleTrim.h
     platform/Integrity.cpp platform/Integrity.h
     platform/KeyListener.cpp platform/KeyListener.h
+    platform/ServiceKeyListener.cpp platform/ServiceKeyListener.h
     platform/KeyRouter.cpp platform/KeyRouter.h
     platform/MessageWindow.cpp platform/MessageWindow.h
     platform/MonoLogo.cpp platform/MonoLogo.h
@@ -120,6 +121,8 @@ set(qml_files
     qml/ClipPreview.qml
     qml/RowAction.qml
     qml/ListScrollBar.qml
+    qml/ScrollPixelAlignment.qml
+    qml/ListWheelScroll.qml
     qml/ContextMenu.qml
     qml/DialogBarWindow.qml
     qml/DialogBarRow.qml
@@ -149,6 +152,7 @@ set(qml_files
     qml/ShareCard.qml
     qml/CenteredNumber.qml
     qml/IconNumber.qml
+    qml/NumberHints.qml
     qml/ShortcutsButton.qml
     qml/KeyCap.qml
     qml/Chip.qml

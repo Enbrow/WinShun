@@ -44,7 +44,7 @@ Rectangle {
 
     implicitWidth: row.implicitWidth + 6
     implicitHeight: tabHeight + 6
-    radius: 8
+    radius: Theme.largeCardRadius
     color: Theme.track
 
     Row {
@@ -73,7 +73,7 @@ Rectangle {
 
                 width: labelWidth + (open ? sub.fullWidth : 0) + (pluginOpen ? pluginSub.fullWidth : 0)
                 height: tabs.tabHeight
-                radius: 6
+                radius: Theme.largeControlRadius
                 clip: true
                 color: active ? Theme.chipActive : area.containsMouse ? Theme.chipHover : "transparent"
                 border.width: active ? 1 : 0
@@ -129,7 +129,7 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         width: Math.ceil(subText.implicitWidth) + 16
                         height: tabs.tabHeight - 8
-                        radius: 4
+                        radius: Theme.controlRadius
                         color: tab.subCurrent ? Theme.accentFill : subArea.containsMouse ? Theme.chipHover : "transparent"
 
                         Text {
@@ -183,7 +183,7 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 8 + pluginIconSlot.width + 6 + Math.ceil(pluginText.implicitWidth) + 8
                         height: tabs.tabHeight - 8
-                        radius: 4
+                        radius: Theme.controlRadius
                         color: Theme.accentFill
 
                         Item {

@@ -15,12 +15,13 @@ Loader {
     property bool taken: false
 
     active: keys.length > 0
+    visible: active && opacity > 0
     height: 16 // the width is the text's
 
     sourceComponent: Item {
         id: label
 
-        readonly property font face: Qt.font({ family: "Segoe UI", weight: Font.DemiBold, pixelSize: 13,
+        readonly property font face: Qt.font({ family: "Segoe UI", weight: Font.Normal, pixelSize: 11,
                                                strikeout: root.taken })
 
         width: Math.ceil(ink.advanceWidth) + 4
@@ -34,7 +35,7 @@ Loader {
 
         Item { // a halo of the window's dark (light), so it reads over any icon and on the selected row alike
             anchors.fill: parent
-            opacity: Theme.dark ? 0.6 : 0.9
+            opacity: Theme.dark ? 0.55 : 0.85
             layer.enabled: true // the copies made one shape first, then faded as one
 
             Repeater {
@@ -53,8 +54,8 @@ Loader {
                     font: label.face
                     color: Theme.dark ? "black" : "white"
                     transform: Translate {
-                        x: copy.index > 0 ? 1.5 * Math.cos(copy.index * Math.PI / 8) : 0
-                        y: copy.index > 0 ? 1.5 * Math.sin(copy.index * Math.PI / 8) : 0
+                        x: copy.index > 0 ? Math.cos(copy.index * Math.PI / 8) : 0
+                        y: copy.index > 0 ? Math.sin(copy.index * Math.PI / 8) : 0
                     }
                 }
             }
@@ -66,7 +67,7 @@ Loader {
             textFormat: Text.PlainText
             renderType: Text.CurveRendering
             font: label.face
-            color: root.taken ? Theme.faint : Theme.text
+            color: root.taken ? Theme.faint : Theme.subtext
         }
     }
 }

@@ -40,16 +40,18 @@ Item {
         input.forceActiveFocus()
     }
     function selectFirst() {
+        list.stopScrolling()
         if (list.count > 0)
             list.currentIndex = 0
         // After rows went and came in place (ClipModel::setRows) the view
         // stops with the first row at the very top, its top margin scrolled
         // off; the true start is the margin above the origin.
-        list.cancelFlick()
         list.positionViewAtBeginning()
         list.contentY = list.originY - list.topMargin
     }
     function windowHidden() {
+        list.stopScrolling()
+        numberHints.reset()
         closeContextMenu()
         menuLoader.active = false
         tabs.stopNaming()
@@ -82,11 +84,16 @@ Item {
             selectTo(Math.max(0, Math.min(list.count - 1, list.currentIndex + delta)), false)
     }
     // The number keys (Clipboard.numberKeys): Alt+1... pastes the first nine
-    // rows, whose numbers are on their icons all along (as in the launcher;
-    // shown only while the modifier was held, they swapped the right of
-    // every row).
+    // rows; showing their hints never changes which keys paste them.
     readonly property int numberKey: clipboard.numberKeys === "alt" ? Qt.Key_Alt
                                    : clipboard.numberKeys === "ctrl" ? Qt.Key_Control : -1
+    NumberHints {
+        id: numberHints
+        mode: page.clipboard.numberHints
+        key: page.numberKey
+        // Over another app the existing KeyRouter delivers modifier keys too.
+        listening: page.visible && (page.Window.active || page.clipboard.keysRouted) && !page.menuOpen
+    }
     // A digit another program holds as a global hotkey is its (Clipboard.numberKeysLeft):
     // the row still shows the chord, struck through (ClipRow.hintTaken).
     function numberUsable(number) {
@@ -184,6 +191,7 @@ Item {
     }
 
     function handleKey(event) {
+        numberHints.press(event)
         if (menuOpen && contextMenu.handleKey(event)) {
             event.accepted = true
             return
@@ -385,9 +393,11 @@ Item {
                 onTextChanged: page.clipboard.query = text
                 Keys.onPressed: (event) => page.handleKey(event)
                 Keys.onReleased: (event) => {
+                    numberHints.release(event)
                     if (event.key === Qt.Key_Alt)
                         event.accepted = true
                 }
+                onActiveFocusChanged: numberHints.reset()
 
                 Text {
                     anchors.fill: parent
@@ -432,7 +442,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: pausedText.implicitWidth + 20
                 height: 26
-                radius: 13
+                radius: Theme.pillRadius(height)
                 color: Theme.badge
 
                 Text {
@@ -488,13 +498,13 @@ Item {
                     // slides there, and the ones it passes make way.
                     // Not under a drag: the rows are where they go at once,
                     // for the next one to be found under the mouse.
-                    property bool dragging: false
+                    property bool rowDragging: false
                     move: Transition {
-                        enabled: SystemTheme.animations && !list.dragging
+                        enabled: SystemTheme.animations && !list.rowDragging
                         NumberAnimation { property: "y"; duration: 150; easing.type: Easing.OutCubic }
                     }
                     moveDisplaced: Transition {
-                        enabled: SystemTheme.animations && !list.dragging
+                        enabled: SystemTheme.animations && !list.rowDragging
                         NumberAnimation { property: "y"; duration: 150; easing.type: Easing.OutCubic }
                     }
                     onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
@@ -503,69 +513,18 @@ Item {
                             currentIndex = Math.min(Math.max(0, currentIndex), count - 1)
                     }
 
-                    // The mouse wheel glides the list itself (docs/pitfalls.md:
-                    // 剪贴板列表滚轮一格一顿). Rows are of two heights, so the
-                    // view re-estimates contentHeight/originY whenever a row
-                    // is made or let go; Flickable answers each such change,
-                    // while its own wheel glide runs, by cutting the glide
-                    // short and stepping back under a pixel. Here the wheel
-                    // never reaches Flickable: a notch adds 3 lines to a goal,
-                    // the rows ease there in whole pixels, never backwards,
-                    // and the ends are wherever the view says they are at
-                    // each step.
-                    WheelHandler {
-                        target: null
-                        acceptedDevices: PointerDevice.Mouse
-                        onWheel: (event) => list.wheelScroll(event.angleDelta.y)
+                    // Mixed row heights re-estimate the range while scrolling.
+                    // The shared wheel controller follows those ends without
+                    // native wheel fixup or an old goal surviving a reversal.
+                    function stopScrolling() {
+                        wheelScroll.cancel()
+                        cancelFlick()
                     }
-                    readonly property real minY: originY - topMargin
-                    readonly property real maxY: Math.max(minY, originY + contentHeight + bottomMargin - height)
-                    property real glideFrom: 0
-                    property real glideGoal: 0 // -Infinity: the top, Infinity: the end, wherever they turn out to be
-                    property real glideT: 0 // 0..1 along the ease
-                    property real glideWritten: NaN // the contentY the glide set last
-                    readonly property real glideTo: Math.max(minY, Math.min(maxY, glideGoal))
-                    NumberAnimation {
-                        id: glide
-                        target: list
-                        property: "glideT"
-                        from: 0
-                        to: 1
-                        duration: SystemTheme.animations ? 300 : 0
-                        easing.type: Easing.OutExpo
-                    }
-                    function wheelScroll(angleDeltaY) {
-                        if (maxY <= minY)
-                            return
-                        const lines = Application.styleHints.wheelScrollLines
-                        const step = angleDeltaY / 120 * (lines > 0 ? lines * 24 : height)
-                        let goal = (glide.running ? glideTo : contentY) - step
-                        if (goal <= minY)
-                            goal = -Infinity
-                        else if (goal >= maxY)
-                            goal = Infinity
-                        glide.stop()
-                        glideFrom = contentY
-                        glideWritten = contentY
-                        glideGoal = goal
-                        glideT = 0
-                        glide.start()
-                    }
-                    function glideStep() {
-                        if (!glide.running)
-                            return
-                        let y = Math.round(Math.max(minY, Math.min(maxY, glideFrom + (glideTo - glideFrom) * glideT)))
-                        // Never against the glide's own direction: an end the
-                        // view re-estimates nearer must not pull the rows back.
-                        y = glideGoal < glideFrom ? Math.min(y, glideWritten) : Math.max(y, glideWritten)
-                        glideWritten = y
-                        contentY = y
-                    }
-                    onGlideTChanged: glideStep()
-                    onGlideToChanged: glideStep() // an end moved under a glide heading for it
-                    onContentYChanged: {
-                        if (glide.running && Math.abs(contentY - glideWritten) > 0.5)
-                            glide.stop() // something else moved the view: keys, the scroll bar, selectFirst()
+                    ListWheelScroll {
+                        id: wheelScroll
+                        view: list
+                        animate: SystemTheme.animations
+                        logicalPixelSteps: true
                     }
 
                     delegate: ClipRow {
@@ -573,26 +532,28 @@ Item {
                         width: list.width
                         height: clipRow.kind === 4 ? page.pictureRowHeight : page.rowHeight
                         hint: page.numberKey >= 0 && index < 9 ? index + 1 : 0
+                        hintOpacity: numberHints.hintOpacity
                         hintModifier: page.numberKey === Qt.Key_Control ? "Ctrl" : "Alt"
                         hintTaken: clipRow.hint > 0 && !page.numberUsable(clipRow.hint)
                         pasteTip: page.pasteLabel
                         clickToPaste: page.clipboard.clickToPaste
                         largePictures: page.clipboard.largePictures
                         onDragRequested: (index) => page.clipboard.dragOut(index)
-                        onMoveHeld: (held) => list.dragging = held
+                        onMoveHeld: (held) => {
+                            list.rowDragging = held
+                            if (held)
+                                list.stopScrolling()
+                        }
                         onMoveRequested: (from, to) => {
                             list.currentIndex = from
                             page.clipboard.moveRow(from, to)
                         }
                         // On whole device pixels wherever the list has scrolled
                         // to (see Main.qml).
-                        transform: Translate {
-                            y: {
-                                const dpr = Screen.devicePixelRatio
-                                const listTop = page.y + body.y + list.y
-                                const deviceY = (listTop + list.contentItem.y + clipRow.y) * dpr
-                                return (Math.round(deviceY) - deviceY) / dpr
-                            }
+                        transform: ScrollPixelAlignment {
+                            view: list
+                            viewY: page.y + body.y + list.y
+                            itemY: clipRow.y
                         }
                         onClicked: (index, modifiers) => {
                             const ctrl = (modifiers & Qt.ControlModifier) !== 0
@@ -759,7 +720,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     width: separatorText.implicitWidth + 20
                     height: 26
-                    radius: 13
+                    radius: Theme.pillRadius(height)
                     color: separatorArea.containsMouse ? Theme.chipHover : Theme.track
                     border.width: 1
                     border.color: Theme.chipBorder

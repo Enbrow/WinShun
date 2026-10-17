@@ -95,6 +95,7 @@ class Launcher : public QObject {
     // The modifier that opens the nth row shown with a digit: "ctrl", "alt",
     // or "" for none (Settings::numberKeys).
     Q_PROPERTY(QString numberKeys READ numberKeys NOTIFY resultOptionsChanged FINAL)
+    Q_PROPERTY(QString numberHints READ numberHints NOTIFY resultOptionsChanged FINAL)
     // Bits 1 << n of the digits n left to another program's global hotkey
     // (numberkeys::heldMask): their rows show the chord struck through.
     Q_PROPERTY(int numberKeysLeft READ numberKeysLeft NOTIFY resultOptionsChanged FINAL)
@@ -315,6 +316,8 @@ public:
     Q_INVOKABLE void switchOrder();
     bool showModified() const { return m_showModified; }
     QString numberKeys() const { return m_numberKeys; }
+    QString numberHints() const { return m_numberHints; }
+    void setNumberHints(const QString& hints);
     int numberKeysLeft() const { return static_cast<int>(m_numberKeysLeft); }
     void setNumberKeysLeft(unsigned digits);
     bool inTaskbarBox() const { return m_inTaskbarBox; }
@@ -726,6 +729,7 @@ private:
     StartList m_startList = RecentlyOpened;
     bool m_showModified = true;
     QString m_numberKeys = QStringLiteral("ctrl");
+    QString m_numberHints = QStringLiteral("held");
     unsigned m_numberKeysLeft = 0;
     bool m_inTaskbarBox = false;
     bool m_systemMenuOpen = false; // the shell's menu is up (its loop runs inside runSystemMenu)

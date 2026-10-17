@@ -69,7 +69,7 @@ Rectangle {
     Component.onCompleted: if (expanded) loadedOnce = true
 
     implicitHeight: body.implicitHeight + 24
-    radius: 4
+    radius: Theme.controlRadius
     color: marked ? Theme.selection : "transparent"
     border.width: 1
     border.color: Theme.cardBorder
@@ -80,7 +80,7 @@ Rectangle {
         y: body.y + header.y + texts.y + (nameText.height - height) / 2
         width: 3
         height: 16
-        radius: 1.5
+        radius: Theme.smallRadius
         color: Theme.accent
     }
 
@@ -227,7 +227,7 @@ Rectangle {
 
                             width: Math.max(28, keycapText.implicitWidth + 14)
                             height: 24
-                            radius: 4
+                            radius: Theme.controlRadius
                             color: Theme.keycap
                             border.width: 1
                             border.color: Theme.keycapBorder
@@ -512,7 +512,7 @@ Rectangle {
                             visible: !permissionRow.modelData.enforced
                             width: declaredText.implicitWidth + 10
                             height: 18
-                            radius: 3
+                            radius: Theme.smallControlRadius
                             color: "transparent"
                             border.width: 1
                             border.color: Theme.controlBorder

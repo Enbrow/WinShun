@@ -71,6 +71,7 @@ class Clipboard : public QObject {
     // The modifier that pastes the nth row with a digit: "alt", "ctrl", or ""
     // for none (Settings::clipboardNumberKeys).
     Q_PROPERTY(QString numberKeys READ numberKeys NOTIFY numberKeysChanged FINAL)
+    Q_PROPERTY(QString numberHints READ numberHints NOTIFY numberKeysChanged FINAL)
     // Bits 1 << n of the digits n left to another program's global hotkey
     // (numberkeys::heldMask): their rows show the chord struck through.
     Q_PROPERTY(int numberKeysLeft READ numberKeysLeft NOTIFY numberKeysChanged FINAL)
@@ -129,6 +130,8 @@ public:
     void setState(bool recording, bool paused, const QString& shortcut);
     QString shortcut() const { return m_shortcut; }
     QString numberKeys() const { return m_numberKeys; }
+    QString numberHints() const { return m_numberHints; }
+    void setNumberHints(const QString& hints);
     void setNumberKeys(const QString& keys); // "alt", "ctrl" or "off"
     int numberKeysLeft() const { return static_cast<int>(m_numberKeysLeft); }
     void setNumberKeysLeft(unsigned digits);
@@ -294,6 +297,7 @@ private:
     bool m_paused = false;
     QString m_shortcut;
     QString m_numberKeys = QStringLiteral("alt");
+    QString m_numberHints = QStringLiteral("held");
     unsigned m_numberKeysLeft = 0;
     bool m_clickToPaste = false;
     bool m_largePictures = false;

@@ -16,7 +16,7 @@ Row {
         anchors.verticalCenter: parent.verticalCenter
         width: keyText.implicitWidth + 10
         height: Theme.keycapHeight
-        radius: 4
+        radius: Theme.controlRadius
         color: Theme.keycap
         border.width: 1
         border.color: Theme.keycapBorder

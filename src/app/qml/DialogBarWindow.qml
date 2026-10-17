@@ -224,8 +224,10 @@ Window {
                 window.closeMenu()
             if (window.menuOpen)
                 return // its row stays the current one
+            list.stopScrolling()
             list.currentIndex = list.count > 0 ? 0 : -1
             list.positionViewAtBeginning()
+            list.contentY = list.originY - list.topMargin
         }
         function onQueryChanged() {
             nameTip.dismiss()
@@ -318,7 +320,7 @@ Window {
                 anchors.verticalCenter: parent.verticalCenter
                 width: chipRow.implicitWidth + 16
                 height: 32
-                radius: 6
+                radius: Theme.largeControlRadius
                 color: chipArea.pressed ? Theme.controlPressed : chipArea.containsMouse ? Theme.hover : "transparent"
 
                 Row {
@@ -347,7 +349,7 @@ Window {
                         anchors.verticalCenter: parent.verticalCenter
                         width: keyText.implicitWidth + 10
                         height: Theme.keycapHeight - 2
-                        radius: 4
+                        radius: Theme.controlRadius
                         color: Theme.keycap
                         border.width: 1
                         border.color: Theme.keycapBorder
@@ -387,7 +389,7 @@ Window {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 32
                 height: 32
-                radius: 6
+                radius: Theme.largeControlRadius
                 color: moreArea.pressed ? Theme.controlPressed
                      : moreArea.containsMouse || (window.menuOpen && window.contextMenu.row < 0) ? Theme.hover
                      : "transparent"
@@ -462,7 +464,7 @@ Window {
 
                     width: answerText.implicitWidth + 16
                     height: Theme.chipHeight
-                    radius: 6
+                    radius: Theme.largeControlRadius
                     color: answerArea.pressed ? Theme.controlPressed : answerArea.containsMouse ? Theme.hover : "transparent"
                     Accessible.role: Accessible.Button
                     Accessible.name: answerText.text
@@ -499,7 +501,20 @@ Window {
         model: window.bar.results
         boundsBehavior: Flickable.StopAtBounds
         highlightMoveDuration: 0
-        onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+        function stopScrolling() {
+            wheelScroll.cancel()
+            cancelFlick()
+        }
+        ListWheelScroll {
+            id: wheelScroll
+            view: list
+            animate: SystemTheme.animations
+        }
+        onCurrentIndexChanged: {
+            positionViewAtIndex(currentIndex, ListView.Contain)
+            if (currentIndex === 0)
+                contentY = originY - topMargin
+        }
         onContentYChanged: nameTip.dismiss() // scrolled: another row under the pointer
         Accessible.role: Accessible.List
         Accessible.name: placeholder.text
@@ -516,12 +531,10 @@ Window {
             // On whole device pixels wherever the list has scrolled to (see
             // Main.qml). Below the bar the rows start at 49 logical pixels:
             // at 150 % on a half pixel even before any scrolling.
-            transform: Translate {
-                y: {
-                    const dpr = Screen.devicePixelRatio
-                    const deviceY = (list.y + list.contentItem.y + rowItem.y) * dpr
-                    return (Math.round(deviceY) - deviceY) / dpr
-                }
+            transform: ScrollPixelAlignment {
+                view: list
+                viewY: list.y
+                itemY: rowItem.y
             }
             // On the current row while typing: a key that does more with it.
             tag: {

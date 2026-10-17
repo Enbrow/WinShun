@@ -53,6 +53,17 @@ bool windowsSearchShown();
 // `window` is a taskbar (Shell_TrayWnd, or another monitor's).
 bool isTaskbar(HWND window);
 
+// The task buttons' window (MSTaskListWClass) of `bar`, when it is Windows
+// 10's taskbar, as StartAllBack and ExplorerPatcher bring it back on Windows
+// 11: Start, ReBarWindow32 › MSTaskSwWClass › MSTaskListWClass and
+// TrayNotifyWnd, windows of their own, no XAML. Windows 11's own taskbar
+// keeps these windows too, the task buttons' hidden, and has its XAML in a
+// visible DesktopWindowContentBridge: null there.
+HWND classicTaskList(HWND bar);
+// The icons of such a taskbar are centred (StartAllBack's "Centered task
+// icons"; ExplorerPatcher's Windows 10 taskbar has them at the start).
+bool classicIconsCentred();
+
 // The button's AppUserModelID: the program sets it for itself, and its Start
 // menu shortcut has it too. That is how Windows knows the program asking to
 // be pinned (TaskbarManager) is that entry: without it, pinning is not allowed.

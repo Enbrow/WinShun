@@ -110,7 +110,7 @@ SettingsSection {
             Rectangle {
                 width: parent.width
                 height: Math.max(40, Math.min(logList.contentHeight + 2, 360))
-                radius: 4
+                radius: Theme.controlRadius
                 color: "transparent"
                 border.width: 1
                 border.color: Theme.cardBorder
@@ -149,7 +149,7 @@ SettingsSection {
 
                         Rectangle {
                             anchors.fill: parent
-                            radius: 3
+                            radius: Theme.smallControlRadius
                             color: lineArea.containsMouse ? Theme.navHover : "transparent"
                         }
                         Rectangle {

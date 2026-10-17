@@ -76,7 +76,7 @@ Item {
     Rectangle { // sets the form apart from the rows around it
         anchors.fill: parent
         anchors.margins: 1
-        radius: 3
+        radius: Theme.smallControlRadius
         color: Theme.navHover
     }
 

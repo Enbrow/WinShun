@@ -226,6 +226,14 @@ void SettingsEditor::setNumberKeys(const QString& keys)
     refreshNumberKeys();
 }
 
+void SettingsEditor::setNumberHints(const QString& hints)
+{
+    if (m_settings.numberHints == hints || (hints != u"held" && hints != u"always" && hints != u"off"))
+        return;
+    m_settings.numberHints = hints;
+    commit();
+}
+
 void SettingsEditor::setPreviewWith(const QString& with)
 {
     if (m_settings.previewWith == with || (with != u"auto" && with != u"builtin"))
@@ -593,6 +601,14 @@ void SettingsEditor::setUiSize(const QString& size)
     if (m_settings.uiSize == size || (size != u"compact" && size != u"standard" && size != u"roomy"))
         return;
     m_settings.uiSize = size;
+    commit();
+}
+
+void SettingsEditor::setCorners(const QString& corners)
+{
+    if (m_settings.corners == corners || (corners != u"round" && corners != u"square"))
+        return;
+    m_settings.corners = corners;
     commit();
 }
 
@@ -995,6 +1011,15 @@ void SettingsEditor::setSearchBoxShown(const QString& hidden)
         return;
     m_searchBoxHidden = hidden;
     emit searchBoxShownChanged();
+}
+
+void SettingsEditor::setClassicTaskbar(bool classic)
+{
+    if (m_classicTaskbar == classic)
+        return;
+    m_classicTaskbar = classic;
+    emit searchBoxShownChanged();
+    refreshTaskbarState(); // Windows' search, as that taskbar has it
 }
 
 void SettingsEditor::setWinSState(const QString& state, bool canRestartExplorer)

@@ -10,7 +10,7 @@ Rectangle {
     anchors.verticalCenter: parent ? parent.verticalCenter : undefined
     width: label.implicitWidth + 12
     height: 20
-    radius: 3
+    radius: Theme.smallControlRadius
     color: Theme.badge
 
     Text {

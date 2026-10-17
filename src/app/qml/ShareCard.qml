@@ -22,7 +22,7 @@ Rectangle {
                                      : Theme.faint
 
     implicitHeight: Math.max(texts.implicitHeight, buttons.implicitHeight) + 24
-    radius: 4
+    radius: Theme.controlRadius
     color: "transparent"
     border.width: 1
     border.color: marked ? Theme.accent : Theme.cardBorder

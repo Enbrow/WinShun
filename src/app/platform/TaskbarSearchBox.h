@@ -45,12 +45,18 @@ namespace ws::taskbar {
 // curves of Windows 11's own motion; not when the system's animation effects
 // are off.
 //
+// On Windows 10's taskbar, as StartAllBack and ExplorerPatcher bring it back
+// on Windows 11 (classicTaskList), the same way: the task buttons measured,
+// the rest of the taskbar windows in the way. No gap right of Start there
+// (classicChanged).
+//
 // Its window lives on a thread of its own: a child of another program's
 // window shares that program's input queue, and a hung Explorer must not
 // take the launcher with it. Measuring is on a third thread: UI Automation
 // asks the windows on the taskbar, this one among them; a fourth paces both
-// to the compositor's frames while they animate. Windows 11 only (the
-// measuring needs its taskbar).
+// to the compositor's frames while they animate. Windows 11 only (Windows
+// 10 itself has the pinned button; its taskbar is measured as above, but
+// untried there).
 class SearchBox {
 public:
     // A left button press on the box (on its icon: a click, not a drag).
@@ -77,7 +83,7 @@ public:
         None,
         Pending, // going onto it: the taskbar not found or measured yet
         NoTaskbar, // no visible taskbar to go onto, after a while
-        Unreadable, // UI Automation does not give its icons (another taskbar, a mod)
+        Unreadable, // UI Automation does not give its icons (a taskbar neither Windows 11's nor Windows 10's)
         OffScreen, // not all on its screen: auto-hidden, or sliding
         Vertical, // at a side of the screen
         NoRoom, // not even the icon fits beside the icons
@@ -91,6 +97,7 @@ public:
         std::function<void(bool wide)> wideChanged; // see wide()
         std::function<void(double dips)> gapWanted; // the gap right of Start the box's form needs; 0: none (StartGap::set)
         std::function<void()> gapMissing; // the gap was reported but never measured: fell back (StartGap::noGapSeen)
+        std::function<void(bool classic)> classicChanged; // measured a classic taskbar (classicTaskList), or no longer: no gap right of Start there
     };
     // What the launcher's field has while it is open over the box.
     struct Text {
@@ -111,6 +118,7 @@ public:
         std::wstring label; // short, where the box is narrow: "搜索"
         COLORREF accent = RGB(0x00, 0x67, 0xC0); // under selected text
         bool monoIcon = false; // Win顺's icon in the taskbar's text colour (monologo), not its own colours
+        bool roundedCorners = true;
         Style style = Style::Box;
     };
 

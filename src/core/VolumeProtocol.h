@@ -41,6 +41,7 @@ constexpr std::uint16_t kMajor = 1; // different on the two ends: they cannot ta
 constexpr std::uint16_t kMinor = 2;
 constexpr std::uint16_t kMinorSizes = 2;
 constexpr std::uint32_t kCapabilityBulkRead = 1; // HelloOk::capabilities
+constexpr std::uint32_t kCapabilityKeyListener = 2; // UIAccess listener, on the caller's desktop
 constexpr std::size_t kMaxBulkWants = 4u << 20; // files one bulk session may ask about
 constexpr wchar_t kPipeName[] = L"WinShun.Volumes"; // one service for the whole machine
 constexpr wchar_t kPipeEnvironment[] = L"WINSHUN_PIPE"; // another pipe's name, for tests (--console --pipe)
@@ -79,6 +80,9 @@ enum class Type : std::uint16_t {
     BulkFetch = 76,
     BulkData = 77,
     BulkFetched = 78,
+    OpenKeyListener = 80, // u64: caller's KeyListener HWND; no path or session supplied by the client
+    KeyListenerReady = 81, // u32: child PID; connection owns the child's lifetime
+    KeyListenerPing = 82, // empty request and reply, once a second
 };
 
 std::wstring fullPipePath(std::wstring_view name); // "\\.\pipe\" + name

@@ -123,6 +123,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString startList READ startList WRITE setStartList NOTIFY changed FINAL) // opened | modified | none
     Q_PROPERTY(bool clearOnOpen READ clearOnOpen WRITE setClearOnOpen NOTIFY changed FINAL)
     Q_PROPERTY(QString numberKeys READ numberKeys WRITE setNumberKeys NOTIFY changed FINAL) // ctrl | alt | off
+    Q_PROPERTY(QString numberHints READ numberHints WRITE setNumberHints NOTIFY changed FINAL) // held | always | off
     Q_PROPERTY(QString previewWith READ previewWith WRITE setPreviewWith NOTIFY changed FINAL) // auto | builtin
     // Which of the chosen number keys are other programs' hotkeys, or Win顺's
     // own shortcuts, said for the user; empty when none (refreshNumberKeys).
@@ -158,6 +159,8 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool searchBoxSupported READ searchBoxSupported CONSTANT FINAL)
     Q_PROPERTY(bool searchBoxShown READ searchBoxShown NOTIFY searchBoxShownChanged FINAL)
     Q_PROPERTY(QString searchBoxHidden READ searchBoxHidden NOTIFY searchBoxShownChanged FINAL)
+    // ... on Windows 10's taskbar (StartAllBack, ExplorerPatcher): no box right of Start there.
+    Q_PROPERTY(bool classicTaskbar READ classicTaskbar NOTIFY searchBoxShownChanged FINAL)
     // The box right of Start (taskbar::StartGap): the setting, and how it went
     // ("off", "attaching", "ready", "applied", "nogap", "conflict",
     // "incompatible", "failed"; the reason in English, for the details).
@@ -190,6 +193,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString transparency READ transparency WRITE setTransparency NOTIFY changed FINAL)
     Q_PROPERTY(QString taskbarIcon READ taskbarIcon WRITE setTaskbarIcon NOTIFY changed FINAL) // color | mono
     Q_PROPERTY(QString uiSize READ uiSize WRITE setUiSize NOTIFY changed FINAL) // compact | standard | roomy
+    Q_PROPERTY(QString corners READ corners WRITE setCorners NOTIFY changed FINAL) // round | square
     Q_PROPERTY(bool autoUpdate READ autoUpdate WRITE setAutoUpdate NOTIFY changed FINAL)
     Q_PROPERTY(QString backupFolder READ backupFolder NOTIFY changed FINAL) // empty: no backups (see Backup)
     Q_PROPERTY(bool restartRequired READ restartRequired NOTIFY changed FINAL)
@@ -364,6 +368,8 @@ public:
     void setTaskbarIcon(const QString& style);
     QString uiSize() const { return m_settings.uiSize; }
     void setUiSize(const QString& size);
+    QString corners() const { return m_settings.corners; }
+    void setCorners(const QString& corners);
     bool autoUpdate() const { return m_settings.autoUpdate; }
     QString backupFolder() const { return QDir::toNativeSeparators(m_settings.backupFolder); }
     void setAutoUpdate(bool on);
@@ -440,6 +446,8 @@ public:
     void setClearOnOpen(bool on);
     QString numberKeys() const { return m_settings.numberKeys; }
     void setNumberKeys(const QString& keys);
+    QString numberHints() const { return m_settings.numberHints; }
+    void setNumberHints(const QString& hints);
     QString numberKeysNote() const { return m_numberKeysNote; }
     QString previewWith() const { return m_settings.previewWith; }
     void setPreviewWith(const QString& with);
@@ -461,6 +469,8 @@ public:
     bool searchBoxShown() const { return m_searchBoxHidden.isEmpty(); }
     QString searchBoxHidden() const { return m_searchBoxHidden; } // why not: "pending", "noroom"... (App)
     void setSearchBoxShown(const QString& hidden); // set by the app: empty when shown
+    bool classicTaskbar() const { return m_classicTaskbar; }
+    void setClassicTaskbar(bool classic); // set by the app
     bool taskbarStartGap() const { return m_settings.taskbarStartGap; }
     void setTaskbarStartGap(bool on);
     QString startGapState() const { return m_startGapState; }
@@ -679,6 +689,7 @@ private:
     bool m_taskbarButtonPinned = false;
     bool m_windowsSearchShown = true;
     QString m_searchBoxHidden = QStringLiteral("pending");
+    bool m_classicTaskbar = false;
     QString m_startGapState = QStringLiteral("off");
     QString m_startGapReason;
     QString m_clipboardHotkeyError;

@@ -68,7 +68,7 @@ Item {
         anchors.centerIn: parent
         width: Math.min(560, parent.width - 48)
         height: content.implicitHeight + 48
-        radius: 8
+        radius: Theme.largeCardRadius
         color: Theme.menuBackground
         border.width: 1
         border.color: Theme.windowEdge
@@ -144,7 +144,7 @@ Item {
                 visible: dialog.kind === "permissions"
                 width: parent.width
                 height: permissionList.implicitHeight + 16
-                radius: 6
+                radius: Theme.cardRadius
                 color: Theme.hover
                 border.width: 1
                 border.color: Theme.cardBorder
@@ -184,7 +184,7 @@ Item {
                                 visible: !permissionRow.modelData.enforced
                                 width: declaredText.implicitWidth + 10
                                 height: 18
-                                radius: 3
+                                radius: Theme.smallControlRadius
                                 color: "transparent"
                                 border.width: 1
                                 border.color: Theme.controlBorder

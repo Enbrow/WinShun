@@ -1895,8 +1895,12 @@
         <translation>Clear</translation>
     </message>
     <message>
-        <source>读不到任务栏上的图标，可能被改任务栏的工具换掉了；详情在 WinShun.log</source>
-        <translation>Can’t read the taskbar’s icons; a taskbar tool may have replaced them. Details are in WinShun.log</translation>
+        <source>这个任务栏放不了搜索框，已改用固定的 Win顺 按钮</source>
+        <translation>This taskbar can’t take the search box; the pinned Win顺 button is used instead</translation>
+    </message>
+    <message>
+        <source>这个任务栏读不到图标，放不了搜索框；可以改用固定按钮（原因在 WinShun.log）</source>
+        <translation>Can’t read this taskbar’s icons, so the search box can’t go on it; pin the button instead (why: WinShun.log)</translation>
     </message>
     <message>
         <source>没找到任务栏；重启资源管理器后会再放</source>
@@ -2403,6 +2407,10 @@
         <translation>Pin</translation>
     </message>
     <message>
+        <source>固定按钮</source>
+        <translation>Pin button</translation>
+    </message>
+    <message>
         <source>通知区域和任务栏搜索框里的图标。单色随任务栏的浅色、深色变成黑或白，和系统图标一致</source>
         <translation>The icons in the notification area and the taskbar search box. Monochrome turns black or white with the taskbar&apos;s light or dark mode, like Windows&apos; own icons</translation>
     </message>
@@ -2671,6 +2679,27 @@
     <message>
         <source>双击被别的程序占用时用：在资源管理器、桌面、Directory Opus、Total Commander、XYplorer 或“打开”“另存为”对话框里按它，选中的文件夹在那个窗口里打开；在别的窗口里按，用文件管理器打开。再按一次关闭</source>
         <translation>For when another program has the double click: press it in File Explorer, on the desktop, in Directory Opus, Total Commander, XYplorer or an Open / Save dialog and the folder picked opens in that window; in any other window, in your file manager. Press it again to close the menu</translation>
+    </message>
+    <message>
+        <source>圆角</source>
+        <comment>appearance setting</comment>
+        <translation>Corners</translation>
+    </message>
+    <message>
+        <source>圆角</source>
+        <translation>Rounded</translation>
+    </message>
+    <message>
+        <source>直角</source>
+        <translation>Square</translation>
+    </message>
+    <message>
+        <source>直角时窗口、菜单、按钮和输入框都不带圆角，和 Windows 10 一样</source>
+        <translation>Square corners on windows, menus, buttons and input fields, like Windows 10</translation>
+    </message>
+    <message>
+        <source>圆角;直角;方角;尖角;Win10;Windows 10;win10风格;经典;corner;rounded;square</source>
+        <translation>corners;rounded;square;sharp;Win10;Windows 10;Windows 10 style;classic</translation>
     </message>
     <message>
         <source>界面大小</source>
@@ -3402,8 +3431,8 @@
         <translation>Optional: without it, the file’s folder opens</translation>
     </message>
     <message>
-        <source>前九条的图标上标着快捷键，按 %1+1 粘贴第一条，加按 Shift 粘贴为纯文本</source>
-        <translation>The first nine show their shortcut on the icon; %1+1 pastes the first entry, add Shift to paste it as plain text</translation>
+        <source>按 %1+1 粘贴第一条，依此类推到第九条，加按 Shift 粘贴为纯文本</source>
+        <translation>%1+1 pastes the first entry, up to the ninth; add Shift to paste as plain text</translation>
     </message>
     <message>
         <source>按扩展名列出；Word、PDF 等文档由“搜索文档”负责</source>
@@ -3502,16 +3531,41 @@
         <translation>Nothing inside these folders shows up in results</translation>
     </message>
     <message>
-        <source>连按两下 Ctrl，打开或关闭搜索框</source>
-        <translation>Press Ctrl twice quickly to open or close the search box</translation>
+        <source>连按两下 Ctrl，打开或关闭搜索框。管理员或部分输入法窗口中需要 Win顺 服务支持</source>
+        <translation>Press Ctrl twice quickly to open or close the search box. Elevated windows and some input methods require the WinShun service.</translation>
     </message>
     <message>
         <source>都设好了：任务栏、Win+S 和开始菜单都用 Win顺 搜索。</source>
         <translation>All set: the taskbar, Win+S and the Start menu all search with WinShun.</translation>
     </message>
     <message>
-        <source>结果的图标上标着快捷键，按 %1+1 打开第一行</source>
-        <translation>Results show their shortcut on the icon; %1+1 opens the first row</translation>
+        <source>按 %1+1 打开第一行，依此类推到第九行</source>
+        <translation>%1+1 opens the first row, up to the ninth</translation>
+    </message>
+    <message>
+        <source>序号提示</source>
+        <translation>Number key hints</translation>
+    </message>
+    <message>
+        <source>启动器和剪贴板共用；隐藏提示不影响数字快捷键</source>
+        <translation>Shared by the launcher and clipboard; shortcuts still work when hints are hidden</translation>
+    </message>
+    <message>
+        <source>快捷键;数字键;图标;按住;显示;隐藏</source>
+        <translation>shortcut;number key;icon;hold;show;hide</translation>
+    </message>
+    <message>
+        <source>按住时显示</source>
+        <translation>Show while held</translation>
+    </message>
+    <message>
+        <source>一直显示</source>
+        <translation>Always show</translation>
+    </message>
+    <message>
+        <source>不显示</source>
+        <comment>number hints</comment>
+        <translation>Never show</translation>
     </message>
     <message>
         <source>文件夹</source>
@@ -3707,6 +3761,14 @@
 </context>
 <context>
     <name>WebShortcutForm</name>
+    <message>
+        <source>添加网页搜索</source>
+        <translation>Add web search</translation>
+    </message>
+    <message>
+        <source>编辑网页搜索</source>
+        <translation>Edit web search</translation>
+    </message>
     <message>
         <source>关键词</source>
         <translation>Keyword</translation>

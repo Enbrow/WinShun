@@ -15,7 +15,7 @@ Rectangle {
 
     width: 32
     height: 32
-    radius: 4
+    radius: Theme.controlRadius
     color: infoArea.containsMouse ? Theme.controlHover : "transparent"
     Accessible.role: Accessible.Button
     Accessible.name: qsTr("快捷键")

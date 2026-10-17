@@ -91,7 +91,7 @@ Item {
         anchors.fill: parent
         anchors.leftMargin: 6
         anchors.rightMargin: 6
-        radius: 4
+        radius: Theme.controlRadius
         color: row.selected || (row.current && row.selectedCount === 0) ? Theme.selection
                : area.containsMouse ? Theme.hover : "transparent"
     }
@@ -102,7 +102,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         width: 3
         height: Math.round(row.height * 0.5)
-        radius: 1.5
+        radius: Theme.smallRadius
         color: Theme.accent
     }
 

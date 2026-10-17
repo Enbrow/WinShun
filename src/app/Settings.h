@@ -126,6 +126,8 @@ struct Settings {
     // ctrl | alt | off: Ctrl+1…9 opens the nth row shown, in the launcher and
     // the bar by file dialogs (other programs' hotkeys stay theirs, see numberkeys).
     QString numberKeys = QStringLiteral("ctrl");
+    // held | always | off: shared by the launcher's and clipboard's row hints.
+    QString numberHints = QStringLiteral("held");
     // auto | builtin: what Alt+P on a row shows the file with. auto: QuickLook
     // or Seer when one is running in the background (FilePreview), else
     // Win顺's own preview window; builtin: always that.
@@ -147,6 +149,7 @@ struct Settings {
     QString transparency; // off | on: Mica behind the windows, where Windows 11 has it; defaults() picks by memory
     QString taskbarIcon = QStringLiteral("color"); // color | mono: the tray's and the taskbar box's icon (monologo)
     QString uiSize = QStringLiteral("standard"); // compact | standard | roomy: type and row heights (uisize::)
+    QString corners; // round | square: defaults() picks by Windows version
 
     // [Update]
     bool autoUpdate = true; // look for new versions on GitHub (see Updater)

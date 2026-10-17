@@ -134,7 +134,7 @@ Window {
         currentPage = index
         // A tab that has gone since (大小上限 with content search off): the first.
         currentTab = Math.min(tab ?? lastTabs[index] ?? 0, Math.max(0, (pageTabs[index]?.length ?? 0) - 1))
-        flick.cancelFlick()
+        flick.stopScrolling()
         flick.contentY = 0
     }
 
@@ -142,7 +142,7 @@ Window {
         if (tab === currentTab)
             return
         currentTab = tab
-        flick.cancelFlick()
+        flick.stopScrolling()
         flick.contentY = 0
     }
 
@@ -168,7 +168,7 @@ Window {
 
     function searchChanged(wasActive) {
         if (searching) {
-            flick.cancelFlick()
+            flick.stopScrolling()
             flick.contentY = 0
             pickBest()
             return
@@ -179,6 +179,7 @@ Window {
         if (!wasActive || leavingSearch || !before)
             return
         // Cleared: back where it started.
+        flick.stopScrolling()
         currentPage = before.page
         currentTab = before.tab
         layoutNow()
@@ -242,6 +243,7 @@ Window {
 
     // Scrolls the page just enough for the row to be in view.
     function revealRow(row) {
+        flick.stopScrolling()
         const top = row.mapToItem(flick.contentItem, 0, 0).y
         const bottom = top + row.height
         if (top - 48 < flick.contentY)
@@ -274,19 +276,19 @@ Window {
 
     Shortcut { // Ctrl+F: to the search box
         sequences: [StandardKey.Find]
-        enabled: !window.editor.recordingHotkey && !updateDialog.open && !pluginDialog.open
+        enabled: !window.editor.recordingHotkey && !updateDialog.open && !pluginDialog.open && !webDialog.active
         onActivated: searchBox.focusAll()
     }
     Shortcut { // Ctrl+Tab, Ctrl+Shift+Tab: through the page's tabs
         sequences: [StandardKey.NextChild]
-        enabled: !window.searching && !window.warm && !window.editor.recordingHotkey && !updateDialog.open
+        enabled: !window.searching && !window.warm && !window.editor.recordingHotkey && !updateDialog.open && !webDialog.active
         onActivated: window.cycleTab(1)
     }
     Shortcut {
         // Not StandardKey.PreviousChild: its Ctrl+Shift+Backtab never matches
         // on Windows (Qt 6.12), the written-out keys do.
         sequences: ["Ctrl+Shift+Tab"]
-        enabled: !window.searching && !window.warm && !window.editor.recordingHotkey && !updateDialog.open
+        enabled: !window.searching && !window.warm && !window.editor.recordingHotkey && !updateDialog.open && !webDialog.active
         onActivated: window.cycleTab(-1)
     }
 
@@ -452,7 +454,7 @@ Window {
 
             width: navList.width
             height: navList.itemHeight
-            radius: 4
+            radius: Theme.controlRadius
             opacity: found === 0 ? 0.45 : 1
             color: window.warm ? (navArea.containsMouse && !selected ? WarmPalette.chip : "transparent")
                  : selected ? Theme.navSelected : navArea.containsMouse ? Theme.navHover : "transparent"
@@ -473,7 +475,7 @@ Window {
             Rectangle { // the selected item on the warm scene
                 visible: window.warm && navItem.selected
                 anchors.fill: parent
-                radius: 6
+                radius: Theme.largeControlRadius
                 gradient: Gradient {
                     GradientStop { position: 0; color: WarmPalette.accentLight }
                     GradientStop { position: 1; color: WarmPalette.accent }
@@ -527,7 +529,7 @@ Window {
             Rectangle { // keyboard focus
                 visible: navItem.activeFocus
                 anchors.fill: parent
-                radius: 4
+                radius: Theme.controlRadius
                 color: "transparent"
                 border.width: 2
                 border.color: window.warm ? WarmPalette.ink : Theme.text
@@ -608,7 +610,7 @@ Window {
                        + (navList.itemHeight - height) / 2
                     width: 3
                     height: 16
-                    radius: 1.5
+                    radius: Theme.smallRadius
                     color: Theme.accent
 
                     Behavior on y { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
@@ -623,7 +625,7 @@ Window {
             anchors.bottomMargin: 14
             width: versionRow.implicitWidth + 16
             height: versionRow.implicitHeight + 8
-            radius: 4
+            radius: Theme.controlRadius
             color: versionArea.containsMouse ? (window.warm ? WarmPalette.chip : Theme.navHover) : "transparent"
 
             Row {
@@ -690,6 +692,15 @@ Window {
         contentHeight: page.implicitHeight + 48
         boundsBehavior: Flickable.StopAtBounds
         clip: true
+        function stopScrolling() {
+            wheelScroll.cancel()
+            cancelFlick()
+        }
+        ListWheelScroll {
+            id: wheelScroll
+            view: flick
+            animate: SystemTheme.animations
+        }
 
         MouseArea { // clicking empty space finishes editing a field
             width: flick.width
@@ -717,12 +728,11 @@ Window {
             // shader's rounding would go either way with float error from one
             // scroll position to the next. A hair past the half, it always
             // goes the same way.
-            transform: Translate {
-                y: {
-                    const dpr = Screen.devicePixelRatio
-                    const deviceY = (flick.y + flick.contentItem.y + page.y) * dpr
-                    return (Math.round(deviceY) - deviceY + 0.02) / dpr
-                }
+            transform: ScrollPixelAlignment {
+                view: flick
+                viewY: flick.y
+                itemY: page.y
+                pixelBias: 0.02
             }
 
             Column {
@@ -791,7 +801,7 @@ Window {
                     visible: noResults.windowsSettings.length > 0
                     width: parent.width
                     height: windowsList.implicitHeight
-                    radius: 6
+                    radius: Theme.cardRadius
                     color: Theme.card
                     border.width: 1
                     border.color: Theme.cardBorder
@@ -815,7 +825,7 @@ Window {
                                 Rectangle {
                                     anchors.fill: parent
                                     anchors.margins: 1
-                                    radius: 5
+                                    radius: Theme.insetCardRadius
                                     color: windowsArea.pressed ? Theme.selection : windowsArea.containsMouse ? Theme.navHover : "transparent"
                                 }
                                 Rectangle {
@@ -889,7 +899,7 @@ Window {
                     title: qsTr("双击 Ctrl 打开")
                     keywords: qsTr("双击;呼出;唤出;double ctrl").split(";")
                     unlocks: [doubleCtrlKeyRow, gamesRow, fullScreenRow, doubleCtrlAppsRow]
-                    description: qsTr("连按两下 Ctrl，打开或关闭搜索框")
+                    description: qsTr("连按两下 Ctrl，打开或关闭搜索框。管理员或部分输入法窗口中需要 Win顺 服务支持")
 
                     ToggleSwitch {
                         checked: window.editor.doubleCtrl
@@ -1047,6 +1057,7 @@ Window {
                 // has no room for one, its pinned button.
                 readonly property var done: [window.editor.searchBoxSupported
                                                  ? window.editor.taskbarSearchBox && window.editor.searchBoxShown
+                                                   || taskbarButtonRow.unreadable && window.editor.taskbarButtonPinned
                                                  : window.editor.taskbarButtonPinned,
                                              !window.editor.windowsSearchShown,
                                              window.editor.winSState === "on", window.editor.taskbarStartTyping]
@@ -1069,6 +1080,8 @@ Window {
                     readonly property bool boxes: window.editor.searchBoxSupported // Windows 11; else the button alone
                     readonly property bool boxOn: window.editor.taskbarSearchBox
                     readonly property bool pinned: window.editor.taskbarButtonPinned
+                    // The box can't be put on this taskbar: the pinned button instead.
+                    readonly property bool unreadable: boxes && boxOn && window.editor.searchBoxHidden === "unreadable"
 
                     title: boxes ? qsTr("1. 在任务栏上放 Win顺 的搜索框") : qsTr("1. 把 Win顺 按钮固定到任务栏")
                     keywords: qsTr("固定;任务栏;按钮;搜索框;pin;taskbar").split(";")
@@ -1084,7 +1097,8 @@ Window {
                         case "noroom":
                             return qsTr("任务栏太挤，放不下：取消固定几个图标")
                         case "unreadable":
-                            return qsTr("读不到任务栏上的图标，可能被改任务栏的工具换掉了；详情在 WinShun.log")
+                            return pinned ? qsTr("这个任务栏放不了搜索框，已改用固定的 Win顺 按钮")
+                                          : qsTr("这个任务栏读不到图标，放不了搜索框；可以改用固定按钮（原因在 WinShun.log）")
                         case "notaskbar":
                             return qsTr("没找到任务栏；重启资源管理器后会再放")
                         case "offscreen":
@@ -1110,8 +1124,8 @@ Window {
                         onToggled: (on) => window.editor.taskbarSearchBox = on
                     }
                     FlatButton {
-                        visible: !taskbarButtonRow.boxes && !taskbarSteps.done[0]
-                        text: qsTr("固定")
+                        visible: (!taskbarButtonRow.boxes || taskbarButtonRow.unreadable) && !taskbarSteps.done[0]
+                        text: taskbarButtonRow.boxes ? qsTr("固定按钮") : qsTr("固定")
                         glyph: "" // Pin
                         highlighted: taskbarSteps.current === 0
                         onClicked: taskbarButtonRow.missing = !window.editor.pinTaskbarButton()
@@ -1154,7 +1168,9 @@ Window {
                     // right of Start, where Windows' box sits (StartGap).
                     readonly property string gapState: window.editor.startGapState
 
-                    shown: taskbarButtonRow.boxes && taskbarButtonRow.boxOn
+                    // Not on Windows 10's taskbar (StartAllBack, ExplorerPatcher): no
+                    // XAML for the gap to be made in.
+                    shown: taskbarButtonRow.boxes && taskbarButtonRow.boxOn && !window.editor.classicTaskbar
                     title: qsTr("放在开始按钮右边")
                     keywords: qsTr("开始按钮;右边;位置;任务栏;搜索框").split(";")
                     description: {
@@ -1797,6 +1813,19 @@ Window {
                 }
 
                 SettingRow {
+                    title: qsTr("圆角", "appearance setting")
+                    keywords: qsTr("圆角;直角;方角;尖角;Win10;Windows 10;win10风格;经典;corner;rounded;square").split(";")
+                    description: qsTr("直角时窗口、菜单、按钮和输入框都不带圆角，和 Windows 10 一样")
+
+                    ScopeTabs {
+                        readonly property var corners: ["round", "square"]
+                        labels: [qsTr("圆角"), qsTr("直角")]
+                        current: Math.max(0, corners.indexOf(window.editor.corners))
+                        onActivated: (index) => window.editor.corners = corners[index]
+                    }
+                }
+
+                SettingRow {
                     title: qsTr("界面大小")
                     keywords: qsTr("缩放;大小;字号;字体大小;行高;紧凑;宽松;scale;size;zoom;font").split(";")
                     description: qsTr("搜索框、剪贴板和对话框旁搜索框的文字和行高；设置窗口不变")
@@ -1869,7 +1898,7 @@ Window {
                     body: Rectangle {
                         width: parent.width
                         height: Math.max(pathList.implicitHeight, 40)
-                        radius: 4
+                        radius: Theme.controlRadius
                         color: "transparent"
                         border.width: 1
                         border.color: Theme.cardBorder
@@ -1901,7 +1930,7 @@ Window {
                                     Rectangle {
                                         anchors.fill: parent
                                         anchors.margins: 1
-                                        radius: 3
+                                        radius: Theme.smallControlRadius
                                         color: rowArea.containsMouse ? Theme.navHover : "transparent"
                                     }
                                     Rectangle {
@@ -2417,8 +2446,9 @@ Window {
 
                 SettingRow {
                     title: qsTr("用数字键直接打开")
+                    unlocks: [resultNumberHintsRow]
                     keywords: qsTr("快捷键;数字键;序号;Ctrl+1;Alt+1;冲突;hotkey").split(";")
-                    description: qsTr("结果的图标上标着快捷键，按 %1+1 打开第一行")
+                    description: qsTr("按 %1+1 打开第一行，依此类推到第九行")
                                  .arg(window.editor.numberKeys === "alt" ? "Alt" : "Ctrl")
 
                     ScopeTabs {
@@ -2434,6 +2464,20 @@ Window {
                         color: Theme.subtext
                         font.pixelSize: Theme.fontCaption
                         wrapMode: Text.Wrap
+                    }
+                }
+
+                SettingRow {
+                    id: resultNumberHintsRow
+                    shown: window.editor.numberKeys !== "off"
+                    title: qsTr("序号提示")
+                    description: qsTr("启动器和剪贴板共用；隐藏提示不影响数字快捷键")
+                    keywords: qsTr("快捷键;数字键;图标;按住;显示;隐藏").split(";")
+
+                    ScopeTabs {
+                        labels: [qsTr("按住时显示"), qsTr("一直显示"), qsTr("不显示", "number hints")]
+                        current: Math.max(0, ["held", "always", "off"].indexOf(window.editor.numberHints))
+                        onActivated: (index) => window.editor.numberHints = ["held", "always", "off"][index]
                     }
                 }
 
@@ -2777,15 +2821,28 @@ Window {
             SettingsSection {
                 id: webSection
 
-                // The shortcut being changed in its row; -1: a new one, at the end of the list; -2: none.
+                // One modal form for both adding and editing; -1: new, -2: closed.
                 property int editing: -2
+                property Item returnFocus: null
                 property string message // what came of an import or export
+
+                function edit(index, button) {
+                    returnFocus = button
+                    editing = index
+                }
+
+                function closeForm() {
+                    editing = -2
+                    const button = returnFocus || webAddButton // saving may rebuild the edited row
+                    button.forceActiveFocus()
+                    returnFocus = null
+                }
 
                 page: window.webPage
                 width: parent.width
                 note: qsTr("输入关键词按 Enter 打开网页；网址里有 %s 的，在关键词后加空格和文字就能搜索。")
 
-                onVisibleChanged: if (!visible) { editing = -2; message = "" }
+                onVisibleChanged: if (!visible) { editing = -2; returnFocus = null; message = "" }
 
                 SettingRow {
                     title: qsTr("关键词")
@@ -2819,10 +2876,10 @@ Window {
                         }
                     }
                     FlatButton {
+                        id: webAddButton
                         text: qsTr("添加")
                         glyph: "\uE710" // Add
-                        // Opens the form, and closes it again: what a button opened, it closes.
-                        onClicked: webSection.editing = webSection.editing === -1 ? -2 : -1
+                        onClicked: webSection.edit(-1, webAddButton)
                     }
 
                     body: [Text {
@@ -2837,13 +2894,13 @@ Window {
                     }, Rectangle {
                         width: parent.width
                         height: Math.max(webList.implicitHeight, 40)
-                        radius: 4
+                        radius: Theme.controlRadius
                         color: "transparent"
                         border.width: 1
                         border.color: Theme.cardBorder
 
                         Text {
-                            visible: window.editor.webShortcuts.length === 0 && webSection.editing !== -1
+                            visible: window.editor.webShortcuts.length === 0
                             anchors.centerIn: parent
                             text: qsTr("还没有网页搜索，点“添加”加一个")
                             color: Theme.faint
@@ -2862,16 +2919,13 @@ Window {
 
                                     required property int index
                                     required property var modelData
-                                    readonly property bool editing: webSection.editing === index
-
                                     width: webList.width
-                                    height: editing ? webForm.implicitHeight : 58
+                                    height: 58
 
                                     Rectangle {
-                                        visible: !webRow.editing
                                         anchors.fill: parent
                                         anchors.margins: 1
-                                        radius: 3
+                                        radius: Theme.smallControlRadius
                                         color: webArea.containsMouse ? Theme.navHover : "transparent"
                                     }
                                     Rectangle {
@@ -2890,7 +2944,6 @@ Window {
 
                                     Item { // its site's icon, as its rows show it in the launcher
                                         id: siteIcon
-                                        visible: !webRow.editing
                                         x: 12
                                         anchors.verticalCenter: parent.verticalCenter
                                         width: 24
@@ -2916,13 +2969,12 @@ Window {
                                     }
                                     Rectangle { // the keyword, as keys to press
                                         id: keycap
-                                        visible: !webRow.editing
                                         anchors.left: siteIcon.right
                                         anchors.leftMargin: 10
                                         anchors.verticalCenter: parent.verticalCenter
                                         width: Math.max(44, keywordText.implicitWidth + 16)
                                         height: 26
-                                        radius: 4
+                                        radius: Theme.controlRadius
                                         color: Theme.keycap
                                         border.width: 1
                                         border.color: Theme.keycapBorder
@@ -2937,7 +2989,6 @@ Window {
                                         }
                                     }
                                     Column {
-                                        visible: !webRow.editing
                                         anchors.left: keycap.right
                                         anchors.leftMargin: 12
                                         anchors.right: webButtons.left
@@ -2965,7 +3016,6 @@ Window {
                                     }
                                     Row {
                                         id: webButtons
-                                        visible: !webRow.editing
                                         anchors.right: parent.right
                                         anchors.rightMargin: 6
                                         anchors.verticalCenter: parent.verticalCenter
@@ -2978,46 +3028,20 @@ Window {
                                             onClicked: window.editor.openWebShortcut(webRow.index)
                                         }
                                         FlatButton {
+                                            id: webEditButton
+                                            objectName: "webEditButton"
                                             implicitHeight: 32
                                             flat: true
                                             text: qsTr("编辑")
-                                            onClicked: webSection.editing = webRow.index
+                                            onClicked: webSection.edit(webRow.index, webEditButton)
                                         }
                                         FlatButton {
                                             implicitHeight: 32
                                             flat: true
                                             text: qsTr("移除")
-                                            onClicked: {
-                                                const removed = webRow.index
-                                                if (webSection.editing === removed)
-                                                    webSection.editing = -2
-                                                else if (webSection.editing > removed)
-                                                    webSection.editing -= 1 // the one being changed moves up
-                                                window.editor.removeWebShortcut(removed)
-                                            }
+                                            onClicked: window.editor.removeWebShortcut(webRow.index)
                                         }
                                     }
-
-                                    Loader {
-                                        id: webForm
-                                        active: webRow.editing
-                                        width: parent.width
-                                        sourceComponent: WebShortcutForm {
-                                            editor: window.editor
-                                            index: webRow.index
-                                            shortcut: webRow.modelData
-                                            onFinished: webSection.editing = -2
-                                        }
-                                    }
-                                }
-                            }
-
-                            Loader { // adding one
-                                active: webSection.editing === -1
-                                width: parent.width
-                                sourceComponent: WebShortcutForm {
-                                    editor: window.editor
-                                    onFinished: webSection.editing = -2
                                 }
                             }
                         }
@@ -3225,8 +3249,9 @@ Window {
 
                 SettingRow {
                     title: qsTr("用数字键直接粘贴")
+                    unlocks: [clipNumberHintsRow]
                     keywords: qsTr("快捷键;数字键;序号;Alt+1;Ctrl+1;冲突;hotkey").split(";")
-                    description: qsTr("前九条的图标上标着快捷键，按 %1+1 粘贴第一条，加按 Shift 粘贴为纯文本")
+                    description: qsTr("按 %1+1 粘贴第一条，依此类推到第九条，加按 Shift 粘贴为纯文本")
                                  .arg(window.editor.clipboardNumberKeys === "ctrl" ? "Ctrl" : "Alt")
 
                     ScopeTabs {
@@ -3242,6 +3267,19 @@ Window {
                         color: Theme.subtext
                         font.pixelSize: Theme.fontCaption
                         wrapMode: Text.Wrap
+                    }
+                }
+                SettingRow {
+                    id: clipNumberHintsRow
+                    shown: window.editor.clipboardNumberKeys !== "off"
+                    title: qsTr("序号提示")
+                    description: qsTr("启动器和剪贴板共用；隐藏提示不影响数字快捷键")
+                    keywords: qsTr("快捷键;数字键;图标;按住;显示;隐藏").split(";")
+
+                    ScopeTabs {
+                        labels: [qsTr("按住时显示"), qsTr("一直显示"), qsTr("不显示", "number hints")]
+                        current: Math.max(0, ["held", "always", "off"].indexOf(window.editor.numberHints))
+                        onActivated: (index) => window.editor.numberHints = ["held", "always", "off"][index]
                     }
                 }
             }
@@ -3428,7 +3466,7 @@ Window {
                     FlatButton { // sized like one of the tabs next to it
                         anchors.verticalCenter: parent.verticalCenter
                         implicitHeight: 32
-                        radius: 6
+                        radius: Theme.largeControlRadius
                         visible: window.editor.restartRequired
                         text: qsTr("立即重启")
                         highlighted: true
@@ -3487,13 +3525,13 @@ Window {
                             Rectangle { // how far
                                 width: parent.width
                                 height: 4
-                                radius: 2
+                                radius: Theme.progressRadius
                                 color: Theme.track
 
                                 Rectangle {
                                     width: parent.width * Math.max(0, window.editor.indexMoveProgress) / 100
                                     height: parent.height
-                                    radius: 2
+                                    radius: Theme.progressRadius
                                     color: Theme.accent
 
                                     Behavior on width { NumberAnimation { duration: 150 } }
@@ -3624,9 +3662,30 @@ Window {
         y: flick.visibleArea.yPosition * flick.height
         width: 3
         height: Math.max(24, flick.visibleArea.heightRatio * flick.height)
-        radius: 1.5
+        radius: Theme.smallRadius
         color: Theme.faint
         opacity: 0.6
+    }
+
+    Loader { // outside the page's Flickable: always in the visible window
+        id: webDialog
+        z: 1
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: titleBar.bottom
+        anchors.bottom: parent.bottom
+        active: webSection.editing >= -1
+        visible: active
+        sourceComponent: WebShortcutForm {
+            editor: window.editor
+            index: webSection.editing
+            // Copy the draft once. Saving rebuilds the list and its delegates.
+            Component.onCompleted: {
+                if (index >= 0)
+                    shortcut = window.editor.webShortcuts[index]
+            }
+            onFinished: webSection.closeForm()
+        }
     }
 
     UpdateDialog {
