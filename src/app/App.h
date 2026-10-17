@@ -195,6 +195,7 @@ private:
     void setSearchBoxWide(bool wide); // the whole box, or its label or icon alone (SearchBox::wide)
     void setClassicTaskbar(bool classic); // SearchBox::Callbacks::classicChanged
     void applyStartGap(bool boxWas);
+    void prepareTaskbarStartGap(); // only --stage-tap runs elevated; the app keeps its current rights
     void setStartGapStatus(const taskbar::StartGap::Status& status);
     void updateSearchBoxLook(); // placeholder, accent
     void searchBoxPressed(const taskbar::SearchBox::Press& press);
@@ -350,6 +351,7 @@ private:
     bool m_classicTaskbar = false; // ... measured on Windows 10's taskbar (StartAllBack, ExplorerPatcher): no StartGap
     std::unique_ptr<taskbar::StartGap> m_startGap; // while [Taskbar] StartGap is on too: the room right of Start
     taskbar::StartGap::Status m_startGapStatus; // its latest, for the settings page
+    bool m_startGapPreparing = false;
     // The launcher is open over the box: typing in it when the box is wide
     // (Launcher::inTaskbarBox), else with its own field, the box looking open.
     bool m_launcherOverBox = false;

@@ -147,7 +147,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(int clipboardCount READ clipboardCount NOTIFY clipboardCountChanged FINAL)
     Q_PROPERTY(QString clipboardNumberKeys READ clipboardNumberKeys WRITE setClipboardNumberKeys NOTIFY changed FINAL)
     Q_PROPERTY(QString clipboardNumberKeysNote READ clipboardNumberKeysNote NOTIFY numberKeysNoteChanged FINAL)
-    // 代替 Windows 搜索 (taskbar::)
+    // Optional Windows search shortcuts (taskbar::)
     Q_PROPERTY(bool taskbarWinS READ taskbarWinS WRITE setTaskbarWinS NOTIFY changed FINAL)
     Q_PROPERTY(QString winSState READ winSState NOTIFY winSStateChanged FINAL) // as winVState, for Win+S
     Q_PROPERTY(bool taskbarStartTyping READ taskbarStartTyping WRITE setTaskbarStartTyping NOTIFY changed FINAL)
@@ -163,7 +163,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool classicTaskbar READ classicTaskbar NOTIFY searchBoxShownChanged FINAL)
     // The box right of Start (taskbar::StartGap): the setting, and how it went
     // ("off", "attaching", "ready", "applied", "nogap", "conflict",
-    // "incompatible", "failed"; the reason in English, for the details).
+    // "incompatible", "failed", "needssetup", "preparing"; the reason in English, for the details).
     Q_PROPERTY(bool taskbarStartGap READ taskbarStartGap WRITE setTaskbarStartGap NOTIFY changed FINAL)
     Q_PROPERTY(QString startGapState READ startGapState NOTIFY startGapStateChanged FINAL)
     Q_PROPERTY(QString startGapReason READ startGapReason NOTIFY startGapStateChanged FINAL)
@@ -476,6 +476,7 @@ public:
     QString startGapState() const { return m_startGapState; }
     QString startGapReason() const { return m_startGapReason; }
     void setStartGapState(const QString& state, const QString& reason); // set by the app
+    Q_INVOKABLE void prepareTaskbarStartGap() { emit taskbarStartGapSetupRequested(); }
     bool taskbarButtonPinned() const { return m_taskbarButtonPinned; }
     bool windowsSearchShown() const { return m_windowsSearchShown; }
     Q_INVOKABLE void refreshTaskbarState();
@@ -630,6 +631,7 @@ signals:
     void winSStateChanged();
     void searchBoxShownChanged();
     void startGapStateChanged();
+    void taskbarStartGapSetupRequested(); // stage the DLL once with administrator rights, then retry
     void taskbarStateChanged();
     void fileManagersChanged();
     void clipboardCountChanged();

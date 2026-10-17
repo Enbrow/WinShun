@@ -1347,7 +1347,10 @@ struct SearchBox::Impl {
         const double s = scale();
         switch (f) {
         case Form::Box:
-            return kMaxWidth + 2 * kGap;
+            // Beside the icons a narrower, usable text box is allowed too.
+            // Reserve that same width by Start instead of dropping straight
+            // to the label whenever a maximum-width box would not fit.
+            return std::clamp(std::floor(freeRoom(room) / s), kTextWidth + 2 * kGap, kMaxWidth + 2 * kGap);
         case Form::Label:
             return std::ceil(labelForm() / s) + 2 * kGap;
         case Form::Icon:
@@ -1388,10 +1391,10 @@ struct SearchBox::Impl {
             return;
         }
         // On its way (asked for, not measured yet): the readings in between
-        // say nothing about the form (UI Automation has the icons' ends early).
+        // say nothing about the form or width (UI Automation has the icons' ends early).
         if (wantedDips > 0 && !gapVerified && (gapApplied || nowMs() - dragAskedAt < kGapWaitMs)
             && allowed(wantedForm) && free >= dipsFor(Form::Icon, room) * s)
-            f = wantedForm;
+            return;
         // Kept while the room is within a step of what the form has: no flapping at the edge.
         if (wantedDips > 0 && f != wantedForm && allowed(wantedForm)
             && std::abs(free - dipsFor(wantedForm, room) * s) < kFormSlack * s)

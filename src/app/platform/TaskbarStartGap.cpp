@@ -144,8 +144,9 @@ bool protect(const std::wstring& dir)
 // rights, which Win顺 no longer runs with (GitHub #21): the installer does
 // it, running `WinShun.exe --stage-tap` elevated (stageTap), as does a copy
 // that runs elevated itself; one with the user's normal rights only checks.
-std::optional<std::wstring> stage(std::wstring& why)
+std::optional<std::wstring> stage(std::wstring& why, bool& needsSetup)
 {
+    needsSetup = false;
     const std::wstring source = exeDir() + L"\\WinShunTap.dll";
     const std::wstring hash = sha256Prefix(source);
     if (hash.empty()) {
@@ -172,6 +173,7 @@ std::optional<std::wstring> stage(std::wstring& why)
     if (sha256Prefix(target) == hash)
         return target;
     if (!elevated) {
+        needsSetup = true;
         why = L"WinShunTap.dll is not staged for Explorer under " + tap
             + L" (the installer does that; a portable copy once it runs as administrator)";
         return std::nullopt;
@@ -189,7 +191,8 @@ std::optional<std::wstring> stage(std::wstring& why)
 int stageTap()
 {
     std::wstring why;
-    if (stage(why))
+    bool needsSetup = false;
+    if (stage(why, needsSetup))
         return 0;
     std::fwprintf(stderr, L"%ls\n", why.c_str());
     return 1;
@@ -373,6 +376,15 @@ struct StartGap::Impl {
         Changed notify;
         {
             std::lock_guard lock(mutex);
+            // Falling back beside the icons sends set(0) to close the gap.
+            // That cleanup must not erase the failure which caused it. A
+            // new attempt reports Attaching; disabling the option resets
+            // the app's status when it destroys this StartGap.
+            if (state == State::Off
+                && (status.state == State::Failed || status.state == State::NeedsSetup
+                    || status.state == State::NoGapSeen || status.state == State::Conflict
+                    || status.state == State::Incompatible))
+                return;
             if (status.state == s.state && status.reason == s.reason && status.dips == s.dips)
                 return;
             status = s;
@@ -511,9 +523,10 @@ struct StartGap::Impl {
     HRESULT inject(DWORD pid)
     {
         std::wstring why;
-        const std::optional<std::wstring> tap = stage(why);
+        bool needsSetup = false;
+        const std::optional<std::wstring> tap = stage(why, needsSetup);
         if (!tap) {
-            report(State::Failed, why);
+            report(needsSetup ? State::NeedsSetup : State::Failed, why);
             return E_FAIL;
         }
         std::wstring others; // for the log, and a failure's reason

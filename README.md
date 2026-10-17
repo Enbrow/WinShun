@@ -27,7 +27,7 @@
 
 <p align="center">
   拼音秒搜文件 · 文件内容全文搜索（Word / Excel / PPT / PDF） · 应用和系统设置 · 网页搜索 · 收藏夹 · 插件<br>
-  “打开 / 另存为”对话框搜索 · 剪贴板历史（代替 Win+V，图片文字也能搜） · 任务栏搜索框（代替 Win+S） · AI 助手 MCP<br>
+  “打开 / 另存为”对话框搜索 · 剪贴板历史（代替 Win+V，图片文字也能搜） · 任务栏搜索框 · AI 助手 MCP<br>
   <sub>Pinyin file search · full-text search in documents · apps and settings · web search · favorites · plugins · file dialog search · clipboard history with OCR · taskbar search box · MCP server for AI assistants</sub>
 </p>
 
@@ -55,7 +55,7 @@
   <img src="docs/images/dialog.jpg" width="49%" alt="打开、另存为对话框旁的搜索框，Ctrl+G 转到资源管理器的文件夹 / search bar for Open and Save dialogs">
   <img src="docs/images/clipboard.jpg" width="49%" alt="剪贴板历史，代替 Win+V，拼音搜索、图片预览 / clipboard history replacing Win+V">
   <img src="docs/images/clipocr.jpg" width="49%" alt="剪贴板 OCR：搜图片里的文字 / clipboard OCR: search words in copied pictures">
-  <img src="docs/images/taskbar.jpg" width="49%" alt="任务栏搜索框，代替 Windows 搜索 / a search box on the taskbar instead of Windows search">
+  <img src="docs/images/taskbar.jpg" width="49%" alt="Win顺 任务栏搜索框 / WinShun’s search box on the taskbar">
   <img src="docs/images/ai.jpg" width="49%" alt="AI 助手 MCP：Claude、Cursor、VS Code 一键连接 / MCP server for Claude, Cursor and VS Code">
   <img src="docs/images/settings.jpg" width="49%" alt="设置可搜索：kjj 找到快捷键 / searchable settings">
   <img src="docs/images/appearance.jpg" width="49%" alt="外观：主题、透明效果、界面大小、单色任务栏图标 / appearance: theme, transparency, UI size, monochrome taskbar icon">
@@ -165,12 +165,12 @@
 - **整理**：固定、分组、多选按顺序合并粘贴，钉住后可以一条接一条地往表格里填；固定的可以排在最前，顺序可以拖动或用 `Ctrl+↑`/`↓` 自己排。
 - **隐私**：密码管理器复制的密码不记录，历史只存在本机。
 
-#### 🔎 任务栏搜索框（代替 Windows 搜索）
+#### 🔎 任务栏搜索框
 
 - 在 Windows 11 任务栏上放 Win顺 自己的搜索框（Windows 10 是固定一个按钮），结果从任务栏上方滑出。
 - 可以像 Windows 自带的搜索框一样放在开始按钮右边，图标往右让出位置（设置里打开，默认关），和 TranslucentTB 一起用也行。
 - 样式和 Windows 搜索一样三选一：整个搜索框、图标和“搜索”、仅图标（像任务栏上的一个按钮）。
-- 可以接管 `Win+S`，开始菜单里打字也用 Win顺 搜。
+- 搜索框可以单独使用，也可以与 Windows 搜索并存；是否隐藏 Windows 搜索、接管 `Win+S` 或开始菜单打字，都按需选择。
 
 #### 🤖 AI 助手（MCP）
 
@@ -327,7 +327,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Paste**: double-click or `Enter`, or one click as in Windows' own history (an option); larger picture thumbnails as another.
   - **Organize**: pins, groups, multi-paste in order, and `Alt+1`…`Alt+9`; pinned items can come first, and the order is yours to drag or move with `Ctrl+↑`/`↓`.
   - **Privacy**: passwords from password managers are not kept, and the history stays on your PC.
-- 🔎 **Taskbar search box (replaces Windows search)**: WinShun's own search box on the Windows 11 taskbar (a pinned button on Windows 10), optionally right of Start where Windows' own box sits (alongside TranslucentTB too); a whole box, its icon and label, or its icon alone, as Windows' own search; it can take over `Win+S` and typing in the Start menu.
+- 🔎 **Taskbar search box**: WinShun's own search box on the Windows 11 taskbar (a pinned button on Windows 10), optionally right of Start where Windows' own box sits (alongside TranslucentTB too); a whole box, its icon and label, or its icon alone, as Windows' own search. It works on its own or alongside Windows search; hiding Windows search, taking over `Win+S`, and searching as you type in the Start menu are all optional.
 - 🤖 **AI assistants (MCP)**
   - **What**: WinShun is an MCP server. Claude Desktop, Claude Code, Cursor and VS Code connect in one click and search file names, file contents and recent changes.
   - **Safety**: read-only by default, limited to what the AI client may see, with folders kept from AI and a call log.

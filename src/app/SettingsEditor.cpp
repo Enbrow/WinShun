@@ -75,8 +75,7 @@ bool addProgram(QStringList& list, const QString& name)
 } // namespace
 
 // Changed outside Win顺 (the user pins the button, hides Windows' search in
-// the Settings app): read again at once, so that the steps of 代替任务栏上的
-// Windows 搜索 tick themselves off.
+// the Settings app): refresh the taskbar controls and status at once.
 struct SettingsEditor::TaskbarWatch {
     QFileSystemWatcher pinned; // a shortcut there per program pinned to the taskbar
     win32::UniqueKey searchKey; // SearchboxTaskbarMode's

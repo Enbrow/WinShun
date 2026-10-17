@@ -2103,36 +2103,36 @@
         <translation>history;recent;delete;clear</translation>
     </message>
     <message>
-        <source>代替任务栏上的 Windows 搜索</source>
-        <translation>Instead of Windows search on the taskbar</translation>
+        <source>在任务栏使用 Win顺</source>
+        <translation>Use WinShun on the taskbar</translation>
     </message>
     <message>
-        <source>1. 把 Win顺 按钮固定到任务栏</source>
-        <translation>1. Pin WinShun’s button to the taskbar</translation>
+        <source>把 Win顺 按钮固定到任务栏</source>
+        <translation>Pin WinShun’s button to the taskbar</translation>
     </message>
     <message>
         <source>没找到 WinShunSearch.exe，重新安装 Win顺 就有了</source>
         <translation>WinShunSearch.exe is missing; installing WinShun again brings it back</translation>
     </message>
     <message>
-        <source>2. 隐藏 Windows 自带的搜索（推荐）</source>
-        <translation>2. Hide Windows’ own search (recommended)</translation>
+        <source>隐藏任务栏上的 Windows 搜索</source>
+        <translation>Hide Windows search on the taskbar</translation>
     </message>
     <message>
         <source>隐藏;任务栏;搜索框;taskbar</source>
         <translation>hide;taskbar;search box</translation>
     </message>
     <message>
-        <source>已隐藏</source>
-        <translation>Hidden</translation>
+        <source>已隐藏；可在任务栏设置中恢复</source>
+        <translation>Hidden; you can restore it in taskbar settings</translation>
     </message>
     <message>
         <source>打开任务栏设置</source>
         <translation>Taskbar settings</translation>
     </message>
     <message>
-        <source>3. 用 Win+S 打开 Win顺</source>
-        <translation>3. Open WinShun with Win+S</translation>
+        <source>用 Win+S 打开 Win顺</source>
+        <translation>Open WinShun with Win+S</translation>
     </message>
     <message>
         <source>Win+S;Windows 搜索;截图;Win+Shift+S</source>
@@ -2147,8 +2147,8 @@
         <translation>Could not change the Windows setting: Win+S still opens Windows search</translation>
     </message>
     <message>
-        <source>4. 在开始菜单里打字，也用 Win顺 搜索</source>
-        <translation>4. Typing in the Start menu searches with WinShun</translation>
+        <source>在开始菜单里打字，也用 Win顺 搜索</source>
+        <translation>Typing in the Start menu searches with WinShun</translation>
     </message>
     <message>
         <source>开始菜单;打字;Win;start menu</source>
@@ -2395,8 +2395,28 @@
         <translation>Making room…</translation>
     </message>
     <message>
-        <source>1. 在任务栏上放 Win顺 的搜索框</source>
-        <translation>1. Put WinShun’s search box on the taskbar</translation>
+        <source>已取消准备；点击“准备定位组件”后，在 Windows 管理员提示中选“是”</source>
+        <translation>Setup was cancelled. Click “Set up positioning” and choose Yes in the Windows administrator prompt</translation>
+    </message>
+    <message>
+        <source>需要先准备任务栏定位组件，仅这一步需要管理员权限，完成后自动重试</source>
+        <translation>Set up taskbar positioning first. Only this step needs administrator rights; placement retries automatically</translation>
+    </message>
+    <message>
+        <source>正在准备任务栏定位组件，请在 Windows 管理员提示中选“是”</source>
+        <translation>Setting up taskbar positioning. Choose Yes in the Windows administrator prompt</translation>
+    </message>
+    <message>
+        <source>正在准备…</source>
+        <translation>Setting up…</translation>
+    </message>
+    <message>
+        <source>准备定位组件</source>
+        <translation>Set up positioning</translation>
+    </message>
+    <message>
+        <source>在任务栏上放 Win顺 的搜索框</source>
+        <translation>Put WinShun’s search box on the taskbar</translation>
     </message>
     <message>
         <source>固定;任务栏;按钮;搜索框;pin;taskbar</source>
@@ -3330,8 +3350,8 @@
         <translation>Press Ctrl+G in an Open or Save As dialog to go to your file manager’s current folder</translation>
     </message>
     <message>
-        <source>在任务栏设置里把“搜索”选成“隐藏”</source>
-        <translation>In taskbar settings, set “Search” to “Hide”</translation>
+        <source>可在任务栏设置里把“搜索”选成“隐藏”</source>
+        <translation>You can set “Search” to “Hide” in taskbar settings</translation>
     </message>
     <message>
         <source>在后台记下文件里的文字，搜索快得多。只用于 NTFS 磁盘，约占一两百 MB</source>
@@ -3439,8 +3459,8 @@
         <translation>By extension; Word, PDF and other documents come under “Search documents”</translation>
     </message>
     <message>
-        <source>按顺序做完这四步，做好的会自动打勾。已完成 %1/4。</source>
-        <translation>Do these four steps in order; each is ticked off once done. %1/4 done.</translation>
+        <source>任务栏搜索框可单独使用，也可与 Windows 搜索并存。下面的选项按需设置。</source>
+        <translation>The taskbar search box works on its own and can coexist with Windows search. Choose the options you want below.</translation>
     </message>
     <message>
         <source>搜索记录、剪贴板历史和日志</source>
@@ -3533,10 +3553,6 @@
     <message>
         <source>连按两下 Ctrl，打开或关闭搜索框。管理员或部分输入法窗口中需要 Win顺 服务支持</source>
         <translation>Press Ctrl twice quickly to open or close the search box. Elevated windows and some input methods require the WinShun service.</translation>
-    </message>
-    <message>
-        <source>都设好了：任务栏、Win+S 和开始菜单都用 Win顺 搜索。</source>
-        <translation>All set: the taskbar, Win+S and the Start menu all search with WinShun.</translation>
     </message>
     <message>
         <source>按 %1+1 打开第一行，依此类推到第九行</source>

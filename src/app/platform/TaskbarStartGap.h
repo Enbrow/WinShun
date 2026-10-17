@@ -11,8 +11,9 @@ namespace ws::taskbar {
 // Puts WinShunTap.dll where Explorer may load it from (%ProgramData%\WinShun\
 // tap\<hash>\, writable by administrators only): `WinShun.exe --stage-tap`,
 // run elevated by the installer, since a Win顺 with the user's normal rights
-// cannot (GitHub #21) and only checks that it is there, by its hash. Returns
-// 0, else says why on stderr and returns 1.
+// cannot (GitHub #21) and only checks that it is there, by its hash. The
+// settings page can also run this helper elevated once, then retry placement.
+// Returns 0, else says why on stderr and returns 1.
 int stageTap();
 
 // Room right of the Start button, made by WinShunTap.dll inside Explorer
@@ -47,6 +48,8 @@ public:
         Conflict, // Explorer's XAML diagnostics let no TAP of ours in (another program's answering for it): `reason` says how
         Incompatible, // a TAP of another protocol version is resident: an Explorer restart replaces it
         Failed, // `reason` has what failed
+        NeedsSetup, // the DLL is present but has not been staged with administrator rights
+        Preparing, // the app is running --stage-tap; no Explorer restart needed
     };
     struct Status {
         State state = State::Off;

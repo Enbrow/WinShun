@@ -1394,7 +1394,10 @@ void App::applyStartGap(bool boxWas)
 void App::setStartGapStatus(const taskbar::StartGap::Status& status)
 {
     using State = taskbar::StartGap::State;
-    static const char* const names[] = {"off", "attaching", "ready", "applied", "nogap", "conflict", "incompatible", "failed"};
+    static const char* const names[] = {
+        "off", "attaching", "ready", "applied", "nogap", "conflict", "incompatible", "failed", "needssetup", "preparing"};
+    if (m_startGapPreparing && status.state != State::Preparing)
+        return; // a late cleanup response while the setup helper is running
     if (!m_startGap && status.state != State::Off)
         return; // a late word from one gone since
     if (status.state != m_startGapStatus.state || status.reason != m_startGapStatus.reason)
@@ -1404,11 +1407,43 @@ void App::setStartGapStatus(const taskbar::StartGap::Status& status)
     if (m_searchBox)
         m_searchBox->setStartGap(status.state == State::Applied, status.dips,
             status.state == State::NoGapSeen || status.state == State::Conflict || status.state == State::Incompatible
-                || status.state == State::Failed);
+                || status.state == State::Failed || status.state == State::NeedsSetup || status.state == State::Preparing);
     if (m_settingsEditor) {
         m_settingsEditor->setStartGapState(QString::fromLatin1(names[static_cast<int>(status.state)]),
             QString::fromStdWString(status.reason));
     }
+}
+
+void App::prepareTaskbarStartGap()
+{
+    using State = taskbar::StartGap::State;
+    if (!m_startGap || m_startGapPreparing || m_startGapStatus.state != State::NeedsSetup)
+        return;
+    m_startGapPreparing = true;
+    setStartGapStatus({State::Preparing});
+    const std::wstring program = QDir::toNativeSeparators(QCoreApplication::applicationFilePath()).toStdWString();
+    shell::runElevated(program, L"--stage-tap", [app = QPointer<App>(this)](std::optional<unsigned long> code) {
+        if (!app)
+            return;
+        QMetaObject::invokeMethod(app.data(), [app, code] {
+            if (!app)
+                return;
+            app->m_startGapPreparing = false;
+            if (!app->m_searchBox || !app->m_settings.taskbarStartGap || app->m_classicTaskbar) {
+                app->setStartGapStatus({});
+                app->applyStartGap(false);
+                return;
+            }
+            if (!code || *code != 0) {
+                app->setStartGapStatus({State::NeedsSetup,
+                    !code ? L"cancelled" : L"component preparation failed: " + std::to_wstring(*code)});
+                return;
+            }
+            app->m_startGap.reset();
+            app->setStartGapStatus({});
+            app->applyStartGap(true); // also clears a fallback spot saved beside the icons
+        }, Qt::QueuedConnection);
+    });
 }
 
 void App::setClassicTaskbar(bool classic)
@@ -1755,6 +1790,7 @@ void App::showSettings()
         connect(editor, &SettingsEditor::recordingHotkeyChanged, this, &App::applyTaskbarHotkeys);
         connect(editor, &SettingsEditor::recordingHotkeyChanged, this, &App::applyFolderMenuHotkey);
         connect(editor, &SettingsEditor::explorerRestartRequested, this, &App::restartExplorer);
+        connect(editor, &SettingsEditor::taskbarStartGapSetupRequested, this, &App::prepareTaskbarStartGap);
         connect(editor, &SettingsEditor::clipboardClearRequested, this, [this, editor] {
             m_clipStore->clearHistory();
             m_clipboard->historyChanged();

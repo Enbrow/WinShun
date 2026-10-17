@@ -1047,31 +1047,11 @@ Window {
             }
 
             SettingsSection {
-                id: taskbarSteps
-
-                // The four steps, in order, each ticked off once done, here
-                // or outside Win顺 (the editor watches the taskbar and the
-                // setting of Windows' search box). Windows' own search may
-                // stay next to Win顺's; hiding it is only recommended. The
-                // first: Win顺's box on the taskbar, or on Windows 10, which
-                // has no room for one, its pinned button.
-                readonly property var done: [window.editor.searchBoxSupported
-                                                 ? window.editor.taskbarSearchBox && window.editor.searchBoxShown
-                                                   || taskbarButtonRow.unreadable && window.editor.taskbarButtonPinned
-                                                 : window.editor.taskbarButtonPinned,
-                                             !window.editor.windowsSearchShown,
-                                             window.editor.winSState === "on", window.editor.taskbarStartTyping]
-                readonly property int doneCount: done.filter(d => d).length
-                readonly property int current: done.indexOf(false) // its button stands out
-
                 page: 0
                 tab: 1
                 width: parent.width
-                title: qsTr("代替任务栏上的 Windows 搜索")
-                note: doneCount === done.length
-                      ? qsTr("都设好了：任务栏、Win+S 和开始菜单都用 Win顺 搜索。")
-                      : qsTr("按顺序做完这四步，做好的会自动打勾。已完成 %1/4。")
-                        .arg(doneCount)
+                title: qsTr("在任务栏使用 Win顺")
+                note: qsTr("任务栏搜索框可单独使用，也可与 Windows 搜索并存。下面的选项按需设置。")
 
                 SettingRow {
                     id: taskbarButtonRow
@@ -1082,8 +1062,10 @@ Window {
                     readonly property bool pinned: window.editor.taskbarButtonPinned
                     // The box can't be put on this taskbar: the pinned button instead.
                     readonly property bool unreadable: boxes && boxOn && window.editor.searchBoxHidden === "unreadable"
+                    readonly property bool available: boxes ? (boxOn && window.editor.searchBoxShown) || (unreadable && pinned)
+                                                            : pinned
 
-                    title: boxes ? qsTr("1. 在任务栏上放 Win顺 的搜索框") : qsTr("1. 把 Win顺 按钮固定到任务栏")
+                    title: boxes ? qsTr("在任务栏上放 Win顺 的搜索框") : qsTr("把 Win顺 按钮固定到任务栏")
                     keywords: qsTr("固定;任务栏;按钮;搜索框;pin;taskbar").split(";")
                     description: {
                         if (!boxes)
@@ -1109,25 +1091,16 @@ Window {
                             return qsTr("正在放到任务栏上…")
                         }
                     }
-                    bodyShown: missing && !taskbarSteps.done[0]
-
-                    Glyph {
-                        visible: taskbarSteps.done[0]
-                        anchors.verticalCenter: parent.verticalCenter
-                        glyph: "" // CheckMark
-                        size: 20
-                        color: Theme.accent
-                    }
+                    bodyShown: missing && !available
                     ToggleSwitch {
                         visible: taskbarButtonRow.boxes
                         checked: taskbarButtonRow.boxOn
                         onToggled: (on) => window.editor.taskbarSearchBox = on
                     }
                     FlatButton {
-                        visible: (!taskbarButtonRow.boxes || taskbarButtonRow.unreadable) && !taskbarSteps.done[0]
+                        visible: (!taskbarButtonRow.boxes || taskbarButtonRow.unreadable) && !taskbarButtonRow.available
                         text: taskbarButtonRow.boxes ? qsTr("固定按钮") : qsTr("固定")
                         glyph: "" // Pin
-                        highlighted: taskbarSteps.current === 0
                         onClicked: taskbarButtonRow.missing = !window.editor.pinTaskbarButton()
                     }
 
@@ -1167,6 +1140,7 @@ Window {
                     // Under the box's own switch: the icons moved over for it
                     // right of Start, where Windows' box sits (StartGap).
                     readonly property string gapState: window.editor.startGapState
+                    bodyShown: gapState === "needssetup" || gapState === "preparing"
 
                     // Not on Windows 10's taskbar (StartAllBack, ExplorerPatcher): no
                     // XAML for the gap to be made in.
@@ -1193,6 +1167,12 @@ Window {
                         case "failed":
                             return qsTr("没能在开始按钮旁留出位置（%1），搜索框先放在图标旁边")
                                 .arg(window.editor.startGapReason)
+                        case "needssetup":
+                            return window.editor.startGapReason === "cancelled"
+                                 ? qsTr("已取消准备；点击“准备定位组件”后，在 Windows 管理员提示中选“是”")
+                                 : qsTr("需要先准备任务栏定位组件，仅这一步需要管理员权限，完成后自动重试")
+                        case "preparing":
+                            return qsTr("正在准备任务栏定位组件，请在 Windows 管理员提示中选“是”")
                         default:
                             return qsTr("正在留出位置…")
                         }
@@ -1200,44 +1180,38 @@ Window {
 
                     ToggleSwitch {
                         checked: window.editor.taskbarStartGap
+                        enabled: startGapRow.gapState !== "preparing"
                         onToggled: (on) => window.editor.taskbarStartGap = on
                     }
+
+                    body: [
+                        FlatButton {
+                            visible: startGapRow.gapState === "needssetup" || startGapRow.gapState === "preparing"
+                            enabled: startGapRow.gapState !== "preparing"
+                            text: startGapRow.gapState === "preparing" ? qsTr("正在准备…") : qsTr("准备定位组件")
+                            onClicked: window.editor.prepareTaskbarStartGap()
+                        }
+                    ]
                 }
 
                 SettingRow {
-                    title: qsTr("2. 隐藏 Windows 自带的搜索（推荐）")
+                    title: qsTr("隐藏任务栏上的 Windows 搜索")
                     keywords: qsTr("隐藏;任务栏;搜索框;taskbar").split(";")
-                    description: taskbarSteps.done[1]
-                                 ? qsTr("已隐藏")
-                                 : qsTr("在任务栏设置里把“搜索”选成“隐藏”")
+                    description: window.editor.windowsSearchShown
+                                 ? qsTr("可在任务栏设置里把“搜索”选成“隐藏”")
+                                 : qsTr("已隐藏；可在任务栏设置中恢复")
 
-                    Glyph {
-                        visible: taskbarSteps.done[1]
-                        anchors.verticalCenter: parent.verticalCenter
-                        glyph: "" // CheckMark
-                        size: 20
-                        color: Theme.accent
-                    }
                     FlatButton {
-                        visible: !taskbarSteps.done[1]
                         text: qsTr("打开任务栏设置")
-                        highlighted: taskbarSteps.current === 1
                         onClicked: window.editor.openUrl("ms-settings:taskbar")
                     }
                 }
 
                 SettingRow {
-                    title: qsTr("3. 用 Win+S 打开 Win顺")
+                    title: qsTr("用 Win+S 打开 Win顺")
                     keywords: qsTr("Win+S;Windows 搜索;截图;Win+Shift+S").split(";")
                     description: qsTr("切换时资源管理器会重启，打开的文件夹窗口会关闭")
 
-                    Glyph {
-                        visible: taskbarSteps.done[2]
-                        anchors.verticalCenter: parent.verticalCenter
-                        glyph: "" // CheckMark
-                        size: 20
-                        color: Theme.accent
-                    }
                     ToggleSwitch {
                         checked: window.editor.taskbarWinS
                         onToggled: (on) => {
@@ -1282,17 +1256,10 @@ Window {
                 }
 
                 SettingRow {
-                    title: qsTr("4. 在开始菜单里打字，也用 Win顺 搜索")
+                    title: qsTr("在开始菜单里打字，也用 Win顺 搜索")
                     keywords: qsTr("开始菜单;打字;Win;start menu").split(";")
                     description: qsTr("想用 Windows 自带的搜索时，先按一下左 Alt 再打字")
 
-                    Glyph {
-                        visible: taskbarSteps.done[3]
-                        anchors.verticalCenter: parent.verticalCenter
-                        glyph: "" // CheckMark
-                        size: 20
-                        color: Theme.accent
-                    }
                     ToggleSwitch {
                         checked: window.editor.taskbarStartTyping
                         onToggled: (on) => window.editor.taskbarStartTyping = on
