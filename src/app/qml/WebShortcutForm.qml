@@ -6,8 +6,8 @@ import WinShun
 // its name, the address it searches with %s where the words go, and the page
 // the keyword alone opens, where its search suggestions come from, and a
 // picture of the user's for its icon (a file, or SVG code pasted).
-// SettingsEditor checks and saves it, or says what is wrong. Enter saves,
-// Esc puts it away. The window-sized overlay keeps the form in view; only
+// SettingsEditor checks and saves it, or says what is wrong. Enter saves
+// (Ctrl+Enter in the SVG field), Esc puts it away. The overlay keeps it in view; only
 // the fields scroll, leaving validation and actions visible on short screens.
 FocusScope {
     id: form
@@ -17,6 +17,15 @@ FocusScope {
     property var shortcut: ({ keyword: "", name: "", url: "", home: "", icon: "", homeUrl: "", suggest: "" })
     property string error
     property string icon: form.shortcut.icon || "" // a picture chosen (SettingsEditor::pickWebIcon); empty: the site's
+    property string fallbackIcon: form.shortcut.icon || ""
+    property string appliedSvg
+    property string svgError
+    property bool svgTouched: false
+    readonly property bool compact: height < 520
+    readonly property int labelWidth: 84
+    readonly property int inset: form.compact ? 12 : 16
+    readonly property int fieldGap: form.compact ? 6 : 8
+    readonly property int sectionGap: form.compact ? 10 : 12
     // The suggestion address filled in for the search address typed (a new
     // one only, SettingsEditor::knownSuggestUrl): replaced as the address
     // changes, unless its user wrote another.
@@ -33,6 +42,10 @@ FocusScope {
     }
 
     function save() {
+        if (!updateSvgIcon()) {
+            svgInput.forceActiveFocus()
+            return
+        }
         form.error = form.editor.saveWebShortcut(form.index, keywordField.text, nameField.text, urlField.text,
                                                  homeField.text, form.icon, suggestField.text)
         if (form.error.length === 0)
@@ -43,9 +56,38 @@ FocusScope {
         if (picked.error) {
             form.error = picked.error
         } else if (picked.icon) {
+            svgInput.text = ""
+            svgRefresh.stop()
+            form.svgTouched = true
+            form.appliedSvg = ""
+            form.svgError = ""
+            form.fallbackIcon = picked.icon
             form.icon = picked.icon
             form.error = ""
         }
+    }
+
+    function updateSvgIcon() {
+        svgRefresh.stop()
+        const text = svgInput.text.trim()
+        if (text.length === 0) {
+            form.icon = form.fallbackIcon
+            form.appliedSvg = ""
+            form.svgError = ""
+            return true
+        }
+        if (text === form.appliedSvg)
+            return true
+        const picked = form.editor.webIconFromSvg(text)
+        form.svgError = picked.error || ""
+        form.appliedSvg = form.svgError ? "" : text
+        form.icon = picked.icon || form.fallbackIcon
+        return form.svgError.length === 0
+    }
+
+    function fillSvgFromClipboard() {
+        if (form.index < 0 && !form.svgTouched && svgInput.text.length === 0)
+            svgInput.text = form.editor.webIconClipboardText()
     }
 
     function inside(item, ancestor) {
@@ -76,8 +118,9 @@ FocusScope {
         const current = form.Window.window.activeFocusItem
         if (!inside(current, fields))
             return
-        const top = current.mapToItem(fields, 0, 0).y
-        const bottom = top + current.height
+        const field = inside(current, svgBox) ? svgBox : current
+        const top = field.mapToItem(fields, 0, 0).y
+        const bottom = top + field.height
         const maximum = Math.max(0, viewport.contentHeight - viewport.height)
         if (top < viewport.contentY + 8)
             viewport.contentY = Math.max(0, top - 8)
@@ -93,16 +136,24 @@ FocusScope {
     }
     Keys.onEscapePressed: form.close()
     Component.onCompleted: {
+        form.fillSvgFromClipboard()
         const first = form.index < 0 ? keywordField : urlField
         Qt.callLater(() => first.takeFocus())
     }
 
-    // A box with its label above and, if any, a hint below.
+    Timer {
+        id: svgRefresh
+        interval: 300
+        onTriggered: form.updateSvgIcon()
+    }
+
+    // Inline labels leave room for every field, even in a short window.
     component Field: Column {
         id: field
 
         property string label
         property string hint
+        property real labelWidth: form.labelWidth
         property alias text: box.text
         property alias placeholder: box.placeholder
 
@@ -110,26 +161,41 @@ FocusScope {
 
         function takeFocus() { box.takeFocus() }
 
-        spacing: 6
+        spacing: 4
 
-        Text {
-            text: field.label
-            color: Theme.text
-            font.pixelSize: Theme.fontCaption
-        }
-        InputBox {
-            id: box
+        Row {
             width: field.width
-            onAccepted: field.accepted()
+            spacing: 8
+
+            Text {
+                id: fieldLabel
+                width: field.labelWidth
+                height: box.height
+                verticalAlignment: Text.AlignVCenter
+                text: field.label
+                color: Theme.text
+                font.pixelSize: Theme.fontCaption
+                HoverHandler { id: labelHover }
+            }
+            InputBox {
+                id: box
+                width: field.width - field.labelWidth - parent.spacing
+                onAccepted: field.accepted()
+            }
         }
         Text {
-            visible: field.hint.length > 0
-            width: field.width
+            visible: field.hint.length > 0 && !form.compact
+            x: field.labelWidth + 8
+            width: field.width - x
             text: field.hint
             color: Theme.subtext
             font.pixelSize: Theme.fontCaption
             wrapMode: Text.Wrap
             lineHeight: 1.15
+        }
+        HoverTip {
+            target: form.compact && labelHover.hovered && field.hint.length > 0 ? fieldLabel : null
+            text: field.hint
         }
     }
 
@@ -149,7 +215,8 @@ FocusScope {
         objectName: "webFormCard"
         anchors.centerIn: parent
         width: Math.min(680, parent.width - 32)
-        height: Math.min(parent.height - 32, heading.height + fields.implicitHeight + footer.height + 72)
+        height: Math.min(parent.height - 24,
+                         heading.height + fields.implicitHeight + footer.height + 2 * (form.inset + form.sectionGap))
         radius: Theme.largeCardRadius
         color: Theme.menuBackground
         border.width: 1
@@ -157,9 +224,9 @@ FocusScope {
 
         Text {
             id: heading
-            x: 24
-            y: 20
-            width: parent.width - 48
+            x: 20
+            y: form.inset
+            width: parent.width - 40
             text: form.index < 0 ? qsTr("添加网页搜索") : qsTr("编辑网页搜索")
             color: Theme.text
             font.pixelSize: Theme.fontTitle
@@ -173,9 +240,9 @@ FocusScope {
             anchors.right: parent.right
             anchors.top: heading.bottom
             anchors.bottom: footer.top
-            anchors.margins: 16
-            anchors.leftMargin: 24
-            anchors.rightMargin: 24
+            anchors.margins: form.sectionGap
+            anchors.leftMargin: 20
+            anchors.rightMargin: 20
             contentWidth: width
             contentHeight: fields.implicitHeight
             boundsBehavior: Flickable.StopAtBounds
@@ -185,7 +252,7 @@ FocusScope {
             Column {
                 id: fields
                 width: viewport.width - 8
-                spacing: 14
+                spacing: form.fieldGap
 
                 Row {
                     width: parent.width
@@ -194,7 +261,8 @@ FocusScope {
                     Field {
                         id: keywordField
                         objectName: "keywordField"
-                        width: 140
+                        width: 196
+                        labelWidth: 64
                         label: qsTr("关键词")
                         placeholder: qsTr("例如 gh")
                         text: form.shortcut.keyword
@@ -204,8 +272,9 @@ FocusScope {
                         id: nameField
                         objectName: "nameField"
                         width: parent.width - keywordField.width - parent.spacing
+                        labelWidth: 42
                         label: qsTr("名称")
-                        placeholder: qsTr("例如 GitHub；不填就用网站的域名")
+                        placeholder: qsTr("例如 GitHub；留空用网站域名")
                         text: form.shortcut.name
                         onAccepted: form.save()
                     }
@@ -217,7 +286,7 @@ FocusScope {
                     width: parent.width
                     label: qsTr("搜索网址")
                     placeholder: "https://github.com/search?q=%s"
-                    hint: qsTr("要搜的文字用 %s 代替。最简单的办法：在这个网站上搜索 %s，再把浏览器地址栏里的网址整个粘贴过来。没有 %s 的网址只能打开，不能搜索")
+                    hint: qsTr("搜索词用 %s 代替，可直接粘贴搜索结果页的网址")
                     text: form.shortcut.url
                     onAccepted: form.save()
                     onTextChanged: {
@@ -235,8 +304,8 @@ FocusScope {
                     id: homeField
                     objectName: "homeField"
                     width: parent.width
-                    label: qsTr("主页（可不填）")
-                    placeholder: qsTr("只输入关键词时打开的网址；不填就打开搜索网址所在网站的首页")
+                    label: qsTr("主页")
+                    placeholder: qsTr("可不填，默认打开搜索网站的首页")
                     text: form.shortcut.home
                     onAccepted: form.save()
                 }
@@ -245,76 +314,175 @@ FocusScope {
                     id: suggestField
                     objectName: "suggestField"
                     width: parent.width
-                    label: qsTr("搜索建议接口（可不填）")
-                    placeholder: "https://api.bing.com/osjson.aspx?query=%s"
-                    hint: qsTr("在关键词后输入文字时，从这个地址取搜索建议，列在搜索那一行下面；要搜的文字同样用 %s 代替。认得 OpenSearch 格式（必应、Google 等）、百度的 JSONP 和常见的 JSON 列表。不填就没有建议")
+                    label: qsTr("搜索建议")
+                    placeholder: qsTr("建议接口网址（可不填）")
+                    hint: qsTr("搜索词同样用 %s 代替，支持 OpenSearch、百度 JSONP 和 JSON 列表")
                     text: form.shortcut.suggest || ""
                     onAccepted: form.save()
                 }
 
-                Column {
+                Row {
+                    id: iconControls
                     width: parent.width
-                    spacing: 6
+                    spacing: 8
 
                     Text {
+                        width: form.labelWidth
+                        height: svgBox.height
+                        verticalAlignment: Text.AlignVCenter
                         text: qsTr("图标")
                         color: Theme.text
                         font.pixelSize: Theme.fontCaption
                     }
-                    Row {
-                        spacing: 10
+                    Item { // as its rows will show it
+                        id: iconPreview
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 24
+                        height: 24
 
-                        Item { // as its rows will show it
-                            id: iconPreview
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 24
-                            height: 24
+                        Image {
+                            readonly property real dpr: Screen.devicePixelRatio
+                            readonly property int pixels: Math.round(iconPreview.width * dpr)
 
-                            Image {
-                                readonly property real dpr: Screen.devicePixelRatio
-                                readonly property int pixels: Math.round(iconPreview.width * dpr)
-
-                                // Exactly its device pixels, unsmoothed (as in ResultRow).
-                                x: 1 / 64
-                                y: 1 / 64
-                                width: pixels / dpr
-                                height: pixels / dpr
-                                sourceSize.width: pixels / dpr
-                                sourceSize.height: pixels / dpr
-                                smooth: false
-                                asynchronous: true
-                                // A new one has no site yet: the browser's icon ("https:" has no host).
-                                source: form.editor.siteIconsArrived >= 0
-                                        ? form.editor.webIconUrl(form.icon.length > 0 ? "custom:" + form.icon
-                                                                                     : (form.shortcut.homeUrl || "https:"),
-                                                                 Theme.dark)
-                                        : ""
-                            }
-                        }
-                        FlatButton {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: qsTr("选择图片")
-                            onClicked: form.takeIcon(form.editor.pickWebIcon())
-                        }
-                        FlatButton {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: qsTr("粘贴 SVG")
-                            onClicked: form.takeIcon(form.editor.pasteWebIcon())
-                        }
-                        FlatButton {
-                            visible: form.icon.length > 0
-                            anchors.verticalCenter: parent.verticalCenter
-                            flat: true
-                            text: qsTr("用网站的图标")
-                            onClicked: form.icon = ""
+                            // Exactly its device pixels, unsmoothed (as in ResultRow).
+                            x: 1 / 64
+                            y: 1 / 64
+                            width: pixels / dpr
+                            height: pixels / dpr
+                            sourceSize.width: pixels / dpr
+                            sourceSize.height: pixels / dpr
+                            smooth: false
+                            asynchronous: true
+                            // A new one has no site yet: the browser's icon ("https:" has no host).
+                            source: form.editor.siteIconsArrived >= 0
+                                    ? form.editor.webIconUrl(form.icon.length > 0 ? "custom:" + form.icon
+                                                                                 : (form.shortcut.homeUrl || "https:"),
+                                                             Theme.dark)
+                                    : ""
                         }
                     }
-                    Text {
-                        width: parent.width
-                        text: qsTr("PNG、ICO 或 SVG 文件，方形最好；也可以先复制图标的 SVG 代码（如 iconfont 的“复制 SVG 代码”），再点“粘贴 SVG”。不选就用网站自己的图标")
-                        color: Theme.subtext
-                        font.pixelSize: Theme.fontCaption
-                        wrapMode: Text.Wrap
+                    FlatButton {
+                        id: pickIconButton
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: qsTr("选择图片")
+                        onClicked: form.takeIcon(form.editor.pickWebIcon())
+                        HoverHandler { id: pickIconHover }
+                        HoverTip {
+                            target: pickIconHover.hovered ? pickIconButton : null
+                            text: qsTr("支持 PNG、ICO、SVG；留空使用网站图标")
+                        }
+                    }
+                    FlatButton {
+                        id: siteIconButton
+                        objectName: "webFormSiteIcon"
+                        visible: form.icon.length > 0
+                        anchors.verticalCenter: parent.verticalCenter
+                        flat: true
+                        text: qsTr("用网站的图标")
+                        onClicked: {
+                            form.fallbackIcon = ""
+                            form.icon = ""
+                            form.svgTouched = true
+                            svgInput.text = ""
+                            form.updateSvgIcon()
+                        }
+                    }
+                    Rectangle {
+                        id: svgBox
+                        width: iconControls.width - form.labelWidth - iconPreview.width - pickIconButton.width
+                               - (siteIconButton.visible ? siteIconButton.width : 0)
+                               - iconControls.spacing * (siteIconButton.visible ? 4 : 3)
+                        height: form.compact ? 52 : 64
+                        radius: Theme.controlRadius
+                        color: svgInput.activeFocus ? Theme.inputFocused : svgHover.containsMouse ? Theme.controlHover : Theme.control
+                        border.width: 1
+                        border.color: form.svgError.length > 0 ? Theme.danger : Theme.controlBorder
+
+                        MouseArea {
+                            id: svgHover
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.IBeamCursor
+                            acceptedButtons: Qt.NoButton
+                        }
+                        Flickable {
+                            id: svgViewport
+                            anchors.fill: parent
+                            anchors.margins: 6
+                            contentWidth: width
+                            contentHeight: svgInput.height
+                            boundsBehavior: Flickable.StopAtBounds
+                            clip: true
+
+                            TextEdit {
+                                id: svgInput
+                                objectName: "webFormSvgInput"
+                                Accessible.name: qsTr("SVG 代码（可不填）")
+                                width: svgViewport.width - 8
+                                height: Math.max(svgViewport.height, contentHeight)
+                                textFormat: TextEdit.PlainText
+                                wrapMode: TextEdit.Wrap
+                                color: Theme.text
+                                font.pixelSize: Theme.fontBody
+                                selectByMouse: true
+                                selectionColor: Theme.textSelection
+                                selectedTextColor: Theme.text
+                                activeFocusOnTab: true
+                                onActiveFocusChanged: if (activeFocus) form.fillSvgFromClipboard()
+                                onTextChanged: {
+                                    if (text.length > 0)
+                                        form.svgTouched = true
+                                    form.svgError = ""
+                                    svgRefresh.restart()
+                                }
+                                onCursorRectangleChanged: {
+                                    if (cursorRectangle.y < svgViewport.contentY)
+                                        svgViewport.contentY = cursorRectangle.y
+                                    else if (cursorRectangle.y + cursorRectangle.height > svgViewport.contentY + svgViewport.height)
+                                        svgViewport.contentY = cursorRectangle.y + cursorRectangle.height - svgViewport.height
+                                }
+                                Keys.onPressed: (event) => {
+                                    if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+                                        const forward = event.key === Qt.Key_Tab && !(event.modifiers & Qt.ShiftModifier)
+                                        nextItemInFocusChain(forward).forceActiveFocus(forward ? Qt.TabFocusReason : Qt.BacktabFocusReason)
+                                        event.accepted = true
+                                    } else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                                            && (event.modifiers & Qt.ControlModifier)) {
+                                        form.save()
+                                        event.accepted = true
+                                    }
+                                }
+                            }
+                            Text {
+                                width: svgInput.width
+                                text: qsTr("粘贴 SVG 代码（可不填）")
+                                textFormat: Text.PlainText
+                                color: Theme.faint
+                                font.pixelSize: Theme.fontBody
+                                wrapMode: Text.Wrap
+                                visible: svgInput.text.length === 0 && svgInput.preeditText.length === 0
+                            }
+                        }
+                        ListScrollBar {
+                            flickable: svgViewport
+                            anchors.top: svgViewport.top
+                            anchors.bottom: svgViewport.bottom
+                            anchors.right: parent.right
+                            anchors.rightMargin: 3
+                        }
+                        Rectangle {
+                            visible: svgInput.activeFocus
+                            anchors.bottom: parent.bottom
+                            x: 1
+                            width: parent.width - 2
+                            height: 2
+                            radius: Theme.lineRadius
+                            color: Theme.accent
+                        }
+                        HoverTip {
+                            target: svgHover.containsMouse ? svgBox : null
+                            text: qsTr("添加时自动填入剪贴板中的 SVG，可直接粘贴或编辑")
+                        }
                     }
                 }
             }
@@ -330,17 +498,17 @@ FocusScope {
 
         Column {
             id: footer
-            x: 24
-            width: parent.width - 48
+            x: 20
+            width: parent.width - 40
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: 20
-            spacing: 10
+            anchors.bottomMargin: form.inset
+            spacing: 6
 
             Text {
                 objectName: "webFormError"
-                visible: form.error.length > 0
+                visible: form.svgError.length > 0 || form.error.length > 0
                 width: parent.width
-                text: form.error
+                text: form.svgError || form.error
                 textFormat: Text.PlainText
                 color: Theme.danger
                 font.pixelSize: Theme.fontCaption

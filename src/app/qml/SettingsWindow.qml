@@ -52,7 +52,7 @@ Window {
         [qsTr("快捷键", "settings tab"), qsTr("任务栏"), qsTr("对话框"), qsTr("启动与历史")],
         [],
         [qsTr("文件夹"), qsTr("文件夹名称"), qsTr("磁盘"), qsTr("网络共享")],
-        [],
+        [qsTr("排序"), qsTr("显示与预览"), qsTr("操作习惯"), qsTr("文件类型")],
         window.editor.contentSearch ? [qsTr("常规"), qsTr("大小上限")] : [], // 大小上限: nothing while off
         [],
         [],
@@ -1278,10 +1278,20 @@ Window {
                     keywords: qsTr("文件管理器;资源管理器;打开文件夹;打开所在位置;Total Commander;Directory Opus;TC;Opus;XYplorer;自定义;其他;Tessoa;custom").split(";")
                     description: qsTr("打开文件夹、打开文件所在位置时用它；没装的不列")
 
-                    body: ScopeTabs { // under the text: the names are long
-                        labels: window.editor.fileManagers.map(name => window.fileManagerName(name))
-                        current: Math.max(0, window.editor.fileManagers.indexOf(window.editor.fileManager))
-                        onActivated: (index) => window.editor.fileManager = window.editor.fileManagers[index]
+                    body: Flow { // keep full names inside the card, even with every manager installed
+                        width: parent.width
+                        spacing: 6
+
+                        Repeater {
+                            model: window.editor.fileManagers
+
+                            delegate: ScopeTabs {
+                                required property string modelData
+                                labels: [window.fileManagerName(modelData)]
+                                current: window.editor.fileManager === modelData ? 0 : -1
+                                onActivated: window.editor.fileManager = modelData
+                            }
+                        }
                     }
                 }
 
@@ -2314,7 +2324,6 @@ Window {
             SettingsSection {
                 page: 3
                 width: parent.width
-                note: qsTr("在搜索框按 Tab、Shift+Tab 切换“全部”“文件”“内容”；Ctrl+Tab 在“文件”里切换文件类型，在“内容”里切换文件夹。")
 
                 SettingRow {
                     title: qsTr("文件和文件夹的顺序")
@@ -2364,6 +2373,12 @@ Window {
                         }
                     ]
                 }
+            }
+
+            SettingsSection {
+                page: 3
+                tab: 1
+                width: parent.width
 
                 SettingRow {
                     title: qsTr("不输入时显示")
@@ -2375,17 +2390,6 @@ Window {
                         labels: [qsTr("最近打开"), qsTr("最近修改"), qsTr("不显示")]
                         current: Math.max(0, lists.indexOf(window.editor.startList))
                         onActivated: (index) => window.editor.startList = lists[index]
-                    }
-                }
-
-                SettingRow {
-                    title: qsTr("每次打开时清空搜索")
-                    keywords: qsTr("清空;清除;上次;保留;隐私;搜索框;clear;privacy").split(";")
-                    description: qsTr("打开时搜索框是空的，回到“全部”；关掉时保留上次的文字并选中，直接输入就会替换")
-
-                    ToggleSwitch {
-                        checked: window.editor.clearOnOpen
-                        onToggled: (on) => window.editor.clearOnOpen = on
                     }
                 }
 
@@ -2408,6 +2412,38 @@ Window {
                     ToggleSwitch {
                         checked: window.editor.thumbnails
                         onToggled: (on) => window.editor.thumbnails = on
+                    }
+                }
+
+                SettingRow {
+                    title: qsTr("预览文件（Alt+P）")
+                    keywords: qsTr("预览;快速查看;看一眼;QuickLook;Seer;空格;Alt+P;preview").split(";")
+                    description: window.editor.previewWith === "builtin"
+                                 ? qsTr("在结果上按 Alt+P，用 Win顺 自己的预览窗口看一眼")
+                                 : qsTr("在结果上按 Alt+P 看一眼；QuickLook 或 Seer 在后台运行时交给它，否则用 Win顺 自己的预览")
+
+                    ScopeTabs {
+                        labels: [qsTr("自动"), qsTr("内置")]
+                        current: window.editor.previewWith === "builtin" ? 1 : 0
+                        onActivated: (index) => window.editor.previewWith = ["auto", "builtin"][index]
+                    }
+                }
+            }
+
+            SettingsSection {
+                page: 3
+                tab: 2
+                width: parent.width
+                note: qsTr("在搜索框按 Tab、Shift+Tab 切换“全部”“文件”“内容”；Ctrl+Tab 在“文件”里切换文件类型，在“内容”里切换文件夹。")
+
+                SettingRow {
+                    title: qsTr("每次打开时清空搜索")
+                    keywords: qsTr("清空;清除;上次;保留;隐私;搜索框;clear;privacy").split(";")
+                    description: qsTr("打开时搜索框是空的，回到“全部”；关掉时保留上次的文字并选中，直接输入就会替换")
+
+                    ToggleSwitch {
+                        checked: window.editor.clearOnOpen
+                        onToggled: (on) => window.editor.clearOnOpen = on
                     }
                 }
 
@@ -2447,20 +2483,12 @@ Window {
                         onActivated: (index) => window.editor.numberHints = ["held", "always", "off"][index]
                     }
                 }
+            }
 
-                SettingRow {
-                    title: qsTr("预览文件（Alt+P）")
-                    keywords: qsTr("预览;快速查看;看一眼;QuickLook;Seer;空格;Alt+P;preview").split(";")
-                    description: window.editor.previewWith === "builtin"
-                                 ? qsTr("在结果上按 Alt+P，用 Win顺 自己的预览窗口看一眼")
-                                 : qsTr("在结果上按 Alt+P 看一眼；QuickLook 或 Seer 在后台运行时交给它，否则用 Win顺 自己的预览")
-
-                    ScopeTabs {
-                        labels: [qsTr("自动"), qsTr("内置")]
-                        current: window.editor.previewWith === "builtin" ? 1 : 0
-                        onActivated: (index) => window.editor.previewWith = ["auto", "builtin"][index]
-                    }
-                }
+            SettingsSection {
+                page: 3
+                tab: 3
+                width: parent.width
 
                 SettingRow {
                     id: fileTypesRow
@@ -3626,7 +3654,7 @@ Window {
     Rectangle { // scroll position
         visible: flick.visible && flick.contentHeight > flick.height
         x: parent.width - 7
-        y: flick.visibleArea.yPosition * flick.height
+        y: flick.y + flick.visibleArea.yPosition * flick.height
         width: 3
         height: Math.max(24, flick.visibleArea.heightRatio * flick.height)
         radius: Theme.smallRadius

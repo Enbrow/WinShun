@@ -10,6 +10,7 @@
 #include "SystemTheme.h"
 #include "Updater.h"
 #include "WindowFrame.h"
+#include "platform/SiteIcons.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -356,7 +357,9 @@ bool previewWebForms(QQuickWindow* window, SettingsEditor* editor, const QDir& o
             check(inside(window->activeFocusItem(), form()), "Tab left the modal");
         }
     }
-    QMetaObject::invokeMethod(child("suggestField"), "takeFocus");
+    if (!check(child("webFormSvgInput"), "SVG input did not load"))
+        return false;
+    child("webFormSvgInput")->forceActiveFocus(Qt::TabFocusReason);
     settle(window);
     check(visibleIn(window->activeFocusItem(), child("webFormViewport")), "focused input was not scrolled into view");
     grab(u"web-scrolled"_s);
@@ -444,6 +447,7 @@ bool previewWebForms(QQuickWindow* window, SettingsEditor* editor, const QDir& o
 int runSettings(const QStringList& args)
 {
     const QDir out(valueAfter(args, kSettingsFlag));
+    siteicons::setFolder(Settings::dataDir() + u"/icons/web"_s);
     const bool dark = args.contains(u"--dark"_s);
     const bool tree = args.contains(u"--tree"_s);
     say(u"starting (dark %1, scale %2)"_s.arg(dark).arg(qEnvironmentVariable("QT_SCALE_FACTOR")));
@@ -621,17 +625,16 @@ int runSettings(const QStringList& args)
         }
     }
 
-    if (onePage)
-        return finish(window, saved);
-
     // A favorite's form open, as the launcher's 编辑收藏 opens it.
-    QMetaObject::invokeMethod(window, "showFavoritesPage", Q_ARG(QVariant, QVariant(favorites.items().constFirst().path)));
-    window->setHeight(baseHeight);
-    settle(window, 3);
-    pump(300);
-    if (window->property("currentPage").toInt() != favoritesPage)
-        qWarning("preview: showFavoritesPage() did not land on the 收藏夹 page");
-    saved = saveGrab(window, out.filePath(u"favorite-form.png"_s)) && saved;
+    if (!onePage) {
+        QMetaObject::invokeMethod(window, "showFavoritesPage", Q_ARG(QVariant, QVariant(favorites.items().constFirst().path)));
+        window->setHeight(baseHeight);
+        settle(window, 3);
+        pump(300);
+        if (window->property("currentPage").toInt() != favoritesPage)
+            qWarning("preview: showFavoritesPage() did not land on the 收藏夹 page");
+        saved = saveGrab(window, out.filePath(u"favorite-form.png"_s)) && saved;
+    }
 
     // The settings search: a word typed, the page it narrows to pictured,
     // then Enter (goToCurrent), which must land on the right page and tab.
@@ -648,11 +651,16 @@ int runSettings(const QStringList& args)
         {u"收藏"_s, favoritesPage, 0},
         {u"网络共享"_s, 2, 3},
         {u"排序"_s, 3, 0},
+        {u"显示修改日期"_s, 3, 1},
+        {u"每次打开时清空搜索"_s, 3, 2},
+        {u"文件类型"_s, 3, 3},
     };
     QMetaObject::invokeMethod(window, "showPage", Q_ARG(QVariant, QVariant(0)), Q_ARG(QVariant, QVariant(0)));
     window->setHeight(baseHeight);
     settle(window, 2);
     for (const Probe& probe : probes) {
+        if (onePage && probe.page != wantedPage)
+            continue;
         input->setProperty("text", probe.word);
         settle(window, 3);
         pump(300);

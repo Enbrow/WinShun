@@ -1683,6 +1683,14 @@
 <context>
     <name>SettingsWindow</name>
     <message>
+        <source>显示与预览</source>
+        <translation>Display and preview</translation>
+    </message>
+    <message>
+        <source>操作习惯</source>
+        <translation>Behavior</translation>
+    </message>
+    <message>
         <source>打开 Win顺</source>
         <translation>Open WinShun</translation>
     </message>
@@ -3798,32 +3806,36 @@
         <translation>Name</translation>
     </message>
     <message>
-        <source>例如 GitHub；不填就用网站的域名</source>
-        <translation>Such as GitHub; left empty, the site’s domain</translation>
+        <source>例如 GitHub；留空用网站域名</source>
+        <translation>Such as GitHub; leave empty for the site’s domain</translation>
     </message>
     <message>
         <source>搜索网址</source>
         <translation>Search address</translation>
     </message>
     <message>
-        <source>要搜的文字用 %s 代替。最简单的办法：在这个网站上搜索 %s，再把浏览器地址栏里的网址整个粘贴过来。没有 %s 的网址只能打开，不能搜索</source>
-        <translation>Write %s where the words go. Easiest: search the site for %s, then paste the whole address from the browser’s address bar. An address without %s only opens, it cannot search</translation>
+        <source>搜索词用 %s 代替，可直接粘贴搜索结果页的网址</source>
+        <translation>Use %s for the search terms, or paste the search results URL</translation>
     </message>
     <message>
-        <source>主页（可不填）</source>
-        <translation>Home page (optional)</translation>
+        <source>主页</source>
+        <translation>Home page</translation>
     </message>
     <message>
-        <source>只输入关键词时打开的网址；不填就打开搜索网址所在网站的首页</source>
-        <translation>Opened by the keyword alone; left empty, the search address’s site</translation>
+        <source>可不填，默认打开搜索网站的首页</source>
+        <translation>Optional; defaults to the search site’s home page</translation>
     </message>
     <message>
-        <source>搜索建议接口（可不填）</source>
-        <translation>Suggestion address (optional)</translation>
+        <source>搜索建议</source>
+        <translation>Suggestions</translation>
     </message>
     <message>
-        <source>在关键词后输入文字时，从这个地址取搜索建议，列在搜索那一行下面；要搜的文字同样用 %s 代替。认得 OpenSearch 格式（必应、Google 等）、百度的 JSONP 和常见的 JSON 列表。不填就没有建议</source>
-        <translation>When you type words after the keyword, search suggestions are fetched from this address and listed below the search row; put %s where the words go here too. Understands OpenSearch (Bing, Google and others), Baidu&apos;s JSONP and common JSON lists. Leave it empty for no suggestions</translation>
+        <source>搜索词同样用 %s 代替，支持 OpenSearch、百度 JSONP 和 JSON 列表</source>
+        <translation>Use %s for search terms; supports OpenSearch, Baidu JSONP and JSON lists</translation>
+    </message>
+    <message>
+        <source>建议接口网址（可不填）</source>
+        <translation>Suggestion API URL (optional)</translation>
     </message>
     <message>
         <source>图标</source>
@@ -3834,16 +3846,24 @@
         <translation>Choose image</translation>
     </message>
     <message>
-        <source>粘贴 SVG</source>
-        <translation>Paste SVG</translation>
+        <source>SVG 代码（可不填）</source>
+        <translation>SVG code (optional)</translation>
     </message>
     <message>
         <source>用网站的图标</source>
         <translation>Use the site&apos;s icon</translation>
     </message>
     <message>
-        <source>PNG、ICO 或 SVG 文件，方形最好；也可以先复制图标的 SVG 代码（如 iconfont 的“复制 SVG 代码”），再点“粘贴 SVG”。不选就用网站自己的图标</source>
-        <translation>A PNG, ICO or SVG file, square is best; or copy the icon&apos;s SVG code first (such as iconfont&apos;s “Copy SVG code”) and click “Paste SVG”. Without one, the site&apos;s own icon is used</translation>
+        <source>支持 PNG、ICO、SVG；留空使用网站图标</source>
+        <translation>PNG, ICO or SVG; leave empty for the site’s icon</translation>
+    </message>
+    <message>
+        <source>粘贴 SVG 代码（可不填）</source>
+        <translation>Paste SVG code (optional)</translation>
+    </message>
+    <message>
+        <source>添加时自动填入剪贴板中的 SVG，可直接粘贴或编辑</source>
+        <translation>SVG from the clipboard is filled in when adding a search; paste or edit it here</translation>
     </message>
     <message>
         <source>添加</source>
@@ -6286,14 +6306,6 @@
     <message>
         <source>用不了这张图片：请用 PNG、ICO 或 SVG，至少 16×16</source>
         <translation>Can&apos;t use this image: use a PNG, ICO or SVG of at least 16×16</translation>
-    </message>
-    <message>
-        <source>剪贴板里没有文字：先复制图标的 SVG 代码（如 iconfont 的“复制 SVG 代码”）</source>
-        <translation>There is no text on the clipboard: copy the icon&apos;s SVG code first (such as iconfont&apos;s “Copy SVG code”)</translation>
-    </message>
-    <message>
-        <source>剪贴板里的不是 SVG 代码：它应当以 &lt;svg 开头</source>
-        <translation>The clipboard doesn&apos;t hold SVG code: it should start with &lt;svg</translation>
     </message>
     <message>
         <source>导入网页搜索</source>

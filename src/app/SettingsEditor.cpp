@@ -1406,15 +1406,19 @@ QVariantMap SettingsEditor::pickWebIcon()
     return {{u"icon"_s, icon}, {u"iconRef"_s, u"custom:"_s + icon}};
 }
 
-QVariantMap SettingsEditor::pasteWebIcon()
+QString SettingsEditor::webIconClipboardText() const
 {
     const QString text = QGuiApplication::clipboard()->text().trimmed();
-    if (text.isEmpty())
-        return {{u"error"_s, tr("剪贴板里没有文字：先复制图标的 SVG 代码（如 iconfont 的“复制 SVG 代码”）")}};
+    if (text.size() > svgicon::kMaxBytes)
+        return {};
     const QByteArray svg = text.toUtf8();
-    if (!svgicon::looksLikeSvg(svg))
-        return {{u"error"_s, tr("剪贴板里的不是 SVG 代码：它应当以 <svg 开头")}};
-    return keepSvgIcon(svg);
+    return svg.size() <= svgicon::kMaxBytes && svgicon::looksLikeSvg(svg) && text.contains(u"<svg"_s, Qt::CaseInsensitive)
+        ? text : QString();
+}
+
+QVariantMap SettingsEditor::webIconFromSvg(const QString& text)
+{
+    return keepSvgIcon(text.trimmed().toUtf8());
 }
 
 QString SettingsEditor::importWebShortcuts()
