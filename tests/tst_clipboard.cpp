@@ -139,6 +139,13 @@ private slots:
         store.add(text(u"old"_s), kStart);
         store.setLimits({100, 0}, kStart + 4000 * kDay);
         QCOMPARE(store.clips().size(), std::size_t(2));
+        // No limit on the number (GitHub #32): only the days count.
+        store.setLimits({0, 30}, kStart + 4000 * kDay);
+        for (int i = 0; i < 400; ++i)
+            store.add(text(u"n%1"_s.arg(i)), kStart + 4000 * kDay + i);
+        QCOMPARE(store.clips().size(), std::size_t(401));
+        store.setLimits({0, 30}, kStart + 4100 * kDay);
+        QCOMPARE(texts(store), (QStringList {u"1"_s}));
     }
 
     void find()

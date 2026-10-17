@@ -1099,7 +1099,7 @@ void SettingsEditor::setClipboardHotkeyError(const QString& error)
 
 void SettingsEditor::setClipboardMaxItems(int items)
 {
-    if (m_settings.clipboardMaxItems == items || items < 10)
+    if (m_settings.clipboardMaxItems == items || items < 0 || (items > 0 && items < 10))
         return;
     m_settings.clipboardMaxItems = items;
     commit();

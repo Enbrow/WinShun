@@ -194,7 +194,7 @@ struct Settings {
     bool clipboard = true; // keep a history of what is copied (Win+V page); at first as Windows' own clipboard history is
     bool clipboardWinV = false; // Win+V opens it, instead of Windows' clipboard history (see winv::)
     QString clipboardHotkey; // another shortcut for it; empty = none
-    int clipboardMaxItems = 200; // entries kept outside groups; defaults() keeps 100 with 16 GB of RAM or less
+    int clipboardMaxItems = 200; // entries kept outside groups, 0 = no limit; defaults() keeps 100 with 16 GB of RAM or less
     int clipboardMaxDays = 30; // since last copied or pasted; 0 = no limit
     bool clipboardImages = true;
     QStringList clipboardExcludedApps; // program files whose copies are not kept, "KeePass.exe"

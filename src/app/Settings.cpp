@@ -742,7 +742,9 @@ void Settings::load()
     clipboard = readOrDefault(s, u"Clipboard/Enabled"_s, d.clipboard);
     clipboardWinV = readOrDefault(s, u"Clipboard/WinV"_s, d.clipboardWinV);
     clipboardHotkey = readOrDefault(s, u"Clipboard/Hotkey"_s, d.clipboardHotkey);
-    clipboardMaxItems = std::clamp(readOrDefault(s, u"Clipboard/MaxItems"_s, d.clipboardMaxItems), 10, 300);
+    clipboardMaxItems = readOrDefault(s, u"Clipboard/MaxItems"_s, d.clipboardMaxItems);
+    if (clipboardMaxItems != 0) // 0 = no limit (GitHub #32)
+        clipboardMaxItems = std::clamp(clipboardMaxItems, 10, 100000);
     clipboardMaxDays = std::clamp(readOrDefault(s, u"Clipboard/MaxDays"_s, d.clipboardMaxDays), 0, 3650);
     clipboardImages = readOrDefault(s, u"Clipboard/Images"_s, d.clipboardImages);
     clipboardClickToPaste = readOrDefault(s, u"Clipboard/ClickToPaste"_s, d.clipboardClickToPaste);

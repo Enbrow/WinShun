@@ -3287,13 +3287,15 @@ Window {
                 SettingRow {
                     title: qsTr("最多保留")
                     keywords: qsTr("数量;条数;上限").split(";")
-                    description: qsTr("“固定”和分组里的不算，一直保留")
+                    description: window.editor.clipboardMaxItems === 0
+                                 ? qsTr("不限条数，只按下面的保留时间删除；“固定”和分组里的一直保留")
+                                 : qsTr("“固定”和分组里的不算，一直保留")
 
                     ScopeTabs {
-                        labels: [qsTr("%1 条").arg(50), qsTr("%1 条").arg(100), qsTr("%1 条").arg(200),
-                                 qsTr("%1 条").arg(300)]
-                        current: [50, 100, 200, 300].indexOf(window.editor.clipboardMaxItems)
-                        onActivated: (index) => window.editor.clipboardMaxItems = [50, 100, 200, 300][index]
+                        labels: [qsTr("%1 条").arg(100), qsTr("%1 条").arg(200), qsTr("%1 条").arg(300),
+                                 qsTr("%1 条").arg(1000), qsTr("不限", "clipboard items")]
+                        current: [100, 200, 300, 1000, 0].indexOf(window.editor.clipboardMaxItems)
+                        onActivated: (index) => window.editor.clipboardMaxItems = [100, 200, 300, 1000, 0][index]
                     }
                 }
 

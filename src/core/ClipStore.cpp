@@ -782,7 +782,7 @@ void ClipStore::prune(qint64 now)
     for (const Clip& c : m_clips) {
         if (c.group != 0)
             continue;
-        if (c.used < cutoff || ++kept > m_limits.maxItems)
+        if (c.used < cutoff || (m_limits.maxItems > 0 && ++kept > m_limits.maxItems))
             drop.push_back(c.id);
     }
     dropRows(drop);

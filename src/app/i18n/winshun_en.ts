@@ -3026,6 +3026,15 @@
         <translation>Program file name, e.g. KeePass.exe</translation>
     </message>
     <message>
+        <source>不限条数，只按下面的保留时间删除；“固定”和分组里的一直保留</source>
+        <translation>No limit on the number; only the time below removes entries. Pinned and grouped entries are kept for good</translation>
+    </message>
+    <message>
+        <source>不限</source>
+        <comment>clipboard items</comment>
+        <translation>No limit</translation>
+    </message>
+    <message>
         <source>清除剪贴板历史</source>
         <translation>Clear clipboard history</translation>
     </message>
