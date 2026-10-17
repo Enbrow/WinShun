@@ -173,7 +173,7 @@ bool PeekingLogo::render(int size, Edge edge)
 }
 
 void PeekingLogo::show(const RECT& host, const RECT& row, const RECT& work, const RECT* avoid, qreal scale,
-    std::initializer_list<Edge> edges, POINT shift, BYTE alpha, HWND under)
+    std::initializer_list<Edge> edges, POINT shift, BYTE alpha)
 {
     const int size = qRound(kSize * scale);
     const int inset = qRound(kInset * scale);
@@ -204,14 +204,9 @@ void PeekingLogo::show(const RECT& host, const RECT& row, const RECT& work, cons
     POINT from {0, 0};
     BLENDFUNCTION blend {AC_SRC_OVER, 0, alpha, AC_SRC_ALPHA};
     ::UpdateLayeredWindow(m_hwnd, nullptr, &at, &extent, m_dc, &from, 0, &blend, ULW_ALPHA);
-    const bool shown = ::IsWindowVisible(m_hwnd);
-    if (!shown)
+    if (!::IsWindowVisible(m_hwnd)) {
         ::ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
-    if (!shown || under != m_under) {
-        // Both stay topmost: just under the taskbar, it hides behind it as
-        // the window does.
-        ::SetWindowPos(m_hwnd, under ? under : HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        m_under = under;
+        ::SetWindowPos(m_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 }
 

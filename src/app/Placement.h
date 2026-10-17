@@ -50,11 +50,11 @@ namespace ws {
 // when it gets taller (atTaskbar: it does not, the list keeps its height).
 //
 // Opening and closing are animated (slideIn, slideOut) unless the system's
-// animation effects are off. By the taskbar the window slides out from
-// behind it and back, as Windows' own flyouts do: it is put just under the
-// taskbar in the z-order for that, so the taskbar hides what has not come
-// out yet, and kept there until it stops (activated meanwhile, as by another
-// press on the box, it would come in front of the taskbar). Elsewhere it fades in rising a little, and fades out. The window
+// animation effects are off: it fades in coming a little from the taskbar's
+// side (elsewhere: rising), and fades out sinking a little. By the taskbar it
+// stays over it all the while, moving no further than the gap between them:
+// a see-through taskbar (TranslucentTB) showed a window that slid behind it,
+// and kept the last of it in its blur once the window was hidden. The window
 // moves with SetWindowPos, in physical pixels off where it rests (Qt keeps
 // that place: moved meanwhile, it slides on to the new one); the content
 // follows a little behind (contentShift, for QML).
@@ -118,14 +118,10 @@ public:
     bool sliding() const { return m_slide.state() == QAbstractAnimation::Running; }
     QPointF contentShift() const { return m_contentShift; }
     // For what goes with the window (WindowLogo), after each step of a slide
-    // (slideStepped): how far it is off its place (physical pixels), how
-    // faded, and the taskbar it is kept under meanwhile (else 0).
+    // (slideStepped): how far it is off its place (physical pixels), and how
+    // faded.
     QPoint slideOffset() const { return m_offset; }
     qreal slideOpacity() const { return m_opacity; }
-    WId slideUnder() const { return m_under; }
-    // Logical pixels something stands over the window's top edge (the logo):
-    // by a taskbar at the bottom, it comes out from behind it too.
-    void setOverTop(int height) { m_overTop = height; }
     static bool animationsOn(); // the system's "animation effects"
 
     // The search panel (Launcher::panel): the window as large as its user
@@ -219,10 +215,10 @@ private:
     void beginSlide(); // where it rests now, unless it is on its way already
     void startSlide(Slide slide, std::function<void()> done);
     void settleSlide(); // at its end, at once
-    void goBehindTaskbar(); // just under it in the z-order, kept there until the slide stops
     void stepSlide(int elapsed);
     void applyOffset(); // the window where its place and the offset put it
-    QPoint hiddenOffset(bool* cut) const; // behind the taskbar (or not all the way: cut)
+    QPoint nearOffset(int logical) const; // toward the taskbar, not onto it (physical pixels)
+    QPointF towardTaskbar() const; // which way it is, one logical pixel
     bool layered() const; // the window can fade (it has an alpha channel)
 
     QString m_stateFile;
@@ -249,7 +245,6 @@ private:
     bool m_grabbed = false; // m_grab is set for this move
     QVariantAnimation m_glide; // moveHome()
     QVariantAnimation m_slide; // milliseconds into it
-    WId m_under = 0; // the taskbar it slides behind, while it does
     Slide m_slideSpec;
     std::function<void()> m_slideDone;
     QPoint m_place; // its place, logical pixels
@@ -257,7 +252,6 @@ private:
     QPoint m_offset; // off it, physical pixels
     qreal m_opacity = 1;
     QPointF m_contentShift;
-    int m_overTop = 0;
     int m_defaultWidth = 0; // see rememberWidth; 0: not managed
     int m_minWidth = 0;
     int m_wantedWidth = 0; // its user's

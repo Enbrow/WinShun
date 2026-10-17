@@ -50,11 +50,9 @@ WindowLogo::~WindowLogo()
 void WindowLogo::follow(Placement* placement)
 {
     m_placement = placement;
-    // Out from behind a taskbar at the bottom: all of it, the logo too.
-    placement->setOverTop(win::PeekingLogo::kSize - win::PeekingLogo::kSize / 4);
     connect(placement, &Placement::slideStepped, this, [this] {
         if (m_shown)
-            place(); // faded on, or back over the taskbar
+            place(); // faded and moved with the window
     });
 }
 
@@ -89,12 +87,10 @@ void WindowLogo::place()
     const QPoint offset = m_placement ? m_placement->slideOffset() : QPoint();
     ::OffsetRect(&host, -offset.x(), -offset.y());
     const qreal opacity = m_placement ? std::clamp(m_placement->slideOpacity(), 0.0, 1.0) : 1.0;
-    const auto under = reinterpret_cast<HWND>(m_placement ? m_placement->slideUnder() : 0);
     const RECT row {host.left, host.top, host.right, host.top + qRound(SystemTheme::headerHeight() * scale)};
     using Edge = win::PeekingLogo::Edge;
     m_logo.show(host, row, info.rcWork, m_avoid ? &*m_avoid : nullptr, scale,
-        {Edge::Top, Edge::Left, Edge::Right, Edge::Bottom}, {offset.x(), offset.y()}, BYTE(qRound(opacity * 255)),
-        under);
+        {Edge::Top, Edge::Left, Edge::Right, Edge::Bottom}, {offset.x(), offset.y()}, BYTE(qRound(opacity * 255)));
 }
 
 } // namespace ws

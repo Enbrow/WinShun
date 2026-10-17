@@ -2309,7 +2309,10 @@ struct SearchBox::Impl {
 
         // The pill, with a line round it, 1 logical px as round our windows;
         // with high contrast the highlight's, thicker, while typing in it.
-        const float stroke = highContrast ? s * (1 + activeAmount) : s;
+        // On whole pixels, rounded as Qt rounds our windows' (2 at 150 %):
+        // 1.5 px drew one row at the top and left, two at the bottom and right.
+        const float line = std::max(1.0f, std::round(s));
+        const float stroke = highContrast ? std::round(line * (1 + activeAmount)) : line;
         // Square edges stay on physical pixels at fractional monitor scales.
         renderTarget->SetAntialiasMode(round ? D2D1_ANTIALIAS_MODE_PER_PRIMITIVE : D2D1_ANTIALIAS_MODE_ALIASED);
         if (button) {
@@ -2325,7 +2328,7 @@ struct SearchBox::Impl {
             renderTarget->FillRoundedRectangle(rounded(0), brush.Get());
             if (highContrast && shown > 0) {
                 brush->SetColor(faded(p.edge, shown));
-                renderTarget->DrawRoundedRectangle(rounded(-s / 2), brush.Get(), s);
+                renderTarget->DrawRoundedRectangle(rounded(-line / 2), brush.Get(), line);
             } else if (p.buttonTop.a > 0 && shown > 0) {
                 ComPtr<ID2D1GradientStopCollection> stops;
                 const D2D1_GRADIENT_STOP top[] = {{0, faded(p.buttonTop, shown)}, {1, faded(p.buttonTop, 0)}};
@@ -2333,14 +2336,15 @@ struct SearchBox::Impl {
                 if (SUCCEEDED(renderTarget->CreateGradientStopCollection(top, 2, &stops))
                     && SUCCEEDED(renderTarget->CreateLinearGradientBrush(
                         D2D1::LinearGradientBrushProperties(D2D1::Point2F(0, 0), D2D1::Point2F(0, 3 * s)), stops.Get(), &edge)))
-                    renderTarget->DrawRoundedRectangle(rounded(-s / 2), edge.Get(), s);
+                    renderTarget->DrawRoundedRectangle(rounded(-line / 2), edge.Get(), line);
             }
         } else {
             D2D1_COLOR_F fill = mix(p.fill, p.hoverFill, std::max(hoverT.value, lift));
             fill = mix(fill, p.pressedFill, std::clamp(pill, 0.0f, 1.0f));
             // Open while narrow: lit, as a taskbar button whose window is open.
+            // Under all of the line: half under it made its rows two shades.
             brush->SetColor(mix(fill, whole ? p.activeFill : p.hoverFill, activeAmount));
-            renderTarget->FillRoundedRectangle(rounded(-stroke / 2), brush.Get());
+            renderTarget->FillRoundedRectangle(rounded(0), brush.Get());
             brush->SetColor(mix(p.border, whole ? p.edge : p.border, activeAmount));
             renderTarget->DrawRoundedRectangle(rounded(-stroke / 2), brush.Get(), stroke);
         }
