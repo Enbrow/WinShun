@@ -380,9 +380,18 @@ private slots:
         QCOMPARE(contentY(), settled);
     }
 
+    void mixedRowsReachBothEnds_data()
+    {
+        QTest::addColumn<bool>("animate");
+        QTest::newRow("animated") << true;
+        QTest::newRow("reduced-motion") << false;
+    }
+
     void mixedRowsReachBothEnds()
     {
+        QFETCH(bool, animate);
         wheelScroll->setProperty("logicalPixelSteps", true);
+        wheelScroll->setProperty("animate", animate);
         view->setProperty("cacheBuffer", 0);
         view->setProperty("mixedRows", true);
         QMetaObject::invokeMethod(view, "forceLayout");

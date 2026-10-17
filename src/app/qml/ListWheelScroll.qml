@@ -48,6 +48,14 @@ Item {
             return
         if (!animate) {
             writePosition(destination)
+            // No glide follows an end the write moved: the rows it laid out
+            // change the estimate. Go to the end again until it stays put.
+            for (let i = 0; i < 8 && !isFinite(y); ++i) {
+                const settled = aligned(y)
+                if (Math.abs(settled - view.contentY) < 0.000001)
+                    break
+                writePosition(settled)
+            }
             return
         }
         glide.from = view.contentY
@@ -111,7 +119,14 @@ Item {
         else
             moveTo(requestedY)
     }
-    onMinimumYChanged: boundsChanged()
+    // Rows added or removed above shift the content under a glide, and its
+    // target no longer means anything. An end is still an end.
+    onMinimumYChanged: {
+        if (running && !writing && isFinite(requestedY))
+            cancel()
+        else
+            boundsChanged()
+    }
     onMaximumYChanged: boundsChanged()
     onDprChanged: cancel()
 
