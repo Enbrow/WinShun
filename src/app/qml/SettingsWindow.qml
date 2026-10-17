@@ -3285,17 +3285,43 @@ Window {
                 width: parent.width
 
                 SettingRow {
+                    id: clipMaxRow
+
+                    // Three choices, or any number typed in (GitHub #32); 0 = no limit.
+                    readonly property var presets: [300, 500, 0]
+                    readonly property int maxItems: window.editor.clipboardMaxItems
+                    readonly property string typedText: presets.includes(maxItems) ? "" : String(maxItems)
+
                     title: qsTr("最多保留")
-                    keywords: qsTr("数量;条数;上限").split(";")
-                    description: window.editor.clipboardMaxItems === 0
+                    keywords: qsTr("数量;条数;上限;自定义").split(";")
+                    description: maxItems === 0
                                  ? qsTr("不限条数，只按下面的保留时间删除；“固定”和分组里的一直保留")
                                  : qsTr("“固定”和分组里的不算，一直保留")
 
                     ScopeTabs {
-                        labels: [qsTr("%1 条").arg(100), qsTr("%1 条").arg(200), qsTr("%1 条").arg(300),
-                                 qsTr("%1 条").arg(1000), qsTr("不限", "clipboard items")]
-                        current: [100, 200, 300, 1000, 0].indexOf(window.editor.clipboardMaxItems)
-                        onActivated: (index) => window.editor.clipboardMaxItems = [100, 200, 300, 1000, 0][index]
+                        labels: [qsTr("%1 条").arg(300), qsTr("%1 条").arg(500), qsTr("无限", "clipboard items")]
+                        current: clipMaxRow.presets.indexOf(clipMaxRow.maxItems)
+                        onActivated: (index) => window.editor.clipboardMaxItems = clipMaxRow.presets[index]
+                    }
+                    InputBox {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 80
+                        horizontalAlignment: TextInput.AlignHCenter
+                        placeholder: qsTr("自定义")
+                        text: clipMaxRow.typedText
+                        validator: RegularExpressionValidator { regularExpression: /\s*\d{0,6}\s*/ }
+                        onEditingFinished: {
+                            const n = parseInt(text, 10)
+                            if (n > 0)
+                                window.editor.clipboardMaxItems = Math.min(100000, Math.max(10, n))
+                            text = Qt.binding(() => clipMaxRow.typedText)
+                        }
+                    }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: qsTr("条", "clipboard items")
+                        color: Theme.subtext
+                        font.pixelSize: Theme.fontBody
                     }
                 }
 

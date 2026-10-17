@@ -194,7 +194,7 @@ struct Settings {
     bool clipboard = true; // keep a history of what is copied (Win+V page); at first as Windows' own clipboard history is
     bool clipboardWinV = false; // Win+V opens it, instead of Windows' clipboard history (see winv::)
     QString clipboardHotkey; // another shortcut for it; empty = none
-    int clipboardMaxItems = 200; // entries kept outside groups, 0 = no limit; defaults() keeps 100 with 16 GB of RAM or less
+    int clipboardMaxItems = 300; // entries kept outside groups, 0 = no limit
     int clipboardMaxDays = 30; // since last copied or pasted; 0 = no limit
     bool clipboardImages = true;
     QStringList clipboardExcludedApps; // program files whose copies are not kept, "KeePass.exe"
@@ -272,7 +272,7 @@ struct Settings {
     static QString storedRenderer(); // just [Launcher] Renderer; works before QGuiApplication exists
     static QString resolveRenderer(const QString& renderer); // anything but software or d3d11 (an old "auto") -> defaultRenderer()
     static QString defaultRenderer(); // d3d11 with 8 GB of RAM or more, else software
-    static bool lowMemory(); // 16 GB of RAM or less: transparency starts off, the clipboard keeps 100
+    static bool lowMemory(); // 16 GB of RAM or less: transparency starts off
     static QString dataDir(); // %LOCALAPPDATA%\WinShun, or the profile's folder
     // The hidden --profile <folder>: the settings and all data in that folder
     // instead, for screenshots of made-up files with a history and clipboard

@@ -574,7 +574,6 @@ Settings Settings::defaults()
     d.renderer = defaultRenderer();
     d.transparency = lowMemory() ? u"off"_s : u"on"_s;
     d.corners = QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows11 ? u"round"_s : u"square"_s;
-    d.clipboardMaxItems = lowMemory() ? 100 : 200;
     return d;
 }
 

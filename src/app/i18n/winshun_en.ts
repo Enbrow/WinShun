@@ -2579,10 +2579,6 @@
         <translation>Keep at most</translation>
     </message>
     <message>
-        <source>数量;条数;上限</source>
-        <translation>count;number;limit</translation>
-    </message>
-    <message>
         <source>%1 条</source>
         <translation>%1</translation>
     </message>
@@ -3026,13 +3022,12 @@
         <translation>Program file name, e.g. KeePass.exe</translation>
     </message>
     <message>
-        <source>不限条数，只按下面的保留时间删除；“固定”和分组里的一直保留</source>
-        <translation>No limit on the number; only the time below removes entries. Pinned and grouped entries are kept for good</translation>
+        <source>数量;条数;上限;自定义</source>
+        <translation>count;number;limit;custom</translation>
     </message>
     <message>
-        <source>不限</source>
-        <comment>clipboard items</comment>
-        <translation>No limit</translation>
+        <source>不限条数，只按下面的保留时间删除；“固定”和分组里的一直保留</source>
+        <translation>No limit on the number; only the time below removes entries. Pinned and grouped entries are kept for good</translation>
     </message>
     <message>
         <source>清除剪贴板历史</source>
@@ -3245,6 +3240,20 @@
     <message>
         <source>列表里没有这类文件</source>
         <translation>None of this kind in the list</translation>
+    </message>
+    <message>
+        <source>无限</source>
+        <comment>clipboard items</comment>
+        <translation>No limit</translation>
+    </message>
+    <message>
+        <source>自定义</source>
+        <translation>Custom</translation>
+    </message>
+    <message>
+        <source>条</source>
+        <comment>clipboard items</comment>
+        <translation>entries</translation>
     </message>
     <message>
         <source>索引位置</source>
