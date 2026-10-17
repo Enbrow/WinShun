@@ -58,7 +58,7 @@ try {
     cmake --build --preset $preset
     if ($LASTEXITCODE) { throw 'build failed' }
     if (-not $SkipTests) {
-        ctest --preset $preset
+        ctest --preset $preset --output-on-failure
         if ($LASTEXITCODE) { throw 'tests failed' }
     }
     if ($Deploy) {
