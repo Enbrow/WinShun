@@ -152,6 +152,20 @@
 - **做法**：前台窗口属于 `SearchHost.exe`、`StartMenuExperienceHost.exe`、`ShellExperienceHost.exe`、`ShellHost.exe` 时，先 `SendInput` 一个 Esc，等前台换掉（最多 500 ms），再照常激活（`closeShellFlyout`）。实测：开始菜单 3 次、快速设置（`ShellHost.exe` 的 `ControlCenterWindow`）2 次、通知中心（`ShellExperienceHost.exe`）2 次全部拿到前台，用时 191–204 ms，主要是等面板关掉。
 - **同一轮实测的其他结果**：从普通窗口双击 Ctrl 11 次、从资源管理器 3 次，全部在 2–7 ms 内拿到前台，双击收起 2–6 ms。间隔 450 ms 能触发，700 ms 不触发。Ctrl+滚轮两次、按住左键双击 Ctrl、同一处 Ctrl+点击两次，都没有误触发。
 
+### 管理员或 UIAccess 窗口在前台时，双击 Ctrl 没反应
+
+- **现象**：GitHub #31（2026-10-16，0.8.0，微信 4.1.15.55）：微信在前台时双击 Ctrl 不弹出搜索框，0.5.0 没这个问题。
+- **原因**：0.8.0 起（#21）界面以普通权限运行。前台窗口是高完整性（以管理员身份运行）时，UIPI 不把按键交给普通权限进程的 Raw Input（`RIDEV_INPUTSINK`），`WM_INPUT` 一条都收不到，日志里也就什么都没有（连 `Double Ctrl ignored` 都没有）。0.5.0 整个以管理员身份运行，所以不受影响。2026-10-16 实测（`SendInput` 发左 Ctrl 两下，间隔 120 ms，每种 3 次）：普通窗口在前台、普通进程发 3/3 弹出；普通窗口在前台、管理员进程发 3/3 弹出；管理员窗口在前台、管理员进程发 0/3，日志无记录。所以挡住的是“前台是管理员窗口”，不是“发键的进程是管理员”。没装微信 4.x，没确认报告者的微信是否以管理员身份运行。
+- **uiAccess 令牌能收到，不用签名**（2026-10-16 探针）：SYSTEM 进程（临时计划任务）`WTSQueryUserToken` 取控制台会话的用户令牌，`DuplicateTokenEx` 成主令牌，`SetTokenInformation(TokenUIAccess, 1)`（要 SeTcbPrivilege，LocalSystem 本来就有），`CreateProcessAsUserW` 到 `winsta0\default`。得到的进程是 uiAccess=1、未提升、完整性 0x2000。exe 没签名，放在用户可写的临时目录，照样生效：签名和“安全位置”只在按清单 `uiAccess="true"` 启动时由 AppInfo 检查。同一轮（`SendInput` 双击 Ctrl，管理员窗口在前台 3 轮、普通窗口在前台 3 轮）：这个进程的 Raw Input（`RIDEV_INPUTSINK`）和 `WH_KEYBOARD_LL` 各收到 24/24 个 Ctrl 事件；同时运行的普通进程（没有 uiAccess）只收到普通窗口那 12 个，管理员窗口前台时 0 个。只测了模拟按键，没测真键盘。参照：AutoHotkey 安装时现场生成自签名证书签 UIA.exe（会往本机根证书里加一张），Mouse Without Borders 用 System 服务，Listary 不处理。
+- **要留意的安全差别**（2026-10-16 查本机 uiAccess 进程）：系统自带按清单 `uiAccess="true"` 启动的程序（`osk.exe`、`ctfmon.exe`、`TabTip.exe`）完整性都是 0x3000（高），AppInfo 启动时把它抬高了，这样同一用户的中完整性进程注入不进去。而探针里 `CreateProcessAsUser` 得到的进程停在 0x2000（普通），没被抬高，同一用户别的普通进程有可能往它里面注入代码、再借它操作管理员窗口。正式实现给独立监听子进程设置 0x3000，界面仍为普通权限。微信输入法 wetype 的进程也有 uiAccess=1、完整性 0x2000 的组合，因此排查输入问题不能只看完整性或“管理员”标志；这不等于已确认 #31 报告者的微信窗口使用了什么令牌。
+
+
+- **实现**（`service/InputListener.cpp`、`platform/ServiceKeyListener.cpp`）：界面打开服务管道的新能力 `OpenKeyListener`，服务按管道报告的客户端 PID / 会话和用户 SID 启动自身的 `--listen-keys` 子进程。这个模式不启动卷服务，只运行同一份 `KeyListener`。没有额外 exe、Qt DLL、签名或根证书；只能启动服务自己的固定路径，不能指定程序、命令或其他会话。子进程使用该会话用户令牌，UIAccess=1、完整性高，禁用令牌特权；不是 SYSTEM，也不使用 linked administrator token。服务额外保留 Tcb / AssignPrimaryToken / IncreaseQuota，平时禁用，只在启动线程的私有令牌上临时启用。安装 / 升级必须重启服务，让 SCM 应用新的特权列表。
+- **会话 0 的坑**：服务不能拿用户桌面的 HWND 调 `GetWindowThreadProcessId` / `GetClassName` 做验证，会失败。窗口类名和所属 PID 的检查必须由已经进入用户会话的子进程执行，服务只核对管道身份与会话。首次真正 SYSTEM 集成测试发现并修正了这一点。
+- **通知和退出**：子进程只发双击 Ctrl 的时间、左右键和是否有模拟键，不发送按键或文本；触发时 `AllowSetForegroundWindow` 授权界面取焦点。每秒发送就绪心跳，管道同样每秒保活。每客户端最多一个子进程；Job 禁止它再生子进程，并在连接关闭、服务退出 / 崩溃时清理。GUI 退出时子进程也自行结束。主界面沿用游戏 / 全屏 / 排除策略；有可用子进程时本地监听只保留鼠标功能与回退，按同一输入时间戳去重。快捷键录制移除本地 Raw Input 注册时，远程双击也暂停。无服务、旧服务、断线或心跳超时都退回原来的普通监听，后台重试；设置页说明受限窗口需要服务。
+- **自动化验证**：`tst_keylistener` 的通知去重、左右 Ctrl、旧 PID / 过期消息、录快捷键暂停、心跳失联、无服务取消、普通权限服务拒绝和无 UIAccess 直接启动拒绝均通过；原有 `doubleTap` / `doubleTapKeys` / `doubleClick` / `gameGuard` 通过。隔离 SYSTEM 计划任务启动当前编译的真实服务，`serviceWorker` 验证子进程 UIAccess=1、IL=0x3000、TokenIsElevated=0、同一用户会话，断开后退出；`elevatedForegroundInput` 在管理员测试窗口确实位于前台时发送三组双击 Ctrl，3/3 次只触发一次，普通权限接收窗口 3/3 取得焦点。这一轮使用生产监听 / 启动代码，接收窗口是测试程序。
+- **完整程序实测**（2026-10-16，用户同意替换并重启后）：备份后更新 `dist/WinShun` 的界面和 `Program Files` 中的服务，通过 `--install` 更新服务特权并重启，诊断状态 `doubleCtrlService=true`。微信 3.9.11.19 前台模拟双击 Ctrl 三轮（左 Ctrl 两轮、右 Ctrl 一轮），每轮 `visible=true`、`active=true`，日志确认来自 UIAccess 监听。随后用户用真实键盘在微信前台试三次，反馈三次均正常弹出并直接输入搜索；此时核实微信为 IL=0x3000、已提升。实际 Win顺 界面为 UIAccess=0、IL=0x2000、未提升，监听子进程为 UIAccess=1、IL=0x3000、未提升；微信输入法 `wetype_renderer.exe` 为 UIAccess=1、IL=0x2000，`wetype_server.exe` 为 UIAccess=0、IL=0x2000。本机没有微信 4.1.15.55，原报告版本仍待验证。备份和机器实测记录在 `build/release/issue31-live-20261016-183244`。
+
 ### 游戏里连按两下 Ctrl（蹲下）弹出搜索框
 
 - **现象**：很多游戏用 Ctrl 蹲下，玩家常连按两下。搜索框弹出来会抢走键盘；独占全屏的游戏还可能被最小化。
@@ -207,7 +221,7 @@
   - **列表停在小数位置**：Qt 的 Flickable 滚轮和惯性滚动会停在任意小数位置。文字、按最近邻采样的图标、矩形各按自己的规则对齐到像素，于是轮流错开。Qt 的 `pixelAligned` 只对齐到逻辑像素，150% 下一半的位置仍在半个设备像素上。
   - **文字顶点在 .5 处随机取整**：列表对齐到设备像素后，文字还在跳。原生文字的着色器（`textmask.vert`）把每个字形四边形的顶点各自按 `floor(x × dpr + 0.5)` 取整，而且用单精度浮点。居中排版常让文字落在正好 .5 个设备像素上，这时往哪边取整由浮点误差决定，而误差随滚动位置变化，结果字形整体错开或被拉高 1 像素（标题高度在 20 和 21 之间变）。
 - **做法**：
-  - **只修正画面，不改滚动位置**。每一行加一个 `Translate`，把它在窗口里的设备像素位置补成整数，补的量不到 1 像素（`Main.qml` 的委托）。`contentY` 保持 Flickable 自己算的值，所以滚轮、拖动、惯性滚动都用 Qt 原生的，每一帧都对齐。浏览器也是这么做的：滚动位置可以是小数，只在画出来时对齐（Firefox 的 `snapped-scrolled-content` 测试，Chromium 合成器）。
+  - **只修正画面，不改滚动位置**。每一行加一个 `Translate`，把它在窗口里的设备像素位置补成整数，补的量不到 1 像素（`Main.qml` 的委托）。绘制补偿不写回 `contentY`，拖动与惯性仍用 Qt 原生，每一帧都对齐；搜索列表的离散滚轮终点由 `ListWheelScroll` 预先对齐，见后面的“搜索列表滚到中间停下后，仍会补跳”。浏览器也是这么做的：滚动位置可以是小数，只在画出来时对齐（Firefox 的 `snapped-scrolled-content` 测试，Chromium 合成器）。
     - 列表在窗口里的位置要用 `layout.y + listArea.y + list.y` 这样能通知变化的属性来算，不能用 `mapToItem()`：Column 在稍后的布局阶段才给子项定位，`mapToItem` 的结果不会因此重算，结果刚出来时第二行就落在了半个像素上。
   - **行内会随滚动移动的文字，竖直位置都放到整数设备像素上**：标题与路径所在的 Column、标题行的高度、内容搜索时跟在名字后的文件夹名、右侧的“最近”、徽标里的文字（`ResultRow.qml` 的 `onPixel` / `upToPixel`）。用 `anchors.verticalCenter` 居中的文字很容易落在 .5 上。
   - **设置页（和拾穗计划页）整页滚动，控件太多，不逐个对齐**：只给整页的 Column 加 `Translate`，补到整数设备像素后再往下多偏 0.02 个设备像素（`SettingsWindow.qml` 的 `page`，`GleaningPage.qml` 的 `Snapped`）。页里落在 .5 上的文字、边框、图片都变成 .52，取整方向固定，不再随浮点误差变；0.02 远大于单精度误差（几千像素处约 0.001），又小到看不出来。2026-10-09 实测（150%，剪贴板页，滚轮和小步滚动各上下一次，约 10 ms 一帧，相邻两帧按整数平移对齐后数对不上的像素）：改之前 168 对有变化的帧里 138 对有错开，改之后 96 对全部一致。
@@ -1000,6 +1014,30 @@
 - **现象**：提权跑测试脚本用 `Start-Process powershell -Verb RunAs -Wait -File test.ps1`，脚本早就跑完了，命令却一直不返回，直到超时。
 - **原因**：`-Wait` 等的是整个进程树，脚本里启动的 Win顺（`--background`）也算，它不退出就一直等。
 - **做法**：会启动 Win顺 的脚本不加 `-Wait`，让脚本把结果写进日志文件，外面轮询日志里的结束标记。
+
+### 装了 StartAllBack，任务栏搜索框放不上去
+
+- **现象**：用户装了 StartAllBack（3.9.28，Windows 11 25H2），打开“在任务栏上放 Win顺 的搜索框”后设置页一直说“读不到任务栏上的图标”。日志：`no TaskbarFrame in UI Automation; in the taskbar: Start, TrayNotifyWnd, …, ReBarWindow32, MSTaskSwWClass, MSTaskListWClass`。
+- **原因**：StartAllBack（ExplorerPatcher 的 Windows 10 任务栏也一样）换回的是 Windows 10 那种 Win32 任务栏，没有 XAML，量图标用的 `TaskbarFrame` 根本不存在。
+- **做法**：`MSTaskListWClass` 可见就按经典任务栏量：任务按钮是它在原生 UI 自动化里的子元素，其余都是窗口，`GetWindowRect` 就行（`Measurer::readClassic`，见 architecture.md 的“经典任务栏”）。不能只看有没有这几个窗口：Windows 11 自己的任务栏里也有 `ReBarWindow32`、`MSTaskSwWClass`、`MSTaskListWClass`，只是 `MSTaskListWClass` 隐藏；再加一条：它有可见的 `Windows.UI.Composition.DesktopWindowContentBridge`（XAML），经典任务栏没有。
+
+### 经典任务栏的按钮来去，不发位置变化
+
+- **现象**：经典任务栏上框放好了，开一个程序，任务按钮多了一个，框却不让开，被新按钮压在下面。
+- **原因**：框靠 `EVENT_OBJECT_LOCATIONCHANGE` 知道图标动了。实测（2026-10-16，StartAllBack，挂任务栏线程上 `EVENT_OBJECT_CREATE`…`EVENT_OBJECT_END` 的全部事件，开、关一次字符映射表）：经典任务栏一次位置变化都不发，只发 `EVENT_OBJECT_CREATE`（新按钮）、`EVENT_OBJECT_DESTROY`（按钮走了）和 `EVENT_OBJECT_STATECHANGE`，都来自 `MSTaskListWClass`，对象 `OBJID_CLIENT`，子 id 是按钮的序号。
+- **做法**：经典任务栏另挂 `EVENT_OBJECT_CREATE`…`EVENT_OBJECT_DESTROY` 的钩子，只认 `MSTaskListWClass` 的、子 id 不是 0 的，收到就量（之后照常逐帧量到停下）。`STATECHANGE` 不要：鼠标悬停在按钮上也发，会让测量线程一直逐帧跑。
+
+### .NET 的 UI 自动化读不到经典任务栏的按钮
+
+- **现象**：PowerShell 用 `System.Windows.Automation` 探 StartAllBack 的任务栏，`MSTaskListWClass` 底下一个子元素都没有（`FindAll(Descendants)` 是 0），以为 UI 自动化读不到按钮。
+- **原因**：.NET 那套是托管的老客户端，用自己的客户端代理；原生的 COM UI 自动化（`CUIAutomation8`，Win顺 用的）经 MSAA 代理能拿到每个按钮（名字、矩形），`AccessibleObjectFromWindow` 直接问 MSAA 也有。
+- **做法**：探任务栏要用和 Win顺 一样的原生 COM 接口（写个小 C++ 探测程序），别拿 .NET 的结果下结论。
+
+### 改 StartAllBack 的注册表，任务栏不跟着变
+
+- **现象**：测试时往 `HKCU\Software\StartIsBack` 写 `TaskbarCenterIcons=1`，任务栏图标没有居中。它的设置窗口是 Delphi 写的，UI 自动化里看不到选项，没法替用户点。
+- **原因**：StartAllBack 只在资源管理器启动时读这些值。
+- **做法**：写好值后重启资源管理器（顺便测了框在资源管理器重启后重新挂上）。重启前先记下开着的文件夹窗口。
 
 ## 主题和语言
 
@@ -1907,13 +1945,40 @@
 
 - **现象**：在剪贴板面板里切换分类（以及每次打开面板）后，列表看着在顶部，其实往下偏了 `topMargin`（4 px），滚动条也不在最顶。
 - **原因**：`ClipModel::setRows` 分类相同顺序时是逐行删、逐行插，`originY` 随之漂移；之后 `positionViewAtBeginning()` 常常把 `contentY` 停在 `originY`，不算 `topMargin`。只在第一行不变时才对。先 `forceLayout()` 也没用（用 qml.exe 离屏实验逐种比过）。
-- **做法**：`positionViewAtBeginning()` 之后再 `contentY = originY - topMargin`（和 `ListScrollBar.minY` 同一个起点），之前先 `cancelFlick()`。搜索结果（Main.qml）和对话框栏（DialogBarWindow.qml）的列表也有 `topMargin: 4`，遇到同样现象照此处理。
+- **做法**：`positionViewAtBeginning()` 之后再 `contentY = originY - topMargin`（和 `ListScrollBar.minY` 同一个起点），之前先 `cancelFlick()`。搜索结果（`Main.qml::selectFirst`，含展开面板）也已这样处理；对话框栏（DialogBarWindow.qml）的列表也有 `topMargin: 4`，遇到同样现象照此处理。
+- **搜索列表还要处理异步首批结果（2026-10-17）**：只改 `selectFirst()` 不够。真实启动记录中，`shown` 和 `resultsReplaced` 发生时列表为空、已停在 `-4`；稍后 256 条结果到达，列表高度还为 0，`onCurrentIndexChanged` 的 `positionViewAtIndex(0, Contain)` 又把坐标改成 `0`，之后高度扩为 488 也不回顶。第一行被选中时也要显式落在 `originY - topMargin`（Main、Panel）。在临时配置中加载实际 QML、Launcher、ResultModel，在插入首批结果后、排队调整列表高度之前 `forceLayout()`，修改前稳定失败、修改后通过；真实启动记录也确认首批结果到达后保持 `-4`。
+- **验证边界**：对 `resultsReplaced` 的隔离测试只能说明通知后的定位行为，不能证明用户报告的“滚到顶部后延迟抽动”已修复。该抽动后来由用户实际操作录到，原因是下面的绘制取整，与启动偏移分开处理。
+
+### 搜索列表回顶后，动画尾段再跳一个像素
+
+- **现象**：150% 缩放下，用户实际操作的两次记录中，第一行看似停住约 426 / 670 ms 后又向下移了一个设备像素；`contentY` 仅从极接近 `-4` 变成精确的 `-4`，窗口、选中项、结果数、`originY` 都没变。
+- **原因**：对行的绝对绘制位置做 `Math.round()`。列表起点是 65 个逻辑像素，加顶部留白 4，终点恰好在 `69 × 1.5 = 103.5` 个设备像素上；动画尾段一直略小于 103.5，被取成 103，最后达到精确终点才取成 104。只检查 `contentY` 或最终是否到顶，测不出这个可见跳动。
+- **做法**：`ScrollPixelAlignment.qml` 分别取整“在顶部静止时的位置”和“相对顶部的滚动位移”。位移在最后半个设备像素内时，绘制已经落到终点；该组件本身不改动滚动坐标。搜索框的结果行、尾部提示和展开面板共用它。滚轮的终点还需要下面的单独处理。
+- **验证**：回放用户两次记录中的全部帧坐标到实际 `Main.qml`：旧逻辑尾段均多跳一次，新编译的 QML 均不再跳动。`tst_scrollalignment` 在 100%、125%、150%、175%、200% 下检查半像素终点、尾段反向移动、整设备像素绘制、各行同步移动，以及不改动 `contentY`。
+
+### 搜索列表滚到中间停下后，仍会补跳
+
+- **现象与证据（2026-10-17）**：用户指出上面的绘制修复没有覆盖中途停下。隔离窗口发实际 `QWheelEvent`，150% 下从 `contentY=120.4` 向下滚一格，先趋近 192.4，结束时突然变为 192，绘制反向走一个设备像素；小步滚动出现约 130–170 ms 不动后再移动。
+- **原因**：Qt 6.12 的 `QQuickFlickable::wheelEvent()` 使用 `OutExpo` 到当前小数位置加滚轮步长，结束回调再执行 `fixup()`，按逻辑像素及速度方向取整。绘制对齐只能稳定每帧，不能消除动画结束时坐标被另一次取整改写。
+- **做法**：主搜索框和展开面板共用 `ListWheelScroll.qml`。收到离散滚轮事件时先计算步长、边界及相对顶部的设备像素终点，再用 200 ms `OutCubic` 朝这个终点减速；没有结束回调补位置。连续同向输入累加距离，反向输入丢弃尚未走完的旧方向距离。重新打开、切换选中项、滚动条或其他来源改坐标时取消旧动画。尊重系统滚动行数和关闭动画的设置。
+- **和旧的弃用方案的区别**：只对齐目标，不逐帧取整并回写原生惯性坐标；行的绘制仍由 `ScrollPixelAlignment` 对齐。Qt 标记的触摸板/合成手势，以及触屏/拖动，继续走原生路径。Windows 某些触摸板报告为普通 Mouse angleDelta，它们与普通滚轮走相同路径。`WheelHandler` 的 `acceptedDevices: Mouse` 在分发前排除合成手势；不能在 `onWheel` 里靠 `event.accepted=false` 转交，Qt 6.12 的 handler 不读取该值。
+- **验证边界**：`tst_scrollalignment` 用实际滚轮事件复现旧路径的四组失败，再验证中途停止、连滚、反向、外部接管、上下边界和关闭动画；五种缩放通过。隔离配置加载编译后的真实 Main/Panel，原先四组输入均无尾段反向移动，打开/异步首批结果/重开/结果替换的回归也通过。这些是自动化验证，用户手动操作的最终体验需另行确认。
+- **独立评审后的核查与加固（2026-10-17）**：用户已手测确认抽动消失。自然滚动无需再乘一次 `-1`：`QWheelEvent.inverted` 描述的是已经反转过的 delta，继续使用事件中的符号即可（[Qt 文档](https://doc.qt.io/qt-6/qwheelevent.html#inverted-prop)）。补测实际事件确认 `inverted=true/false` 下相同已交付 delta 的方向一致；删除首行导致 `originY` 漂移时，现有外部接管逻辑会取消旧动画。
+- **两个补测发现的边界**：滚动行数为 0 时应不滚动，不能按一页处理；Windows Qt 6.12 的主题读取系统行数 0，但“按页”特殊值反而被 Qt 回退成 3 行，不能把 0 当作该特殊值（[固定版本源码](https://github.com/qt/qtbase/blob/v6.12.0/src/plugins/platforms/windows/qwindowstheme.cpp)）。关闭动画或相邻输入已完成动画时，下一次同向小增量仍需保留 `requestedY` 的小数余量；否则逐次设备像素取整会累计多滚或少滚。外部移动或取消清除方向，只有仍处于自己上次对齐终点时才延续余量。两项修改前均有失败回归；0 行通过组件的系统参数绑定入口注入，不改 Windows 设置。
 
 ### 剪贴板列表滚轮一格一顿
 
 - **现象**：剪贴板列表用鼠标滚轮滚动，每一格都“顿一下”，回到顶部时尤其明显，像在抖；启动器列表没有。
-- **原因**：行高两种（图片行 80、其余 `Theme.rowHeight`），ListView 用可见行的平均高度估 `originY`/`contentHeight`，每创建或释放一行估值就变 → `setContentHeight()`。Qt 6.12 默认滚轮（`wheelDeceleration` 15000 > 14999）走 `moveBy(OutExpo, 225 ms)` 并置 `vData.fixingUp`；`setContentHeight()` 见 `fixingUp` 就 `fixupY()`：打断正在滑的动画，并把 `contentY` 取整，取整方向和滚动方向相反，退 0.1–0.75 px（150 % 下退 1 个设备像素）；每格也只走约 33 px 而不是 72。行高都一样时 `contentHeight` 不变，没这回事。往上滚时以为是 `originY` 修正让行跳了，量下来不是：行之间始终首尾相接。
-- **做法**：`ClipboardPage` 的列表自己接鼠标滚轮（`WheelHandler`，`acceptedDevices: PointerDevice.Mouse`，`target: null`），Flickable 收不到滚轮，`fixingUp` 不会置上：每格往目标上累加 3 行，每帧按当时的 `minY/maxY` 夹住、取整写 `contentY`、不往回退；别处写了 `contentY`（键盘、滚动条、`selectFirst()`）就停掉滑动。触摸板（`pixelDelta`）仍走 Flickable。复现：qml.exe 离屏 + QtTest `TestEvent.mouseWheel`，逐帧记 `contentY/originY/contentHeight`。
+- **原因**：行高两种（图片行 80、其余 `Theme.rowHeight`），ListView 用可见行的平均高度估 `originY`/`contentHeight`，每创建或释放一行估值就变 → `setContentHeight()`。Qt 6.12 默认滚轮（`wheelDeceleration` 15000 > 14999）走 `moveBy(OutExpo, 3 × fixupDuration / 4)`（默认 `fixupDuration=400`，即 300 ms）并置 `vData.fixingUp`；`setContentHeight()` 见 `fixingUp` 就 `fixupY()`：打断正在滑的动画，并把 `contentY` 取整，取整方向和滚动方向相反，退 0.1–0.75 px（150 % 下退 1 个设备像素）；每格也只走约 33 px 而不是 72。行高都一样时 `contentHeight` 不变，没这回事。往上滚时以为是 `originY` 修正让行跳了，量下来不是：行之间始终首尾相接。
+- **做法**：`ClipboardPage` 使用共用的 `ListWheelScroll`，启用 `logicalPixelSteps`：混合行高在布局过程中还会取整中间坐标，因此保留逻辑像素步进，避免布局打断动画；行的绘制再由 `ScrollPixelAlignment` 对齐设备像素。边界目标保留正负无穷的含义，在范围重新估算时跟随实际两端；反向输入从当前位置重算。自身写入保护用嵌套层数计数：一次 `contentY` 赋值里可能触发布局、边界重算和另一次赋值，内层退出不能清掉外层保护。外部修改、重新打开、隐藏和拖动时取消动画。行拖动状态叫 `rowDragging`，避免覆盖 Flickable 自身的 `dragging`。
+
+### 其它滚动界面沿用旧路径（2026-10-17 审核及修复）
+
+- **对话框搜索栏**：首批结果在零高度到达时，`Contain` 及 `positionViewAtBeginning` 仍停在 0，真实顶部是 -4；同样补上取消旧动画、按 `originY-topMargin` 定位和首行选中分支。委托改用 `ScrollPixelAlignment`，离散滚轮使用共用控制器。
+- **设置页与剪贴板长文本预览**：原先仅给整块内容做绝对坐标取整再偏 0.02，仍挡不住原生滚轮末尾的坐标 fixup。`ListWheelScroll.view` 扩展为 Flickable，非列表不连接 `currentIndexChanged`；两处页面共用预先对齐终点，绘制使用相对位移取整并保留 0.02 偏移。切换设置分类、标签和搜索定位时显式取消自定义动画，包括尚未产生第一帧、坐标仍是 0 的情况。
+- **类型横条**：自动 reveal 原先直接动画写 `contentX`，水平滚轮或拖动接管后仍会被拉回。现在动画写自己的位置属性，只有自身写入受保护；外部坐标、原生移动和拖动会取消运行中及排队中的 reveal。水平 WheelHandler 用 `blocking:false` 只观察接管，不截走原生事件；新 reveal 开始前取消原生惯性。
+- **预览换条目**：`Clipboard::preview` 提供稳定的条目 id（字符串），`ClipPreview` 只在 id 改变时取消动画、回到顶部；同条目的文字识别、图片和元数据刷新保留阅读位置，不能每次 `info` 更新都清零。
+- **验证**：五种缩放的滚动回归加入整页 Flickable 停止及混合行高滚到两端；隔离配置加载编译后的实际 Main、Panel、DialogBarWindow、SettingsWindow、ClipboardWindow、ClipPreview、TypeStrip，回放审核时的同组滚轮输入。文字和图片混排使用临时 ClipStore；切换长文本预览从 300 回到 0，同条目元数据更新保持 200；类型横条反向滚轮和外部归零均可接管。无 Windows 剪贴板写入。实体触摸板和跨屏 DPI 切换仍未新增手测。
 
 ### 单元测试的输出在管道里看不见
 
@@ -2442,3 +2507,21 @@
 - **现象**：完整路径太长要折行时，“…二级目录也比较长的文件夹”和“名字”分在两行。
 - **原因**：每个 `\` 后面插了零宽空格，想让它在文件夹之间折；但 Qt 对中日韩文字本来就是每个字之间都能折，`Text.Wrap` 只在“这一行放满”时找最近的折点，不会优先选零宽空格。
 - **做法**：没改（要自己排每一行），读起来问题不大；英文文件夹名在空格或 `\` 处折。真要按文件夹折，用 `TextLayout` 自己按 `\` 分段排。
+
+### 切换圆角只更新 QML，会漏掉原生窗口
+
+- **现象**（代码路径检查）：预览处理器页由独立线程创建 HWND，任务栏搜索框是 Explorer 下面的分层子窗口；它们不在 `QGuiApplication::allWindows()` 中。
+- **原因**：预览页自己设置 DWM 的 ROUNDSMALL，任务栏框用 Direct2D 绘制，二者都不会自动跟随 QML 的 Theme 绑定。
+- **做法**：预览页与普通窗口共用 HWND 圆角登记，切换时枚举本进程已登记的顶层窗口；任务栏框通过现有 Look 消息传偏好并重画。直角时外扩阴影/光环的半径也必须保持 0，不能只把基础半径清零后又加上 out。
+
+### 圆角改变后，任务栏框仍拿到旧偏好
+
+- **现象**（调用顺序检查）：`applySettings()` 原先先调用 `updateSearchBoxLook()`，再调用 `applyAppearance()`；只在 Look 中读取全局圆角状态会晚一次。
+- **原因**：此时 `SystemTheme` 尚未收到新设置，而且语言未改变时 `applyAppearance()` 会提前返回，不会走末尾的任务栏文字刷新。
+- **做法**：在 `applyAppearance()` 写入新圆角偏好后立即刷新 Look，不能依赖主题或语言发生变化时的刷新。
+
+### Windows 头文件把参数名 small 展开成 char
+
+- **现象**：`setWindowCorners(HWND, bool small)` 在部分翻译单元编译报 C2632，“bool 后面的 char 非法”。
+- **原因**：Windows RPC 头文件定义了 `small` 宏，是否触发取决于头文件包含顺序。
+- **做法**：参数命名为 `smallCorners`，不使用这个宏名。
