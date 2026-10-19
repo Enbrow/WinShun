@@ -2747,3 +2747,87 @@
   - 两个字母的拼音只在名字开头或词首才算：命中从 17636 降到 11832，33 个查询变空，前 5 名里 127 个 13 分以上的结果没了，其中有不少真词：dn → 此电脑，gn → 可选功能、程序和功能，xg → 视觉效果，sq → 更改时区，mb → 控制面板，ly → 启用蓝牙。汉字挨着汉字不算词首，中文名字里的“词首”就只剩第一个字，从第二个词起的真词也跟着没了。现有测试 `wk` → 当我看向别处时（我看）是有意留下的同一类命中。
   - 再让两个字母不认 Windows 关键词的首字母（places.txt 的照认）：降到 8684，63 个查询变空，还丢了 mm → 更改密码（靠关键词“密码”）、ly → 飞行模式设置（蓝牙）。
 - **做法**：匹配不动。要压这类杂讯，得在排序或合并上想办法，比如应用完全命中时把设置排在后面。
+
+## 系统开关（docs/design-system-switches.md，2026-10-19）
+
+### 只写 Personalize 注册表，窗口和任务栏都不变
+
+- **现象**：把 `AppsUseLightTheme`、`SystemUsesLightTheme` 写成浅色后，约 1.6–2 秒内本进程的窗口一条 WM_SETTINGCHANGE 都没收到，Qt 不变；任务栏时钟和大部分托盘图标也不变（只有输入法指示器的“中”变了色）。
+- **原因**：Windows 设置改深浅色时会广播 WM_SETTINGCHANGE（"ImmersiveColorSet"），各程序靠它重读。只写注册表没人通知。和 pitfalls“改了 PrtScn 的注册表值不广播”是同一类。
+- **做法**：写完要自己广播 "ImmersiveColorSet"（`platform/SettingBroadcast`）。Win顺 自己的 Qt 窗口收到后 3–4 ms 发出 `colorSchemeChanged`，之后走原来的 `applyTheme`（Mica 的修正见“切换深浅色后，Mica 还是旧主题的颜色”）。
+
+### 广播 ImmersiveColorSet 要两三秒，自己的窗口最后才轮到
+
+- **现象**：`SendMessageTimeout(HWND_BROADCAST, WM_SETTINGCHANGE, 0, "ImmersiveColorSet", SMTO_ABORTIFHUNG, 1000)` 四次分别 2764、3821、2501、3108 ms 才返回；广播开始后 1.4 秒的截图里任务栏的字已经变了，本进程的 Qt 窗口却要等 1.5–2.8 秒才收到消息。在界面线程上发，界面就卡住几秒。
+- **原因**：广播按顶层窗口一个一个发，每个最多等 1000 ms。别的程序先变，自己最后。广播也发给 Win顺 自己的窗口：在界面线程上等广播，或退出时 `join` 发送线程，界面线程都不处理消息，广播就卡在发给自己窗口的那一步直到超时，Win顺 有好几个顶层窗口，退出会卡好几秒。
+- **做法**：
+  - 先直接、同步地通知本线程上自己的窗口（`SendMessageTimeoutW` 发给每个本线程的顶层窗口），Qt 和托盘的单色图标马上换。
+  - 其余放在单独的线程上发，同一时刻最多一条，发的过程中又来请求只记一个标志、发完补发。
+  - 这条线程是“用 `std::jthread`”的例外：用 detach 的 `std::thread`，退出时**不等**，只按值捕获，不碰退出时会析构的对象。
+  - 测试程序改了设置后，用 `settingbroadcast::busy()` 等它结束再退出，否则别的程序可能听不到最后一次改动。
+
+### 在 STA 线程上同步广播，测量循环一次没跑，得出“刷新不了”的假结论
+
+- **现象**：探针在界面（STA）线程上同步发 "ShellState" 广播（3709 ms 才返回），返回之前测量窗口有没有变的循环一次都没跑，当时得出“这样刷新不了”的结论。
+- **原因**：量的线程和发的线程是同一条，发送没返回，量也没开始。
+- **做法**：要量一个广播的效果，把广播放到别的线程上发，量的线程不阻塞。
+
+### 同值写入静默成功：没有回调，返回值也各不一样
+
+- **现象**：同值 `IAudioEndpointVolume::SetMute` 返回 `S_FALSE`（成功码），没有回调；同值 `SetMasterVolumeLevelScalar` 返回 `S_OK`，也没有回调；无线电同值 `SetStateAsync` 返回 Allowed，不报错。
+- **原因**：这些接口把“已经是了”当成功，也不通知，所以不能靠返回值或回调知道有没有真的改。
+- **做法**：写之前自己先比较（音量按四舍五入后的整数），相等就不写、直接回“已经是了”（底栏说一声）；判断成功用 `SUCCEEDED`，不要把 `S_FALSE` 当失败。
+
+### 只写 Explorer\Advanced，资源管理器窗口不刷新
+
+- **现象**：把 `Hidden`（1 显示 / 2 不显示）或 `HideFileExt` 写进注册表，3 秒内已打开的资源管理器窗口不变。再加 `SHChangeNotify(SHCNE_ASSOCCHANGED)`（调用 163 ms）窗口照样不变。
+- **原因**：只改注册表不会让窗口重读；`SHChangeNotify(SHCNE_ASSOCCHANGED)` 也不是它要的通知。
+- **做法**：改用 `SHGetSetSettings(&ss, SSF_SHOWALLOBJECTS 或 SSF_SHOWEXTENSIONS, TRUE)`：调用 1.6–1.8 ms，一次写好注册表、带出 "ShellState" 广播（调用后约 4 ms 本进程窗口就收到）、让打开的窗口自己刷新（隐藏文件 358 ms，扩展名 742 ms）。它失败时才退回“直接写注册表 + 在别的线程上广播 ShellState”（实测可行：95 ms 后刷新，广播本身 0.8–3.7 秒才返回）。`IShellWindows` 逐个 `Refresh` 能刷（62 ms）但要碰用户的每个窗口，不用。
+
+### `SHELLSTATE` 的位域读回来，“真”是 -1
+
+- **现象**：读回 `SHELLSTATE` 里的位域，应当为真的位是 -1，`== 1` 判断永远不成立。
+- **原因**：有符号的 1 位位域，置位读出来是 -1。
+- **做法**：判断一律用 `!= 0`。
+
+### `CoCreateInstance(ShellBrowserWindow)` 在 explorer 里留下看不见的窗口
+
+- **现象**：测试里用它找资源管理器窗口，在这台电脑上返回 E_FAIL，却在 explorer 里留下两个看不见的“库”窗口。
+- **原因**：没有查清；调用失败了，窗口却已经建在 explorer.exe 里。
+- **做法**：测试要开自己的资源管理器窗口，用 `ShellExecuteEx` 的 `opennewwindow` 动词；按路径找到窗口后，核对它的 HWND 不是用户原有的框架（Win11 的标签页共用一个 HWND）；误留下的窗口用 `Quit()` 关掉，最后核对只剩用户原来的窗口。
+
+### TranslucentTB 开着时，取任务栏的颜色量不出深浅色的变化
+
+- **现象**：想用任务栏背景的颜色判断深浅色是否切过去了，取到的是透明背后的壁纸，两个主题下一样。
+- **原因**：TranslucentTB 把任务栏做成了透明。
+- **做法**：看时钟和图标的字色，不看背景。
+
+### `rundll32 shell32.dll,Options_RunDLL 7` 的窗口属于 explorer.exe
+
+- **现象**：用它打开“文件资源管理器选项”（直接是“查看”页）后，按 rundll32 的进程号找不到这个窗口，rundll32 很快就退出了。
+- **原因**：对话框开在 explorer.exe 里，rundll32 只是个发起者。
+- **做法**：不要按 rundll32 的进程号找这个窗口；它属于 explorer.exe，按窗口本身（标题、类）去找。
+
+### 重开 WLAN 的无线电可能自动连网
+
+- **现象**：关了再开 WLAN，Windows 可能自动连上设为“自动连接”的已存网络，包括用户之前手动断开的那个。
+- **原因**：Windows 本身的行为，和在快速设置里点一下一样。
+- **做法**：WLAN 的翻转测试要用户在场；关 WLAN 当前正靠它上网时，底栏写“（会断网）”，不弹确认，再按一次就开回来。
+
+### 无线电和音频的回调不在调用的线程上，落在哪个线程也不固定
+
+- **现象**：`Radio.StateChanged` 两次落在两个不同的线程上；`IAudioEndpointVolumeCallback::OnNotify` 4 次回调落在 2 个线程上。`StateChanged` 还比 `SetStateAsync` 完成早约 1 ms。
+- **原因**：实测如此，它们不在调用的线程上，落在哪个线程也不固定。
+- **做法**：回调里不碰界面的东西，一律带上下文对象 `QMetaObject::invokeMethod(…, Qt::QueuedConnection)` 转回界面线程（`SwitchRelay`）；`IMMNotificationClient` 的回调里不调 MMDevice，把事情投给开关线程再重新绑定。见 pitfalls“不带上下文对象 connect 引擎的信号，槽在引擎的工作线程上跑”。
+
+### Win顺 自己的 `WinShun.exe.bak-*`：测试脚本 ShellExecute 改过名的 exe，弹出 Windows 的“打开方式”
+
+- **现象**：测试脚本用 `ShellExecute` 去启动被改名备份过的 exe（`WinShun.exe.bak-…`），弹出 Windows 的“打开方式”对话框。
+- **原因**：改名后的文件不再是 `.exe`，shell 不知道怎么打开它。
+- **做法**：只启动准确的 `WinShun.exe` 路径；要回退旧版，先改回原名再启动，不要直接启动 `.bak-…` 文件。
+
+### UI Automation 的命中测试到任务栏窗口就停了，到不了托盘图标
+
+- **现象**：用 UI Automation 按坐标找托盘里的 Win顺 图标，命中的总是任务栏窗口本身，找不到图标按钮。
+- **原因**：UI Automation 的命中测试在任务栏窗口停住，到不了里面的托盘图标。
+- **做法**：用 `Shell_NotifyIconGetRect` 或位置去找托盘按钮，不靠 UIA 的命中测试。
