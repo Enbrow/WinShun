@@ -2011,6 +2011,13 @@
 - **原因**：这台机器上 QTest 的默认输出没有进到管道里（`-functions` 这类直接 stdout 的输出倒是能看到）；具体在 Qt 哪一层没查。
 - **做法**：让 QTest 自己写文件：`tst_core.exe 测试名 -o 输出.txt,txt`，再读那个文件。跑前把 `C:\Qt\<版本>\msvc2022_64\bin` 加进 PATH（ctest 替你加）。
 
+### 搜索后列表下方留着旧行，几行字叠在一起（GitHub #43）
+
+- **现象**：剪贴板页打字搜索，底栏说“3 条”，前 3 行正常，空一段后，列表下方还画着搜索前的几行，有的位置两三行的字叠在一起。改窗口或列表大小后消失。0.8.0（8c937e9 加了移动过渡）起就有。
+- **原因**（Qt 6.12，dev 分支相同）：列表声明了 `move`/`moveDisplaced`，视图就有 transitioner（`enabled: false` 也一样）。每处理一段删除，`applyRemovalChange` 都给它后面的每一行排上“删除让位”过渡，不看有没有这种过渡。筛选一次删掉好几段不相连的行，同一批布局里，第二段及以后删掉的行早被前一段排上了过渡；`releaseItem` 把它们放进复用池时调 `setVisible(false)`，`QQuickItemViewFxItem::setVisible(false)` 见“已排过渡”直接返回，过渡对象随后被删，再没有人把它剔除。池里的行仍挂在 contentItem 下、`visible` 为真、停在旧的 y 上，不计入 count，直到被复用或池被清空；ListView 只在自身尺寸变化或关掉 `reuseItems` 时清池。只删一段连续的行、不复用、不声明过渡都不出现；关掉系统动画没用。
+- **做法**：`ClipRow.qml` 里 `ListView.onPooled: row.visible = false`、`ListView.onReused: row.visible = true`。用 `visible` 不用 `opacity`：池里的行也不再接悬停和点击（index 是 -1，`Clipboard::targets(-1)` 取的是已选条目）。模型的增删信号是对的，不改：按连续段一次删也还是几段；reset 或“删掉尾部再插回”会让留下的行换委托、缩略图重新加载闪一下；关掉 `reuseItems` 滚动时一直建、删委托。以后给带 `reuseItems` 的列表加过渡，委托也要这样处理。
+- **验证**（2026-10-19）：qml.exe 离屏最小复现（60 行 ListModel，每行一条只属于自己的竖条，按 `setRows` 的方式从下往上逐行删）：一步删到 3 行时画出旧第 10–13 行；分三步删时同一位置叠着 2–3 行；过渡 `enabled: false`、按段删除照样出现；不复用、不声明过渡、只删一段都没有；加上 onPooled/onReused 后只画 3 行，再放宽时复用的行照常出现。真机（同日，提权 SendInput 打字）：`tauri` 4 行“4 条”，`qq` 11 条、`tupian` 27 条都没有残留行，清空后列表补满，`zqxwvj` 空列表“0 条”。
+
 ### 倒过来排的列表：短列表一滚就跳到顶上，滚轮停下后又挪一个像素
 
 - **现象**（2026-10-19，GitHub #38 让剪贴板列表开在光标上方时用 `ListView.BottomToTop`，先在 `tst_scrollalignment` 里复现）：条目不满一屏时，滚轮一格就把它们从底部推到顶上（`contentY` −484 → −184），五种缩放都是；条目多时，125%、150%、175% 下滚轮停下后，过一会儿行又挪一个设备像素；`positionViewAtBeginning()` 之后第一行贴着底边，下面 4 px 的留白滚出去了。

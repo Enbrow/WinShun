@@ -38,6 +38,13 @@ Item {
     readonly property int selectedCount: ListView.view ? ListView.view.model.selectedCount : 0
     readonly property bool showActions: current || area.containsMouse || moveAction.held
 
+    // Out of sight while in the view's reuse pool. Qt (6.12) leaves a pooled
+    // row drawn where it was, and taking the mouse, when a search drops rows
+    // in several separate runs and the list declares a transition
+    // (docs/pitfalls.md: 搜索后列表下方留着旧行). Shown again when reused.
+    ListView.onPooled: row.visible = false
+    ListView.onReused: row.visible = true
+
     signal clicked(int index, int modifiers)
     signal pasteRequested(int index) // its paste button, a double click
     signal previewRequested(int index) // that button, with clickToPaste

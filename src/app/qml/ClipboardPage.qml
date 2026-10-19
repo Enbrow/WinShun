@@ -540,6 +540,8 @@ Item {
                     // slides there, and the ones it passes make way.
                     // Not under a drag: the rows are where they go at once,
                     // for the next one to be found under the mouse.
+                    // Any transition declared here, enabled or not, makes Qt
+                    // leave some pooled rows drawn after removals (ClipRow hides them).
                     property bool rowDragging: false
                     move: Transition {
                         enabled: SystemTheme.animations && !list.rowDragging
