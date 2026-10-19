@@ -56,10 +56,11 @@ Folder=                  ; 索引文件放在哪个文件夹，如 D:/WinShun；
 Enabled=true             ; 文件内容搜索的总开关。关掉：搜索框里没有“内容”、“全部”只按名字找、不读文件内容，内容索引清空不建（AI 的 search_content 也报已关闭）
 Documents=true           ; 也搜 Word、Excel、PowerPoint、PDF 和 WPS 文件（由 WinShunExtract.exe 读）
 Extensions=txt, md, ...  ; 内容搜索的纯文本扩展名，逗号分隔
-MaxFileSizeMB=16         ; 文本和日志（以及下面几类以外的扩展名）超过此大小不搜内容；四个上限最小 1 KB（0.0009765625），1 MB 以下按整 KB、以上精确到 0.01 MB
-MaxCodeFileSizeMB=2      ; 源代码（.c .cpp .py .js …）的上限：更大的多是打包压缩后的脚本
-MaxDataFileSizeMB=4      ; 数据和网页（.json .xml .svg .html .sql …）的上限：更大的多是导出的数据
-MaxDocumentFileSizeMB=100 ; 文档（Word、Excel、PowerPoint、PDF、WPS）的上限：大多是图片；每个最多读出 16 MB 文字
+MaxFileSizeMB=2          ; 文本和日志（以及下面几类以外的扩展名）超过此大小不搜内容；四个上限最小 1 KB（0.0009765625），1 MB 以下按整 KB、以上精确到 0.01 MB
+MaxCodeFileSizeMB=1      ; 源代码（.c .cpp .py .js …）的上限：更大的多是打包压缩后的脚本
+MaxDataFileSizeMB=2      ; 数据和网页（.json .xml .svg .html .sql …）的上限：更大的多是导出的数据
+MaxDocumentFileSizeMB=50 ; 文档（Word、Excel、PowerPoint、PDF、WPS）的上限：大多是图片；每个最多读出 16 MB 文字
+DefaultsVersion=4        ; 程序自己记的：四个上限还是旧版默认值（16/2/4/100，更早是 64/8/16/512）的，换成新默认值；改过的不动
 IncludeSystemFolders=false ; “内容”范围也搜系统、程序目录和 node_modules 等（文件多，会慢不少）
 Index=true               ; 建立内容索引（中日韩文字，和三个字符一段的英文、数字、空格和标点；NTFS 磁盘，后台建立，几十万个文件约占一百 MB 磁盘）
 

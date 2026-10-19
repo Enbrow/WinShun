@@ -147,11 +147,13 @@ const QStringList kDefaultNetworkExcludedNames {
 const QStringList kDefaultNetworkExcludedFiles {u"._*"_s, u".DS_Store"_s};
 
 // Bumped when kDefaultContentExtensions grows, so lists that still hold an
-// older default pick up the new one; 3: smaller default size limits.
-constexpr int kContentDefaultsVersion = 3;
-// The size limits before version 3, by ContentSizeLimits::Kind: one still
-// at its old default takes the new one.
-constexpr std::array<double, ContentSizeLimits::kKinds> kOldContentMaxSizeMB {64, 8, 16, 512};
+// older default pick up the new one; 3 and 4: smaller default size limits.
+constexpr int kContentDefaultsVersion = 4;
+// The default size limits before version 3 and in version 3, by
+// ContentSizeLimits::Kind: one still at the default of its file's version
+// takes the new one; one the user set stays.
+constexpr std::array<double, ContentSizeLimits::kKinds> kContentMaxSizeMBBefore3 {64, 8, 16, 512};
+constexpr std::array<double, ContentSizeLimits::kKinds> kContentMaxSizeMB3 {16, 2, 4, 100};
 
 // The size limits of the kinds of files, by ContentSizeLimits::Kind.
 const QString kContentSizeKeys[ContentSizeLimits::kKinds] {u"Content/MaxFileSizeMB"_s, u"Content/MaxCodeFileSizeMB"_s,
@@ -713,8 +715,9 @@ void Settings::load()
     contentExtensions = readOrDefault(s, u"Content/Extensions"_s, d.contentExtensions);
     const int contentDefaults = s.value(u"Content/DefaultsVersion"_s, 1).toInt();
     if (contentDefaults < kContentDefaultsVersion) {
-        // Version 1 defaulted to just "txt". A list the user edited is left alone.
-        if (contentExtensions == QStringList {u"txt"_s}) {
+        // Version 1 defaulted to just "txt". A list the user edited is left
+        // alone, and so is "txt" set by hand since.
+        if (contentDefaults < 2 && contentExtensions == QStringList {u"txt"_s}) {
             contentExtensions = d.contentExtensions;
             s.setValue(u"Content/Extensions"_s, contentExtensions);
         }
@@ -722,13 +725,16 @@ void Settings::load()
     }
     // MaxFileSizeMB once held for every kind of text file: a size set there
     // holds for code and data too, until they have their own.
+    const auto* oldDefaults = contentDefaults < 3 ? &kContentMaxSizeMBBefore3
+        : contentDefaults < 4                     ? &kContentMaxSizeMB3
+                                                  : nullptr;
     for (std::size_t k = 0; k < ContentSizeLimits::kKinds; ++k) {
         double fallback = d.contentMaxSizeMB[k];
         if ((k == ContentSizeLimits::Code || k == ContentSizeLimits::Data) && !s.contains(kContentSizeKeys[k])
             && contentMaxSizeMB[0] != d.contentMaxSizeMB[0])
             fallback = contentMaxSizeMB[0];
         double mb = readOrDefault(s, kContentSizeKeys[k], fallback);
-        if (contentDefaults < 3 && mb == kOldContentMaxSizeMB[k]) { // never changed: the new default
+        if (oldDefaults && mb == (*oldDefaults)[k]) { // never changed: the new default
             mb = d.contentMaxSizeMB[k];
             s.setValue(kContentSizeKeys[k], mb);
         }

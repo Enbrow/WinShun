@@ -181,11 +181,15 @@ struct Settings {
     bool contentSearch = true;
     QStringList contentExtensions;
     // Larger files are not searched, by kind (ContentSizeLimits::Kind): plain
-    // text and logs, source code, data and web pages, documents. In MB, to a
-    // tenth (0.1 to 4096). What people write is small; the large ones are
-    // mostly logs, generated code and exported data (measured 2026-10-11 on
-    // a developer's PC: these leave out under 1% of files, half the bytes).
-    std::array<double, ContentSizeLimits::kKinds> contentMaxSizeMB {16, 2, 4, 100};
+    // text and logs, source code, data and web pages, documents. In MB
+    // (roundedSizeMB). What people write is small; the large ones are mostly
+    // logs, generated code, exported data and documents full of pictures.
+    // Measured 2026-10-19 on a developer's PC (470k files outside system and
+    // program folders), these leave out 0.25% of text and logs (92% of their
+    // bytes), 0.1% of code (19%), 1.5% of data (71%) and 0.25% of documents
+    // (10%). Changing them: bump kContentDefaultsVersion in Settings.cpp and
+    // keep the old ones there.
+    std::array<double, ContentSizeLimits::kKinds> contentMaxSizeMB {2, 1, 2, 50};
     bool contentIndex = true; // which files have which Chinese, Japanese and Korean characters
     bool contentInLowPriority = false; // 内容 also looks in system, program and tool folders
     bool contentDocuments = true; // and in Word, Excel, PowerPoint and PDF files (documentExtensions())

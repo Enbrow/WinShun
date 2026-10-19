@@ -33,6 +33,14 @@ add_test(NAME tst_numberhints COMMAND tst_numberhints)
 set_tests_properties(tst_numberhints PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
 
+qt_add_executable(tst_settings tst_settings.cpp ${PROJECT_SOURCE_DIR}/src/app/Settings.cpp)
+target_include_directories(tst_settings PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_link_libraries(tst_settings PRIVATE wscore Qt6::Gui Qt6::Test)
+set_target_properties(tst_settings PROPERTIES WIN32_EXECUTABLE FALSE)
+add_test(NAME tst_settings COMMAND tst_settings)
+set_tests_properties(tst_settings PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
 # The screen capture's geometry, HDR mapping and state machine (src/capture),
 # without windows.
 qt_add_executable(tst_capture tst_capture.cpp ${PROJECT_SOURCE_DIR}/src/capture/CaptureSession.cpp)
