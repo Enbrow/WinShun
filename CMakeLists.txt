@@ -88,6 +88,19 @@ add_executable(plugin-probe tools/plugin-probe.cpp)
 target_link_libraries(plugin-probe PRIVATE winshun_options advapi32 userenv user32 mpr)
 set_target_properties(plugin-probe PROPERTIES AUTOMOC OFF MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+# Screen capture, stage 0 (docs/design-capture.md, section 6). capture-probe
+# times BitBlt and Windows.Graphics.Capture (C++/WinRT from the Windows SDK,
+# as in platform/TextRecognizer.cpp), reads HDR state, and tries the Start
+# menu and PrtScn cases; no Qt, so the timings are the capture paths' own.
+# capture-probe-qt measures the overlay and pin windows with WinShun's own
+# Qt Quick setup. Run it with Qt's bin folder on PATH.
+add_executable(capture-probe tools/capture-probe.cpp)
+target_link_libraries(capture-probe PRIVATE winshun_options windowsapp d3d11 dxgi dwmapi windowscodecs user32 gdi32 advapi32 ole32)
+set_target_properties(capture-probe PROPERTIES AUTOMOC OFF MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+qt_add_executable(capture-probe-qt tools/capture-probe-qt.cpp)
+target_link_libraries(capture-probe-qt PRIVATE winshun_options Qt6::Gui Qt6::Qml Qt6::Quick dwmapi dxgi psapi user32 gdi32)
+set_target_properties(capture-probe-qt PROPERTIES WIN32_EXECUTABLE OFF)
+
 if(WINSHUN_ASAN AND MSVC)
     # Fuzzing the parsers (tools/wsfuzz.cpp) with libFuzzer. They are built
     # into it again, instrumented for coverage, which steers the fuzzing.

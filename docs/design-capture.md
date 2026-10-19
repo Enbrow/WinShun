@@ -1,0 +1,174 @@
+# Win顺 截图：设计草案（2026-10-17）
+
+## 0. 需求从哪来
+
+论坛用户：上班要同时开 Everything + 快速启动 + 剪贴板 + 截图四个软件。他现在用 mosheng1 的两款软件：QuickClipboard（Tauri，已停更）和它的重写版 QcClip（Rust + GPUI，纯剪贴板）。“剪贴板和截图合并成一个”实际说的是同一作者的 **CitePix**：闭源，有截图、录屏、贴图、标注、OCR、二维码、长截图，截图历史能反复编辑，还有“万能贴图”（选中的文字或文件也能贴到桌面）。
+
+Win顺 已经覆盖前三个，补上截图，他就只需要开一个软件。但如果只做成 CitePix 的复制品，就比不过专门的截图软件（PixPin、Snipaste、CitePix）。值得做的是**只有 Win顺 能做到的那部分**。
+
+### Win顺 独有的角度（做这件事的理由）
+
+1. **截图自动进剪贴板历史，并且已经做过 OCR**：剪贴板里的图片条目本来就跑 PP-OCRv6，所以截图上的文字能直接在 Win+V 里搜到，不用另做。
+2. **在搜索框里按文字找截图**：输入关键字 `jt 发票`，列出图上有“发票”两个字的截图，Enter 复制，Ctrl+Enter 贴到屏幕，Alt+P 预览。别的截图软件的历史只能按时间翻。
+3. **从搜索结果直接贴图**：文件结果里的图片、剪贴板里的图片或文字，右键选“贴到屏幕”，就是 CitePix 的“万能贴图”，入口是 Win顺 现成的。
+4. **识别出的文字直接拿去搜**：框选一块区域做 OCR，文字可以“复制”，也可以“用它搜文件 / 搜内容 / 翻译”（翻译插件已有）。
+5. **AI 可以用（MCP，需要单独开关）**：`screenshot_history`（按 OCR 文字查截图）先做；`take_screenshot` 涉及隐私，默认关，每次调用要用户点同意。
+
+## 1. 功能分档
+
+| 档 | 功能 | 理由 |
+|---|---|---|
+| **MVP** | 热键 → 冻结所有显示器 → 框选区域、点选窗口或子控件、整屏 | 核心路径，速度决定口碑 |
+| MVP | 放大镜 + 像素坐标 + 取色（C 复制颜色值），方向键微调选区，显示尺寸 | 便宜，用户爱用 |
+| MVP | Enter / 双击：复制（进剪贴板历史）；Ctrl+S：保存（记住目录，自动命名）；贴到屏幕；OCR；Esc 取消 | 四个出口覆盖九成用法 |
+| MVP | 贴图窗口：拖动、滚轮缩放、透明度、右键菜单（复制 / 另存 / 关闭）、Esc 直接关（不弹确认，见 CitePix #70） | 截图工具的第二大用途 |
+| MVP | OCR 结果面板：可框选、可复制、可“用它搜” | 复用 PaddleOcr |
+| 第二轮 | 标注：矩形、椭圆、箭头、画笔、荧光笔、文字（要能用输入法）、序号、马赛克 / 模糊；撤销；对象可重新选中编辑 | 工作量大头，MVP 先不卡在这 |
+| 第二轮 | 截图历史 + 搜索框 `jt` 关键字 + 剪贴板图片“贴到屏幕” | Win顺 独有的部分，MVP 稳了马上做 |
+| 第二轮 | 延时截图、截图带鼠标指针（CitePix #69）、按上次的尺寸连续截（#45）、二维码识别 | 小功能 |
+| 以后 | 长截图（滚动拼接） | CitePix 到现在还有 #52/#53/#54 三个未关的拼接 bug，属于难活，等 MVP 用户多了再做 |
+| 以后 | 历史截图重新打开继续编辑（保存为标注对象 + 原图） | 依赖标注的对象模型先定下来 |
+| 不做 | 录屏 / GIF | 要做编码器、音频、硬件编码回退（CitePix v0.5.1 的崩溃全在这），ScreenToGif / OBS 已经很好 |
+| 不做 | 上传图床、云同步 | 和本地优先的定位不符 |
+
+## 2. 形态：插件，还是内置？
+
+**先更正一个过时的前提**：docs/plugins.md 第 3 行还写着“Win顺 自己是管理员，插件不是”。自 #21（0.8.0）起界面进程已经**不提权**，读 MFT 的是 LocalSystem 服务。所以“为了降权，截图放进独立进程”的理由已经不存在，剩下要比较的只有崩溃隔离、内存和速度。
+
+现在的插件系统跑不起截图（已核实）：
+- 宿主不替插件注册全局热键。manifest 里 `settings[].type = "hotkey"` 只有录制控件和存值（PluginCard.qml:718），没有注册，也不会转发。
+- 插件的 exe 必须放在插件自己的文件夹里（Manifest.cpp:164 `relativeInside`），而 Qt DLL 在安装目录根上。系统默认不会去那里找，所以 Qt 写的插件 exe 要么自带一份 Qt（安装包增加约 40 MB），要么延迟加载 Qt，并在 main 之前 `AddDllDirectory(安装目录)`。
+- 插件是“关键字命令 + 结果”的形态，没有“热键触发、自己弹全屏窗口”这一类。`ui` 权限打开后作业不再限制桌面和 USER 句柄（Sandbox.cpp:231），开窗口本身没问题。
+
+三种做法：
+
+| | A. 内置模块，在插件页以“官方扩展”卡片出现 | B. 随包插件 exe（Qt），宿主补能力 | C. 随包插件 exe（原生 Win32 + Direct2D，无 Qt） |
+|---|---|---|---|
+| 按热键到冻结画面出现 | 最快：Qt Quick 已经热着，窗口可以预建后隐藏 | 常驻时也快；插件被空闲回收后冷启动一个 Qt Quick 进程要几百毫秒（需实测） | 快，进程小 |
+| 内存 | 冻结图用完即放，配合 IdleTrim 回落 | 多一份 Qt 常驻（估计 30–40 MB，需实测） | 最小 |
+| 崩溃隔离 | 截图崩了会把搜索一起带走 | 隔离 | 隔离 |
+| 和剪贴板历史、OCR、主题、设置、搜索框的集成 | 直接调用 | 都要走协议：新增热键转发、剪贴板写入、OCR 工具、主题同步 | 同 B，并且界面要从头画 |
+| 文字标注的输入法、外观一致 | 免费 | 免费（Qt） | 要自己接 IMM/TSF、自己画工具栏，成本最高 |
+| 开发成本 | 最低 | 中（协议 + DLL 加载 + 两个进程联调） | 最高 |
+
+**推荐 A**：代码边界照插件来划（独立静态库 `src/capture/`，只通过一个窄接口和 App 交互），设置 → 插件里有一张“截图”卡片，默认关；关着的时候不建任何窗口、不注册热键、不加载 WGC，等于零开销。用户眼里它就是一个“插件”。
+
+B 输在两点：一是**速度**（热键要经过宿主转发，插件可能被空闲回收后冷启动）；二是**每样集成都要先给协议加能力**。崩溃隔离是 B 唯一的实打实优势，可以用两条办法补上：截图代码先做稳定性测试再默认可开；冻结图和贴图的大块内存在用完后立即释放。
+
+如果用户坚持要真插件：第 3 节列出宿主要补的能力。这些对第三方插件也有用（插件热键尤其是），可以以后单独做。
+
+## 3. 若走插件路线，宿主要新增的能力（备用）
+
+- manifest `hotkeys: [{"id": "capture", "title": …, "default": "F1"}]`：宿主用 MessageWindow 的 RegisterHotKey 注册，冲突时复用 KeyRouter / NumberKeys 现成的探测，在卡片上显示“被占用”；按下时发通知 `{"method": "hotkey", "params": {"id": "capture", "time": …, "foreground": hwnd}}`。热键处理属于宿主，插件拿不到键盘钩子。
+- `winshun/clipboard_add {image: 共享内存句柄或临时文件, source: "截图"}`：权限 `clipboard:history`，宿主把图片写进剪贴板并记入历史（不经过系统剪贴板的再读取）。
+- `winshun/tool ocr_image {path}`：权限 `winshun:ocr`，宿主用 PaddleOcr 识别，插件不用自带 ONNX（onnxruntime.dll 加上模型有几十 MB）。
+- `runtime.program` 允许 `"winshun:capture"` 这类“随包程序”名，exe 放在安装目录根上，和 Qt DLL 在一起，只给签名过的随包插件用。
+- 安全影响：热键只是通知，不给钩子；`clipboard:history` 和 `winshun:ocr` 都是宿主做的事，插件只交数据，沙箱不放松。
+
+## 4. 技术方案（A 路线）
+
+### 4.1 截屏
+
+- **用 Windows.Graphics.Capture（WGC）**，按显示器抓。CitePix 的真实用户报告：DXGI 模式截黑、颜色异常（#66），开 HDR 过曝（#71），作者回复“换成 WGC 试试”，用户确认换了就好。BitBlt 拿不到 HDR 的正确颜色。
+- HDR 显示器：抓 `R16G16B16A16Float`（scRGB 线性），按该显示器的 SDR 白电平（`DISPLAYCONFIG_SDR_WHITE_LEVEL`）缩放，超出部分做色调映射，再转 sRGB 8 位。SDR 显示器抓 BGRA8，直接用。
+- 黄色边框：Win11 上 `GraphicsCaptureSession.IsBorderRequired = false`，前提是先调用 `GraphicsCaptureAccess.RequestAccessAsync(Borderless)`。未打包的桌面程序上是否直接放行，**待实测**。
+- 首帧延迟：WGC 建会话、等第一帧可能要几十毫秒。待实测后决定是否在热键按下前预热（例如鼠标挪向角落时不做，只在热键时做），或者 SDR 屏改用 BitBlt 这条快路。**阶段 0 先用探针量这两条路的数字。**
+- 冻结时一起拍下窗口快照：`EnumWindows` 按 Z 序，跳过被 cloak 的窗口（`DWMWA_CLOAKED`，虚拟桌面和 UWP 后台窗口），边界用 `DWMWA_EXTENDED_FRAME_BOUNDS`（物理像素，不含阴影），子控件用 `ChildWindowFromPointEx`。UI Automation 放到以后：慢，Chromium 要开辅助功能才有树，还会碰到提权窗口。
+
+### 4.2 遮罩窗口
+
+- **每个显示器一个窗口**（混合 DPI 下最稳；一个窗口跨屏会被 Qt 按一个 DPR 缩放），无边框、置顶、工具窗口、不进任务栏、无动画立即显示。窗口在第一次打开截图功能时建好，之后一直隐藏备用；每次截图只换纹理。
+- 截图在窗口里必须 1:1 物理像素显示：图片项的逻辑尺寸 = 物理尺寸 / DPR，`smooth: false`。125%、150% 时注意 1 px 取整（见记忆“QML sourceSize 单位”“设计考虑 DPI”）。验收标准：**截一张冻结画面，和原屏逐像素比对完全一致**。
+- 所有选区坐标一律用物理像素，只有工具栏、放大镜这类界面元素用逻辑像素。
+- 开始菜单、搜索、通知中心打开时（CitePix #68）：普通程序（非 UIAccess）的窗口盖不住它们。做法是**先拍图，再关菜单，再显示遮罩**：冻结画面里保留着开始菜单，用户照样能截到它，这正是想截开始菜单的人要的。关菜单的方式（发 Esc，或者遮罩激活时菜单自己收起）待实测。
+- 安全桌面（UAC、Ctrl+Alt+Del）截不了，这是系统限制，不做。
+
+### 4.3 贴图窗口
+
+- 每张贴图一个 QQuickWindow 是最简单的写法，但每个窗口有自己的交换链，十几张时内存可能可观。**阶段 0 量一张贴图的增量**；如果太大，改成分层窗口（`UpdateLayeredWindow`，GDI）显示静态图，只在缩放、编辑时切到 Qt Quick。
+- 关闭时立即释放纹理和 QImage，然后触发一次 IdleTrim（CitePix #61：关掉贴图后内存不回落）。
+- 缩放到非整数倍时用平滑插值；回到 100% 时对齐到整数物理像素并关掉 smooth（见记忆“动画图片清晰度”）。
+
+### 4.4 OCR
+
+- `PaddleOcr::load` 懒加载，放在工作线程里读；结果按行给出带框坐标，面板里可以直接在图上框选文字。
+- 剪贴板历史里的图片已经会做 OCR；截图复制时如果顺手把 OCR 结果一起写入，可以省一次识别。
+
+### 4.5 热键与 PrintScreen
+
+- 默认热键要避开 PixPin、Snipaste 常用的 F1（本机就装着 PixPin），用 KeyRouter 现成的探测提示冲突。
+- 接管 PrtScn：Win11 默认让 PrtScn 打开截图工具（`HKCU\Control Panel\Keyboard\PrintScreenKeyForSnippingEnabled`）。接管方式和 Win+V 一样，作为一个开关：开时把它设成 0 并注册 PrtScn，关时恢复原值。是否需要重启 Explorer **待实测**。
+
+## 5. 集成点（具体文件）
+
+| 模块 | 改什么 |
+|---|---|
+| `src/capture/`（新） | Grabber（WGC/BitBlt、HDR 映射）、WindowSnapshot、CaptureSession（选区状态机）、PinManager |
+| `src/app/qml/` | CaptureOverlay.qml（每屏一个）、CaptureToolbar.qml、Magnifier.qml、PinWindow.qml、OcrPanel.qml |
+| `src/app/platform/MessageWindow.*` | 注册截图热键 |
+| `src/app/Clipboard.*` | 新增 `copyImage(QImage, remember, ocrLines)`，和现有 `copyText(text, remember)` 对称；要确认自己写入剪贴板时，历史监听不会把它当成“自己的写入”跳过 |
+| `src/app/platform/PaddleOcr.*` | 不改，复用 `read()` |
+| `src/app/Launcher.*` / ResultModel | `jt` 关键字的截图历史行；文件和剪贴板图片行的“贴到屏幕”菜单项 |
+| 设置页 | 插件页的“截图”卡片：开关、热键、PrtScn 接管、保存目录、命名规则、复制后是否关闭 |
+| `src/mcp/` | `screenshot_history`；`take_screenshot`（默认关，逐次确认） |
+| `docs/pitfalls.md` | 每阶段把踩到的坑补进去 |
+
+## 6. 实施顺序
+
+**阶段 1–3 已完成**（2026-10-19；做法和实测见 `docs/architecture.md` 的“截图”和“AI 助手（MCP）”）。阶段 3 做了截图历史（剪贴板历史里带 `screenshot` 标记的图片）、`jt`、两处“贴到屏幕”、MCP 的 `screenshot_history` 和 `take_screenshot`；OCR 文字拿去搜在阶段 2 的识别文字窗口里已经有了（“用它搜索”）。没做的：阶段 4 标注、长截图、历史截图再编辑。
+
+1. **阶段 0：探针（不进主程序）**。分别量：BitBlt 和 WGC 在 1 屏 / 2 屏（100% + 150%）上从热键到拿到像素的耗时；WGC 无边框在未打包程序上是否放行；HDR 下 scRGB 映射后和 SDR 下截图的颜色差；预建遮罩窗口从隐藏到显示的耗时；一张贴图窗口的内存增量；开始菜单打开时先拍后关是否可行。产出一张数字表，决定 4.1 和 4.3 的分支。
+2. **阶段 1：MVP 截图**。冻结、选区、窗口识别、放大镜、复制 / 保存 / 取消。验收：逐像素比对；100%、150%、混合 DPI 双屏用真实输入测试；HDR 显示器测试（没有 HDR 屏就请论坛用户帮测）。
+3. **阶段 2：贴图 + OCR**。验收：开关 20 张贴图后内存回落。
+4. **阶段 3：Win顺 独有部分**。截图历史、`jt` 搜索、“贴到屏幕”菜单、OCR 文字拿去搜、MCP。
+5. **阶段 4：标注**。对象模型（可重新编辑，每个对象可撤销），文字标注要能用输入法。
+6. 以后：长截图、历史截图再编辑。
+
+### 阶段 0 实测结果（2026-10-17，`build/capture-probe/results.txt`）
+
+单显示器 2560×1600、150%、SDR（显示器支持 HDR 但没开），Windows 10.0.26200，Qt 6.12.0 d3d11。多显示器和 HDR 的情形都因为没有那种硬件而跳过。
+
+| 项目 | 结果 |
+|---|---|
+| BitBlt 整屏 | 冷 32.7 ms，热中位数 30.6 ms |
+| WGC 设备创建 | 进程里第一次 123.9 ms，第二次 30.3 ms |
+| WGC 每次新建 capture item | 37.7 ms（item 22.2 + 第一帧 10.6 + 读回 5.0） |
+| WGC item 留着复用 | **11.4 ms**（第一帧 6.3 + 读回 5.1） → 开着截图时设备和 item 一直留着 |
+| WGC 无边框（未打包、普通权限） | `RequestAccessAsync(Borderless)` 返回 Allowed；`IsBorderRequired(false)` 后屏幕上 0 个黄边像素 |
+| BitBlt 对 WGC | 4096000 个像素里 243 个不同（最大差 16，都在任务栏时钟那一块，屏幕本身在变） |
+| HDR 映射自检 | SDR 图抬到 240 nit 的 scRGB 再映射回来 0 像素差；带 4 倍高光时高光单调到 255，SDR 部分最大变化 12；2560×1600 用时 150 ms |
+| 开始菜单在前时按热键 | 热键 3–4 ms 就到；此刻截的图里有开始菜单（44% 的屏幕）；发 Esc 后约 200 ms 离开前台；自己置顶窗口 + `SetForegroundWindow` 关不掉它 → 先截图、再 Esc、等它走了再显示遮罩 |
+| PrtScn | 值不存在时注册成功但收不到 WM_HOTKEY（弹出 OpenWith）；设成 0 不广播：仍收不到，而且整屏被复制进剪贴板；设成 0 并广播 `WM_SETTINGCHANGE("Control Panel\Keyboard")`：1 ms 收到 WM_HOTKEY；写回原值后恢复原样 |
+| 遮罩冷启动 | `show()` 到第一次 `frameSwapped` 135.1 ms → 开着时预建并隐形显示一次 |
+| 遮罩热启动 | 同一张图 3.0 ms（合成 8.2 ms）；每次换新图 6.1 ms（合成 10.8 ms） |
+| 遮罩 1:1 | Qt 自己定位时客户区 2561×1601；图按“物理 ÷ DPR”放时 8956 个像素不同；按 Qt 真实缓冲区缩放放时 **0** 个像素不同（Qt 定位或原生 `SetWindowPos` 都一样） |
+| 带 DPR 的 QImage 用 implicit 大小 | 239999 / 240000 像素不对：implicitWidth 是物理像素数，要显式给逻辑大小 |
+| 贴图内存（d3d11） | 每张约 +9 MB 私有工作集、+37 MB commit、+13 MB 显存；20 张关掉后显存归零，但 commit 仍多 163 MB，第二轮不再涨（+176 MB）；software 渲染每张 +5.5 MB，关掉后只多 11 MB |
+
+结论都已落在阶段 1 的实现里（`docs/architecture.md` 的“截图”）。
+
+## 7. 已定的决定（2026-10-17，用户：“按你的推荐做”）
+
+1. **形态**：内置模块（`src/capture/`），在插件页显示成“截图”卡片，默认关。
+2. **默认热键**：不设默认；打开开关时让用户自己录一个，并提示和 PixPin、Snipaste 的冲突。
+3. **PrtScn 接管**：做成开关，默认关。
+4. **保存位置**：系统的“屏幕截图”文件夹（`FOLDERID_Screenshots`）。
+5. **截图历史**：放进剪贴板历史，共用 clipboard.db 和 OCR；Win+V 和 `jt` 两个入口。
+6. **AI**：先做 `screenshot_history`；`take_screenshot` 默认关，每次弹确认。
+
+## 7.1 外部调研（Grok，2026-10-17；已抽查的标“已核实”）
+
+- **HDR**：ShareX 新增了 `ShareX.ScreenCaptureLib/HDRScreenCapture.cs`（已核实存在；GPL，只学思路）。社区分支 Psyda/ShareX-scRGB-Proper-HDR-Fix（GPL，已核实）的做法：抓 RGBA16F，SDR 范围（≤1.0）原样保留，只对高光按 BT.2390 做柔和压缩，再转色域。GEEKiDoS/bitblt-hdr（**MIT**，已核实）修的是 BitBlt 截 HDR 过曝，色调映射可以借，要在注释里署名。
+- **截图后端**：一份 Qiita 测试（未核实）报告 4K 单帧耗时：GDI 约 54 ms，DXGI 约 9 ms，WGC 自由线程约 3 ms。黄边的说法和本文 4.1 一致，阶段 0 实测。
+- **遮罩**：每个显示器一个窗口是共识；非 UIAccess 程序盖不住开始菜单（和 4.2 的“先拍后关”一致）。
+- **长截图**：参考 ShareX 的 ScrollingCapture（GPL）和 Snow Shot（mg-chao/snow-apps，C++，已核实存在，许可未声明）的 ORB 特征拼接。
+- **标注**：kImageAnnotator（ksnip 的标注库，**LGPL-3.0**，已核实）是可重新编辑的对象模型。动态链接在许可上可行，但它基于 Qt Widgets，我们是 Qt Quick，所以只参考它的对象模型。
+- **用户常夸**：贴图秒出、放大镜取色、序号 / 马赛克 / 荧光笔、低内存、热键到遮罩快、本地 OCR、多选区。**常骂**：混合 DPI 选区漂移、HDR 发白或过曝、WGC 黄边、部分显卡截黑、首次贴图卡顿、贴图多了内存涨、标注被压平不能改、PrtScn 冲突、提权窗口和 Electron 识别不了控件。
+- 竞品列表、闭源软件的内部做法：Grok 自己标了“未能核实”，只当线索。
+
+## 8. 参考代码的许可
+
+- QuickClipboard、QcClip：Apache-2.0，可以参考或改用，要保留署名和 NOTICE。贴图代码在 QuickClipboard 的 `src/windows/pinImage/`，前端是 JavaScript，能借的主要是交互细节。
+- Flameshot、ksnip：GPL，只能学思路，不能把代码搬进 MIT 仓库。
+- CitePix：闭源，只参考它的 issue 和发布说明（那是真实用户的需求和坑）。
+- 其他项目等 Grok 调研回来再逐个标注许可。
