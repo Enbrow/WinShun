@@ -7,6 +7,8 @@ Item {
     id: toggle
 
     property bool checked
+    property bool word: true // false: just the track (a label of its own beside it)
+    readonly property bool hovered: area.containsMouse
     signal toggled(bool on)
 
     implicitWidth: row.implicitWidth
@@ -21,6 +23,7 @@ Item {
         spacing: 10
 
         Text { // as wide as the longer word, so the switch stays put ("On" / "Off")
+            visible: toggle.word // hidden: no width, no spacing in the Row
             anchors.verticalCenter: parent.verticalCenter
             width: Math.ceil(Math.max(onWord.advanceWidth, offWord.advanceWidth))
             text: toggle.checked ? onWord.text : offWord.text

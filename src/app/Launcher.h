@@ -76,6 +76,8 @@ class Launcher : public QObject {
     Q_PROPERTY(QString contentFilesLabel READ contentFilesLabel NOTIFY scopeChanged FINAL)
     // File content search is on (Settings::contentSearch): the 内容 tab is there.
     Q_PROPERTY(bool contentEnabled READ contentEnabled NOTIFY scopeChanged FINAL)
+    // The content index is built (Settings::contentIndex): the 内容 strip's switch.
+    Q_PROPERTY(bool contentIndex READ contentIndex NOTIFY contentIndexChanged FINAL)
     Q_PROPERTY(bool searchesContent READ searchesContent NOTIFY statusChanged FINAL)
     // History is kept and has something in it (the footer's clear button).
     Q_PROPERTY(bool canClearHistory READ canClearHistory NOTIFY historyChanged FINAL)
@@ -321,6 +323,10 @@ public:
     // shortcut's keyword (see contentNeedle()).
     bool searchesContent() const { return m_scope == Content || m_withContent; }
     bool contentEnabled() const { return m_contentEnabled; }
+    bool contentIndex() const { return m_contentIndex; }
+    void setContentIndex(bool on);
+    // The strip's switch: contentIndexRequested, the app changes the setting.
+    Q_INVOKABLE void requestContentIndex(bool on) { emit contentIndexRequested(on); }
 
     void setWindow(QWindow* window) { m_window = window; }
     // `enabled` false: no 内容, and 全部 finds names only; a launcher in 内容 goes to 全部.
@@ -514,6 +520,8 @@ signals:
     // `system`: Shift+Menu or Ctrl+Shift+F10, the shell's menu (showSystemMenu).
     void contextMenuKeyPressed(bool system);
     void historyChanged();
+    void contentIndexChanged();
+    void contentIndexRequested(bool on);
     void frequentAppsChanged();
     void webSettingsRequested(); // the settings window, on its 网页搜索 page
     void fileTypeSettingsRequested(); // ... on its 结果列表 page, at the file types
@@ -788,6 +796,7 @@ private:
     QPointer<Favorites> m_favorites;
     bool m_contentDocuments = true; // and in Word, Excel, PowerPoint and PDF files
     bool m_contentEnabled = true;
+    bool m_contentIndex = false;
 
     QString m_status;
     QString m_flash;

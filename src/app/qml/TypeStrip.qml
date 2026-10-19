@@ -9,7 +9,8 @@ import WinShun
 // lists its extensions. In 内容 the folders it looks in instead
 // (Launcher.folderChips: 不限 and the favorite folders, or those a folder
 // named among the words stands for), + for the favorites, and after them a
-// few words on naming one (Launcher.folderHint). It opens and closes by its height (`shown`), the
+// few words on naming one (Launcher.folderHint); at the right end the
+// content index's switch (内容索引). It opens and closes by its height (`shown`), the
 // chips coming down from under the search box; the rows, footer and window
 // edge follow its current height (see Main.qml). Too
 // many for the width, they scroll, the current one kept in view and + after them. The rest
@@ -94,6 +95,7 @@ Item {
         frame.addDragArea(strip)
         frame.addControl(view)
         frame.addControl(edit)
+        frame.addControl(indexSwitch) // in 内容 only: WindowFrame skips hidden items
     }
 
     // Keeps the current chip in view (Tab past the right edge).
@@ -151,7 +153,7 @@ Item {
         x: 12
         // Comes down from under the search box as the strip opens.
         y: strip.height - strip.fullHeight
-        width: Math.min(contentWidth, strip.width - 24 - 4 - edit.width - hint.room) // + stays in view
+        width: Math.min(contentWidth, strip.width - 24 - 4 - edit.width - hint.room - indexSwitch.room) // + stays in view
         height: strip.fullHeight - 6
         contentWidth: row.width
         contentHeight: height
@@ -280,7 +282,8 @@ Item {
         // Its room, whole pixels; none when it would push the chips into scrolling.
         readonly property int room: shown ? Math.ceil(implicitWidth) + 8 : 0
         readonly property bool shown: strip.folders && text.length > 0
-                                      && view.contentWidth + Math.ceil(implicitWidth) + 8 <= strip.width - 24 - 4 - edit.width
+                                      && view.contentWidth + Math.ceil(implicitWidth) + 8
+                                             <= strip.width - 24 - 4 - edit.width - indexSwitch.room
         x: edit.x + edit.width + 8
         y: strip.onPixel(edit.y + (edit.height - height) / 2)
         visible: shown
@@ -290,8 +293,62 @@ Item {
         font.pixelSize: Theme.uiCaption
     }
 
+    Item { // 内容: the content index on or off (Settings::contentIndex), at the right end; label and track one target
+        id: indexSwitch
+
+        readonly property bool indexOn: strip.launcher.contentIndex
+        readonly property string tip: indexOn ? qsTr("在后台记下文件里的文字，内容搜索快得多。关掉会清空内容索引")
+                                         : qsTr("打开后在后台记下文件里的文字，内容搜索快得多。只用于 NTFS 磁盘，约占一两百 MB")
+        readonly property bool tipWanted: indexHover.hovered || indexToggle.hovered
+        // Its room with the gap before it, whole pixels: the chips scroll and
+        // the hint goes before they reach it.
+        readonly property int room: visible ? width + 12 : 0
+        function toggle() { strip.launcher.requestContentIndex(!indexOn) }
+
+        x: strip.width - 12 - width
+        y: edit.y
+        width: indexToggle.x + indexToggle.width
+        height: Theme.chipHeight
+        visible: strip.folders
+        opacity: view.opacity
+        Accessible.role: Accessible.CheckBox
+        Accessible.name: qsTr("内容索引")
+        Accessible.description: tip
+        Accessible.checkable: true
+        Accessible.checked: indexOn
+        Accessible.onPressAction: toggle()
+        Accessible.onToggleAction: toggle()
+
+        // A handler: it sees the pointer over the track too, whose own area takes it.
+        HoverHandler { id: indexHover }
+
+        MouseArea { // the label and the gap; the track has its own
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: indexSwitch.toggle()
+        }
+
+        Text {
+            id: indexLabel
+            y: strip.onPixel((indexSwitch.height - height) / 2)
+            text: qsTr("内容索引")
+            color: indexSwitch.tipWanted ? Theme.text : Theme.subtext
+            font.pixelSize: Theme.uiCaption
+        }
+
+        ToggleSwitch {
+            id: indexToggle
+            x: Math.ceil(indexLabel.implicitWidth) + 8
+            height: indexSwitch.height // the track (20) centred on the chips' row
+            word: false // the label says what it is
+            activeFocusOnTab: false // Tab in the search box changes the scope
+            checked: indexSwitch.indexOn
+            onToggled: (on) => strip.launcher.requestContentIndex(on)
+        }
+    }
+
     HoverTip {
-        target: !strip.shown ? null : edit.tipWanted ? edit : strip.hoveredChip
-        text: edit.tipWanted ? edit.tip : strip.hoveredTip
+        target: !strip.shown ? null : indexSwitch.tipWanted ? indexSwitch : edit.tipWanted ? edit : strip.hoveredChip
+        text: indexSwitch.tipWanted ? indexSwitch.tip : edit.tipWanted ? edit.tip : strip.hoveredTip
     }
 }

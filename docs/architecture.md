@@ -62,7 +62,7 @@ MaxDataFileSizeMB=2      ; 数据和网页（.json .xml .svg .html .sql …）�
 MaxDocumentFileSizeMB=50 ; 文档（Word、Excel、PowerPoint、PDF、WPS）的上限：大多是图片；每个最多读出 16 MB 文字
 DefaultsVersion=4        ; 程序自己记的：四个上限还是旧版默认值（16/2/4/100，更早是 64/8/16/512）的，换成新默认值；改过的不动
 IncludeSystemFolders=false ; “内容”范围也搜系统、程序目录和 node_modules 等（文件多，会慢不少）
-Index=true               ; 建立内容索引（中日韩文字，和三个字符一段的英文、数字、空格和标点；NTFS 磁盘，后台建立，几十万个文件约占一百 MB 磁盘）
+Index=false              ; 建立内容索引（中日韩文字，和三个字符一段的英文、数字、空格和标点；NTFS 磁盘，后台建立，几十万个文件约占一百 MB 磁盘）。新装默认关，关着时“内容”直接读文件，慢一些；“内容”范围搜索框下那一行右端有开关。旧版的设置文件里没有这一项的，按原来的默认当作开着并写进去
 
 [Clipboard]
 Enabled=true             ; 记录剪贴板历史；第一次运行时和 Windows 自带的剪贴板历史开关一致

@@ -190,7 +190,10 @@ struct Settings {
     // (10%). Changing them: bump kContentDefaultsVersion in Settings.cpp and
     // keep the old ones there.
     std::array<double, ContentSizeLimits::kKinds> contentMaxSizeMB {2, 1, 2, 50};
-    bool contentIndex = true; // which files have which Chinese, Japanese and Korean characters
+    // Which files have which Chinese, Japanese and Korean characters. Off
+    // for new installs (内容 reads the files then, slower); the 内容 strip
+    // has a switch for it. An ini from before without the key keeps it on.
+    bool contentIndex = false;
     bool contentInLowPriority = false; // 内容 also looks in system, program and tool folders
     bool contentDocuments = true; // and in Word, Excel, PowerPoint and PDF files (documentExtensions())
 

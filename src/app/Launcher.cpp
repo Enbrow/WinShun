@@ -575,6 +575,12 @@ QString Launcher::placeholder() const
     }
 }
 
+void Launcher::setContentIndex(bool on)
+{
+    if (std::exchange(m_contentIndex, on) != on)
+        emit contentIndexChanged();
+}
+
 void Launcher::setContentOptions(
     bool enabled, QStringList extensions, const ContentSizeLimits& sizeLimits, bool inLowPriority, bool documents)
 {

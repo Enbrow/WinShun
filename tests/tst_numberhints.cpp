@@ -11,6 +11,9 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <functional>
+#include <tuple>
+
 using namespace Qt::StringLiterals;
 
 class NumberHintsTest : public QObject {
@@ -43,6 +46,37 @@ private slots:
         ini.sync();
         settings.load();
         QCOMPARE(settings.numberHints, u"always"_s);
+    }
+
+    // Off for a new install; an older ini without the key keeps it on (off
+    // would clear its index). Written either way, so it holds next time.
+    void contentIndexDefault()
+    {
+        const auto loaded = [](const std::function<void(QSettings&)>& write) {
+            QTemporaryDir profile;
+            ws::Settings::useProfile(profile.path());
+            {
+                QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+                write(ini);
+            }
+            ws::Settings settings;
+            settings.load();
+            QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+            const QString stored
+                = ini.contains(u"Content/Index"_s) ? ini.value(u"Content/Index"_s).toString() : u"missing"_s;
+            ws::Settings again;
+            again.load();
+            return std::tuple {settings.contentIndex, stored, again.contentIndex};
+        };
+        QCOMPARE(ws::Settings::defaults().contentIndex, false);
+        const auto fresh = loaded([](QSettings&) {});
+        QCOMPARE(fresh, std::tuple(false, u"false"_s, false));
+        const auto older = loaded([](QSettings& ini) { ini.setValue(u"Content/DefaultsVersion"_s, 3); });
+        QCOMPARE(older, std::tuple(true, u"true"_s, true));
+        const auto off = loaded([](QSettings& ini) { ini.setValue(u"Content/Index"_s, false); });
+        QCOMPARE(off, std::tuple(false, u"false"_s, false));
+        const auto on = loaded([](QSettings& ini) { ini.setValue(u"Content/Index"_s, true); });
+        QCOMPARE(on, std::tuple(true, u"true"_s, true));
     }
 
     // The clipboard window's layout by the caret (GitHub #38): at first

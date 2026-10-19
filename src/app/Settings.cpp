@@ -604,6 +604,8 @@ void Settings::load()
 {
     QSettings s(QSettings::IniFormat, QSettings::UserScope, u"WinShun"_s, u"WinShun"_s);
     const Settings d = defaults();
+    // Before anything below writes to it: nothing in it, a new install.
+    const bool firstRun = s.allKeys().isEmpty();
 
     doubleCtrl = readOrDefault(s, u"Launcher/DoubleCtrl"_s, d.doubleCtrl);
     doubleCtrlKey = readOrDefault(s, u"Launcher/DoubleCtrlKey"_s, d.doubleCtrlKey).trimmed().toLower();
@@ -740,7 +742,15 @@ void Settings::load()
         }
         contentMaxSizeMB[k] = roundedSizeMB(mb);
     }
-    contentIndex = readOrDefault(s, u"Content/Index"_s, d.contentIndex);
+    // The index used to be on by default, and save() runs only on a change:
+    // an older ini without the key had it on, and keeps it (off would clear
+    // it). Written either way, so a new install stays new on its next start.
+    if (!s.contains(u"Content/Index"_s)) {
+        contentIndex = firstRun ? d.contentIndex : true;
+        s.setValue(u"Content/Index"_s, contentIndex);
+    } else {
+        contentIndex = s.value(u"Content/Index"_s).toBool();
+    }
     contentInLowPriority = readOrDefault(s, u"Content/IncludeSystemFolders"_s, d.contentInLowPriority);
     contentDocuments = readOrDefault(s, u"Content/Documents"_s, d.contentDocuments);
 

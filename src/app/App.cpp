@@ -495,6 +495,17 @@ bool App::start(const StartOptions& options)
     connect(m_launcher.get(), &Launcher::fileTypeSettingsRequested, this, &App::showFileTypeSettings);
     connect(m_launcher.get(), &Launcher::favoriteSettingsRequested, this, &App::showFavoriteSettings);
     connect(m_launcher.get(), &Launcher::pluginSettingsRequested, this, &App::showPluginSettings);
+    // The 内容 strip's switch: as the settings' 建立内容索引 (built or cleared a second later).
+    connect(m_launcher.get(), &Launcher::contentIndexRequested, this, [this](bool on) {
+        if (m_settings.contentIndex == on)
+            return;
+        Settings settings = m_settings;
+        settings.contentIndex = on;
+        settings.save();
+        settingsEdited(settings);
+        if (m_settingsEditor)
+            m_settingsEditor->setSettings(m_settings);
+    });
     connect(m_launcher.get(), &Launcher::fieldReported, this, &App::mirrorField);
     connect(m_launcher.get(), &Launcher::scopeChanged, this, &App::updateSearchBoxLook); // the placeholder
     m_boxPressGrace.setSingleShot(true);
@@ -1246,6 +1257,7 @@ void App::applySettings(bool initial)
     applyCapture();
     m_launcher->setContentOptions(m_settings.contentSearch, m_settings.contentExtensions,
         m_settings.contentSizeLimits(), m_settings.contentInLowPriority, m_settings.contentDocuments);
+    m_launcher->setContentIndex(m_settings.contentIndex);
     m_launcher->setWebShortcuts(m_settings.webShortcuts);
     m_launcher->setWebSuggestions(m_settings.webSuggestions);
     m_launcher->setFileTypes(m_settings.namedFileTypes()); // after applyAppearance: the built-in ones' names

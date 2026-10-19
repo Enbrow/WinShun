@@ -3981,6 +3981,18 @@
         <source>收藏常搜的文件夹，它们会出现在这里</source>
         <translation>Add the folders you search often to Favorites: they show up here</translation>
     </message>
+    <message>
+        <source>在后台记下文件里的文字，内容搜索快得多。关掉会清空内容索引</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>打开后在后台记下文件里的文字，内容搜索快得多。只用于 NTFS 磁盘，约占一两百 MB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>内容索引</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>UpdateDialog</name>
