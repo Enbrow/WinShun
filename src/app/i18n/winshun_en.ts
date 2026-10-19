@@ -3908,10 +3908,6 @@
         <translation>Choose image</translation>
     </message>
     <message>
-        <source>SVG 代码（可不填）</source>
-        <translation>SVG code (optional)</translation>
-    </message>
-    <message>
         <source>用网站的图标</source>
         <translation>Use the site&apos;s icon</translation>
     </message>

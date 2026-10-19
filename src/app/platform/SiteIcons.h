@@ -57,7 +57,11 @@ QString keepCustomImage(const QImage& image);
 // As kept; null when not (or for a name that is no custom icon's).
 QImage loadCustom(const QString& name);
 QByteArray customPng(const QString& name); // its file as kept, to export
-// Deletes those no shortcut uses any more.
+// The SVG code a kept picture was drawn from, beside it ("3f2a….svg"), so the
+// form can show it again to be changed; empty for one drawn from pixels.
+void keepCustomSvg(const QString& name, QByteArrayView svg);
+QString customSvg(const QString& name);
+// Deletes those no shortcut uses any more (and their SVG code).
 void pruneCustom(const QStringList& inUse);
 
 } // namespace ws::siteicons

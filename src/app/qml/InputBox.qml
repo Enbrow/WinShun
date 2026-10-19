@@ -10,7 +10,9 @@ Rectangle {
     property alias horizontalAlignment: input.horizontalAlignment
     property alias echoMode: input.echoMode // TextInput.Password for a plugin's password setting
     property alias readOnly: input.readOnly // shown to be copied (selectable still)
+    property alias maximumLength: input.maximumLength // 32767 characters unless raised
     property string placeholder
+    readonly property bool inputFocused: input.activeFocus
 
     signal accepted()
     signal editingFinished()

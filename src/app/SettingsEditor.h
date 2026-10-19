@@ -561,8 +561,11 @@ public:
     // SVG-looking clipboard text for the form's editable field; unrelated
     // text and oversized contents leave it empty.
     Q_INVOKABLE QString webIconClipboardText() const;
-    // The field's SVG code, checked, drawn and kept as a picked one is.
+    // The field's SVG code, checked, drawn and kept as a picked one is; with
+    // a .svg picked, both answer {icon, svg: its code} for the field.
     Q_INVOKABLE QVariantMap webIconFromSvg(const QString& text);
+    // The SVG code a kept icon was drawn from, for the field; empty if none.
+    Q_INVOKABLE QString webIconSvg(const QString& icon) const;
     // Asks for a file and adds the shortcuts in it (a keyword already here is
     // replaced), or writes them all to one: what came of it, to show.
     Q_INVOKABLE QString importWebShortcuts();

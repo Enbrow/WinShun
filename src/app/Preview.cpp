@@ -359,7 +359,7 @@ bool previewWebForms(QQuickWindow* window, SettingsEditor* editor, const QDir& o
     }
     if (!check(child("webFormSvgInput"), "SVG input did not load"))
         return false;
-    child("webFormSvgInput")->forceActiveFocus(Qt::TabFocusReason);
+    QMetaObject::invokeMethod(child("webFormSvgInput"), "takeFocus");
     settle(window);
     check(visibleIn(window->activeFocusItem(), child("webFormViewport")), "focused input was not scrolled into view");
     grab(u"web-scrolled"_s);

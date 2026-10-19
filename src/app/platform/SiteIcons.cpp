@@ -12,6 +12,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QMutex>
+#include <QSaveFile>
 #include <QSet>
 
 #include <algorithm>
@@ -234,6 +235,11 @@ QString customFolder()
     return s.folder.isEmpty() ? QString() : s.folder + u"\\custom"_s;
 }
 
+QString svgFile(const QString& folder, const QString& name) // "3f2a….png" -> "…\3f2a….svg"
+{
+    return folder + u'\\' + name.chopped(4) + u".svg"_s;
+}
+
 } // namespace
 
 QString keepCustom(QByteArrayView bytes)
@@ -288,13 +294,34 @@ QByteArray customPng(const QString& name)
     return file.open(QIODevice::ReadOnly) ? file.read(kMaxIcon) : QByteArray();
 }
 
+void keepCustomSvg(const QString& name, QByteArrayView svg)
+{
+    const QString folder = customFolder();
+    if (folder.isEmpty() || !isValidCustomIconName(name) || svg.isEmpty() || svg.size() > svgicon::kMaxBytes)
+        return;
+    QSaveFile out(svgFile(folder, name));
+    if (out.open(QIODevice::WriteOnly) && out.write(svg.data(), svg.size()) == svg.size())
+        out.commit();
+}
+
+QString customSvg(const QString& name)
+{
+    const QString folder = customFolder();
+    if (folder.isEmpty() || !isValidCustomIconName(name))
+        return {};
+    QFile file(svgFile(folder, name));
+    return file.open(QIODevice::ReadOnly) ? QString::fromUtf8(file.read(svgicon::kMaxBytes)) : QString();
+}
+
 void pruneCustom(const QStringList& inUse)
 {
     const QString folder = customFolder();
     if (folder.isEmpty())
         return;
-    for (const QFileInfo& f : QDir(folder).entryInfoList({u"*.png"_s, u"*.part"_s}, QDir::Files)) {
-        if (!inUse.contains(f.fileName()))
+    for (const QFileInfo& f : QDir(folder).entryInfoList({u"*.png"_s, u"*.svg"_s, u"*.part"_s}, QDir::Files)) {
+        // SVG code goes with the picture drawn from it.
+        const QString picture = f.suffix() == u"svg"_s ? f.completeBaseName() + u".png"_s : f.fileName();
+        if (!inUse.contains(picture))
             QFile::remove(f.filePath());
     }
 }

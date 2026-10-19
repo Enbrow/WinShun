@@ -1396,8 +1396,9 @@ QVariantMap SettingsEditor::keepSvgIcon(QByteArrayView svg)
     const QString icon = siteicons::keepCustomImage(image);
     if (icon.isEmpty())
         return {{u"error"_s, tr("保存不了这个图标")}};
+    siteicons::keepCustomSvg(icon, svg); // shown again when the shortcut is edited
     m_pickedWebIcon = icon;
-    return {{u"icon"_s, icon}, {u"iconRef"_s, u"custom:"_s + icon}};
+    return {{u"icon"_s, icon}, {u"iconRef"_s, u"custom:"_s + icon}, {u"svg"_s, QString::fromUtf8(svg)}};
 }
 
 QVariantMap SettingsEditor::pickWebIcon()
@@ -1435,6 +1436,11 @@ QString SettingsEditor::webIconClipboardText() const
 QVariantMap SettingsEditor::webIconFromSvg(const QString& text)
 {
     return keepSvgIcon(text.trimmed().toUtf8());
+}
+
+QString SettingsEditor::webIconSvg(const QString& icon) const
+{
+    return siteicons::customSvg(icon);
 }
 
 QString SettingsEditor::importWebShortcuts()

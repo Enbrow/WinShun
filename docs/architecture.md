@@ -482,7 +482,7 @@ tools/plugin-probe.cpp 插件系统阶段 0 的探针（无 Qt，静态 C 运行
 - **列表**：建议行是 `SearchResult`（`isWeb`，`suggestion = true`，`words` 是建议），放在输入的那一行之后。新的回答到了按位置原位改、多的插、少的删（`ResultModel::removeRange`；按路径删不行：原位改写时两行可能暂时同一个路径），旧的建议在新回答到之前留着，窗口不跳；换了关键词或不再是网站搜索时去掉。`showRows`（名字结果到了重排整列）把它们接回输入行后面。行上：名字是建议（高亮输入的部分），第二行“%1 的搜索建议”，徽标“建议”，图标同网站。
 - **测试开关**：`WINSHUN_WEB_DRYRUN` 设了时，打开网页只在日志里写 `Web: would open <网址>`（要 `WINSHUN_LOG_INFO`），不开浏览器。`wsbench --suggest <接口> <文字>…` 按程序的方式每个问两次（看连接保持），列出状态、字节数、Content-Type、耗时和解析结果。
 
-**SVG 图标**（`src/app/SvgIcon.{h,cpp}`，`svgicon::render`）：设置里“选择图片…”可选 `.svg`，“粘贴 SVG”从剪贴板取文字（iconfont 的“复制 SVG 代码”），自动取的网站图标也接受 SVG。
+**SVG 图标**（`src/app/SvgIcon.{h,cpp}`，`svgicon::render`）：设置里“选择图片…”可选 `.svg`，“粘贴 SVG”从剪贴板取文字（iconfont 的“复制 SVG 代码”），自动取的网站图标也接受 SVG。SVG 代码画成 PNG 存进 `custom\`，代码本身存在旁边（同名 `.svg`，`siteicons::keepCustomSvg`），再编辑时读回框里（`webIconSvg`），可以接着改；PNG 没人用了，旁边的 `.svg` 一起删。
 
 - **检查**：64 KB 以内；开头（去掉 BOM、空白）要是 `<svg`、`<?xml`、`<!--` 或 `<!doctype svg`。不许引用外面：`href` / `xlink:href` 只许 `#片段` 和 `data:image/png|jpeg|gif`，`url(…)` 只许 `#`，不许 `@import`、`<!ENTITY`（实体展开、外部实体）。有这些的整段拒绝并说明（“引用了外部的文件或网址”），而不是悄悄去掉再画：去掉后画出来的和用户看到的不一样。没有内部子集的 DOCTYPE 去掉再读。`<script>`、事件属性不处理：QtSvg 不执行脚本，存下的只是画好的 PNG，SVG 文字本身不存。
 - **画**：`QSvgRenderer`，`QtSvg::DisableAnimations`，不设 `AssumeTrustedSource`（不当作可信的来源；会去读本地文件的 `<image href="…">` 已在检查里挡掉，见 pitfalls）。按 viewBox（没有就用 width / height）保持比例居中画进 256 × 256 的透明图，抗锯齿；什么都没画出来的（没有大小、全透明）报“画出来是空的”。之后和 PNG 一样整理、按内容 SHA-1 存成 `custom\<名字>.png`。为什么不存 SVG 每次按行的大小画：在 256 px 画好再缩到行的大小，和直接按 20 / 30 / 45 px 画相比平均 alpha 差 0.21 / 0.12 / 0.15（满 255），看不出来；存 PNG 让行、设置页、备份、导入导出全走原来那一条路，界面线程上也不用 QtSvg。

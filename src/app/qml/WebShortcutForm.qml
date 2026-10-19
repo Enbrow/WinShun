@@ -6,9 +6,9 @@ import WinShun
 // its name, the address it searches with %s where the words go, and the page
 // the keyword alone opens, where its search suggestions come from, and a
 // picture of the user's for its icon (a file, or SVG code pasted).
-// SettingsEditor checks and saves it, or says what is wrong. Enter saves
-// (Ctrl+Enter in the SVG field), Esc puts it away. The overlay keeps it in view; only
-// the fields scroll, leaving validation and actions visible on short screens.
+// SettingsEditor checks and saves it, or says what is wrong. Enter saves,
+// Esc puts it away. The overlay keeps it in view; only the fields scroll,
+// leaving validation and actions visible on short screens.
 FocusScope {
     id: form
 
@@ -43,7 +43,7 @@ FocusScope {
 
     function save() {
         if (!updateSvgIcon()) {
-            svgInput.forceActiveFocus()
+            svgInput.takeFocus()
             return
         }
         form.error = form.editor.saveWebShortcut(form.index, keywordField.text, nameField.text, urlField.text,
@@ -56,15 +56,29 @@ FocusScope {
         if (picked.error) {
             form.error = picked.error
         } else if (picked.icon) {
-            svgInput.text = ""
+            // A .svg picked shows its code, to be changed like code pasted.
+            const svg = (picked.svg || "").trim()
+            form.appliedSvg = svg // first: the text set below is then no change to draw
+            svgInput.text = svg
             svgRefresh.stop()
             form.svgTouched = true
-            form.appliedSvg = ""
             form.svgError = ""
-            form.fallbackIcon = picked.icon
+            form.fallbackIcon = svg ? "" : picked.icon
             form.icon = picked.icon
             form.error = ""
         }
+    }
+
+    // The SVG code the saved icon was drawn from, shown again. The picture
+    // is that code, so clearing it goes back to the site's icon.
+    function restoreSvg() {
+        const svg = form.icon ? form.editor.webIconSvg(form.icon).trim() : ""
+        if (svg.length === 0)
+            return
+        form.appliedSvg = svg
+        svgInput.text = svg
+        svgRefresh.stop()
+        form.fallbackIcon = ""
     }
 
     function updateSvgIcon() {
@@ -118,9 +132,8 @@ FocusScope {
         const current = form.Window.window.activeFocusItem
         if (!inside(current, fields))
             return
-        const field = inside(current, svgBox) ? svgBox : current
-        const top = field.mapToItem(fields, 0, 0).y
-        const bottom = top + field.height
+        const top = current.mapToItem(fields, 0, 0).y
+        const bottom = top + current.height
         const maximum = Math.max(0, viewport.contentHeight - viewport.height)
         if (top < viewport.contentY + 8)
             viewport.contentY = Math.max(0, top - 8)
@@ -136,6 +149,7 @@ FocusScope {
     }
     Keys.onEscapePressed: form.close()
     Component.onCompleted: {
+        form.restoreSvg()
         form.fillSvgFromClipboard()
         const first = form.index < 0 ? keywordField : urlField
         Qt.callLater(() => first.takeFocus())
@@ -258,11 +272,11 @@ FocusScope {
                     width: parent.width
                     spacing: 12
 
+                    // Its box starts where the boxes below do; the name's is narrower for it.
                     Field {
                         id: keywordField
                         objectName: "keywordField"
-                        width: 196
-                        labelWidth: 64
+                        width: form.labelWidth + 8 + 124
                         label: qsTr("关键词")
                         placeholder: qsTr("例如 gh")
                         text: form.shortcut.keyword
@@ -328,7 +342,7 @@ FocusScope {
 
                     Text {
                         width: form.labelWidth
-                        height: svgBox.height
+                        height: svgInput.height
                         verticalAlignment: Text.AlignVCenter
                         text: qsTr("图标")
                         color: Theme.text
@@ -387,100 +401,29 @@ FocusScope {
                             form.updateSvgIcon()
                         }
                     }
-                    Rectangle {
-                        id: svgBox
+                    // One line, as high as the buttons; the code pasted, or the
+                    // saved icon's, is all there to be changed.
+                    InputBox {
+                        id: svgInput
+                        objectName: "webFormSvgInput"
                         width: iconControls.width - form.labelWidth - iconPreview.width - pickIconButton.width
                                - (siteIconButton.visible ? siteIconButton.width : 0)
                                - iconControls.spacing * (siteIconButton.visible ? 4 : 3)
-                        height: form.compact ? 52 : 64
-                        radius: Theme.controlRadius
-                        color: svgInput.activeFocus ? Theme.inputFocused : svgHover.containsMouse ? Theme.controlHover : Theme.control
-                        border.width: 1
+                        maximumLength: 1 << 20 // never cut: an SVG too large is refused with a reason
+                        placeholder: qsTr("粘贴 SVG 代码（可不填）")
                         border.color: form.svgError.length > 0 ? Theme.danger : Theme.controlBorder
+                        onAccepted: form.save()
+                        onInputFocusedChanged: if (inputFocused) form.fillSvgFromClipboard()
+                        onTextChanged: {
+                            if (text.length > 0)
+                                form.svgTouched = true
+                            form.svgError = ""
+                            svgRefresh.restart()
+                        }
 
-                        MouseArea {
-                            id: svgHover
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.IBeamCursor
-                            acceptedButtons: Qt.NoButton
-                        }
-                        Flickable {
-                            id: svgViewport
-                            anchors.fill: parent
-                            anchors.margins: 6
-                            contentWidth: width
-                            contentHeight: svgInput.height
-                            boundsBehavior: Flickable.StopAtBounds
-                            clip: true
-
-                            TextEdit {
-                                id: svgInput
-                                objectName: "webFormSvgInput"
-                                Accessible.name: qsTr("SVG 代码（可不填）")
-                                width: svgViewport.width - 8
-                                height: Math.max(svgViewport.height, contentHeight)
-                                textFormat: TextEdit.PlainText
-                                wrapMode: TextEdit.Wrap
-                                color: Theme.text
-                                font.pixelSize: Theme.fontBody
-                                selectByMouse: true
-                                selectionColor: Theme.textSelection
-                                selectedTextColor: Theme.text
-                                activeFocusOnTab: true
-                                onActiveFocusChanged: if (activeFocus) form.fillSvgFromClipboard()
-                                onTextChanged: {
-                                    if (text.length > 0)
-                                        form.svgTouched = true
-                                    form.svgError = ""
-                                    svgRefresh.restart()
-                                }
-                                onCursorRectangleChanged: {
-                                    if (cursorRectangle.y < svgViewport.contentY)
-                                        svgViewport.contentY = cursorRectangle.y
-                                    else if (cursorRectangle.y + cursorRectangle.height > svgViewport.contentY + svgViewport.height)
-                                        svgViewport.contentY = cursorRectangle.y + cursorRectangle.height - svgViewport.height
-                                }
-                                Keys.onPressed: (event) => {
-                                    if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
-                                        const forward = event.key === Qt.Key_Tab && !(event.modifiers & Qt.ShiftModifier)
-                                        nextItemInFocusChain(forward).forceActiveFocus(forward ? Qt.TabFocusReason : Qt.BacktabFocusReason)
-                                        event.accepted = true
-                                    } else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
-                                            && (event.modifiers & Qt.ControlModifier)) {
-                                        form.save()
-                                        event.accepted = true
-                                    }
-                                }
-                            }
-                            Text {
-                                width: svgInput.width
-                                text: qsTr("粘贴 SVG 代码（可不填）")
-                                textFormat: Text.PlainText
-                                color: Theme.faint
-                                font.pixelSize: Theme.fontBody
-                                wrapMode: Text.Wrap
-                                visible: svgInput.text.length === 0 && svgInput.preeditText.length === 0
-                            }
-                        }
-                        ListScrollBar {
-                            flickable: svgViewport
-                            anchors.top: svgViewport.top
-                            anchors.bottom: svgViewport.bottom
-                            anchors.right: parent.right
-                            anchors.rightMargin: 3
-                        }
-                        Rectangle {
-                            visible: svgInput.activeFocus
-                            anchors.bottom: parent.bottom
-                            x: 1
-                            width: parent.width - 2
-                            height: 2
-                            radius: Theme.lineRadius
-                            color: Theme.accent
-                        }
+                        HoverHandler { id: svgHover }
                         HoverTip {
-                            target: svgHover.containsMouse ? svgBox : null
+                            target: svgHover.hovered ? svgInput : null
                             text: qsTr("添加时自动填入剪贴板中的 SVG，可直接粘贴或编辑")
                         }
                     }
