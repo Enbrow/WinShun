@@ -24,6 +24,12 @@
 //                      reading past the cache, and throughput by thread count.
 //                      The sample is the same on every run (fixed seed), so a
 //                      later run shows what the caches kept in the meantime
+//   wsbench [snapshot] --content-plan
+//                      from the snapshot alone, what a first content index
+//                      build reads (default extensions and documents): by
+//                      kind, tier, age and folder, within and over the size
+//                      limits (2/1/2/50 MB, and version 3's 16/2/4/100), and
+//                      what rules that defer some of them would take off
 //   wsbench [snapshot] --content-index [--all] [--threads N] [--sample N] [--seed N] [--background]
 //                      [--read-only] [--no-add] [--merge-threads N] [--merge-times] [--dir D] [--keep] [--verify]
 //                      builds the content index of those files (without system
@@ -91,7 +97,9 @@
 //                      open from 20 s to 40 s into reading (nothing is read
 //                      then, nor 5 s after). WINSHUN_SPINNING=C:,D: counts
 //                      volumes as hard disks, WINSHUN_USER=present|away fixes
-//                      whether someone is at the computer.
+//                      whether someone is at the computer, WINSHUN_CROWDED=0
+//                      reads crowded folders' files when their turn comes
+//                      instead of last (the 50-100% lines compare).
 //   wsbench [snapshot] --extract [--threads N] [--memory] [--sandbox [--background]] [--dump] [path ...]
 //                      reads documents (Word, Excel, PowerPoint, PDF) as the
 //                      extractor does, in this process: the files or folders
@@ -245,6 +253,7 @@
 #include <set>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 
 using namespace Qt::StringLiterals;
 
@@ -1023,6 +1032,8 @@ int runServiceContent(const QStringList& args)
     t.start();
     double readyMs = 0;
     double startedMs = 0; // the content indexer began reading
+    static constexpr int kUncrowdedSteps[] {50, 90, 99, 100};
+    std::size_t uncrowdedStep = 0; // the next of those to report
     // --box: the search box open from 20 s to 40 s after reading began (ContentIndexer::setSearchBoxOpen).
     const bool box = args.contains(u"--box"_s);
     int boxState = 0; // 0 not yet, 1 open, 2 closed again
@@ -1030,6 +1041,10 @@ int runServiceContent(const QStringList& args)
     CpuTimes cpuAtStart;
     std::size_t lastDocuments = 0;
     double lastReport = 0;
+    struct {
+        std::size_t documents = 0, others = 0, bulk = 0; // documents with text (copies too); the other files; read in bulk
+        double documentsMs = 0, othersMs = 0, bulkMs = 0; // when each last rose
+    } phases;
     QTimer poll;
     poll.setInterval(500);
     QObject::connect(&poll, &QTimer::timeout, [&] {
@@ -1050,6 +1065,33 @@ int runServiceContent(const QStringList& args)
             ++boxState;
         }
         const ws::ContentIndex::Stats stats = service.contentIndex()->stats();
+        // Text files and documents are read side by side: when each count
+        // last rose is when that kind was done (to a poll's 0.5 s).
+        if (const std::size_t d = stats.texts; d != phases.documents) { // copies included: they share the original's text
+            phases.documents = d;
+            phases.documentsMs = msSince(t);
+        }
+        if (const std::size_t o = stats.documents - stats.texts; o != phases.others) {
+            phases.others = o;
+            phases.othersMs = msSince(t);
+        }
+        if (const std::size_t b = service.contentIndexer()->bulkStats().files; b != phases.bulk) {
+            phases.bulk = b;
+            phases.bulkMs = msSince(t);
+        }
+        // Crowded folders' files are read last (WINSHUN_CROWDED=0: not): when
+        // the others reached 50, 90, 99 and 100%.
+        if (const ws::ContentIndexer::Progress p = service.contentIndexer()->progress();
+            startedMs > 0 && uncrowdedStep < std::size(kUncrowdedSteps) && p.total > p.crowded) {
+            const std::size_t others = p.total - p.crowded;
+            const std::size_t othersDone = p.done - p.crowdedDone;
+            for (; uncrowdedStep < std::size(kUncrowdedSteps) && othersDone * 100 >= others * kUncrowdedSteps[uncrowdedStep];
+                ++uncrowdedStep)
+                std::printf("  %6.1f s  %3d%% of the files outside crowded folders done (%zu of %zu, %.1f s into content); "
+                            "crowded ones: %zu of %zu\n",
+                    msSince(t) / 1000, kUncrowdedSteps[uncrowdedStep], othersDone, others, (msSince(t) - startedMs) / 1000,
+                    p.crowdedDone, p.crowded);
+        }
         if (msSince(t) - lastReport >= 10000 && startedMs > 0) {
             LASTINPUTINFO input {sizeof input, 0};
             ::GetLastInputInfo(&input);
@@ -1078,6 +1120,10 @@ int runServiceContent(const QStringList& args)
                 "%zu documents' text (%zu distinct), %zu copies not read again\n",
         doneMs / 1000, readyMs / 1000, contentS, stats.documents, static_cast<double>(stats.documents) / contentS,
         stats.texts, stats.distinctTexts, service.contentIndexer()->copies());
+    std::printf("phases from the start of content indexing: bulk reads last rose at %.1f s (%zu files), the other files "
+                "(text and documents without text) at %.1f s (%zu), documents' texts and copies at %.1f s (%zu)\n",
+        (phases.bulkMs - startedMs) / 1000, phases.bulk, (phases.othersMs - startedMs) / 1000, phases.others,
+        (phases.documentsMs - startedMs) / 1000, phases.documents);
     std::printf("index %.1f MB in %zu segment(s), text %.1f MB; whole computer %.1f of %u processors busy meanwhile\n",
         static_cast<double>(stats.segmentBytes) / 1048576.0, stats.segments,
         static_cast<double>(stats.textBytes) / 1048576.0, (cpuAtEnd.system - cpuAtStart.system) / contentS,
@@ -1673,6 +1719,358 @@ std::vector<ws::EntryId> contentCandidates(const ws::FileIndex& index, const ws:
         std::sort(files.begin(), files.end());
     }
     return files;
+}
+
+// ---- what a first content index build reads (--content-plan) ---------------
+
+// From the snapshot alone (no file is opened): the files a first build of the
+// content index would read, as ContentIndexer::findWork picks them (the
+// default extensions and documents, without system and program folders), by
+// kind, tier (findWork's order), age and folder; then how much each rule that
+// defers some of them would take off. Sizes are the index's (exact to 16 MB).
+int runContentPlan(const ws::FileIndex& index)
+{
+    using ws::ContentSizeLimits;
+    constexpr double kMiB = 1024.0 * 1024.0;
+    constexpr std::size_t kKinds = ContentSizeLimits::kKinds;
+    constexpr std::array<const char*, kKinds> kKindNames {"text", "code", "data", "document"};
+    constexpr std::array<double, kKinds> kNewMB {2, 1, 2, 50}; // Settings.h now
+    constexpr std::array<double, kKinds> kV3MB {16, 2, 4, 100}; // defaults version 3
+    constexpr std::array<const char*, 3> kTierNames {"profile", "other", "hidden"};
+    constexpr std::array<const char*, 6> kAgeNames {"<=1 month", "<=1 y", "1-2 y", "2-5 y", ">5 y", "unknown"};
+    // Folder names that hold what tools make (build outputs, packages,
+    // environments), matched on the file's folder and every folder above it.
+    // Dot-folders, AppData, node_modules, __pycache__, Cache, Logs, Temp... are
+    // low priority already (Settings' kLowPriorityNames): left out of these.
+    static const std::vector<std::string_view> kMarkers {"target", "bin", "obj", "build", "builds", "out", "dist", "debug",
+        "release", "x64", "x86", "packages", "venv", "env", "lib", "deps", "third_party", "thirdparty", "3rdparty",
+        "external", "generated", "log", "tmp"};
+
+    const QStringList extensions = ws::Settings::defaults().contentExtensions;
+    const ws::ContentFilter filter {ws::ExtensionFilter(extensions + ws::documentExtensions()), false};
+    const ws::ContentFilter withLow {ws::ExtensionFilter(extensions + ws::documentExtensions()), true};
+    std::printf("content plan: default extensions (%s) + documents, without system and program folders\n",
+        qUtf8Printable(extensions.join(u", "_s)));
+
+    const ws::EntryId profile = index.findPath(ws::win32::expandEnvironment(L"%USERPROFILE%"));
+    const auto now = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
+    constexpr std::int64_t kDay = 86'400;
+
+    // Whether a folder is in the profile, and the nearest marker folder at or
+    // above it: each folder worked out once.
+    std::unordered_map<ws::EntryId, bool> inProfile;
+    std::unordered_map<ws::EntryId, ws::EntryId> markerOf;
+    const auto profileHas = [&](ws::EntryId folder) {
+        std::vector<ws::EntryId> chain;
+        bool result = false;
+        for (ws::EntryId f = folder;; f = index.entry(f).parent) {
+            if (f == ws::kNoEntry)
+                break;
+            if (f == profile) {
+                result = true;
+                break;
+            }
+            if (const auto it = inProfile.find(f); it != inProfile.end()) {
+                result = it->second;
+                break;
+            }
+            chain.push_back(f);
+        }
+        for (const ws::EntryId f : chain)
+            inProfile[f] = result;
+        return result;
+    };
+    const auto isMarker = [&](ws::EntryId folder) {
+        const std::string_view name = index.name(folder);
+        return std::ranges::any_of(kMarkers, [&](std::string_view m) {
+            return name.size() == m.size()
+                && std::equal(name.begin(), name.end(), m.begin(), [](char a, char b) { return ws::text::fold(a) == b; });
+        });
+    };
+    const auto markerAbove = [&](ws::EntryId folder) {
+        std::vector<ws::EntryId> chain;
+        ws::EntryId result = ws::kNoEntry;
+        for (ws::EntryId f = folder; f != ws::kNoEntry; f = index.entry(f).parent) {
+            if (const auto it = markerOf.find(f); it != markerOf.end()) {
+                result = it->second;
+                break;
+            }
+            chain.push_back(f);
+        }
+        // Nearest first: the chain runs upwards from the file's folder.
+        for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+            if (isMarker(*it))
+                result = *it;
+            markerOf[*it] = result;
+        }
+        return result;
+    };
+
+    struct Candidate {
+        ws::EntryId id;
+        ws::EntryId folder;
+        std::uint64_t size;
+        bool sizeKnown;
+        std::uint8_t kind;
+        std::uint8_t tier; // 0 profile, 1 other, 2 hidden (findWork's 1, 2, 3)
+        std::uint8_t age;
+        bool profile; // under %USERPROFILE%, hidden or not
+        std::uint16_t ext;
+    };
+    std::vector<Candidate> files;
+    std::vector<std::string> extNames;
+    std::unordered_map<std::string, std::uint16_t> extIds;
+    std::size_t lowPriority = 0; // of a listed type, left out as in a system, program or tool folder
+    std::uint64_t lowPriorityBytes = 0;
+    for (std::size_t c = 0; c < index.chunkCount(); ++c) {
+        const auto entries = index.chunk(c);
+        for (std::size_t i = 0; i < entries.size(); ++i) {
+            const ws::Entry& e = entries[i];
+            const auto id = static_cast<ws::EntryId>((c << ws::FileIndex::kChunkBits) + i);
+            if (!filter.accepts(index, e)) {
+                if (withLow.accepts(index, e)) {
+                    ++lowPriority;
+                    lowPriorityBytes += ws::unpackSize(index.size(id));
+                }
+                continue;
+            }
+            std::size_t extLength = 0;
+            const std::string_view name = index.fileName(e, extLength);
+            std::string ext(name.substr(name.size() - extLength));
+            for (char& ch : ext)
+                ch = static_cast<char>(ws::text::fold(ch));
+            auto [it, added] = extIds.try_emplace(ext, static_cast<std::uint16_t>(extNames.size()));
+            if (added)
+                extNames.push_back(ext);
+            const ws::FileSize packed = index.size(id);
+            const ws::FileTime modified = ws::knownTime(index.modified(id));
+            const std::int64_t ago = now - static_cast<std::int64_t>(modified);
+            const std::uint8_t age = modified == 0 ? 5
+                : ago <= 30 * kDay              ? 0
+                : ago <= 365 * kDay             ? 1
+                : ago <= 2 * 365 * kDay         ? 2
+                : ago <= 5 * 365 * kDay         ? 3
+                                                : 4;
+            const bool mine = profileHas(e.parent);
+            const bool hidden = e.flags & ws::EntryFlag::Hidden;
+            files.push_back({id, e.parent, ws::unpackSize(packed), packed != ws::kUnknownSize,
+                static_cast<std::uint8_t>(ContentSizeLimits::kindOf(ext)),
+                static_cast<std::uint8_t>(mine && !hidden ? 0 : hidden ? 2 : 1), age, mine, it->second});
+        }
+    }
+    const auto within = [&](const Candidate& f, const std::array<double, kKinds>& mb) {
+        return !f.sizeKnown || static_cast<double>(f.size) <= mb[f.kind] * kMiB;
+    };
+    const auto unknownSizes = static_cast<std::size_t>(std::ranges::count_if(files, [](const Candidate& f) { return !f.sizeKnown; }));
+    std::printf("%zu candidates (%zu without a size in the index); %zu more files, %.0f MB, of these types are in "
+                "system, program and tool folders (left out already)\n\n",
+        files.size(), unknownSizes, lowPriority, static_cast<double>(lowPriorityBytes) / kMiB);
+
+    struct Sum {
+        std::size_t files = 0;
+        std::uint64_t bytes = 0;
+        void add(const Candidate& f) { ++files, bytes += f.size; }
+    };
+    const auto mb = [&](std::uint64_t bytes) { return static_cast<double>(bytes) / kMiB; };
+    const auto printKinds = [&](const char* title, const std::function<bool(const Candidate&)>& take) {
+        std::array<Sum, kKinds> s {};
+        Sum all;
+        for (const Candidate& f : files) {
+            if (take(f)) {
+                s[f.kind].add(f);
+                all.add(f);
+            }
+        }
+        std::printf("  %-34s", title);
+        for (std::size_t k = 0; k < kKinds; ++k)
+            std::printf(" %8zu %8.0f MB |", s[k].files, mb(s[k].bytes));
+        std::printf(" %8zu %8.0f MB\n", all.files, mb(all.bytes));
+    };
+    std::printf("  %-34s", "");
+    for (const char* k : kKindNames)
+        std::printf(" %-20s|", k);
+    std::printf(" all\n");
+    printKinds("within 2/1/2/50 MB", [&](const Candidate& f) { return within(f, kNewMB); });
+    printKinds("over 2/1/2/50 MB", [&](const Candidate& f) { return !within(f, kNewMB); });
+    printKinds("within 16/2/4/100 MB (v3)", [&](const Candidate& f) { return within(f, kV3MB); });
+    printKinds("over 16/2/4/100 MB (v3)", [&](const Candidate& f) { return !within(f, kV3MB); });
+    printKinds("in v3's limits, over the new ones", [&](const Candidate& f) { return within(f, kV3MB) && !within(f, kNewMB); });
+    std::printf("\nwithin the new limits, by tier:\n");
+    for (std::uint8_t t = 0; t < 3; ++t)
+        printKinds(kTierNames[t], [&](const Candidate& f) { return f.tier == t && within(f, kNewMB); });
+    std::printf("\nwithin the new limits, by last written:\n");
+    for (std::uint8_t a = 0; a < 6; ++a)
+        printKinds(kAgeNames[a], [&](const Candidate& f) { return f.age == a && within(f, kNewMB); });
+    std::printf("\n... outside the profile only:\n");
+    for (std::uint8_t a = 0; a < 6; ++a)
+        printKinds(kAgeNames[a], [&](const Candidate& f) { return !f.profile && f.age == a && within(f, kNewMB); });
+
+    // Sizes by kind, of all candidates with a size.
+    std::array<std::vector<std::uint64_t>, kKinds> sizes;
+    for (const Candidate& f : files) {
+        if (f.sizeKnown)
+            sizes[f.kind].push_back(f.size);
+    }
+    std::array<double, kKinds> percentileMB {};
+    std::printf("\nsizes of all candidates by kind (KB): p50 p90 p99 p99.5 p99.9 max\n");
+    for (std::size_t k = 0; k < kKinds; ++k) {
+        auto& v = sizes[k];
+        std::ranges::sort(v);
+        const auto at = [&](double p) {
+            return v.empty() ? 0.0 : static_cast<double>(v[static_cast<std::size_t>(p * static_cast<double>(v.size() - 1))]) / 1024.0;
+        };
+        percentileMB[k] = std::min(at(0.995) / 1024.0, kNewMB[k]);
+        std::printf("  %-9s %9.1f %9.1f %9.1f %9.1f %9.1f %9.1f  -> limit (p99.5, at most the default) %.2f MB\n",
+            kKindNames[k], at(0.5), at(0.9), at(0.99), at(0.995), at(0.999), at(1.0), percentileMB[k]);
+    }
+
+    // Folders, by the candidates (within the new limits) right in them.
+    struct Folder {
+        Sum all;
+        std::unordered_map<std::uint16_t, std::size_t> exts;
+        std::size_t candidates = 0; // all, over the limits too: for the folder rule
+        std::unordered_map<std::uint16_t, std::size_t> allExts;
+    };
+    std::unordered_map<ws::EntryId, Folder> folders;
+    for (const Candidate& f : files) {
+        Folder& d = folders[f.folder];
+        ++d.candidates;
+        ++d.allExts[f.ext];
+        if (within(f, kNewMB)) {
+            d.all.add(f);
+            ++d.exts[f.ext];
+        }
+    }
+    const auto dominant = [](const std::unordered_map<std::uint16_t, std::size_t>& exts) {
+        std::pair<std::uint16_t, std::size_t> best {0, 0};
+        for (const auto& [ext, n] : exts) {
+            if (n > best.second)
+                best = {ext, n};
+        }
+        return best;
+    };
+    // The folder rule: >= 500 candidates right in it, one extension >= 90% of them.
+    std::unordered_set<ws::EntryId> crowded;
+    for (const auto& [id, d] : folders) {
+        if (d.candidates >= 500 && static_cast<double>(dominant(d.allExts).second) >= 0.9 * static_cast<double>(d.candidates))
+            crowded.insert(id);
+    }
+    const auto marked = [&](const Candidate& f) { return markerAbove(f.folder) != ws::kNoEntry; };
+    const auto generated = [&](const Candidate& f) { return crowded.contains(f.folder) || marked(f); };
+
+    const auto printFolders = [&](const char* title, std::vector<std::pair<ws::EntryId, const Folder*>> list,
+                                  std::size_t n, bool byBytes) {
+        std::ranges::sort(list, [&](const auto& a, const auto& b) {
+            return byBytes ? a.second->all.bytes > b.second->all.bytes : a.second->all.files > b.second->all.files;
+        });
+        std::printf("\n%s:\n    files       MB  dominant      rule  tier     path\n", title);
+        for (std::size_t i = 0; i < std::min(n, list.size()); ++i) {
+            const auto& [id, d] = list[i];
+            const auto [ext, count] = dominant(d->exts);
+            const bool mine = profileHas(id);
+            std::printf("  %7zu %8.1f  %-7s %3.0f%%  %s%s    %-7s  %s\n", d->all.files, mb(d->all.bytes),
+                extNames[ext].c_str(), 100.0 * static_cast<double>(count) / static_cast<double>(std::max<std::size_t>(1, d->all.files)),
+                crowded.contains(id) ? "F" : "-", markerAbove(id) != ws::kNoEntry ? "M" : "-",
+                mine ? "profile" : "other", index.path(id).toUtf8().constData());
+        }
+    };
+    std::vector<std::pair<ws::EntryId, const Folder*>> list;
+    for (const auto& [id, d] : folders) {
+        if (d.all.files > 0)
+            list.emplace_back(id, &d);
+    }
+    printFolders("top 40 folders by candidates within the new limits (rule F: crowded folder, M: marker name)", list, 40, false);
+    printFolders("top 20 folders by their bytes", list, 20, true);
+
+    // The generated-looking rule, as it would defer files within the new limits.
+    std::printf("\nrule (b) generated-looking folders, within the new limits:\n");
+    printKinds("F: >=500 in the folder, one ext >=90%", [&](const Candidate& f) { return crowded.contains(f.folder) && within(f, kNewMB); });
+    printKinds("M: a marker name at or above", [&](const Candidate& f) { return marked(f) && within(f, kNewMB); });
+    printKinds("F or M", [&](const Candidate& f) { return generated(f) && within(f, kNewMB); });
+    printKinds("F or M, in the profile", [&](const Candidate& f) { return generated(f) && f.profile && within(f, kNewMB); });
+    {
+        std::vector<std::pair<ws::EntryId, const Folder*>> caught;
+        for (const ws::EntryId id : crowded)
+            caught.emplace_back(id, &folders.at(id));
+        printFolders("every folder rule F catches", caught, caught.size(), false);
+    }
+    {
+        // By marker name, and the marker folders that take the most.
+        std::map<std::string, Sum> byName;
+        std::unordered_map<ws::EntryId, Sum> byFolder;
+        for (const Candidate& f : files) {
+            if (!within(f, kNewMB))
+                continue;
+            if (const ws::EntryId m = markerAbove(f.folder); m != ws::kNoEntry) {
+                std::string name(index.name(m));
+                for (char& ch : name)
+                    ch = static_cast<char>(ws::text::fold(ch));
+                byName[name].add(f);
+                byFolder[m].add(f);
+            }
+        }
+        std::printf("\nrule M by marker name (nearest marker folder):\n");
+        for (const auto& [name, s] : byName)
+            std::printf("  %-12s %8zu files %8.1f MB\n", name.c_str(), s.files, mb(s.bytes));
+        std::vector<std::pair<ws::EntryId, Sum>> top(byFolder.begin(), byFolder.end());
+        std::ranges::sort(top, [](const auto& a, const auto& b) { return a.second.files > b.second.files; });
+        std::printf("\nthe 40 marker folders with the most candidates under them:\n");
+        for (std::size_t i = 0; i < std::min<std::size_t>(40, top.size()); ++i)
+            std::printf("  %7zu %8.1f MB  %s\n", top[i].second.files, mb(top[i].second.bytes),
+                index.path(top[i].first).toUtf8().constData());
+    }
+
+    // Documents that look like copies of each other: the same size and name
+    // (folded), or the same size alone (what ContentIndexer's Copies hashes;
+    // only the same bytes count there, so both are upper bounds).
+    {
+        std::map<std::pair<std::uint64_t, std::string>, std::size_t> byNameSize;
+        std::map<std::uint64_t, std::size_t> bySize;
+        Sum docs, sameName, sameSize;
+        for (const Candidate& f : files) {
+            if (f.kind != ContentSizeLimits::Document || !within(f, kNewMB) || !f.sizeKnown || f.size == 0)
+                continue;
+            docs.add(f);
+            std::string name(index.name(f.id));
+            for (char& ch : name)
+                ch = static_cast<char>(ws::text::fold(ch));
+            if (byNameSize[{f.size, std::move(name)}]++ > 0)
+                sameName.add(f);
+            if (bySize[f.size]++ > 0)
+                sameSize.add(f);
+        }
+        std::printf("\ndocuments within the new limits: %zu, %.0f MB; another of the same size and name before them: %zu, "
+                    "%.0f MB; of the same size: %zu, %.0f MB\n",
+            docs.files, mb(docs.bytes), sameName.files, mb(sameName.bytes), sameSize.files, mb(sameSize.bytes));
+    }
+
+    // The rules, each alone and together: what they would defer of the files
+    // within the new limits.
+    const auto old = [](const Candidate& f) { return f.age == 3 || f.age == 4; };
+    const auto ruleA = [&](const Candidate& f) { return !f.profile && old(f); };
+    const auto ruleC = [&](const Candidate& f) {
+        return f.sizeKnown && static_cast<double>(f.size) > percentileMB[f.kind] * kMiB;
+    };
+    const auto ruleD = [&](const Candidate& f) {
+        return f.kind == ContentSizeLimits::Document && f.sizeKnown && static_cast<double>(f.size) > 20 * kMiB;
+    };
+    std::printf("\nwhat each rule defers, of the files within the new limits:\n");
+    std::printf("  %-34s", "");
+    for (const char* k : kKindNames)
+        std::printf(" %-20s|", k);
+    std::printf(" all\n");
+    const auto rule = [&](const char* title, const std::function<bool(const Candidate&)>& r) {
+        printKinds(title, [&](const Candidate& f) { return within(f, kNewMB) && r(f); });
+    };
+    rule("(a) older than 2 y, not in profile", ruleA);
+    rule("(a') older than 2 y, anywhere", old);
+    rule("(b) generated-looking (F or M)", generated);
+    rule("(b') F only", [&](const Candidate& f) { return crowded.contains(f.folder); });
+    rule("(c) over the kind's p99.5", ruleC);
+    rule("(d) documents over 20 MB", ruleD);
+    rule("(a) or (b)", [&](const Candidate& f) { return ruleA(f) || generated(f); });
+    rule("(a) or (b) or (c) or (d)", [&](const Candidate& f) { return ruleA(f) || generated(f) || ruleC(f) || ruleD(f); });
+    return 0;
 }
 
 // Builds a content index of the files a content search looks in (as the app's
@@ -5045,6 +5443,8 @@ int main(int argc, char* argv[])
             static_cast<double>(depthSum) / static_cast<double>(live), maxDepth);
     }
 
+    if (args.contains(u"--content-plan"_s))
+        return runContentPlan(*index);
     if (args.contains(u"--content"_s))
         return runContentBench(*index, args);
     if (args.contains(u"--content-index"_s))

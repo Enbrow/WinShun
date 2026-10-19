@@ -4,6 +4,7 @@
 #include "Crawler.h"
 #include "Documents.h"
 #include "DiagnosticLog.h"
+#include "TextUtil.h"
 #include "Win32Util.h"
 #include "Wtf8.h"
 
@@ -144,6 +145,29 @@ bool bulkVerify()
         return ::GetEnvironmentVariableW(L"WINSHUN_BULK_VERIFY", value, 8) > 0 && value[0] == L'1';
     }();
     return on;
+}
+
+// WINSHUN_CROWDED=0: crowded folders' files are not put last (for wsbench
+// --service --content, to compare).
+bool crowdedLast()
+{
+    static const bool on = [] {
+        wchar_t value[8] {};
+        return !(::GetEnvironmentVariableW(L"WINSHUN_CROWDED", value, 8) > 0 && value[0] == L'0');
+    }();
+    return on;
+}
+
+// An extension as one number, for counting: up to 8 characters packed and
+// folded; a longer one by its hash.
+std::uint64_t extensionKey(std::string_view ext) noexcept
+{
+    if (ext.size() > 8)
+        return std::hash<std::string_view> {}(ext) | (1ull << 63);
+    std::uint64_t v = 0;
+    for (std::size_t i = 0; i < ext.size(); ++i)
+        v |= std::uint64_t {text::fold(ext[i])} << (8 * i);
+    return v;
 }
 
 // How many files are read at once. Opening one costs the antivirus several
@@ -589,7 +613,9 @@ void ContentIndexer::run(std::stop_token stop)
 // are no longer candidates are retired on the way; those on a suspended
 // volume are left as they are. In the order they are best read: files read
 // before (someone is working on them), then the user's own files, the others,
-// hidden ones; each kind as the index has them (by folder, mostly).
+// hidden ones, and those in crowded folders (crowdedFolders: generated files,
+// mostly, that few look for); each kind as the index has them (by folder,
+// mostly).
 std::vector<ContentIndexer::Work> ContentIndexer::findWork(
     const FileIndex& index, const Options& options, const std::vector<Volume>& volumes)
 {
@@ -615,6 +641,7 @@ std::vector<ContentIndexer::Work> ContentIndexer::findWork(
 
     std::vector<Work> work;
     std::vector<EntryId> retired;
+    std::vector<EntryId> candidates; // on the volumes followed, read before or not: what makes a folder crowded
     RootFinder finder(index, index.findPath(win32::expandEnvironment(L"%USERPROFILE%")));
     std::size_t k = 0;
     for (std::size_t c = 0; c < index.chunkCount(); ++c) {
@@ -629,6 +656,7 @@ std::vector<ContentIndexer::Work> ContentIndexer::findWork(
                 = std::find_if(roots.begin(), roots.end(), [&](const Root& r) { return r.entry == place.root; });
             if (volume == roots.end())
                 continue;
+            candidates.push_back(id);
             for (; k < docs.size() && docs[k].entry < id; ++k)
                 retired.push_back(docs[k].entry);
             const bool known = k < docs.size() && docs[k].entry == id;
@@ -645,10 +673,8 @@ std::vector<ContentIndexer::Work> ContentIndexer::findWork(
                     w = {id, false, true, 0};
                 else
                     continue;
-            } else if (place.inProfile && !(e.flags & EntryFlag::Hidden)) {
-                w.order = 1;
             } else {
-                w.order = e.flags & EntryFlag::Hidden ? 3 : 2;
+                w.order = orderOf(place.inProfile, (e.flags & EntryFlag::Hidden) != 0, false); // crowded: below
             }
             w.document = documents.matches(index.name(e), index.extLength(e));
             w.volume = volume->volume;
@@ -658,8 +684,68 @@ std::vector<ContentIndexer::Work> ContentIndexer::findWork(
     for (; k < docs.size(); ++k)
         retired.push_back(docs[k].entry);
     m_content->retire(retired);
+    // Only files read for the first time are put last (12 ms for 359248
+    // candidates here): most passes have none.
+    if (std::none_of(work.begin(), work.end(), [](const Work& w) { return w.order != kKnown; }))
+        return work; // in order already
+    const auto crowdedStarted = std::chrono::steady_clock::now();
+    const std::vector<EntryId> crowded = crowdedFolders(index, candidates);
+    qint64 crowdedFiles = 0;
+    for (Work& w : work) {
+        if (w.order != kKnown && std::binary_search(crowded.begin(), crowded.end(), index.entry(w.entry).parent)) {
+            w.crowded = true;
+            ++crowdedFiles;
+            if (crowdedLast())
+                w.order = kCrowded;
+        }
+    }
+    diagnostics::record(u"content-crowded"_s, {{u"candidates"_s, static_cast<qint64>(candidates.size())},
+        {u"folders"_s, static_cast<qint64>(crowded.size())}, {u"files"_s, crowdedFiles},
+        {u"last"_s, crowdedLast()},
+        {u"elapsed_us"_s, static_cast<qint64>(std::chrono::duration_cast<std::chrono::microseconds>(
+                              std::chrono::steady_clock::now() - crowdedStarted).count())}});
     std::stable_sort(work.begin(), work.end(), [](const Work& a, const Work& b) { return a.order < b.order; });
     return work;
+}
+
+std::vector<EntryId> ContentIndexer::crowdedFolders(const FileIndex& index, std::span<const EntryId> candidates)
+{
+    // Measured 2026-10-19 on the 356787 candidates of a developer's computer
+    // (wsbench --content-plan): 24499 files, 1459 MB, in folders like Qt's
+    // and CMake's HTML documentation, translation output (JSON) and
+    // Android's XML resources, and almost none a user would look for. Folder
+    // names (bin, build, lib...) were no help: they are in source trees too.
+    struct File {
+        EntryId folder;
+        std::uint64_t extension;
+        auto operator<=>(const File&) const = default;
+    };
+    std::vector<File> files;
+    files.reserve(candidates.size());
+    for (const EntryId id : candidates) {
+        const Entry& e = index.entry(id);
+        std::size_t extLength = 0;
+        const std::string_view name = index.fileName(e, extLength);
+        files.push_back({e.parent, extensionKey(name.substr(name.size() - std::min(extLength, name.size())))});
+    }
+    std::sort(files.begin(), files.end());
+    std::vector<EntryId> crowded;
+    for (auto folder = files.begin(); folder != files.end();) {
+        const auto end = std::find_if(folder, files.end(), [&](const File& f) { return f.folder != folder->folder; });
+        const auto total = static_cast<std::size_t>(end - folder);
+        if (total >= kCrowdedFiles) {
+            std::size_t most = 0;
+            for (auto run = folder; run != end;) {
+                const auto runEnd = std::find_if(run, end, [&](const File& f) { return f.extension != run->extension; });
+                most = std::max(most, static_cast<std::size_t>(runEnd - run));
+                run = runEnd;
+            }
+            if (most * 100 >= total * kCrowdedShare)
+                crowded.push_back(folder->folder);
+        }
+        folder = end;
+    }
+    return crowded; // sorted, as the files were
 }
 
 int ContentIndexer::documentProcesses() noexcept
@@ -838,6 +924,14 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
 
     m_passDone = 0;
     m_passTotal = work.size();
+    m_passCrowdedDone = 0;
+    m_passCrowded = static_cast<std::size_t>(
+        std::count_if(work.begin(), work.end(), [](const Work& w) { return w.crowded; }));
+    const auto doneWith = [this](const Work& w) {
+        if (w.crowded)
+            ++m_passCrowdedDone;
+        ++m_passDone;
+    };
     m_passStartedMs = steadyMs();
     m_lastProgressMs = m_passStartedMs.load();
     m_merging = false;
@@ -1084,14 +1178,14 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
                     bulkRoom.notify_all();
                     if (!takeGrams(*delivered))
                         full = true;
-                    ++m_passDone;
+                    doneWith(*delivered->work);
                     busy.fetch_sub(1);
                     continue;
                 }
                 if (lateWork) {
                     if (!read(*lateWork, path, hardDiskQueue[lateWork->volume] != nullptr, t))
                         full = true;
-                    ++m_passDone;
+                    doneWith(*lateWork);
                     busy.fetch_sub(1);
                     continue;
                 }
@@ -1108,7 +1202,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
             }
             if (!read(*w, path, from->hardDisk, t))
                 full = true;
-            ++m_passDone;
+            doneWith(*w);
             from->reading.fetch_sub(1);
             busy.fetch_sub(1);
             if (from->room.load() != std::numeric_limits<int>::max())
@@ -1172,7 +1266,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
             for (const Work* w : bv.files) {
                 const Entry& e = index->entry(w->entry);
                 if (e.isDeleted()) {
-                    ++m_passDone;
+                    doneWith(*w);
                     continue;
                 }
                 const auto parent = bv.folderRecord.find(e.parent);
@@ -1223,7 +1317,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
                         full = true;
                 }
                 ++m_bulk.tooLarge;
-                ++m_passDone;
+                doneWith(*w);
                 break;
             case ntfs::BulkStatus::NotFound:
                 ++m_bulk.notFound;
@@ -1241,7 +1335,12 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
         }
         giveBack(back);
         back.clear();
-        // The bytes, in batches, in the order given.
+        // The disk's order within each kind of file, the kinds in findWork's
+        // order: the user's own files first, crowded folders' last.
+        std::stable_sort(data.begin(), data.end(), [&](const ntfs::BulkFile* a, const ntfs::BulkFile* b) {
+            return ticketWork[a->ticket]->order < ticketWork[b->ticket]->order;
+        });
+        // The bytes, in batches, in that order.
         std::vector<bool> got(ticketWork.size(), false);
         std::size_t at = 0;
         while (at < data.size() && !cancelled() && !full.load()) {

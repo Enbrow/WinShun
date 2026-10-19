@@ -6143,6 +6143,52 @@ private slots:
         QCOMPARE(content->stats().documents, std::size_t {0});
     }
 
+    // Folders that directly hold many candidates, nearly all of one
+    // extension, are read last; nothing else is.
+    void contentCrowdedFolders()
+    {
+        FileIndex index;
+        std::vector<EntryId> candidates;
+        EntryId crowded = kNoEntry, edge = kNoEntry;
+        {
+            auto lock = index.writeLock();
+            const EntryId root = index.addRoot("C:");
+            const auto folder = [&](const char* name, std::vector<std::pair<std::string, int>> files) {
+                const EntryId f = index.add(root, name, EntryFlag::Directory);
+                for (const auto& [ext, count] : files) {
+                    for (int i = 0; i < count; ++i)
+                        candidates.push_back(index.add(f, ext + std::to_string(i) + "." + ext, 0));
+                }
+                return f;
+            };
+            crowded = folder("crowded", {{"json", 300}, {"JSON", 300}}); // one extension, as a search sees it
+            edge = folder("edge", {{"json", 540}, {"txt", 60}}); // 90%
+            folder("mixed", {{"json", 500}, {"txt", 50}, {"xml", 50}}); // 83%
+            folder("almost", {{"json", 539}, {"txt", 61}}); // just under 90%
+            folder("few", {{"json", 499}}); // all one, but too few
+            // Many of one extension, but in subfolders: none holds enough directly.
+            const EntryId tree = folder("tree", {});
+            for (int s = 0; s < 3; ++s) {
+                const EntryId sub = index.add(tree, "s" + std::to_string(s), EntryFlag::Directory);
+                for (int i = 0; i < 300; ++i)
+                    candidates.push_back(index.add(sub, "f" + std::to_string(i) + ".html", 0));
+            }
+            candidates.push_back(index.add(root, "notes.txt", 0));
+        }
+        std::sort(candidates.begin(), candidates.end());
+        QCOMPARE(ContentIndexer::crowdedFolders(index, candidates), (std::vector<EntryId> {crowded, edge}));
+        QVERIFY(ContentIndexer::crowdedFolders(index, {}).empty());
+
+        // Crowded goes after everything else, hidden files and the profile's too.
+        using O = ContentIndexer::Order;
+        QCOMPARE(ContentIndexer::orderOf(true, false, false), O::kProfile);
+        QCOMPARE(ContentIndexer::orderOf(false, false, false), O::kOther);
+        QCOMPARE(ContentIndexer::orderOf(true, true, false), O::kHidden);
+        QCOMPARE(ContentIndexer::orderOf(true, false, true), O::kCrowded);
+        QCOMPARE(ContentIndexer::orderOf(false, true, true), O::kCrowded);
+        QVERIFY(O::kKnown < O::kProfile && O::kProfile < O::kOther && O::kOther < O::kHidden && O::kHidden < O::kCrowded);
+    }
+
     // ---- documents -------------------------------------------------------------
 
     void extractWriter()

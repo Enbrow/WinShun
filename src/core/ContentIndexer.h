@@ -34,7 +34,8 @@ namespace ws {
 // milliseconds of processor time, in its own process: how many files are
 // read at once is how many processors that takes, a quarter of them while
 // someone uses the computer and half while nobody does (two at a time from a
-// hard disk). Files in the user's folders come first. Waits while a content
+// hard disk). Files in the user's folders come first, those in crowded
+// folders (crowdedFolders) last, the bulk way too. Waits while a content
 // search runs, since both open files; what such a search reads itself comes
 // in too (Intake). Documents (Word, PDF...) are read by WinShunExtract.exe
 // (DocExtractor), a few at a time beside the other files (more while nobody
@@ -48,7 +49,8 @@ namespace ws {
 // opened. Those go the bulk way when there are enough of them (kBulk*):
 // per volume, a session with the index service (or the volume itself, when
 // this program may read it: ntfs::VolumeAccess::openBulkRead) that reads
-// their bytes off the volume by their MFT records, in disk order, with no
+// their bytes off the volume by their MFT records, in disk order within each
+// kind of file (Work::order), with no
 // file opened; the grams are taken out here as from a file. Files written
 // lately, documents, and whatever the session will not give (compressed,
 // encrypted, reparse points, not readable by this user, not found) are read
@@ -111,12 +113,33 @@ public:
     void setOptions(Options options);
     void wake(); // documents turned dirty: read them again a little later
     bool reading() const noexcept { return m_reading.load(); } // files are being read now
-    // Of the files the pass under way looks at: how many it has done, of how many.
+    // Of the files the pass under way looks at: how many it has done, of how
+    // many; and of those, the ones in crowded folders (read last).
     struct Progress {
         std::size_t done = 0;
         std::size_t total = 0;
+        std::size_t crowdedDone = 0;
+        std::size_t crowded = 0;
     };
-    Progress progress() const noexcept { return {m_passDone.load(), m_passTotal.load()}; }
+    Progress progress() const noexcept
+    {
+        return {m_passDone.load(), m_passTotal.load(), m_passCrowdedDone.load(), m_passCrowded.load()};
+    }
+    // Crowded folders: those that directly hold at least kCrowdedFiles of
+    // `candidates` (files a content search looks in), kCrowdedShare of them
+    // of one extension. Generated files, mostly (documentation, translation
+    // output, resources); their files are read last. Sorted. Measured
+    // 2026-10-19 (wsbench --content-plan): these catch 24.5k files, 1.46 GB
+    // of 357k candidates here, almost none a user looks for (crowdedFolders()).
+    static constexpr std::size_t kCrowdedFiles = 500;
+    static constexpr std::size_t kCrowdedShare = 90; // percent
+    static std::vector<EntryId> crowdedFolders(const FileIndex& index, std::span<const EntryId> candidates);
+    // The order a file to read for the first time gets (lower first).
+    enum Order : std::uint8_t { kKnown = 0, kProfile = 1, kOther = 2, kHidden = 3, kCrowded = 4 };
+    static Order orderOf(bool inProfile, bool hidden, bool crowded) noexcept
+    {
+        return crowded ? kCrowded : hidden ? kHidden : inProfile ? kProfile : kOther;
+    }
     QJsonObject diagnosticStatus() const; // metadata only; no paths or document text
     // The search box is open: the user may search again any moment, and a
     // search reads the files it needs itself, best with the disks to itself.
@@ -204,7 +227,8 @@ private:
         bool again; // read before, changed since
         std::uint32_t stamp;
         bool document = false; // read by the DocExtractor
-        std::uint8_t order = 0; // lower first: files read before, then the user's own, others, hidden ones
+        std::uint8_t order = kKnown; // Order: files read before, then the user's own, others, hidden, crowded ones
+        bool crowded = false; // in a crowded folder (read last but with WINSHUN_CROWDED=0)
         std::size_t volume = 0; // in the volumes findWork() was given
     };
 
@@ -236,6 +260,8 @@ private:
     std::atomic<std::int64_t> m_searchBoxClosed {0}; // steady clock, ms
     std::atomic<std::size_t> m_passDone {0};
     std::atomic<std::size_t> m_passTotal {0};
+    std::atomic<std::size_t> m_passCrowdedDone {0};
+    std::atomic<std::size_t> m_passCrowded {0};
     std::atomic<std::int64_t> m_passStartedMs {0};
     std::atomic<std::int64_t> m_lastProgressMs {0};
     std::atomic<bool> m_merging {false};
