@@ -212,6 +212,7 @@ qt_add_qml_module(WinShun
     RESOURCES ${gleaning_images}
     SOURCES
         AuthorMark.cpp AuthorMark.h
+        BoxSide.h
         ClipModel.cpp ClipModel.h
         Clipboard.cpp Clipboard.h
         ColorSwatch.cpp ColorSwatch.h

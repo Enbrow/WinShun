@@ -26,7 +26,8 @@ Window {
     property int previewWidth: 400 // set as it opens
     readonly property int maxRows: 8
     readonly property int minRows: 3 // it settles no lower than these fit below
-    // As many rows as fit below where it is put (above, over a search box).
+    // As many rows as fit below where it is put (above, over the caret or a
+    // search box: placement.above).
     readonly property int rows: Math.max(minRows, Math.min(maxRows,
                                          Math.floor((placement.room - page.chromeHeight) / page.rowHeight)))
 
@@ -49,6 +50,18 @@ Window {
         target: window.placement
         property: "roomNeeded"
         value: page.chromeHeight + window.minRows * page.rowHeight
+    }
+    // With the most, and a row: by the caret or a search box it opens on the
+    // side where more whole rows fit, under it when all of them do (#38).
+    Binding {
+        target: window.placement
+        property: "roomWanted"
+        value: page.chromeHeight + window.maxRows * page.rowHeight
+    }
+    Binding {
+        target: window.placement
+        property: "roomStep"
+        value: page.rowHeight
     }
     Binding { // the list's part: the preview makes it wider to the right (roomRight)
         target: window.placement

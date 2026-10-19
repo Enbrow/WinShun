@@ -41,8 +41,9 @@ namespace ws {
 //
 // Instead of at its spot, a window can go by a box (attach): the clipboard
 // drops down under the search box of ours or the text caret it pastes at,
-// level with its left edge, or goes over it where more rows fit there. Moved
-// by the user then, it stays where it is let go, and its spot stays as it was.
+// level with its left edge, or goes over it where more rows fit there
+// (boxside::above). Moved by the user then, it stays where it is let go, and
+// its spot stays as it was.
 //
 // Or by the taskbar (attachTaskbar), as Windows' own search opens there: the
 // launcher from its button on the taskbar or from Win+S. Off the taskbar by a
@@ -77,10 +78,19 @@ class Placement : public QObject {
     // Height of the window with the fewest rows it keeps room for (logical
     // pixels): it settles no lower than that fits.
     Q_PROPERTY(int roomNeeded READ roomNeeded WRITE setRoomNeeded NOTIFY roomNeededChanged FINAL)
+    // ... with the most rows it shows, and what a row adds to it (logical
+    // pixels; 0: not said). By a box, it opens on the side where more of
+    // those rows fit (boxside::above).
+    Q_PROPERTY(int roomWanted READ roomWanted WRITE setRoomWanted NOTIFY roomWantedChanged FINAL)
+    Q_PROPERTY(int roomStep READ roomStep WRITE setRoomStep NOTIFY roomStepChanged FINAL)
     // From the top of the window, where it is put or settles, to the bottom
     // of that work area (logical pixels); over a box, from the box up to the
     // top of it. Kept while it is being moved.
     Q_PROPERTY(int room READ room NOTIFY roomChanged FINAL)
+    // By a box, it is over it (its bottom at the box) rather than under it:
+    // set as it is placed there, before it shows; kept while it is moved by
+    // the user and until it is placed again. False when not by a box.
+    Q_PROPERTY(bool above READ above NOTIFY aboveChanged FINAL)
     // How much of the window, from its left, its spot is the centre of (the
     // clipboard's list: its preview makes it wider to the right); 0: all.
     Q_PROPERTY(int anchorWidth READ anchorWidth WRITE setAnchorWidth NOTIFY anchorWidthChanged FINAL)
@@ -98,7 +108,9 @@ public:
 
     void setWindow(QWindow* window); // native handle created
     void placeOn(QScreen* screen); // before showing the window there, at its spot
-    void attach(const QRect& box); // before showing it, by `box` (logical pixels, on the screen)
+    // Before showing it, by `box` (logical pixels, on `screen`; none: the
+    // screen at the box's centre).
+    void attach(const QRect& box, QScreen* screen = nullptr);
     void attachNative(const QRect& box); // ... physical pixels (another program's text caret)
     void attachTaskbar(const taskbar::Spot& spot); // before showing it, over the taskbar
 
@@ -106,7 +118,12 @@ public:
     bool atTaskbar() const { return m_taskbar.has_value(); }
     int roomNeeded() const { return m_roomNeeded; }
     void setRoomNeeded(int height);
+    int roomWanted() const { return m_roomWanted; }
+    void setRoomWanted(int height);
+    int roomStep() const { return m_roomStep; }
+    void setRoomStep(int height);
     int room() const { return m_room; }
+    bool above() const { return m_above; }
     int anchorWidth() const { return m_anchorWidth; }
     void setAnchorWidth(int width);
 
@@ -164,7 +181,10 @@ signals:
     void movingChanged();
     void atTaskbarChanged();
     void roomNeededChanged();
+    void roomWantedChanged();
+    void roomStepChanged();
     void roomChanged();
+    void aboveChanged();
     void anchorWidthChanged();
     void contentShiftChanged();
     void slideStepped();
@@ -206,6 +226,7 @@ private:
     void refit(); // its size changed: where it goes now
     void setTaskbar(std::optional<TaskbarBox> box);
     void setRoom(int room);
+    void setAbove(bool above);
     void setMoving(bool moving);
     void rememberSpot(); // after a move
     void savePanel(); // the panel's size and spot, after a move or a resize
@@ -238,6 +259,8 @@ private:
     int m_left = 0; // attached or dropped: where its left edge goes
     bool m_above = false; // attached over the box: its bottom stays at the box
     int m_roomNeeded = 0;
+    int m_roomWanted = 0;
+    int m_roomStep = 0;
     int m_room = 0;
     bool m_moving = false; // inside the move loop
     QPoint m_moveStart;

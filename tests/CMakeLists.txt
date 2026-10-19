@@ -97,6 +97,12 @@ qt_add_executable(tst_elide tst_elide.cpp ${PROJECT_SOURCE_DIR}/src/app/Elide.cp
 target_include_directories(tst_elide PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(tst_elide PRIVATE Qt6::Gui Qt6::Test)
 
+# Which side of a box (the text caret, a search box) the clipboard window
+# opens on, as Placement decides it (BoxSide.h, GitHub #38).
+qt_add_executable(tst_placement tst_placement.cpp)
+target_include_directories(tst_placement PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_link_libraries(tst_placement PRIVATE winshun_options Qt6::Core Qt6::Test)
+
 # Backups of the settings: what goes in, unchanged ones skipped, old ones
 # removed, and restoring (a path leaving the folder refused).
 qt_add_executable(tst_backup tst_backup.cpp ${PROJECT_SOURCE_DIR}/src/app/BackupFiles.cpp)
@@ -171,6 +177,7 @@ add_test(NAME tst_clipboard COMMAND tst_clipboard)
 add_test(NAME tst_favorites COMMAND tst_favorites)
 add_test(NAME tst_color COMMAND tst_color)
 add_test(NAME tst_elide COMMAND tst_elide)
+add_test(NAME tst_placement COMMAND tst_placement)
 add_test(NAME tst_dragout COMMAND tst_dragout)
 add_test(NAME tst_siteicon COMMAND tst_siteicon)
 add_test(NAME tst_backup COMMAND tst_backup)
@@ -180,5 +187,5 @@ add_test(NAME tst_semantic COMMAND tst_semantic)
 add_test(NAME tst_mcp COMMAND tst_mcp)
 add_test(NAME tst_plugin COMMAND tst_plugin)
 # Let ctest find the Qt DLLs without a deploy step.
-set_tests_properties(tst_core tst_service tst_keylistener tst_clipboard tst_favorites tst_backup tst_color tst_elide tst_dragout tst_siteicon tst_ocr tst_tools tst_semantic tst_mcp tst_plugin PROPERTIES
+set_tests_properties(tst_core tst_service tst_keylistener tst_clipboard tst_favorites tst_backup tst_color tst_elide tst_placement tst_dragout tst_siteicon tst_ocr tst_tools tst_semantic tst_mcp tst_plugin PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")

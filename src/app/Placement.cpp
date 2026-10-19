@@ -1,5 +1,6 @@
 #include "Placement.h"
 
+#include "BoxSide.h"
 #include "SystemTheme.h"
 
 #include <QEasingCurve>
@@ -250,6 +251,7 @@ void Placement::placeOn(QScreen* screen)
 {
     m_glide.stop();
     m_box.reset();
+    setAbove(false);
     setTaskbar({});
     m_dropped = false;
     if (m_window && screen) {
@@ -258,14 +260,15 @@ void Placement::placeOn(QScreen* screen)
     }
 }
 
-void Placement::attach(const QRect& box)
+void Placement::attach(const QRect& box, QScreen* screen)
 {
     m_glide.stop();
     m_box = box;
     setTaskbar({});
     m_dropped = false;
     m_left = box.x();
-    QScreen* screen = QGuiApplication::screenAt(box.center());
+    if (!screen)
+        screen = QGuiApplication::screenAt(box.center());
     if (!screen && m_window)
         screen = m_window->screen();
     if (m_window && screen)
@@ -291,8 +294,11 @@ void Placement::attachNative(const QRect& box)
     const auto up = [&](int pos, int from) { return from + int(std::ceil((pos - from) / scale)); };
     const int left = down(box.x(), origin.x());
     const int top = down(box.y(), origin.y());
-    attach(QRect(QPoint(left, top), QPoint(std::max(left, up(box.x() + box.width(), origin.x()) - 1),
-        std::max(top, up(box.y() + box.height(), origin.y()) - 1))));
+    const QRect logical(QPoint(left, top), QPoint(std::max(left, up(box.x() + box.width(), origin.x()) - 1),
+        std::max(top, up(box.y() + box.height(), origin.y()) - 1)));
+    // On that screen, as converted: in a gap between monitors' logical
+    // areas (mixed scales) screenAt would find none, or another one.
+    attach(logical, screen);
 }
 
 void Placement::attachTaskbar(const taskbar::Spot& spot)
@@ -317,6 +323,7 @@ void Placement::attachTaskbar(const taskbar::Spot& spot)
     const QRect logicalBar(QPoint(down(bar.left, origin.x()), down(bar.top, origin.y())),
         QPoint(up(bar.right, origin.x()) - 1, up(bar.bottom, origin.y()) - 1));
     m_box.reset();
+    setAbove(false);
     m_dropped = false;
     m_taskbarScreen = screen;
     m_taskbarSpot = spot;
@@ -351,6 +358,7 @@ void Placement::enterPanel(QScreen* screen)
     m_glide.stop();
     settleSlide();
     m_box.reset();
+    setAbove(false);
     m_dropped = false;
     setTaskbar({}); // the spot stays in m_taskbarSpot for leavePanel's caller
     m_panel = true;
@@ -396,6 +404,22 @@ void Placement::setRoomNeeded(int height)
     emit roomNeededChanged();
 }
 
+void Placement::setRoomWanted(int height)
+{
+    if (m_roomWanted == height)
+        return;
+    m_roomWanted = height;
+    emit roomWantedChanged();
+}
+
+void Placement::setRoomStep(int height)
+{
+    if (m_roomStep == height)
+        return;
+    m_roomStep = height;
+    emit roomStepChanged();
+}
+
 void Placement::resized()
 {
     if (m_window && m_window->isVisible())
@@ -426,6 +450,14 @@ void Placement::setRoom(int room)
     emit roomChanged();
 }
 
+void Placement::setAbove(bool above)
+{
+    if (m_above == above)
+        return;
+    m_above = above;
+    emit aboveChanged();
+}
+
 // The anchor's spot on the screen's work area, moved as far as needed to keep
 // the window on it with room below for the fewest rows. More rows than fit
 // there are not shown (room), so a long list does not push the window up.
@@ -451,8 +483,10 @@ QPoint Placement::settleOn(QScreen* screen)
 }
 
 // Under the box, level with its left edge (moved in to stay on the work
-// area); over it where the fewest rows would not fit under it and more of
-// them fit over it.
+// area); over it where not all of the window fits under it and more whole
+// rows fit over it (boxside::above; GitHub #38: low on the screen it stayed
+// under the caret with three rows, eight fitting over it). The side is
+// decided before the room, so that QML has both as it sizes the window.
 QPoint Placement::settleBy(QScreen* screen)
 {
     const QRect area = screen->availableGeometry();
@@ -467,7 +501,7 @@ QPoint Placement::settleBy(QScreen* screen)
     const int over = m_box->y() - kBoxGap;
     const int roomUnder = int(std::floor((bottom - native.toNative(under, native.origin.y())) / native.scale));
     const int roomOver = int(std::floor((native.toNative(over, native.origin.y()) - native.work.y()) / native.scale));
-    m_above = roomUnder < m_roomNeeded && roomOver > roomUnder;
+    setAbove(boxside::above(roomUnder, roomOver, m_roomNeeded, m_roomWanted, m_roomStep));
     setRoom(std::max(0, m_above ? roomOver : roomUnder)); // the window takes its height from it
     const int height = m_window->height();
     int y = m_above ? over - height : under;
@@ -583,6 +617,7 @@ void Placement::rememberSpot()
     if (!m_window || m_window->position() == m_moveStart) // Esc, or not moved at all
         return;
     if (m_box || m_taskbar || m_dropped) { // by a box: stays where it was let go, its spot as it was
+        // `above` too: the rows do not turn over in the hand that moved them.
         m_box.reset();
         setTaskbar({});
         m_dropped = true;
