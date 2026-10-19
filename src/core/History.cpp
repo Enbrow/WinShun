@@ -1,11 +1,34 @@
 #include "History.h"
 
+#include "Query.h"
+
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
 
+#include <algorithm>
+#include <cmath>
+#include <vector>
+
 namespace ws {
+
+namespace {
+
+constexpr double kHalfLifeMs = 14.0 * 24 * 60 * 60 * 1000;
+constexpr qsizetype kMostTexts = 8; // typed texts kept per path
+constexpr qsizetype kLongestText = 64;
+
+// What `weight`, as of `at`, has decayed to by `now`. No time known (0) is
+// taken as one half-life ago: old, but not forgotten.
+double decayed(double weight, qint64 at, qint64 now)
+{
+    const double age = at <= 0 ? kHalfLifeMs : static_cast<double>(std::max<qint64>(0, now - at));
+    return weight * std::exp2(-age / kHalfLifeMs);
+}
+
+} // namespace
 
 History::History(QString filePath, int capacity)
     : m_filePath(std::move(filePath))
@@ -25,25 +48,93 @@ void History::load()
         const QString& path = fields.first();
         if (path.isEmpty() || m_uses.contains(key(path)))
             continue;
-        Use use {1, 0};
+        Entry entry;
+        entry.use = {1, 0};
         if (fields.size() >= 3) {
-            use.count = std::max(1, fields[1].toInt());
-            use.last = std::max<qint64>(0, fields[2].toLongLong());
+            entry.use.count = std::max(1, fields[1].toInt());
+            entry.use.last = std::max<qint64>(0, fields[2].toLongLong());
+        }
+        entry.weight = entry.use.count; // kept before weights were: as many as it was opened
+        if (fields.size() >= 4) {
+            bool ok = false;
+            const double weight = fields[3].toDouble(&ok);
+            if (ok && weight > 0)
+                entry.weight = weight;
+        }
+        for (qsizetype i = 4; i + 2 < fields.size() && entry.typed.size() < kMostTexts; i += 3) {
+            Typed typed;
+            typed.text = fields[i];
+            typed.weight = fields[i + 1].toDouble();
+            typed.last = std::max<qint64>(0, fields[i + 2].toLongLong());
+            if (typed.text.isEmpty() || typed.weight <= 0)
+                continue;
+            entry.typed.append(std::move(typed));
         }
         m_items.append(path);
-        m_uses.insert(key(path), use);
+        m_uses.insert(key(path), std::move(entry));
     }
 }
 
-void History::record(const QString& path, qint64 now)
+QString History::normalize(const QString& query)
+{
+    QString text = query;
+    text.replace(u'\t', u' ').replace(u'\r', u' ').replace(u'\n', u' ');
+    // The folder to look in goes, as the content search takes it out ...
+    const QStringList words = queryWords(splitContentQuery(text).words);
+    // ... and the filters, as the name search takes them out.
+    QStringList kept;
+    const QDateTime now = QDateTime::currentDateTime();
+    for (const QString& word : words) {
+        EntryFilter filter;
+        if (word.startsWith(u"size:", Qt::CaseInsensitive) && parseSizeToken(word, filter))
+            continue;
+        if (word.startsWith(u"dm:", Qt::CaseInsensitive) && parseDateToken(word, now, filter))
+            continue;
+        if (word.startsWith(u"ext:", Qt::CaseInsensitive))
+            continue;
+        kept.append(word);
+    }
+    return kept.join(u' ').simplified().toCaseFolded().left(kLongestText).trimmed();
+}
+
+void History::record(const QString& path, const QString& query, qint64 now)
 {
     if (path.isEmpty())
         return;
     m_items.removeIf([&](const QString& p) { return p.compare(path, Qt::CaseInsensitive) == 0; });
     m_items.prepend(path);
-    Use& use = m_uses[key(path)];
-    ++use.count;
-    use.last = now;
+    Entry& entry = m_uses[key(path)];
+    entry.weight = decayed(entry.weight, entry.use.last, now) + 1;
+    ++entry.use.count;
+    entry.use.last = now;
+
+    const QString text = normalize(query);
+    if (!text.isEmpty()) {
+        qsizetype at = -1;
+        for (qsizetype i = 0; i < entry.typed.size(); ++i) {
+            if (entry.typed[i].text == text)
+                at = i;
+        }
+        if (at < 0) {
+            entry.typed.append({text, 0, now});
+            at = entry.typed.size() - 1;
+        }
+        Typed& typed = entry.typed[at];
+        typed.weight = decayed(typed.weight, typed.last, now) + 1;
+        typed.last = now;
+        if (entry.typed.size() > kMostTexts) {
+            // The weakest as of now goes; not the one just typed.
+            qsizetype weakest = -1;
+            for (qsizetype i = 0; i < entry.typed.size(); ++i) {
+                if (i != at
+                    && (weakest < 0
+                        || decayed(entry.typed[i].weight, entry.typed[i].last, now)
+                            < decayed(entry.typed[weakest].weight, entry.typed[weakest].last, now)))
+                    weakest = i;
+            }
+            entry.typed.removeAt(weakest);
+        }
+    }
     while (m_items.size() > m_capacity)
         m_uses.remove(key(m_items.takeLast()));
     save();
@@ -68,7 +159,51 @@ void History::clear()
 
 History::Use History::use(const QString& path) const
 {
-    return m_uses.value(key(path));
+    return m_uses.value(key(path)).use;
+}
+
+QStringList History::ranked(const QString& query, qint64 now) const
+{
+    const QString text = normalize(query);
+    if (text.isEmpty())
+        return m_items;
+    struct Rank {
+        int group; // 0: opened for this text, 1: for one it starts, 2: for one that starts it, 3: the rest
+        double weight;
+        qsizetype index; // in m_items: a tie goes to the newer
+    };
+    std::vector<Rank> ranks;
+    ranks.reserve(static_cast<std::size_t>(m_items.size()));
+    for (qsizetype i = 0; i < m_items.size(); ++i) {
+        const Entry entry = m_uses.value(key(m_items[i]));
+        Rank rank {3, decayed(entry.weight, entry.use.last, now), i};
+        double best[3] = {};
+        int group = 3;
+        for (const Typed& typed : entry.typed) {
+            const int g = typed.text == text ? 0 : typed.text.startsWith(text) ? 1 : text.startsWith(typed.text) ? 2 : 3;
+            if (g == 3)
+                continue;
+            best[g] = std::max(best[g], decayed(typed.weight, typed.last, now));
+            group = std::min(group, g);
+        }
+        if (group < 3) {
+            rank.group = group;
+            rank.weight = best[group];
+        }
+        ranks.push_back(rank);
+    }
+    std::ranges::sort(ranks, [](const Rank& a, const Rank& b) {
+        if (a.group != b.group)
+            return a.group < b.group;
+        if (a.weight != b.weight)
+            return a.weight > b.weight;
+        return a.index < b.index;
+    });
+    QStringList out;
+    out.reserve(m_items.size());
+    for (const Rank& rank : ranks)
+        out.append(m_items[rank.index]);
+    return out;
 }
 
 void History::save() const
@@ -78,9 +213,15 @@ void History::save() const
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
         return;
     for (const QString& item : m_items) {
-        const Use use = m_uses.value(key(item));
+        const Entry entry = m_uses.value(key(item));
         file.write(item.toUtf8());
-        file.write("\t" + QByteArray::number(use.count) + "\t" + QByteArray::number(use.last) + "\n");
+        file.write("\t" + QByteArray::number(entry.use.count) + "\t" + QByteArray::number(entry.use.last) + "\t"
+            + QByteArray::number(entry.weight, 'g', 9));
+        for (const Typed& typed : entry.typed) {
+            file.write("\t" + typed.text.toUtf8() + "\t" + QByteArray::number(typed.weight, 'g', 9) + "\t"
+                + QByteArray::number(typed.last));
+        }
+        file.write("\n");
     }
     file.commit();
 }

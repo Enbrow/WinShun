@@ -3765,8 +3765,8 @@
         <translation>Add games that are not recognized by themselves</translation>
     </message>
     <message>
-        <source>没输入时列出最近打开的项目，搜索时排在前面</source>
-        <translation>Lists what you opened lately while nothing is typed, and puts it first in results</translation>
+        <source>没输入时列出最近打开的项目；搜索时，你输入同样的字常打开的排在前面</source>
+        <translation>Lists what you opened lately while nothing is typed; when searching, what you often open for the same text comes first</translation>
     </message>
     <message>
         <source>游戏全屏或藏起鼠标时不打开，免得蹲下时误触</source>

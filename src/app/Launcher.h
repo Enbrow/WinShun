@@ -620,7 +620,9 @@ private:
     void performMany(const SearchResults& items, Action action);
     // A favorite folder's row, outside keyword mode: Tab goes into it (or null).
     const SearchResult* enterableFolder(int row) const;
-    void remember(const QString& path); // opened: into the history, if it is kept
+    // Opened: into the history, if it is kept. `query`: the text the list it
+    // was opened from is for (m_shownText); none when it was not found by typing.
+    void remember(const QString& path, const QString& query = {});
     void forgetRecent(const QStringList& paths);
     // showSystemMenu's work, from the event loop; afterwards forgetGone drops
     // the rows whose files the command took away (删除, 剪切 and paste

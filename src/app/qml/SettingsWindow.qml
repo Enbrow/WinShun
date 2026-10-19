@@ -1691,7 +1691,7 @@ Window {
                 SettingRow {
                     title: qsTr("记住打开过的项目")
                     keywords: qsTr("历史;最近;记录;history;recent").split(";")
-                    description: qsTr("没输入时列出最近打开的项目，搜索时排在前面")
+                    description: qsTr("没输入时列出最近打开的项目；搜索时，你输入同样的字常打开的排在前面")
 
                     ToggleSwitch {
                         checked: window.editor.recordHistory

@@ -1038,7 +1038,7 @@ void Launcher::search(bool more)
     }
     // With no start list, nothing opened shows before something is typed.
     if (m_recordHistory && !(text.isEmpty() && m_startList == NoStartList))
-        request.history = m_history->items();
+        request.history = m_history->ranked(text, QDateTime::currentMSecsSinceEpoch());
     request.web = m_web;
     if (m_favorites)
         request.favorites = m_favorites->items();
@@ -2574,12 +2574,12 @@ void Launcher::perform(const SearchResult& result, Action action)
     switch (action) {
     case Open:
     case RunAsAdmin:
-        remember(r.path);
+        remember(r.path, m_shownText);
         shell::open(r.path, action == RunAsAdmin, reportFailure(r.name));
         emit dismissRequested();
         break;
     case Reveal:
-        remember(r.path);
+        remember(r.path, m_shownText);
         shell::reveal(r.path);
         emit dismissRequested();
         break;
@@ -2613,7 +2613,7 @@ void Launcher::perform(const SearchResult& result, Action action)
     case AddFavorite:
     case RemoveFavorite:
     case OpenTerminal:
-        remember(r.path);
+        remember(r.path, m_shownText);
         shell::openTerminal(r.isDir ? r.path : folderOf(r.path), reportFailure(r.name));
         emit dismissRequested();
         break;
@@ -2635,7 +2635,7 @@ void Launcher::performApp(const SearchResult& app, Action action)
             flash(tr("“%1”不能以管理员身份运行").arg(app.name));
             return;
         }
-        remember(app.path);
+        remember(app.path, m_shownText);
         shell::launchApp(app.path, action == RunAsAdmin, reportFailure(app.name));
         emit dismissRequested();
         break;
@@ -2644,7 +2644,7 @@ void Launcher::performApp(const SearchResult& app, Action action)
             flash(tr("“%1”没有可以打开的位置").arg(app.name));
             return;
         }
-        remember(app.path);
+        remember(app.path, m_shownText);
         if (app.isPackagedApp())
             shell::open(app.target); // its install folder; the folder above it is not readable
         else
@@ -2688,7 +2688,7 @@ void Launcher::performPlace(const SearchResult& place, Action action)
     switch (action) {
     case Open:
     case RunAsAdmin:
-        remember(place.path);
+        remember(place.path, m_shownText);
         shell::run(place.target, reportFailure(place.name));
         emit dismissRequested();
         break;
@@ -2858,7 +2858,7 @@ void Launcher::performMany(const SearchResults& items, Action action)
                     continue;
                 shell::open(r.path, admin, reportFailure(r.name));
             }
-            remember(r.path);
+            remember(r.path, m_shownText);
             ++started;
         }
         if (started == 0) {
@@ -2875,7 +2875,7 @@ void Launcher::performMany(const SearchResults& items, Action action)
             const QString& place = r.isApp() ? r.target : r.path;
             if (r.isPlace() || place.isEmpty() || !exists(place))
                 continue;
-            remember(r.path);
+            remember(r.path, m_shownText);
             if (r.isPackagedApp())
                 shell::open(place); // its install folder; the folder above it is not readable
             else
@@ -2993,10 +2993,10 @@ void Launcher::clearHistory()
     flash(tr("已清除最近使用记录"));
 }
 
-void Launcher::remember(const QString& path)
+void Launcher::remember(const QString& path, const QString& query)
 {
     if (m_recordHistory)
-        m_history->record(path, QDateTime::currentMSecsSinceEpoch());
+        m_history->record(path, query, QDateTime::currentMSecsSinceEpoch());
 }
 
 void Launcher::forgetRecent(const QStringList& paths)
@@ -3331,7 +3331,7 @@ void Launcher::runSystemMenu(const QStringList& paths, std::optional<QPointF> gl
         }
         if (c.verb == L"open" || c.verb == L"edit" || c.verb == L"runas") {
             for (const QString& path : paths)
-                remember(path);
+                remember(path, m_shownText);
         }
         emit dismissRequested();
     });

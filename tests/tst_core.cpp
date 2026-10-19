@@ -4687,6 +4687,184 @@ private slots:
         QCOMPARE(again.use(uR"(D:\b.txt)"_s).count, 0);
     }
 
+    void historyFormats()
+    {
+        constexpr qint64 day = 86'400'000;
+        const qint64 now = 1000 * day;
+        QTemporaryDir dir;
+        const QString file = dir.filePath(u"history.txt"_s);
+        const auto write = [&](const QByteArray& text) {
+            QFile f(file);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(text);
+        };
+        // Bare paths, a line of 3 fields, a line with counts of the new kind.
+        write("C:\\bare.txt\n"
+              "D:\\three.txt\t4\t0\n"
+              "E:\\new.txt\t2\t" + QByteArray::number(now - day) + "\t1.5\tbg\t1.25\t" + QByteArray::number(now - day)
+              + "\tbaogao\t0.5\t" + QByteArray::number(now - 2 * day) + "\n");
+        History history(file);
+        history.load();
+        QCOMPARE(history.items(), (QStringList {u"C:\\bare.txt"_s, u"D:\\three.txt"_s, u"E:\\new.txt"_s}));
+        QCOMPARE(history.use(u"C:\\bare.txt"_s).count, 1);
+        QCOMPARE(history.use(u"D:\\three.txt"_s).count, 4);
+        QCOMPARE(history.use(u"E:\\new.txt"_s).count, 2);
+        QCOMPARE(history.use(u"E:\\new.txt"_s).last, now - day);
+        // Only E has a text typed: "bg" lists it first, the others as they were.
+        QCOMPARE(history.ranked(u"bg"_s, now).first(), u"E:\\new.txt"_s);
+        // A path with no time: weight as many as it was opened, half-life old.
+        // D (4 opens, a half-life old: 2) outranks the bare one (1, a half-life old: 0.5).
+        QCOMPARE(history.ranked(u"zzz"_s, now), (QStringList {u"D:\\three.txt"_s, u"E:\\new.txt"_s, u"C:\\bare.txt"_s}));
+    }
+
+    void historyRoundTrip()
+    {
+        constexpr qint64 day = 86'400'000;
+        const qint64 now = 1000 * day;
+        QTemporaryDir dir;
+        const QString file = dir.filePath(u"history.txt"_s);
+        History history(file);
+        history.record(u"C:\\a.txt"_s, u"Report"_s, now - 2 * day);
+        history.record(u"C:\\a.txt"_s, u"report "_s, now - day);
+        history.record(u"D:\\b.txt"_s, u"bg"_s, now);
+        history.record(u"D:\\b.txt"_s, QString(), now); // not typed: no text kept
+        History again(file);
+        again.load();
+        QCOMPARE(again.items(), history.items());
+        QCOMPARE(again.use(u"C:\\a.txt"_s).count, 2);
+        QCOMPARE(again.use(u"D:\\b.txt"_s).count, 2);
+        for (const QString& typed : {u"report"_s, u"bg"_s, u"nothing"_s, u"rep"_s, u"reports"_s})
+            QCOMPARE(again.ranked(typed, now + day), history.ranked(typed, now + day));
+        QCOMPARE(again.ranked(u"report"_s, now).first(), u"C:\\a.txt"_s); // the text came back
+        QCOMPARE(again.ranked(u"bg"_s, now).first(), u"D:\\b.txt"_s);
+
+        // The first three fields are what older builds read.
+        QFile f(file);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QList<QByteArray> fields = f.readLine().trimmed().split('\t');
+        QVERIFY(fields.size() > 3);
+        QCOMPARE(fields[1].toInt(), 2);
+    }
+
+    void historyNormalize()
+    {
+        QCOMPARE(History::normalize(u"  Report \t 2025\r\n"_s), u"report 2025"_s);
+        QCOMPARE(History::normalize(u"report size:>1mb"_s), u"report"_s); // a filter is not the text
+        QCOMPARE(History::normalize(u"dm:7d REPORT ext:pdf,docx"_s), u"report"_s);
+        QCOMPARE(History::normalize(u"report abc/"_s), u"report"_s); // nor the folder to look in
+        QCOMPARE(History::normalize(u"report"_s), History::normalize(u"report size:>1mb"_s));
+        QCOMPARE(History::normalize(u"BG"_s), u"bg"_s); // pinyin initials as typed
+        QCOMPARE(History::normalize(u"size:>1mb"_s), QString()); // nothing left
+        QCOMPARE(History::normalize(QString(100, u'a')).size(), 64);
+    }
+
+    void historyRanking()
+    {
+        constexpr qint64 day = 86'400'000;
+        const qint64 now = 1000 * day;
+        QTemporaryDir dir;
+        History history(dir.filePath(u"history.txt"_s));
+        history.record(u"E:\\other.txt"_s, u"zzz"_s, now - 4 * day);
+        history.record(u"D:\\longer.txt"_s, u"report final"_s, now - 3 * day); // the text starts with "rep"
+        history.record(u"C:\\shorter.txt"_s, u"re"_s, now - 2 * day); // "rep" starts with it
+        history.record(u"B:\\exact.txt"_s, u"rep"_s, now - 2 * day);
+        history.record(u"A:\\plain.txt"_s, QString(), now - day); // never found by typing
+        history.record(u"F:\\latest.txt"_s, QString(), now);
+        QCOMPARE(history.ranked(u"rep"_s, now),
+            (QStringList {u"B:\\exact.txt"_s, u"D:\\longer.txt"_s, u"C:\\shorter.txt"_s, u"F:\\latest.txt"_s,
+                u"A:\\plain.txt"_s, u"E:\\other.txt"_s}));
+        // The rest by the path's own weight: the more recent opening first.
+        // An empty text (or only filters): items() as they are.
+        QCOMPARE(history.ranked(QString(), now), history.items());
+        QCOMPARE(history.ranked(u"  size:>1mb "_s, now), history.items());
+        QCOMPARE(history.items().first(), u"F:\\latest.txt"_s);
+        // Case and filters do not tell texts apart.
+        QCOMPARE(history.ranked(u" REP dm:7d"_s, now), history.ranked(u"rep"_s, now));
+    }
+
+    void historyFrecency()
+    {
+        constexpr qint64 day = 86'400'000;
+        const qint64 now = 1000 * day;
+        QTemporaryDir dir;
+        {
+            // Often over a month, and once yesterday, for the same text.
+            History history(dir.filePath(u"a.txt"_s));
+            for (int i = 0; i < 10; ++i)
+                history.record(u"C:\\often.txt"_s, u"x"_s, now - (30 - 3 * i) * day);
+            history.record(u"D:\\once.txt"_s, u"x"_s, now - day);
+            history.record(u"D:\\once.txt"_s, u"y"_s, now - day); // and for its own text
+            QCOMPARE(history.items().first(), u"D:\\once.txt"_s); // newer
+            QCOMPARE(history.ranked(u"x"_s, now).first(), u"C:\\often.txt"_s);
+            QCOMPARE(history.ranked(u"y"_s, now).first(), u"D:\\once.txt"_s);
+        }
+        {
+            // Decay: 20 opens long ago, against 4 lately.
+            History history(dir.filePath(u"b.txt"_s));
+            for (int i = 0; i < 20; ++i)
+                history.record(u"C:\\stale.txt"_s, QString(), now - 200 * day);
+            for (int i = 0; i < 4; ++i)
+                history.record(u"D:\\lately.txt"_s, QString(), now - day);
+            QCOMPARE(history.ranked(u"q"_s, now - 200 * day).first(), u"C:\\stale.txt"_s); // then, it was ahead
+            QCOMPARE(history.ranked(u"q"_s, now).first(), u"D:\\lately.txt"_s); // now it has decayed
+            // Opened again, the weight is the decayed one plus one (not the count).
+            history.record(u"C:\\stale.txt"_s, QString(), now);
+            QCOMPARE(history.ranked(u"q"_s, now).first(), u"D:\\lately.txt"_s);
+        }
+    }
+
+    void historyTextCap()
+    {
+        constexpr qint64 day = 86'400'000;
+        const qint64 now = 1000 * day;
+        QTemporaryDir dir;
+        const QString file = dir.filePath(u"history.txt"_s);
+        History history(file);
+        // t1 is typed 3 times; the others once each, older ones first.
+        for (int i = 0; i < 3; ++i)
+            history.record(u"C:\\a.txt"_s, u"t1"_s, now - 100 * day + i);
+        for (int i = 2; i <= 8; ++i)
+            history.record(u"C:\\a.txt"_s, u"t%1"_s.arg(i), now - (20 - i) * day);
+        // A ninth: the weakest (as of now) goes, which is t1 (long ago), not the new one.
+        history.record(u"C:\\a.txt"_s, u"t9"_s, now);
+        QFile f(file);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QList<QByteArray> fields = f.readAll().trimmed().split('\t');
+        QCOMPARE((fields.size() - 4) / 3, 8); // 8 texts after path, count, last, weight
+        QVERIFY(!fields.contains("t1"));
+        QVERIFY(fields.contains("t9"));
+        QVERIFY(fields.contains("t8"));
+    }
+
+    void historyForget()
+    {
+        constexpr qint64 day = 86'400'000;
+        const qint64 now = 1000 * day;
+        QTemporaryDir dir;
+        const QString file = dir.filePath(u"history.txt"_s);
+        History history(file);
+        history.record(u"C:\\a.txt"_s, u"abc"_s, now);
+        history.record(u"D:\\b.txt"_s, u"abc"_s, now - day);
+        history.remove(u"c:\\A.TXT"_s);
+        QCOMPARE(history.items(), QStringList {u"D:\\b.txt"_s});
+        // Opened again, nothing of the old texts is left.
+        history.record(u"C:\\a.txt"_s, u"other"_s, now);
+        QCOMPARE(history.ranked(u"abc"_s, now).first(), u"D:\\b.txt"_s);
+        history.remove(u"C:\\a.txt"_s);
+        history.clear();
+        QVERIFY(history.items().isEmpty());
+        History again(file);
+        again.load();
+        QVERIFY(again.items().isEmpty());
+        history.record(u"C:\\a.txt"_s, QString(), now);
+        history.clear();
+        history.record(u"C:\\a.txt"_s, QString(), now);
+        QCOMPARE(history.ranked(u"abc"_s, now), QStringList {u"C:\\a.txt"_s});
+        QFile f(file);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QVERIFY(!f.readAll().contains("abc"));
+    }
+
     void frequentAppRanking()
     {
         const auto app = [](const QString& name, const QString& id, const QString& target,
