@@ -1149,7 +1149,7 @@ void SearchEngine::runNameSearch(const Job& job)
             std::vector<Ranked> ranked;
             for (const AppHit& hit : searchApps(*apps, query, matcher, request.history)) {
                 ranked.push_back({hit.score, fromApp((*apps)[hit.index], false, hit.otherName)});
-                ranked.back().result.exact = matcher.isExactName((*apps)[hit.index].nameUtf8, false);
+                ranked.back().result.exact = hit.exact; // by name, another name or an abbreviation ("ps")
             }
             const std::size_t appCount = ranked.size();
             for (const PlaceHit& hit : searchPlaces(*places, query, matcher, request.history)) {

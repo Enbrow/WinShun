@@ -314,7 +314,7 @@
 - **现象**（用户截图）：搜“计算器”只有一堆“计算器.png”，没有计算器这个应用；记事本、画图、截图工具也一样。
 - **原因**：商店 / MSIX 应用的名称按“设置 → 时间和语言 → 语言和区域”里**首选语言列表的第一个**来取，和 Windows 的显示语言无关。这台电脑显示语言是中文，列表却是 `en-US, zh-Hans-CN`，于是开始菜单和 `shell:AppsFolder` 里都叫“Calculator”；中文资源包（`split.language-zh-hans`）其实装着。`C:\Windows\SystemApps` 里的系统应用（设置）照样按显示语言叫“设置”。上一条“Windows 安全中心只解析得出英文”多半也是这个原因。
 - **试过、不行的**：`SHLoadIndirectString` 不认 `SetThreadPreferredUILanguages` / `SetProcessPreferredUILanguages`，用 `@{PRI 文件路径?…}` 读中文资源包的 resources.pri 报 0x80070490；WinRT 的 `ResourceManager.Current` 在没有包标识的进程里报 0x80070002。剩下只有自己解析 PRI 格式。
-- **做法**：Windows 自带应用按 AppUserModelID 记下中英文两个名字（`AppCatalog.cpp` 的 `kKnownApps`，中文名逐个核对过它们 zh-Hans 资源里的字符串），两个都参与匹配（含拼音），用哪个名字找到的就显示哪个：搜“计算器”显示“计算器”，搜“calc”显示“Calculator”。
+- **做法**：Windows 自带应用按 AppUserModelID 记下中英文两个名字（`src/core/apps.txt` 的 `names`，原先是 `AppCatalog.cpp` 的 `kKnownApps`；中文名逐个核对过它们 zh-Hans 资源里的字符串），两个都参与匹配（含拼音），用哪个名字找到的就显示哪个：搜“计算器”显示“计算器”，搜“calc”显示“Calculator”。
 
 ### 补充的关键词要加在页面本身那一条上
 
@@ -2712,3 +2712,32 @@
 - **现象**：AI 截屏的确认窗口（`ScreenshotConfirm.qml`，高度绑在几段 `wrapMode: Text.Wrap` 的文字上）`create()` 后按 `height()` 放到工作区正中，实测整体偏下 32 像素：显示时又长高了 65 像素，只往下长。
 - **原因**：换行文字的高度要等第一次排版才定，`createWithInitialProperties` 返回时绑定算出来的还是不换行的高度。
 - **做法**：居中的函数在 `QWindow::heightChanged` 上再调一次（`App::confirmScreenshot`）。别的按内容定高、又要居中的窗口同理；测时读窗口矩形和工作区中心比。
+
+### 搜 “vscode” 找不到 Visual Studio Code
+- **现象**：全部范围里输 `vscode`，应用里没有 Visual Studio Code，Windows 任务栏搜索却把它排第一（2026-10-19）。
+- **原因**：`NameMatcher` 只做子串（汉字另有拼音），首字母匹配只认整个查询是名字各词首字母的前缀（`vsc`）。`vscode` 是“首字母 + 整词”混写（v|s|code），两条路都够不着，分数 −1 被丢掉。
+- **做法**：`searchApps` 里加“词首连缀”匹配（`wordSpanScore`）：名字按空格 / 标点 / 字母数字交界 / camelCase 切词（`AppInfo::words`），查询要能切成连续几个词的非空前缀，不跳词、至少两个词、至少 3 个字符（`vcode` 跳过 Studio 不算）；多个纯 ASCII 词（`vs code`）拼起来再试。分数 30，从第一个词起 +6，最后一段是整词 +6。不放进 `NameMatcher::score`：那是文件搜索对几百万个名字的热路径，改了会动文件的排序和速度。
+
+### 搜“微信”“ps”“cmd”，要的应用不在第一
+- **现象**（本机实测，2026-10-19）：`wx`、`weixin`、`微信` 第一行是微信输入法，微信本身在第 6 行（16 分）；`ps` 没有 Photoshop，`ppt` 没有 PowerPoint；`cmd` 前 7 行全是 VS 开发者命令提示符、Qt 和 Node.js 的命令行（都是 109 分），命令提示符排不上来；`python` 把 Module Docs 和 Python 本身并列 109。
+- **原因**：
+  - 应用只按开始菜单里的名字和程序文件名找，快捷方式的名字却是安装包或用户起的：这台电脑的微信是便携版，快捷方式叫“启动微信”，只有“微信”两个字落在名字中间。企业微信的 WXWork.exe 里倒有“wx”。
+  - `ps`、`ppt` 这种简写既不是名字的一段，也不是各词的首字母。
+  - 开发者命令提示符是 `cmd.exe /k vcvars64.bat`，程序文件名是 cmd，可它不是命令提示符；mmc、rundll32、explorer、chrome_proxy 的快捷方式也一样，程序文件名说的是宿主，不是它打开的东西。
+- **做法**（`src/core/apps.txt`，`AppAliases`，`AppInfo::prepare`）：
+  - 别名表按程序文件名认应用，不按显示的名字：`program = WeChat; Weixin` 认出“启动微信”。程序名要整个相同，所以 WXWork 不算。几个程序同名时写路径结尾：Chromium 系浏览器大多叫 chrome.exe，Chrome 写 `Google\Chrome\Application\chrome`，否则 Helium 也会被当成 Chrome。商店应用写 AppUserModelID 或包系列名；显示的名字（`title`）只在都用不了时写。Update、launcher 这种许多程序共用的名字不写。
+  - 别名（`aliases`）和名字一样匹配，拼音自动可用（写“微信”就有 wx、weixin，用不着写拼音）；完整输入算 115，和名字完全相同一样，显示的仍是开始菜单里的名字。
+  - 简写（`short`）只认完整输入，单独一档 112 分：低于名字完全相同（115），高于程序文件名（109）和 Windows PowerShell 的首字母 `wps`（45）。只认完整的，是因为“p”“s”“a”出现在太多名字里，按前缀算的话每次输一个字母都会带出 Adobe 全家。简写别和常用的拼音撞：“an”在本机对上 76 个设置（安装、安全、按……），Animate 就没写；“ai”只对上 7 个，多是“AI 组件”这类，Illustrator 照写。完整输入的另一种语言的名字、别名和简写都算完全命中（`AppHit::exact`，插件的结果排在它后面），以前只有开始菜单里的名字算。
+  - 快捷方式的参数从 `PKEY_Link_Arguments` 读，AppsFolder 的属性里本来就有，不用另开 .lnk，读应用的时间测不出差别（本机 328 个应用约 0.3 秒）。只管启动的宿主（rundll32、mmc、explorer、mshta、chrome_proxy……）有参数就算经宿主运行别的东西（`AppInfo::hosted`）；cmd、powershell、pwsh、python、java 这些 shell 和解释器自己也常被直接打开，参数里有运行开关（`/k`、`-Command`、`-m`、`-jar`……）、脚本或路径才算。PowerShell 7 的快捷方式是 `pwsh -WorkingDirectory ~`，按“有参数就算”会把它也弄丢。算了的不按宿主的程序名匹配，也不拿它查别名表；不带参数的 cmd、explorer 照旧按程序名找到。
+  - 别名表里的段对没对上，用 `wsbench --apps` 在真机上看，单元测试只能证明规则。本机没有 WPS、飞书、Illustrator 等，这些段还没在真机上对过。
+
+### 搜“qq”，设置里冒出“登录前启动放大镜”（查过，没改）
+- **现象**：`qq` 除了 QQ，还对上 11 个设置，**全部** 里列出更改设备安装设置、登录前启动放大镜、登录前启动讲述人、查看上周哪些应用请求拨打电话……；`word` 除了 Word，还有管理网络密码、创建密码重置盘、管理 Web 凭据（30 分）。
+- **原因**：
+  - 两个字母碰巧是名字中间两个字的首字母：前启、请求、取器。
+  - 更改设备安装设置的关键词里有“气球”，整个关键词的首字母是 qq。
+  - 管理网络密码那 3 个的关键词表里本来就有“word”这个词（还有“pass-word”）；不是从“password”中间找到的，关键词里的词本来就要从词首算起。
+- **试过、不行的**（676 个两字母查询，`wsbench --places`，前后对比）：
+  - 两个字母的拼音只在名字开头或词首才算：命中从 17636 降到 11832，33 个查询变空，前 5 名里 127 个 13 分以上的结果没了，其中有不少真词：dn → 此电脑，gn → 可选功能、程序和功能，xg → 视觉效果，sq → 更改时区，mb → 控制面板，ly → 启用蓝牙。汉字挨着汉字不算词首，中文名字里的“词首”就只剩第一个字，从第二个词起的真词也跟着没了。现有测试 `wk` → 当我看向别处时（我看）是有意留下的同一类命中。
+  - 再让两个字母不认 Windows 关键词的首字母（places.txt 的照认）：降到 8684，63 个查询变空，还丢了 mm → 更改密码（靠关键词“密码”）、ly → 飞行模式设置（蓝牙）。
+- **做法**：匹配不动。要压这类杂讯，得在排序或合并上想办法，比如应用完全命中时把设置排在后面。

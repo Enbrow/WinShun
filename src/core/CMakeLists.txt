@@ -53,6 +53,8 @@ qt_add_library(wscore STATIC
 
 # WinShun's own places and keywords, on top of Windows' Settings index (SystemCatalog).
 qt_add_resources(wscore "places" PREFIX "/winshun" FILES places.txt)
+# What apps are also called: names in other languages, aliases, abbreviations (AppCatalog).
+qt_add_resources(wscore "apps" PREFIX "/winshun" FILES apps.txt)
 
 target_include_directories(wscore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(wscore

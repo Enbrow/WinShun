@@ -1,0 +1,274 @@
+# Win顺自带的应用别名：应用除了开始菜单里显示的名字，还能按这里写的名字和简写找到（AppCatalog）。
+#
+# 每段一个应用，方括号里是给人看的名字（wsbench --apps 用它报告这台电脑上哪些段对上了应用）。
+# 先写怎么认出这个应用，满足一条就算，依次是：
+#
+#   id      = Microsoft.WindowsCalculator_8wekyb3d8bbwe!App    AppUserModelID（商店和 Windows 自带的应用）
+#   package = TelegramMessengerLLP.TelegramDesktop_t4vj0pshhgkwm  应用包的系列名（AppUserModelID 里 ! 前面那段）：
+#                                                              包里的每个应用都算
+#   program = WeChat; Weixin    快捷方式指向的程序的文件名，不带 .exe，不分大小写，整个相同才算
+#                               （“WXWork”里有“wx”不算）。几个程序共用一个文件名的（Chromium 系的浏览器
+#                               大多叫 chrome.exe）写上它所在的文件夹：Google\Chrome\Application\chrome，
+#                               路径以此结尾才算。不要写 Update、launcher 这类许多程序共用的名字。
+#                               经 cmd、powershell、mmc、rundll32 等运行别的东西的快捷方式（VS 的开发者
+#                               命令提示符是 cmd.exe /k vcvars64.bat）不算这个程序，也就对不上这里。
+#   title   = WPS Office        开始菜单里显示的名字，整个相同，不分大小写。上面几种都用不了时才写，
+#                               而且不能是“Settings”“帮助”“卸载”这种别的程序也会用的名字。
+#
+# 再写它还叫什么，用分号或 | 隔开：
+#
+#   names   = Calculator | 计算器   它自己在各语言里的名字（含开始菜单显示的那个）。商店应用的名字按
+#                                 “设置 → 时间和语言 → 语言和区域”里首选语言列表的第一个取，和 Windows
+#                                 的显示语言无关：列表里英语在前，中文 Windows 上计算器也叫“Calculator”，
+#                                 搜“计算器”就找不到。几个名字都能搜，用哪个找到的就显示哪个。
+#   aliases = 微信; WeChat          别的叫法，和名字一样匹配（拼音自动可用：“wx”“weixin”能找到“微信”），
+#                                 完整输入时排得和名字完全相同一样高；显示的仍是开始菜单里的名字
+#                                 （便携版微信的快捷方式叫“启动微信”）。
+#   short   = ps                    简写，只有完整输入（不分大小写）时才算，排在名字完全相同之后、程序
+#                                 文件名之前；只输一部分（“p”“s”“pss”）不算，Photoshop 不会因为简写
+#                                 被带出来。只能是字母和数字，至少两个。别和常用的拼音撞上：输“an”的
+#                                 多半要“安”“按”（2026-10-19 本机对上 76 个设置），所以 Animate 不写；
+#                                 “ai”只对上 7 个，多是“AI 组件”这类，Illustrator 照写。
+#
+# 只写本来搜不到的：开始菜单里的名字、程序文件名，以及它们的拼音、首字母都已经能搜
+# （PyCharm、Steam、迅雷不用写）。
+
+# ---------------------------------------------------------------- Windows 自带的应用
+# 中文名逐个核对过应用 zh-Hans 资源里的字符串（2026-10-09）；邮件、日历、地图、电影和电视、画图 3D
+# 在 Windows 11 上已经没有了，按 Windows 10 里的名字写。
+
+[计算器]
+id = Microsoft.WindowsCalculator_8wekyb3d8bbwe!App
+names = Calculator | 计算器
+
+[记事本]
+id = Microsoft.WindowsNotepad_8wekyb3d8bbwe!App
+names = Notepad | 记事本
+
+[画图]
+id = Microsoft.Paint_8wekyb3d8bbwe!App
+names = Paint | 画图
+short = mspaint
+
+[截图工具]
+id = Microsoft.ScreenSketch_8wekyb3d8bbwe!App
+names = Snipping Tool | 截图工具
+
+[时钟]
+id = Microsoft.WindowsAlarms_8wekyb3d8bbwe!App
+names = Clock | 时钟
+
+[相机]
+id = Microsoft.WindowsCamera_8wekyb3d8bbwe!App
+names = Camera | 相机
+
+[照片]
+id = Microsoft.Windows.Photos_8wekyb3d8bbwe!App
+names = Photos | 照片
+
+[终端]
+id = Microsoft.WindowsTerminal_8wekyb3d8bbwe!App
+names = Terminal | 终端
+short = wt
+
+[便笺]
+id = Microsoft.MicrosoftStickyNotes_8wekyb3d8bbwe!App
+names = Sticky Notes | 便笺
+
+[录音机]
+id = Microsoft.WindowsSoundRecorder_8wekyb3d8bbwe!App
+names = Sound Recorder | 录音机
+
+[媒体播放器]
+id = Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic
+names = Media Player | 媒体播放器
+
+[天气]
+id = Microsoft.BingWeather_8wekyb3d8bbwe!App
+names = Weather | 天气
+
+[资讯]
+id = Microsoft.BingNews_8wekyb3d8bbwe!AppexNews
+names = News | 资讯
+
+[手机连接]
+id = Microsoft.YourPhone_8wekyb3d8bbwe!App
+names = Phone Link | 手机连接
+
+[获取帮助]
+id = Microsoft.GetHelp_8wekyb3d8bbwe!App
+names = Get Help | 获取帮助
+
+[反馈中心]
+id = Microsoft.WindowsFeedbackHub_8wekyb3d8bbwe!App
+names = Feedback Hub | 反馈中心
+
+[Windows 安全中心]
+id = Microsoft.SecHealthUI_8wekyb3d8bbwe!SecHealthUI
+names = Windows Security | Windows 安全中心
+
+[游戏栏]
+id = Microsoft.XboxGamingOverlay_8wekyb3d8bbwe!App
+names = Game Bar | 游戏栏
+
+[命令面板]
+id = Microsoft.CommandPalette_8wekyb3d8bbwe!App
+names = Command Palette | 命令面板
+
+[快速助手]
+id = MicrosoftCorporationII.QuickAssist_8wekyb3d8bbwe!App
+names = Quick Assist | 快速助手
+
+[设置]
+id = windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel
+names = Settings | 设置
+
+[邮件]
+id = microsoft.windowscommunicationsapps_8wekyb3d8bbwe!microsoft.windowslive.mail
+names = Mail | 邮件
+
+[日历]
+id = microsoft.windowscommunicationsapps_8wekyb3d8bbwe!microsoft.windowslive.calendar
+names = Calendar | 日历
+
+[地图]
+id = Microsoft.WindowsMaps_8wekyb3d8bbwe!App
+names = Maps | 地图
+
+[电影和电视]
+id = Microsoft.ZuneVideo_8wekyb3d8bbwe!Microsoft.ZuneVideo
+names = Movies & TV | 电影和电视
+
+[画图 3D]
+id = Microsoft.MSPaint_8wekyb3d8bbwe!Microsoft.MSPaint
+names = Paint 3D | 画图 3D
+
+# 外壳对象，没有程序文件，也按 AppUserModelID 认；简写是在“运行”里打开它们的命令。
+
+[文件资源管理器]
+id = Microsoft.Windows.Explorer
+names = File Explorer | 文件资源管理器
+short = explorer
+
+[控制面板]
+id = Microsoft.Windows.ControlPanel
+names = Control Panel | 控制面板
+short = control
+
+# ---------------------------------------------------------------- 聊天、办公
+
+[微信]
+program = WeChat; Weixin
+aliases = 微信; WeChat
+
+[企业微信]
+program = WXWork
+aliases = 企业微信; WeCom
+
+[QQ]
+program = QQ; QQScLauncher
+aliases = QQ
+
+[钉钉]
+program = DingtalkLauncher; DingTalk
+aliases = 钉钉; DingTalk
+
+[飞书]
+program = Feishu; Lark
+aliases = 飞书; Feishu; Lark
+
+[Telegram]
+program = Telegram
+package = TelegramMessengerLLP.TelegramDesktop_t4vj0pshhgkwm
+aliases = 电报
+
+[PowerPoint]
+program = POWERPNT
+short = ppt
+
+[WPS Office]
+program = ksolaunch
+title = WPS Office
+short = wps
+
+# ---------------------------------------------------------------- 浏览器
+
+[Chrome]
+program = Google\Chrome\Application\chrome
+aliases = Chrome; 谷歌浏览器; 谷歌
+
+[Edge]
+program = msedge
+aliases = Edge
+
+[Firefox]
+program = Mozilla Firefox\firefox
+package = Mozilla.Firefox_n80bbvh6b1yt2
+aliases = 火狐浏览器; 火狐; Firefox
+
+# ---------------------------------------------------------------- 编程
+
+[Visual Studio Code]
+program = Code
+short = vscode
+
+[Visual Studio]
+program = devenv
+short = vs
+
+[IntelliJ IDEA]
+program = idea64; idea
+short = idea
+
+[Notepad++]
+program = notepad++
+short = npp
+
+# ---------------------------------------------------------------- 图像、视频
+# Adobe 的软件大家按两个字母的简写叫。
+
+[Photoshop]
+program = Photoshop
+short = ps
+
+[Illustrator]
+program = Illustrator
+short = ai
+
+[Premiere Pro]
+program = Adobe Premiere Pro
+short = pr
+
+[After Effects]
+program = AfterFX
+short = ae
+
+[Lightroom Classic]
+program = Lightroom
+short = lr
+
+[InDesign]
+program = InDesign
+short = id
+
+[Audition]
+program = Adobe Audition
+short = au
+
+[剪映]
+program = JianyingPro
+aliases = 剪映; CapCut
+
+# ---------------------------------------------------------------- 音乐、网盘
+
+[网易云音乐]
+program = cloudmusic
+aliases = 网易云音乐; 网易云; NetEase Cloud Music
+
+[QQ音乐]
+program = QQMusic
+aliases = QQ音乐; QQ Music
+
+[百度网盘]
+program = BaiduNetdisk
+aliases = 百度网盘; 百度云; Baidu Netdisk

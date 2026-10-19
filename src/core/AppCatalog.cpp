@@ -7,6 +7,7 @@
 #include "Wtf8.h"
 
 #include <QCollator>
+#include <QFile>
 #include <QHash>
 #include <QMetaObject>
 #include <QStringTokenizer>
@@ -42,6 +43,10 @@ constexpr QStringView kLaunchPrefix = u"shell:AppsFolder\\";
 // fingerprint cannot see, such as a new display language.
 constexpr auto kMaxAge = 10min;
 
+// An abbreviation typed in full ("ps" for Photoshop): below a name typed in
+// full (115), above a program's file name (109).
+constexpr int kAbbreviationScore = 112;
+
 // System.AppUserModel.* properties that propkey.h has no constants for.
 constexpr GUID kAppUserModel {0x9F4C2855, 0x9F79, 0x4B39, {0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3}};
 constexpr PROPERTYKEY kHostEnvironment {kAppUserModel, 14}; // 0 desktop, 1 UWP, 2 full-trust package
@@ -68,69 +73,97 @@ bool isAsciiAlnum(char c) noexcept
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
 }
 
+bool isAsciiLetterOrDigit(QChar c) noexcept
+{
+    return c.unicode() < 128 && isAsciiAlnum(static_cast<char>(c.unicode()));
+}
+
 bool isUrl(const QString& s)
 {
     return s.contains(u"://"_s) || s.startsWith(u"mailto:"_s, Qt::CaseInsensitive);
 }
 
-// Windows' own apps by their AppUserModelID, named in English and in Chinese.
-// A packaged app takes its name in the first language of the user's list
-// (Settings > Time & language > Language & region), whatever language
-// Windows itself shows: with English first on a Chinese Windows, Calculator
-// is "Calculator" and 计算器 found nothing; the apps in Windows' folder
-// (Settings) go by Windows' language all the same. A package's other
-// languages are out of reach short of parsing its resources.pri:
-// SHLoadIndirectString resolves in the user's list alone, thread and process
-// languages notwithstanding, and ResourceManager wants an app identity.
-// The Chinese names are those in the apps' zh-Hans resources (checked
-// 2026-10-09); Mail, Calendar, Maps, Movies & TV and Paint 3D, gone from
-// Windows 11, as Windows 10 named them.
-struct KnownApp {
-    QStringView id;
-    QStringView names; // separated by '|'
-};
-constexpr KnownApp kKnownApps[] = {
-    {u"Microsoft.WindowsCalculator_8wekyb3d8bbwe!App", u"Calculator|计算器"},
-    {u"Microsoft.WindowsNotepad_8wekyb3d8bbwe!App", u"Notepad|记事本"},
-    {u"Microsoft.Paint_8wekyb3d8bbwe!App", u"Paint|画图"},
-    {u"Microsoft.ScreenSketch_8wekyb3d8bbwe!App", u"Snipping Tool|截图工具"},
-    {u"Microsoft.WindowsAlarms_8wekyb3d8bbwe!App", u"Clock|时钟"},
-    {u"Microsoft.WindowsCamera_8wekyb3d8bbwe!App", u"Camera|相机"},
-    {u"Microsoft.Windows.Photos_8wekyb3d8bbwe!App", u"Photos|照片"},
-    {u"Microsoft.WindowsTerminal_8wekyb3d8bbwe!App", u"Terminal|终端"},
-    {u"Microsoft.MicrosoftStickyNotes_8wekyb3d8bbwe!App", u"Sticky Notes|便笺"},
-    {u"Microsoft.WindowsSoundRecorder_8wekyb3d8bbwe!App", u"Sound Recorder|录音机"},
-    {u"Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic", u"Media Player|媒体播放器"},
-    {u"Microsoft.BingWeather_8wekyb3d8bbwe!App", u"Weather|天气"},
-    {u"Microsoft.BingNews_8wekyb3d8bbwe!AppexNews", u"News|资讯"},
-    {u"Microsoft.YourPhone_8wekyb3d8bbwe!App", u"Phone Link|手机连接"},
-    {u"Microsoft.GetHelp_8wekyb3d8bbwe!App", u"Get Help|获取帮助"},
-    {u"Microsoft.WindowsFeedbackHub_8wekyb3d8bbwe!App", u"Feedback Hub|反馈中心"},
-    {u"Microsoft.SecHealthUI_8wekyb3d8bbwe!SecHealthUI", u"Windows Security|Windows 安全中心"},
-    {u"Microsoft.XboxGamingOverlay_8wekyb3d8bbwe!App", u"Game Bar|游戏栏"},
-    {u"Microsoft.CommandPalette_8wekyb3d8bbwe!App", u"Command Palette|命令面板"},
-    {u"MicrosoftCorporationII.QuickAssist_8wekyb3d8bbwe!App", u"Quick Assist|快速助手"},
-    {u"windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel", u"Settings|设置"},
-    {u"microsoft.windowscommunicationsapps_8wekyb3d8bbwe!microsoft.windowslive.mail", u"Mail|邮件"},
-    {u"microsoft.windowscommunicationsapps_8wekyb3d8bbwe!microsoft.windowslive.calendar", u"Calendar|日历"},
-    {u"Microsoft.WindowsMaps_8wekyb3d8bbwe!App", u"Maps|地图"},
-    {u"Microsoft.ZuneVideo_8wekyb3d8bbwe!Microsoft.ZuneVideo", u"Movies & TV|电影和电视"},
-    {u"Microsoft.MSPaint_8wekyb3d8bbwe!Microsoft.MSPaint", u"Paint 3D|画图 3D"},
-};
-
-// The names of a Windows app other than the one it shows.
-QStringList otherNamesOf(const QString& id, const QString& name)
+bool sameFolded(QStringView a, QStringView b) noexcept
 {
-    const auto known = std::find_if(std::begin(kKnownApps), std::end(kKnownApps),
-        [&](const KnownApp& k) { return id.compare(k.id, Qt::CaseInsensitive) == 0; });
-    QStringList names;
-    if (known == std::end(kKnownApps))
-        return names;
-    for (QStringView other : known->names.tokenize(u'|')) {
-        if (other.compare(name, Qt::CaseInsensitive) != 0)
-            names.append(other.toString());
+    return a.compare(b, Qt::CaseInsensitive) == 0;
+}
+
+// Programs that only start what they are given: a shortcut to one with
+// arguments opens something else (rundll32 desk.cpl,..., mmc virtmgmt.msc,
+// explorer and a folder, a web app through chrome_proxy).
+bool isLauncher(QStringView program)
+{
+    static constexpr QStringView kLaunchers[] {u"appvlp", u"chrome_proxy", u"conhost", u"control", u"cscript",
+        u"explorer", u"hh", u"mmc", u"msedge_proxy", u"mshta", u"msiexec", u"rundll32", u"wscript", u"wt"};
+    return std::ranges::any_of(kLaunchers, [&](QStringView p) { return sameFolded(program, p); });
+}
+
+// Shells and interpreters: started for themselves as well, with options
+// (PowerShell 7's shortcut: pwsh -WorkingDirectory ~).
+bool isShell(QStringView program)
+{
+    static constexpr QStringView kShells[] {
+        u"cmd", u"java", u"javaw", u"node", u"powershell", u"pwsh", u"py", u"python", u"pythonw", u"pyw"};
+    return std::ranges::any_of(kShells, [&](QStringView p) { return sameFolded(program, p); });
+}
+
+// "idle.pyw", "vcvars64.bat": a dot with letters or digits after it, one a letter.
+bool hasExtension(QStringView word)
+{
+    const qsizetype dot = word.lastIndexOf(u'.');
+    const QStringView ext = dot > 0 ? word.sliced(dot + 1) : QStringView();
+    return !ext.isEmpty() && ext.size() <= 6 && std::ranges::all_of(ext, isAsciiLetterOrDigit)
+        && std::ranges::any_of(ext, [](QChar c) { return c.isLetter(); });
+}
+
+// Whether a shell's arguments give it something to run: a command (/k,
+// -Command, -m pydoc), or a script, file, path, address or script block.
+bool namesSomethingToRun(const QString& arguments)
+{
+    static constexpr QStringView kRunSwitches[] {u"/c", u"/k", u"-c", u"-command", u"-e", u"-ec", u"-encodedcommand",
+        u"-f", u"-file", u"-m", u"-jar", u"-cp", u"-classpath"};
+    for (const QString& word : queryWords(arguments)) {
+        if (word.startsWith(u'-') || word.startsWith(u'/')) {
+            if (std::ranges::any_of(kRunSwitches, [&](QStringView s) { return sameFolded(word, s); }))
+                return true;
+            continue; // an option; the word after it may be its value ("~")
+        }
+        if (word.contains(u'\\') || word.contains(u':') || word.contains(u'{') || word.contains(u'&')
+            || hasExtension(word))
+            return true;
     }
-    return names;
+    return false;
+}
+
+// A shortcut that runs something else through a host program: a Visual
+// Studio developer prompt is cmd /k vcvars64.bat, not the Command Prompt.
+bool runsSomethingElse(QStringView program, const QString& arguments)
+{
+    return !arguments.isEmpty() && (isLauncher(program) || (isShell(program) && namesSomethingToRun(arguments)));
+}
+
+// "a; b；c | d": split at semicolons, ASCII or full-width, and bars.
+QStringList splitList(QStringView list)
+{
+    QStringList out;
+    qsizetype start = 0;
+    for (qsizetype i = 0; i <= list.size(); ++i) {
+        if (i < list.size() && list[i] != u';' && list[i] != u'；' && list[i] != u'|')
+            continue;
+        const QStringView item = list.sliced(start, i - start).trimmed();
+        if (!item.isEmpty())
+            out.append(item.toString());
+        start = i + 1;
+    }
+    return out;
+}
+
+// Two or more ASCII letters and digits, folded; empty for anything else.
+std::string abbreviationOf(QStringView word)
+{
+    if (word.size() < 2 || !std::ranges::all_of(word, isAsciiLetterOrDigit))
+        return {};
+    return word.toString().toLower().toStdString();
 }
 
 struct ComApartment {
@@ -191,8 +224,8 @@ AppKind packageKind(const QString& fullName, const QString& installPath, const Q
 bool sameApps(const AppList& a, const AppList& b)
 {
     return std::equal(a.begin(), a.end(), b.begin(), b.end(), [](const AppInfo& x, const AppInfo& y) {
-        return x.name == y.name && x.id == y.id && x.target == y.target && x.kind == y.kind
-            && x.elevatable == y.elevatable;
+        return x.name == y.name && x.id == y.id && x.target == y.target && x.arguments == y.arguments
+            && x.kind == y.kind && x.elevatable == y.elevatable;
     });
 }
 
@@ -231,28 +264,250 @@ void addFolderTree(Fnv1a& hash, const std::wstring& dir, int depth)
     } while (::FindNextFileW(find.get(), &data));
 }
 
+// The ASCII words of a name, folded: spaces, punctuation, non-ASCII, digit/letter
+// changes and camelCase all separate them ("PowerShell" -> power, shell;
+// "XMLParser" -> xml, parser; "Office365" -> office, 365).
+std::vector<std::string> splitWords(std::string_view name)
+{
+    enum Cls { Other, Lower, Upper, Digit };
+    const auto cls = [](char c) {
+        if (c >= 'a' && c <= 'z')
+            return Lower;
+        if (c >= 'A' && c <= 'Z')
+            return Upper;
+        if (c >= '0' && c <= '9')
+            return Digit;
+        return Other;
+    };
+    std::vector<std::string> out;
+    std::string cur;
+    const auto flush = [&] {
+        if (!cur.empty())
+            out.push_back(std::move(cur));
+        cur.clear();
+    };
+    for (std::size_t i = 0; i < name.size(); ++i) {
+        const Cls c = cls(name[i]);
+        if (c == Other) {
+            flush();
+            continue;
+        }
+        if (!cur.empty()) {
+            const Cls p = cls(name[i - 1]);
+            const bool next = i + 1 < name.size() && cls(name[i + 1]) == Lower;
+            if ((p == Digit) != (c == Digit) || (p == Lower && c == Upper) || (p == Upper && c == Upper && next))
+                flush();
+        }
+        cur += static_cast<char>(c == Upper ? name[i] - 'A' + 'a' : name[i]);
+    }
+    flush();
+    return out;
+}
+
+// Can q be cut into non-empty prefixes of consecutive words, from words[wi]
+// on? Best bonus of the ways to do it, or -1.
+int spanFrom(const std::vector<std::string>& words, std::size_t wi, std::string_view q)
+{
+    if (wi >= words.size())
+        return -1;
+    const std::string& w = words[wi];
+    int best = -1;
+    for (std::size_t n = 1; n <= std::min(w.size(), q.size()); ++n) {
+        if (w[n - 1] != q[n - 1])
+            break;
+        if (n == q.size()) {
+            best = std::max(best, n == w.size() ? 6 : 0);
+            continue;
+        }
+        if (const int rest = spanFrom(words, wi + 1, q.substr(n)); rest >= 0)
+            best = std::max(best, rest);
+    }
+    return best;
+}
+
+// "vscode" for Visual Studio Code: v|s|code, each a prefix of the next word,
+// no word skipped, at least two words. Score 30, +6 from the first word, +6
+// when the last piece is a whole word; -1 when it does not fit.
+int wordSpanScore(const AppInfo& app, std::string_view q)
+{
+    if (q.size() < 3 || q.size() > 32 || app.words.size() < 2)
+        return -1;
+    int best = -1;
+    for (std::size_t start = 0; start + 1 < app.words.size(); ++start) {
+        const std::string& w = app.words[start];
+        if (w.empty() || w[0] != q[0])
+            continue;
+        // Pieces must cover two words at least: a single word is the substring path's.
+        for (std::size_t n = 1; n <= std::min(w.size(), q.size() - 1); ++n) {
+            if (w[n - 1] != q[n - 1])
+                break;
+            if (const int rest = spanFrom(app.words, start + 1, q.substr(n)); rest >= 0)
+                best = std::max(best, 30 + rest + (start == 0 ? 6 : 0));
+        }
+    }
+    return best;
+}
+
 } // namespace
+
+AppAliases AppAliases::parse(QStringView text)
+{
+    struct Block {
+        Entry entry;
+        QStringList ids, packages, programs, names; // what finds the app
+    };
+    std::vector<Block> blocks;
+    for (QStringView line : text.tokenize(u'\n')) {
+        line = line.trimmed();
+        if (line.isEmpty() || line.startsWith(u'#'))
+            continue;
+        if (line.startsWith(u'[') && line.endsWith(u']')) {
+            blocks.push_back({});
+            blocks.back().entry.label = line.sliced(1, line.size() - 2).trimmed().toString();
+            continue;
+        }
+        const qsizetype eq = line.indexOf(u'=');
+        if (blocks.empty() || eq < 0)
+            continue;
+        const QString field = line.first(eq).trimmed().toString().toLower();
+        const QStringList values = splitList(line.sliced(eq + 1));
+        Block& b = blocks.back();
+        if (field == u"id")
+            b.ids += values;
+        else if (field == u"package")
+            b.packages += values;
+        else if (field == u"program")
+            b.programs += values;
+        else if (field == u"title")
+            b.names += values;
+        else if (field == u"names")
+            b.entry.names += values;
+        else if (field == u"aliases")
+            b.entry.aliases += values;
+        else if (field == u"short") {
+            for (const QString& value : values) {
+                if (std::string a = abbreviationOf(value); !a.empty())
+                    b.entry.abbreviations.push_back(std::move(a));
+            }
+        }
+    }
+
+    AppAliases table;
+    for (Block& b : blocks) {
+        if (b.ids.isEmpty() && b.packages.isEmpty() && b.programs.isEmpty() && b.names.isEmpty())
+            continue;
+        const std::size_t at = table.m_entries.size();
+        // The first block to claim a key keeps it.
+        const auto claim = [at](QHash<QString, std::size_t>& map, const QString& key) {
+            if (!key.isEmpty() && !map.contains(key.toCaseFolded()))
+                map.insert(key.toCaseFolded(), at);
+        };
+        for (const QString& id : std::as_const(b.ids))
+            claim(table.m_byId, id);
+        for (const QString& package : std::as_const(b.packages))
+            claim(table.m_byPackage, package);
+        for (QString program : std::as_const(b.programs)) {
+            program.replace(u'/', u'\\');
+            if (program.endsWith(u".exe", Qt::CaseInsensitive))
+                program.chop(4);
+            if (!program.contains(u'\\')) {
+                claim(table.m_byProgram, program);
+                continue;
+            }
+            // Google\Chrome\Application\chrome: the end of the program's path.
+            if (!program.startsWith(u'\\'))
+                program.prepend(u'\\');
+            table.m_byPath.push_back({(program + u".exe").toCaseFolded(), at});
+        }
+        for (const QString& name : std::as_const(b.names))
+            claim(table.m_byName, name);
+        table.m_entries.push_back(std::move(b.entry));
+    }
+    return table;
+}
+
+const AppAliases& AppAliases::builtIn()
+{
+    static const AppAliases table = [] {
+        QFile file(u":/winshun/apps.txt"_s);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            qWarning("Apps: %s is missing: apps go by their own names only", qUtf8Printable(file.fileName()));
+            return AppAliases();
+        }
+        return parse(QString::fromUtf8(file.readAll()));
+    }();
+    return table;
+}
+
+const AppAliases::Entry* AppAliases::find(
+    QStringView id, QStringView program, QStringView target, QStringView name) const
+{
+    const auto lookUp = [&](const QHash<QString, std::size_t>& map, QStringView key) -> const Entry* {
+        if (key.isEmpty())
+            return nullptr;
+        const auto it = map.constFind(key.toString().toCaseFolded());
+        return it == map.cend() ? nullptr : &m_entries[*it];
+    };
+    if (const Entry* e = lookUp(m_byId, id))
+        return e;
+    if (const qsizetype bang = id.indexOf(u'!'); bang > 0) {
+        if (const Entry* e = lookUp(m_byPackage, id.first(bang)))
+            return e;
+    }
+    if (!target.isEmpty()) {
+        for (const auto& [ending, at] : m_byPath) {
+            if (target.endsWith(ending, Qt::CaseInsensitive))
+                return &m_entries[at];
+        }
+    }
+    if (const Entry* e = lookUp(m_byProgram, program))
+        return e;
+    return lookUp(m_byName, name);
+}
 
 void AppInfo::prepare()
 {
+    prepare(AppAliases::builtIn());
+}
+
+void AppInfo::prepare(const AppAliases& table)
+{
     nameUtf8 = wtf8::fromUtf16(wtf8::view(name));
-    otherNames = otherNamesOf(id, name);
-    otherNamesUtf8.clear();
-    for (const QString& other : otherNames)
-        otherNamesUtf8.push_back(wtf8::fromUtf16(wtf8::view(other)));
     const QString file = target.mid(target.lastIndexOf(u'\\') + 1);
     const qsizetype dot = file.lastIndexOf(u'.');
     const QString suffix = dot > 0 ? file.mid(dot + 1).toLower() : QString();
 
-    program.clear();
-    if (kind == AppKind::Desktop && suffix == u"exe")
-        program = wtf8::fromUtf16(wtf8::view(file.left(dot)));
+    // The program a desktop app is; not cmd.exe for a VS developer prompt.
+    const QString stem = kind == AppKind::Desktop && suffix == u"exe" ? file.left(dot) : QString();
+    hosted = !stem.isEmpty() && runsSomethingElse(stem, arguments);
+    const QString own = hosted ? QString() : stem;
+    program = wtf8::fromUtf16(wtf8::view(own));
+
+    otherNames.clear();
+    otherNamesUtf8.clear();
+    aliases.clear();
+    abbreviations.clear();
+    if (const AppAliases::Entry* entry = table.find(id, own, own.isEmpty() ? QString() : target, name)) {
+        for (const QString& other : entry->names) {
+            if (!sameFolded(other, name))
+                otherNames.append(other);
+        }
+        for (const QString& alias : entry->aliases) {
+            if (!sameFolded(alias, name) && !otherNames.contains(alias, Qt::CaseInsensitive))
+                aliases.push_back(wtf8::fromUtf16(wtf8::view(alias)));
+        }
+        abbreviations = entry->abbreviations;
+    }
+    for (const QString& other : std::as_const(otherNames))
+        otherNamesUtf8.push_back(wtf8::fromUtf16(wtf8::view(other)));
 
     initials.clear();
     for (std::size_t i = 0; i < nameUtf8.size(); ++i) {
         if (isAsciiAlnum(nameUtf8[i]) && text::isWordStart(nameUtf8, i))
             initials += static_cast<char>(text::fold(nameUtf8[i]));
     }
+
+    words = splitWords(nameUtf8);
 
     const bool uninstaller = name.contains(u"uninstall"_s, Qt::CaseInsensitive) || name.contains(u"卸载"_s)
         || file.startsWith(u"unins"_s, Qt::CaseInsensitive);
@@ -293,13 +548,28 @@ std::vector<AppHit> searchApps(
             recent.insert(appIdOf(history[i]), std::min(recent.value(appIdOf(history[i]), i), i));
     }
 
-    // A lone plain term may be the initials of the name: "vsc" for Visual Studio Code.
+    // A lone plain term may be the initials of the name ("vsc" for Visual
+    // Studio Code), or an abbreviation of it typed in full ("ps").
     std::string_view initials;
     if (query.terms.size() == 1 && query.extensions.empty()) {
         const QueryTerm& t = query.terms.front();
         if (!t.negated && !t.wildcard && t.ancestors.empty() && t.text.size() >= 2
             && std::all_of(t.text.begin(), t.text.end(), isAsciiAlnum))
             initials = t.text;
+    }
+
+    // Plain ASCII terms only ("vscode", "vs code"): the word-prefix span match
+    // takes them joined, so Visual Studio Code is v|s|code.
+    std::string joined;
+    if (query.extensions.empty() && !query.filter.any()) {
+        for (const QueryTerm& t : query.terms) {
+            if (t.negated || t.wildcard || !t.ancestors.empty() || t.text.empty()
+                || !std::all_of(t.text.begin(), t.text.end(), isAsciiAlnum)) {
+                joined.clear();
+                break;
+            }
+            joined += t.text;
+        }
     }
 
     for (std::size_t i = 0; i < apps.size(); ++i) {
@@ -312,22 +582,35 @@ std::vector<AppHit> searchApps(
                 otherName = other;
             }
         };
-        // "计算器" for Calculator, as much as its own name.
+        // "计算器" for Calculator, and "微信" (or "wx") for WeChat.exe whatever
+        // its shortcut is named, as much as its own name.
         for (std::size_t k = 0; k < app.otherNamesUtf8.size(); ++k)
             better(matcher.matchName(app.otherNamesUtf8[k]), static_cast<int>(k));
+        for (const std::string& alias : app.aliases)
+            better(matcher.matchName(alias), -1);
         if (!app.program.empty()) {
             if (const int s = matcher.matchName(app.program); s >= 0)
                 better(s - 6, -1); // "winword" finds Word, a little below a name match
         }
+        // Whole or not at all: "p" and "s" are in too many names to pull in Photoshop.
+        const bool abbreviation
+            = !initials.empty() && std::ranges::find(app.abbreviations, initials) != app.abbreviations.end();
+        if (abbreviation)
+            better(kAbbreviationScore, -1);
         if (!initials.empty() && app.initials.starts_with(initials))
             better(initials.size() == app.initials.size() ? 45 : 30, -1);
+        if (!joined.empty())
+            better(wordSpanScore(app, joined), -1);
         if (score < 0)
             continue;
+        const auto typed = [&](const std::string& n) { return matcher.isExactName(n, false); };
+        const bool exact = abbreviation || typed(app.nameUtf8) || std::ranges::any_of(app.otherNamesUtf8, typed)
+            || std::ranges::any_of(app.aliases, typed);
         if (app.auxiliary)
             score -= 30;
         if (const auto it = recent.constFind(app.id); it != recent.cend())
             score += 20 - std::min(*it, 10);
-        hits.push_back({i, score, otherName});
+        hits.push_back({i, score, otherName, exact});
     }
     // Stable: equal scores keep the list's alphabetical order.
     std::stable_sort(hits.begin(), hits.end(), [](const AppHit& a, const AppHit& b) { return a.score > b.score; });
@@ -596,6 +879,7 @@ AppList loadInstalledApps(const std::stop_token& stop)
                     continue; // a shortcut to a folder, not an app
             }
             app.target = target;
+            app.arguments = stringProperty(properties.Get(), PKEY_Link_Arguments).trimmed();
             app.kind = AppKind::Desktop;
             const qsizetype dot = target.lastIndexOf(u'.');
             app.elevatable = dot > 0 && elevatableSuffixes().contains(target.mid(dot + 1), Qt::CaseInsensitive);

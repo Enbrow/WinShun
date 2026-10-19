@@ -4364,6 +4364,7 @@ private slots:
             // English first in the user's languages: Windows names it in English.
             app(u"Notepad"_s, u"Microsoft.WindowsNotepad_8wekyb3d8bbwe!App"_s, uR"(C:\Program Files\WindowsApps\Notepad)"_s,
                 AppKind::Store),
+            app(u"PowerShell"_s, u"Microsoft.PowerShell"_s, uR"(C:\PS\pwsh.exe)"_s),
         };
         const auto names = [&](const QString& text, const QStringList& history = {}) {
             const ParsedQuery query = ws::parseQuery(text);
@@ -4405,6 +4406,19 @@ private slots:
         QCOMPARE(shown(u"note"_s), QStringList {u"Notepad"_s});
         QCOMPARE(shown(u"calc"_s), QStringList {u"Calculator"_s});
         QCOMPARE(shown(u"计算器"_s), QStringList {u"计算器"_s});
+        // Word-prefix span: pieces are prefixes of consecutive words.
+        const QStringList vscode {u"Visual Studio Code"_s};
+        QCOMPARE(names(u"vscode"_s), vscode); // v|s|code
+        QCOMPARE(names(u"vs code"_s), vscode);
+        QCOMPARE(names(u"studiocode"_s), vscode);
+        QCOMPARE(names(u"vstudio"_s), vscode);
+        QCOMPARE(names(u"visualstudio"_s), vscode);
+        QVERIFY(names(u"vcode"_s).isEmpty()); // skips Studio
+        QVERIFY(names(u"vscodx"_s).isEmpty());
+        QVERIFY(names(u"vscode ext:exe"_s).isEmpty());
+        QCOMPARE(names(u"pshell"_s), QStringList {u"PowerShell"_s}); // camelCase: p|shell
+        QCOMPARE(names(u"powershell"_s), QStringList {u"PowerShell"_s});
+        QVERIFY(names(u"pshel1"_s).isEmpty());
         QVERIFY(names(u"ext:exe"_s).isEmpty()); // file syntax: never an app
         QVERIFY(names(uR"(vs\code)"_s).isEmpty());
         QVERIFY(names(QString()).isEmpty());
@@ -4418,6 +4432,226 @@ private slots:
         QCOMPARE(appIdOf(apps[2].launchPath()), apps[2].id);
         QVERIFY(isAppLaunchPath(u"SHELL:appsfolder\\x"_s));
         QVERIFY(appIdOf(uR"(C:\Telegram\Telegram.exe)"_s).isEmpty());
+    }
+
+    void appAliases()
+    {
+        const auto app = [](const QString& name, const QString& target, const QString& arguments = {}) {
+            AppInfo a;
+            a.name = name;
+            a.id = target;
+            a.target = target;
+            a.arguments = arguments;
+            a.prepare(); // with the list Win顺 ships (apps.txt)
+            return a;
+        };
+        const auto hits = [](const AppList& list, const QString& text) {
+            const ParsedQuery query = ws::parseQuery(text);
+            const NameMatcher matcher(query);
+            return searchApps(list, query, matcher, {});
+        };
+        const auto first = [&](const AppList& list, const QString& text) {
+            const std::vector<AppHit> found = hits(list, text);
+            return found.empty() ? AppHit {list.size(), -1000, -1, false} : found.front();
+        };
+        const auto names = [&](const AppList& list, const QString& text) {
+            QStringList out;
+            for (const AppHit& hit : hits(list, text))
+                out.append(list[hit.index].name);
+            return out;
+        };
+        // The name a row shows: the one it was found by.
+        const auto shown = [&](const AppList& list, const QString& text) {
+            QStringList out;
+            for (const AppHit& hit : hits(list, text))
+                out.append(hit.otherName >= 0 ? list[hit.index].otherNames[hit.otherName] : list[hit.index].name);
+            return out;
+        };
+        const auto scores = [&](const AppList& list, const QString& text) {
+            QStringList out;
+            for (const AppHit& hit : hits(list, text)) {
+                out.append(
+                    u"%1 %2%3"_s.arg(list[hit.index].name).arg(hit.score).arg(hit.exact ? u" exact"_s : QString()));
+            }
+            return out;
+        };
+        QVERIFY(!AppAliases::builtIn().entries().empty());
+
+        // WeChat by its program, whatever its shortcut is named: a portable
+        // one's is 启动微信. WXWork has "wx" in it, but is another program.
+        const AppList wechat {
+            app(u"微信输入法"_s, uR"(C:\Program Files\Tencent\WeType\3.0.0.34\wetype_update.exe)"_s),
+            app(u"企业微信"_s, uR"(C:\Program Files (x86)\WXWork\WXWork.exe)"_s),
+            app(u"启动微信"_s, uR"(D:\微信绿色版\WeChat\WeChat.exe)"_s),
+        };
+        QCOMPARE(wechat[2].aliases, (std::vector<std::string> {"微信", "WeChat"}));
+        QCOMPARE(wechat[1].aliases, std::vector<std::string> {"WeCom"});
+        const QStringList all {u"启动微信"_s, u"微信输入法"_s, u"企业微信"_s};
+        QCOMPARE(names(wechat, u"wx"_s), all); // the alias's pinyin
+        QCOMPARE(names(wechat, u"weixin"_s), all);
+        QCOMPARE(names(wechat, u"微信"_s), all);
+        QCOMPARE(names(wechat, u"wechat"_s), QStringList {u"启动微信"_s});
+        QCOMPARE(shown(wechat, u"wechat"_s), QStringList {u"启动微信"_s}); // an alias is not shown
+        QVERIFY(first(wechat, u"微信"_s).exact); // typed in full, as a name would be
+        QVERIFY(first(wechat, u"wechat"_s).exact);
+        QVERIFY(!first(wechat, u"wx"_s).exact);
+        // WeChat 4 is Weixin.exe, its shortcut 微信.
+        const AppList weixin {app(u"微信"_s, uR"(C:\Program Files\Tencent\Weixin\Weixin.exe)"_s)};
+        QCOMPARE(weixin[0].aliases, std::vector<std::string> {"WeChat"}); // not its own name again
+        QVERIFY(first(weixin, u"wechat"_s).exact);
+
+        // Abbreviations, typed in full only.
+        const AppList adobe {
+            app(u"Adobe Illustrator 2024"_s,
+                uR"(C:\Program Files\Adobe\Adobe Illustrator 2024\Support Files\Contents\Windows\Illustrator.exe)"_s),
+            app(u"Adobe Photoshop 2024"_s, uR"(C:\Program Files\Adobe\Adobe Photoshop 2024\Photoshop.exe)"_s),
+            app(u"步骤记录器"_s, uR"(C:\Windows\system32\psr.exe)"_s),
+            app(u"PowerShell 7 (x64)"_s, uR"(C:\Program Files\PowerShell\7\pwsh.exe)"_s, u"-WorkingDirectory ~"_s),
+            app(u"Windows PowerShell"_s, uR"(C:\Windows\system32\WindowsPowerShell\v1.0\powershell.exe)"_s),
+            app(u"PowerPoint"_s, uR"(C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE)"_s),
+            app(u"WPS Office"_s, uR"(C:\Users\me\AppData\Local\Kingsoft\WPS Office\ksolaunch.exe)"_s),
+        };
+        QCOMPARE(names(adobe, u"ps"_s).value(0), u"Adobe Photoshop 2024"_s); // above psr.exe (40)
+        QCOMPARE(first(adobe, u"ps"_s).score, 112); // below a name typed in full, above a program's
+        QVERIFY(first(adobe, u"ps"_s).exact);
+        QCOMPARE(names(adobe, u"PS"_s).value(0), u"Adobe Photoshop 2024"_s);
+        QCOMPARE(names(adobe, u"ai"_s).value(0), u"Adobe Illustrator 2024"_s);
+        QCOMPARE(names(adobe, u"ppt"_s), QStringList {u"PowerPoint"_s});
+        // Above the initials of Windows PowerShell (45).
+        QCOMPARE(names(adobe, u"wps"_s), (QStringList {u"WPS Office"_s, u"Windows PowerShell"_s}));
+        // "s" and "a" find Photoshop and Illustrator by their names alone (Adobe,
+        // Photoshop), exactly as they would without the list.
+        AppList plain = adobe;
+        const AppAliases none;
+        for (AppInfo& a : plain)
+            a.prepare(none);
+        QVERIFY(plain[1].abbreviations.empty());
+        for (const QString& text : {u"s"_s, u"a"_s, u"p"_s, u"i"_s, u"pss"_s, u"ppts"_s})
+            QCOMPARE(scores(adobe, text), scores(plain, text));
+        QVERIFY(first(plain, u"ps"_s).score < 112);
+        // A shell started with options is still that shell.
+        QVERIFY(!adobe[3].hosted);
+        QCOMPARE(adobe[3].program, std::string("pwsh"));
+        QCOMPARE(names(adobe, u"pwsh"_s), QStringList {u"PowerShell 7 (x64)"_s});
+        QCOMPARE(first(adobe, u"pwsh"_s).score, 109);
+
+        // A shortcut that runs something else through a host program is not
+        // that program: "cmd" is the Command Prompt, not a VS developer prompt.
+        const AppList hosts {
+            app(u"Developer Command Prompt for VS 2022"_s, uR"(C:\Windows\system32\cmd.exe)"_s,
+                uR"(/k "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat")"_s),
+            app(u"x64 Native Tools Command Prompt for VS 2022"_s, uR"(C:\Windows\system32\cmd.exe)"_s,
+                uR"(/k "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat")"_s),
+            app(u"命令提示符"_s, uR"(C:\Windows\system32\cmd.exe)"_s),
+            app(u"Hyper-V 管理器"_s, uR"(C:\Windows\System32\mmc.exe)"_s, uR"("C:\Windows\System32\virtmgmt.msc")"_s),
+            app(u"Windows 工具"_s, uR"(C:\Windows\explorer.exe)"_s,
+                u"shell:::{D20EA4E1-3957-11d2-A40B-0C5020524153}"_s),
+            app(u"资源管理器"_s, uR"(C:\Windows\explorer.exe)"_s),
+            app(u"Python 3.13 (64-bit)"_s, uR"(C:\Python313\python.exe)"_s),
+            app(u"Python 3.13 Module Docs (64-bit)"_s, uR"(C:\Python313\python.exe)"_s, u"-m pydoc -b"_s),
+            app(u"IDLE (Python 3.13 64-bit)"_s, uR"(C:\Python313\pythonw.exe)"_s,
+                uR"("C:\Python313\Lib\idlelib\idle.pyw")"_s),
+        };
+        for (const std::size_t i : std::initializer_list<std::size_t> {0, 1, 3, 4, 7, 8}) {
+            QVERIFY2(hosts[i].hosted, qPrintable(hosts[i].name));
+            QVERIFY(hosts[i].program.empty());
+        }
+        for (const std::size_t i : std::initializer_list<std::size_t> {2, 5, 6})
+            QVERIFY2(!hosts[i].hosted, qPrintable(hosts[i].name));
+        QCOMPARE(names(hosts, u"cmd"_s), QStringList {u"命令提示符"_s});
+        QCOMPARE(first(hosts, u"cmd"_s).score, 109);
+        QCOMPARE(names(hosts, u"developer command"_s).value(0), u"Developer Command Prompt for VS 2022"_s); // its name
+        QCOMPARE(names(hosts, u"native tools"_s).value(0), u"x64 Native Tools Command Prompt for VS 2022"_s);
+        QVERIFY(names(hosts, u"mmc"_s).isEmpty());
+        QCOMPARE(names(hosts, u"explorer"_s), QStringList {u"资源管理器"_s}); // no arguments: the program itself
+        QCOMPARE(names(hosts, u"python"_s),
+            (QStringList {
+                u"Python 3.13 (64-bit)"_s, u"Python 3.13 Module Docs (64-bit)"_s, u"IDLE (Python 3.13 64-bit)"_s}));
+
+        // Shell objects, no program file: by their ids, and the commands that open them.
+        const auto shellObject = [](const QString& name, const QString& id) {
+            AppInfo a;
+            a.name = name;
+            a.id = id;
+            a.prepare();
+            return a;
+        };
+        const AppList shell {shellObject(u"文件资源管理器"_s, u"Microsoft.Windows.Explorer"_s),
+            shellObject(u"控制面板"_s, u"Microsoft.Windows.ControlPanel"_s)};
+        QCOMPARE(shell[0].otherNames, QStringList {u"File Explorer"_s});
+        QCOMPARE(names(shell, u"explorer"_s), QStringList {u"文件资源管理器"_s});
+        QVERIFY(first(shell, u"explorer"_s).exact);
+        QCOMPARE(shown(shell, u"control panel"_s), QStringList {u"Control Panel"_s});
+        QCOMPARE(names(shell, u"control"_s).value(0), u"控制面板"_s);
+
+        // Chromium browsers mostly run a chrome.exe: Chrome's is the one in Google\Chrome.
+        const AppList browsers {
+            app(u"Helium"_s, uR"(C:\Program Files\imput\Helium\Application\chrome.exe)"_s),
+            app(u"Google Chrome"_s, uR"(C:\Users\me\AppData\Local\Google\Chrome\Application\chrome.exe)"_s),
+        };
+        QVERIFY(browsers[0].aliases.empty());
+        QCOMPARE(browsers[1].aliases, (std::vector<std::string> {"Chrome", "谷歌浏览器", "谷歌"}));
+        QCOMPARE(names(browsers, u"chrome"_s), (QStringList {u"Google Chrome"_s, u"Helium"_s}));
+        QCOMPARE(names(browsers, u"谷歌"_s), QStringList {u"Google Chrome"_s});
+
+        // The list's format.
+        const AppAliases table = AppAliases::parse(u"# a comment\n"
+                                                   u"[图像]\n"
+                                                   u"program = foo.exe\n"
+                                                   u"short = ps; P; x1；中文\n"
+                                                   u"\n"
+                                                   u"[东西]\n"
+                                                   u"package = Vendor.Thing_abc123\n"
+                                                   u"names = Thing | 东西\n"
+                                                   u"[My Tool]\n"
+                                                   u"title = My Tool\n"
+                                                   u"aliases = 工具箱\n"
+                                                   u"[Runner]\n"
+                                                   u"program = Vendor/Bin/run\n"
+                                                   u"aliases = runner\n"
+                                                   u"[nothing to find it by]\n"
+                                                   u"aliases = lost\n"
+                                                   u"[again]\n"
+                                                   u"PROGRAM = FOO\n"
+                                                   u"aliases = second\n"_s);
+        QCOMPARE(table.entries().size(), std::size_t {5}); // not the block nothing finds
+        const AppAliases::Entry* foo = table.find({}, u"Foo"_s, {}, {});
+        QVERIFY(foo);
+        QCOMPARE(foo->label, u"图像"_s); // the first block to claim it
+        QVERIFY(!table.find({}, {}, {}, u"lost"_s));
+        const auto prepared = [&](const QString& name, const QString& target, const QString& id = {}) {
+            AppInfo a;
+            a.name = name;
+            a.id = id.isEmpty() ? target : id;
+            a.target = target;
+            a.kind = id.isEmpty() ? AppKind::Desktop : AppKind::Store;
+            a.prepare(table);
+            return a;
+        };
+        const AppList mine {
+            prepared(u"图像"_s, uR"(C:\Foo\foo.exe)"_s),
+            prepared(u"Vendor Thing"_s, uR"(C:\Program Files\WindowsApps\Vendor.Thing_1.0.0.0_x64__abc123)"_s,
+                u"Vendor.Thing_abc123!App"_s),
+            prepared(u"My Tool"_s, uR"(C:\Tools\tool.exe)"_s),
+            prepared(u"Run"_s, uR"(C:\Program Files\Vendor\Bin\run.exe)"_s),
+            prepared(u"Other Run"_s, uR"(C:\Other\run.exe)"_s),
+        };
+        QCOMPARE(mine[0].abbreviations, (std::vector<std::string> {"ps", "x1"})); // two or more letters and digits
+        QVERIFY(mine[0].aliases.empty()); // not [again]'s
+        QCOMPARE(mine[1].otherNames, (QStringList {u"Thing"_s, u"东西"_s})); // by its package
+        QCOMPARE(mine[2].aliases, std::vector<std::string> {"工具箱"}); // by its name
+        QCOMPARE(mine[3].aliases, std::vector<std::string> {"runner"}); // by the end of its path
+        QVERIFY(mine[4].aliases.empty()); // another run.exe
+        QCOMPARE(names(mine, u"ps"_s), QStringList {u"图像"_s});
+        QCOMPARE(names(mine, u"PS"_s), QStringList {u"图像"_s});
+        QCOMPARE(first(mine, u"x1"_s).score, 112);
+        QVERIFY(names(mine, u"p"_s).isEmpty()); // only typed in full
+        QVERIFY(names(mine, u"s"_s).isEmpty());
+        QVERIFY(names(mine, u"pss"_s).isEmpty());
+        QCOMPARE(shown(mine, u"东西"_s), QStringList {u"东西"_s}); // a name of its own: shown when found by it
+        QCOMPARE(shown(mine, u"工具箱"_s), QStringList {u"My Tool"_s}); // an alias: never shown
+        QCOMPARE(shown(mine, u"gjx"_s), QStringList {u"My Tool"_s});
+        QVERIFY(first(mine, u"工具箱"_s).exact);
     }
 
     void historyCounts()
@@ -4718,6 +4952,31 @@ private slots:
 
         // Recently opened places rank higher.
         QCOMPARE(names(u"适配器"_s, {uR"(D:\a.txt)"_s, places[0].path()}).value(0), u"查看网络连接"_s);
+    }
+
+    void placeKeywordWordStart()
+    {
+        // A word counts in a keyword where a word of it starts: "word" is not
+        // in "password". (For 管理网络密码 Windows lists "pass-word" and "word"
+        // itself as well, so there "word" finds it all the same.)
+        const auto found = [](const QStringList& keywords, const QString& text) {
+            PlaceInfo p;
+            p.name = u"管理网络密码"_s;
+            p.key = u"k/credentials"_s;
+            p.command = u"control.exe /name Microsoft.CredentialManager"_s;
+            p.keywords = keywords;
+            p.prepare();
+            const PlaceList places {p};
+            const ParsedQuery query = ws::parseQuery(text);
+            const NameMatcher matcher(query);
+            return !searchPlaces(places, query, matcher, {}).empty();
+        };
+        const QStringList password {u"password"_s, u"passwords"_s};
+        QVERIFY(!found(password, u"word"_s));
+        QVERIFY(!found(password, u"words"_s));
+        QVERIFY(found(password, u"pass"_s));
+        QVERIFY(found(password, u"password"_s));
+        QVERIFY(found({u"pass-word"_s}, u"word"_s));
     }
 
     void appLogoChoice()

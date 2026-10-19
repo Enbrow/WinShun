@@ -221,7 +221,7 @@ src/core/            搜索引擎和剪贴板历史，只依赖 Qt Core、Qt Sql
   Snapshot           索引的磁盘格式（流式写入，原子替换）
   Query / NameSearch 查询解析、打分、多线程扫描（SSE2 加速）
   Pinyin             拼音匹配（读音表由 tools/make_pinyin.py 从 pinyin-data 生成）
-  AppCatalog         已安装应用：读 shell:AppsFolder（开始菜单“所有应用”），开始菜单文件夹或应用包有变化时才重读；按名称 / 拼音 / 首字母 / 程序名匹配，Windows 自带应用的另一种语言的名字也算（“计算器”与 Calculator）
+  AppCatalog         已安装应用：读 shell:AppsFolder（开始菜单“所有应用”），开始菜单文件夹或应用包有变化时才重读；按名称 / 拼音 / 首字母 / 程序名匹配，另有“词首连缀”匹配（仅应用，不进 NameMatcher：“vscode”= v|s|code，每段是连续几个词的开头，不跳词、至少两个词、至少 3 个字符；“vs code”拼起来也行），再加上自带的 apps.txt 给的另一种语言的名字（“计算器”与 Calculator）、别名（“微信”）和只认完整输入的简写（“ps”）；经 cmd /k、mmc、rundll32 等宿主运行别的东西的快捷方式不按宿主的程序名匹配
   AppLogo            Store 应用的图标文件：按 AppxManifest.xml 和资源限定符（targetsize、altform-unplated / lightunplated）选最合适的一个
   SystemCatalog      系统入口：Windows 设置检索清单里的设置页、控制面板项和任务，加上自带的 places.txt；按名称 / 关键词 / 拼音匹配
   ContentScanner     文本内容搜索：流式读取、编码识别、按行定位
@@ -344,6 +344,11 @@ tools/plugin-probe.cpp 插件系统阶段 0 的探针（无 Qt，静态 C 运行
   - 清单的关键词偏书面，“网卡”“梯子”这类说法没有，`src/core/places.txt` 补上（加在页面本身那一条上，不加在页面里的各个任务上，否则“壁纸”会显示成“视差背景”），也加开始菜单里没有的工具和文件夹。`wsbench --places [词 …]` 列出本机所有入口或每个词的前几名，并报告 places.txt 里对不上任何入口的条目。
   - 排序：places.txt 的关键词完整命中（50 分）高于名称以这个词开头（30 分加覆盖比例），Windows 的关键词完整命中（30 分）高于偶然对上的拼音首字母（`dns` 对上“电脑设置”）。只有一个字时只看名称。反过来，只靠拼音首字母对上关键词的（`glq` 对上“隔离区”）排在名称被这个词占了一半以上的入口之后（“凭据管理器”）：首字母容易撞上，关键词又不显示，用户看不出为什么是它；名称里只沾到一点的（`wk` 里的“当我看向别处时”）不算，“网卡”照样排第一。同一个打开命令只出一行（一个页面里的几个任务都打开这个页面），**全部** 范围里最多列 5 个，和应用按分数排在一起。
   - 读一遍约 0.3–0.5 秒，在后台；每次打开搜索框时比较清单文件的时间和显示语言，变了才重读。打开时和应用一样交给资源管理器，以普通权限运行。
+- **应用的别的叫法：自带的别名表 `src/core/apps.txt`。** 应用本来只按开始菜单里的名字和程序文件名找，可快捷方式的名字是安装包或用户起的：便携版微信的叫“启动微信”，搜“微信”“wx”排在微信输入法后面；“ps”既不在“Adobe Photoshop 2024”里，也不是它的首字母。表的格式同 places.txt，每段一个应用（`AppAliases`，从资源里读一次）；原先写在代码里的 Windows 自带应用中英文名（`kKnownApps`）也搬了进来，查法和分数不变。
+  - 认应用依次按 AppUserModelID（`id`）、应用包系列名（`package`）、程序文件名（`program`，不带 .exe，整个相同才算，WXWork 里有 wx 不算），都用不了才按开始菜单里的名字（`title`）。几个程序同名时写路径结尾：Chromium 系的浏览器大多是 chrome.exe，Chrome 写 `Google\Chrome\Application\chrome`，Helium 的 chrome.exe 就对不上。
+  - `names` 是应用自己在各语言里的名字，用哪个找到就显示哪个；`aliases` 是别的叫法，和名字一样匹配（拼音也算：写“微信”就有 wx、weixin），完整输入时和名字完全相同一样高（115），显示的仍是开始菜单里的名字；`short` 是简写，只认完整输入，112 分：低于名字完全相同，高于程序文件名（109）和首字母（45，“wps”之于 Windows PowerShell）。只输简写的一部分（“p”“s”）不算，Photoshop 不会因为简写被带出来（名字里本来就有的字母照常匹配，“a”仍按 Adobe 找到它）。完整输入的另一种语言的名字、别名和简写都算完全命中（`AppHit::exact`；以前只有开始菜单里的名字算），插件的结果排在它后面。
+  - 快捷方式的参数（`PKEY_Link_Arguments`，AppsFolder 的属性里本来就有）说明它是不是经宿主运行别的东西（`AppInfo::hosted`）：rundll32、mmc、explorer、mshta、chrome_proxy 等只管启动的程序，有参数就算；cmd、powershell、pwsh、python、java 等，参数里有运行开关（`/k`、`-Command`、`-m`、`-jar`……）、脚本或路径才算，PowerShell 7 的 `pwsh -WorkingDirectory ~` 仍是 pwsh。这样的快捷方式不按宿主的程序名匹配，也不拿它查别名表：“cmd”第一个是命令提示符，VS 开发者命令提示符照样按自己的名字找到。
+  - `wsbench --apps [--all]` 报告读应用的耗时（本机 328 个应用约 0.3 秒，读参数前后测不出差别）、表里哪些段对上了本机的应用、哪些没对上，以及哪些快捷方式算作经宿主运行。
 - **结果拖出去：和资源管理器给的一样，只复制不移动。** 文件和文件夹的行用鼠标按住、拖过系统的拖动距离（`styleHints.startDragDistance`，即 `SM_CXDRAG`），就把它拖出窗口（`Launcher::dragOut` → `dragout::drag`）；它在多选里时拖整个多选。应用、系统入口、网页、插件的行和离线共享上的不拖，按住拖动照旧滚动列表；文件行上鼠标拖动不再滚动列表（`preventStealing`，只对鼠标：触摸照样滚），滚轮、滚动条照常。
   - 数据对象是外壳自己的（`SHCreateDataObject`，父级是桌面，每项是完整的 ID 列表，不同文件夹的结果能放在一起），资源管理器、聊天、邮件读得懂的都有；它不为这种对象生成 `CF_HDROP`，自己写进去，再写 `Preferred DropEffect = 复制`。`SHDoDragDrop` 只允许复制和快捷方式：同一块盘上拖进文件夹时资源管理器默认是移动，会把用户的文件挪走。拖动图像是外壳给的（缩略图，多项带数字）。
   - Win顺 以管理员运行，目标程序不是：实测（2026-10-11）不受 UIPI 影响。OLE 往下调用目标的 `IDropTarget`，目标回调 Win顺 的 `IDataObject::GetData` 也放行（不用 `CoInitializeSecurity`）；只认 `WM_DROPFILES` 的老程序也收到。资源管理器（同盘，复制）、`RegisterDragDrop` 和 `DragAcceptFiles` 的普通权限测试窗口都收到完整路径（含空格、中文，多项）。

@@ -113,6 +113,13 @@
 //                      as the app does and lists them, or the best places for
 //                      each query; reports keyword blocks of places.txt that
 //                      match no place here
+//   wsbench --apps [--all]
+//                      reads the installed apps as the app does (five times:
+//                      the first read and the median), lists those that
+//                      apps.txt names and what they get from it, the blocks
+//                      that name no app here, and the shortcuts that run
+//                      something else through a host program (cmd /k ...);
+//                      --all lists every app with its arguments and program
 //   wsbench --mcp-host [--pipe NAME] [--index FOLDER] [--plugins DIR]
 //                      serves Win顺's MCP tools (src/mcp) on a named pipe as
 //                      the app does, over a copy of the index files (made in
@@ -3513,6 +3520,77 @@ int runPlaces(const QStringList& queries)
     return 0;
 }
 
+// ---- installed apps (--apps) -----------------------------------------------
+
+int runApps(const QStringList& args)
+{
+    // The catalog's read, as the app makes it: several times, the first
+    // warming the shell's caches.
+    constexpr int kRuns = 5;
+    std::vector<double> ms;
+    ws::AppList apps;
+    for (int i = 0; i < kRuns; ++i) {
+        QElapsedTimer timer;
+        timer.start();
+        apps = ws::loadInstalledApps({});
+        ms.push_back(static_cast<double>(timer.nsecsElapsed()) / 1e6);
+    }
+    const double first = ms.front();
+    std::ranges::sort(ms);
+    std::printf("apps         %zu, read in %.0f ms (first), %.0f ms (median of %d)\n", apps.size(), first,
+        ms[ms.size() / 2], kRuns);
+
+    // What apps.txt gives the apps here, found as AppInfo::prepare finds it.
+    const ws::AppAliases& table = ws::AppAliases::builtIn();
+    QSet<const ws::AppAliases::Entry*> used;
+    const auto joined = [](const std::vector<std::string>& list) {
+        QStringList out;
+        for (const std::string& s : list)
+            out.append(QString::fromUtf8(s));
+        return out.join(u", "_s);
+    };
+    std::printf("\napps.txt     %zu blocks; the apps here they name:\n", table.entries().size());
+    std::size_t withArguments = 0;
+    for (const ws::AppInfo& app : apps) {
+        withArguments += app.arguments.isEmpty() ? 0 : 1;
+        const QString program = QString::fromUtf8(app.program);
+        const ws::AppAliases::Entry* entry
+            = table.find(app.id, program, program.isEmpty() ? QString() : app.target, app.name);
+        if (!entry)
+            continue;
+        used.insert(entry);
+        std::printf("  [%s] %s | %s | names: %s | aliases: %s | short: %s\n", qUtf8Printable(entry->label),
+            qUtf8Printable(app.name), qUtf8Printable(app.target.isEmpty() ? app.id : app.target),
+            qUtf8Printable(app.otherNames.join(u", "_s)), qUtf8Printable(joined(app.aliases)),
+            qUtf8Printable(joined(app.abbreviations)));
+    }
+    QStringList unused;
+    for (const ws::AppAliases::Entry& e : table.entries()) {
+        if (!used.contains(&e))
+            unused.append(e.label);
+    }
+    std::printf("not here: %s\n", qUtf8Printable(unused.join(u", "_s)));
+
+    // Shortcuts that run something else through a host program: not found
+    // by that program's name ("cmd" is the Command Prompt).
+    std::printf("\n%zu shortcuts pass arguments; these run something else through a host program:\n", withArguments);
+    for (const ws::AppInfo& app : apps) {
+        if (app.hosted) {
+            std::printf(
+                "  %s | %s %s\n", qUtf8Printable(app.name), qUtf8Printable(app.target), qUtf8Printable(app.arguments));
+        }
+    }
+    if (args.contains(u"--all"_s)) {
+        std::printf("\nall:\n");
+        for (const ws::AppInfo& app : apps) {
+            std::printf("  %s | %s | [%s]%s\n", qUtf8Printable(app.name),
+                qUtf8Printable(app.target.isEmpty() ? app.id : app.target), qUtf8Printable(app.arguments),
+                app.program.empty() ? "" : qUtf8Printable(u" program "_s + QString::fromUtf8(app.program)));
+        }
+    }
+    return 0;
+}
+
 } // namespace
 
 // ---- network shares (--share) ------------------------------------------------
@@ -4770,6 +4848,10 @@ int main(int argc, char* argv[])
     if (args.contains(u"--places"_s)) {
         args.removeAll(u"--places"_s);
         return runPlaces(args);
+    }
+    if (args.contains(u"--apps"_s)) {
+        args.removeAll(u"--apps"_s);
+        return runApps(args);
     }
     if (args.contains(u"--mcp-host"_s)) {
         args.removeAll(u"--mcp-host"_s);
