@@ -49,6 +49,7 @@
   <img src="docs/images/foldermenu.jpg" width="49%" alt="资源管理器里双击空白处：收藏、最近、开着的文件夹 / double-click empty space in Explorer for favorite, recent and open folders">
   <img src="docs/images/apps.jpg" width="49%" alt="拼音搜应用：guanliqi 找到任务管理器 / launch apps by pinyin">
   <img src="docs/images/places.jpg" width="49%" alt="直达 Windows 设置：shipeiqi 找到网络连接 / open Windows settings and Control Panel items">
+  <img src="docs/images/switches.jpg" width="49%" alt="系统开关：行尾显示现在的状态，回车就地切换；音量 30、保持唤醒 1小时一步到位 / system switches: the live state on the row, Enter flips it; set the volume or keep awake in one step">
   <img src="docs/images/web.jpg" width="49%" alt="网页搜索：zhihu 显卡、bilibili、京东一步到位 / web search keywords">
   <img src="docs/images/favorites.jpg" width="49%" alt="收藏夹：常去的文件夹排在最前，关键词直达 / favorites with keywords">
   <img src="docs/images/plugins.jpg" width="49%" alt="插件：计算器、单位换算、颜色 / plugins: calculator, unit conversion, colors">
@@ -120,6 +121,7 @@
 
 - **应用**：开始菜单里的所有应用都能搜，含 Microsoft Store 应用。名称、拼音、首字母（`vsc`）、程序名（`winword`）都行；`Ctrl+Shift+Enter` 以管理员身份运行。
 - **系统设置**：约 1200 个 Windows 设置页和控制面板项。`shipeiqi`、“网卡”、`ncpa.cpl` 都能打开网络连接；另外补了组策略、磁盘管理、hosts、AppData 等开始菜单里没有的。
+- **系统开关**：深色模式、显示隐藏的文件、显示文件扩展名、蓝牙、WLAN、音量和静音、保持唤醒，行尾直接显示现在的状态；`Enter` 就地切换，搜索框不关，`Ctrl+Enter` 打开设置页。“关蓝牙”“静音”“音量 30”一步到位，“保持唤醒 1小时”到点自动结束。
 
 #### 🌐 网页搜索 · ⭐ 收藏夹 · 🧩 插件
 
@@ -164,6 +166,7 @@
 - **拖出图片**：按住一张图片拖到文件夹里，就存成 PNG 文件。
 - **整理**：固定、分组、多选按顺序合并粘贴，钉住后可以一条接一条地往表格里填；固定的可以排在最前，顺序可以拖动或用 `Ctrl+↑`/`↓` 自己排。
 - **隐私**：密码管理器复制的密码不记录，历史只存在本机。
+- **截图**（默认关，在设置 › 插件里打开）：快捷键或 `PrtScn` 截图，点选窗口、按钮或拖出一块；`Enter` 复制，截图进剪贴板历史，图里的字也能搜；`F3` 贴在屏幕上，还能识别文字。搜索框里打 `jt` 加空格，按图里的字找截过的图。
 
 #### 🔎 任务栏搜索框
 
@@ -304,6 +307,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 - 🚀 **Apps and settings**
   - **Apps**: everything in the Start menu (Store apps included), by name, pinyin, initials (`vsc`) or program file (`winword`).
   - **Settings**: about 1,200 Windows settings pages and Control Panel items (`ncpa.cpl`, “network adapter”), plus Group Policy, Disk Management, hosts, AppData and more.
+  - **Switches**: dark mode, hidden files, file extensions, Bluetooth, WLAN, volume and mute, keep awake, each with its live state at the end of its row; `Enter` flips it in place and the box stays open, `Ctrl+Enter` opens its settings page. `bluetooth off`, `mute` and `volume 30` act in one step; `awake 1h` keeps the PC awake for an hour.
 - 🌐 **Web search**: `zhihu 显卡`, `baidu 天气`: a keyword and a space search that site. Ten Chinese sites are built in; add your own with `%s` in the URL, and import or export the list and icons. The site's search suggestions show below as you type (Enter searches one, Tab puts it in the box), and a site's icon can be an SVG file or pasted SVG code.
 - ⭐ **Favorites**: right-click → Add to favorites. They come first when the box is empty; give one a keyword to open it, and `Tab` searches inside a favorite folder.
 - 🧩 **Plugins**
@@ -330,6 +334,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Paste**: double-click or `Enter`, or one click as in Windows' own history (an option); larger picture thumbnails as another.
   - **Organize**: pins, groups, multi-paste in order, and `Alt+1`…`Alt+9`; pinned items can come first, and the order is yours to drag or move with `Ctrl+↑`/`↓`.
   - **Privacy**: passwords from password managers are not kept, and the history stays on your PC.
+  - **Screenshots** (off by default; turn it on in Settings › Plugins): a shortcut or `PrtScn`, then click a window or a control, or drag an area; `Enter` copies it, into the clipboard history too, where the words in it can be searched; `F3` pins it on the screen, and its text can be read out. `jt` and a space in the search box list past screenshots by the text in them.
 - 🔎 **Taskbar search box**: WinShun's own search box on the Windows 11 taskbar (a pinned button on Windows 10), optionally right of Start where Windows' own box sits (alongside TranslucentTB too); a whole box, its icon and label, or its icon alone, as Windows' own search. It works on its own or alongside Windows search; hiding Windows search, taking over `Win+S`, and searching as you type in the Start menu are all optional.
 - 🤖 **AI assistants (MCP)**
   - **What**: WinShun is an MCP server. Claude Desktop, Claude Code, Cursor and VS Code connect in one click and search file names, file contents and recent changes.
