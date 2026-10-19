@@ -11,7 +11,7 @@ README 里的图（`docs/images/*.jpg`：帖子的方形页面和方形封面，
 | `capture.py` | 抠图：窗口后面放黑、白背板各拍一张算出透明度，第三张黑的用来发现光标闪烁和没停的动画 |
 | `stage.py` | 布景：只索引演示文件夹的配置（`--profile`，每次 `profile start` 重新生成：演示文件的修改时间、收藏夹和关键词、剪贴板历史都直接写进配置），临时换应用主题和壁纸、拍完换回 |
 | `agent.ps1` | 提权运行的输入代理：执行场景文件里的按键、点击、抠图命令，每次按键前确认前台是 Win顺 |
-| `scenes/` | 场景文件（代理的命令序列）：`all.txt` 拍全部，`light.txt`/`dark.txt` → `windows.txt`，`taskbar.txt` 任务栏搜索框，`post.txt` 帖子另有的几张（“全部”里的序号、最新的在前、网站搜索、剪贴板搜图里的字、设置搜索、设置和 AI 页），`more.txt` README 另有的六张（按意思找、只搜一个文件夹、外观设置，再跑 `features.txt`：搜索面板和预览，`foldermenu.txt`：资源管理器里双击空白处的菜单）；`区域销售额.png` 是剪贴板历史里那张图（数字用普惠体，Windows 的文字识别才不会把 371 认成 571） |
+| `scenes/` | 场景文件（代理的命令序列）：`all.txt` 拍全部，`light.txt`/`dark.txt` → `windows.txt`（也拍 README 另有的系统开关那三个窗口），`taskbar.txt` 任务栏搜索框，`post.txt` 帖子另有的几张（“全部”里的序号、最新的在前、网站搜索、剪贴板搜图里的字、设置搜索、设置和 AI 页），`more.txt` README 另有的六张（按意思找、只搜一个文件夹、外观设置，再跑 `features.txt`：搜索面板和预览，`foldermenu.txt`：资源管理器里双击空白处的菜单）；`区域销售额.png` 是剪贴板历史里那张图（数字用普惠体，Windows 的文字识别才不会把 371 认成 571） |
 | `demo_docs.py` | 生成演示文件夹里的 Word、Excel、PowerPoint、PDF（有内容、有大小，面板里不显示 0 B，PDF 有缩略图，内容搜索搜得到） |
 | `demo/` | 演示文件夹的内容，`profile` 发现 `F:\Win顺演示` 不在时复制过去（这个路径会出现在对话框截图里） |
 | `work/` | 不进 git：`shots/` 原始抠图，`profile/` 演示配置，`out/` 帖子用图，`agent.txt` 代理日志 |
@@ -24,7 +24,7 @@ README 里的图（`docs/images/*.jpg`：帖子的方形页面和方形封面，
 
 ```
 python tools/screenshots/shots.py render            # 全部
-python tools/screenshots/shots.py render readme     # 只 README 的 23 张（写进 docs/images）
+python tools/screenshots/shots.py render readme     # 只 README 的 24 张（写进 docs/images）
 python tools/screenshots/shots.py render pages square covers   # 帖子用图，写进 work/out
 ```
 
@@ -39,7 +39,7 @@ README 的图是帖子各页加上 `shots.py` 的 `README_ONLY`（帖子最多 1
    tools\screenshots\agent.ps1 scenes\all.txt
    ```
 
-   依次：用演示配置重启 Win顺 → 删掉 Win顺 启动时记下的系统剪贴板那一条 → 浅色主题 + dawn 壁纸拍 11 张窗口 → 任务栏搜索框 → 深色主题 + aurora 壁纸再拍 11 张 → 换回原来的主题和壁纸 → 用自己的配置重启 Win顺。抠图写进 `work/shots/`。拍的时候别动键鼠；哪一步前台不对，代理就停下，原因写在 `work/agent.txt`。
+   依次：用演示配置重启 Win顺 → 删掉 Win顺 启动时记下的系统剪贴板那一条 → 浅色主题 + dawn 壁纸拍 14 张窗口 → 任务栏搜索框 → 深色主题 + aurora 壁纸再拍 14 张 → 换回原来的主题和壁纸 → 用自己的配置重启 Win顺。抠图写进 `work/shots/`。拍的时候别动键鼠；哪一步前台不对，代理就停下，原因写在 `work/agent.txt`。
 3. 逐张看 `work/shots/` 的抠图：范围标签对不对、查询文字有没有被选中、有没有自己的文件。
 4. `shots.py render`。
 
@@ -49,8 +49,8 @@ README 的图是帖子各页加上 `shots.py` 的 `README_ONLY`（帖子最多 1
 
 这几处是按 2560×1600 的屏幕量的：
 
-- `scenes/windows.txt` 里点对话框下搜索框的 `clickws 400 956`；
-- `scenes/taskbar.txt` 里点任务栏搜索框的 `clickbox 397 1564`；
+- `scenes/windows.txt` 里点对话框下搜索框的 `clickws 400 1013`（搜索框紧贴在对话框下边：对话框的位置和大小变了，这个点也要跟着改）；
+- `scenes/taskbar.txt` 里点任务栏搜索框的 `clickbox 700 1564`；
 - `scenes/more.txt` 里点设置“外观”页的 `clickfg 120 252`，`scenes/foldermenu.txt` 里资源管理器窗口的位置（`explorer place`）和双击的点；
 - `art.py` 的 `TASKBAR`：全屏截图 `screen-taskbar.png` 上启动器、任务栏、搜索框的位置。
 

@@ -61,6 +61,40 @@ matte {p}-plug3
 tap 1B
 sleep 600
 
+# System switches (README_ONLY, three windows one under another, like the
+# plugins): a switch as it is now (隐藏文件: its only row), the volume set by
+# a number, keep awake for an hour. They show this PC's real states. NEVER
+# Enter here (nor a click on a row, Ctrl+1..9, Alt+Left/Right): that flips
+# the switch. Chinese typed after `open x`, not passed to --query.
+open x
+sleep 300
+tap 08
+type 隐藏文件
+sleep 1500
+matte {p}-switch1
+tap 1B
+sleep 600
+open x
+sleep 300
+tap 08
+type 音量
+tap 20
+type 30
+sleep 1500
+matte {p}-switch2
+tap 1B
+sleep 600
+open x
+sleep 300
+tap 08
+type 保持唤醒
+tap 20
+type 1小时
+sleep 1500
+matte {p}-switch3
+tap 1B
+sleep 600
+
 open guanliqi
 sleep 1000
 tap 23
@@ -121,7 +155,7 @@ sleep 1500
 type F:\Win顺演示
 tap 0D
 sleep 2000
-clickws 400 956
+clickws 400 1013
 sleep 300
 type ndbg
 sleep 1200
