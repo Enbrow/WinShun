@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <!-- PDFium (built with its own C runtime, on the process heap) spends
+           about a quarter of its time allocating and freeing: the segment
+           heap reads PDFs 5-7% faster than the default heap, for the same
+           text and about the same memory. Windows 10 2004 and later; older
+           ones keep the default heap. -->
+      <heapType xmlns="http://schemas.microsoft.com/SMI/2020/WindowsSettings">SegmentHeap</heapType>
+    </windowsSettings>
+  </application>
+</assembly>

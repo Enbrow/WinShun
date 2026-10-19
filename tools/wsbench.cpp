@@ -3714,6 +3714,7 @@ int runExtractBench(const ws::FileIndex* index, QStringList args)
     struct Result {
         ws::extractproto::Status status = ws::extractproto::Status::Failed;
         double ms = 0;
+        double openMs = 0;
         std::uint64_t size = 0;
         std::size_t text = 0;
         std::size_t packed = 0;
@@ -3732,9 +3733,12 @@ int runExtractBench(const ws::FileIndex* index, QStringList args)
             workers.emplace_back([&] {
                 for (std::size_t i = next.fetch_add(1); i < files.size(); i = next.fetch_add(1)) {
                     Result& r = results[i];
+                    QElapsedTimer opening; // the antivirus scans the file as it is opened
+                    opening.start();
                     const ws::win32::UniqueHandle file(::CreateFileW(ws::win32::longPath(files[i]).c_str(),
                         GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0,
                         nullptr));
+                    r.openMs = msSince(opening);
                     LARGE_INTEGER size {};
                     if (!file.valid() || !::GetFileSizeEx(file.get(), &size))
                         continue;
@@ -3842,6 +3846,43 @@ int runExtractBench(const ws::FileIndex* index, QStringList args)
         print(name, row);
     print("all", all);
     std::printf("wall %.1f s, peak commit of this process %.0f MB\n", wall / 1000, peakCommitMB());
+
+    // By size: what each band costs (opening and reading), and how many in it
+    // have the size of one before them (the content indexer hashes those and
+    // reads only the first of the same bytes).
+    {
+        constexpr std::array<double, 6> kUpToMB {1, 5, 20, 50, 100, 1e12};
+        struct Band {
+            std::size_t files = 0, sameSize = 0;
+            double openMs = 0, ms = 0, sameSizeMs = 0;
+            std::uint64_t bytes = 0;
+        };
+        std::array<Band, kUpToMB.size()> bands {};
+        std::set<std::uint64_t> sizes;
+        for (const Result& r : results) {
+            const double mb = static_cast<double>(r.size) / 1048576.0;
+            Band& b = bands[static_cast<std::size_t>(std::ranges::find_if(kUpToMB, [&](double up) { return mb <= up; }) - kUpToMB.begin())];
+            ++b.files;
+            b.bytes += r.size;
+            b.openMs += r.openMs;
+            b.ms += r.ms;
+            if (r.size > 0 && !sizes.insert(r.size).second) {
+                ++b.sameSize;
+                b.sameSizeMs += r.openMs + r.ms;
+            }
+        }
+        std::printf("\nby size     files    file MB   open s   read s  ms/file  ms/MB   same size (open+read s)\n");
+        double low = 0;
+        for (std::size_t k = 0; k < bands.size(); ++k) {
+            const Band& b = bands[k];
+            const double mb = static_cast<double>(b.bytes) / 1048576.0;
+            std::printf("  %4.0f-%-4.0f %6zu %10.1f %8.1f %8.1f %8.1f %6.1f   %zu (%.1f s)\n", low,
+                std::min(kUpToMB[k], 9999.0), b.files, mb, b.openMs / 1000, b.ms / 1000,
+                b.files ? (b.openMs + b.ms) / static_cast<double>(b.files) : 0.0, mb > 0 ? (b.openMs + b.ms) / mb : 0.0,
+                b.sameSize, b.sameSizeMs / 1000);
+            low = kUpToMB[k];
+        }
+    }
 
     std::vector<std::size_t> order(files.size());
     std::iota(order.begin(), order.end(), std::size_t {0});

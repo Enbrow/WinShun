@@ -59,7 +59,8 @@ target_link_libraries(wsextract
 target_link_libraries(wsextract INTERFACE delayimp)
 target_link_options(wsextract INTERFACE /DELAYLOAD:pdfium.dll)
 
-add_executable(WinShunExtract WIN32 main.cpp)
+# The manifest only adds the segment heap (merged with the linker's own).
+add_executable(WinShunExtract WIN32 main.cpp WinShunExtract.manifest)
 target_link_libraries(WinShunExtract PRIVATE wsextract)
 
 install(TARGETS WinShunExtract RUNTIME DESTINATION .)
