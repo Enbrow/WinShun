@@ -14,6 +14,11 @@ SettingsSection {
     required property PluginSettings plugins
     // Rows on the 开发者 tab shown only in developer mode (PluginDevSection.lockedRows).
     property var lockedElsewhere: []
+    // The built-in features drawn as cards here (CaptureCard); null in a
+    // preview without one.
+    property SettingsEditor editor: null
+    // A built-in card records a hotkey (SettingsWindow stops the app's hotkeys meanwhile).
+    readonly property bool recordingHotkey: captureCard.item ? captureCard.item.recordingHotkey : false
 
     // The cards unfolded, by plugin id: here, not in the cards, for the list
     // is reset (the cards made again) when a plugin comes or goes. For as
@@ -92,6 +97,26 @@ SettingsSection {
             text: qsTr("知道了")
             flat: true
             onClicked: pluginsSection.plugins.clearMessage()
+        }
+    }
+
+    SettingRow { // what comes with Win顺 but stays off until wanted: the screen capture
+        id: builtinRow
+
+        title: qsTr("内置功能")
+        keywords: qsTr("截图;截屏;屏幕截图;PrtScn;Print Screen;放大镜;取色;screenshot;capture").split(";")
+        values: pluginsSection.editor ? [pluginsSection.editor.captureHotkey] : []
+        description: qsTr("随 Win顺 一起提供，默认关着；关着时不占内存，也不注册快捷键")
+        shown: pluginsSection.editor !== null
+
+        body: Loader {
+            id: captureCard
+            width: parent.width
+            active: pluginsSection.editor !== null
+            sourceComponent: CaptureCard {
+                editor: pluginsSection.editor
+                marked: builtinRow.searching && builtinRow.found
+            }
         }
     }
 

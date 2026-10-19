@@ -33,6 +33,16 @@ add_test(NAME tst_numberhints COMMAND tst_numberhints)
 set_tests_properties(tst_numberhints PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
 
+# The screen capture's geometry, HDR mapping and state machine (src/capture),
+# without windows.
+qt_add_executable(tst_capture tst_capture.cpp ${PROJECT_SOURCE_DIR}/src/capture/CaptureSession.cpp)
+target_link_libraries(tst_capture PRIVATE wscapture Qt6::Qml Qt6::Test)
+# Qt6::Qml only for QML_ELEMENT's macros: no QML imports to look for.
+set_target_properties(tst_capture PROPERTIES WIN32_EXECUTABLE FALSE QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+add_test(NAME tst_capture COMMAND tst_capture)
+set_tests_properties(tst_capture PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
 qt_add_executable(tst_appearance tst_appearance.cpp
     ${PROJECT_SOURCE_DIR}/src/app/Settings.cpp
     ${PROJECT_SOURCE_DIR}/src/app/SystemTheme.cpp

@@ -12,7 +12,11 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QFile>
+#include <QFileInfo>
+#include <QPointer>
 #include <QJsonDocument>
 
 #include <windows.h>
@@ -39,6 +43,8 @@ constexpr int kDefaultFolder = 100;
 constexpr int kMaxFolder = 500;
 constexpr int kDefaultClips = 20;
 constexpr int kMaxClips = 100;
+constexpr int kDefaultShots = 10;
+constexpr int kMaxShots = 50;
 constexpr int kDefaultClipChars = 500;
 constexpr int kMaxClipChars = 20000;
 constexpr int kDefaultTimeoutMs = 5000;
@@ -336,7 +342,7 @@ QString stateName(IndexService::State state)
 // ---- the host ---------------------------------------------------------------
 
 struct ToolHost::Tool {
-    enum class Gate { None, Open, Clipboard, Documents };
+    enum class Gate { None, Open, Clipboard, Documents, Screenshot };
     QString name;
     QString title;
     QString description;
@@ -359,7 +365,7 @@ struct ToolHost::Tool {
             return offered;
         return offered
             && (gate == Gate::None || (gate == Gate::Open && policy.allowOpen) || (gate == Gate::Clipboard && policy.allowClipboard)
-                || (gate == Gate::Documents && policy.allowDocuments));
+                || (gate == Gate::Documents && policy.allowDocuments) || (gate == Gate::Screenshot && policy.allowScreenshot));
     }
 
     QJsonObject json() const
@@ -682,7 +688,9 @@ QString ToolHost::instructions()
            "before telling the user which file it is.\n"
            "Paths are Windows paths; show them to the user as they are. Keep limits small (20–50) unless more is "
            "needed. Tools that open files or read the clipboard history are listed only when the user allowed them "
-           "in Win顺's settings."_s;
+           "in Win顺's settings. screenshot_history lists the screenshots the user took with Win顺, with the text read "
+           "in them and a PNG file to look at; take_screenshot asks the user on the screen every time and waits for "
+           "the answer: call it only when a picture of the screen is really needed."_s;
 }
 
 // ---- the engine's answers ----------------------------------------------------
@@ -953,6 +961,45 @@ void ToolHost::addTools()
     clip.run = [this](const std::shared_ptr<Call>& call) { clipboardGet(call); };
     m_tools.push_back(std::move(clip));
 
+    Tool shots;
+    shots.name = u"screenshot_history"_s;
+    shots.title = u"Screenshot history"_s;
+    shots.description = u"Screenshots the user took with Win顺's screen capture, newest first, with the text read in them "
+                        "(OCR) and the path of a PNG copy to look at. query keeps those whose text has all the words "
+                        "(pinyin too). Empty, with a reason, while Win顺's screen capture is turned off."_s;
+    shots.inputSchema = object({{u"query"_s, typed("string", u"Words that must all occur in the text read in the picture"_s)},
+        {u"limit"_s, integer(u"How many screenshots at most"_s, 1, kMaxShots, kDefaultShots)}});
+    shots.outputSchema = object({{u"items"_s, array(object({{u"id"_s, typed("integer", u"The clipboard history entry"_s)},
+                                                         {u"taken"_s, typed("string", u"When it was taken, ISO 8601"_s)},
+                                                         {u"width"_s, typed("integer", u"Pixels"_s)},
+                                                         {u"height"_s, typed("integer", u"Pixels"_s)},
+                                                         {u"text"_s, typed("string", u"The text read in it; empty for none"_s)},
+                                                         {u"image_path"_s, typed("string", u"A PNG copy in the temporary folder"_s)}}),
+                                     u"Newest first"_s)},
+        {u"returned"_s, typed("integer", u"How many items"_s)},
+        {u"reason"_s, typed("string", u"Why there are none, when the screen capture is off"_s)}});
+    shots.annotations = annotations(true, true);
+    shots.gate = Tool::Gate::Clipboard;
+    shots.offered = static_cast<bool>(m_services.screenshots);
+    shots.run = [this](const std::shared_ptr<Call>& call) { screenshotHistory(call); };
+    m_tools.push_back(std::move(shots));
+
+    Tool take;
+    take.name = u"take_screenshot"_s;
+    take.title = u"Take a screenshot"_s;
+    take.description = u"A picture of one monitor, as a PNG file. Every call shows the user a confirmation on the screen "
+                       "naming the client and the monitor; the picture is taken only when the user clicks Allow. Refused, "
+                       "or no answer within 30 seconds, it returns an error: do not ask again unless the user wants it. "
+                       "The picture is not put on the clipboard or into its history."_s;
+    take.inputSchema = object({{u"monitor"_s, integer(u"Which monitor: 1 is the primary one, then the others; 0: the one with the mouse pointer"_s, 0, 16, 0)}});
+    take.outputSchema = object({{u"path"_s, typed("string", u"The PNG file"_s)}, {u"width"_s, typed("integer", u"Pixels"_s)},
+        {u"height"_s, typed("integer", u"Pixels"_s)}, {u"monitor"_s, typed("string", u"Which monitor was taken"_s)}});
+    take.annotations = annotations(true, false);
+    take.gate = Tool::Gate::Screenshot;
+    take.offered = static_cast<bool>(m_services.takeScreenshot);
+    take.run = [this](const std::shared_ptr<Call>& call) { takeScreenshot(call); };
+    m_tools.push_back(std::move(take));
+
     Tool status;
     status.name = u"index_status"_s;
     status.title = u"Win顺 status"_s;
@@ -964,7 +1011,7 @@ void ToolHost::addTools()
         {u"version"_s, typed("string", u"Its version"_s)},
         {u"index"_s, typed("object", u"state (loading, building, ready), items, volumes"_s)},
         {u"content_index"_s, typed("object", u"enabled, files, pending, reading"_s)},
-        {u"ai"_s, typed("object", u"open_allowed, clipboard_allowed, excluded_folders"_s)}, {u"hint"_s, typed("string", u"What to tell the user when Win顺 is not running"_s)}});
+        {u"ai"_s, typed("object", u"open_allowed, clipboard_allowed, screenshot_allowed, capture_enabled, excluded_folders"_s)}, {u"hint"_s, typed("string", u"What to tell the user when Win顺 is not running"_s)}});
     status.annotations = annotations(true, true);
     status.run = [this](const std::shared_ptr<Call>& call) { indexStatus(call); };
     m_tools.push_back(std::move(status));
@@ -1432,6 +1479,72 @@ void ToolHost::clipboardGet(const std::shared_ptr<Call>& call)
     finish(call, {{{u"id"_s, id}, {u"text"_s, text->left(maxChars)}, {u"chars"_s, text->size()}, {u"truncated"_s, text->size() > maxChars}}});
 }
 
+QString ToolHost::tempFolder() const
+{
+    return !m_services.tempFolder.isEmpty() ? m_services.tempFolder : QDir::tempPath() + u"/WinShun/mcp"_s;
+}
+
+// The pictures are copied out of the history's folder, which a client has
+// no business in: a PNG per entry in the temporary folder, by its id (the
+// same picture asked for again is the same file).
+void ToolHost::screenshotHistory(const std::shared_ptr<Call>& call)
+{
+    Args args(call->arguments);
+    const QString query = args.string(u"query"_s).trimmed();
+    const int limit = args.integer(u"limit"_s, kDefaultShots, 1, kMaxShots);
+    if (!args.error().isEmpty())
+        return finish(call, {{}, true, args.error()});
+    if (!m_policy.captureEnabled) {
+        return finish(call, {{{u"items"_s, QJsonArray()}, {u"returned"_s, 0},
+            {u"reason"_s, u"Win顺's screen capture is turned off (Settings → 插件 → 截图), so there is no screenshot history to list."_s}}});
+    }
+    const QString folder = tempFolder();
+    QDir().mkpath(folder);
+    QJsonArray items;
+    for (const ScreenshotSummary& shot : m_services.screenshots(query, limit)) {
+        if (items.size() >= limit)
+            break;
+        QJsonObject item {{u"id"_s, shot.id}, {u"taken"_s, isoTimeMs(shot.created)}, {u"width"_s, shot.width},
+            {u"height"_s, shot.height}, {u"text"_s, shot.ocr}};
+        if (!shot.imagePath.isEmpty()) {
+            const QString copy = folder + u'/' + QString::number(shot.id) + u".png"_s;
+            const QFileInfo there(copy);
+            const QFileInfo source(shot.imagePath);
+            if (there.exists() && there.size() != source.size())
+                QFile::remove(copy);
+            if (QFileInfo::exists(copy) || QFile::copy(shot.imagePath, copy))
+                item.insert(u"image_path"_s, QDir::toNativeSeparators(copy));
+        }
+        items.push_back(item);
+    }
+    finish(call, {{{u"items"_s, items}, {u"returned"_s, items.size()}}});
+}
+
+// Waits on the user (30 s at most, App::confirmScreenshot), among the calls
+// that need no engine: cancelled meanwhile, the answer goes nowhere.
+void ToolHost::takeScreenshot(const std::shared_ptr<Call>& call)
+{
+    Args args(call->arguments);
+    const int monitor = args.integer(u"monitor"_s, 0, 0, 16);
+    if (!args.error().isEmpty())
+        return finish(call, {{}, true, args.error()});
+    m_others.push_back(call);
+    std::weak_ptr<Call> weak = call;
+    QPointer<ToolHost> self(this);
+    m_services.takeScreenshot({call->client, monitor}, [self, weak](ScreenshotTaken taken) {
+        QMetaObject::invokeMethod(qApp, [self, weak, taken = std::move(taken)] {
+            const std::shared_ptr<Call> c = weak.lock();
+            if (!self || !c || std::ranges::find(self->m_others, c) == self->m_others.end())
+                return; // cancelled
+            std::erase(self->m_others, c);
+            if (!taken.error.isEmpty())
+                return self->finish(c, {{}, true, taken.error});
+            self->finish(c, {{{u"path"_s, QDir::toNativeSeparators(taken.path)}, {u"width"_s, taken.width},
+                {u"height"_s, taken.height}, {u"monitor"_s, taken.monitor}}});
+        }, Qt::QueuedConnection);
+    });
+}
+
 void ToolHost::readFileText(const std::shared_ptr<Call>& call)
 {
     Args args(call->arguments);
@@ -1619,6 +1732,8 @@ void ToolHost::indexStatus(const std::shared_ptr<Call>& call)
     }
     const QJsonObject ai {{u"open_allowed"_s, m_policy.allowOpen && m_services.open != nullptr},
         {u"clipboard_allowed"_s, m_policy.allowClipboard && m_services.clipboard != nullptr},
+        {u"screenshot_allowed"_s, m_policy.allowScreenshot && m_services.takeScreenshot != nullptr},
+        {u"capture_enabled"_s, m_policy.captureEnabled},
         {u"excluded_folders"_s, static_cast<qint64>(m_excluded.size())}};
     QJsonObject out {{u"running"_s, true}, {u"connected"_s, true}, {u"version"_s, m_services.version}, {u"index"_s, index},
         {u"content_index"_s, content}, {u"ai"_s, ai}};

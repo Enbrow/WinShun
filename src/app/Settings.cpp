@@ -765,6 +765,13 @@ void Settings::load()
         taskbarSearchBoxStyle = d.taskbarSearchBoxStyle;
     taskbarStartGap = readOrDefault(s, u"Taskbar/StartGap"_s, d.taskbarStartGap);
 
+    captureEnabled = readOrDefault(s, u"Capture/Enabled"_s, d.captureEnabled);
+    captureHotkey = readOrDefault(s, u"Capture/Hotkey"_s, d.captureHotkey).trimmed();
+    capturePrintScreen = readOrDefault(s, u"Capture/PrintScreen"_s, d.capturePrintScreen);
+    capturePrintScreenBefore = readOrDefault(s, u"Capture/PrintScreenBefore"_s, d.capturePrintScreenBefore).trimmed();
+    captureCopyOnSelect = readOrDefault(s, u"Capture/CopyOnSelect"_s, d.captureCopyOnSelect);
+    captureKeyword = readOrDefault(s, u"Capture/Keyword"_s, d.captureKeyword).trimmed();
+
     // Before the list: writing it (defaults new to the file) rewrites the whole group.
     webSuggestions = readOrDefault(s, u"WebSearch/Suggestions"_s, d.webSuggestions);
     webShortcuts = readWebShortcuts(s, d.webShortcuts, webSuggestions);
@@ -781,6 +788,7 @@ void Settings::load()
     mcp = readOrDefault(s, u"Mcp/Enabled"_s, d.mcp);
     mcpAllowOpen = readOrDefault(s, u"Mcp/AllowOpen"_s, d.mcpAllowOpen);
     mcpClipboard = readOrDefault(s, u"Mcp/Clipboard"_s, d.mcpClipboard);
+    mcpScreenshot = readOrDefault(s, u"Mcp/Screenshot"_s, d.mcpScreenshot);
     mcpExcludedPaths = readOrDefault(s, u"Mcp/ExcludedPaths"_s, d.mcpExcludedPaths);
     mcpPlugins = readOrDefault(s, u"Mcp/Plugins"_s, d.mcpPlugins);
     mcpPluginActions = readOrDefault(s, u"Mcp/PluginActions"_s, d.mcpPluginActions);
@@ -868,6 +876,12 @@ void Settings::save() const
     s.setValue(u"Taskbar/SearchBox"_s, taskbarSearchBox);
     s.setValue(u"Taskbar/SearchBoxStyle"_s, taskbarSearchBoxStyle);
     s.setValue(u"Taskbar/StartGap"_s, taskbarStartGap);
+    s.setValue(u"Capture/Enabled"_s, captureEnabled);
+    s.setValue(u"Capture/Hotkey"_s, captureHotkey);
+    s.setValue(u"Capture/PrintScreen"_s, capturePrintScreen);
+    s.setValue(u"Capture/PrintScreenBefore"_s, capturePrintScreenBefore);
+    s.setValue(u"Capture/CopyOnSelect"_s, captureCopyOnSelect);
+    s.setValue(u"Capture/Keyword"_s, captureKeyword);
     writeWebShortcuts(s, webShortcuts, webSuggestions);
     writeFileTypes(s, fileTypes);
     writeShares(s, shares);
@@ -879,6 +893,7 @@ void Settings::save() const
     s.setValue(u"Mcp/Enabled"_s, mcp);
     s.setValue(u"Mcp/AllowOpen"_s, mcpAllowOpen);
     s.setValue(u"Mcp/Clipboard"_s, mcpClipboard);
+    s.setValue(u"Mcp/Screenshot"_s, mcpScreenshot);
     s.setValue(u"Mcp/ExcludedPaths"_s, mcpExcludedPaths);
     s.setValue(u"Mcp/Plugins"_s, mcpPlugins);
     s.setValue(u"Mcp/PluginActions"_s, mcpPluginActions);

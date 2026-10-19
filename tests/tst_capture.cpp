@@ -1,0 +1,661 @@
+// The screen capture's pure parts (src/capture): the geometry (Qt's buffer
+// scale, edges and handles, nudges, where the toolbar goes, what a click
+// picks), the file names, the HDR tone mapping, the PrtScn value kept, and
+// the session's state machine driven with physical pixels, without windows.
+#include "CaptureSession.h"
+#include "Geometry.h"
+#include "Hdr.h"
+#include "PrintScreen.h"
+
+#include <QSignalSpy>
+#include <QTest>
+
+#include <cmath>
+#include <cstring>
+
+using namespace ws::capture;
+using namespace Qt::StringLiterals;
+
+namespace {
+
+// One monitor of 1000 × 800 physical pixels at the virtual desktop's origin.
+struct Rig {
+    CaptureScreen screen {0};
+    CaptureSession session;
+    std::vector<QRect> tops;
+    std::vector<std::vector<QRect>> children;
+
+    explicit Rig(qreal dpr = 1.0)
+    {
+        screen.setGeometry(QRect(0, 0, 1000, 800), dpr, QSize(qRound(1000 / dpr), qRound(800 / dpr)));
+        QImage image(1000, 800, QImage::Format_RGB32);
+        image.fill(qRgb(0x12, 0x34, 0x56));
+        image.setPixel(10, 10, qRgb(0xAB, 0xCD, 0xEF));
+        screen.setImage(image);
+    }
+    void begin()
+    {
+        CaptureSession::Windows windows;
+        windows.tops = tops;
+        windows.children = [this](std::size_t i) { return i < children.size() ? children[i] : std::vector<QRect> {}; };
+        session.begin({&screen}, std::move(windows));
+    }
+    void drag(QPoint from, QPoint to)
+    {
+        session.pointerMove(0, from);
+        session.pointerPress(0, from, Qt::LeftButton);
+        session.pointerMove(0, (from + to) / 2);
+        session.pointerMove(0, to);
+        session.pointerRelease(0, to, Qt::LeftButton);
+    }
+    void click(QPoint at)
+    {
+        session.pointerMove(0, at);
+        session.pointerPress(0, at, Qt::LeftButton);
+        session.pointerRelease(0, at, Qt::LeftButton);
+    }
+};
+
+} // namespace
+
+class TestCapture : public QObject {
+    Q_OBJECT
+
+private slots:
+    void initTestCase() { qRegisterMetaType<CaptureSession::Action>(); }
+
+    // ---- geometry --------------------------------------------------------
+
+    void bufferScaleRounds()
+    {
+        // 2560 px at 150 %: 1706.67 logical units, Qt's window 1707 wide,
+        // its buffer 2561 → the real scale is 2560/1707 · … only when exact.
+        QCOMPARE(bufferScale(1707, 1.5), std::round(1707 * 1.5) / 1707);
+        QCOMPARE(bufferScale(1000, 1.0), 1.0);
+        QCOMPARE(bufferScale(0, 1.25), 1.25); // no size yet: the DPR itself
+        QVERIFY(std::abs(toLogical(2560, 1707, 1.5) * bufferScale(1707, 1.5) - 2560) < 1e-9);
+    }
+
+    void toPhysicalRoundsBack()
+    {
+        for (const double dpr : {1.0, 1.25, 1.5, 1.75, 2.0, 2.25}) {
+            for (int p = 0; p < 3000; p += 7)
+                QCOMPARE(toPhysical(p / dpr, dpr), p);
+        }
+    }
+
+    void spanRectIncludesBothPixels()
+    {
+        QCOMPARE(spanRect({10, 20}, {10, 20}), QRect(10, 20, 1, 1));
+        QCOMPARE(spanRect({30, 40}, {10, 20}), QRect(10, 20, 21, 21));
+    }
+
+    void moveIntoKeepsOnScreen()
+    {
+        const QRect screen(0, 0, 100, 100);
+        QCOMPARE(moveInto(QRect(-5, -5, 10, 10), screen), QRect(0, 0, 10, 10));
+        QCOMPARE(moveInto(QRect(95, 95, 10, 10), screen), QRect(90, 90, 10, 10));
+        QCOMPARE(moveInto(QRect(10, 10, 300, 20), screen), QRect(0, 10, 100, 20)); // too wide: cut
+    }
+
+    void handleAtEdgesAndCorners()
+    {
+        const QRect sel(100, 100, 200, 100); // edge lines x 100 and 300, y 100 and 200
+        const int reach = 6;
+        QCOMPARE(handleAt(sel, {100, 100}, reach), Handle::TopLeft);
+        QCOMPARE(handleAt(sel, {299, 199}, reach), Handle::BottomRight);
+        QCOMPARE(handleAt(sel, {300, 100}, reach), Handle::TopRight); // just outside the right edge
+        QCOMPARE(handleAt(sel, {94, 150}, reach), Handle::Left);
+        QCOMPARE(handleAt(sel, {92, 150}, reach), Handle::None); // centre 92.5: 7.5 away
+        QCOMPARE(handleAt(sel, {200, 205}, reach), Handle::Bottom);
+        QCOMPARE(handleAt(sel, {200, 150}, reach), Handle::Move);
+        QCOMPARE(handleAt(sel, {500, 500}, reach), Handle::None);
+        QCOMPARE(handleAt(QRect(), {0, 0}, reach), Handle::None);
+        // Tiny: every pixel is near a corner; the nearer edges win, not
+        // always the top left.
+        const QRect tiny(50, 50, 3, 3);
+        QCOMPARE(handleAt(tiny, {52, 51}, reach), Handle::TopRight);
+        QCOMPARE(handleAt(tiny, {50, 52}, reach), Handle::BottomLeft);
+        QCOMPARE(handleAt(tiny, {52, 52}, reach), Handle::BottomRight);
+    }
+
+    void dragHandleResizesAndFlips()
+    {
+        const QRect screen(0, 0, 1000, 800);
+        const QRect start(100, 100, 200, 100);
+        QCOMPARE(dragHandle(start, Handle::Right, {50, 999}, screen), QRect(100, 100, 250, 100));
+        QCOMPARE(dragHandle(start, Handle::TopLeft, {-20, -30}, screen), QRect(80, 70, 220, 130));
+        // Past the opposite edge: it becomes that edge.
+        QCOMPARE(dragHandle(start, Handle::Left, {250, 0}, screen), QRect(300, 100, 50, 100));
+        // Onto the opposite edge: one pixel stays.
+        QCOMPARE(dragHandle(start, Handle::Bottom, {0, -100}, screen), QRect(100, 100, 200, 1));
+        // Kept on the screen.
+        QCOMPARE(dragHandle(start, Handle::BottomRight, {5000, 5000}, screen), QRect(100, 100, 900, 700));
+        QCOMPARE(dragHandle(start, Handle::Move, {-500, 0}, screen), QRect(0, 100, 200, 100));
+        // At the screen's right edge, a pixel wide grows inwards.
+        QCOMPARE(dragHandle(QRect(990, 0, 10, 10), Handle::Left, {50, 0}, screen), QRect(999, 0, 1, 10));
+    }
+
+    void nudgeMovesAndResizes()
+    {
+        const QRect screen(0, 0, 100, 100);
+        QCOMPARE(nudge(QRect(10, 10, 20, 20), 1, 0, false, screen), QRect(11, 10, 20, 20));
+        QCOMPARE(nudge(QRect(0, 10, 20, 20), -1, 0, false, screen), QRect(0, 10, 20, 20)); // at the edge
+        QCOMPARE(nudge(QRect(10, 10, 20, 20), 1, 1, true, screen), QRect(10, 10, 21, 21));
+        QCOMPARE(nudge(QRect(10, 10, 1, 1), -1, -1, true, screen), QRect(10, 10, 1, 1)); // never under a pixel
+        QCOMPARE(nudge(QRect(10, 10, 90, 20), 1, 0, true, screen), QRect(10, 10, 90, 20)); // the screen's edge
+    }
+
+    void toolbarBelowAboveInside()
+    {
+        const QRect screen(0, 0, 1000, 800);
+        const QSize bar(200, 40);
+        ToolbarPlace p = placeToolbar(QRect(100, 100, 300, 200), bar, screen, 8);
+        QCOMPARE(p.where, ToolbarPlace::Below);
+        QCOMPARE(p.topLeft, QPoint(200, 308)); // right edges aligned
+        p = placeToolbar(QRect(100, 700, 300, 90), bar, screen, 8);
+        QCOMPARE(p.where, ToolbarPlace::Above);
+        QCOMPARE(p.topLeft, QPoint(200, 652));
+        p = placeToolbar(QRect(0, 0, 1000, 800), bar, screen, 8);
+        QCOMPARE(p.where, ToolbarPlace::Inside);
+        QCOMPARE(p.topLeft, QPoint(800, 752));
+        p = placeToolbar(QRect(0, 100, 50, 50), bar, screen, 8); // narrow at the left: kept on the screen
+        QCOMPARE(p.topLeft.x(), 0);
+    }
+
+    void sizeLabelAndMagnifierStayOnScreen()
+    {
+        const QRect screen(0, 0, 1000, 800);
+        QCOMPARE(placeSizeLabel(QRect(100, 100, 50, 50), QSize(80, 20), screen, 6), QPoint(100, 74));
+        QCOMPARE(placeSizeLabel(QRect(100, 0, 50, 50), QSize(80, 20), screen, 6), QPoint(100, 6)); // no room above
+        QCOMPARE(placeMagnifier({100, 100}, QSize(150, 200), screen, 20), QPoint(121, 121));
+        QCOMPARE(placeMagnifier({990, 790}, QSize(150, 200), screen, 20), QPoint(820, 570)); // flipped
+    }
+
+    void hitChainPicksTopmost()
+    {
+        const QRect screen(0, 0, 1000, 800);
+        const std::vector<QRect> windows {QRect(100, 100, 400, 300), QRect(50, 50, 800, 600)};
+        const auto children = [](std::size_t i) {
+            return i == 0 ? std::vector<QRect> {QRect(100, 100, 400, 300), QRect(120, 120, 200, 100), QRect(130, 130, 50, 20)}
+                          : std::vector<QRect> {};
+        };
+        // Smallest first; a child as big as its window is left out; the screen last.
+        std::vector<QRect> chain = hitChain(windows, children, {140, 135}, screen);
+        QCOMPARE(chain.size(), std::size_t(4));
+        QCOMPARE(chain[0], QRect(130, 130, 50, 20));
+        QCOMPARE(chain[1], QRect(120, 120, 200, 100));
+        QCOMPARE(chain[2], QRect(100, 100, 400, 300));
+        QCOMPARE(chain[3], screen);
+        // Under the first window only the second one.
+        chain = hitChain(windows, children, {60, 60}, screen);
+        QCOMPARE(chain.size(), std::size_t(2));
+        QCOMPARE(chain[0], QRect(50, 50, 800, 600));
+        // A window reaching off the screen is cut to it.
+        chain = hitChain({QRect(-100, -100, 300, 300)}, {}, {10, 10}, screen);
+        QCOMPARE(chain[0], QRect(0, 0, 200, 200));
+        QVERIFY(hitChain(windows, children, {2000, 10}, screen).empty());
+    }
+
+    void fileNamesCountUp()
+    {
+        const QDateTime when(QDate(2026, 10, 19), QTime(9, 5, 7));
+        QCOMPARE(screenshotFileName(when, {}), u"WinShun_20261019_090507.png"_s);
+        const QStringList taken {u"WinShun_20261019_090507.png"_s, u"WinShun_20261019_090507_1.png"_s};
+        QCOMPARE(screenshotFileName(when, [&](const QString& n) { return taken.contains(n); }),
+            u"WinShun_20261019_090507_2.png"_s);
+    }
+
+    void colorHexUpperCase()
+    {
+        QCOMPARE(colorHex(qRgb(0xAB, 0x0C, 0x01)), u"#AB0C01"_s);
+    }
+
+    // ---- pins ----------------------------------------------------------------
+
+    void zoomStepsPassThroughOneAndStopAtTheEnds()
+    {
+        QCOMPARE(nextZoom(1.0, 1), 1.25);
+        QCOMPARE(nextZoom(1.0, -1), 0.9);
+        QCOMPARE(nextZoom(1.25, -1), 1.0); // back to exactly 100%
+        QCOMPARE(nextZoom(0.9, 1), 1.0);
+        QCOMPARE(nextZoom(1.1, -1), 1.0); // between steps: the next one that way
+        QCOMPARE(nextZoom(1.1, 1), 1.25);
+        QCOMPARE(nextZoom(1.0, 100), 8.0);
+        QCOMPARE(nextZoom(1.0, -100), 0.1);
+        QCOMPARE(nextZoom(8.0, 1), 8.0);
+        QCOMPARE(nextZoom(0.1, -1), 0.1);
+        QCOMPARE(nextZoom(1.0, 3, 2.5), 2.0); // the window budget stops it
+        QCOMPARE(nextZoom(2.0, 1, 2.5), 2.0);
+        // Whole multiples above 100%: crisp pixels.
+        for (double z : zoomSteps())
+            QVERIFY(z <= 1.5 || z == std::floor(z));
+    }
+
+    void maxZoomKeepsTheWindowInBudget()
+    {
+        QCOMPARE(maxZoom({100, 100}, 24'000'000), 8.0);
+        const double z = maxZoom({2560, 1600}, 24'000'000);
+        QVERIFY(z > 2.4 && z < 2.5);
+        QVERIFY(qint64(2560 * z) * qint64(1600 * z) <= 24'000'000 + 10'000);
+        QCOMPARE(maxZoom({20000, 20000}, 24'000'000), 1.0); // never below its own size
+    }
+
+    void zoomedSizeIsExactAtOne()
+    {
+        QCOMPARE(zoomedSize({333, 201}, 1.0), QSize(333, 201));
+        QCOMPARE(zoomedSize({333, 201}, 2.0), QSize(666, 402));
+        QCOMPARE(zoomedSize({333, 201}, 0.5), QSize(167, 101));
+        QCOMPARE(zoomedSize({5, 5}, 0.1), QSize(1, 1));
+    }
+
+    void zoomAboutKeepsThePixelUnderTheCursor()
+    {
+        const QPoint origin(1000, 500);
+        const QPoint cursor(1100, 550); // the picture's pixel (100, 50)
+        const QPoint twice = zoomAbout(origin, cursor, 1.0, 2.0);
+        QCOMPARE(twice, QPoint(900, 450)); // pixel 100 now spans 1100..1101 on the screen
+        // Back to 100% from anywhere lands on whole pixels where it started.
+        QCOMPARE(zoomAbout(twice, cursor, 2.0, 1.0), origin);
+        const QPoint odd = zoomAbout(origin, cursor, 1.0, 1.25);
+        const QPoint back = zoomAbout(odd, cursor, 1.25, 1.0);
+        QVERIFY((back - origin).manhattanLength() <= 1);
+        // The cursor on the picture's top left pixel keeps that corner there.
+        QCOMPARE(zoomAbout(origin, origin, 1.0, 3.0), QPoint(999, 499));
+    }
+
+    void opacityStepsByTenths()
+    {
+        QCOMPARE(nextOpacity(1.0, 1), 1.0);
+        QCOMPARE(nextOpacity(1.0, -1), 0.9);
+        QCOMPARE(nextOpacity(0.2, -5), 0.1);
+        QCOMPARE(nextOpacity(0.55, 1), 0.7); // 0.55 rounds to 0.6 first
+    }
+
+    void pinFrameFollowsTheDpiThePictureDoesNot()
+    {
+        const QRect picture(100, 200, 400, 300);
+        const PinFrame at100 = pinFrame(1.0);
+        const PinFrame at150 = pinFrame(1.5);
+        const PinFrame at200 = pinFrame(2.0);
+        QCOMPARE(at100.border, 1);
+        QCOMPARE(at150.border, 2);
+        QCOMPARE(at200.border, 2);
+        QCOMPARE(at100.shadow, 8);
+        QCOMPARE(at150.shadow, 12);
+        QCOMPARE(at200.shadow, 16);
+        // Moved to a monitor at another scale: the window grows round the
+        // picture, which keeps its place and its physical size.
+        const QRect w100 = pinWindowRect(picture, at100);
+        const QRect w150 = pinWindowRect(picture, at150);
+        QCOMPARE(w100, QRect(91, 191, 418, 318));
+        QCOMPARE(w150, QRect(86, 186, 428, 328));
+        QCOMPARE(w150.adjusted(at150.margin(), at150.margin(), -at150.margin(), -at150.margin()), picture);
+    }
+
+    // ---- OCR -------------------------------------------------------------------
+
+    void ocrUpscalesSmallText()
+    {
+        QCOMPARE(ocrUpscale({400, 200}, 1.0), 2.0); // 100%: twice
+        QCOMPARE(ocrUpscale({400, 200}, 1.25), 2.0);
+        QCOMPARE(ocrUpscale({400, 200}, 1.5), 1.0); // 150% and up: as it is
+        QCOMPARE(ocrUpscale({400, 200}, 2.0), 1.0);
+        QCOMPARE(ocrUpscale({1200, 200}, 1.0), 2000.0 / 1200); // no wider than the reader takes
+        QCOMPARE(ocrUpscale({1700, 200}, 1.0), 1.0); // under a quarter more: not worth it
+        QCOMPARE(ocrUpscale({}, 1.0), 1.0);
+    }
+
+    void placeBesideTriesEachSide()
+    {
+        const QRect area(0, 0, 1000, 800);
+        const QSize box(200, 100);
+        QCOMPARE(placeBeside({100, 100, 300, 200}, box, area, 10), QPoint(410, 100)); // right
+        QCOMPARE(placeBeside({700, 100, 290, 200}, box, area, 10), QPoint(490, 100)); // left
+        QCOMPARE(placeBeside({50, 100, 900, 200}, box, area, 10), QPoint(50, 310)); // under
+        QCOMPARE(placeBeside({50, 650, 900, 140}, box, area, 10), QPoint(50, 540)); // over
+        QCOMPARE(placeBeside({10, 10, 980, 780}, box, area, 10), QPoint(400, 350)); // the middle
+        QCOMPARE(placeBeside({100, 750, 300, 40}, box, area, 10), QPoint(410, 700)); // kept in the area
+    }
+
+    // ---- the Start menu ----------------------------------------------------------
+
+    void changedRegionFindsTheFlyoutWithoutItsShadow()
+    {
+        QImage without(400, 300, QImage::Format_RGB32);
+        without.fill(qRgb(30, 30, 30));
+        QImage with = without.copy();
+        for (int i = 0; i < 40; ++i) // a few sparse changes elsewhere (a caret, a clock)
+            with.setPixel((i * 37) % 400, (i * 53) % 300, qRgb(200, 200, 200));
+        // A shadow 6 pixels round the flyout: darker, by a little.
+        for (int y = 44; y < 256; ++y)
+            for (int x = 94; x < 306; ++x)
+                with.setPixel(x, y, qRgb(20, 20, 20));
+        // The flyout: a 2 px border and busy contents (text over acrylic).
+        for (int y = 50; y < 250; ++y)
+            for (int x = 100; x < 300; ++x) {
+                const bool edge = x < 102 || x >= 298 || y < 52 || y >= 248;
+                with.setPixel(x, y, edge ? qRgb(60, 60, 60) : ((x / 3 + y / 5) % 2 ? qRgb(40, 40, 40) : qRgb(220, 220, 220)));
+            }
+        QCOMPARE(changedRegion(with, without, with.rect(), 4, 0.3), QRect(100, 50, 200, 200));
+        // Cut to the area asked about (the work area: not the taskbar).
+        QCOMPARE(changedRegion(with, without, QRect(0, 0, 400, 150), 4, 0.3), QRect(100, 50, 200, 100));
+        QCOMPARE(changedRegion(without, without, without.rect(), 4, 0.3), QRect());
+        QCOMPARE(changedRegion(with, without.scaled(10, 10), with.rect(), 4, 0.3), QRect());
+    }
+
+    // ---- HDR -----------------------------------------------------------------
+
+    void hdrMapsWhiteAndBlack()
+    {
+        // scRGB 1.0 is 80 nits: with the SDR white at 80, 0.5 stays the sRGB
+        // of 0.5 (under the knee); the brightest pixel (8.0) ends at white,
+        // and 1.0 is rolled off below it to make room. With nothing above
+        // white, nothing is rolled off: 1.0 is white.
+        const auto half = [](float f) { // float → half for the plain values used here
+            if (f == 0)
+                return std::uint16_t(0);
+            int e;
+            const float m = std::frexp(f, &e); // f = m · 2^e, m in [0.5, 1)
+            const int exp = e - 1 + 15;
+            const auto mant = static_cast<std::uint16_t>(std::lround((m * 2 - 1) * 1024));
+            return static_cast<std::uint16_t>((exp << 10) | mant);
+        };
+        QCOMPARE(halfToFloat(half(1.0f)), 1.0f);
+        QCOMPARE(halfToFloat(half(0.5f)), 0.5f);
+        QCOMPARE(encodeSrgb(0.0f), std::uint8_t(0));
+        QCOMPARE(encodeSrgb(1.0f), std::uint8_t(255));
+        std::uint16_t pixels[4 * 4] {}; // 4 pixels, RGBA
+        const float values[4] {0.0f, 0.5f, 1.0f, 8.0f};
+        for (int i = 0; i < 4; ++i) {
+            pixels[i * 4 + 0] = pixels[i * 4 + 1] = pixels[i * 4 + 2] = half(values[i]);
+            pixels[i * 4 + 3] = half(1.0f);
+        }
+        const QImage out = mapScRgbToSdr(pixels, 4, 1, 4 * 4 * 2, 80.0);
+        QCOMPARE(out.size(), QSize(4, 1));
+        QCOMPARE(qRed(out.pixel(0, 0)), 0);
+        QVERIFY(std::abs(qRed(out.pixel(1, 0)) - 188) <= 2); // sRGB(0.5) = 188, under the knee
+        QVERIFY(qRed(out.pixel(2, 0)) > 230 && qRed(out.pixel(2, 0)) < 255);
+        QCOMPARE(qRed(out.pixel(3, 0)), 255);
+        QCOMPARE(qRed(mapScRgbToSdr(pixels, 3, 1, 4 * 4 * 2, 80.0).pixel(2, 0)), 255);
+        // A brighter SDR white (200 nits) makes the same value darker.
+        const QImage dimmer = mapScRgbToSdr(pixels, 4, 1, 4 * 4 * 2, 200.0);
+        QVERIFY(qRed(dimmer.pixel(2, 0)) < 255);
+    }
+
+    // ---- PrtScn ----------------------------------------------------------
+
+    void printScreenValueRoundTrips()
+    {
+        std::optional<DWORD> value;
+        QCOMPARE(ws::printscreen::encode(std::nullopt), u"absent"_s);
+        QVERIFY(ws::printscreen::decode(u"absent"_s, &value));
+        QVERIFY(!value);
+        QVERIFY(ws::printscreen::decode(ws::printscreen::encode(DWORD {1}), &value));
+        QCOMPARE(value, std::optional<DWORD>(1));
+        QVERIFY(!ws::printscreen::decode(u"yes"_s, &value));
+        QVERIFY(!ws::printscreen::decode(QString(), &value));
+    }
+
+    // ---- the session -----------------------------------------------------
+
+    void dragSelectsAndEnterCopies()
+    {
+        Rig rig;
+        rig.begin();
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.drag({100, 100}, {299, 199});
+        QVERIFY(rig.session.hasSelection());
+        QCOMPARE(rig.session.selectionRect(), QRect(100, 100, 200, 100));
+        QCOMPARE(rig.screen.selection(), QRect(100, 100, 200, 100));
+        QVERIFY(rig.screen.dimmed());
+        QVERIFY(!rig.screen.adjusting());
+        QVERIFY(rig.session.key(Qt::Key_Return, Qt::NoModifier));
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Copy);
+        QCOMPARE(finished[0][2].toRect(), QRect(100, 100, 200, 100));
+    }
+
+    void dragBeyondTheScreenIsClamped()
+    {
+        Rig rig;
+        rig.begin();
+        rig.session.pointerMove(0, {900, 700});
+        rig.session.pointerPress(0, {900, 700}, Qt::LeftButton);
+        rig.session.pointerMove(0, {1500, 1200}); // the mouse grabbed past the edge
+        rig.session.pointerRelease(0, {1500, 1200}, Qt::LeftButton);
+        QCOMPARE(rig.session.selectionRect(), QRect(900, 700, 100, 100));
+    }
+
+    void clickPicksWindowAndControl()
+    {
+        Rig rig;
+        rig.tops = {QRect(100, 100, 400, 300)};
+        rig.children = {{QRect(120, 120, 100, 40)}};
+        rig.begin();
+        rig.session.pointerMove(0, {130, 130});
+        QCOMPARE(rig.screen.hover(), QRect(120, 120, 100, 40)); // the control
+        rig.session.wheel(0, {130, 130}, 1); // out: the window
+        QCOMPARE(rig.screen.hover(), QRect(100, 100, 400, 300));
+        rig.session.wheel(0, {130, 130}, 1); // out: the screen
+        QCOMPARE(rig.screen.hover(), QRect(0, 0, 1000, 800));
+        rig.session.wheel(0, {130, 130}, 5); // no further
+        QCOMPARE(rig.screen.hover(), QRect(0, 0, 1000, 800));
+        rig.session.wheel(0, {130, 130}, -1);
+        rig.click({131, 131}); // a twitch under the drag threshold is still a click
+        QCOMPARE(rig.session.selectionRect(), QRect(100, 100, 400, 300));
+        QCOMPARE(rig.screen.hover(), QRect()); // no outline over a selection
+    }
+
+    void clickOnDesktopPicksTheScreen()
+    {
+        Rig rig;
+        rig.begin();
+        rig.click({500, 500});
+        QCOMPARE(rig.session.selectionRect(), QRect(0, 0, 1000, 800));
+    }
+
+    void handlesResizeAndInsideMoves()
+    {
+        Rig rig;
+        rig.begin();
+        rig.drag({100, 100}, {299, 199});
+        // The right edge line is at x 300: a press on pixel 300 takes it.
+        rig.drag({300, 150}, {350, 150});
+        QCOMPARE(rig.session.selectionRect(), QRect(100, 100, 250, 100));
+        rig.drag({200, 150}, {210, 160}); // inside: moved
+        QCOMPARE(rig.session.selectionRect(), QRect(110, 110, 250, 100));
+        rig.session.pointerMove(0, {200, 150});
+        QCOMPARE(rig.screen.cursorShape(), int(Qt::SizeAllCursor));
+        rig.session.pointerMove(0, {110, 110});
+        QCOMPARE(rig.screen.cursorShape(), int(Qt::SizeFDiagCursor));
+    }
+
+    void clickOutsideKeepsSelectionDragOutsideReplacesIt()
+    {
+        Rig rig;
+        rig.begin();
+        rig.drag({100, 100}, {199, 199});
+        rig.click({600, 600});
+        QCOMPARE(rig.session.selectionRect(), QRect(100, 100, 100, 100));
+        rig.drag({600, 600}, {699, 649});
+        QCOMPARE(rig.session.selectionRect(), QRect(600, 600, 100, 50));
+    }
+
+    void arrowsNudgeAndShiftResizes()
+    {
+        Rig rig;
+        rig.begin();
+        rig.drag({100, 100}, {199, 199});
+        rig.session.key(Qt::Key_Right, Qt::NoModifier);
+        rig.session.key(Qt::Key_Down, Qt::NoModifier);
+        QCOMPARE(rig.session.selectionRect(), QRect(101, 101, 100, 100));
+        rig.session.key(Qt::Key_Left, Qt::ShiftModifier);
+        QCOMPARE(rig.session.selectionRect(), QRect(101, 101, 99, 100));
+        rig.session.key(Qt::Key_Down, Qt::ShiftModifier);
+        QCOMPARE(rig.session.selectionRect(), QRect(101, 101, 99, 101));
+    }
+
+    void arrowsWithoutSelectionMoveTheCursor()
+    {
+        Rig rig;
+        rig.begin();
+        QSignalSpy moves(&rig.session, &CaptureSession::cursorMoveRequested);
+        rig.session.pointerMove(0, {0, 0});
+        rig.session.key(Qt::Key_Left, Qt::NoModifier); // already at the edge
+        rig.session.key(Qt::Key_Down, Qt::NoModifier);
+        QCOMPARE(moves.count(), 2);
+        QCOMPARE(moves[0][0].toPoint(), QPoint(0, 0));
+        QCOMPARE(moves[1][0].toPoint(), QPoint(0, 1));
+    }
+
+    void escapeClearsThenCancels()
+    {
+        Rig rig;
+        rig.begin();
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.drag({100, 100}, {199, 199});
+        rig.session.key(Qt::Key_Escape, Qt::NoModifier);
+        QVERIFY(!rig.session.hasSelection());
+        QVERIFY(!rig.screen.dimmed());
+        QCOMPARE(finished.count(), 0);
+        rig.session.pointerPress(0, {50, 50}, Qt::RightButton); // right click: the same
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Cancel);
+    }
+
+    void escapeDuringDragGoesBack()
+    {
+        Rig rig;
+        rig.begin();
+        rig.drag({100, 100}, {199, 199});
+        rig.session.pointerMove(0, {199, 150});
+        rig.session.pointerPress(0, {199, 150}, Qt::LeftButton); // the right edge
+        rig.session.pointerMove(0, {400, 150});
+        QVERIFY(rig.screen.adjusting());
+        rig.session.key(Qt::Key_Escape, Qt::NoModifier);
+        QCOMPARE(rig.session.selectionRect(), QRect(100, 100, 100, 100));
+        QVERIFY(!rig.screen.adjusting());
+    }
+
+    void doubleClickInsideCopiesAsIs()
+    {
+        Rig rig;
+        rig.begin();
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.drag({100, 100}, {199, 199});
+        // A double click: press, release, then the second press (Adjusting: Move).
+        rig.click({150, 150});
+        rig.session.pointerPress(0, {150, 150}, Qt::LeftButton);
+        rig.session.doubleClick(0, {150, 150});
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Copy);
+        QCOMPARE(finished[0][2].toRect(), QRect(100, 100, 100, 100));
+    }
+
+    void ctrlSSavesAndColourCopies()
+    {
+        Rig rig;
+        rig.begin();
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        QSignalSpy colors(&rig.session, &CaptureSession::colorCopied);
+        rig.session.pointerMove(0, {10, 10});
+        QCOMPARE(rig.screen.color(), u"#ABCDEF"_s);
+        QCOMPARE(rig.screen.loupe().size(), QSize(CaptureScreen::kLoupeCells, CaptureScreen::kLoupeCells));
+        QCOMPARE(rig.screen.loupe().pixel(CaptureScreen::kLoupeCells / 2, CaptureScreen::kLoupeCells / 2),
+            qRgb(0xAB, 0xCD, 0xEF));
+        QVERIFY(rig.session.key(Qt::Key_C, Qt::NoModifier));
+        QCOMPARE(colors.count(), 1);
+        QCOMPARE(colors[0][0].toString(), u"#ABCDEF"_s);
+        QVERIFY(rig.screen.flash().contains(u"#ABCDEF"_s));
+        QCOMPARE(finished.count(), 0);
+        QVERIFY(!rig.session.key(Qt::Key_S, Qt::NoModifier)); // S alone: nothing
+        rig.drag({100, 100}, {199, 199});
+        QVERIFY(rig.session.key(Qt::Key_S, Qt::ControlModifier));
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Save);
+    }
+
+    void f3PinsAndTheToolbarReads()
+    {
+        Rig rig;
+        rig.begin();
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.drag({100, 100}, {199, 149});
+        QVERIFY(rig.session.key(Qt::Key_F3, Qt::NoModifier));
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Pin);
+        QCOMPARE(finished[0][2].toRect(), QRect(100, 100, 100, 50));
+        rig.begin();
+        rig.drag({10, 20}, {59, 39});
+        rig.session.act(int(CaptureSession::Action::Ocr)); // the toolbar's 识别文字
+        QCOMPARE(finished.count(), 2);
+        QCOMPARE(finished[1][0].value<CaptureSession::Action>(), CaptureSession::Action::Ocr);
+        QCOMPARE(finished[1][2].toRect(), QRect(10, 20, 50, 20));
+        rig.session.act(99); // not an action
+        QCOMPARE(finished.count(), 2);
+    }
+
+    void flyoutIsPickedOverTheWindows()
+    {
+        Rig rig;
+        rig.tops = {QRect(0, 0, 1000, 700)}; // a window under the Start menu
+        rig.children = {{QRect(50, 50, 200, 100)}};
+        rig.begin();
+        rig.session.pointerMove(0, {60, 60});
+        QCOMPARE(rig.screen.hover(), QRect(50, 50, 200, 100));
+        // Found once the menu closed, while the cursor is already there.
+        rig.session.setFlyout(QRect(40, 40, 300, 400));
+        QCOMPARE(rig.screen.hover(), QRect(40, 40, 300, 400)); // no controls of its own
+        rig.session.pointerMove(0, {600, 600}); // beside it: the window again
+        QCOMPARE(rig.screen.hover(), QRect(0, 0, 1000, 700));
+        rig.session.pointerMove(0, {60, 60});
+        rig.session.wheel(0, {60, 60}, 1);
+        QCOMPARE(rig.screen.hover(), QRect(0, 0, 1000, 800)); // out: the screen
+        rig.session.end();
+        rig.begin(); // the next capture has none
+        rig.session.pointerMove(0, {60, 60});
+        QCOMPARE(rig.screen.hover(), QRect(50, 50, 200, 100));
+    }
+
+    void copyOnSelectFinishesAtOnce()
+    {
+        Rig rig;
+        rig.session.setCopyOnSelect(true);
+        rig.begin();
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.drag({100, 100}, {199, 199});
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished[0][2].toRect(), QRect(100, 100, 100, 100));
+    }
+
+    void logicalInputAtFractionalScale()
+    {
+        // 150 %: Qt's logical position × 1.5 is the physical pixel again.
+        Rig rig(1.5);
+        rig.begin();
+        rig.session.mouseMoved(0, 101 / 1.5, 51 / 1.5);
+        QCOMPARE(rig.screen.cursor(), QPoint(101, 51));
+        // The handle reach, 6 px at 100 %, is 9 px at 150 %.
+        rig.drag({100, 100}, {199, 199});
+        rig.session.pointerMove(0, {208, 150});
+        QCOMPARE(rig.screen.cursorShape(), int(Qt::SizeHorCursor));
+    }
+
+    void endClearsState()
+    {
+        Rig rig;
+        rig.begin();
+        rig.drag({100, 100}, {199, 199});
+        rig.session.end();
+        QVERIFY(!rig.session.active());
+        QCOMPARE(rig.screen.selection(), QRect());
+        QVERIFY(!rig.screen.cursorHere());
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.session.key(Qt::Key_Return, Qt::NoModifier); // nothing after the end
+        QCOMPARE(finished.count(), 0);
+    }
+};
+
+QTEST_GUILESS_MAIN(TestCapture)
+#include "tst_capture.moc"

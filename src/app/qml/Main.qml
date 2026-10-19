@@ -643,6 +643,18 @@ Window {
             else if (window.launcher.pluginKeyword.length === 0)
                 window.launcher.cycleScope(-1)
             break
+        case Qt.Key_Delete:
+            // The screenshot history (jt): the row goes from it (Ctrl+Z puts it
+            // back), unless the box has words after the caret, or selected.
+            if (!window.launcher.screenshotMode || ctrl || shift || searchBar.hasSelection
+                    || searchBar.field.cursorPosition < searchBar.field.length || view.currentIndex < 0)
+                return
+            act(Launcher.RemoveScreenshot)
+            break
+        case Qt.Key_Z:
+            if (!ctrl || shift || !window.launcher.screenshotMode || !window.launcher.undoScreenshotRemoval())
+                return
+            break
         case Qt.Key_C:
             // Ctrl+C copies selected text in the box; otherwise the file itself
             // (always the files, once rows have been picked).

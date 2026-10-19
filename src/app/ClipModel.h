@@ -38,6 +38,7 @@ public:
         MissingRole, // files and paths: the (first) file is gone
         MovableRole, // can be moved in its group's own order (a drag, Ctrl+Up/Down)
         AfterPinnedRole, // the first row after those in "固定" listed first: a line above it
+        ScreenshotRole, // a picture Win顺's capture took (Clip::screenshot): tagged 截图
     };
 
     // Which rows can be moved in their group's order: none (a search, the

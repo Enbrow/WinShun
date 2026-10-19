@@ -366,6 +366,7 @@ bool ClipStore::open(qint64 now)
         // to a history from before.
         bool hasOcr = false;
         bool hasRank = false;
+        bool hasScreenshot = false;
         QSqlQuery columns(db);
         columns.prepare(u"PRAGMA table_info(clips)"_s);
         if (!run(columns, "Reading the columns"))
@@ -373,6 +374,7 @@ bool ClipStore::open(qint64 now)
         while (columns.next()) {
             hasOcr = hasOcr || columns.value(1).toString() == u"ocr"_s;
             hasRank = hasRank || columns.value(1).toString() == u"rank"_s;
+            hasScreenshot = hasScreenshot || columns.value(1).toString() == u"screenshot"_s;
         }
         columns.finish();
         if (!hasOcr && !run(db, u"ALTER TABLE clips ADD COLUMN ocr TEXT"_s))
@@ -382,6 +384,16 @@ bool ClipStore::open(qint64 now)
         if (!hasRank
             && !(run(db, u"ALTER TABLE clips ADD COLUMN rank INTEGER NOT NULL DEFAULT 0"_s)
                  && run(db, u"UPDATE clips SET rank = -used WHERE groupId != 0"_s)))
+            return loaded;
+        // Pictures Win顺's screen capture took (the screenshot history):
+        // added to a history from before; the captures already in it were
+        // marked by their source alone, in either language (stage 2 of the
+        // capture, 2026-10-19), with Win顺 as the program.
+        if (!hasScreenshot
+            && !(run(db, u"ALTER TABLE clips ADD COLUMN screenshot INTEGER NOT NULL DEFAULT 0"_s)
+                 && run(db, u"UPDATE clips SET screenshot = 1 WHERE kind = 4 "
+                            u"AND source IN ('Win顺 截图', 'WinShun screenshot') "
+                            u"AND lower(sourcePath) LIKE '%winshun.exe'"_s)))
             return loaded;
 
         QSqlQuery groups(db);
@@ -394,7 +406,8 @@ bool ClipStore::open(qint64 now)
         QSqlQuery clips(db);
         clips.setForwardOnly(true);
         clips.prepare(u"SELECT id, kind, substr(text, 1, %1), length, hash, created, used, source, sourcePath, groupId, "
-                      u"width, height, bytes, html IS NOT NULL, rtf IS NOT NULL, ocr, rank FROM clips ORDER BY used DESC, id DESC"_s
+                      u"width, height, bytes, html IS NOT NULL, rtf IS NOT NULL, ocr, rank, screenshot FROM clips "
+                      u"ORDER BY used DESC, id DESC"_s
                 .arg(kTextInMemory));
         if (!run(clips, "Reading the history"))
             return loaded;
@@ -418,6 +431,7 @@ bool ClipStore::open(qint64 now)
             clip.read = !clips.value(15).isNull();
             clip.ocr = clips.value(15).toString();
             clip.rank = clips.value(16).toLongLong();
+            clip.screenshot = clip.kind == ClipKind::Image && clips.value(17).toInt() != 0;
             loaded.clips.push_back(std::move(clip));
         }
         QSqlQuery last(db);
@@ -546,16 +560,20 @@ qint64 ClipStore::add(const ClipCapture& capture, qint64 now)
         same->sourcePath = capture.sourcePath;
         same->html = same->html || !capture.html.isEmpty();
         same->rtf = same->rtf || !capture.rtf.isEmpty();
+        // A screenshot stays one (copied again from wherever it was pasted).
+        same->screenshot = same->kind == ClipKind::Image && (same->screenshot || capture.screenshot);
+        const bool screenshot = same->screenshot;
         moveToFront(static_cast<std::size_t>(same - m_clips.begin()));
-        m_writer->post([id, now, capture](QSqlDatabase& db) {
+        m_writer->post([id, now, capture, screenshot](QSqlDatabase& db) {
             QSqlQuery query(db);
             query.prepare(u"UPDATE clips SET used = ?, source = ?, sourcePath = ?, html = COALESCE(?, html), "
-                          u"rtf = COALESCE(?, rtf) WHERE id = ?"_s);
+                          u"rtf = COALESCE(?, rtf), screenshot = ? WHERE id = ?"_s);
             query.addBindValue(now);
             query.addBindValue(text(capture.source));
             query.addBindValue(text(capture.sourcePath));
             query.addBindValue(blob(capture.html));
             query.addBindValue(blob(capture.rtf));
+            query.addBindValue(screenshot ? 1 : 0);
             query.addBindValue(id);
             run(query, "Updating an entry");
         });
@@ -578,6 +596,7 @@ qint64 ClipStore::add(const ClipCapture& capture, qint64 now)
     clip.bytes = capture.png.size();
     clip.html = !capture.html.isEmpty();
     clip.rtf = !capture.rtf.isEmpty();
+    clip.screenshot = capture.kind == ClipKind::Image && capture.screenshot;
     m_clips.insert(m_clips.begin(), std::move(clip));
     if (capture.kind == ClipKind::Image)
         m_picturesPending.insert(id);
@@ -586,7 +605,7 @@ qint64 ClipStore::add(const ClipCapture& capture, qint64 now)
     m_writer->post([this, context = m_context.get(), id, hash, now, capture](QSqlDatabase& db) {
         QSqlQuery query(db);
         query.prepare(u"INSERT INTO clips (id, kind, text, length, html, rtf, hash, created, used, source, sourcePath, "
-                      u"width, height, bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"_s);
+                      u"width, height, bytes, screenshot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"_s);
         query.addBindValue(id);
         query.addBindValue(static_cast<int>(capture.kind));
         query.addBindValue(text(capture.text));
@@ -601,6 +620,7 @@ qint64 ClipStore::add(const ClipCapture& capture, qint64 now)
         query.addBindValue(capture.width);
         query.addBindValue(capture.height);
         query.addBindValue(static_cast<qint64>(capture.png.size()));
+        query.addBindValue(capture.kind == ClipKind::Image && capture.screenshot ? 1 : 0);
         bool ok = run(query, "Saving an entry");
         if (ok && capture.kind == ClipKind::Image) {
             QSaveFile file(imagePath(id));
@@ -701,7 +721,8 @@ void ClipStore::restore(std::vector<ClipRecord> records)
         db.transaction();
         QSqlQuery query(db);
         query.prepare(u"INSERT OR REPLACE INTO clips (id, kind, text, length, html, rtf, hash, created, used, source, "
-                      u"sourcePath, groupId, width, height, bytes, ocr, rank) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"_s);
+                      u"sourcePath, groupId, width, height, bytes, ocr, rank, screenshot) "
+                      u"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"_s);
         for (const ClipRecord& record : records) {
             const Clip& c = record.clip;
             query.addBindValue(c.id);
@@ -721,6 +742,7 @@ void ClipStore::restore(std::vector<ClipRecord> records)
             query.addBindValue(c.bytes);
             query.addBindValue(c.read ? QVariant(text(c.ocr)) : QVariant(QMetaType::fromType<QString>()));
             query.addBindValue(c.rank);
+            query.addBindValue(c.screenshot ? 1 : 0);
             written.push_back(run(query, "Restoring an entry"));
         }
         db.commit();
@@ -1033,6 +1055,11 @@ std::vector<int> ClipStore::find(const ClipFilter& filter) const
     for (std::size_t i = 0; i < m_clips.size(); ++i) {
         const Clip& c = m_clips[i];
         bool shown = true;
+        if (filter.screenshots) {
+            if (c.kind == ClipKind::Image && c.screenshot && (matcher.empty() || matcher.matches(c)))
+                rows.push_back(static_cast<int>(i));
+            continue;
+        }
         switch (filter.category) {
         case Category::All:
             break;
@@ -1058,7 +1085,13 @@ std::vector<int> ClipStore::find(const ClipFilter& filter) const
     // A group's entries in their own order; with pinnedFirst, those in
     // "固定" so before the rest (newest first, as they are in clips()).
     const auto rank = [this](int row) { return m_clips[static_cast<std::size_t>(row)].rank; };
-    if (filter.category == Category::Group) {
+    if (filter.screenshots) { // by when taken, newest first; the later id first on a tie
+        std::ranges::stable_sort(rows, [this](int a, int b) {
+            const Clip& x = m_clips[static_cast<std::size_t>(a)];
+            const Clip& y = m_clips[static_cast<std::size_t>(b)];
+            return x.created != y.created ? x.created > y.created : x.id > y.id;
+        });
+    } else if (filter.category == Category::Group) {
         std::ranges::stable_sort(rows, {}, rank);
     } else if (filter.pinnedFirst) {
         const auto rest = std::ranges::stable_partition(rows, [this](int row) {

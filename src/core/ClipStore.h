@@ -60,6 +60,10 @@ struct Clip {
     // `read` once it was looked at, words or none (GitHub #9).
     QString ocr;
     bool read = false;
+    // Image: taken with Win顺's own screen capture (src/capture), not copied
+    // from a program: the screenshot history (jt, the 截图 tag, MCP's
+    // screenshot_history). Kept when the same pixels are copied again.
+    bool screenshot = false;
 
     QStringList files() const; // Files, Path: the paths
     bool truncated() const { return textLength > text.size(); }
@@ -83,6 +87,7 @@ struct ClipCapture {
     int height = 0;
     QString source;
     QString sourcePath;
+    bool screenshot = false; // Image: Win顺's screen capture took it (Clip::screenshot)
     // On the clipboard already when the history started: copied at some
     // earlier time, so an entry it matches stays where it is.
     bool initial = false;
@@ -121,6 +126,10 @@ struct ClipFilter {
     // The entries in "固定" first, in their own order, then the rest newest
     // first (not for a group: its entries are in their own order anyway).
     bool pinnedFirst = false;
+    // The screenshot history (jt): only pictures Win顺's capture took, the
+    // newest taken first (by `created`, not by when last pasted); the words
+    // are looked for in what was read in them (ocr). Overrides the rest.
+    bool screenshots = false;
 };
 
 // Finds the words of a query in entries: as written (ignoring case), and
@@ -241,7 +250,8 @@ public:
     void setValue(const QString& key, const QString& value);
 
     // Indexes into clips() of the entries to list: newest first; a group's
-    // in their order (and "固定"'s first with pinnedFirst).
+    // in their order (and "固定"'s first with pinnedFirst); screenshots by
+    // when they were taken.
     std::vector<int> find(const ClipFilter& filter) const;
 
 private:

@@ -554,13 +554,16 @@ void CALLBACK onMenuShown(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD)
 
 } // namespace
 
-int popupMenu(HWND owner, const std::vector<MenuItem>& items, POINT screenPos, std::function<void()> shown)
+namespace {
+
+// A popup menu of `items`, submenus included (destroyed with it).
+HMENU buildMenu(const std::vector<MenuItem>& items)
 {
     HMENU menu = ::CreatePopupMenu();
     if (!menu)
-        return 0;
+        return nullptr;
     for (const MenuItem& item : items) {
-        if (item.id == 0 && item.text.isEmpty()) {
+        if (item.id == 0 && item.text.isEmpty() && item.children.empty()) {
             ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
             continue;
         }
@@ -569,10 +572,26 @@ int popupMenu(HWND owner, const std::vector<MenuItem>& items, POINT screenPos, s
             flags |= MF_CHECKED;
         if (!item.enabled)
             flags |= MF_GRAYED;
+        if (!item.children.empty()) {
+            if (HMENU sub = buildMenu(item.children)) {
+                ::AppendMenuW(menu, flags | MF_POPUP, reinterpret_cast<UINT_PTR>(sub), reinterpret_cast<LPCWSTR>(item.text.utf16()));
+                continue;
+            }
+        }
         ::AppendMenuW(menu, flags, static_cast<UINT_PTR>(item.id), reinterpret_cast<LPCWSTR>(item.text.utf16()));
         if (item.isDefault)
             ::SetMenuDefaultItem(menu, static_cast<UINT>(item.id), FALSE);
     }
+    return menu;
+}
+
+} // namespace
+
+int popupMenu(HWND owner, const std::vector<MenuItem>& items, POINT screenPos, std::function<void()> shown)
+{
+    HMENU menu = buildMenu(items);
+    if (!menu)
+        return 0;
     // Delivered from the menu's own message loop, as it opens.
     HWINEVENTHOOK hook = nullptr;
     if (shown) {

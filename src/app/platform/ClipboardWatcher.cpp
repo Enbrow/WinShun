@@ -211,6 +211,11 @@ QByteArray dibPixels(const QImage& argb)
 
 } // namespace
 
+QByteArray imagePixelHash(const QImage& image)
+{
+    return pixelHash(image);
+}
+
 struct ClipboardWatcher::WriteJob {
     ClipWrite data;
     std::function<void(bool)> done;
@@ -538,11 +543,14 @@ bool ClipboardWatcher::writeNow(const ClipWrite& data)
         const DWORD effect = DROPEFFECT_COPY; // pasting from the history never moves files
         add(f.dropEffect, &effect, sizeof effect);
     }
-    if (!data.imagePath.isEmpty()) {
-        QFile file(data.imagePath);
-        if (!file.open(QIODevice::ReadOnly))
-            return false;
-        const QByteArray png = file.readAll();
+    if (!data.imagePath.isEmpty() || !data.png.isEmpty()) {
+        QByteArray png = data.png;
+        if (png.isEmpty()) {
+            QFile file(data.imagePath);
+            if (!file.open(QIODevice::ReadOnly))
+                return false;
+            png = file.readAll();
+        }
         const QImage image = QImage::fromData(png, "PNG").convertToFormat(QImage::Format_ARGB32);
         if (image.isNull())
             return false;

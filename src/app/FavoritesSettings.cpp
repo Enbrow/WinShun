@@ -274,6 +274,8 @@ QString FavoritesSettings::save(int index, const QString& name, const QString& k
             if (web.keyword.compare(word, Qt::CaseInsensitive) == 0)
                 return tr("关键词“%1”已经给了网页搜索“%2”").arg(web.keyword, web.name);
         }
+        if (const QString taken = m_editor->captureKeywordTaken(word); !taken.isEmpty())
+            return taken;
     }
     f.keyword = word;
     f.name = name.trimmed().isEmpty() ? ownName(f) : name.trimmed();

@@ -223,6 +223,8 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
         }
         return FileIconProvider::iconUrl(r->path, r->isDir);
     case ThumbnailRole:
+        if (r->clipId > 0) // a screenshot (jt): its picture, whatever the option says
+            return r->target.isEmpty() ? QString() : ThumbnailProvider::url(r->target, r->modified);
         if (!m_thumbnails || r->isApp() || r->isDir || r->offline || r->missing)
             return QString();
         return ThumbnailProvider::url(r->path, r->modified);
@@ -255,11 +257,11 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
     case SelectedRole:
         return m_selected.contains(r->path);
     case ModifiedRole:
-        return r->isApp() ? QString() : modifiedText(r->modified, QDateTime::currentDateTime());
+        return r->isApp() && r->clipId == 0 ? QString() : modifiedText(r->modified, QDateTime::currentDateTime());
     case ModifiedFullRole:
-        return r->isApp() ? QString() : modifiedFullText(r->modified);
+        return r->isApp() && r->clipId == 0 ? QString() : modifiedFullText(r->modified);
     case ModifiedDateRole:
-        if (r->isApp() || knownTime(r->modified) == 0)
+        if ((r->isApp() && r->clipId == 0) || knownTime(r->modified) == 0)
             return QString();
         return QDateTime::fromSecsSinceEpoch(r->modified).toLocalTime().toString(u"yyyy-MM-dd HH:mm"_s);
     case SizeRole:

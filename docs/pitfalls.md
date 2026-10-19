@@ -2575,3 +2575,140 @@
 - **现象**：`setWindowCorners(HWND, bool small)` 在部分翻译单元编译报 C2632，“bool 后面的 char 非法”。
 - **原因**：Windows RPC 头文件定义了 `small` 宏，是否触发取决于头文件包含顺序。
 - **做法**：参数命名为 `smallCorners`，不使用这个宏名。
+
+## 截图（阶段 0–2）
+
+阶段 0 的数字在 `docs/design-capture.md` §6，实现见 architecture.md 的“截图”。
+
+### 全屏遮罩差 1 个像素，冻结的图整张错位
+
+- **现象**（阶段 0，150%，2560×1600）：遮罩窗口按 `QScreen::geometry()` 放，客户区是 2561×1601；图片按“物理 ÷ DPR”给大小时，全屏噪声图有 8956 个像素不对；让图填满窗口则 300 万个像素不对。
+- **原因**：1707×1067 逻辑单位 × 1.5 不是整数，Qt 的缓冲区按 `round(logical × dpr)` 取整，真实缩放是 `round(logical×dpr)/logical`，不是 DPR。
+- **做法**：原生 `SetWindowPos` 把窗口放到显示器的精确物理矩形；图和所有坐标按真实缓冲区缩放换算（`bufferScale`，`CaptureScreen::scaleX/scaleY`），图片 `smooth: false`。这样 0 像素差。
+
+### 文字光标指示器盖在遮罩上，被当成窗口选中
+
+- **现象**（阶段 0 设计时查到，阶段 1 未在开着指示器的机器上实测）：开了“文本光标指示器”时，它是一个置顶的顶层窗口，会出现在冻结的遮罩上面，也会在窗口列表里被当成一个光标大小的“窗口”框出来。
+- **原因**：它是一个顶层可见窗口（类名 `CursorVisualClass`），在 Z 序最上面。
+- **做法**：`WindowSnapshot` 跳过这个类名，以及 `WS_EX_TRANSPARENT` 和透明度为 0 的分层窗口。
+
+### 改了 PrtScn 的注册表值不广播，按 PrtScn 整屏进了剪贴板
+
+- **现象**（阶段 0 实测）：把 `PrintScreenKeyForSnippingEnabled` 设成 0 后注册 PrtScn，按下去收不到 `WM_HOTKEY`，截图工具也不出来，整个屏幕被复制进剪贴板（和 Windows 剪贴板历史）。
+- **原因**：Windows 只在键盘设置变化的通知里重读这个值；没通知时它按“不给截图工具”处理，PrtScn 退回老行为。
+- **做法**：每次写值后广播 `WM_SETTINGCHANGE`，lParam 为 `"Control Panel\Keyboard"`（`printscreen::write`）。接管期间 Win顺 没在运行时，PrtScn 仍是整屏复制，使用说明里写明。
+
+### `RegisterHotKey` 成功不等于收得到这个键
+
+- **现象**：值不存在（默认）时 `RegisterHotKey(VK_SNAPSHOT)` 返回成功，按 PrtScn 却弹出“选择应用”（OpenWith），收不到 `WM_HOTKEY`。
+- **原因**：PrtScn 交给截图工具时，系统在热键之前就把它拿走了；注册本身不冲突。
+- **做法**：测热键要真按一次看 `WM_HOTKEY` 到没到，不能只看返回值；PrtScn 先改值并广播再注册。
+
+### `CreateForMonitor` 慢，每次截图都建会多 20 多 ms
+
+- **现象**：WGC 每次新建 capture item 37.7 ms，其中 `CreateForMonitor` 22–24 ms；留着 item 只要 11.4 ms。
+- **做法**：截图开着时 D3D 设备和每台显示器的 item 一直留着，显示器变化时重建；关掉截图才释放。
+
+### D3D11 的 commit 在窗口关掉后不回落
+
+- **现象**（阶段 0，贴图实验）：20 个 d3d11 窗口关掉后显存归零、工作集也能清掉，commit 仍比开始多约 163 MB；第二轮不再继续涨。
+- **原因**：驱动和 D3D 运行时留着分配过的堆，不还给系统；只有进程退出才还。
+- **做法**：遮罩窗口建一次、用完隐藏复用，不每次销毁重建；关掉截图时整个 `Capture` 销毁。量内存看 `PrivateWorkingSetSize` 和 commit 两个数。
+
+### 带 DPR 的 QImage，`implicitWidth` 是物理像素数
+
+- **现象**（阶段 0）：给 QImage `setDevicePixelRatio(1.5)` 后让 Item 用 implicit 大小，600×400 的图画成 600×400 逻辑单位（放大 1.5 倍），24 万个像素几乎全错。
+- **做法**：图的 Item 大小显式给逻辑值（物理 × scale），不靠 implicit 大小；`CaptureImage` 根本不设 DPR。
+
+### 25H2 开始菜单在前时，截图遮罩显示不出来，菜单也被拍进去
+
+- **现象**（阶段 0）：开始菜单开着按热键，热键 3–4 ms 就到，但这时截的图里有开始菜单（44% 的屏幕）；自己的置顶窗口加 `SetForegroundWindow` 关不掉它（返回 0，1 秒后还在前台）。
+- **原因**：开始菜单（`SearchHost.exe` 的 `Windows.UI.Core.CoreWindow`）占着前台，不让普通程序抢；它只认 Esc 或点别处。
+- **做法**：热键到时如果前台是开始菜单或任务栏弹出面板（`win::isShellFlyout`），先截图（用户按热键时看到的就是要截的），再 `SendInput` 一个带 `kOwnInput` 标记的 Esc（不让“开始菜单打字”接管把它吃掉），每 10 ms 看一次前台，最多 300 ms 后再显示遮罩（实测约 200 ms 走开）。
+
+### 设置窗口的副本把接管前的 PrtScn 值冲掉
+
+- **现象**（代码检查）：打开接管时 App 把原值写进 `[Capture] PrintScreenBefore`，但设置窗口的 `SettingsEditor` 拿着自己的 `Settings` 副本，下一次改任何设置都会把空值 commit 回来；App 以为还没接管，再读一次值（这时已经是 0）当成原值，关掉后就恢复不回去了。
+- **做法**：App 自己改了 `m_settings` 之后立刻 `m_settingsEditor->setSettings(m_settings)`（`App::applyCapture`）。以后 App 再有自己写回设置的值，也照这样同步。
+
+### 测试程序链接 Qt6::Qml，ctest 构建失败在 `qml_imports`
+
+- **现象**：`tst_capture` 只为 `QML_ELEMENT` 宏链接 `Qt6::Qml`，构建报 `FAILED: tests/.qt/qml_imports/tst_capture_build.cmake`。
+- **原因**：`qt_add_executable` 链接了 Qml 就会扫描 QML import，测试程序没有 QML 文件，扫描失败。
+- **做法**：给这类测试设 `QT_QML_MODULE_NO_IMPORT_SCAN TRUE`（和 `tst_numberhints` 一样）。
+
+### QML 里读不到 QImage 的 width：放大镜从来不显示
+
+- **现象**（阶段 1 实测）：放大镜 `visible: cursorHere && screenModel.image.width > 0`，截图时一次都没出现；按 C 复制颜色却正常（C++ 那边的状态都对）。
+- **原因**：`QImage` 属性到了 QML 里是一个不透明的 variant，没有 `width`；`undefined > 0` 是 false，不报警告。
+- **做法**：要在 QML 里判断图片有没有，就在 C++ 加一个 bool 属性（`CaptureScreen::hasImage`）；QImage 只直接交给 C++ 的 Item（`CaptureImage.image`）。实测脚本里加一项“放大镜那块的像素变了没有”，别只看最终结果。
+
+### 自定义属性叫 left / top / right / bottom，遮罩窗口建不出来
+
+- **现象**（阶段 1 实测）：开着截图启动时日志 “Screen capture: no overlay window: CaptureOverlay.qml:48:9: Cannot override FINAL property”，按热键什么都不出。编译、单元测试和离屏设置预览都过了，因为遮罩只在打开截图时才建。
+- **原因**：`Item` 自己有 `left`、`top`、`right`、`bottom`（锚线，FINAL），子 Item 里 `readonly property real left` 算覆盖。
+- **做法**：换名字（`edgeLeft` 等）。新 QML 文件只在某个开关打开时才加载的，部署后要把开关打开看一次日志；这个路径下 qmllint 打不开中文路径的文件，靠不住。
+
+### 遮罩和冻结的屏幕在任务栏上差几百个像素
+
+- **现象**（阶段 1 实测，150%）：遮罩显示时整屏截图和按热键前的截图比，除了画上去的框、标签、放大镜，只剩任务栏底部 1272..1762, 1587..1593 一条有 164 个像素不同，最大差 18；拿到剪贴板和保存的图与屏幕逐像素比 0 差。
+- **原因**：WGC 拍到的任务栏（亚克力材质）和 BitBlt 读到的合成结果本来就有这点差（阶段 0：BitBlt 对 WGC 243 个像素，最大 16，同一块地方）；不是遮罩错位。
+- **做法**：比对时把它当成已知差异，不要为它改缩放。
+
+### 开始菜单开着时，悬停框落在菜单后面的窗口上
+
+- **现象**（阶段 1 遗留，2026-10-19）：开着开始菜单按热键，冻结的图里有菜单，鼠标放在菜单上，框住的却是后面的窗口。
+- **原因**：25H2 的开始菜单不在 `EnumWindows` 里，也不在 `GetWindow` 链里（另一个 Z 序带，任务栏这时也一起消失）；前台窗口是 SearchHost 的 CoreWindow“搜索”（矩形只有搜索那块），看得见的菜单属于 StartMenuExperienceHost 的“开始”，矩形是整个工作区；没有子窗口，UI 自动化只给里面的元素。
+- **做法**：菜单关掉、前台变了以后重新截那台显示器，和冻结的图比出变了的区域（`changedRegion`，去掉只变暗的阴影行），当作最前面的窗口（`Capture::findFlyout`）；任务栏的矩形另外补进窗口列表。这样连手机连接面板一起框住。
+
+### 开始菜单丢了焦点还在屏幕上：马上重截只差出一小块
+
+- **现象**（阶段 2 实测）：前台一变就重截，比出的区域只有 34×100，悬停框还是落在后面的窗口上；拿事先存好的“开着 / 关着”两张图离线算是对的。
+- **原因**：菜单丢了焦点以后还要播关闭动画，前台变化那一刻它大半还在屏幕上。
+- **做法**：每 15 ms 再截一次，连续两次比出同一个矩形（且够大）才算，最多 500 ms；实测 6 次、约 260 ms 得到 1675×1299。代价是开始菜单开着时遮罩 500 ms 左右才出来（以前 260 ms 但框是错的）。离线用截好的图验证过的算法，还要在真实时序里再测一次。
+
+### 分层窗口的像素从截图来，alpha 是 0
+
+- **现象**（阶段 2 写贴图时查到）：`UpdateLayeredWindow` 按每像素 alpha 合成，BitBlt 读来的 32 位像素 alpha 可能是 0，整张贴图就是透明的。
+- **做法**：拷进 DIB 时把 alpha 一律设成 0xFF（`copyOpaque`），透明度只用 `SourceConstantAlpha`。
+
+### `tst_service` 被跳过时删掉了当前目录
+
+- **现象**：不提权跑单元测试，构建目录 `build/capture` 整个空了两次。
+- **原因**：没提权时 `initTestCase` 直接 QSKIP，`m_scratch` 还是空串，`cleanupTestCase` 里 `QDir("").removeRecursively()` 删的是当前目录，也就是测试程序所在的构建目录。
+- **做法**：只在 `m_scratch` 非空时删。跑测试时当前目录放在构建目录以外。
+
+### 测试脚本：托盘菜单不认发来的方向键，通知盖住菜单
+
+- **现象**（阶段 2 实测）：右键托盘图标弹出菜单，`SendInput` 发方向键和回车没有反应（贴图的右键菜单却可以）；另存为之后的系统通知正好盖在托盘菜单下半截上，点击的守卫查到是 ShellExperienceHost。
+- **做法**：测试里用 `MN_GETHMENU` + `GetMenuString` + `GetMenuItemRect` 按文字找菜单项、用鼠标点；托盘那一步放在会弹通知的保存之前。托盘菜单键盘不响应的原因还没查（不是这次加的）。
+
+### 混合 DPI 下的贴图（未实测）
+
+- **约定**：贴图保持物理大小（1:1 是这个功能的意义），`WM_DPICHANGED` 只按新 DPI 重算边框和阴影，返回 0、不用系统建议的矩形（那个矩形会按 DPI 比例缩放窗口）。作者只有一台 150% 的显示器，拖到另一个 DPI 的显示器上的情况还没测过。
+
+### lupdate 把 QML 字符串里的反斜杠吃掉
+
+- **现象**（阶段 3 跑 `update_translations`）：`CaptureCard.qml` 里 `qsTr("……“图片\\屏幕截图”……")` 进 .ts 后成了“图片屏幕截图”，原来的译文被当成过时删掉，新条目没有译文；运行时 `qsTr` 查的是带反斜杠的原文，英文界面就显示中文。
+- **做法**：界面文字里不写反斜杠：这句改成“图片 › 屏幕截图”（英文 Pictures › Screenshots）。跑完 lupdate 和跑之前的 .ts 比一下被删掉的 `<source>`，别的这种情况也能看出来。
+
+### MCP 参数：`Args::integer` 超出范围是夹住，不是报错
+
+- **现象**：测试里给 `take_screenshot` 传 `monitor: 99`，以为会直接报错，结果被夹成 16 去问了用户。
+- **做法**：范围外的数当成边界值是这一层的约定（和 `limit` 一样）；真正“没有这台显示器”由 App 那边回错误。测“参数不对”要传类型不对的值（字符串）。
+
+### `ToolHost::cancel` 的 id 是 host 自己的，不是 JSON-RPC 的
+
+- **现象**：测试里 `host->cancel(6)` 取消不掉 JSON-RPC id 为 6 的调用，`pendingCalls()` 还是 1。
+- **原因**：`McpServer` 给每个调用另发一个 host 的 id，`notifications/cancelled` 由它换算。
+- **做法**：要取消就像客户端那样经服务器发 `notifications/cancelled`。
+
+### SQLite：绑定空 `QString()` 是 NULL
+
+- **现象**：测试里往 `text TEXT NOT NULL` 插 `QString()`，`exec` 失败（NOT NULL constraint failed）。
+- **做法**：要空串就绑 `u""_s`（非 null 的空串）；`QString()` 绑进去是 SQL 的 NULL。
+
+### 窗口按创建时的高度居中，换行的文字之后才把它撑高
+- **现象**：AI 截屏的确认窗口（`ScreenshotConfirm.qml`，高度绑在几段 `wrapMode: Text.Wrap` 的文字上）`create()` 后按 `height()` 放到工作区正中，实测整体偏下 32 像素：显示时又长高了 65 像素，只往下长。
+- **原因**：换行文字的高度要等第一次排版才定，`createWithInitialProperties` 返回时绑定算出来的还是不换行的高度。
+- **做法**：居中的函数在 `QWindow::heightChanged` 上再调一次（`App::confirmScreenshot`）。别的按内容定高、又要居中的窗口同理；测时读窗口矩形和工作区中心比。

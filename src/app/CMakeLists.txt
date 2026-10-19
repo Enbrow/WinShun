@@ -172,6 +172,10 @@ set(qml_files
     qml/PluginDevSection.qml
     qml/PluginDialog.qml
     qml/PluginsPreview.qml
+    qml/CaptureOverlay.qml
+    qml/CaptureCard.qml
+    qml/OcrPanel.qml
+    qml/ScreenshotConfirm.qml
 )
 set_source_files_properties(qml/Theme.qml qml/Gleaning.qml qml/WarmPalette.qml qml/AuthorClock.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
@@ -237,6 +241,13 @@ qt_add_qml_module(WinShun
         Updater.cpp Updater.h
         Backup.cpp Backup.h BackupFiles.cpp BackupFiles.h
         WindowFrame.cpp WindowFrame.h
+        # The screen capture's QML-facing part (src/capture/CMakeLists.txt has the rest).
+        ../capture/Capture.cpp ../capture/Capture.h
+        ../capture/CaptureImage.cpp ../capture/CaptureImage.h
+        ../capture/CaptureSession.cpp ../capture/CaptureSession.h
+        ../capture/CaptureOcr.cpp ../capture/CaptureOcr.h
+        ../capture/PinManager.cpp ../capture/PinManager.h
+        ../capture/PinWindow.cpp ../capture/PinWindow.h
 )
 
 # The UI is written in Chinese; English comes from i18n/winshun_en.ts, built
@@ -272,6 +283,7 @@ qt_add_resources(WinShun "plugins_sdk"
 target_include_directories(WinShun PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(WinShun PRIVATE
     wscore wsmcp wsplugin
+    wscapture # the screen capture (src/capture)
     Qt6::Gui Qt6::Qml Qt6::Quick
     Qt6::Svg # SvgIcon: web shortcuts' SVG icons, drawn once into the PNG kept
     comctl32 d2d1 dwmapi dwrite imm32 oleacc oleaut32 shcore shell32 shlwapi ole32 user32 uxtheme version winhttp winmm

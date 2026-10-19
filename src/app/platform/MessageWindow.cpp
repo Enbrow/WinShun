@@ -215,6 +215,8 @@ bool MessageWindow::parseHotkey(const QString& shortcut, UINT* modifiers, UINT* 
             *vk = VK_RETURN;
         else if (key == u"`" || key == u"backquote")
             *vk = VK_OEM_3;
+        else if (key == u"printscreen" || key == u"print" || key == u"prtsc")
+            *vk = VK_SNAPSHOT; // the screen capture's, once taken over from the Snipping Tool (printscreen::)
         else if (key.size() == 1 && key[0].isLetterOrNumber() && key[0].unicode() < 128)
             *vk = part.toUpper()[0].unicode();
         else if (key.startsWith(u'f') && key.size() <= 3) {

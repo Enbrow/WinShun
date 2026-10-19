@@ -406,6 +406,7 @@ Window {
         target: window.editor
         property: "recordingHotkey"
         value: hotkeyRecorder.recording || clipHotkeyRecorder.recording || folderMenuHotkeyRecorder.recording
+               || pluginsSection.recordingHotkey
                || window.editor.plugins.recordingHotkey
     }
     Binding { // the plugin cards read their processes' memory only while on show
@@ -3697,6 +3698,7 @@ Window {
                 page: window.pluginsPage
                 width: parent.width
                 plugins: window.editor.plugins
+                editor: window.editor
                 lockedElsewhere: pluginDevSection.lockedRows
             }
 

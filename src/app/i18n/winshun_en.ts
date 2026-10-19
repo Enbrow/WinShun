@@ -44,8 +44,20 @@
         <translation>clipboard;privacy;AI</translation>
     </message>
     <message>
-        <source>AI 能看到复制过的文字、链接和文件名，图片只告诉它大小；密码管理器复制的本来就不记录</source>
-        <translation>AI can see copied text, links and file names; of pictures only their size. What password managers copy is never kept anyway</translation>
+        <source>AI 能看到复制过的文字、链接和文件名，图片只告诉它大小；Win顺 的截图还能拿到识别出的文字和图片（截图开着时）。密码管理器复制的本来就不记录</source>
+        <translation>AI sees the text, links and file names you copied; of pictures only their size, except WinShun screenshots, whose recognized text and picture it can get (while the screen capture is on). What password managers copy is never recorded</translation>
+    </message>
+    <message>
+        <source>允许 AI 请求截屏</source>
+        <translation>Let AI ask for a screenshot</translation>
+    </message>
+    <message>
+        <source>截图;截屏;屏幕;screenshot;AI</source>
+        <translation>screenshot;screen;capture;AI</translation>
+    </message>
+    <message>
+        <source>AI 每次要截屏，屏幕上都会弹出确认，写明是谁、截哪块屏幕；你点“允许”才截，拒绝或 30 秒不理就不截。截下的图不进剪贴板历史</source>
+        <translation>Every time AI wants a screenshot, a confirmation appears on the screen saying who asks and for which monitor; it is taken only when you click Allow, never when you refuse or leave it for 30 seconds. The picture does not go into the clipboard history</translation>
     </message>
     <message>
         <source>AI 可以使用插件</source>
@@ -179,6 +191,124 @@
     </message>
 </context>
 <context>
+    <name>CaptureCard</name>
+    <message>
+        <source>截图</source>
+        <translation>Screenshot</translation>
+    </message>
+    <message>
+        <source>内置</source>
+        <translation>Built in</translation>
+    </message>
+    <message>
+        <source>冻结屏幕，框选区域或点选窗口、控件，复制或保存；放大镜看像素和颜色</source>
+        <translation>Freezes the screen; drag out an area or click a window or control, then copy or save it. A magnifier shows the pixels and their colour</translation>
+    </message>
+    <message>
+        <source>关着</source>
+        <translation>Off</translation>
+    </message>
+    <message>
+        <source>开着：按 %1，或从托盘菜单截图</source>
+        <translation>On: press %1, or use the tray menu</translation>
+    </message>
+    <message>
+        <source>开着：按 PrtScn，或从托盘菜单截图</source>
+        <translation>On: press PrtScn, or use the tray menu</translation>
+    </message>
+    <message>
+        <source>开着：从托盘菜单截图，或在下面录一个快捷键</source>
+        <translation>On: use the tray menu, or record a shortcut below</translation>
+    </message>
+    <message>
+        <source>快捷键</source>
+        <translation>Shortcut</translation>
+    </message>
+    <message>
+        <source>按它开始截图，截图时再按一次取消</source>
+        <translation>Starts a screenshot; pressing it again during one cancels it</translation>
+    </message>
+    <message>
+        <source>清除</source>
+        <translation>Clear</translation>
+    </message>
+    <message>
+        <source>截图历史关键词</source>
+        <translation>Screenshot history keyword</translation>
+    </message>
+    <message>
+        <source>在搜索框输入“%1”加空格，列出截过的图，再输入文字按图里识别出的文字筛选；Enter 复制并粘贴，Ctrl+Enter 贴到屏幕，Delete 删除</source>
+        <translation>Type “%1” and a space in the search box to list your screenshots, then words to filter by the text recognized in them; Enter copies and pastes, Ctrl+Enter pins to the screen, Delete removes</translation>
+    </message>
+    <message>
+        <source>用 PrtScn 键截图</source>
+        <translation>Take screenshots with PrtScn</translation>
+    </message>
+    <message>
+        <source>让 PrtScn 不再打开 Windows 的截图工具，改用这里的截图。Win顺 没在运行时，PrtScn 会把整个屏幕复制到剪贴板；关掉这项恢复原来的设置</source>
+        <translation>PrtScn takes a screenshot here instead of opening the Windows Snipping Tool. While WinShun is not running, PrtScn copies the whole screen to the clipboard; turning this off restores the previous setting</translation>
+    </message>
+    <message>
+        <source>选好就复制</source>
+        <translation>Copy as soon as it is picked</translation>
+    </message>
+    <message>
+        <source>松开鼠标或点选窗口后马上复制并关闭，不再调整。关着时：按 Enter 或双击选区复制并关闭，Ctrl+S 保存到“图片 › 屏幕截图”，Esc 或右键先取消选区、再退出</source>
+        <translation>Letting go of the mouse or clicking a window copies and closes at once, with no adjusting. Off: Enter or a double click on the selection copies and closes, Ctrl+S saves to Pictures › Screenshots, Esc or a right click first clears the selection, then exits</translation>
+    </message>
+</context>
+<context>
+    <name>CaptureOverlay</name>
+    <message>
+        <source>截图</source>
+        <translation>Screenshot</translation>
+    </message>
+    <message>
+        <source>%1 × %2</source>
+        <translation>%1 × %2</translation>
+    </message>
+    <message>
+        <source>复制</source>
+        <translation>Copy</translation>
+    </message>
+    <message>
+        <source>保存</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>位置 %1, %2</source>
+        <translation>Position %1, %2</translation>
+    </message>
+    <message>
+        <source>按 C 复制颜色</source>
+        <translation>Press C to copy the colour</translation>
+    </message>
+    <message>
+        <source>贴图</source>
+        <translation>Pin</translation>
+    </message>
+    <message>
+        <source>识别文字</source>
+        <translation>Read text</translation>
+    </message>
+    <message>
+        <source>留在屏幕上，可拖动、缩放</source>
+        <translation>Keep it on the screen, to drag and zoom</translation>
+    </message>
+    <message>
+        <source>识别图里的文字，可复制或拿去搜索</source>
+        <translation>Read the text in it, to copy or search for</translation>
+    </message>
+    <message>
+        <source>没有安装文字识别模型（Win顺 文件夹里的 ocr 文件夹），无法识别文字</source>
+        <translation>The text recognition models are not installed (the ocr folder in the WinShun folder): text cannot be read</translation>
+    </message>
+</context>
+<context>
     <name>ClipPreview</name>
     <message numerus="yes">
         <source>…还有 %Ln 字</source>
@@ -224,6 +354,10 @@
     <message>
         <source>粘贴</source>
         <translation>Paste</translation>
+    </message>
+    <message>
+        <source>截图</source>
+        <translation>Screenshot</translation>
     </message>
     <message>
         <source>拖动调整顺序</source>
@@ -1005,6 +1139,29 @@
     </message>
 </context>
 <context>
+    <name>OcrPanel</name>
+    <message>
+        <source>识别文字</source>
+        <translation>Read text</translation>
+    </message>
+    <message>
+        <source>正在识别…</source>
+        <translation>Reading…</translation>
+    </message>
+    <message>
+        <source>用它搜索</source>
+        <translation>Search for it</translation>
+    </message>
+    <message>
+        <source>复制全部</source>
+        <translation>Copy all</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>Close</translation>
+    </message>
+</context>
+<context>
     <name>Panel</name>
     <message>
         <source>筛选</source>
@@ -1510,6 +1667,18 @@
         <source>知道了</source>
         <translation>OK</translation>
     </message>
+    <message>
+        <source>内置功能</source>
+        <translation>Built-in features</translation>
+    </message>
+    <message>
+        <source>截图;截屏;屏幕截图;PrtScn;Print Screen;放大镜;取色;screenshot;capture</source>
+        <translation>screenshot;screen capture;snip;PrtScn;Print Screen;magnifier;colour picker;color picker</translation>
+    </message>
+    <message>
+        <source>随 Win顺 一起提供，默认关着；关着时不占内存，也不注册快捷键</source>
+        <translation>Come with WinShun, off by default; while off they use no memory and register no shortcut</translation>
+    </message>
 </context>
 <context>
     <name>PreviewWindow</name>
@@ -1626,6 +1795,33 @@
     <message>
         <source>内容</source>
         <translation>Content</translation>
+    </message>
+</context>
+<context>
+    <name>ScreenshotConfirm</name>
+    <message>
+        <source>AI 请求截屏</source>
+        <translation>AI asks for a screenshot</translation>
+    </message>
+    <message>
+        <source>“%1”想截取 %2 的画面。</source>
+        <translation>“%1” wants a picture of %2.</translation>
+    </message>
+    <message>
+        <source>点“允许”才截，图只交给它，不进剪贴板历史。这个窗口不会被截进去。</source>
+        <translation>It is taken only if you click Allow, and goes to it alone, not into the clipboard history. This window is not in the picture.</translation>
+    </message>
+    <message>
+        <source>%1 秒后自动拒绝</source>
+        <translation>Refused in %1 s</translation>
+    </message>
+    <message>
+        <source>拒绝</source>
+        <translation>Refuse</translation>
+    </message>
+    <message>
+        <source>允许</source>
+        <translation>Allow</translation>
     </message>
 </context>
 <context>
@@ -4151,6 +4347,22 @@
         <translation>Right Ctrl twice</translation>
     </message>
     <message>
+        <source>截图历史</source>
+        <translation>Screenshot history</translation>
+    </message>
+    <message>
+        <source>图片还在保存，请稍后再试</source>
+        <translation>The picture is still being saved; try again in a moment</translation>
+    </message>
+    <message>
+        <source>没能贴到屏幕</source>
+        <translation>Could not pin to the screen</translation>
+    </message>
+    <message>
+        <source>读不出这张图片：%1</source>
+        <translation>Cannot read this picture: %1</translation>
+    </message>
+    <message>
         <source>没有安装索引服务</source>
         <translation>the index service is not installed</translation>
     </message>
@@ -4225,6 +4437,18 @@
     <message>
         <source>索引服务已卸载。</source>
         <translation>The index service is uninstalled.</translation>
+    </message>
+    <message>
+        <source>显示器 %1（%2 × %3%4）</source>
+        <translation>monitor %1 (%2 × %3%4)</translation>
+    </message>
+    <message>
+        <source>，主显示器</source>
+        <translation>, primary</translation>
+    </message>
+    <message>
+        <source>一个 AI 客户端</source>
+        <translation>An AI client</translation>
     </message>
     <message>
         <source>插件已停用</source>
@@ -4373,6 +4597,42 @@
     <message>
         <source>诊断包正在生成，完成后会打开文件夹</source>
         <translation>The diagnostic archive is being created. Its folder will open when ready.</translation>
+    </message>
+    <message>
+        <source>截图</source>
+        <translation>Screenshot</translation>
+    </message>
+    <message>
+        <source>截图已保存</source>
+        <translation>Screenshot saved</translation>
+    </message>
+    <message>
+        <source>截图没能保存</source>
+        <translation>Could not save the screenshot</translation>
+    </message>
+    <message>
+        <source>没能改 PrtScn 的设置，它还会打开截图工具。</source>
+        <translation>Could not change the PrtScn setting; it still opens the Snipping Tool.</translation>
+    </message>
+    <message>
+        <source>没能把 PrtScn 的设置改回去。</source>
+        <translation>Could not restore the PrtScn setting.</translation>
+    </message>
+    <message>
+        <source>开始截图</source>
+        <translation>Take a screenshot</translation>
+    </message>
+    <message>
+        <source>贴上最近一次截图</source>
+        <translation>Pin the last screenshot</translation>
+    </message>
+    <message>
+        <source>取消所有贴图的穿透</source>
+        <translation>Make all pins clickable again</translation>
+    </message>
+    <message>
+        <source>关闭全部贴图</source>
+        <translation>Close all pins</translation>
     </message>
 </context>
 <context>
@@ -4609,6 +4869,10 @@
         <translation>Copied %1</translation>
     </message>
     <message>
+        <source>已复制图片</source>
+        <translation>Picture copied</translation>
+    </message>
+    <message>
         <source>已取消固定</source>
         <translation>Unpinned</translation>
     </message>
@@ -4706,6 +4970,10 @@
         <translation>Open file location</translation>
     </message>
     <message>
+        <source>贴到屏幕</source>
+        <translation>Pin to screen</translation>
+    </message>
+    <message>
         <source>打开图片</source>
         <translation>Open picture</translation>
     </message>
@@ -4759,6 +5027,10 @@
         <source>删除分组</source>
         <translation>Delete the group</translation>
     </message>
+    <message>
+        <source>图片还在保存，请稍后再试</source>
+        <translation>The picture is still being saved; try again in a moment</translation>
+    </message>
     <message numerus="yes">
         <source>已删除分组“%1”和里面的 %Ln 条，按 Ctrl+Z 撤销</source>
         <translation>
@@ -4769,6 +5041,14 @@
     <message>
         <source>已删除分组“%1”，按 Ctrl+Z 撤销</source>
         <translation>Deleted group “%1”; Ctrl+Z undoes</translation>
+    </message>
+    <message>
+        <source>Win顺 截图</source>
+        <translation>WinShun screenshot</translation>
+    </message>
+    <message>
+        <source>已复制截图</source>
+        <translation>Screenshot copied</translation>
     </message>
 </context>
 <context>
@@ -5459,12 +5739,68 @@
         <translation>Waiting for %1…</translation>
     </message>
     <message>
+        <source>复制并粘贴</source>
+        <translation>Copy and paste</translation>
+    </message>
+    <message>
+        <source>贴到屏幕</source>
+        <translation>Pin to screen</translation>
+    </message>
+    <message>
         <source>预览</source>
         <translation>Preview</translation>
     </message>
     <message>
+        <source>复制图片</source>
+        <translation>Copy picture</translation>
+    </message>
+    <message>
+        <source>复制识别出的文字</source>
+        <translation>Copy recognized text</translation>
+    </message>
+    <message>
+        <source>从历史删除</source>
+        <translation>Remove from history</translation>
+    </message>
+    <message>
+        <source>Delete</source>
+        <translation>Delete</translation>
+    </message>
+    <message>
         <source>在此文件夹中搜内容</source>
         <translation>Search contents in this folder</translation>
+    </message>
+    <message>
+        <source>截图历史</source>
+        <translation>Screenshot history</translation>
+    </message>
+    <message>
+        <source>输入文字，在截图里识别出的文字中找</source>
+        <translation>Type words to find in the text recognized in screenshots</translation>
+    </message>
+    <message>
+        <source>截图</source>
+        <translation>Screenshot</translation>
+    </message>
+    <message>
+        <source>%1 × %2 · %3</source>
+        <translation>%1 × %2 · %3</translation>
+    </message>
+    <message>
+        <source>（没有识别出文字）</source>
+        <translation>(no text recognized)</translation>
+    </message>
+    <message>
+        <source>已复制截图</source>
+        <translation>Screenshot copied</translation>
+    </message>
+    <message>
+        <source>已复制文字</source>
+        <translation>Text copied</translation>
+    </message>
+    <message>
+        <source>已从历史删除；Ctrl+Z 撤销</source>
+        <translation>Removed from history; Ctrl+Z undoes</translation>
     </message>
     <message>
         <source>%1：%2</source>
@@ -5922,6 +6258,10 @@
         <translation>Crashed repeatedly, turned off: %1</translation>
     </message>
     <message>
+        <source>Win顺 的“%1”</source>
+        <translation>WinShun’s “%1”</translation>
+    </message>
+    <message>
         <source>网页搜索“%1”</source>
         <translation>the web search “%1”</translation>
     </message>
@@ -6350,6 +6690,14 @@
         <translation>All files</translation>
     </message>
     <message>
+        <source>关键词“%1”已经给了网页搜索“%2”</source>
+        <translation>The keyword “%1” already belongs to the web search “%2”</translation>
+    </message>
+    <message>
+        <source>关键词“%1”已经给了截图历史（截图卡片上可以改）</source>
+        <translation>The keyword “%1” belongs to the screenshot history (it can be changed on the Screenshot card)</translation>
+    </message>
+    <message>
         <source>图片（PNG、ICO、SVG）</source>
         <translation>Images (PNG, ICO, SVG)</translation>
     </message>
@@ -6713,6 +7061,90 @@
     <message>
         <source>备份文件已损坏</source>
         <translation>The backup file is damaged</translation>
+    </message>
+</context>
+<context>
+    <name>ws::capture::Capture</name>
+    <message>
+        <source>找不到“屏幕截图”文件夹</source>
+        <translation>The Screenshots folder was not found</translation>
+    </message>
+    <message>
+        <source>无法保存到 %1</source>
+        <translation>Could not save to %1</translation>
+    </message>
+</context>
+<context>
+    <name>ws::capture::CaptureOcr</name>
+    <message>
+        <source>没有图片可以识别。</source>
+        <translation>There is no picture to read.</translation>
+    </message>
+    <message>
+        <source>没有安装文字识别模型（Win顺 文件夹里的 ocr 文件夹），无法识别文字。</source>
+        <translation>The text recognition models are not installed (the ocr folder in the WinShun folder): text cannot be read.</translation>
+    </message>
+    <message>
+        <source>识别失败：%1</source>
+        <translation>Reading failed: %1</translation>
+    </message>
+    <message>
+        <source>图片里没有找到文字。</source>
+        <translation>No text was found in the picture.</translation>
+    </message>
+</context>
+<context>
+    <name>ws::capture::CaptureSession</name>
+    <message>
+        <source>已复制 %1</source>
+        <translation>Copied %1</translation>
+    </message>
+</context>
+<context>
+    <name>ws::capture::PinManager</name>
+    <message>
+        <source>识别文字</source>
+        <translation>Read text</translation>
+    </message>
+    <message>
+        <source>识别文字（没有安装文字识别模型）</source>
+        <translation>Read text (the text recognition models are not installed)</translation>
+    </message>
+    <message>
+        <source>复制</source>
+        <translation>Copy</translation>
+    </message>
+    <message>
+        <source>保存到“屏幕截图”</source>
+        <translation>Save to Screenshots</translation>
+    </message>
+    <message>
+        <source>另存为…</source>
+        <translation>Save as…</translation>
+    </message>
+    <message>
+        <source>置顶</source>
+        <translation>Always on top</translation>
+    </message>
+    <message>
+        <source>鼠标穿透</source>
+        <translation>Click through</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <source>关闭全部贴图</source>
+        <translation>Close all pins</translation>
+    </message>
+    <message>
+        <source>另存为</source>
+        <translation>Save as</translation>
+    </message>
+    <message>
+        <source>PNG 图片</source>
+        <translation>PNG picture</translation>
     </message>
 </context>
 <context>

@@ -586,7 +586,9 @@ PluginListModel::Card PluginSettings::cardFor(const QString& id) const
             if (k.pluginId != id || k.commandId != command.id)
                 continue;
             QString who;
-            if (k.takenBy.startsWith(u"web:"))
+            if (k.takenBy.startsWith(u"builtin:"))
+                who = tr("Win顺 的“%1”").arg(k.takenBy.mid(8));
+            else if (k.takenBy.startsWith(u"web:"))
                 who = tr("网页搜索“%1”").arg(k.takenBy.mid(4));
             else if (k.takenBy.startsWith(u"fav:"))
                 who = tr("收藏“%1”").arg(k.takenBy.mid(4));

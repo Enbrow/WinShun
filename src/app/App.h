@@ -13,6 +13,7 @@
 #include <QFileSystemWatcher>
 #include <QObject>
 #include <QPointer>
+#include <QRect>
 #include <QTimer>
 #include <QTranslator>
 
@@ -24,6 +25,7 @@
 #include <thread>
 #include <vector>
 
+class QImage;
 class QQmlApplicationEngine;
 class QQuickItem;
 class QQuickWindow;
@@ -56,6 +58,11 @@ class SettingsEditor;
 class TypeToSearch;
 class Updater;
 class Backup;
+namespace capture {
+class Capture;
+class CaptureOcr;
+class PinManager;
+}
 class VolumeNotifier;
 class WindowFrame;
 class WindowLogo;
@@ -67,6 +74,8 @@ class McpServer;
 class ToolHost;
 struct Policy;
 struct Services;
+struct ScreenshotRequest;
+struct ScreenshotTaken;
 }
 namespace ntfs {
 class ServiceVolumeAccess;
@@ -138,6 +147,25 @@ private:
     bool createWindow();
     bool createClipWindow();
     QQuickWindow* createPreviewWindow(); // FilePreview's, the first time it is wanted
+    // 识别文字 from a capture or a pin: the OCR window (OcrPanel.qml), made
+    // the first time, beside `where` (physical), reading `image`.
+    void showCaptureOcr(const QImage& image, double dpr, const QRect& where);
+    void closeCaptureOcr(bool destroy = false); // `destroy`: the capture was turned off
+    // The pictures pinned on the screen: made when first wanted (a capture's
+    // 贴图, or 贴到屏幕 with the capture off too); closed with the capture.
+    capture::PinManager& pins();
+    // 贴到屏幕: a picture file, read off the GUI thread; `screenshot`: one
+    // of the screenshot history's (PinWindow::screenshot).
+    void pinPicture(const QString& path, bool screenshot = false);
+    // The screenshot history's keyword as it works now (jt): none with the
+    // capture off, nor when a web search or a favorite has the word.
+    QString screenshotKeyword() const;
+    void applyScreenshots(); // the keyword to the launcher and the plugins' catalog
+    // take_screenshot (MCP): the user is asked on the screen
+    // (ScreenshotConfirm.qml); only 允许 takes the picture, on a thread of
+    // its own, into a PNG in the temporary folder (never the clipboard).
+    void confirmScreenshot(const mcp::ScreenshotRequest& request, std::function<void(mcp::ScreenshotTaken)> done);
+    Q_INVOKABLE void screenshotAnswered(int how); // the window's answered(): 1 allowed, 0 refused, -1 no answer
     void onDoubleCtrl(); // toggleLauncher(), unless a game is played (GameGuard)
     // `launcherToo`: and the launcher, when the clipboard was under its
     // search box and the keyboard went elsewhere.
@@ -223,6 +251,11 @@ private:
     void applyFolderMenu(); // the menu on a double click in File Explorer (GitHub #22)
     void applyFolderMenuHotkey(); // ... and on its hotkey, anywhere (GitHub #25)
     void folderMenuHotkey(); // the hotkey was pressed: the menu, the launcher out of the way first
+    // The screen capture (src/capture): made while it is on in the settings,
+    // its hotkey and PrtScn (taken from the Snipping Tool and given back).
+    void applyCapture();
+    void applyCaptureHotkeys();
+    void triggerCapture(); // the hotkey, PrtScn, the tray menu: one more press ends it
     void excludeFromDialogBar(const QString& app); // "not in this program" from the bar's menu
     void answerAutoJump(const QString& when); // asked under the bar: "open", "back" or "" (DialogBar::autoJumpAnswered)
     bool createBarWindow();
@@ -330,6 +363,9 @@ private:
     std::unique_ptr<Clipboard> m_clipboard; // its window's view-model
     std::unique_ptr<FilePreview> m_preview; // Alt+P on a result
     std::unique_ptr<WindowFrame> m_previewFrame;
+    std::unique_ptr<capture::CaptureOcr> m_captureOcr; // the OCR window's view-model, made with it
+    std::unique_ptr<WindowFrame> m_ocrFrame;
+    QPointer<QQuickWindow> m_ocrWindow;
     // Destroyed before the two above: its thread calls back into the app, and
     // the page waits on its writes.
     std::unique_ptr<ClipboardWatcher> m_clipWatcher;
@@ -411,6 +447,21 @@ private:
     QTimer m_revealTimeout;
     std::atomic<bool> m_prewarming {false}; // shown cloaked for one frame (see prewarmLauncher)
     std::unique_ptr<QQmlApplicationEngine> m_qml; // destroyed first: QML references the objects above
+    // Its overlay windows are the engine's: reset in ~App, before the engine goes.
+    std::unique_ptr<capture::Capture> m_capture;
+    std::unique_ptr<capture::PinManager> m_pins; // pins(); reset in ~App with the capture
+    struct ScreenshotAsk { // take_screenshot waiting for the user's answer: one at a time
+        std::function<void(mcp::ScreenshotTaken)> done;
+        HMONITOR monitor = nullptr;
+        QString label; // the monitor, in English words, for the client
+        std::unique_ptr<WindowFrame> frame;
+        QPointer<QQuickWindow> window;
+    };
+    std::unique_ptr<ScreenshotAsk> m_screenshotAsk;
+    // In front when the launcher last opened: where a screenshot of the
+    // history (jt, Enter) is pasted.
+    HWND m_launcherTarget = nullptr;
+    std::jthread m_pinSaver; // 保存 on a pin while the capture is off (capture::saveImage)
     QPointer<QQuickWindow> m_window;
     WindowLogo* m_launcherLogo = nullptr; // m_window's
     QPointer<QQuickWindow> m_clipWindow; // the clipboard's; created a moment after the start

@@ -42,7 +42,13 @@ namespace mcp {
 // What the user allows and how searches are set up (from the settings).
 struct Policy {
     bool allowOpen = false; // open_item, show_in_folder
-    bool allowClipboard = false; // clipboard_history, clipboard_get
+    bool allowClipboard = false; // clipboard_history, clipboard_get, screenshot_history
+    // take_screenshot; even so every call waits for the user to allow it on
+    // the screen (Services::takeScreenshot).
+    bool allowScreenshot = false;
+    // Win顺's screen capture is on: screenshot_history lists nothing while
+    // it is off (and says why).
+    bool captureEnabled = false;
     bool allowDocuments = false; // list_documents: for plugins (winshun:content), not AI clients
     QStringList excludedPaths; // folders AI never sees (%VARS% expanded by setPolicy)
     bool content = true; // search_content: off with the launcher's content search
@@ -76,6 +82,30 @@ struct ClipSummary {
     int height = 0;
 };
 
+// A picture Win顺's screen capture took, from the clipboard history (the
+// screenshot history: the launcher's jt). GUI thread.
+struct ScreenshotSummary {
+    qint64 id = 0;
+    qint64 created = 0; // ms since the epoch: when it was taken
+    int width = 0;
+    int height = 0;
+    QString ocr; // the words read in it; empty: none, or not read yet
+    QString imagePath; // its PNG in the history; empty while still being written
+};
+
+// take_screenshot: asked of the user on the screen (App::confirmScreenshot).
+struct ScreenshotRequest {
+    QString client; // who asks, as it named itself
+    int monitor = 0; // 1: the primary monitor, then the others; 0: the one with the mouse pointer
+};
+struct ScreenshotTaken {
+    QString error; // empty: taken
+    QString path; // a PNG of its own in the temporary folder, never in the clipboard history
+    int width = 0;
+    int height = 0;
+    QString monitor; // which, in words
+};
+
 // What the host needs from the app. Those left empty take their tools away
 // (wsbench has no shell and no clipboard).
 struct Services {
@@ -89,6 +119,17 @@ struct Services {
     std::function<void(const QString& path, std::function<void(bool)> done)> reveal;
     std::function<std::vector<ClipSummary>(const ClipQuery&)> clipboard;
     std::function<std::optional<QString>(qint64 id)> clipboardText; // the whole text; nothing for no such entry
+    // The screenshot history, newest first, `query` in the words read in
+    // them (pinyin too), at most `limit`.
+    std::function<std::vector<ScreenshotSummary>(const QString& query, int limit)> screenshots;
+    // Shows the user who asks and for which monitor; only 允许 takes the
+    // picture. `done` once, on any thread: the PNG, or why not (refused,
+    // no answer in time, another request waiting). Only the AI host's:
+    // plugins never take screenshots.
+    std::function<void(const ScreenshotRequest&, std::function<void(ScreenshotTaken)> done)> takeScreenshot;
+    // Where screenshot_history puts its copies of the pictures; empty:
+    // %TEMP%\WinShun\mcp.
+    QString tempFolder;
     std::function<void(const QString& line)> log; // one line per call
 };
 
@@ -179,6 +220,9 @@ private:
     void openItem(const std::shared_ptr<Call>& call, bool reveal);
     void clipboardHistory(const std::shared_ptr<Call>& call);
     void clipboardGet(const std::shared_ptr<Call>& call);
+    void screenshotHistory(const std::shared_ptr<Call>& call);
+    void takeScreenshot(const std::shared_ptr<Call>& call);
+    QString tempFolder() const;
     void indexStatus(const std::shared_ptr<Call>& call);
     void readFileText(const std::shared_ptr<Call>& call);
     void listDocuments(const std::shared_ptr<Call>& call);

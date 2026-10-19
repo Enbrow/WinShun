@@ -43,7 +43,9 @@ struct KeywordConflict {
     QString pluginId;
     QString commandId;
     QString keyword;
-    QString takenBy; // "web:<name>" ([WebSearch]), "fav:<name>" (a favorite), "plugin:<id>/<command>"
+    // "builtin:<name>" (Win顺's own: the screenshot history), "web:<name>"
+    // ([WebSearch]), "fav:<name>" (a favorite), "plugin:<id>/<command>"
+    QString takenBy;
 };
 
 // One command triggered by a query.
@@ -84,6 +86,9 @@ public:
     void setKeywordOverrides(QHash<QString, QString> overrides);
     void setWebKeywords(QList<std::pair<QString, QString>> keywords);
     void setFavoriteKeywords(QList<std::pair<QString, QString>> keywords);
+    // Win顺's own keywords (the screenshot history's jt), (keyword, name):
+    // they win over every plugin's too.
+    void setBuiltinKeywords(QList<std::pair<QString, QString>> keywords);
 
     // The keywords in use: effective after overrides and conflicts.
     QStringList keywordsOf(QStringView id, QStringView command) const;
@@ -140,6 +145,7 @@ private:
     QHash<QString, QString> m_overrides;
     QList<std::pair<QString, QString>> m_web;
     QList<std::pair<QString, QString>> m_favorites;
+    QList<std::pair<QString, QString>> m_builtin;
     QHash<QString, KeywordUse> m_keywords; // lower-cased keyword -> the command it opens
     QHash<QString, QStringList> m_effective; // "<id>/<command>" -> its keywords in use
     std::vector<KeywordConflict> m_conflicts;

@@ -2,6 +2,7 @@
 
 #include "ClipStore.h"
 
+#include <QImage>
 #include <QString>
 #include <QStringList>
 
@@ -22,13 +23,20 @@ struct ClipWrite {
     QByteArray rtf; // "Rich Text Format"
     QStringList files; // CF_HDROP, always as a copy (never moving files that were cut)
     QString imagePath; // a PNG file: as "PNG", CF_DIB and CF_DIBV5
+    // ... or the PNG itself, for a picture with no file yet (a screen capture:
+    // the history writes its file later).
+    QByteArray png;
     // The history entry this is: when it reaches the clipboard, that entry
     // moves to the top instead of a new one being added. 0 for several
     // entries joined, which are not recorded at all.
     qint64 id = 0;
 
-    bool empty() const { return text.isEmpty() && files.isEmpty() && imagePath.isEmpty(); }
+    bool empty() const { return text.isEmpty() && files.isEmpty() && imagePath.isEmpty() && png.isEmpty(); }
 };
+
+// A picture's identity in the history (ClipCapture::hash): the same pixels
+// copied again are the same entry, whatever format they came in.
+QByteArray imagePixelHash(const QImage& image);
 
 // Watches the clipboard for the history, and writes it for pastes.
 //

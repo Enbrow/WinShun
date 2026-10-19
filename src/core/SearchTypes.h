@@ -176,6 +176,10 @@ struct SearchResult {
 
     // Plugin rows only (AppKind::Plugin); `path` is "winshun-plugin:…" (pluginPath).
     PluginRowRef plugin;
+    // A screenshot of the history (the launcher's jt): its clipboard entry;
+    // `target` its picture's file, `modified` when it was taken. A plugin
+    // row otherwise (Win顺's own: Launcher::screenshotRows).
+    qint64 clipId = 0;
 
     // An app or a place: something to start, not a file (no deleting it).
     bool isApp() const noexcept { return app != AppKind::None; }

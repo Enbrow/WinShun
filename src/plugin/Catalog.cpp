@@ -170,6 +170,15 @@ void Catalog::setWebKeywords(QList<std::pair<QString, QString>> keywords)
     emit changed();
 }
 
+void Catalog::setBuiltinKeywords(QList<std::pair<QString, QString>> keywords)
+{
+    if (m_builtin == keywords)
+        return;
+    m_builtin = std::move(keywords);
+    rebuildIndex();
+    emit changed();
+}
+
 void Catalog::setFavoriteKeywords(QList<std::pair<QString, QString>> keywords)
 {
     if (m_favorites == keywords)
@@ -206,6 +215,9 @@ void Catalog::rebuildIndex()
     for (const auto& [keyword, name] : m_web)
         web.insert(keyword.toLower(), name.isEmpty() ? keyword : name);
     QHash<QString, QString> favorites; // the same
+    QHash<QString, QString> builtin; // the same
+    for (const auto& [keyword, name] : m_builtin)
+        builtin.insert(keyword.toLower(), name.isEmpty() ? keyword : name);
     for (const auto& [keyword, name] : m_favorites)
         favorites.insert(keyword.toLower(), name.isEmpty() ? keyword : name);
     std::vector<Claim> claims;
@@ -226,7 +238,9 @@ void Catalog::rebuildIndex()
     for (const Claim& claim : claims) {
         const QString lower = claim.keyword.toLower();
         QString takenBy;
-        if (const auto it = web.find(lower); it != web.end())
+        if (const auto own = builtin.find(lower); own != builtin.end())
+            takenBy = u"builtin:"_s + *own;
+        else if (const auto it = web.find(lower); it != web.end())
             takenBy = u"web:"_s + *it;
         else if (const auto fav = favorites.find(lower); fav != favorites.end())
             takenBy = u"fav:"_s + *fav;

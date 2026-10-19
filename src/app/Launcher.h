@@ -130,6 +130,9 @@ class Launcher : public QObject {
     // In keyword mode, once the plugin takes a while: "正在等 结束进程…" (or
     // what it says it is doing); empty before that and otherwise.
     Q_PROPERTY(QString pluginWaiting READ pluginWaiting NOTIFY statusChanged FINAL)
+    // The screenshot history's keyword mode (jt, setScreenshots): Delete
+    // removes the row, Ctrl+Z puts it back (Main.qml).
+    Q_PROPERTY(bool screenshotMode READ screenshotMode NOTIFY pluginChanged FINAL)
     // Its user keeps favorites (Favorites): listed first with nothing typed.
     Q_PROPERTY(bool hasFavorites READ hasFavorites NOTIFY favoritesChanged FINAL)
     // 内容 in some folders, as the strip under the search box shows it (in
@@ -215,6 +218,8 @@ public:
         SearchInFolder, // 内容 in a folder's row (the strip shows it chosen)
         SystemMenu, // the shell's own menu for the row (更多选项 in Win顺's; see showSystemMenu)
         Preview, // the file or folder in a preview (Alt+P, togglePreview)
+        PinPicture, // 贴到屏幕: a picture file's row, a screenshot's (pinRequested)
+        RemoveScreenshot, // 从历史删除: a screenshot's row (Delete)
         PluginAction = 100
     };
     Q_ENUM(Action)
@@ -243,6 +248,31 @@ public:
     // ("uu" → "uuid "; completionRow()). False when there is nothing.
     Q_INVOKABLE bool autocomplete(int row);
     Q_INVOKABLE void leaveKeyword(); // the chip clicked: the box is emptied
+
+    // The screenshot history: the clipboard history's pictures Win顺's
+    // capture took (ClipFilter::screenshots), listed after its keyword ("jt ")
+    // as a plugin's keyword lists a command's rows. App's, through these.
+    struct Screenshot {
+        qint64 id = 0; // the clipboard entry
+        QString imagePath;
+        QString ocr; // the words read in it
+        int width = 0;
+        int height = 0;
+        qint64 created = 0; // ms since the epoch: when it was taken
+    };
+    struct ScreenshotHooks {
+        std::function<std::vector<Screenshot>(const QString& words)> list; // newest first, words in the OCR
+        std::function<void(qint64 id)> paste; // Enter: copied, and pasted where the launcher was opened over
+        std::function<void(qint64 id)> copy; // Ctrl+C
+        std::function<void(qint64 id)> remove; // Delete
+        std::function<bool()> undo; // Ctrl+Z: false when there is nothing to put back
+    };
+    // `keyword` empty: no keyword (the capture off, or the word another's).
+    void setScreenshots(const QString& keyword, ScreenshotHooks hooks);
+    QString screenshotKeyword() const { return m_shotKeyword; }
+    bool screenshotMode() const;
+    void refreshScreenshots(); // the history changed: listed again while shown
+    Q_INVOKABLE bool undoScreenshotRemoval(); // Ctrl+Z in screenshotMode
 
     QString query() const { return m_query; }
     void setQuery(const QString& query);
@@ -513,6 +543,9 @@ signals:
     // (the list moved it down).
     void betterFirstRow();
     void pluginChanged();
+    // 贴到屏幕 (PinPicture, Ctrl+Enter on a screenshot): the picture in
+    // `path`; `screenshot`: it is one of the history's.
+    void pinRequested(const QString& path, bool screenshot);
     void folderChipsChanged();
     void panelChanged();
     void panelToggleRequested();
@@ -539,6 +572,10 @@ private:
     // keyword mode shows for it. No side effects (search() asks before it
     // decides whether the rows are new ones).
     std::optional<KeywordMode> matchKeyword(const QString& text) const;
+    std::optional<KeywordMode> matchScreenshotKeyword(const QString& text) const;
+    SearchResults screenshotRows(const QString& words) const;
+    void placeScreenshotHint(); // the screenshot keyword typed alone: its hint row first
+    void performScreenshot(const SearchResult& result, Action action);
     // Part of search(): what the text triggers; `keyword` as matchKeyword() found it.
     void startPluginQuery(const QString& text, std::optional<KeywordMode> keyword);
     void refreshKeyHints(); // keyHints for the current row; keyHintsChanged when they differ
@@ -768,6 +805,8 @@ private:
     std::unique_ptr<plugin::Merge> m_merge;
     std::uint64_t m_pluginQueryId = 0;
     std::optional<KeywordMode> m_keyword;
+    QString m_shotKeyword; // setScreenshots
+    ScreenshotHooks m_shotHooks;
     QSet<QString> m_pluginPending; // answering the current query
     QElapsedTimer m_pluginTimer; // since they were asked
     qint64 m_pluginElapsedUs = 0; // keyword mode: until the answer

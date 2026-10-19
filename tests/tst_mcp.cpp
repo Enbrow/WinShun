@@ -25,6 +25,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
 
 #include <windows.h>
 #include <aclapi.h>
@@ -108,6 +109,10 @@ struct Fixture {
     QStringList opened; // what the fake shell opened
     QStringList log;
     std::vector<ClipSummary> clips;
+    std::vector<ScreenshotSummary> shots; // the screenshot history, as the app's would list it
+    // take_screenshot: as the user would answer (App::confirmScreenshot); unset: never answers.
+    std::function<void(const ScreenshotRequest&, std::function<void(ScreenshotTaken)>)> asker;
+    QString tempFolder; // where screenshot_history copies the pictures
 
     explicit Fixture(bool withShell = true, bool withClipboard = true)
     {
@@ -152,7 +157,21 @@ struct Fixture {
                 }
                 return std::nullopt;
             };
+            services.screenshots = [this](const QString& query, int limit) {
+                std::vector<ScreenshotSummary> out;
+                for (const ScreenshotSummary& shot : shots) {
+                    if ((query.isEmpty() || shot.ocr.contains(query)) && std::ssize(out) < limit)
+                        out.push_back(shot);
+                }
+                return out;
+            };
+            services.takeScreenshot = [this](const ScreenshotRequest& request, std::function<void(ScreenshotTaken)> done) {
+                if (asker)
+                    asker(request, std::move(done));
+            };
         }
+        tempFolder = dir.path() + u"/mcp-temp"_s;
+        services.tempFolder = tempFolder;
         host = std::make_unique<ToolHost>(std::move(services));
         Policy policy;
         policy.contentExtensions = {u"txt"_s, u"md"_s};
@@ -973,6 +992,133 @@ private slots:
         // The log never has the texts.
         for (const QString& line : f.log)
             QVERIFY2(!line.contains(u"hello world"), qPrintable(line));
+    }
+
+    // screenshot_history: under the clipboard's switch, empty with a reason
+    // while the capture is off; each picture copied out to the temporary
+    // folder for the client to look at.
+    void screenshotHistory()
+    {
+        Fixture f;
+        const QString picture = f.root + u"\\history-5.png"_s;
+        {
+            QFile file(picture); // what is in it does not matter here: it is copied as it is
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write("not really a PNG");
+        }
+        f.shots.push_back({5, 1'700'000'002'000, 4, 3, u"季度报表 Q3"_s, picture});
+        f.shots.push_back({4, 1'700'000'001'000, 1920, 1080, QString(), QString()}); // its file still being written
+        QVERIFY(!f.host->toolNames().contains(u"screenshot_history"_s)); // the clipboard's switch is off
+        Policy policy = f.host->policy();
+        policy.allowClipboard = true;
+        f.host->setPolicy(policy);
+        QVERIFY(f.host->toolNames().contains(u"screenshot_history"_s));
+        Session s(f.server.get());
+        QVERIFY(s.initialize());
+
+        // The capture off: nothing, and why.
+        auto reply = s.exchange(callLine(2, u"screenshot_history"_s));
+        QVERIFY(reply);
+        Outcome out = outcomeOf(*reply);
+        QVERIFY2(!out.isError, qPrintable(out.text));
+        QCOMPARE(out.structured.value(u"returned"_s).toInt(), 0);
+        QVERIFY(out.structured.value(u"reason"_s).toString().contains(u"turned off"));
+
+        policy.captureEnabled = true;
+        f.host->setPolicy(policy);
+        reply = s.exchange(callLine(3, u"screenshot_history"_s));
+        QVERIFY(reply);
+        out = outcomeOf(*reply);
+        QVERIFY2(!out.isError, qPrintable(out.text));
+        QCOMPARE(out.structured.value(u"returned"_s).toInt(), 2);
+        QVERIFY(!out.structured.contains(u"reason"_s));
+        const QJsonArray items = out.structured.value(u"items"_s).toArray();
+        const QJsonObject first = items.at(0).toObject();
+        QCOMPARE(first.value(u"id"_s).toInt(), 5);
+        QCOMPARE(first.value(u"text"_s).toString(), u"季度报表 Q3"_s);
+        QCOMPARE(first.value(u"width"_s).toInt(), 4);
+        QVERIFY(first.value(u"taken"_s).toString().startsWith(u"2023-11-1"));
+        const QString copy = first.value(u"image_path"_s).toString();
+        QCOMPARE(QFileInfo(copy).absoluteFilePath(), QFileInfo(f.tempFolder + u"/5.png"_s).absoluteFilePath());
+        QFile copied(copy);
+        QVERIFY(copied.open(QIODevice::ReadOnly));
+        QCOMPARE(copied.readAll(), QByteArray("not really a PNG"));
+        QVERIFY(!items.at(1).toObject().contains(u"image_path"_s));
+        // Words and a limit.
+        reply = s.exchange(callLine(4, u"screenshot_history"_s, {{u"query"_s, u"Q3"_s}}));
+        QVERIFY(reply);
+        QCOMPARE(outcomeOf(*reply).structured.value(u"returned"_s).toInt(), 1);
+        reply = s.exchange(callLine(5, u"screenshot_history"_s, {{u"limit"_s, 1}}));
+        QVERIFY(reply);
+        QCOMPARE(outcomeOf(*reply).structured.value(u"returned"_s).toInt(), 1);
+        // The log never has the words read in the pictures.
+        for (const QString& line : f.log)
+            QVERIFY2(!line.contains(u"季度报表"), qPrintable(line));
+    }
+
+    // take_screenshot: off unless switched on; then only what the user
+    // answers (here a stand-in for App::confirmScreenshot) decides.
+    void takeScreenshot()
+    {
+        Fixture f;
+        Policy policy = f.host->policy();
+        policy.allowClipboard = true;
+        policy.captureEnabled = true;
+        f.host->setPolicy(policy);
+        QVERIFY(!f.host->toolNames().contains(u"take_screenshot"_s));
+        QCOMPARE(f.host->known(u"take_screenshot"_s), ToolHost::Known::Off);
+        int asked = 0;
+        ScreenshotRequest last;
+        f.asker = [&](const ScreenshotRequest& request, std::function<void(ScreenshotTaken)> done) {
+            ++asked;
+            last = request;
+            done({u"The user refused the screenshot."_s});
+        };
+        Session s(f.server.get());
+        QVERIFY(s.initialize());
+        // Off by default: refused without asking anyone.
+        auto reply = s.exchange(callLine(2, u"take_screenshot"_s));
+        QVERIFY(reply);
+        QVERIFY(outcomeOf(*reply).isError);
+        QCOMPARE(asked, 0);
+
+        policy.allowScreenshot = true;
+        f.host->setPolicy(policy);
+        QVERIFY(f.host->toolNames().contains(u"take_screenshot"_s));
+        reply = s.exchange(callLine(3, u"take_screenshot"_s, {{u"monitor"_s, 2}}));
+        QVERIFY(reply);
+        Outcome out = outcomeOf(*reply);
+        QVERIFY(out.isError);
+        QVERIFY2(out.text.contains(u"refused"), qPrintable(out.text));
+        QCOMPARE(asked, 1);
+        QCOMPARE(last.client, u"tst_mcp"_s);
+        QCOMPARE(last.monitor, 2);
+        reply = s.exchange(callLine(4, u"take_screenshot"_s, {{u"monitor"_s, u"two"_s}}));
+        QVERIFY(reply && outcomeOf(*reply).isError); // not a number: nobody is asked
+        QCOMPARE(asked, 1);
+
+        // Allowed a moment later, from another thread (the grab's).
+        f.asker = [&](const ScreenshotRequest&, std::function<void(ScreenshotTaken)> done) {
+            ++asked;
+            QTimer::singleShot(50, [done] {
+                std::thread([done] { done({{}, u"C:/Temp/WinShun/mcp/screenshot-1.png"_s, 2560, 1600, u"monitor 1 (2560x1600, primary)"_s}); }).detach();
+            });
+        };
+        reply = s.exchange(callLine(5, u"take_screenshot"_s));
+        QVERIFY(reply);
+        out = outcomeOf(*reply);
+        QVERIFY2(!out.isError, qPrintable(out.text));
+        QCOMPARE(asked, 2);
+        QCOMPARE(out.structured.value(u"path"_s).toString(), u"C:\\Temp\\WinShun\\mcp\\screenshot-1.png"_s);
+        QCOMPARE(out.structured.value(u"width"_s).toInt(), 2560);
+        QVERIFY(out.structured.value(u"monitor"_s).toString().contains(u"primary"));
+
+        // Never answered: the call waits (the app's own timeout answers it), and is cancelled cleanly.
+        f.asker = {};
+        QVERIFY(!s.exchange(callLine(6, u"take_screenshot"_s), 300));
+        QCOMPARE(f.host->pendingCalls(), 1);
+        f.server->receive(s.id, jsonrpc::notification(u"notifications/cancelled"_s, {{u"requestId"_s, 6}}));
+        QCOMPARE(f.host->pendingCalls(), 0);
     }
 
     // Only what the caller could list or read itself: a folder for

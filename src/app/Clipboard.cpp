@@ -9,6 +9,7 @@
 #include "platform/Shell.h"
 #include "platform/WindowEffects.h"
 
+#include <QBuffer>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -786,6 +787,85 @@ void Clipboard::copyText(const QString& text, bool remember)
     startPaste(std::move(write), Into::Clipboard, {}, tr("已复制 %1").arg(shown));
 }
 
+void Clipboard::copyImage(const QImage& image, bool remember, bool screenshot)
+{
+    if (image.isNull())
+        return;
+    if (m_imageEncoder.joinable())
+        m_imageEncoder.join(); // the one before, done by now
+    // A whole screen takes a moment to encode: not on the GUI thread.
+    m_imageEncoder = std::jthread([this, image, remember, screenshot] {
+        QByteArray png;
+        QBuffer buffer(&png);
+        buffer.open(QIODevice::WriteOnly);
+        image.save(&buffer, "PNG");
+        const QByteArray hash = imagePixelHash(image);
+        QMetaObject::invokeMethod(this,
+            [this, png, hash, size = image.size(), remember, screenshot] { storeImage(png, hash, size, remember, screenshot); },
+            Qt::QueuedConnection);
+    });
+}
+
+void Clipboard::storeImage(const QByteArray& png, const QByteArray& hash, QSize size, bool remember, bool screenshot)
+{
+    if (png.isEmpty())
+        return;
+    if (m_pasting) { // a paste from the window still under way: right after it
+        QTimer::singleShot(50ms, this, [this, png, hash, size, remember, screenshot] {
+            storeImage(png, hash, size, remember, screenshot);
+        });
+        return;
+    }
+    ClipWrite write;
+    write.png = png;
+    if (remember && m_recording && !m_paused) { // a copy like any other: in the history, on top
+        ClipCapture capture;
+        capture.kind = ClipKind::Image;
+        capture.png = png;
+        capture.hash = hash;
+        capture.width = size.width();
+        capture.height = size.height();
+        capture.source = screenshot ? tr("Win顺 截图") : tr("Win顺");
+        capture.sourcePath = QCoreApplication::applicationFilePath();
+        capture.screenshot = screenshot;
+        write.id = m_store->add(capture, now());
+        historyChanged();
+    }
+    startPaste(std::move(write), Into::Clipboard, {}, screenshot ? tr("已复制截图") : tr("已复制图片"));
+}
+
+bool Clipboard::pasteEntry(qint64 id, HWND target)
+{
+    const Clip* clip = m_store->clip(id);
+    if (!clip)
+        return false;
+    if (m_pasting)
+        return true; // one under way: this key is late, not wrong
+    QString problem;
+    ClipWrite write = writeFor({clip}, false, &problem);
+    if (write.empty()) {
+        flash(problem);
+        return true;
+    }
+    if (!paste::usableTarget(target)) { // nothing to paste into: on the clipboard, as 复制
+        startPaste(std::move(write), Into::Clipboard, {}, tr("已复制"));
+        return true;
+    }
+    m_target = target;
+    startPaste(std::move(write), Into::Program, {}, {});
+    return true;
+}
+
+void Clipboard::removeEntries(const std::vector<qint64>& ids)
+{
+    if (ids.empty())
+        return;
+    dropUndo();
+    m_removed = m_store->remove(ids);
+    historyChanged();
+    emit undoChanged();
+}
+
 void Clipboard::togglePin(int row)
 {
     const std::vector<const Clip*> clips = targets(row);
@@ -867,10 +947,7 @@ void Clipboard::remove(int row)
     std::vector<qint64> ids;
     for (const Clip* c : clips)
         ids.push_back(c->id);
-    dropUndo();
-    m_removed = m_store->remove(ids);
-    historyChanged();
-    emit undoChanged();
+    removeEntries(ids);
     flash(tr("已删除 %Ln 条，按 Ctrl+Z 撤销", nullptr, static_cast<int>(ids.size())));
 }
 
@@ -1056,6 +1133,8 @@ QVariantList Clipboard::menuItems(int row) const
         else if (c.kind == ClipKind::Files || c.kind == ClipKind::Path)
             items.append(entry(Reveal, tr("打开所在位置"), QString(), u""_s));
         else if (c.kind == ClipKind::Image)
+            items.append(entry(PinImage, tr("贴到屏幕"), QString(), u"\uE718"_s));
+        if (c.kind == ClipKind::Image)
             items.append(entry(OpenImage, tr("打开图片"), QString(), u""_s));
     }
     items.append(separator);
@@ -1132,6 +1211,17 @@ void Clipboard::trigger(int row, int action)
     case Remove:
         remove(row);
         break;
+    case PinImage: {
+        const Clip* c = m_model.at(row);
+        if (!c || c->kind != ClipKind::Image)
+            break;
+        if (m_store->imagePending(c->id)) { // just copied, its file not written yet
+            flash(tr("图片还在保存，请稍后再试"));
+            break;
+        }
+        emit pinRequested(m_store->imagePath(c->id));
+        break;
+    }
     case OpenLink:
     case Reveal:
     case OpenImage: {

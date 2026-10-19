@@ -136,7 +136,8 @@ void SettingsEditor::setSettings(const Settings& settings)
     const bool keys = settings.numberKeys != m_settings.numberKeys || settings.hotkey != m_settings.hotkey
         || settings.clipboardNumberKeys != m_settings.clipboardNumberKeys
         || settings.clipboardHotkey != m_settings.clipboardHotkey
-        || settings.folderMenuHotkey != m_settings.folderMenuHotkey;
+        || settings.folderMenuHotkey != m_settings.folderMenuHotkey
+        || settings.captureHotkey != m_settings.captureHotkey;
     const bool shares = settings.shares != m_settings.shares;
     m_settings = settings;
     emit changed();
@@ -270,7 +271,8 @@ QString describeNumberKeys(const QString& keys, const Settings& settings)
         const QString c = chord(n);
         const bool mine = settings.hotkey.compare(c, Qt::CaseInsensitive) == 0
             || settings.clipboardHotkey.compare(c, Qt::CaseInsensitive) == 0
-            || settings.folderMenuHotkey.compare(c, Qt::CaseInsensitive) == 0;
+            || settings.folderMenuHotkey.compare(c, Qt::CaseInsensitive) == 0
+            || (settings.captureEnabled && settings.captureHotkey.compare(c, Qt::CaseInsensitive) == 0);
         if (mine)
             own.append(c);
         else if (std::find(held.begin(), held.end(), n) != held.end())
@@ -917,6 +919,83 @@ void SettingsEditor::setFolderMenuHotkeyError(const QString& error)
     emit hotkeyErrorChanged();
 }
 
+void SettingsEditor::setCaptureEnabled(bool on)
+{
+    if (m_settings.captureEnabled == on)
+        return;
+    m_settings.captureEnabled = on;
+    commit(); // the app makes or lets go of the capture (App::applyCapture)
+}
+
+void SettingsEditor::setCaptureHotkey(const QString& hotkey)
+{
+    const QString value = hotkey.trimmed();
+    if (m_settings.captureHotkey == value)
+        return;
+    m_settings.captureHotkey = value;
+    commit(); // the app registers it and says whether that worked (setCaptureHotkeyError)
+    refreshNumberKeys(); // a Ctrl+digit of its own is struck through in the rows
+}
+
+void SettingsEditor::setCaptureHotkeyError(const QString& error)
+{
+    if (m_captureHotkeyError == error)
+        return;
+    m_captureHotkeyError = error;
+    emit hotkeyErrorChanged();
+}
+
+void SettingsEditor::setCapturePrintScreen(bool on)
+{
+    if (m_settings.capturePrintScreen == on)
+        return;
+    m_settings.capturePrintScreen = on;
+    commit();
+}
+
+void SettingsEditor::setCaptureCopyOnSelect(bool on)
+{
+    if (m_settings.captureCopyOnSelect == on)
+        return;
+    m_settings.captureCopyOnSelect = on;
+    commit();
+}
+
+void SettingsEditor::setCaptureNote(const QString& note)
+{
+    if (m_captureNote == note)
+        return;
+    m_captureNote = note;
+    emit hotkeyErrorChanged();
+}
+
+QString SettingsEditor::saveCaptureKeyword(const QString& keyword)
+{
+    const QString word = keyword.trimmed();
+    if (word.isEmpty())
+        return tr("请填写关键词");
+    if (!isValidWebKeyword(word))
+        return tr("关键词里不能有空格或引号");
+    for (const WebShortcut& web : m_settings.webShortcuts) {
+        if (web.keyword.compare(word, Qt::CaseInsensitive) == 0)
+            return tr("关键词“%1”已经给了网页搜索“%2”").arg(web.keyword, web.name);
+    }
+    if (const QString favorite = m_favorites->keywordOwner(word); !favorite.isEmpty())
+        return tr("关键词“%1”已经给了收藏“%2”").arg(word, favorite);
+    if (m_settings.captureKeyword == word)
+        return {};
+    m_settings.captureKeyword = word;
+    commit(); // the launcher and the plugins' keywords (App::applyCapture)
+    return {};
+}
+
+QString SettingsEditor::captureKeywordTaken(const QString& keyword) const
+{
+    if (!m_settings.captureEnabled || m_settings.captureKeyword.compare(keyword.trimmed(), Qt::CaseInsensitive) != 0)
+        return {};
+    return tr("关键词“%1”已经给了截图历史（截图卡片上可以改）").arg(m_settings.captureKeyword);
+}
+
 void SettingsEditor::setAutoUpdate(bool on)
 {
     if (m_settings.autoUpdate == on)
@@ -1322,6 +1401,8 @@ QString SettingsEditor::saveWebShortcut(int index, const QString& keyword, const
     }
     if (const QString favorite = m_favorites->keywordOwner(shortcut.keyword); !favorite.isEmpty())
         return tr("关键词“%1”已经给了收藏“%2”").arg(shortcut.keyword, favorite);
+    if (const QString taken = captureKeywordTaken(shortcut.keyword); !taken.isEmpty())
+        return taken;
     shortcut.url = normalizeWebUrl(url);
     if (shortcut.url.isEmpty())
         return url.trimmed().isEmpty() ? tr("请填写网址") : tr("打不开这个网址：它应当以 https:// 开头");
@@ -1983,6 +2064,14 @@ void SettingsEditor::setMcpClipboard(bool on)
     if (m_settings.mcpClipboard == on)
         return;
     m_settings.mcpClipboard = on;
+    commit();
+}
+
+void SettingsEditor::setMcpScreenshot(bool on)
+{
+    if (m_settings.mcpScreenshot == on)
+        return;
+    m_settings.mcpScreenshot = on;
     commit();
 }
 

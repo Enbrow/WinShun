@@ -95,9 +95,9 @@ QString typeName(const QString& path, bool isDir)
 }
 
 // The first frame, decoded by Windows Imaging Component and turned upright
-// as the camera says (EXIF orientation); at most kLargestPicture on its
+// as the camera says (EXIF orientation); at most `largest` pixels on its
 // longer side. `original`: its size as stored.
-QImage decodePicture(const std::wstring& path, QSize* original)
+QImage decodePicture(const std::wstring& path, QSize* original, int largest = kLargestPicture)
 {
     ComPtr<IWICImagingFactory> wic;
     if (FAILED(::CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic))))
@@ -125,8 +125,8 @@ QImage decodePicture(const std::wstring& path, QSize* original)
     ComPtr<IWICBitmapSource> source = frame;
     UINT w = width;
     UINT h = height;
-    if (std::max(width, height) > static_cast<UINT>(kLargestPicture)) {
-        const double scale = static_cast<double>(kLargestPicture) / std::max(width, height);
+    if (largest > 0 && std::max(width, height) > static_cast<UINT>(largest)) {
+        const double scale = static_cast<double>(largest) / std::max(width, height);
         w = std::max(1u, static_cast<UINT>(width * scale + 0.5));
         h = std::max(1u, static_cast<UINT>(height * scale + 0.5));
         ComPtr<IWICBitmapScaler> scaler;
@@ -213,6 +213,13 @@ std::pair<int, int> countFolder(const QString& path, bool* more, const std::func
 }
 
 } // namespace
+
+QImage decodePictureFile(const QString& path, int largest, QSize* original)
+{
+    QString native = path;
+    native.replace(u'/', u'\\');
+    return decodePicture(native.toStdWString(), original, largest);
+}
 
 // What the worker found out about a file.
 struct FilePreview::Loaded {

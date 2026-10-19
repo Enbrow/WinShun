@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QSqlDatabase>
+#include <QSqlError>
 #include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QTest>
@@ -444,6 +445,112 @@ private slots:
         ClipFilter filter;
         filter.query = u"Q3"_s;
         QCOMPARE(store.find(filter).size(), std::size_t(1));
+    }
+
+    // The screenshot history (jt): pictures Win顺's capture took, marked so;
+    // a history from before the mark gets it from the source they were saved
+    // with (in either language), and only pictures from WinShun.exe do.
+    void screenshotHistory()
+    {
+        QTemporaryDir dir;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase(u"QSQLITE"_s, u"old"_s);
+            db.setDatabaseName(dir.filePath(u"clipboard.db"_s));
+            QVERIFY(db.open());
+            QSqlQuery query(db);
+            QVERIFY(query.exec(u"CREATE TABLE clips (id INTEGER PRIMARY KEY AUTOINCREMENT, kind INTEGER NOT NULL, "
+                               u"text TEXT NOT NULL DEFAULT '', length INTEGER NOT NULL DEFAULT 0, html BLOB, rtf BLOB, "
+                               u"hash BLOB NOT NULL, created INTEGER NOT NULL, used INTEGER NOT NULL, "
+                               u"source TEXT NOT NULL DEFAULT '', sourcePath TEXT NOT NULL DEFAULT '', "
+                               u"groupId INTEGER NOT NULL DEFAULT 0, width INTEGER NOT NULL DEFAULT 0, "
+                               u"height INTEGER NOT NULL DEFAULT 0, bytes INTEGER NOT NULL DEFAULT 0)"_s));
+            const auto insert = [&](int id, int kind, const QString& hash, qint64 created, qint64 used, const QString& source,
+                                    const QString& path) {
+                query.prepare(u"INSERT INTO clips (id, kind, text, hash, created, used, source, sourcePath) "
+                              u"VALUES (?, ?, ?, ?, ?, ?, ?, ?)"_s);
+                query.addBindValue(id);
+                query.addBindValue(kind);
+                query.addBindValue(kind == 0 ? source : u""_s);
+                query.addBindValue(hash.toUtf8());
+                query.addBindValue(created);
+                query.addBindValue(used);
+                query.addBindValue(source);
+                query.addBindValue(path);
+                const bool ok = query.exec();
+                if (!ok)
+                    qWarning().noquote() << query.lastError().text();
+                return ok;
+            };
+            QVERIFY(insert(5, 4, u"p5"_s, kStart - 10, kStart - 10, u"Win顺 截图"_s, u"C:\\Program Files\\WinShun\\WinShun.exe"_s));
+            // Taken earlier, pasted later: still listed by when it was taken.
+            QVERIFY(insert(6, 4, u"p6"_s, kStart - 20, kStart - 1, u"WinShun screenshot"_s, u"D:\\apps\\winshun.exe"_s));
+            QVERIFY(insert(7, 4, u"p7"_s, kStart - 5, kStart - 5, u"微信"_s, u"C:\\WeChat\\WeChat.exe"_s));
+            QVERIFY(insert(8, 4, u"p8"_s, kStart - 4, kStart - 4, u"Win顺 截图"_s, u"C:\\Other\\Snipper.exe"_s)); // not ours
+            QVERIFY(insert(9, 0, u"p9"_s, kStart - 3, kStart - 3, u"Win顺 截图"_s, u"C:\\WinShun\\WinShun.exe"_s)); // text
+        }
+        QSqlDatabase::removeDatabase(u"old"_s);
+        QVERIFY(QDir(dir.path()).mkpath(u"images"_s));
+        for (const int id : {5, 6, 7, 8}) { // else cleared away as no one's
+            QFile file(dir.filePath(u"images/%1.png"_s.arg(id)));
+            QVERIFY(file.open(QIODevice::WriteOnly));
+        }
+        ClipFilter shots;
+        shots.screenshots = true;
+        const auto ids = [](const ClipStore& store, const std::vector<int>& rows) {
+            std::vector<qint64> list;
+            for (const int row : rows)
+                list.push_back(store.clips()[static_cast<std::size_t>(row)].id);
+            return list;
+        };
+        qint64 taken = 0;
+        {
+            ClipStore store(dir.path());
+            QVERIFY(store.open(kStart));
+            QVERIFY(store.clip(5)->screenshot);
+            QVERIFY(store.clip(6)->screenshot);
+            QVERIFY(!store.clip(7)->screenshot);
+            QVERIFY(!store.clip(8)->screenshot);
+            QVERIFY(!store.clip(9)->screenshot);
+            QCOMPARE(ids(store, store.find(shots)), (std::vector<qint64> {5, 6}));
+
+            ClipCapture image;
+            image.kind = ClipKind::Image;
+            image.png = "png";
+            image.hash = "new";
+            image.screenshot = true;
+            taken = store.add(image, kStart + 1);
+            ClipCapture other = image; // a picture copied in a program
+            other.hash = "other";
+            other.screenshot = false;
+            store.add(other, kStart + 2);
+            // The same pixels copied again from a program: still a screenshot,
+            // at the top of the clipboard history, in its place in this list.
+            image.screenshot = false;
+            QCOMPARE(store.add(image, kStart + 3), taken);
+            QVERIFY(store.clip(taken)->screenshot);
+            store.touch(6, kStart + 4);
+            QCOMPARE(ids(store, store.find(shots)), (std::vector<qint64> {taken, 5, 6}));
+            // Words: in what was read in them, by pinyin too; nothing else counts.
+            store.flush();
+            store.setPictureText(5, u"季度报表 Q3"_s);
+            store.setPictureText(6, u"会议纪要"_s);
+            shots.query = u"jdbb"_s;
+            QCOMPARE(ids(store, store.find(shots)), (std::vector<qint64> {5}));
+            shots.query = u"会议"_s;
+            QCOMPARE(ids(store, store.find(shots)), (std::vector<qint64> {6}));
+            shots.query = u"微信"_s; // a source is no word in the picture
+            QVERIFY(store.find(shots).empty());
+            shots.query.clear();
+        }
+        ClipStore store(dir.path()); // kept, and not migrated again
+        QVERIFY(store.open(kStart + 5));
+        QCOMPARE(ids(store, store.find(shots)), (std::vector<qint64> {taken, 5, 6}));
+        // Removed and put back: still one.
+        std::vector<ClipRecord> removed = store.remove(std::span(&taken, 1));
+        QCOMPARE(ids(store, store.find(shots)), (std::vector<qint64> {5, 6}));
+        store.restore(std::move(removed));
+        QVERIFY(store.clip(taken)->screenshot);
+        QCOMPARE(ids(store, store.find(shots)), (std::vector<qint64> {taken, 5, 6}));
     }
 
     void removedGroupsComeBack()

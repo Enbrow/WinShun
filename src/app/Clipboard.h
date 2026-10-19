@@ -6,6 +6,7 @@
 #include "platform/TextRecognizer.h"
 
 #include <QElapsedTimer>
+#include <QImage>
 #include <QObject>
 #include <QPointer>
 #include <QQuickItem>
@@ -20,6 +21,7 @@
 #include <windows.h>
 
 #include <optional>
+#include <thread>
 #include <vector>
 
 namespace ws {
@@ -116,6 +118,7 @@ public:
         OpenLink,
         Reveal,
         OpenImage,
+        PinImage, // a picture on the screen (贴到屏幕): pinRequested
         Remove,
         MoveUp, // in its group's own order (ClipModel::movable)
         MoveDown,
@@ -193,6 +196,20 @@ public:
     // A colour's other notation, as a new entry unless it would not read back
     // as that colour (#AARRGGBB).
     Q_INVOKABLE void copyText(const QString& text, bool remember);
+    // A picture (a screen capture, a pin) onto the clipboard, the way copyText
+    // puts text there: with `remember`, as a new history entry on top, whose
+    // words are then read like any copied picture's; `screenshot`: one Win顺's
+    // capture took (Clip::screenshot, the screenshot history). The PNG is made
+    // off the GUI thread.
+    void copyImage(const QImage& image, bool remember, bool screenshot = false);
+    // An entry by its id, from outside the window (the launcher's screenshot
+    // history, jt): onto the clipboard and pasted into `target`, the window
+    // in front before the launcher, as the window pastes; only copied when
+    // that is not a window to paste into. False if there is no such entry.
+    bool pasteEntry(qint64 id, HWND target);
+    // Entries by their ids out of the history, as remove() takes rows: undo()
+    // (Ctrl+Z, here or in the launcher) puts them back.
+    void removeEntries(const std::vector<qint64>& ids);
     Q_INVOKABLE void togglePin(int row);
     Q_INVOKABLE void remove(int row);
     Q_INVOKABLE void undo();
@@ -261,6 +278,8 @@ signals:
     void fieldChanged();
     // The field the window goes back to: its own window in front again (App).
     void fieldRequested(QQuickItem* field);
+    // 贴到屏幕 on a picture's row: its file, for the app to pin (PinManager).
+    void pinRequested(const QString& imagePath);
 
 private:
     struct Category {
@@ -285,6 +304,7 @@ private:
     std::vector<const Clip*> targets(int row) const; // the row, or the picked ones it is one of
     ClipWrite writeFor(const std::vector<const Clip*>& clips, bool plainText, QString* problem) const;
     void startPaste(ClipWrite write, Into into, std::vector<qint64> touched, QString done);
+    void storeImage(const QByteArray& png, const QByteArray& hash, QSize size, bool remember, bool screenshot); // copyImage's, encoded
     void onWritten(bool ok);
     void returnToField(QString text); // `text` typed into it; none: Esc
     void fillField(); // it has the keyboard again (or waited long enough)
@@ -347,6 +367,7 @@ private:
     QString m_returnText;
     QElapsedTimer m_returnClock;
     QTimer m_returnTimer; // waits for the field to have the keyboard
+    std::jthread m_imageEncoder; // copyImage's PNG; last, so joined first
 };
 
 } // namespace ws

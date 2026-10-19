@@ -72,6 +72,7 @@ struct MenuItem {
     bool checked = false;
     bool enabled = true;
     bool isDefault = false;
+    std::vector<MenuItem> children; // a submenu: `text` opens it, `id` is not chosen
 
     static MenuItem separator() { return {}; }
 };

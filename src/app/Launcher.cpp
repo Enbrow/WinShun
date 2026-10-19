@@ -143,6 +143,22 @@ QString uiLocale()
 
 } // namespace
 
+// The screenshot history's rows are a plugin's in all but where they come
+// from: these ids, never a plugin's (a plugin's id has a dot after its
+// author's name too, but "winshun." is Win顺's own, not given out).
+constexpr QStringView kShotPlugin = u"winshun.capture";
+constexpr QStringView kShotCommand = u"history";
+constexpr QStringView kShotIcon = u"glyph:U+E722"; // Camera
+constexpr int kShotRows = 500;
+
+// 贴到屏幕 on a file's row: the pictures Windows Imaging Component reads
+// (WebP with Windows' codec; a GIF's first frame).
+static bool pinnablePicture(const QString& path)
+{
+    static const QStringList kinds {u"png"_s, u"jpg"_s, u"jpeg"_s, u"bmp"_s, u"gif"_s, u"webp"_s};
+    return kinds.contains(QFileInfo(path).suffix().toLower());
+}
+
 // The result model as plugin::Merge writes it: a plugin's whole list goes
 // through showRows (keyword mode); pushed rows go in and out one by one.
 class Launcher::ModelSink : public plugin::RowSink {
@@ -969,6 +985,8 @@ void Launcher::search(bool more)
         m_pending = false;
         m_contentRunning = false;
         refreshStatus();
+        if (m_keyword->pluginId == kShotPlugin) // the screenshots: in memory, at once
+            showPluginRows(screenshotRows(m_keyword->words));
         return;
     }
 
@@ -1081,6 +1099,8 @@ void Launcher::showRows(SearchResults rows, QStringList highlights)
         if (m_merge->takeBetterFirstRow())
             emit betterFirstRow();
     }
+    if (!m_keyword)
+        placeScreenshotHint();
 }
 
 // Keyword mode: the command's answer is the list (ModelSink::assign).
@@ -2310,6 +2330,8 @@ namespace {
 // a place, a web page or a plugin's row; not one gone or out of reach).
 std::optional<FilePreview::Item> previewItem(const SearchResult* r)
 {
+    if (r && r->clipId > 0 && !r->target.isEmpty()) // a screenshot: its picture
+        return FilePreview::Item {r->target, r->name, false};
     if (!r || r->isApp() || r->missing || r->offline || r->path.isEmpty())
         return std::nullopt;
     return FilePreview::Item {r->path, r->name, r->isDir};
@@ -2475,6 +2497,17 @@ void Launcher::perform(const SearchResult& result, Action action)
     }
     if (action == AddFavorite || action == RemoveFavorite || action == FavoriteFolder || action == EditFavorite) {
         performFavorite(r, action);
+        return;
+    }
+    if (r.clipId > 0) {
+        performScreenshot(r, action);
+        return;
+    }
+    if (action == PinPicture) {
+        if (!r.isApp() && !r.isDir) {
+            emit pinRequested(r.path, false);
+            emit dismissRequested();
+        }
         return;
     }
     if (r.isPlugin()) {
@@ -3107,6 +3140,18 @@ QVariantList Launcher::menuItems(int row) const
             items.append(entry(FavoriteFolder, tr("收藏所在的文件夹"), QString(), u"\uE8B7"_s)); // Folder
         }
     };
+    if (r->clipId > 0) { // a screenshot of the history
+        items.append(entry(Open, tr("复制并粘贴"), u"Enter"_s, u"\uE77F"_s)); // Paste
+        items.append(entry(PinPicture, tr("贴到屏幕"), u"Ctrl+Enter"_s, u"\uE718"_s)); // Pin
+        items.append(entry(Preview, tr("预览"), u"Alt+P"_s, u"\uE890"_s)); // View
+        items.append(separator);
+        items.append(entry(CopyItem, tr("复制图片"), u"Ctrl+C"_s, u"\uE8C8"_s));
+        if (r->plugin && !r->plugin->copy.isEmpty())
+            items.append(entry(CopyName, tr("复制识别出的文字"), QString(), u"\uE8AC"_s));
+        items.append(separator);
+        items.append(entry(RemoveScreenshot, tr("从历史删除"), tr("Delete"), u"\uE74D"_s)); // Delete
+        return items;
+    }
     if (r->isPlugin()) {
         // Its actions as the plugin named them (Enter, Ctrl+Enter, Shift+Enter
         // in that order), else what its default does; then copying its text.
@@ -3179,6 +3224,8 @@ QVariantList Launcher::menuItems(int row) const
     items.append(entry(Reveal, tr("打开所在位置"), u"Ctrl+Enter"_s, u"\uE8DA"_s));
     if (!r->missing && !r->offline)
         items.append(entry(Preview, tr("预览"), u"Alt+P"_s, u"\uE890"_s)); // View
+    if (!r->isDir && !r->missing && !r->offline && pinnablePicture(r->path))
+        items.append(entry(PinPicture, tr("贴到屏幕"), QString(), u"\uE718"_s)); // Pin
     items.append(entry(OpenTerminal, tr("在终端中打开"), QString(), u"\uE756"_s)); // CommandPrompt
     if (r->isDir && m_contentEnabled && !r->path.startsWith(u"\\\\"_s)) // shares: contents are not read there
         items.append(entry(SearchInFolder, tr("在此文件夹中搜内容"), QString(), u"\uE721"_s)); // Search
@@ -3443,8 +3490,165 @@ void Launcher::leaveKeyword()
         setQuery({});
 }
 
+// ---- The screenshot history (jt) ----------------------------------------
+
+void Launcher::setScreenshots(const QString& keyword, ScreenshotHooks hooks)
+{
+    const bool changed = keyword != m_shotKeyword;
+    m_shotKeyword = keyword;
+    m_shotHooks = std::move(hooks);
+    if (changed && m_window && m_window->isVisible())
+        search(); // the keyword typed is one no longer, or now is
+}
+
+bool Launcher::screenshotMode() const
+{
+    return m_keyword && m_keyword->pluginId == kShotPlugin;
+}
+
+void Launcher::refreshScreenshots()
+{
+    if (screenshotMode() && m_window && m_window->isVisible())
+        search();
+}
+
+bool Launcher::undoScreenshotRemoval()
+{
+    if (!screenshotMode() || !m_shotHooks.undo || !m_shotHooks.undo())
+        return false;
+    search();
+    return true;
+}
+
+// As a plugin's keyword: first in the box, then a space; the words after it
+// are looked for in what was read in the pictures. In 全部 only, as theirs.
+std::optional<Launcher::KeywordMode> Launcher::matchScreenshotKeyword(const QString& text) const
+{
+    if (m_shotKeyword.isEmpty() || !m_shotHooks.list || m_scope != All)
+        return std::nullopt;
+    QStringView typed(text);
+    while (!typed.isEmpty() && typed.front().isSpace())
+        typed = typed.mid(1);
+    if (typed.size() <= m_shotKeyword.size() || !typed.startsWith(m_shotKeyword, Qt::CaseInsensitive)
+        || !typed.at(m_shotKeyword.size()).isSpace())
+        return std::nullopt;
+    const bool dark = QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark;
+    return KeywordMode {kShotPlugin.toString(), kShotCommand.toString(), typed.left(m_shotKeyword.size()).toString(),
+        typed.mid(m_shotKeyword.size() + 1).trimmed().toString(), tr("截图历史"), tr("输入文字，在截图里识别出的文字中找"),
+        FileIconProvider::pluginIconUrl(kShotPlugin.toString(), kShotIcon.toString(), dark)};
+}
+
+// A row per screenshot, newest first: the start of its words for a title,
+// its size and when it was taken under it, its picture for an icon.
+SearchResults Launcher::screenshotRows(const QString& words) const
+{
+    SearchResults rows;
+    if (!m_shotHooks.list)
+        return rows;
+    const std::vector<Screenshot> shots = m_shotHooks.list(words);
+    for (const Screenshot& shot : shots) {
+        if (rows.size() >= kShotRows)
+            break;
+        auto p = std::make_shared<PluginRow>();
+        p->pluginId = kShotPlugin.toString();
+        p->commandId = kShotCommand.toString();
+        p->itemId = u'#' + QString::number(shot.id);
+        p->source = tr("截图");
+        const QString taken = QDateTime::fromMSecsSinceEpoch(shot.created).toString(u"yyyy-MM-dd HH:mm"_s);
+        p->subtitle = tr("%1 × %2 · %3").arg(shot.width).arg(shot.height).arg(taken);
+        p->icon = kShotIcon.toString();
+        const QString text = shot.ocr.simplified();
+        p->copy = text;
+        p->actions = {{u"paste"_s, tr("复制并粘贴"), u"Enter"_s}, {u"pin"_s, tr("贴到屏幕"), u"Ctrl+Enter"_s}};
+        SearchResult r;
+        r.name = text.isEmpty() ? tr("（没有识别出文字）") : text.left(120);
+        r.path = plugin::pluginPath(p->pluginId, p->commandId, p->itemId);
+        r.target = shot.imagePath;
+        r.modified = static_cast<std::uint32_t>(std::max<qint64>(0, shot.created / 1000));
+        r.app = AppKind::Plugin;
+        r.score = 100;
+        r.clipId = shot.id;
+        r.plugin.row = std::move(p);
+        rows.append(std::move(r));
+    }
+    return rows;
+}
+
+// The keyword typed alone ("jt"): a row offering it, first and current, as
+// a plugin keyword's hint row (plugin::hintRow): Enter, Tab or a space
+// opens the list.
+void Launcher::placeScreenshotHint()
+{
+    if (m_shotKeyword.isEmpty() || !m_shotHooks.list || m_scope != All
+        || m_query.trimmed().compare(m_shotKeyword, Qt::CaseInsensitive) != 0)
+        return;
+    auto p = std::make_shared<PluginRow>();
+    p->pluginId = kShotPlugin.toString();
+    p->commandId = kShotCommand.toString();
+    p->itemId = plugin::kHintItem.toString();
+    p->source = tr("截图");
+    p->subtitle = tr("按空格进入；Enter 或 Tab 也行");
+    p->icon = kShotIcon.toString();
+    p->autocomplete = m_shotKeyword + u' ';
+    p->setQuery = p->autocomplete;
+    p->score = 100;
+    SearchResult r;
+    r.name = m_shotKeyword + u" — "_s + tr("截图历史");
+    r.path = plugin::pluginPath(p->pluginId, p->commandId, p->itemId);
+    r.app = AppKind::Plugin;
+    r.score = 100;
+    r.plugin.row = std::move(p);
+    for (int i = 0; i < m_results.count(); ++i) {
+        if (m_results.at(i)->path == r.path)
+            return;
+    }
+    m_results.insert(0, r);
+    emit betterFirstRow();
+}
+
+void Launcher::performScreenshot(const SearchResult& result, Action action)
+{
+    const qint64 id = result.clipId;
+    switch (static_cast<int>(action)) {
+    case Open:
+    case PluginAction:
+        if (m_shotHooks.paste)
+            m_shotHooks.paste(id);
+        return;
+    case Reveal:
+    case PinPicture:
+    case PluginAction + 1:
+        emit pinRequested(result.target, true);
+        emit dismissRequested();
+        return;
+    case CopyItem:
+        if (m_shotHooks.copy)
+            m_shotHooks.copy(id);
+        flash(tr("已复制截图"));
+        return;
+    case CopyName:
+    case CopyPath:
+        if (result.plugin && !result.plugin->copy.isEmpty()) {
+            shell::copyText(result.plugin->copy);
+            flash(tr("已复制文字"));
+        }
+        return;
+    case RemoveScreenshot:
+        if (m_shotHooks.remove) {
+            m_shotHooks.remove(id);
+            search();
+            flash(tr("已从历史删除；Ctrl+Z 撤销"));
+        }
+        return;
+    default:
+        return;
+    }
+}
+
 std::optional<Launcher::KeywordMode> Launcher::matchKeyword(const QString& text) const
 {
+    if (std::optional<KeywordMode> shots = matchScreenshotKeyword(text))
+        return shots;
     if (!m_plugins || !m_merge || m_scope != All || text.trimmed().isEmpty())
         return std::nullopt;
     for (const plugin::Match& m : m_plugins->catalog().match(text)) {
@@ -3470,6 +3674,18 @@ void Launcher::startPluginQuery(const QString& text, std::optional<KeywordMode> 
     m_pluginWait.stop();
     m_pluginSlow = false;
     m_pluginProgress.clear();
+    if (keyword && keyword->pluginId == kShotPlugin) {
+        // Win顺's own list: no plugin is asked, and whatever they were
+        // asked before is moot (their answers come for an older id).
+        const std::uint64_t id = ++m_pluginQueryId;
+        if (m_plugins)
+            m_plugins->cancelAll();
+        m_keyword = std::move(keyword);
+        if (m_merge)
+            m_merge->begin(id, text, m_keyword->pluginId, m_keyword->commandId);
+        emit pluginChanged();
+        return;
+    }
     if (!m_plugins || !m_merge) {
         if (was)
             emit pluginChanged();

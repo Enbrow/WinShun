@@ -115,6 +115,7 @@ QHash<int, QByteArray> ClipModel::roleNames() const
         {MissingRole, "missing"},
         {MovableRole, "movable"},
         {AfterPinnedRole, "afterPinned"},
+        {ScreenshotRole, "screenshot"},
     };
 }
 
@@ -159,6 +160,8 @@ QVariant ClipModel::data(const QModelIndex& index, int role) const
         return fileMissing(*c);
     case MovableRole:
         return movable(index.row());
+    case ScreenshotRole:
+        return c->screenshot;
     case AfterPinnedRole: {
         const Clip* above = at(index.row() - 1);
         return m_pinnedFirst && c->group != ClipStore::kPinned && above && above->group == ClipStore::kPinned;

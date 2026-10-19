@@ -213,6 +213,20 @@ struct Settings {
     QString taskbarSearchBoxStyle = QStringLiteral("box"); // box | label | icon: the widest form it takes, as Windows' own
     bool taskbarStartGap = false; // ... right of Start, the icons moved over for it (taskbar::StartGap)
 
+    // [Capture]: the screen capture (src/capture), shown as a card on the
+    // 插件 page. Off until turned on; nothing of it is made while off.
+    bool captureEnabled = false;
+    QString captureHotkey; // no default (PixPin and Snipaste have the usual ones): the user records one
+    bool capturePrintScreen = false; // PrtScn captures too, taken from the Snipping Tool (printscreen::)
+    // What PrintScreenKeyForSnippingEnabled was before PrtScn was taken
+    // ("absent" or the number), to put back when given up; empty while not taken.
+    QString capturePrintScreenBefore;
+    bool captureCopyOnSelect = false; // letting go of a drag or a click on a window copies at once
+    // Keyword=: typed first in the search box with a space after it, the
+    // screenshot history (the launcher's jt). Plugins' keywords alike give
+    // way to it; a web search's or a favorite's alike is refused when set.
+    QString captureKeyword = QStringLiteral("jt");
+
     // [WebSearch]: keywords the user gives web pages ("gh" opens GitHub, "gh
     // WinShun" searches it; see WebShortcut). At first just one, "winshun".
     // Written as an array: size=, 1\Keyword=, 1\Name=, 1\Url=, 1\Home=,
@@ -244,7 +258,10 @@ struct Settings {
     // opening things and reading the clipboard history have switches of their own.
     bool mcp = false;
     bool mcpAllowOpen = false; // open_item, show_in_folder
-    bool mcpClipboard = false; // clipboard_history, clipboard_get
+    bool mcpClipboard = false; // clipboard_history, clipboard_get, screenshot_history
+    // Screenshot=: take_screenshot; even on, every call waits for the user
+    // to click 允许 on the screen (App::confirmScreenshot).
+    bool mcpScreenshot = false;
     QStringList mcpExcludedPaths; // folders AI never sees, on top of the index's exclusions
     // Plugins=: the plugins' commands as tools (plugin::AiBridge; queries
     // only); PluginActions=: their actions too (plugin_<id>_<command>_run).

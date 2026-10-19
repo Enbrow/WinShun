@@ -80,6 +80,18 @@ class SettingsEditor : public QObject {
     // error as the app found it (taken, not understood), like hotkeyError.
     Q_PROPERTY(QString folderMenuHotkey READ folderMenuHotkey WRITE setFolderMenuHotkey NOTIFY changed FINAL)
     Q_PROPERTY(QString folderMenuHotkeyError READ folderMenuHotkeyError NOTIFY hotkeyErrorChanged FINAL)
+    // The screen capture's card on the 插件 page ([Capture]): its switch, its
+    // hotkey and that hotkey's error (as hotkeyError), PrtScn, and whether
+    // letting go of a drag copies at once; captureNote says what PrtScn's
+    // takeover could not do.
+    Q_PROPERTY(bool captureEnabled READ captureEnabled WRITE setCaptureEnabled NOTIFY changed FINAL)
+    Q_PROPERTY(QString captureHotkey READ captureHotkey WRITE setCaptureHotkey NOTIFY changed FINAL)
+    Q_PROPERTY(QString captureHotkeyError READ captureHotkeyError NOTIFY hotkeyErrorChanged FINAL)
+    Q_PROPERTY(bool capturePrintScreen READ capturePrintScreen WRITE setCapturePrintScreen NOTIFY changed FINAL)
+    Q_PROPERTY(bool captureCopyOnSelect READ captureCopyOnSelect WRITE setCaptureCopyOnSelect NOTIFY changed FINAL)
+    Q_PROPERTY(QString captureNote READ captureNote NOTIFY hotkeyErrorChanged FINAL)
+    // The screenshot history's keyword (jt): set through saveCaptureKeyword.
+    Q_PROPERTY(QString captureKeyword READ captureKeyword NOTIFY changed FINAL)
     Q_PROPERTY(bool includeRemovableDrives READ includeRemovableDrives WRITE setIncludeRemovableDrives NOTIFY changed FINAL)
     Q_PROPERTY(bool rescanOnStartup READ rescanOnStartup WRITE setRescanOnStartup NOTIFY changed FINAL)
     // 索引方式 (Settings::indexAccess, GitHub #21): auto | service | direct |
@@ -216,6 +228,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool mcp READ mcp WRITE setMcp NOTIFY changed FINAL)
     Q_PROPERTY(bool mcpAllowOpen READ mcpAllowOpen WRITE setMcpAllowOpen NOTIFY changed FINAL)
     Q_PROPERTY(bool mcpClipboard READ mcpClipboard WRITE setMcpClipboard NOTIFY changed FINAL)
+    Q_PROPERTY(bool mcpScreenshot READ mcpScreenshot WRITE setMcpScreenshot NOTIFY changed FINAL) // take_screenshot
     Q_PROPERTY(bool mcpPlugins READ mcpPlugins WRITE setMcpPlugins NOTIFY changed FINAL) // the plugins' commands as tools
     Q_PROPERTY(bool mcpPluginActions READ mcpPluginActions WRITE setMcpPluginActions NOTIFY changed FINAL) // and their actions
     Q_PROPERTY(QStringList mcpExcludedPaths READ mcpExcludedPaths NOTIFY changed FINAL) // expanded, for display
@@ -295,6 +308,25 @@ public:
     void setFolderMenuHotkey(const QString& hotkey);
     QString folderMenuHotkeyError() const { return m_folderMenuHotkeyError; }
     void setFolderMenuHotkeyError(const QString& error);
+    bool captureEnabled() const { return m_settings.captureEnabled; }
+    void setCaptureEnabled(bool on);
+    QString captureHotkey() const { return m_settings.captureHotkey; }
+    void setCaptureHotkey(const QString& hotkey);
+    QString captureHotkeyError() const { return m_captureHotkeyError; }
+    void setCaptureHotkeyError(const QString& error);
+    bool capturePrintScreen() const { return m_settings.capturePrintScreen; }
+    void setCapturePrintScreen(bool on);
+    bool captureCopyOnSelect() const { return m_settings.captureCopyOnSelect; }
+    void setCaptureCopyOnSelect(bool on);
+    QString captureNote() const { return m_captureNote; }
+    void setCaptureNote(const QString& note);
+    QString captureKeyword() const { return m_settings.captureKeyword; }
+    // Saved if no web search or favorite has it (they keep theirs; a
+    // plugin's alike gives way): empty, else what is wrong.
+    Q_INVOKABLE QString saveCaptureKeyword(const QString& keyword);
+    // The keyword is the screenshot history's (the capture on): what a web
+    // search or a favorite given it is told; empty when it is free.
+    QString captureKeywordTaken(const QString& keyword) const;
     Q_INVOKABLE void refreshFileManagers();
     // The command Directory Opus runs for a double click on blank space, to
     // bring up the folder menu there (FolderMenu::requested): for its
@@ -601,6 +633,8 @@ public:
     void setMcpAllowOpen(bool on);
     bool mcpClipboard() const { return m_settings.mcpClipboard; }
     void setMcpClipboard(bool on);
+    bool mcpScreenshot() const { return m_settings.mcpScreenshot; }
+    void setMcpScreenshot(bool on);
     bool mcpPlugins() const { return m_settings.mcpPlugins; }
     void setMcpPlugins(bool on);
     bool mcpPluginActions() const { return m_settings.mcpPluginActions; }
@@ -684,6 +718,8 @@ private:
     QString m_clipboardNumberKeysNote;
     QString m_doubleCtrlClash;
     QString m_folderMenuHotkeyError;
+    QString m_captureHotkeyError;
+    QString m_captureNote;
     QString m_opusFolderMenu = QStringLiteral("manual");
     QString m_opusFolderMenuTaken;
     QString m_opusFolderMenuProblem;

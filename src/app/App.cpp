@@ -3,6 +3,10 @@
 #include "AiBridge.h"
 #include "AppCatalog.h"
 #include "Backup.h"
+#include "Capture.h"
+#include "CaptureOcr.h"
+#include "Geometry.h" // capture::placeBeside
+#include "Grabber.h"
 #include "ClipStore.h"
 #include "Clipboard.h"
 #include "DialogBar.h"
@@ -59,6 +63,7 @@
 #include "platform/VolumeNotifier.h"
 #include "platform/WinV.h"
 #include "platform/WindowEffects.h"
+#include "PrintScreen.h"
 
 #include <QContextMenuEvent>
 #include <QCursor>
@@ -86,6 +91,7 @@
 #include <QWinEventNotifier>
 
 #include <windows.h>
+#include <objbase.h> // CoInitializeEx: pinPicture reads with WIC on a thread of its own
 
 #include <thread>
 
@@ -103,6 +109,8 @@ constexpr int kClipboardHotkeyId = 4; // another shortcut for the clipboard hist
 constexpr int kWinSHotkeyId = 5; // Win+S: the launcher over the taskbar, once Explorer gave it up (winv::)
 constexpr int kScreenClipHotkeyId = 6; // Win+Shift+S, which Explorer gives up with Win+S: the screen capture
 constexpr int kFolderMenuHotkeyId = 7; // the folder menu in the window in front (GitHub #25)
+constexpr int kCaptureHotkeyId = 8; // the screen capture's own hotkey (src/capture)
+constexpr int kPrintScreenHotkeyId = 9; // PrtScn, once taken over from the Snipping Tool (printscreen::)
 // For another program to tell where its text caret is: longer, and the
 // clipboard would open late; it opens by the mouse pointer then.
 constexpr auto kCaretWait = 100ms;
@@ -143,7 +151,11 @@ enum TrayCommand {
     RestartCommand,
     QuitCommand,
     ClipboardCommand,
-    PauseClipboardCommand
+    PauseClipboardCommand,
+    CaptureCommand,
+    PinLastCommand, // 截图 › 贴上最近一次截图
+    ClickThroughCommand, // 截图 › 取消所有贴图的穿透
+    CloseAllPinsCommand, // 截图 › 关闭全部贴图
 };
 
 IndexService::Options indexOptions(const Settings& settings)
@@ -351,6 +363,12 @@ App::~App()
     m_drainingRouter.reset();
     m_serviceKeyListener.reset();
     m_keyListener.reset(); // no double click told to the folder menu
+    m_capture.reset(); // its overlays, before the QML engine they were made with
+    m_pins.reset();
+    if (m_screenshotAsk && m_screenshotAsk->window)
+        delete m_screenshotAsk->window.data(); // before the QML engine, and before its frame
+    m_screenshotAsk.reset();
+    closeCaptureOcr(true); // its window, before the QML engine too
     delete m_folderMenuWindow; // before its view-model and the QML engine
     m_folderMenu.reset();
     delete m_settingsWindow; // before the QML engine it was created with
@@ -398,6 +416,7 @@ bool App::start(const StartOptions& options)
     connect(m_favorites.get(), &Favorites::changed, this, [this] {
         if (m_pluginHost)
             m_pluginHost->setFavoriteKeywords(favoriteKeywords(*m_favorites));
+        applyScreenshots(); // a favorite given the word takes it
     });
     // Sites' icons: fetched when a row of theirs is first shown, not before.
     siteicons::setFolder(dataDir + u"\\icons\\web"_s);
@@ -459,6 +478,7 @@ bool App::start(const StartOptions& options)
         hideLauncher();
     });
     connect(m_launcher.get(), &Launcher::pinnedChanged, this, &App::launcherPinnedChanged);
+    connect(m_launcher.get(), &Launcher::pinRequested, this, &App::pinPicture);
     connect(m_launcher.get(), &Launcher::settingsRequested, this, [this] { showSettings(); });
     connect(m_launcher.get(), &Launcher::panelToggleRequested, this, &App::togglePanel);
     connect(m_launcher.get(), &Launcher::openFailed, this, [this](const QString& name) {
@@ -523,6 +543,10 @@ bool App::start(const StartOptions& options)
     // Pinned, it stays up through a paste or a file opened (hideClipboard);
     // Esc hands the focus back too.
     connect(m_clipboard.get(), &Clipboard::dismissRequested, this, [this] { hideClipboard(); });
+    connect(m_clipboard.get(), &Clipboard::pinRequested, this, [this](const QString& path) { pinPicture(path); });
+    // The history changed (a screenshot taken, removed, put back): the
+    // launcher's screenshot list too, while it shows it.
+    connect(m_clipboard.get(), &Clipboard::categoriesChanged, m_launcher.get(), &Launcher::refreshScreenshots);
     connect(m_clipboard.get(), &Clipboard::keysReleased, this, [this] {
         if (m_clipWindow && m_clipWindow->isVisible())
             releaseClipboard(true);
@@ -580,6 +604,8 @@ bool App::start(const StartOptions& options)
             startScreenClip();
         else if (id == kFolderMenuHotkeyId)
             folderMenuHotkey();
+        else if (id == kCaptureHotkeyId || id == kPrintScreenHotkeyId)
+            triggerCapture();
         else if (id != kDialogJumpHotkeyId)
             toggleLauncher();
         else if (m_dialogJump && m_settings.dialogJump)
@@ -919,6 +945,81 @@ QQuickWindow* App::createPreviewWindow()
     return window;
 }
 
+// 识别文字 (CaptureOcr, OcrPanel.qml): one window, made the first time,
+// styled as the preview but taking the focus (the text can be edited).
+void App::showCaptureOcr(const QImage& image, double dpr, const QRect& where)
+{
+    if (!m_ocrWindow) {
+        if (!m_captureOcr) {
+            m_captureOcr = std::make_unique<capture::CaptureOcr>();
+            connect(m_captureOcr.get(), &capture::CaptureOcr::copyRequested, this, [this](const QString& text) {
+                if (!text.isEmpty())
+                    m_clipboard->copyText(text, m_settings.clipboard && !m_clipboardPaused);
+            });
+            connect(m_captureOcr.get(), &capture::CaptureOcr::searchRequested, this, [this](const QString& query) {
+                showLauncher(query);
+            });
+            connect(m_captureOcr.get(), &capture::CaptureOcr::closeRequested, this, [this] { closeCaptureOcr(); });
+        }
+        m_ocrFrame = std::make_unique<WindowFrame>(false);
+        QQmlComponent component(m_qml.get(), u"WinShun"_s, u"OcrPanel"_s);
+        QObject* object = component.createWithInitialProperties({
+            {u"ocr"_s, QVariant::fromValue(m_captureOcr.get())},
+            {u"frame"_s, QVariant::fromValue(m_ocrFrame.get())},
+        });
+        auto* window = qobject_cast<QQuickWindow*>(object);
+        if (!window) {
+            qWarning().noquote() << "Screen capture: no OCR window:" << component.errorString();
+            delete object;
+            return;
+        }
+        prepareBackdrop(window);
+        window->create();
+        styleWindow(window, SystemTheme::backdropAvailable());
+        win::setDarkFrame(window, isDarkMode());
+        m_ocrFrame->setWindow(window);
+        m_ocrWindow = window;
+    }
+    // Beside the picture, on its monitor (physical pixels there, logical for Qt).
+    const RECT anchor {where.left(), where.top(), where.left() + where.width(), where.top() + where.height()};
+    const HMONITOR monitor = ::MonitorFromRect(&anchor, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO info {sizeof info};
+    QScreen* screen = nullptr;
+    for (QScreen* s : QGuiApplication::screens()) {
+        const auto* native = s->nativeInterface<QNativeInterface::QWindowsScreen>();
+        if (native && native->handle() == monitor)
+            screen = s;
+    }
+    if (screen && ::GetMonitorInfoW(monitor, &info)) {
+        const qreal ratio = screen->devicePixelRatio();
+        const QRect work(info.rcWork.left, info.rcWork.top, info.rcWork.right - info.rcWork.left, info.rcWork.bottom - info.rcWork.top);
+        const QSize box(qRound(m_ocrWindow->width() * ratio), qRound(m_ocrWindow->height() * ratio));
+        const QPoint at = capture::placeBeside(where, box, work, qRound(8 * ratio));
+        const QPoint monitorOrigin(info.rcMonitor.left, info.rcMonitor.top);
+        m_ocrWindow->setScreen(screen);
+        m_ocrWindow->setPosition(screen->geometry().topLeft() + (at - monitorOrigin) / ratio);
+    }
+    m_captureOcr->read(image, dpr);
+    m_ocrWindow->show();
+    m_ocrWindow->raise();
+    win::bringToFront(m_ocrWindow);
+    m_ocrWindow->requestActivate();
+}
+
+void App::closeCaptureOcr(bool destroy)
+{
+    if (m_ocrWindow) {
+        if (destroy)
+            delete m_ocrWindow.data(); // before its view-model
+        else
+            m_ocrWindow->hide();
+    }
+    if (destroy) {
+        m_ocrFrame.reset();
+        m_captureOcr.reset(); // its thread, and the reader if still loaded
+    }
+}
+
 bool App::eventFilter(QObject* watched, QEvent* event)
 {
     // The launcher's field, drawn in the box on the taskbar: the input
@@ -1048,6 +1149,7 @@ void App::applyAppearance()
     m_messages->setTrayTooltip(trayTooltip());
     applyHotkey(); // its error message
     applyFolderMenuHotkey();
+    applyCaptureHotkeys();
     refreshContentIndexStatus();
 }
 
@@ -1141,6 +1243,7 @@ void App::applySettings(bool initial)
     updateNumberKeys();
     applyHotkey();
     applyFolderMenuHotkey(); // after applyFolderMenu: the menu it brings up
+    applyCapture();
     m_launcher->setContentOptions(m_settings.contentSearch, m_settings.contentExtensions,
         m_settings.contentSizeLimits(), m_settings.contentInLowPriority, m_settings.contentDocuments);
     m_launcher->setWebShortcuts(m_settings.webShortcuts);
@@ -1219,6 +1322,249 @@ void App::applyFolderMenuHotkey()
         m_settingsEditor->setFolderMenuHotkeyError(hotkeyError); // shown next to the shortcut
     else if (!hotkeyError.isEmpty())
         m_messages->showNotification(tr("快捷键不可用"), hotkeyError);
+}
+
+// ---- 截图: the screen capture (src/capture) ----------------------------------
+
+void App::applyCapture()
+{
+    if (!m_qml)
+        return;
+    // Off: no window, no hotkey, no graphics device: all of it goes.
+    if (m_settings.captureEnabled && !m_capture) {
+        capture::Capture::Callbacks callbacks;
+        callbacks.copy = [this](const QImage& image) {
+            m_clipboard->copyImage(image, m_settings.clipboard && m_settings.clipboardImages && !m_clipboardPaused, true);
+        };
+        callbacks.copyColor = [this](const QString& hex) {
+            m_clipboard->copyText(hex, m_settings.clipboard && !m_clipboardPaused);
+        };
+        callbacks.saved = [this](const QString& path, const QString& error) {
+            if (error.isEmpty())
+                m_messages->showNotification(tr("截图已保存"), QDir::toNativeSeparators(path));
+            else
+                m_messages->showNotification(tr("截图没能保存"), error);
+        };
+        // The pictures and textures are let go of: the pages go back to Windows.
+        callbacks.ended = [this] { m_idleTrim->poke(); };
+        callbacks.ocr = [this](const QImage& image, double dpr, const QRect& where) { showCaptureOcr(image, dpr, where); };
+        callbacks.pins = [this] { return &pins(); };
+        m_capture = std::make_unique<capture::Capture>(m_qml.get(), std::move(callbacks));
+    } else if (!m_settings.captureEnabled && m_capture) {
+        m_capture.reset();
+        // The pins close with it (stage 2's rule), those pinned from a file or
+        // the clipboard too; 贴到屏幕 still pins them with the capture off.
+        if (m_pins)
+            m_pins->closeAll();
+        closeCaptureOcr(true);
+        m_idleTrim->poke();
+    }
+    if (m_capture)
+        m_capture->setCopyOnSelect(m_settings.captureCopyOnSelect);
+    applyScreenshots();
+
+    // PrtScn: taken from the Snipping Tool while it is wanted, the value
+    // found then kept in [Capture] PrintScreenBefore and put back after.
+    const bool takeOver = m_settings.captureEnabled && m_settings.capturePrintScreen;
+    QString before = m_settings.capturePrintScreenBefore;
+    QString note;
+    if (takeOver && before.isEmpty()) {
+        const std::optional<DWORD> now = printscreen::read();
+        if (printscreen::write(DWORD {0}))
+            before = printscreen::encode(now);
+        else
+            note = tr("没能改 PrtScn 的设置，它还会打开截图工具。");
+    } else if (!takeOver && !before.isEmpty()) {
+        std::optional<DWORD> value;
+        if (!printscreen::decode(before, &value))
+            before.clear(); // unreadable: nothing to put back
+        else if (printscreen::write(value))
+            before.clear();
+        else
+            note = tr("没能把 PrtScn 的设置改回去。");
+    }
+    if (before != m_settings.capturePrintScreenBefore) {
+        m_settings.capturePrintScreenBefore = before;
+        m_settings.save();
+        if (m_settingsEditor) // its copy must not bring the old value back with its next change
+            m_settingsEditor->setSettings(m_settings);
+    }
+    if (m_settingsEditor)
+        m_settingsEditor->setCaptureNote(note);
+    else if (!note.isEmpty())
+        m_messages->showNotification(tr("截图"), note);
+    applyCaptureHotkeys();
+}
+
+void App::applyCaptureHotkeys()
+{
+    m_messages->unregisterHotkey(kCaptureHotkeyId);
+    m_messages->unregisterHotkey(kPrintScreenHotkeyId);
+    if (!m_capture)
+        return;
+    if (m_settingsEditor && m_settingsEditor->recordingHotkey())
+        return; // the keys being pressed must reach the settings window
+    if (m_settings.capturePrintScreen)
+        m_messages->registerHotkey(kPrintScreenHotkeyId, u"PrintScreen"_s);
+    const QString hotkey = m_settings.captureHotkey.trimmed();
+    QString hotkeyError;
+    if (!hotkey.isEmpty() && !m_messages->registerHotkey(kCaptureHotkeyId, hotkey)) {
+        UINT modifiers = 0;
+        UINT vk = 0;
+        hotkeyError = MessageWindow::parseHotkey(hotkey, &modifiers, &vk)
+            ? tr("“%1” 已被其他程序或系统占用，请换一个。").arg(hotkey)
+            : tr("无法识别“%1”，请重新设置。").arg(hotkey);
+    }
+    if (m_settingsEditor)
+        m_settingsEditor->setCaptureHotkeyError(hotkeyError); // shown next to the shortcut
+    else if (!hotkeyError.isEmpty())
+        m_messages->showNotification(tr("快捷键不可用"), hotkeyError);
+}
+
+void App::triggerCapture()
+{
+    if (m_capture)
+        m_capture->trigger();
+}
+
+QString App::screenshotKeyword() const
+{
+    const QString word = m_settings.captureKeyword.trimmed();
+    if (!m_settings.captureEnabled || word.isEmpty() || !isValidWebKeyword(word))
+        return {};
+    // They keep theirs (the settings refuse the word; WinShun.ini may be
+    // edited by hand).
+    for (const WebShortcut& w : m_settings.webShortcuts) {
+        if (w.keyword.compare(word, Qt::CaseInsensitive) == 0)
+            return {};
+    }
+    if (m_favorites) {
+        for (const Favorite& f : m_favorites->items()) {
+            if (f.keyword.compare(word, Qt::CaseInsensitive) == 0)
+                return {};
+        }
+    }
+    return word;
+}
+
+// The screenshot history (jt) is the clipboard history's pictures the
+// capture took (Clip::screenshot), listed by the launcher in a keyword mode
+// of its own; a plugin's keyword alike gives way to it.
+void App::applyScreenshots()
+{
+    const QString keyword = screenshotKeyword();
+    if (m_pluginHost) {
+        QList<std::pair<QString, QString>> builtin;
+        if (!keyword.isEmpty())
+            builtin.append({keyword, tr("截图历史")});
+        m_pluginHost->setBuiltinKeywords(builtin);
+    }
+    if (!m_launcher)
+        return;
+    Launcher::ScreenshotHooks hooks;
+    if (!keyword.isEmpty()) {
+        hooks.list = [this](const QString& words) {
+            std::vector<Launcher::Screenshot> shots;
+            if (!m_clipStore || !m_clipStore->isOpen())
+                return shots;
+            ClipFilter filter;
+            filter.screenshots = true;
+            filter.query = words;
+            const std::vector<Clip>& clips = m_clipStore->clips();
+            for (const int i : m_clipStore->find(filter)) {
+                const Clip& c = clips[static_cast<std::size_t>(i)];
+                shots.push_back({c.id, m_clipStore->imagePath(c.id), c.ocr, c.width, c.height, c.created});
+            }
+            return shots;
+        };
+        // As 粘贴 in the clipboard window: into what was in front when the
+        // launcher opened (on the clipboard only, if nothing can take it).
+        hooks.paste = [this](qint64 id) {
+            if (m_clipStore->imagePending(id)) { // taken a moment ago: said where the user looks
+                m_launcher->flash(tr("图片还在保存，请稍后再试"));
+                return;
+            }
+            const HWND target = m_launcherTarget;
+            emit m_launcher->dismissRequested();
+            m_clipboard->pasteEntry(id, target);
+        };
+        hooks.copy = [this](qint64 id) { m_clipboard->pasteEntry(id, nullptr); };
+        hooks.remove = [this](qint64 id) { m_clipboard->removeEntries({id}); };
+        hooks.undo = [this] {
+            if (!m_clipboard->canUndo())
+                return false;
+            m_clipboard->undo();
+            return true;
+        };
+    }
+    m_launcher->setScreenshots(keyword, std::move(hooks));
+}
+
+capture::PinManager& App::pins()
+{
+    if (!m_pins) {
+        capture::PinManager::Callbacks callbacks;
+        callbacks.copy = [this](const QImage& image, bool screenshot) {
+            m_clipboard->copyImage(image, m_settings.clipboard && m_settings.clipboardImages && !m_clipboardPaused, screenshot);
+        };
+        callbacks.save = [this](const QImage& image, const QString& path) {
+            capture::saveImage(m_pinSaver, this, image, path, [this](const QString& saved, const QString& error) {
+                if (error.isEmpty())
+                    m_messages->showNotification(tr("截图已保存"), QDir::toNativeSeparators(saved));
+                else
+                    m_messages->showNotification(tr("截图没能保存"), error);
+            });
+        };
+        callbacks.ocr = [this](const QImage& image, double dpr, const QRect& where) { showCaptureOcr(image, dpr, where); };
+        callbacks.closed = [this] { m_idleTrim->poke(); }; // its pixels can go back to Windows
+        callbacks.dark = [] { return isDarkMode(); };
+        callbacks.ocrAvailable = capture::CaptureOcr::available();
+        m_pins = std::make_unique<capture::PinManager>(std::move(callbacks));
+    }
+    return *m_pins;
+}
+
+// 贴到屏幕 on a picture file's row (the launcher) or a picture in the
+// clipboard history: read by Windows Imaging Component on a thread of its
+// own (a GIF's first frame; WebP with Windows' codec), then pinned round the
+// pointer, within the work area of its monitor. A picture larger than 90 %
+// of that area is scaled down to fit (at 1:1 it would cover the screen).
+void App::pinPicture(const QString& path, bool screenshot)
+{
+    if (path.isEmpty())
+        return;
+    POINT cursor {};
+    ::GetCursorPos(&cursor);
+    MONITORINFO info {sizeof info};
+    if (!::GetMonitorInfoW(::MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST), &info))
+        return;
+    const QRect work(info.rcWork.left, info.rcWork.top, info.rcWork.right - info.rcWork.left,
+        info.rcWork.bottom - info.rcWork.top);
+    const QPoint at(cursor.x, cursor.y);
+    QPointer<App> self(this);
+    std::thread([self, path, work, at, screenshot] {
+        const HRESULT com = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED | COINIT_DISABLE_OLE1DDE);
+        QImage image = decodePictureFile(path, 0);
+        if (SUCCEEDED(com))
+            ::CoUninitialize();
+        const QSize room = work.size() * 0.9;
+        if (!image.isNull() && (image.width() > room.width() || image.height() > room.height()))
+            image = image.scaled(room, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        if (!image.isNull())
+            image = image.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        QMetaObject::invokeMethod(qApp, [self, path, image, work, at, screenshot] {
+            if (!self)
+                return;
+            if (image.isNull()) {
+                self->m_messages->showNotification(tr("没能贴到屏幕"), tr("读不出这张图片：%1").arg(QDir::toNativeSeparators(path)));
+                return;
+            }
+            QPoint origin = at - QPoint(image.width() / 2, image.height() / 2);
+            origin.setX(std::clamp(origin.x(), work.left(), std::max(work.left(), work.right() + 1 - image.width())));
+            origin.setY(std::clamp(origin.y(), work.top(), std::max(work.top(), work.bottom() + 1 - image.height())));
+            self->pins().pin(image, origin, screenshot);
+        }, Qt::QueuedConnection);
+    }).detach();
 }
 
 ClipboardWatcher::Options App::clipboardOptions() const
@@ -1799,6 +2145,7 @@ void App::showSettings()
         connect(editor, &SettingsEditor::recordingHotkeyChanged, this, &App::applyClipboardHotkeys);
         connect(editor, &SettingsEditor::recordingHotkeyChanged, this, &App::applyTaskbarHotkeys);
         connect(editor, &SettingsEditor::recordingHotkeyChanged, this, &App::applyFolderMenuHotkey);
+        connect(editor, &SettingsEditor::recordingHotkeyChanged, this, &App::applyCaptureHotkeys);
         connect(editor, &SettingsEditor::explorerRestartRequested, this, &App::restartExplorer);
         connect(editor, &SettingsEditor::taskbarStartGapSetupRequested, this, &App::prepareTaskbarStartGap);
         connect(editor, &SettingsEditor::clipboardClearRequested, this, [this, editor] {
@@ -1886,6 +2233,7 @@ void App::showSettings()
         applyClipboardHotkeys(); // ... and where Win+V stands
         applyTaskbarHotkeys(); // ... and Win+S
         applyFolderMenuHotkey(); // ... and the folder menu's
+        applyCaptureHotkeys(); // ... and the screen capture's
         editor->refreshTaskbarState();
         editor->setSearchBoxShown(searchBoxHiddenName(m_searchBoxHidden));
         editor->setClassicTaskbar(m_classicTaskbar);
@@ -2581,6 +2929,11 @@ void App::showLauncher(const QString& query, const std::optional<taskbar::Spot>&
     hideClipboard(false); // from under its search box: searching again
     m_boxPressGrace.stop();
     m_launcherShown.start();
+    if (!launcherShown()) { // what a screenshot of the history pastes into (jt, Enter)
+        const HWND front = ::GetForegroundWindow();
+        if (front != reinterpret_cast<HWND>(m_window->winId()))
+            m_launcherTarget = front;
+    }
     if (m_launcher->pinned() && launcherShown()) {
         // Pinned and up already, without the focus (or under another topmost
         // window): to the front where it stands, the words as they are. Not
@@ -3225,6 +3578,28 @@ void App::showTrayMenu()
         const auto at = std::ranges::find_if(items, [](const shell::MenuItem& i) { return i.id == IndexInfo; });
         items.insert(at + 1, {AccessInfo, tr("索引服务未连接，正在遍历文件夹"), false, false});
     }
+    // Under the clipboard's, with the key that does it too. With the capture
+    // off, while pictures pinned from a file or the clipboard are up: what is
+    // about them alone.
+    const int pinCount = m_pins ? m_pins->count() : 0;
+    if (m_capture || pinCount > 0) {
+        const QString key = !m_settings.captureHotkey.isEmpty() ? m_settings.captureHotkey
+            : m_settings.capturePrintScreen                      ? u"PrtScn"_s
+                                                                 : QString();
+        const auto at = std::ranges::find_if(items, [](const shell::MenuItem& i) { return i.id == PauseClipboardCommand; });
+        // A submenu: the capture itself first, then what is pinned.
+        shell::MenuItem captureMenu {0, tr("截图")};
+        if (m_capture) {
+            captureMenu.children = {
+                {CaptureCommand, key.isEmpty() ? tr("开始截图") : tr("开始截图") + u'\t' + key},
+                {PinLastCommand, tr("贴上最近一次截图"), false, m_capture->hasLast()},
+                shell::MenuItem::separator(),
+            };
+        }
+        captureMenu.children.push_back({ClickThroughCommand, tr("取消所有贴图的穿透"), false, m_pins && m_pins->anyClickThrough()});
+        captureMenu.children.push_back({CloseAllPinsCommand, tr("关闭全部贴图"), false, pinCount > 0});
+        items.insert(at + 1, std::move(captureMenu));
+    }
     if (m_updater->available() && !m_updater->skipped()) // at the top, where it is seen
         items.insert(items.begin(),
             {{UpdateCommand, tr("Win顺 %1 可以更新了…").arg(m_updater->availableVersion())}, shell::MenuItem::separator()});
@@ -3250,6 +3625,22 @@ void App::showTrayMenu()
         break;
     case PauseClipboardCommand:
         setClipboardPaused(!m_clipboardPaused);
+        break;
+    case CaptureCommand:
+        // Once the menu is gone from the screen: not in the picture.
+        QTimer::singleShot(200ms, this, [this] { triggerCapture(); });
+        break;
+    case PinLastCommand:
+        if (m_capture)
+            m_capture->pinLast();
+        break;
+    case ClickThroughCommand:
+        if (m_pins)
+            m_pins->clearClickThrough();
+        break;
+    case CloseAllPinsCommand:
+        if (m_pins)
+            m_pins->closeAll();
         break;
     case RebuildCommand:
         m_index->rebuild();
@@ -3552,6 +3943,8 @@ mcp::Policy App::mcpPolicy() const
     mcp::Policy policy;
     policy.allowOpen = m_settings.mcpAllowOpen;
     policy.allowClipboard = m_settings.mcpClipboard;
+    policy.allowScreenshot = m_settings.mcpScreenshot;
+    policy.captureEnabled = m_settings.captureEnabled;
     policy.excludedPaths = m_settings.mcpExcludedPaths;
     policy.content = m_settings.contentSearch;
     policy.contentExtensions = m_settings.contentExtensions;
@@ -3608,8 +4001,140 @@ mcp::Services App::toolServices() const
             return std::nullopt;
         return m_clipStore->payload(id).text;
     };
+    services.screenshots = [this](const QString& query, int limit) {
+        std::vector<mcp::ScreenshotSummary> out;
+        if (!m_clipStore || !m_clipStore->isOpen())
+            return out;
+        ClipFilter filter;
+        filter.screenshots = true;
+        filter.query = query;
+        for (const int row : m_clipStore->find(filter)) {
+            if (std::ssize(out) >= limit)
+                break;
+            const Clip& c = m_clipStore->clips()[static_cast<std::size_t>(row)];
+            out.push_back({c.id, c.created, c.width, c.height, c.ocr,
+                m_clipStore->imagePending(c.id) ? QString() : m_clipStore->imagePath(c.id)});
+        }
+        return out;
+    };
     services.log = [](const QString& line) { logMcpCall(line); };
     return services;
+}
+
+void App::confirmScreenshot(const mcp::ScreenshotRequest& request, std::function<void(mcp::ScreenshotTaken)> done)
+{
+    if (m_screenshotAsk) {
+        done({u"Another screenshot request is waiting for the user's answer; try again later."_s});
+        return;
+    }
+    // 1 is the primary monitor (Qt lists it first), then the others.
+    const QList<QScreen*> screens = QGuiApplication::screens();
+    QScreen* screen = nullptr;
+    if (request.monitor == 0)
+        screen = QGuiApplication::screenAt(QCursor::pos());
+    else if (request.monitor <= screens.size())
+        screen = screens[request.monitor - 1];
+    if (!screen && request.monitor == 0)
+        screen = QGuiApplication::primaryScreen();
+    const auto* native = screen ? screen->nativeInterface<QNativeInterface::QWindowsScreen>() : nullptr;
+    if (!screen || !native) {
+        done({u"There is no monitor %1: this PC has %2."_s.arg(request.monitor).arg(screens.size())});
+        return;
+    }
+    const int number = static_cast<int>(screens.indexOf(screen)) + 1;
+    // Its pixels as Windows has them: logical size × scale rounds (1707 × 1.5 = 2561).
+    MONITORINFO info {.cbSize = sizeof(MONITORINFO)};
+    ::GetMonitorInfoW(static_cast<HMONITOR>(native->handle()), &info);
+    const QSize pixels(info.rcMonitor.right - info.rcMonitor.left, info.rcMonitor.bottom - info.rcMonitor.top);
+    const bool primary = screen == QGuiApplication::primaryScreen();
+    auto ask = std::make_unique<ScreenshotAsk>();
+    ask->done = std::move(done);
+    ask->monitor = native->handle();
+    ask->label = u"monitor %1 (%2x%3%4)"_s.arg(number).arg(pixels.width()).arg(pixels.height()).arg(primary ? u", primary"_s : QString());
+    const QString words = tr("显示器 %1（%2 × %3%4）").arg(number).arg(pixels.width()).arg(pixels.height())
+        .arg(primary ? tr("，主显示器") : QString());
+
+    ask->frame = std::make_unique<WindowFrame>(false);
+    QQmlComponent component(m_qml.get(), u"WinShun"_s, u"ScreenshotConfirm"_s);
+    QObject* object = component.createWithInitialProperties({
+        {u"frame"_s, QVariant::fromValue(ask->frame.get())},
+        {u"client"_s, request.client.trimmed().isEmpty() ? tr("一个 AI 客户端") : request.client.trimmed()},
+        {u"monitor"_s, words},
+    });
+    auto* window = qobject_cast<QQuickWindow*>(object);
+    if (!window) {
+        qWarning().noquote() << "take_screenshot: no confirmation window:" << component.errorString();
+        delete object;
+        ask->done({u"Win顺 could not ask the user, so no screenshot was taken."_s});
+        return;
+    }
+    prepareBackdrop(window);
+    window->create();
+    styleWindow(window, SystemTheme::backdropAvailable());
+    win::setDarkFrame(window, isDarkMode());
+    ask->frame->setWindow(window);
+    // Never in a picture of the screen: not in this one, not in another's.
+    ::SetWindowDisplayAffinity(reinterpret_cast<HWND>(window->winId()), WDA_EXCLUDEFROMCAPTURE);
+    const int signal = object->metaObject()->indexOfSignal("answered(int)");
+    const int slot = metaObject()->indexOfMethod("screenshotAnswered(int)");
+    if (signal >= 0 && slot >= 0)
+        QObject::connect(object, object->metaObject()->method(signal), this, metaObject()->method(slot));
+    window->setScreen(screen);
+    // In the middle of the work area, again when its wrapped text settles
+    // its height (after the first layout, the window grew downwards).
+    const auto centre = [window, screen = QPointer<QScreen>(screen)] {
+        if (!screen)
+            return;
+        const QRect area = screen->availableGeometry();
+        window->setPosition(area.center() - QPoint(window->width() / 2, window->height() / 2));
+    };
+    centre();
+    connect(window, &QWindow::heightChanged, window, centre);
+    ask->window = window;
+    m_screenshotAsk = std::move(ask);
+    window->show();
+    window->raise();
+    win::bringToFront(window);
+    window->requestActivate();
+    qInfo().noquote() << "take_screenshot: asking the user for" << m_screenshotAsk->label << "for" << request.client;
+}
+
+void App::screenshotAnswered(int how)
+{
+    std::unique_ptr<ScreenshotAsk> ask = std::move(m_screenshotAsk);
+    if (!ask)
+        return;
+    // Gone after the signal that told it returned; its frame after it.
+    if (ask->window) {
+        ask->window->hide();
+        ask->window->deleteLater();
+    }
+    ask->frame.release()->deleteLater();
+    qInfo().noquote() << "take_screenshot:" << (how == 1 ? "allowed" : how == 0 ? "refused" : "no answer in time");
+    if (how != 1) {
+        ask->done({how == 0 ? u"The user refused the screenshot."_s
+                            : u"The user did not answer within 30 seconds, so no screenshot was taken."_s});
+        return;
+    }
+    const QString folder = QDir::tempPath() + u"/WinShun/mcp"_s;
+    std::thread([monitor = ask->monitor, label = ask->label, done = std::move(ask->done), folder] {
+        capture::Grabber grabber;
+        QString report;
+        const std::vector<capture::Grabber::Shot> shots = grabber.grab(&report);
+        const auto shot = std::ranges::find_if(shots, [&](const capture::Grabber::Shot& s) { return s.monitor == monitor; });
+        if (shot == shots.end() || shot->image.isNull()) {
+            done({u"The monitor could not be captured (it may have been unplugged)."_s});
+            return;
+        }
+        QDir().mkpath(folder);
+        const QString path = folder + u"/screenshot-"_s
+            + QDateTime::currentDateTime().toString(u"yyyyMMdd-HHmmss-zzz"_s) + u".png"_s;
+        if (!shot->image.save(path, "PNG")) {
+            done({u"The screenshot could not be written to the temporary folder."_s});
+            return;
+        }
+        done({{}, path, shot->image.width(), shot->image.height(), label});
+    }).detach();
 }
 
 void App::applyMcp()
@@ -3628,6 +4153,10 @@ void App::applyMcp()
         m_mcpEngine = std::make_unique<SearchEngine>(m_index.get(), m_apps.get(), m_places.get());
         mcp::Services services = toolServices();
         services.engine = m_mcpEngine.get();
+        // The AI's alone: plugins never take pictures of the screen.
+        services.takeScreenshot = [this](const mcp::ScreenshotRequest& request, std::function<void(mcp::ScreenshotTaken)> done) {
+            confirmScreenshot(request, std::move(done));
+        };
         m_mcpHost = std::make_unique<mcp::ToolHost>(std::move(services));
         m_mcpHost->setPolicy(mcpPolicy());
         m_mcpServer = std::make_unique<mcp::McpServer>(m_mcpHost.get(), QStringLiteral(WINSHUN_VERSION));
@@ -3763,6 +4292,7 @@ void App::applyPlugins()
         web.append({w.keyword, w.name});
     m_pluginHost->setWebKeywords(web); // [WebSearch] keeps its keywords: a plugin's alike is set aside
     m_pluginHost->setFavoriteKeywords(favoriteKeywords(*m_favorites)); // so do the favorites
+    applyScreenshots(); // and the screenshot history's (Win顺's own)
     // Each plugin's settings: the INI's values by the manifest's types, the
     // passwords from the Credential Manager (never in the INI).
     for (const plugin::Entry& e : catalog.entries()) {

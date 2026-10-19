@@ -23,7 +23,7 @@ SettingsSection {
         description: !aiSection.editor.mcp ? qsTr("关着时 AI 客户端连不上 Win顺")
                    : aiSection.editor.mcpStatus.length > 0 ? aiSection.editor.mcpStatus
                    : qsTr("AI 客户端启动 WinShunMcp.exe 就能连上")
-        unlocks: [openRow, clipboardRow, pluginsRow, actionsRow, ...aiSection.lockedElsewhere]
+        unlocks: [openRow, clipboardRow, screenshotRow, pluginsRow, actionsRow, ...aiSection.lockedElsewhere]
 
         ToggleSwitch {
             checked: aiSection.editor.mcp
@@ -50,12 +50,26 @@ SettingsSection {
 
         title: qsTr("允许 AI 读取剪贴板历史")
         keywords: qsTr("剪贴板;剪切板;隐私;clipboard;AI").split(";")
-        description: qsTr("AI 能看到复制过的文字、链接和文件名，图片只告诉它大小；密码管理器复制的本来就不记录")
+        description: qsTr("AI 能看到复制过的文字、链接和文件名，图片只告诉它大小；Win顺 的截图还能拿到识别出的文字和图片（截图开着时）。密码管理器复制的本来就不记录")
         shown: aiSection.editor.mcp
 
         ToggleSwitch {
             checked: aiSection.editor.mcpClipboard
             onToggled: (on) => aiSection.editor.mcpClipboard = on
+        }
+    }
+
+    SettingRow { // take_screenshot (App::confirmScreenshot)
+        id: screenshotRow
+
+        title: qsTr("允许 AI 请求截屏")
+        keywords: qsTr("截图;截屏;屏幕;screenshot;AI").split(";")
+        description: qsTr("AI 每次要截屏，屏幕上都会弹出确认，写明是谁、截哪块屏幕；你点“允许”才截，拒绝或 30 秒不理就不截。截下的图不进剪贴板历史")
+        shown: aiSection.editor.mcp
+
+        ToggleSwitch {
+            checked: aiSection.editor.mcpScreenshot
+            onToggled: (on) => aiSection.editor.mcpScreenshot = on
         }
     }
 

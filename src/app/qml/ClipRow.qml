@@ -26,6 +26,7 @@ Item {
     required property bool missing
     required property bool movable // in its group's own order: a handle to drag, Ctrl+Up/Down
     required property bool afterPinned // the first after those in "固定" listed first
+    required property bool screenshot // a picture Win顺's capture took: tagged 截图 (when in no group)
     property int hint: 0 // the number that pastes this row (Alt+1...), on its icon; 0 for none
     property string hintModifier: "Alt" // ... with this held
     property bool hintTaken: false // another program holds that chord as a global hotkey: shown struck through
@@ -230,9 +231,9 @@ Item {
         }
     }
 
-    Rectangle { // in a group: which
+    Rectangle { // in a group: which; else a screenshot says so, quieter
         id: badge
-        visible: row.groupName.length > 0 && !row.showActions
+        visible: (row.groupName.length > 0 || row.screenshot) && !row.showActions
         anchors.right: parent.right
         anchors.rightMargin: 16
         anchors.verticalCenter: parent.verticalCenter
@@ -255,11 +256,11 @@ Item {
             }
             Text {
                 anchors.verticalCenter: parent.verticalCenter
-                text: row.groupName
+                text: row.groupName.length > 0 ? row.groupName : qsTr("截图")
                 textFormat: Text.PlainText
                 elide: Text.ElideRight
                 width: Math.min(implicitWidth, 96)
-                color: Theme.accent
+                color: row.groupName.length > 0 ? Theme.accent : Theme.subtext
                 font.pixelSize: Theme.uiCaption
             }
         }
