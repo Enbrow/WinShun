@@ -45,6 +45,38 @@ private slots:
         QCOMPARE(settings.numberHints, u"always"_s);
     }
 
+    // The clipboard window's layout by the caret (GitHub #38): at first
+    // turned over above it, the search box by it; "far" read however it was
+    // written, anything else back to "near".
+    void clipboardLayout()
+    {
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        ws::Settings::useProfile(profile.path());
+        ws::Settings settings;
+        settings.load();
+        QCOMPARE(settings.clipboardFlipAbove, true);
+        QCOMPARE(settings.clipboardSearchBoxSide, u"near"_s);
+        settings.clipboardFlipAbove = false;
+        settings.clipboardSearchBoxSide = u"far"_s;
+        settings.save();
+        ws::Settings read;
+        read.load();
+        QCOMPARE(read.clipboardFlipAbove, false);
+        QCOMPARE(read.clipboardSearchBoxSide, u"far"_s);
+        QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+        QCOMPARE(ini.value(u"Clipboard/FlipAbove"_s).toBool(), false);
+        ini.setValue(u"Clipboard/SearchBoxSide"_s, u" FAR "_s);
+        ini.sync();
+        read.load();
+        QCOMPARE(read.clipboardSearchBoxSide, u"far"_s);
+        ini.setValue(u"Clipboard/SearchBoxSide"_s, u"left"_s);
+        ini.sync();
+        read.load();
+        QCOMPARE(read.clipboardSearchBoxSide, u"near"_s);
+        QCOMPARE(read.clipboardFlipAbove, false);
+    }
+
     void keys_data()
     {
         QTest::addColumn<int>("key");

@@ -2011,6 +2011,12 @@
 - **原因**：这台机器上 QTest 的默认输出没有进到管道里（`-functions` 这类直接 stdout 的输出倒是能看到）；具体在 Qt 哪一层没查。
 - **做法**：让 QTest 自己写文件：`tst_core.exe 测试名 -o 输出.txt,txt`，再读那个文件。跑前把 `C:\Qt\<版本>\msvc2022_64\bin` 加进 PATH（ctest 替你加）。
 
+### 倒过来排的列表：短列表一滚就跳到顶上，滚轮停下后又挪一个像素
+
+- **现象**（2026-10-19，GitHub #38 让剪贴板列表开在光标上方时用 `ListView.BottomToTop`，先在 `tst_scrollalignment` 里复现）：条目不满一屏时，滚轮一格就把它们从底部推到顶上（`contentY` −484 → −184），五种缩放都是；条目多时，125%、150%、175% 下滚轮停下后，过一会儿行又挪一个设备像素；`positionViewAtBeginning()` 之后第一行贴着底边，下面 4 px 的留白滚出去了。
+- **原因**：倒过来的列表停在底部，静止位置是 `originY + contentHeight + bottomMargin - height`，不是 `originY - topMargin`。内容比视图矮时两端是反的（底部那端比顶部那端小），能停的只有底部那端；`ListWheelScroll` 按“顶部那端是最小值”夹，短列表就被夹到顶上。设备像素的网格、行的滚动位移（`ScrollPixelAlignment`）都从顶部数，底部那端不在网格上时，终点和绘制差半个像素，到尾段才取整过去。`positionViewAtBeginning()` 和 `Contain` 都不管留白（正着排时顶上的 4 px 也一样，`selectFirst` 本来就补）。
+- **做法**：`ListWheelScroll`、`ScrollPixelAlignment` 认出 `BottomToTop`（`bottomUp`）：两端以底部那端为准（短列表停在底部），网格和位移都从静止的那端（`restY`）数；“静止那端的行增删了就取消滚动”也换到底部那端。回到第一行时把 `contentY` 设成 `restY()`（`ClipboardPage`）。`tst_scrollalignment` 的 `bottomUp*` 用例在五种缩放下覆盖这些；正着排的列表算法不变。
+
 ## 内存占用
 
 ### 量出来的“内存”和任务管理器对不上

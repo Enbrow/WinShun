@@ -748,6 +748,10 @@ void Settings::load()
     clipboardImages = readOrDefault(s, u"Clipboard/Images"_s, d.clipboardImages);
     clipboardClickToPaste = readOrDefault(s, u"Clipboard/ClickToPaste"_s, d.clipboardClickToPaste);
     clipboardLargePictures = readOrDefault(s, u"Clipboard/LargePictures"_s, d.clipboardLargePictures);
+    clipboardFlipAbove = readOrDefault(s, u"Clipboard/FlipAbove"_s, d.clipboardFlipAbove);
+    clipboardSearchBoxSide = readOrDefault(s, u"Clipboard/SearchBoxSide"_s, d.clipboardSearchBoxSide).trimmed().toLower();
+    if (clipboardSearchBoxSide != u"far")
+        clipboardSearchBoxSide = d.clipboardSearchBoxSide;
     clipboardExcludedApps = readOrDefault(s, u"Clipboard/ExcludedApps"_s, d.clipboardExcludedApps);
     clipboardNumberKeys = readOrDefault(s, u"Clipboard/NumberKeys"_s, d.clipboardNumberKeys).trimmed().toLower();
     if (clipboardNumberKeys != u"ctrl" && clipboardNumberKeys != u"off")
@@ -855,6 +859,8 @@ void Settings::save() const
     s.setValue(u"Clipboard/Images"_s, clipboardImages);
     s.setValue(u"Clipboard/ClickToPaste"_s, clipboardClickToPaste);
     s.setValue(u"Clipboard/LargePictures"_s, clipboardLargePictures);
+    s.setValue(u"Clipboard/FlipAbove"_s, clipboardFlipAbove);
+    s.setValue(u"Clipboard/SearchBoxSide"_s, clipboardSearchBoxSide);
     s.setValue(u"Clipboard/ExcludedApps"_s, clipboardExcludedApps);
     s.setValue(u"Clipboard/NumberKeys"_s, clipboardNumberKeys);
     s.setValue(u"Taskbar/WinS"_s, taskbarWinS);

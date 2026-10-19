@@ -65,6 +65,9 @@ Item {
     Rectangle { // "固定" listed first: a line where the rest begin
         visible: row.afterPinned
         x: 16
+        // On the edge toward those: the bottom one in a list laid out bottom
+        // to top (the clipboard turned over, GitHub #38).
+        y: row.ListView.view?.verticalLayoutDirection === ListView.BottomToTop ? parent.height - 1 : 0
         width: parent.width - 32
         height: 1
         color: Theme.divider
@@ -331,7 +334,9 @@ Item {
                     const over = to >= 0 && to !== row.index ? view.itemAtIndex(to) : null
                     // Only where the mouse would be on this row once moved:
                     // rows of other heights (pictures) would swap it back.
-                    if (over && (to > row.index ? p.y >= over.y + over.height - row.height : p.y < over.y + row.height))
+                    // Below it or above it on the screen, whichever way the
+                    // list is laid out.
+                    if (over && (over.y > row.y ? p.y >= over.y + over.height - row.height : p.y < over.y + row.height))
                         row.moveRequested(row.index, to)
                 }
             }

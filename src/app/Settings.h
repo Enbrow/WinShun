@@ -201,6 +201,10 @@ struct Settings {
     QString clipboardNumberKeys = QStringLiteral("alt"); // alt | ctrl | off: Alt+1…9 pastes the nth row
     bool clipboardClickToPaste = false; // a click pastes the row (Windows' way); off: picks it, a double click pastes
     bool clipboardLargePictures = false; // pictures on taller rows, thumbnails large enough to make out
+    // Opened over the caret (or a search box; Placement::above), the window
+    // turned upside down: the newest entry by the caret, older ones upwards.
+    bool clipboardFlipAbove = true;
+    QString clipboardSearchBoxSide = QStringLiteral("near"); // near | far: the search box's end, by the caret or away from it
 
     // [Taskbar]: Win顺 in the place of Windows' search (see taskbar::)
     bool taskbarWinS = false; // Win+S opens it over the taskbar, instead of Windows' search (see winv::)

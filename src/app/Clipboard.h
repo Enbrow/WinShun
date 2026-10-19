@@ -82,6 +82,13 @@ class Clipboard : public QObject {
     // Pictures on taller rows, their thumbnails large enough to make out
     // (Settings::clipboardLargePictures).
     Q_PROPERTY(bool largePictures READ largePictures NOTIFY rowOptionsChanged FINAL)
+    // Opened over the caret or a search box (Placement.above), the window
+    // upside down: the newest entry by it, older ones upwards
+    // (Settings::clipboardFlipAbove).
+    Q_PROPERTY(bool flipAbove READ flipAbove NOTIFY layoutOptionsChanged FINAL)
+    // The search box at the end away from the caret, the entries by it
+    // (Settings::clipboardSearchBoxSide "far"); else the search box by it.
+    Q_PROPERTY(bool searchFar READ searchFar NOTIFY layoutOptionsChanged FINAL)
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged FINAL)
     Q_PROPERTY(int category READ category WRITE setCategory NOTIFY categoryChanged FINAL)
     // [{title, group (id, 0 for the kinds), size (entries in a group)}]
@@ -138,6 +145,9 @@ public:
     bool clickToPaste() const { return m_clickToPaste; }
     bool largePictures() const { return m_largePictures; }
     void setRowOptions(bool clickToPaste, bool largePictures);
+    bool flipAbove() const { return m_flipAbove; }
+    bool searchFar() const { return m_searchFar; }
+    void setLayoutOptions(bool flipAbove, bool searchFar);
     QString query() const { return m_query; }
     void setQuery(const QString& query);
     int category() const { return m_category; }
@@ -219,6 +229,7 @@ public:
 signals:
     void numberKeysChanged();
     void rowOptionsChanged();
+    void layoutOptionsChanged();
     void activeChanged();
     void keysRoutedChanged();
     void pinnedChanged();
@@ -301,6 +312,8 @@ private:
     unsigned m_numberKeysLeft = 0;
     bool m_clickToPaste = false;
     bool m_largePictures = false;
+    bool m_flipAbove = true;
+    bool m_searchFar = false;
     QString m_query;
     int m_category = 0;
     qint64 m_categoryGroup = 0; // the group the category tab is, kept when groups come and go

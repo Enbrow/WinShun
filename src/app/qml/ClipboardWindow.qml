@@ -90,6 +90,7 @@ Window {
         clipboard: window.clipboard
         frame: window.frame
         rows: window.rows
+        above: window.placement.above // over the caret or box: maybe upside down (clipboard.flipAbove)
         onPreviewOpening: window.previewWidth = Math.max(280, Math.min(400, window.placement.roomRight() - 1))
     }
 

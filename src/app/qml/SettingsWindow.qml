@@ -3112,6 +3112,37 @@ Window {
                 }
 
                 SettingRow {
+                    // By the caret it opens under it, or over it where more
+                    // rows fit there (GitHub #38, Placement.above).
+                    title: qsTr("开在光标上方时翻转")
+                    keywords: qsTr("布局;上方;下方;翻转;颠倒;倒序;顺序").split(";")
+                    description: window.editor.clipboardSearchBoxSide === "far"
+                                 ? qsTr("最新的条目挨着光标，越往上越早")
+                                 : qsTr("搜索框和最新的条目都挨着光标，越往上越早")
+
+                    ToggleSwitch {
+                        checked: window.editor.clipboardFlipAbove
+                        onToggled: (on) => window.editor.clipboardFlipAbove = on
+                    }
+                }
+
+                SettingRow {
+                    title: qsTr("搜索框位置")
+                    keywords: qsTr("布局;上方;下方;搜索框;位置;输入框;顶部;底部").split(";")
+                    // Not flipped, the window over the caret is laid out as
+                    // under it, so "away" is then only "under the entries".
+                    description: window.editor.clipboardFlipAbove
+                                 ? qsTr("远离光标时，条目挨着光标，搜索框在窗口另一头")
+                                 : qsTr("远离光标时，搜索框放到条目下面")
+
+                    ScopeTabs {
+                        labels: [qsTr("靠近光标"), qsTr("远离光标")]
+                        current: window.editor.clipboardSearchBoxSide === "far" ? 1 : 0
+                        onActivated: (index) => window.editor.clipboardSearchBoxSide = ["near", "far"][index]
+                    }
+                }
+
+                SettingRow {
                     id: clipboardAppsRow
                     title: qsTr("不记录这些程序复制的内容")
                     keywords: qsTr("密码;隐私;排除;程序;exe;KeePass").split(";")

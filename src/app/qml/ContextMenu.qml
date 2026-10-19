@@ -26,9 +26,10 @@ Window {
     color: Theme.menuBackground
     height: content.implicitHeight + 2 * padding
 
-    // `pos`: global point (logical pixels) for the top-left corner; the menu
-    // flips left / up when it would leave the screen there.
-    function popup(row, key, items, pos, fromKeyboard) {
+    // `pos`: global point (logical pixels) for the top-left corner (`upward`:
+    // the bottom-left one); the menu flips left / up (down) when it would
+    // leave the screen there.
+    function popup(row, key, items, pos, fromKeyboard, upward) {
         menu.row = row
         menu.key = key
         entries = items
@@ -43,13 +44,14 @@ Window {
         highlighted = fromKeyboard ? step(-1, 1) : -1
 
         const area = host.screenArea(pos)
+        content.forceLayout() // its height for these entries, now
         let x = pos.x
-        let y = pos.y
+        let y = upward ? pos.y - height : pos.y
         if (area.width > 0) {
             if (x + width > area.x + area.width)
                 x = x - width
-            if (y + height > area.y + area.height)
-                y = y - height
+            if (upward ? y < area.y : y + height > area.y + area.height)
+                y = upward ? pos.y : y - height
             x = Math.max(area.x, Math.min(x, area.x + area.width - width))
             y = Math.max(area.y, Math.min(y, area.y + area.height - height))
         }

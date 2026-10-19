@@ -3018,6 +3018,46 @@
         <translation>Pictures get taller rows, their thumbnails large enough to see the details without opening the preview</translation>
     </message>
     <message>
+        <source>开在光标上方时翻转</source>
+        <translation>Flip when opening above the text cursor</translation>
+    </message>
+    <message>
+        <source>布局;上方;下方;翻转;颠倒;倒序;顺序</source>
+        <translation>layout;above;below;flip;upside down;reverse;order</translation>
+    </message>
+    <message>
+        <source>最新的条目挨着光标，越往上越早</source>
+        <translation>The newest entry next to the cursor, older ones further up</translation>
+    </message>
+    <message>
+        <source>搜索框和最新的条目都挨着光标，越往上越早</source>
+        <translation>The search box and the newest entry next to the cursor, older ones further up</translation>
+    </message>
+    <message>
+        <source>搜索框位置</source>
+        <translation>Search box position</translation>
+    </message>
+    <message>
+        <source>布局;上方;下方;搜索框;位置;输入框;顶部;底部</source>
+        <translation>layout;above;below;search box;position;input;top;bottom</translation>
+    </message>
+    <message>
+        <source>远离光标时，条目挨着光标，搜索框在窗口另一头</source>
+        <translation>Away from the cursor: the entries next to it, the search box at the other end</translation>
+    </message>
+    <message>
+        <source>远离光标时，搜索框放到条目下面</source>
+        <translation>Away from the cursor: the search box below the entries</translation>
+    </message>
+    <message>
+        <source>靠近光标</source>
+        <translation>Near the cursor</translation>
+    </message>
+    <message>
+        <source>远离光标</source>
+        <translation>Away from the cursor</translation>
+    </message>
+    <message>
         <source>输入程序文件名，例如 KeePass.exe</source>
         <translation>Program file name, e.g. KeePass.exe</translation>
     </message>

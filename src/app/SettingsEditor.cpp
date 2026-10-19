@@ -1129,6 +1129,22 @@ void SettingsEditor::setClipboardLargePictures(bool on)
     commit();
 }
 
+void SettingsEditor::setClipboardFlipAbove(bool on)
+{
+    if (m_settings.clipboardFlipAbove == on)
+        return;
+    m_settings.clipboardFlipAbove = on;
+    commit();
+}
+
+void SettingsEditor::setClipboardSearchBoxSide(const QString& side)
+{
+    if (m_settings.clipboardSearchBoxSide == side || (side != u"near" && side != u"far"))
+        return;
+    m_settings.clipboardSearchBoxSide = side;
+    commit();
+}
+
 void SettingsEditor::setClipboardImages(bool on)
 {
     if (m_settings.clipboardImages == on)

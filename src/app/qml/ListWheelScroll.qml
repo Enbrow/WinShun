@@ -15,9 +15,18 @@ Item {
     // the glide; ScrollPixelAlignment still aligns the rendered rows.
     property bool logicalPixelSteps: false
     readonly property bool running: glide.running
-    readonly property real minimumY: view.originY - view.topMargin
-    readonly property real maximumY: Math.max(minimumY,
-        view.originY + view.contentHeight + view.bottomMargin - view.height)
+    // A list laid out bottom to top (ListView.BottomToTop: the clipboard
+    // turned over) has its first row at the bottom and rests there; content
+    // shorter than the view sits there too. Else all of it is at the top.
+    readonly property bool bottomUp: view instanceof ListView
+                                     && (view as ListView).verticalLayoutDirection === ListView.BottomToTop
+    readonly property real topY: view.originY - view.topMargin
+    readonly property real bottomY: view.originY + view.contentHeight + view.bottomMargin - view.height
+    readonly property real minimumY: bottomUp ? Math.min(topY, bottomY) : topY
+    readonly property real maximumY: bottomUp ? bottomY : Math.max(topY, bottomY)
+    // Where it rests: the device-pixel grid is counted from there, as
+    // ScrollPixelAlignment counts the rows' displacement.
+    readonly property real restY: bottomUp ? maximumY : minimumY
     readonly property real dpr: view.Screen.devicePixelRatio
     property real requestedY: 0
     property real position: 0
@@ -38,7 +47,7 @@ Item {
     function aligned(y) {
         if (logicalPixelSteps)
             return bounded(Math.round(y))
-        return bounded(minimumY + Math.round((y - minimumY) * dpr) / dpr)
+        return bounded(restY + Math.round((y - restY) * dpr) / dpr)
     }
 
     function moveTo(y) {
@@ -119,15 +128,16 @@ Item {
         else
             moveTo(requestedY)
     }
-    // Rows added or removed above shift the content under a glide, and its
-    // target no longer means anything. An end is still an end.
-    onMinimumYChanged: {
+    // Rows added or removed above (bottom up: below) shift the content under
+    // a glide, and its target no longer means anything. An end is still an end.
+    function restMoved() {
         if (running && !writing && isFinite(requestedY))
             cancel()
         else
             boundsChanged()
     }
-    onMaximumYChanged: boundsChanged()
+    onMinimumYChanged: bottomUp ? boundsChanged() : restMoved()
+    onMaximumYChanged: bottomUp ? restMoved() : boundsChanged()
     onDprChanged: cancel()
 
     WheelHandler {

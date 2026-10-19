@@ -1137,6 +1137,7 @@ void App::applySettings(bool initial)
     m_launcher->setNumberHints(m_settings.numberHints);
     m_clipboard->setNumberHints(m_settings.numberHints);
     m_clipboard->setRowOptions(m_settings.clipboardClickToPaste, m_settings.clipboardLargePictures);
+    m_clipboard->setLayoutOptions(m_settings.clipboardFlipAbove, m_settings.clipboardSearchBoxSide == u"far");
     updateNumberKeys();
     applyHotkey();
     applyFolderMenuHotkey(); // after applyFolderMenu: the menu it brings up

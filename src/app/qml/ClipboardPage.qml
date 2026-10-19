@@ -14,6 +14,12 @@ import WinShun
 // goes back to it (Clipboard). Over another program that keeps the focus,
 // the keys come from App (KeyRouter) to the item with the focus here, as the
 // window's own would.
+// From the top the sections go: the search field, the categories, the
+// history, the hints; with clipboard.searchFar the history first, then the
+// categories and the search field, the rows by the caret it opens under.
+// Opened over the caret (or box: above), with clipboard.flipAbove they go
+// from the bottom up, from the caret too, the history's newest entry by it
+// (GitHub #38); the arrow keys go the way they point.
 Item {
     id: page
 
@@ -22,6 +28,7 @@ Item {
     property int rows: 8 // the list shows this many (ClipboardWindow.qml: what fits below)
     property int listWidth: width // the list's part; the preview takes the rest
     property bool previewOpen: false
+    property bool above: false // over the caret or box it opens by (ClipboardWindow: Placement.above)
 
     signal previewOpening() // just before: the window sizes it (ClipboardWindow.qml)
 
@@ -36,6 +43,26 @@ Item {
 
     implicitHeight: chromeHeight + rows * rowHeight
 
+    // Upside down: the end by the caret is the bottom, the list's first row
+    // there too (BottomToTop).
+    readonly property bool flipped: above && clipboard.flipAbove
+    // How far each section starts from the end they go out from (the top;
+    // flipped, the bottom), in their order (see above). The line between the
+    // categories and the history keeps between them; the footer has its own
+    // line on its inner edge. The sizes are the same in every order: the
+    // window's height, which Placement refits it by, never follows the order.
+    readonly property real headerFrom: clipboard.searchFar ? body.height + 1 + tabs.height : 0
+    readonly property real tabsFrom: clipboard.searchFar ? body.height + 1 : header.height
+    readonly property real lineFrom: clipboard.searchFar ? body.height : header.height + tabs.height
+    readonly property real bodyFrom: clipboard.searchFar ? 0 : header.height + tabs.height + 1
+    readonly property real footerFrom: header.height + tabs.height + 1 + body.height
+    // ... as a y, for a section that tall.
+    function placed(from: real, size: real): real {
+        return flipped ? implicitHeight - from - size : from
+    }
+    // ↑ in rows: toward the first row; flipped, away from it.
+    readonly property int rowUp: flipped ? 1 : -1
+
     function focusSearch() {
         input.forceActiveFocus()
     }
@@ -45,9 +72,10 @@ Item {
             list.currentIndex = 0
         // After rows went and came in place (ClipModel::setRows) the view
         // stops with the first row at the very top, its top margin scrolled
-        // off; the true start is the margin above the origin.
+        // off; the true start is the margin above the origin. Flipped, it
+        // stops with the bottom margin off just as well (list.restY).
         list.positionViewAtBeginning()
-        list.contentY = list.originY - list.topMargin
+        list.contentY = list.restY()
     }
     function windowHidden() {
         list.stopScrolling()
@@ -134,7 +162,8 @@ Item {
     property int menuCategory: -1 // >= 0: the menu is a category tab's
 
     // `globalPos` is where the mouse was; without it (Menu key, Shift+F10)
-    // the menu opens under the current row.
+    // the menu opens under the current row (flipped: over it, away from the
+    // caret, as the window is).
     function openContextMenu(index, globalPos) {
         if (index < 0 || index >= list.count)
             return
@@ -144,12 +173,13 @@ Item {
         const fromKeyboard = globalPos === undefined
         if (fromKeyboard) {
             list.positionViewAtIndex(index, ListView.Contain)
-            globalPos = list.currentItem.mapToGlobal(56, list.currentItem.height - 6)
+            globalPos = list.currentItem.mapToGlobal(56, flipped ? 6 : list.currentItem.height - 6)
         }
         menuCategory = -1
         menuLoader.active = true
         const menu = menuLoader.item as ContextMenu
-        menu.popup(index, clipboard.items.idAt(index), clipboard.menuItems(index), globalPos, fromKeyboard)
+        menu.popup(index, clipboard.items.idAt(index), clipboard.menuItems(index), globalPos, fromKeyboard,
+                   fromKeyboard && flipped)
     }
     function openCategoryMenu(category, globalPos) {
         const entries = clipboard.categoryMenuItems(category)
@@ -218,9 +248,10 @@ Item {
         // Ctrl+↑/↓: the current row up or down in its group's own order
         // ("固定" listed first, a group's tab), where it can move. At the end
         // of its group it stays put; rows that never move just go up or down.
+        // Up and down on the screen: flipped, ↑ is later in the order.
         if (ctrl && !shift && !alt && selectedCount === 0 && (event.key === Qt.Key_Up || event.key === Qt.Key_Down)
                 && list.currentItem?.movable) {
-            const to = list.currentIndex + (event.key === Qt.Key_Up ? -1 : 1)
+            const to = list.currentIndex + (event.key === Qt.Key_Up ? rowUp : -rowUp)
             if (clipboard.canMove(list.currentIndex, to)) {
                 clipboard.moveRow(list.currentIndex, to)
                 list.positionViewAtIndex(list.currentIndex, ListView.Contain)
@@ -229,10 +260,10 @@ Item {
             return
         }
         switch (event.key) {
-        case Qt.Key_Down: shift ? extendSelection(1) : moveSelection(1); break
-        case Qt.Key_Up: shift ? extendSelection(-1) : moveSelection(-1); break
-        case Qt.Key_PageDown: shift ? extendSelection(rows) : moveSelection(rows); break
-        case Qt.Key_PageUp: shift ? extendSelection(-rows) : moveSelection(-rows); break
+        case Qt.Key_Down: shift ? extendSelection(-rowUp) : moveSelection(-rowUp); break
+        case Qt.Key_Up: shift ? extendSelection(rowUp) : moveSelection(rowUp); break
+        case Qt.Key_PageDown: shift ? extendSelection(-rowUp * rows) : moveSelection(-rowUp * rows); break
+        case Qt.Key_PageUp: shift ? extendSelection(rowUp * rows) : moveSelection(rowUp * rows); break
         case Qt.Key_Right:
             // The preview, with the caret at the end of the search (the
             // arrow would move it nowhere); else the caret moves.
@@ -317,6 +348,9 @@ Item {
             page.focusSearch()
         }
         function onPlaced() { // ... then the preview, if it was left open
+            // Placed only now (over the caret, maybe upside down, its rows):
+            // at the first row as it ends up.
+            page.selectFirst()
             if (page.clipboard.previewOpen && list.count > 0)
                 page.showPreview()
         }
@@ -350,11 +384,13 @@ Item {
         }
     }
 
-    Column {
+    Item { // the sections, each where page.placed() puts it
         width: page.width
+        height: page.implicitHeight
 
         Item { // header: drags the window, except for the field
             id: header
+            y: page.placed(page.headerFrom, height)
             width: parent.width
             height: Theme.headerHeight
 
@@ -457,6 +493,7 @@ Item {
 
         ClipTabs {
             id: tabs
+            y: page.placed(page.tabsFrom, height)
             width: parent.width
             parentLeft: page.x
             clipboard: page.clipboard
@@ -468,7 +505,8 @@ Item {
             onMenuRequested: (category, globalPos) => page.openCategoryMenu(category, globalPos)
         }
 
-        Rectangle {
+        Rectangle { // between the categories and the history
+            y: page.placed(page.lineFrom, 1)
             width: parent.width
             height: 1
             color: Theme.divider
@@ -476,6 +514,7 @@ Item {
 
         Item {
             id: body
+            y: page.placed(page.bodyFrom, height)
             width: parent.width
             height: page.rows * page.rowHeight + 8
 
@@ -494,6 +533,9 @@ Item {
                     boundsBehavior: Flickable.StopAtBounds
                     highlightMoveDuration: 0
                     reuseItems: true
+                    // Upside down (page.flipped): the first row at the bottom,
+                    // by the caret, the later ones up from it.
+                    verticalLayoutDirection: page.flipped ? ListView.BottomToTop : ListView.TopToBottom
                     // A row moved in its group's order (Ctrl+↑/↓, dragged)
                     // slides there, and the ones it passes make way.
                     // Not under a drag: the rows are where they go at once,
@@ -511,6 +553,25 @@ Item {
                     onCountChanged: {
                         if (count > 0 && (currentIndex < 0 || currentIndex >= count))
                             currentIndex = Math.min(Math.max(0, currentIndex), count - 1)
+                    }
+                    // Where it rests at its first row, that row's margin in
+                    // view too: the top, or upside down the bottom (as
+                    // ListWheelScroll.restY).
+                    function restY(): real {
+                        return verticalLayoutDirection === ListView.BottomToTop
+                            ? originY + contentHeight + bottomMargin - height
+                            : originY - topMargin
+                    }
+                    // Turned over, or back (by the setting, while open): the
+                    // current row in view again, the first one as it rests.
+                    onVerticalLayoutDirectionChanged: {
+                        stopScrolling()
+                        if (currentIndex > 0) {
+                            positionViewAtIndex(currentIndex, ListView.Contain)
+                        } else {
+                            positionViewAtBeginning()
+                            contentY = restY()
+                        }
                     }
 
                     // Mixed row heights re-estimate the range while scrolling.
@@ -670,6 +731,7 @@ Item {
 
         Item { // footer: status or how picked rows are joined, and key hints; drags the window
             id: footer
+            y: page.placed(page.footerFrom, height)
             width: parent.width
             implicitHeight: Theme.footerHeight
             height: implicitHeight
@@ -679,7 +741,8 @@ Item {
                 page.frame.addControl(separatorChip)
             }
 
-            Rectangle {
+            Rectangle { // on its inner edge
+                y: page.flipped ? parent.height - 1 : 0
                 width: parent.width
                 height: 1
                 color: Theme.divider

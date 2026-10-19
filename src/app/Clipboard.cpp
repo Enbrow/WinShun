@@ -227,6 +227,15 @@ void Clipboard::setRowOptions(bool clickToPaste, bool largePictures)
     refreshStatus(); // pinned, it says how to paste
 }
 
+void Clipboard::setLayoutOptions(bool flipAbove, bool searchFar)
+{
+    if (flipAbove == m_flipAbove && searchFar == m_searchFar)
+        return;
+    m_flipAbove = flipAbove;
+    m_searchFar = searchFar;
+    emit layoutOptionsChanged();
+}
+
 void Clipboard::setNumberHints(const QString& hints)
 {
     if (m_numberHints == hints)
