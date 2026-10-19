@@ -329,7 +329,10 @@ private slots:
     void cleanupTestCase()
     {
         stopService();
-        QDir(m_scratch).removeRecursively();
+        // Skipped (not elevated) before it was set: QDir("") is the current
+        // folder, and the build folder the test ran in went with it.
+        if (!m_scratch.isEmpty())
+            QDir(m_scratch).removeRecursively();
     }
 
     void handshake()
