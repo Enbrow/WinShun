@@ -69,4 +69,8 @@ void setMenuTheme(bool dark);
 // Nothing shows; call it on the GUI thread.
 void prepareTextInput();
 
+// Whether a keyboard layout (GetKeyboardLayout) is for Chinese: Simplified
+// or Traditional, whichever input method.
+bool isChineseLayout(HKL layout);
+
 } // namespace ws::win

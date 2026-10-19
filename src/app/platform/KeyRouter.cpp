@@ -343,6 +343,10 @@ LRESULT KeyRouter::handleKey(int code, WPARAM message, LPARAM lParam)
     if (event.dwExtraInfo == kOwnInput)
         return next();
     const UINT vk = event.vkCode;
+    // Any other key while a Shift is down: not a Shift pressed alone (see
+    // handleModifier). Ours, the masking keys among them, went on above.
+    if (modifierOf(vk) != Qt::ShiftModifier)
+        m_lonelyShift = 0;
     if (vk >= m_taken.size())
         return next();
     const bool press = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
@@ -426,7 +430,17 @@ bool KeyRouter::handleModifier(bool press, const KBDLLHOOKSTRUCT& event)
     const Qt::KeyboardModifier modifier = modifierOf(event.vkCode);
     // Alt held shows the rows' numbers. Windows counts the key as held only
     // once this hook is through: the modifiers are those before it.
-    m_callbacks.key(translate(event, press, press && held(static_cast<int>(event.vkCode))));
+    const Key key = translate(event, press, press && held(static_cast<int>(event.vkCode)));
+    m_callbacks.key(key);
+    // A Shift pressed alone: nothing else held as it goes down (the other
+    // Shift neither, nor Win), no other key or click before it is let go.
+    // Its own key repeats change nothing.
+    bool tapped = false;
+    if (modifier == Qt::ShiftModifier && !key.autoRepeat) {
+        const bool alone = key.modifiers == Qt::NoModifier && !held(VK_LWIN) && !held(VK_RWIN);
+        tapped = !press && m_lonelyShift == event.vkCode;
+        m_lonelyShift = press && alone ? event.vkCode : 0;
+    }
     // Shift or Alt let go with nothing between for the program (taken keys
     // are not, a click is not): it would switch the input method or open
     // the menu bar. Ctrl alone does neither, and must stay a tap for the
@@ -434,11 +448,18 @@ bool KeyRouter::handleModifier(bool press, const KBDLLHOOKSTRUCT& event)
     if (press || modifier == Qt::ControlModifier || !taking())
         return false;
     sendMaskedRelease(event);
+    // The input method it was meant for gets no key here; the clipboard says
+    // what does instead (shiftTapped). Told once the masked release is on its
+    // way to the program.
+    if (tapped && m_policy == Policy::Clipboard && m_callbacks.shiftTapped)
+        m_callbacks.shiftTapped();
     return true;
 }
 
 void KeyRouter::handleMouse(WPARAM message, const MSLLHOOKSTRUCT& event)
 {
+    if (message != WM_MOUSEMOVE)
+        m_lonelyShift = 0; // Shift+click, Shift+wheel, on Win顺's windows too: not a Shift alone
     if (m_draining)
         return;
     switch (message) {

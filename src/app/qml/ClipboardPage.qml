@@ -221,6 +221,23 @@ Item {
     }
 
     function handleKey(event) {
+        // A key typed (not a modifier held for one) puts the key hints back.
+        if (![Qt.Key_Shift, Qt.Key_Control, Qt.Key_Alt, Qt.Key_Meta].includes(event.key))
+            pinyinHintTimer.stop()
+        // Composing with the input method (the window active: opened from a
+        // box of Win顺's, over the Start menu or an elevated program, naming
+        // a group): the keys are its own. Alt+1 pastes no half-typed word,
+        // Esc closes nothing. Not while the keys are routed: none composes
+        // those, and a preedit left over must not deaden them.
+        if (page.Window.active && input.preeditText.length > 0) {
+            // Alt alone would open the window menu. A key with Ctrl or Alt
+            // the input method leaves to the field, which would type it
+            // (Alt+5: a 5 past the word, left in the search when Esc drops
+            // the word) or act on its text (Ctrl+V, Ctrl+Z): neither.
+            if (event.key === Qt.Key_Alt || (event.modifiers & (Qt.ControlModifier | Qt.AltModifier)))
+                event.accepted = true
+            return
+        }
         numberHints.press(event)
         if (menuOpen && contextMenu.handleKey(event)) {
             event.accepted = true
@@ -338,10 +355,22 @@ Item {
         function onCountChanged() { page.previewRevision++ }
     }
 
+    // A Shift pressed alone under a Chinese layout while the keys come from
+    // the program in front (Clipboard.pinyinHintRequested): meant to switch
+    // to Chinese, which no input method does without the keyboard focus, and
+    // the window keeps off it (GitHub #42). Pinyin finds Chinese anyway, and
+    // that is said: by the empty field until the window hides, else in the
+    // key hints' place until a key is typed, 5 s at most.
+    property bool pinyinHint: false // the empty field's placeholder says it
+    readonly property string pinyinHintText: qsTr("直接打拼音：tupian → 图片")
+    Timer { id: pinyinHintTimer; interval: 5000 } // the footer says it while running
+
     Connections {
         target: page.clipboard
         function onShown() {
             input.text = ""
+            page.pinyinHint = false
+            pinyinHintTimer.stop()
             page.selectionAnchor = -1
             page.previewOpen = false // the list alone as it is put in place ...
             page.selectFirst()
@@ -360,6 +389,7 @@ Item {
             page.selectFirst()
         }
         function onQueryChanged() {
+            pinyinHintTimer.stop() // also for a paste, which goes past handleKey
             if (input.text !== page.clipboard.query)
                 input.text = page.clipboard.query
         }
@@ -370,6 +400,12 @@ Item {
                 input.selectAll()
         }
         function onContextMenuKeyPressed() { page.openContextMenu(list.currentIndex) }
+        function onPinyinHintRequested() {
+            if (input.text.length === 0)
+                page.pinyinHint = true
+            else
+                pinyinHintTimer.restart()
+        }
         function onGroupNameRequested(row, group) {
             page.namingRow = row
             page.namingGroup = group
@@ -438,7 +474,7 @@ Item {
                 Text {
                     anchors.fill: parent
                     verticalAlignment: Text.AlignVCenter
-                    text: qsTr("搜索剪贴板，支持拼音")
+                    text: page.pinyinHint ? page.pinyinHintText : qsTr("搜索剪贴板，支持拼音")
                     color: Theme.faint
                     font: input.font
                     elide: Text.ElideRight
@@ -754,8 +790,8 @@ Item {
                 id: statusLabel
                 anchors.left: parent.left
                 anchors.leftMargin: 18
-                anchors.right: hints.shown ? hints.left : infoButton.left
-                anchors.rightMargin: hints.shown ? 12 : 8
+                anchors.right: pinyinNote.visible ? pinyinNote.left : hints.shown ? hints.left : infoButton.left
+                anchors.rightMargin: pinyinNote.visible || hints.shown ? 12 : 8
                 anchors.verticalCenter: parent.verticalCenter
                 visible: page.selectedCount === 0
                 text: page.clipboard.statusText
@@ -833,7 +869,7 @@ Item {
                 readonly property bool shown: !(page.clipboard.pinned && !page.clipboard.keysRouted && !page.Window.active)
                                               && (page.selectedCount > 0
                                                   || statusLabel.implicitWidth <= footer.width - reserved - implicitWidth)
-                opacity: shown ? 1 : 0 // still laid out: its width tells when it fits again
+                opacity: shown && !pinyinNote.visible ? 1 : 0 // still laid out: its width tells when it fits again
 
                 // The ones always there, and their gaps; then Tab's and →'s
                 // where there is room beside them and the status (beside the
@@ -862,6 +898,27 @@ Item {
                     label: page.previewOpen ? qsTr("关闭预览") : qsTr("预览")
                     visible: hints.previewFits
                 }
+            }
+
+            // In the key hints' place for a while, the field not empty (see
+            // page.pinyinHint): pinyin finds Chinese. Only while the keys come
+            // from the program in front, which is when no input method has them.
+            Text {
+                id: pinyinNote
+                readonly property bool shown: pinyinHintTimer.running && page.selectedCount === 0
+                                              && page.clipboard.keysRouted
+                anchors.right: infoButton.left
+                anchors.rightMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.min(implicitWidth, footer.width - hints.reserved)
+                opacity: shown ? 1 : 0
+                visible: opacity > 0
+                Behavior on opacity { enabled: SystemTheme.animations; NumberAnimation { duration: 150 } }
+                text: page.pinyinHintText
+                textFormat: Text.PlainText
+                color: Theme.faint
+                font.pixelSize: Theme.uiBody
+                elide: Text.ElideRight
             }
 
             // The other keys, while the mouse rests on it.

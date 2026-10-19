@@ -49,6 +49,13 @@ inline constexpr ULONG_PTR kOwnInput = 0x5753'4B52; // "WSKR"
 // the Start menu), and a Shift or Alt let go goes on to the program only
 // after such a key. A double Ctrl stays a double Ctrl.
 //
+// No input method composes the keys taken: they reach the window without
+// one, and its search finds Chinese by the pinyin typed. A Shift pressed
+// and let go alone is still meant for one (Chinese input methods switch to
+// Chinese on it): its release goes on masked all the same, and the
+// clipboard is told (shiftTapped), which says that pinyin will do (App).
+// It never takes the focus for one: what closes without it would close.
+//
 // Clicks are not taken (the window does not activate on them); a button
 // pressed outside Win顺's windows, or another window coming to the front,
 // tells the window to go, as a menu would.
@@ -74,6 +81,10 @@ public:
         std::function<void()> clickedAway; // a mouse button pressed outside Win顺's windows
         std::function<void(HWND)> foregroundChanged; // the top-level window now in front
         std::function<void()> drained; // after drain(): the keys it took are all let go
+        // Shift pressed with nothing else held and let go with no other key
+        // or click between, as a Chinese input method is switched; told
+        // once its release has gone on masked (Policy::Clipboard).
+        std::function<void()> shiftTapped;
     };
 
     // Which keys it takes: the clipboard's (above), or a menu's (the folder
@@ -116,6 +127,7 @@ private:
     Callbacks m_callbacks;
     std::bitset<256> m_taken; // keys held whose press was taken; only touched on the router thread
     std::unordered_map<UINT, bool> m_hotkeys; // heldAsHotkey's answers by chord; router thread
+    UINT m_lonelyShift = 0; // the Shift down with nothing else so far (its key), else 0; router thread
     std::atomic<bool> m_draining {false}; // takes effect at once, from the GUI thread
     std::atomic<DWORD> m_threadId {0};
     std::atomic<bool> m_active {false};

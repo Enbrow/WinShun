@@ -2751,6 +2751,7 @@ bool App::startKeyRouting(HWND target)
     callbacks.key = [this, post](const KeyRouter::Key& key) { post([this, key] { routedKey(key); }); };
     callbacks.clickedAway = [this, post] { post([this] { hideClipboard(); }); }; // as a menu
     callbacks.foregroundChanged = [this, post](HWND window) { post([this, window] { routedForeground(window); }); };
+    callbacks.shiftTapped = [this, post] { post([this] { clipboardShiftTapped(); }); };
     callbacks.drained = [this, run] {
         QMetaObject::invokeMethod(this, [this, run] {
             if (m_drainingRun == run)
@@ -2838,6 +2839,17 @@ void App::routedForeground(HWND window)
     hideClipboard(); // another program in front: as a menu
 }
 
+void App::clipboardShiftTapped()
+{
+    // The layout typed with: the program's in front, as KeyRouter types the
+    // keys with it. Not a Chinese one: a Shift alone means nothing to it.
+    // Taking the focus for the input method would close what closes without
+    // it there (VS Code's quick open), and the paste would go nowhere.
+    const HKL layout = ::GetKeyboardLayout(::GetWindowThreadProcessId(::GetForegroundWindow(), nullptr));
+    if (win::isChineseLayout(layout))
+        emit m_clipboard->pinyinHintRequested();
+}
+
 void App::activateClipboard()
 {
     if (!m_clipWindow || (!m_keyRouter && !m_clipboard->pinned()))
@@ -2847,6 +2859,12 @@ void App::activateClipboard()
     // Active first, then no longer drawn as active without being so: the
     // backdrop does not flicker. Keys pressed in between are its own already.
     win::bringToFront(m_clipWindow);
+    // Refused (bringToFront says so in the log; it knows at once, the window
+    // is this thread's): the keys go on coming through the router. Stopped,
+    // they would go back to the program, the window left neither routed nor
+    // active.
+    if (m_keyRouter && ::GetForegroundWindow() != reinterpret_cast<HWND>(m_clipWindow->winId()))
+        return;
     m_clipWindow->requestActivate();
     stopKeyRouting();
 }

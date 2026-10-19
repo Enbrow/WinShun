@@ -151,6 +151,12 @@ private:
     void stopKeyRouting();
     void routedKey(const KeyRouter::Key& key);
     void routedForeground(HWND window);
+    // A Shift pressed alone meanwhile (KeyRouter::Callbacks::shiftTapped),
+    // meant for a Chinese input method, which none of the routed keys reach:
+    // under a Chinese layout the page says that pinyin finds Chinese
+    // (Clipboard::pinyinHintRequested). The window keeps off the focus all
+    // the same (GitHub #42).
+    void clipboardShiftTapped();
     // Taking the focus after all: to type a group's name (with the input
     // method), to hand over to another program.
     void activateClipboard();

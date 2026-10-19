@@ -258,4 +258,10 @@ void prepareTextInput()
     manager = created;
 }
 
+bool isChineseLayout(HKL layout)
+{
+    // Its low word is the input language.
+    return PRIMARYLANGID(static_cast<LANGID>(reinterpret_cast<UINT_PTR>(layout) & 0xFFFF)) == LANG_CHINESE;
+}
+
 } // namespace ws::win

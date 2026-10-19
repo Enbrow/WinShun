@@ -320,6 +320,10 @@
         <translation>Search the clipboard</translation>
     </message>
     <message>
+        <source>直接打拼音：tupian → 图片</source>
+        <translation>Type pinyin: tupian → 图片</translation>
+    </message>
+    <message>
         <source>取消钉住</source>
         <translation>Unpin</translation>
     </message>

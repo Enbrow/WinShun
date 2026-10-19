@@ -254,6 +254,9 @@ signals:
     void dismissRequested();
     void turnOnRequested();
     void contextMenuKeyPressed(); // Menu key / Shift+F10, while the window is shown
+    // A Shift alone under a Chinese layout, the keys routed here (App): meant
+    // to switch to Chinese, which takes the focus; pinyin finds Chinese anyway.
+    void pinyinHintRequested();
     void groupNameRequested(int row, qint64 group); // a name for a new group (group 0) for the row, or a new one for `group`
     void fieldChanged();
     // The field the window goes back to: its own window in front again (App).
