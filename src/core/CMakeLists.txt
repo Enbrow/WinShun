@@ -40,6 +40,7 @@ qt_add_library(wscore STATIC
     ShareLister.cpp ShareLister.h
     Snapshot.cpp Snapshot.h
     SearchTyping.h
+    SwitchCommand.cpp SwitchCommand.h SwitchIntent.h
     SystemCatalog.cpp SystemCatalog.h
     TextUtil.cpp TextUtil.h
     Unc.cpp Unc.h

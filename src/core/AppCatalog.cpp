@@ -796,6 +796,12 @@ bool AppCatalog::isLoaded() const
     return m_apps != nullptr;
 }
 
+void AppCatalog::setApps(std::shared_ptr<const AppList> apps)
+{
+    std::lock_guard lock(m_mutex);
+    m_apps = std::move(apps);
+}
+
 void AppCatalog::refresh(bool force)
 {
     if (m_busy) {

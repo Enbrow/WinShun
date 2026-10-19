@@ -38,11 +38,18 @@ struct PlaceInfo {
     QStringList keywords; // Windows': other words people look for it by
     QStringList ownKeywords; // places.txt's: what people call it ("网卡"), worth more
     bool page = false; // the entry of a page of Settings itself, not of a task on it
+    // A system switch (places.txt "switch ="): "bluetooth", "theme". The row
+    // shows its state and Enter flips it; `command` opens its page (Ctrl+Enter).
+    // ownKeywords name the switch; onWords and offWords are words that mean
+    // a state of it ("深色" is the theme, on), found as keywords too.
+    QString switchId;
+    QStringList onWords;
+    QStringList offWords;
 
     // Filled by prepare() from the fields above: UTF-8, ASCII folded, no duplicates.
     std::string nameUtf8;
     std::vector<std::string> folded; // keywords
-    std::vector<std::string> ownFolded; // ownKeywords
+    std::vector<std::string> ownFolded; // ownKeywords, onWords and offWords
 
     void prepare();
     QString path() const; // placePath(key)
@@ -64,10 +71,17 @@ QString placeKeyOf(QStringView path); // empty for any other path
 struct PlaceHit {
     std::size_t index = 0; // into the PlaceList
     int score = 0; // higher is better
+    // Found only by pinyin initials, the middle of a Chinese keyword or a
+    // name read as pinyin ("ly" for 蓝牙): a guess. A system switch found so
+    // ranks below the apps and pages found as well, as a wrong Enter on it
+    // changes the system.
+    bool weak = false;
 };
 
 // The places matching `query`, best first, one per command (several tasks
-// can open the same page). Each word of the query must be in the name, or
+// can open the same page), one per switch. A switch row and a page row of
+// the same command are one concept: the page gives way unless it scores
+// higher than the switch. Each word of the query must be in the name, or
 // begin one of the keywords: a word of two or more Chinese characters may
 // be anywhere in one, and pinyin works for both. A keyword spelled out in
 // full ranks above a name that merely starts with the word, an own keyword
@@ -118,7 +132,9 @@ QString commandForDeepLink(const QString& deepLink);
 // Applies WinShun's own list (places.txt): keywords for places already in
 // `places` (a block headed by their command: the page's own entry if one of
 // them is, else each of them) and places of its own (a block with "open =").
-// Names are written "中文 | English"; `chinese` picks the first. Returns the
+// A place of its own with "switch =" is a system switch (PlaceInfo::switchId);
+// its "on =" and "off =" are words for its states. Names are written
+// "中文 | English"; `chinese` picks the first. Returns the
 // headers of keyword blocks that matched no place.
 QStringList applyPlaceExtras(PlaceList& places, QStringView text, bool chinese);
 
@@ -133,6 +149,8 @@ public:
 
     // Empty until the first load finishes. Thread-safe.
     std::shared_ptr<const PlaceList> places() const;
+    // Puts this list in as if it had been read (tests). Thread-safe.
+    void setPlaces(std::shared_ptr<const PlaceList> places);
 
     // Reads the list again in the background if the index files or the
     // display language changed since the last read (a check of well under a

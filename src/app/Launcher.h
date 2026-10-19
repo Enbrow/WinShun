@@ -31,6 +31,7 @@ namespace ws {
 class FilePreview;
 class History;
 class IndexService;
+class Switches;
 class SystemCatalog;
 namespace plugin {
 class Host;
@@ -112,7 +113,9 @@ class Launcher : public QObject {
     // does ("打开", a plugin action's name; empty for a row Enter does
     // nothing on), what the second key does with its name ("Ctrl+Enter" /
     // "打开位置"; empty when the row has no location or second action),
-    // and what Tab does ("切换范围", "补全"; empty when nothing).
+    // and what Tab does ("切换范围", "补全"; empty when nothing), with the
+    // keys it is written with in that place ("Tab"; on the volume's row
+    // "Alt+←→" / "调音量").
     Q_PROPERTY(QVariantMap keyHints READ keyHints NOTIFY keyHintsChanged FINAL)
     // 文件 narrowed to a kind of file, as the strip under the search box
     // shows it: its index in fileTypes, or -1 for any (不限; 文件夹 is the
@@ -222,6 +225,8 @@ public:
         Preview, // the file or folder in a preview (Alt+P, togglePreview)
         PinPicture, // 贴到屏幕: a picture file's row, a screenshot's (pinRequested)
         RemoveScreenshot, // 从历史删除: a screenshot's row (Delete)
+        SwitchOn, // a system switch's row, set on / off (the menu's two entries; Enter is the row's own)
+        SwitchOff,
         PluginAction = 100
     };
     Q_ENUM(Action)
@@ -340,6 +345,10 @@ public:
     // rows refreshed when they change.
     void setFavorites(Favorites* favorites);
     bool hasFavorites() const;
+    // The system switches (may be none): the rows of one show its state and
+    // Enter on them switches it. `stateFile` (state.ini) remembers what was
+    // told once.
+    void setSwitches(Switches* switches, const QString& stateFile);
     void setResultOptions(KindOrder kindOrder, bool showModified, bool thumbnails, const QString& numberKeys);
     // 优先显示的文件类型 (Settings::preferredTypes): searched again in the new order when shown.
     void setPreferredTypes(const QStringList& types);
@@ -386,6 +395,17 @@ public:
     // An action on a row; on a row of a selection of several, on all of it.
     Q_INVOKABLE void trigger(int row, int action);
     Q_INVOKABLE void triggerSelection(int action); // the keyboard's, with rows selected
+    // A click on a row (or on its switch, `onSwitch`): trigger(row, Open), but on a
+    // system switch's row the second click of a double click is no second
+    // switch; and its switch is clicked to toggle it, whatever the row asks.
+    Q_INVOKABLE void clickRow(int row, bool onSwitch = false);
+    // Whether Enter on this row switches something and the window stays (a
+    // system switch's row with a backend): a held key must not repeat it.
+    Q_INVOKABLE bool isSwitchRow(int row) const;
+    // Alt+← → on the volume's row: `steps` steps of 5 down (< 0) or up
+    // (Switches::step), the window left as it is. False on any other row:
+    // the keys are the box's then.
+    Q_INVOKABLE bool stepSwitch(int row, int steps);
     // The row's file or folder dragged out of the window (into a chat, a
     // folder); the selection when the row is in it. Returns when it was let
     // go (see dragout::drag). Apps, places, web pages and plugins' rows stay.
@@ -623,6 +643,20 @@ private:
     void perform(const SearchResult& result, Action action);
     void performApp(const SearchResult& app, Action action);
     void performPlace(const SearchResult& place, Action action);
+    // A system switch's row with a backend: false for any other, which is an
+    // ordinary place. Enter switches (the window stays, the words selected),
+    // Ctrl+Enter opens its page.
+    bool performSwitch(const SearchResult& row, Action action);
+    // What Enter did (Switches::Outcome as an int, from apply() or waitEnded()); `resolved`: what it asked, as the footer said.
+    void switchOutcome(const SearchResult& row, const SwitchIntent& resolved, int outcome);
+    void openSwitchPage(const SearchResult& row);
+    void scheduleAwakeTick(); // m_awakeTick for the next minute that changes in the keep-awake row, if it has one
+    bool liveSwitch(const SearchResult& row) const; // a switch row with a backend (not Unsupported)
+    bool drawsSwitch(const SearchResult& row) const; // ... that is ready or not read yet: it has its switch
+    bool steppable(const SearchResult& row) const; // ... and a level: the volume's, Alt+← →
+    // refreshKeyHints() for a switch's row.
+    void switchKeyHints(const SearchResult& row, QString& enter, QString& secondKeys, QString& second) const;
+    QString switchAlready(const SearchResult& row, const SwitchIntent& resolved) const; // "蓝牙已经是关的"
     void performWeb(const SearchResult& web, Action action);
     void performFavorite(const SearchResult& result, Action action); // AddFavorite … EditFavorite
     void performMany(const SearchResults& items, Action action);
@@ -794,6 +828,13 @@ private:
     WebSuggester m_suggester;
     SearchResults m_suggestRows; // the latest answer's, for the site typed; kept until the next answer
     QPointer<Favorites> m_favorites;
+    QPointer<Switches> m_switches;
+    QString m_stateFile; // state.ini
+    bool m_switchPageTold = false; // "要打开设置页：Ctrl+Enter", said once for good (state.ini)
+    // Toggles waiting for their state (Switches::Outcome::Waiting), by switch id.
+    QHash<QString, SearchResult> m_switchWaiting;
+    QString m_clickedSwitch; // the last click that switched, by path ...
+    QElapsedTimer m_switchClicked; // ... and when
     bool m_contentDocuments = true; // and in Word, Excel, PowerPoint and PDF files
     bool m_contentEnabled = true;
     bool m_contentIndex = false;
@@ -804,6 +845,9 @@ private:
     bool m_contentAtOnce = false; // search(): the text is the one shown, no pause in typing to wait for
     QTimer m_flashTimer;
     QTimer m_statusPoll;
+    // Keep awake with an end time, while the window is up: the minutes left in
+    // its row come round (scheduleAwakeTick). Not running while it is hidden.
+    QTimer m_awakeTick;
     // A new query's rows a while in coming: the status says so, not the last
     // query's figures under its dimmed rows.
     QTimer m_slowSearch;

@@ -57,6 +57,7 @@ qt_add_executable(WinShun WIN32
     Settings.cpp Settings.h
     SiteIconImage.cpp SiteIconImage.h
     SvgIcon.cpp SvgIcon.h
+    Switches.cpp Switches.h SwitchBackend.h
     TextField.cpp TextField.h
     ThumbnailProvider.cpp ThumbnailProvider.h
     WebSuggester.cpp WebSuggester.h
@@ -89,6 +90,14 @@ qt_add_executable(WinShun WIN32
     platform/ShellMenu.cpp platform/ShellMenu.h
     platform/ShortcutCapture.cpp platform/ShortcutCapture.h
     platform/SiteIcons.cpp platform/SiteIcons.h
+    platform/RegistryWatch.cpp platform/RegistryWatch.h
+    platform/SettingBroadcast.cpp platform/SettingBroadcast.h
+    platform/SwitchAudio.cpp platform/SwitchAudio.h
+    platform/SwitchExplorer.cpp platform/SwitchExplorer.h
+    platform/SwitchKeepAwake.cpp platform/SwitchKeepAwake.h
+    platform/SwitchRadios.cpp platform/SwitchRadios.h
+    platform/SwitchTheme.cpp platform/SwitchTheme.h
+    platform/SystemSwitches.cpp platform/SystemSwitches.h
     platform/TypeToSearch.cpp platform/TypeToSearch.h
     platform/TaskbarSearch.cpp platform/TaskbarSearch.h
     platform/TaskbarSearchBox.cpp platform/TaskbarSearchBox.h
@@ -144,6 +153,7 @@ set(qml_files
     qml/ThemeCard.qml
     qml/UpdateDialog.qml
     qml/ToggleSwitch.qml
+    qml/SwitchLevel.qml
     qml/FlatButton.qml
     qml/InputBox.qml
     qml/WebShortcutForm.qml

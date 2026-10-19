@@ -121,6 +121,12 @@
 //                      as the app does and lists them, or the best places for
 //                      each query; reports keyword blocks of places.txt that
 //                      match no place here
+//   wsbench --switches
+//                      reads the system switches (dark mode, hidden files,
+//                      Bluetooth, WLAN, the volume, ...) as the app does,
+//                      changing nothing: each one's state and how long a
+//                      read takes (the first one makes the radios' and the
+//                      audio's objects)
 //   wsbench --apps [--all]
 //                      reads the installed apps as the app does (five times:
 //                      the first read and the median), lists those that
@@ -207,6 +213,7 @@
 #include "TextUtil.h"
 #include "Tools.h"
 #include "platform/PaddleOcr.h"
+#include "platform/SystemSwitches.h"
 #include "Unc.h"
 #include "WebShortcut.h"
 #include "WebSuggest.h"
@@ -234,6 +241,7 @@
 
 #include <windows.h>
 #include <aclapi.h>
+#include <objbase.h>
 #include <psapi.h>
 #include <winioctl.h>
 
@@ -3959,6 +3967,78 @@ int runPlaces(const QStringList& queries)
     return 0;
 }
 
+// ---- system switches (--switches) ------------------------------------------
+
+const char* availabilityName(ws::SwitchState::Availability availability)
+{
+    using enum ws::SwitchState::Availability;
+    switch (availability) {
+    case Unknown: return "unknown";
+    case Ready: return "ready";
+    case NoDevice: return "no-device";
+    case Denied: return "denied";
+    case Blocked: return "blocked";
+    case Unsupported: return "unsupported";
+    }
+    return "?";
+}
+
+const char* valueName(ws::SwitchState::Value value)
+{
+    using enum ws::SwitchState::Value;
+    switch (value) {
+    case Unknown: return "unknown";
+    case Off: return "off";
+    case On: return "on";
+    case Mixed: return "mixed";
+    }
+    return "?";
+}
+
+// Reads every system switch as the app's switch thread does (the
+// multithreaded apartment), five times: the state and the first read's time
+// and the median. Changes nothing.
+int runSwitches()
+{
+    constexpr int kRuns = 5;
+    const ws::SwitchBackends backends = ws::systemSwitchBackends();
+    std::thread([&backends] {
+        const HRESULT com = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED | COINIT_DISABLE_OLE1DDE);
+        for (const std::unique_ptr<ws::SwitchBackend>& backend : backends) {
+            for (const QString& id : backend->ids()) {
+                std::vector<double> ms;
+                ws::SwitchState state;
+                for (int i = 0; i < kRuns; ++i) {
+                    QElapsedTimer timer;
+                    timer.start();
+                    state = backend->read(id);
+                    ms.push_back(static_cast<double>(timer.nsecsElapsed()) / 1e6);
+                }
+                const double first = ms.front();
+                std::ranges::sort(ms);
+                std::printf("%-16s %-11s %-7s", qUtf8Printable(id), availabilityName(state.availability), valueName(state.on));
+                std::printf("  %.2f ms (first), %.2f ms (median of %d)", first, ms[ms.size() / 2], kRuns);
+                if (state.level >= 0)
+                    std::printf("  level %d", state.level);
+                if (!state.note.isEmpty())
+                    std::printf("  | %s", qUtf8Printable(state.note));
+                if (state.on == ws::SwitchState::Value::Mixed)
+                    std::printf("  | Enter: %s", state.mixedToggleOn ? "on" : "off");
+                if (!state.openInstead.isEmpty())
+                    std::printf("  | opens %s", qUtf8Printable(state.openInstead));
+                if (state.carriesInternet)
+                    std::printf("  | the internet goes through it");
+                std::printf("\n");
+            }
+        }
+        for (const std::unique_ptr<ws::SwitchBackend>& backend : backends)
+            backend->close();
+        if (SUCCEEDED(com))
+            ::CoUninitialize();
+    }).join();
+    return 0;
+}
+
 // ---- installed apps (--apps) -----------------------------------------------
 
 int runApps(const QStringList& args)
@@ -5288,6 +5368,8 @@ int main(int argc, char* argv[])
         args.removeAll(u"--places"_s);
         return runPlaces(args);
     }
+    if (args.contains(u"--switches"_s))
+        return runSwitches();
     if (args.contains(u"--apps"_s)) {
         args.removeAll(u"--apps"_s);
         return runApps(args);

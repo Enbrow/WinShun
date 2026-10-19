@@ -1,5 +1,7 @@
 #pragma once
 
+#include "SwitchIntent.h"
+
 #include <QJsonObject>
 #include <QList>
 #include <QMetaType>
@@ -150,6 +152,18 @@ struct SearchResult {
     // empty. A place's command ("ms-settings:display").
     QString target;
     QString icon; // places: see PlaceInfo::icon; web: the home page, whose site's icon it shows
+
+    // Places only: the system switch the row stands for (PlaceInfo::switchId,
+    // "bluetooth"), else empty, and what is asked of it: Toggle for a plain
+    // row, what "关蓝牙" or "音量 30" says for a typed one. Its state is not
+    // here (a change of state would make the row a new one in the list): the
+    // app asks Switches.
+    QString switchId;
+    SwitchIntent intent;
+    // A switch listed above the recent items with nothing typed, because it
+    // is on and must be seen to be ended (Request::pinnedPlaces). Not the
+    // row Enter acts on when the window opens.
+    bool statusRow = false;
 
     // Content search only.
     int line = 0; // 1-based: of a text file, or of the text read out of a document

@@ -144,6 +144,19 @@ qt_add_executable(tst_dragout tst_dragout.cpp ${PROJECT_SOURCE_DIR}/src/app/plat
 target_include_directories(tst_dragout PRIVATE ${PROJECT_SOURCE_DIR}/src/app/platform)
 target_link_libraries(tst_dragout PRIVATE winshun_options Qt6::Core Qt6::Test)
 
+# The system switches' cache (Switches): toggles turned into On and Off, writes
+# coalesced, failures, changes made elsewhere, through a fake backend on the
+# real switch thread. Nothing of the system is read or changed.
+qt_add_executable(tst_switches tst_switches.cpp ${PROJECT_SOURCE_DIR}/src/app/Switches.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/Switches.h ${PROJECT_SOURCE_DIR}/src/app/platform/ComWorker.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/SwitchKeepAwake.cpp) # keep awake is built in, over a fake clock
+target_include_directories(tst_switches PRIVATE ${PROJECT_SOURCE_DIR}/src/app ${PROJECT_SOURCE_DIR}/src/app/platform)
+target_link_libraries(tst_switches PRIVATE wscore Qt6::Test ole32 powrprof)
+set_target_properties(tst_switches PROPERTIES WIN32_EXECUTABLE FALSE)
+add_test(NAME tst_switches COMMAND tst_switches)
+set_tests_properties(tst_switches PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
 # The MCP server (src/mcp): the protocol, the tools on a hand-made index, the
 # pipe, and the relay WinShunMcp.exe, whose path it is told; and the
 # plugins' commands as tools (plugin::AiBridge), with plugin_fake.exe through

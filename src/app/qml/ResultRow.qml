@@ -14,6 +14,10 @@ import WinShun
 // A web shortcut's site or search is tagged "网页" and copies its address; a
 // search on one of its suggestions (under the search's own row) reads just
 // the suggestion and is tagged "建议".
+// A system switch (深色模式, 蓝牙: switchReady) shows its state in place of the
+// "系统" tag, a switch at a width of its own whatever the state, and a gear
+// that opens its page; its second line says what there is to know of it, or
+// (in red) why the last try failed. A click on it, or on the row, is Enter.
 // A file or folder says when it was last written, at the end of its name's
 // line (also on the current row, where the buttons take the right end).
 // A picture, a video, a PDF shows its thumbnail for an icon, once loaded.
@@ -63,6 +67,12 @@ Item {
     required property bool favorite // one of its user's favorites: tagged 收藏 (with its keyword)
     required property string favoriteKeyword
     required property bool missing // a favorite no longer there: dimmed, tagged
+    required property string switchId // a system switch's row (SearchResult::switchId)
+    required property int switchOn // -1 not known, 0 off, 1 on, 2 mixed
+    required property int switchLevel // the volume, 0–100; -1 not known, or another switch
+    required property bool switchBusy // being written
+    required property string switchError // why the last try failed; the second line in red
+    required property bool switchReady // draws its switch (else an ordinary place, with its tag)
     property bool showModified: true
     property int hint: 0 // its number for the number keys (Ctrl+1…), on its icon; 0 for none
     property string hintModifier: "Ctrl" // ... with this held
@@ -77,8 +87,13 @@ Item {
     readonly property int selectedCount: ListView.view ? ListView.view.model.selectedCount : 0
     readonly property var results: ListView.view ? ListView.view.model : null // the ResultModel
     readonly property bool showActions: current || area.containsMouse
+    // The volume's number and bar, left of its switch (their room kept before the level is read).
+    readonly property bool levelShown: switchReady && switchId === "volume"
+    readonly property real levelSpace: levelShown ? levelControl.width + levelControl.anchors.rightMargin : 0
     // Room kept on the right for the buttons, the badge or the label.
-    readonly property real trailingSpace: (showActions ? actions.width + actions.anchors.rightMargin
+    readonly property real trailingSpace: (switchReady ? switchControl.width + switchControl.anchors.rightMargin + levelSpace
+                                                         + (showActions ? actions.width + 2 : 0)
+                                           : showActions ? actions.width + actions.anchors.rightMargin
                                            : isApp ? badge.width + badge.anchors.rightMargin
                                            : trailing.width + trailing.anchors.rightMargin) + 10
     property bool deleteArmed: false // first click on delete; the second one deletes
@@ -86,6 +101,7 @@ Item {
     signal clicked(int index, int modifiers)
     signal menuRequested(int index, point globalPos, int modifiers) // with Shift: the system's menu
     signal actionRequested(int index, int action)
+    signal switchClicked(int index) // its switch clicked
     signal dragRequested(int index) // its file or folder dragged out of the window
 
     // Text on whole device pixels. Qt rounds each corner of a glyph's quad to
@@ -96,6 +112,22 @@ Item {
     function upToPixel(y) { return Math.ceil(y * Screen.devicePixelRatio - 1e-6) / Screen.devicePixelRatio }
 
     onShowActionsChanged: if (!showActions) deleteArmed = false
+    // Taken for another switch, the new one is there from the first frame: nothing slides between two.
+    onSwitchIdChanged: {
+        switchControl.animated = false
+        levelControl.animated = false
+        Qt.callLater(() => {
+            switchControl.animated = true
+            levelControl.animated = true
+        })
+    }
+    Connections {
+        target: row.results
+        function onSwitchNudged(id: string) {
+            if (id === row.switchId)
+                switchControl.pulse()
+        }
+    }
     onPathChanged: { // delegate reused for another result
         deleteArmed = false
         dropTip()
@@ -255,7 +287,7 @@ Item {
             textFormat: row.contentMode || marked ? Text.StyledText : Text.PlainText
             elide: row.contentMode || marked ? Text.ElideRight : Text.ElideMiddle
             maximumLineCount: 1
-            color: Theme.subtext
+            color: row.switchError.length > 0 ? Theme.danger : Theme.subtext
             font.pixelSize: Theme.uiCaption
         }
     }
@@ -294,7 +326,7 @@ Item {
 
     Rectangle {
         id: badge
-        visible: row.isApp && !row.showActions
+        visible: row.isApp && !row.showActions && !row.switchReady
         anchors.right: parent.right
         anchors.rightMargin: 16
         anchors.verticalCenter: parent.verticalCenter
@@ -377,17 +409,57 @@ Item {
         }
 
         // Inside the MouseArea so that hovering a button still hovers the row.
+        // A system switch, always there, at the same width in every state.
+        ToggleSwitch {
+            id: switchControl
+            visible: row.switchReady
+            anchors.right: parent.right
+            anchors.rightMargin: 14
+            anchors.verticalCenter: parent.verticalCenter
+            // The volume is never "自定义": its word ("开", "关") right against
+            // the bar's gap, not 自定义's width further.
+            mixable: !row.levelShown
+            wordAlign: Text.AlignRight
+            activeFocusOnTab: false
+            checked: row.switchOn === 1
+            mixed: row.switchOn === 2
+            unknown: row.switchOn < 0
+            busy: row.switchBusy
+            onToggled: row.switchClicked(row.index)
+        }
+
+        SwitchLevel { // the volume: its number and bar
+            id: levelControl
+            visible: row.levelShown
+            anchors.right: switchControl.left
+            anchors.rightMargin: 12
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            value: row.switchLevel
+            muted: row.switchOn === 0
+            opacity: switchControl.opacity // dimmed with the switch while a write takes long
+        }
+
         Row {
             id: actions
             visible: row.showActions
             anchors.right: parent.right
-            anchors.rightMargin: 14
+            anchors.rightMargin: row.switchReady ? switchControl.width + 14 + 4 + row.levelSpace : 14
             anchors.verticalCenter: parent.verticalCenter
             spacing: 2
 
             RowAction {
+                id: switchPageAction
+                visible: row.switchReady
+                glyph: "" // Settings (gear)
+                tip: qsTr("打开设置")
+                tipShortcut: "Ctrl+Enter"
+                onClicked: row.actionRequested(row.index, Launcher.Reveal)
+            }
+
+            RowAction {
                 id: adminAction
-                visible: row.isApp && row.elevatable
+                visible: row.isApp && row.elevatable && !row.switchReady
                 glyph: "" // Admin (shield)
                 tip: qsTr("以管理员身份运行")
                 tipShortcut: "Ctrl+Shift+Enter"
@@ -395,7 +467,7 @@ Item {
             }
             RowAction {
                 id: revealAction
-                visible: !row.isApp || row.revealable
+                visible: !row.switchReady && (!row.isApp || row.revealable)
                 glyph: "" // OpenFolder
                 tip: row.packagedApp ? qsTr("打开安装文件夹") : qsTr("打开所在位置")
                 tipShortcut: "Ctrl+Enter"
@@ -410,7 +482,7 @@ Item {
             }
             RowAction {
                 id: copyAction
-                visible: row.copyable // a desktop app copies its program; a packaged one has none
+                visible: row.copyable && !row.switchReady // a desktop app copies its program; a packaged one has none
                 glyph: "" // Copy
                 tip: qsTr("复制")
                 tipShortcut: "Ctrl+C"
@@ -418,6 +490,7 @@ Item {
             }
             RowAction {
                 id: copyPathAction
+                visible: !row.switchReady
                 glyph: row.plugin ? "" : "copyPath" // Copy; else drawn by Glyph: a box holding "\\.."
                 tip: row.plugin ? qsTr("复制") : row.web ? qsTr("复制网址") : row.place ? qsTr("复制打开命令") : qsTr("复制完整路径")
                 tipShortcut: row.plugin ? "Ctrl+C" : "Ctrl+Shift+C"
@@ -448,7 +521,8 @@ Item {
     // One tip for all the buttons: it glides from one to the next. The date
     // has one too: the time in full.
     HoverTip {
-        readonly property RowAction hovered: adminAction.tipWanted ? adminAction
+        readonly property RowAction hovered: switchPageAction.tipWanted ? switchPageAction
+                                           : adminAction.tipWanted ? adminAction
                                            : revealAction.tipWanted ? revealAction
                                            : terminalAction.tipWanted ? terminalAction
                                            : copyAction.tipWanted ? copyAction

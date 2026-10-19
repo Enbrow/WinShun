@@ -575,6 +575,13 @@ Window {
             break
         case Qt.Key_PageDown: shift ? extendSelection(fitRows) : moveSelection(fitRows); break
         case Qt.Key_PageUp: shift ? extendSelection(-fitRows) : moveSelection(-fitRows); break
+        case Qt.Key_Left:
+        case Qt.Key_Right: // Alt+← →: the volume's row, in steps of 5 (held, on and on); plain ← → are the box's caret
+            if ((event.modifiers & ~Qt.KeypadModifier) !== Qt.AltModifier || hintIndex >= 0
+                    || searchBar.composition.length > 0
+                    || !window.launcher.stepSwitch(view.currentIndex, event.key === Qt.Key_Right ? 1 : -1))
+                return
+            break
         case Qt.Key_Return:
         case Qt.Key_Enter: {
             // On a hint after the last row, or in the empty state with some:
@@ -583,8 +590,12 @@ Window {
                 takeHint(Math.max(hintIndex, 0))
                 break
             }
+            // Held, a system switch's Enter is the first press only: the
+            // repeats would switch it back and forth.
+            if (event.isAutoRepeat && window.launcher.isSwitchRow(view.currentIndex))
+                break
             // Shift+Enter: a plugin row's third action (Open on any other row).
-            const action = ctrl && shift ? Launcher.RunAsAdmin : ctrl ? Launcher.Reveal
+            const action =ctrl && shift ? Launcher.RunAsAdmin : ctrl ? Launcher.Reveal
                          : shift ? Launcher.Alternate : Launcher.Open
             if (!window.launcher.holdUntilShown(action, 0)) // typed a moment ago: on the rows for it
                 act(action)
@@ -694,7 +705,7 @@ Window {
         hintIndex = -1
         view.stopScrolling()
         if (view.count > 0 && homeIndex < 0)
-            view.currentIndex = 0
+            view.currentIndex = launcher.results.defaultRow() // not keep awake's row above the recent ones
         view.positionViewAtBeginning()
         // ListView may stop at originY, leaving the top margin scrolled
         // off. A later resultsReplaced would then move a view already at
@@ -729,7 +740,7 @@ Window {
         function onStatusChanged() { Qt.callLater(window.settleRows) }
         function onBetterFirstRow() {
             if (window.homeIndex < 0 && view.count > 0)
-                view.currentIndex = 0
+                view.currentIndex = window.launcher.results.defaultRow()
         }
         function onContextMenuKeyPressed(system) { // Menu key, Shift+F10; Shift+Menu when an IME kept the key itself
             const row = view.currentIndex
@@ -813,8 +824,13 @@ Window {
             toggleRow(index)
         } else {
             view.currentIndex = index
-            launcher.trigger(index, Launcher.Open) // a selected row opens the selection
+            launcher.clickRow(index) // a selected row opens the selection
         }
+    }
+    // A click on a system switch's own switch: it toggles, whatever the row asks.
+    function rowSwitchClicked(index) {
+        view.currentIndex = index
+        launcher.clickRow(index, true)
     }
     function rowMenuRequested(index, globalPos, modifiers) {
         if (!(modifiers & Qt.ShiftModifier) || !openSystemMenu(index))
@@ -1135,6 +1151,7 @@ Window {
                         itemY: resultRow.y
                     }
                     onClicked: (index, modifiers) => window.rowClicked(index, modifiers)
+                    onSwitchClicked: (index) => window.rowSwitchClicked(index)
                     onActionRequested: (index, action) => {
                         boxList.currentIndex = index
                         window.launcher.trigger(index, action)

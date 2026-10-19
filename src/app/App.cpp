@@ -31,6 +31,7 @@
 #include "Secrets.h"
 #include "ServiceVolumeAccess.h"
 #include "SettingsEditor.h"
+#include "Switches.h"
 #include "SystemCatalog.h"
 #include "SystemTheme.h"
 #include "TextField.h"
@@ -57,6 +58,7 @@
 #include "platform/ShellContextMenu.h"
 #include "platform/ShellMenu.h"
 #include "platform/SiteIcons.h"
+#include "platform/SystemSwitches.h"
 #include "platform/TypeToSearch.h"
 #include "platform/TaskbarSearch.h"
 #include "platform/TextCaret.h"
@@ -156,6 +158,7 @@ enum TrayCommand {
     PinLastCommand, // 截图 › 贴上最近一次截图
     ClickThroughCommand, // 截图 › 取消所有贴图的穿透
     CloseAllPinsCommand, // 截图 › 关闭全部贴图
+    KeepAwakeCommand // 保持唤醒（到 16:42）: only while it is on; ends it
 };
 
 IndexService::Options indexOptions(const Settings& settings)
@@ -456,9 +459,16 @@ bool App::start(const StartOptions& options)
     m_apps = std::make_unique<AppCatalog>();
     m_places = std::make_unique<SystemCatalog>();
     m_engine = std::make_unique<SearchEngine>(m_index.get(), m_apps.get(), m_places.get());
+    m_switches = std::make_unique<Switches>(systemSwitchBackends()); // read at once, on a thread of their own
     m_launcher
         = std::make_unique<Launcher>(m_index.get(), m_apps.get(), m_places.get(), m_engine.get(), m_history.get());
     m_launcher->setFavorites(m_favorites.get());
+    m_launcher->setSwitches(m_switches.get(), statePath());
+    // Keep awake is Win顺's own state, kept in view: on the tray icon too.
+    connect(m_switches.get(), &Switches::changed, this, [this](const QString& id) {
+        if (id == u"keep-awake" && m_messages)
+            m_messages->setTrayTooltip(trayTooltip());
+    });
     m_preview = std::make_unique<FilePreview>();
     m_preview->setWindowFactory([this] { return createPreviewWindow(); });
     m_launcher->setPreview(m_preview.get());
@@ -666,6 +676,8 @@ bool App::start(const StartOptions& options)
     callbacks.resumed = [this] {
         m_index->prewarmSoon(30s);
         m_index->shares().networkChanged(); // the servers may have gone, or come back, meanwhile
+        if (m_switches)
+            m_switches->refresh(); // keep awake whose end time passed while asleep ends now
     };
     m_messages = std::make_unique<MessageWindow>(std::move(callbacks));
 
@@ -1166,7 +1178,12 @@ void App::applyAppearance()
 
 QString App::trayTooltip() const
 {
-    return m_settings.doubleCtrl ? tr("Win顺 — %1 打开").arg(doubleCtrlName()) : tr("Win顺");
+    const QString name = m_settings.doubleCtrl ? tr("Win顺 — %1 打开").arg(doubleCtrlName()) : tr("Win顺");
+    const SwitchState awake = m_switches ? m_switches->state(u"keep-awake") : SwitchState {};
+    if (awake.on != SwitchState::Value::On)
+        return name;
+    return awake.until.isValid() ? tr("%1 · 保持唤醒到 %2").arg(name, awake.until.time().toString(u"HH:mm"_s))
+                                 : tr("%1 · 保持唤醒").arg(name);
 }
 
 // "双击 Ctrl", "双击左 Ctrl": the keys as set.
@@ -2656,15 +2673,37 @@ void App::dumpLauncher(const QString& file) const
     state[u"searching"_s] = m_launcher->searching();
     state[u"selected"_s] = m_launcher->results()->selectedCount();
     state[u"currentRow"_s] = m_launcher->currentRow();
+    state[u"keyHints"_s] = QJsonObject::fromVariantMap(m_launcher->keyHints()); // Enter, the second key, Tab: what they do on the current row
     QJsonArray rows;
     const ResultModel* model = m_launcher->results();
     for (int i = 0; i < model->count(); ++i) {
         const SearchResult* r = model->at(i);
         const QModelIndex at = model->index(i);
-        rows.append(QJsonObject {{u"name"_s, r->name}, {u"path"_s, r->path}, {u"isDir"_s, r->isDir},
+        QJsonObject row {{u"name"_s, r->name}, {u"path"_s, r->path}, {u"isDir"_s, r->isDir},
             {u"size"_s, static_cast<double>(r->size)}, {u"sizeText"_s, model->data(at, ResultModel::SizeRole).toString()},
             {u"modified"_s, static_cast<double>(r->modified)},
-            {u"modifiedDate"_s, model->data(at, ResultModel::ModifiedDateRole).toString()}, {u"app"_s, r->isApp()}});
+            {u"modifiedDate"_s, model->data(at, ResultModel::ModifiedDateRole).toString()}, {u"app"_s, r->isApp()}};
+        if (!r->switchId.isEmpty()) { // a system switch's row: its title, what it asks, and its state as the row draws it
+            static constexpr const char16_t* kAvailability[] {u"unknown", u"ready", u"noDevice", u"denied", u"blocked", u"unsupported"};
+            static constexpr const char16_t* kKind[] {u"toggle", u"on", u"off", u"setLevel", u"stepLevel", u"awakeFor", u"awakeUntil", u"openSettings"};
+            const SwitchState switchState = m_switches ? m_switches->state(r->switchId) : SwitchState {};
+            row[u"switchId"_s] = r->switchId;
+            row[u"title"_s] = model->data(at, ResultModel::NameRole).toString();
+            row[u"secondLine"_s] = model->data(at, ResultModel::FolderRole).toString();
+            row[u"intent"_s] = QString::fromUtf16(kKind[static_cast<int>(r->intent.kind)]);
+            row[u"intentValue"_s] = r->intent.value;
+            row[u"switchAvailability"_s] = QString::fromUtf16(kAvailability[static_cast<int>(switchState.availability)]);
+            row[u"switchReady"_s] = model->data(at, ResultModel::SwitchReadyRole).toBool();
+            row[u"switchOn"_s] = model->data(at, ResultModel::SwitchOnRole).toInt();
+            row[u"switchLevel"_s] = model->data(at, ResultModel::SwitchLevelRole).toInt();
+            row[u"switchBusy"_s] = model->data(at, ResultModel::SwitchBusyRole).toBool();
+            row[u"switchNote"_s] = model->data(at, ResultModel::SwitchNoteRole).toString();
+            row[u"switchError"_s] = model->data(at, ResultModel::SwitchErrorRole).toString();
+            row[u"openInstead"_s] = switchState.openInstead;
+            row[u"statusRow"_s] = r->statusRow;
+            row[u"switchUntil"_s] = switchState.until.isValid() ? switchState.until.toString(Qt::ISODate) : QString();
+        }
+        rows.append(row);
     }
     state[u"rows"_s] = rows;
     QFile out(file);
@@ -3612,6 +3651,15 @@ void App::showTrayMenu()
         captureMenu.children.push_back({CloseAllPinsCommand, tr("关闭全部贴图"), false, pinCount > 0});
         items.insert(at + 1, std::move(captureMenu));
     }
+    // Win顺 keeps the computer awake: said at the top, and a click ends it. Not there when it is off.
+    if (const SwitchState awake = m_switches ? m_switches->state(u"keep-awake") : SwitchState {};
+        awake.on == SwitchState::Value::On) {
+        items.insert(items.begin(),
+            {{KeepAwakeCommand,
+                 awake.until.isValid() ? tr("保持唤醒（到 %1）").arg(awake.until.time().toString(u"HH:mm"_s)) : tr("保持唤醒"),
+                 true},
+                shell::MenuItem::separator()});
+    }
     if (m_updater->available() && !m_updater->skipped()) // at the top, where it is seen
         items.insert(items.begin(),
             {{UpdateCommand, tr("Win顺 %1 可以更新了…").arg(m_updater->availableVersion())}, shell::MenuItem::separator()});
@@ -3663,6 +3711,10 @@ void App::showTrayMenu()
         break;
     case SettingsCommand:
         showSettings();
+        break;
+    case KeepAwakeCommand:
+        if (m_switches)
+            (void)m_switches->apply(u"keep-awake", SwitchIntent {SwitchIntent::Kind::Off, 0});
         break;
     case UpdateCommand:
         showUpdate();

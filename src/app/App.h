@@ -55,6 +55,7 @@ class NetworkNotifier;
 class Placement;
 class SearchEngine;
 class SettingsEditor;
+class Switches;
 class TypeToSearch;
 class Updater;
 class Backup;
@@ -358,6 +359,8 @@ private:
     std::unique_ptr<plugin::AiBridge> m_aiBridge; // with the server: the plugins' commands among its tools
     std::unique_ptr<plugin::Tools> m_pluginTools; // before the host, whose bridge calls it
     std::unique_ptr<plugin::Host> m_pluginHost; // before the launcher, which asks it
+    // The system switches' states (docs/design-system-switches.md); likewise.
+    std::unique_ptr<Switches> m_switches;
     std::unique_ptr<Launcher> m_launcher;
     std::unique_ptr<ClipStore> m_clipStore; // the clipboard history
     std::unique_ptr<Clipboard> m_clipboard; // its window's view-model

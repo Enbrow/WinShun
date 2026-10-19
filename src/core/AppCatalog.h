@@ -152,6 +152,8 @@ public:
     // Sorted by name; empty until the first load finishes. Thread-safe.
     std::shared_ptr<const AppList> apps() const;
     bool isLoaded() const;
+    // Puts this list in as if it had been read (tests). Thread-safe.
+    void setApps(std::shared_ptr<const AppList> apps);
 
     // Re-reads the list in the background if the Start-menu folders or the
     // installed packages changed since the last read (a check of a few

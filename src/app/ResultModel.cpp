@@ -7,14 +7,18 @@
 #include "ThumbnailProvider.h"
 #include "Pinyin.h"
 #include "Query.h"
+#include "SwitchBackend.h"
+#include "Switches.h"
 #include "SystemCatalog.h"
 #include "WebShortcut.h"
 #include "Wtf8.h"
 #include "platform/SiteIcons.h"
+#include "platform/SwitchKeepAwake.h"
 
 #include <QGuiApplication>
 #include <QLocale>
 #include <QStyleHints>
+#include <QTime>
 
 #include <algorithm>
 
@@ -135,6 +139,43 @@ QString appOrigin(const SearchResult& r)
     }
 }
 
+// What Switches knows of a row's switch; any other row, and one whose switch
+// has no backend yet, is an ordinary place (Unsupported).
+SwitchState stateOf(const Switches* switches, const SearchResult& r)
+{
+    if (switches && !r.switchId.isEmpty())
+        return switches->state(r.switchId);
+    SwitchState none;
+    none.availability = SwitchState::Availability::Unsupported;
+    return none;
+}
+
+// The second line of a switch's row. Keep awake with an end time counts the
+// minutes left as of now, so that the row is right whenever it is drawn.
+QString switchNote(const SwitchState& state)
+{
+    if (state.until.isValid() && state.on == SwitchState::Value::On)
+        return SwitchKeepAwake::noteOf(state.until, QDateTime::currentDateTime());
+    return state.note;
+}
+
+// "1 小时", "90 分钟", "1 小时 30 分钟".
+QString durationText(int minutes)
+{
+    const int hours = minutes / 60;
+    const int rest = minutes % 60;
+    if (hours == 0)
+        return ResultModel::tr("%n 分钟", nullptr, rest);
+    if (rest == 0)
+        return ResultModel::tr("%n 小时", nullptr, hours);
+    return ResultModel::tr("%1 %2").arg(ResultModel::tr("%n 小时", nullptr, hours), ResultModel::tr("%n 分钟", nullptr, rest));
+}
+
+QString clockText(int minutesAfterMidnight)
+{
+    return QTime(minutesAfterMidnight / 60 % 24, minutesAfterMidnight % 60).toString(u"HH:mm"_s);
+}
+
 } // namespace
 
 ResultModel::ResultModel(QObject* parent)
@@ -156,6 +197,85 @@ ResultModel::ResultModel(QObject* parent)
                 emit dataChanged(index(row), index(row), {IconRole});
         }
     });
+}
+
+void ResultModel::setSwitches(Switches* switches)
+{
+    if (switches == m_switches)
+        return;
+    m_switches = switches;
+    if (!switches)
+        return;
+    // A switch changed (here, in another program, in Settings): its rows
+    // are not new rows, only their switch and second line are.
+    connect(switches, &Switches::changed, this, &ResultModel::switchChanged);
+    if (!m_items.isEmpty()) // read before this was set
+        emit dataChanged(index(0), index(count() - 1), {SwitchOnRole, SwitchReadyRole, FolderRole});
+}
+
+void ResultModel::switchChanged(const QString& id)
+{
+    for (int row = 0; row < count(); ++row) {
+        if (m_items[row].switchId == id)
+            emit dataChanged(index(row), index(row),
+                {SwitchOnRole, SwitchLevelRole, SwitchBusyRole, SwitchNoteRole, SwitchErrorRole, SwitchReadyRole,
+                    FolderRole});
+    }
+}
+
+int ResultModel::defaultRow() const
+{
+    for (int row = 0; row < count(); ++row) {
+        if (!m_items[row].statusRow)
+            return row;
+    }
+    return 0; // nothing else listed: the status row itself
+}
+
+QString ResultModel::switchWords(const SearchResult& row, const SwitchIntent& intent, bool title)
+{
+    using Kind = SwitchIntent::Kind;
+    const QString& id = row.switchId;
+    const QString& name = row.name;
+    // A space between Chinese and a Latin name: "关闭 WLAN", "打开 WLAN 设置"
+    // (simplified() takes the extra one out again where English has its own).
+    const bool latin = !name.isEmpty() && name.front().script() == QChar::Script_Latin;
+    const QString after = latin ? u' ' + name : name;  // after a Chinese verb
+    const QString inside = latin ? after + u' ' : name; // between Chinese words
+    switch (intent.kind) {
+    case Kind::Toggle:
+        return title ? name : tr("切换%1").arg(after).simplified();
+    case Kind::On:
+    case Kind::Off: {
+        const bool on = intent.kind == Kind::On;
+        if (id == u"theme")
+            return title ? (on ? tr("设为深色") : tr("设为浅色")) : (on ? tr("切换到深色") : tr("切换到浅色"));
+        if (id == u"hidden-files")
+            return on ? tr("显示隐藏的文件") : tr("不显示隐藏的文件");
+        if (id == u"file-extensions")
+            return on ? tr("显示文件扩展名") : tr("隐藏文件扩展名");
+        if (id == u"volume")
+            return on ? tr("取消静音") : tr("静音");
+        if (id == u"keep-awake")
+            return on ? tr("保持唤醒") : tr("结束保持唤醒");
+        return (on ? tr("打开%1").arg(after) : tr("关闭%1").arg(after)).simplified();
+    }
+    case Kind::SetLevel:
+    case Kind::LevelOnly: { // a step down, as resolved: the level it reaches
+        const int level = std::clamp(intent.value, 0, 100);
+        return title ? tr("音量设为 %1%").arg(level) : tr("音量设为 %1").arg(level);
+    }
+    case Kind::StepLevel:
+        return tr("音量 %1").arg(intent.value > 0 ? u"+"_s + QString::number(intent.value) : QString::number(intent.value));
+    case Kind::AwakeFor:
+        return title ? tr("保持唤醒 %1").arg(durationText(intent.value))
+                     : tr("保持唤醒到 %1").arg(QTime::currentTime().addSecs(intent.value * 60).toString(u"HH:mm"_s));
+    case Kind::AwakeUntil:
+        return tr("保持唤醒到 %1").arg(clockText(intent.value));
+    case Kind::OpenSettings:
+        return tr("打开%1设置").arg(inside).simplified();
+    }
+    return name;
 }
 
 int ResultModel::rowCount(const QModelIndex& parent) const
@@ -183,10 +303,14 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
     case NameRole:
         if (r->suggestion) // the words alone: five times 在 百度 中搜索“…” would hide them
             return r->words;
+        if (const QString title = switchTitle(*r); !title.isEmpty())
+            return title;
         return r->isWeb() && !r->words.isEmpty() ? webSearchTitle(*r) : r->name;
     case NameHtmlRole: {
         if (r->suggestion) // what was typed stands out in it, as in a file's name
             return highlighted(r->words, nameMatches(r->words, m_highlights), m_highlightColor);
+        if (const QString title = switchTitle(*r); !title.isEmpty())
+            return highlighted(title, nameMatches(title, m_highlights), m_highlightColor);
         if (r->isWeb() && !r->words.isEmpty()) { // the words stand out, whatever the query's terms
             std::pair<qsizetype, qsizetype> words;
             const QString title = webSearchTitle(*r, &words);
@@ -203,6 +327,18 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
         return out;
     }
     case FolderRole:
+        if (!r->switchId.isEmpty()) { // why it failed, or what to know of it, else where it is
+            const SwitchState state = stateOf(m_switches, *r);
+            if (!state.error.isEmpty())
+                return state.error;
+            // "音量 30" while muted: Enter brings the sound back too, as the row says.
+            if (state.ready() && state.on == SwitchState::Value::Off && m_switches
+                && m_switches->resolve(r->switchId, r->intent).kind == SwitchIntent::Kind::SetLevel)
+                return state.note.isEmpty() ? tr("已静音，会同时取消静音")
+                                            : tr("%1 · 已静音，会同时取消静音").arg(state.note);
+            if (const QString note = switchNote(state); !note.isEmpty())
+                return note;
+        }
         return r->isApp() ? appOrigin(*r) : parentFolder(r->path);
     case PathRole:
         return r->path;
@@ -286,9 +422,39 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
             out << start << length;
         return out;
     }
+    case SwitchIdRole:
+        return r->switchId;
+    case SwitchOnRole:
+        return static_cast<int>(stateOf(m_switches, *r).on);
+    case SwitchLevelRole:
+        return static_cast<int>(stateOf(m_switches, *r).level);
+    case SwitchBusyRole:
+        return stateOf(m_switches, *r).busy;
+    case SwitchNoteRole:
+        return switchNote(stateOf(m_switches, *r));
+    case SwitchErrorRole:
+        return stateOf(m_switches, *r).error;
+    case SwitchReadyRole: {
+        const auto availability = stateOf(m_switches, *r).availability;
+        return availability == SwitchState::Availability::Ready || availability == SwitchState::Availability::Unknown;
+    }
+    case StatusRowRole:
+        return r->statusRow;
     default:
         return {};
     }
+}
+
+QString ResultModel::switchTitle(const SearchResult& r) const
+{
+    if (r.switchId.isEmpty())
+        return {};
+    // A switch without a backend yet is a place: its name, as ever.
+    if (r.intent.kind != SwitchIntent::Kind::OpenSettings
+        && stateOf(m_switches, r).availability == SwitchState::Availability::Unsupported)
+        return {};
+    const QString title = switchWords(r, r.intent, true);
+    return title == r.name ? QString() : title;
 }
 
 QHash<int, QByteArray> ResultModel::roleNames() const
@@ -326,6 +492,14 @@ QHash<int, QByteArray> ResultModel::roleNames() const
         {MissingRole, "missing"},
         {FolderMatchesRole, "folderMatches"},
         {NameMatchesRole, "nameMatches"},
+        {SwitchIdRole, "switchId"},
+        {SwitchOnRole, "switchOn"},
+        {SwitchLevelRole, "switchLevel"},
+        {SwitchBusyRole, "switchBusy"},
+        {SwitchNoteRole, "switchNote"},
+        {SwitchErrorRole, "switchError"},
+        {SwitchReadyRole, "switchReady"},
+        {StatusRowRole, "statusRow"},
     };
 }
 

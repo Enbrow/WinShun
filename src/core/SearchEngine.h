@@ -172,6 +172,11 @@ public:
         // Listed first with nothing typed, the first few that match first
         // when typed, a favorite's keyword alone on top (after a web one).
         FavoriteList favorites;
+        // 全部, nothing typed: these places (as History has them,
+        // placePath) listed first, above the favorites, marked statusRow:
+        // a switch that is on and must be seen to be ended (keep awake).
+        // Others in the start list: none, a switch is never listed there.
+        QStringList pinnedPlaces;
     };
 
     explicit SearchEngine(

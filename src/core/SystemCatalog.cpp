@@ -311,7 +311,7 @@ void PlaceInfo::prepare()
         }
     };
     fold(keywords, folded);
-    fold(ownKeywords, ownFolded);
+    fold(ownKeywords + onWords + offWords, ownFolded); // a state word finds the switch too
 }
 
 QString PlaceInfo::path() const
@@ -367,10 +367,12 @@ std::size_t charsInName(std::string_view name, const Word& word)
 // keyword beats a name the word merely begins (30 + coverage), and pinyin
 // initials that happen to fit a name ("dns": 电脑设置); an own keyword
 // (places.txt) beats nearly every name. `initials` is set when only the first
-// letters of the keyword's characters fit ("glq" for 隔离区).
-int keywordScore(std::string_view keyword, const Word& word, bool own, bool& initials)
+// letters of the keyword's characters fit ("glq" for 隔离区). `weak` is set
+// when it is a guess: those initials, or the middle of a Chinese keyword.
+int keywordScore(std::string_view keyword, const Word& word, bool own, bool& initials, bool& weak)
 {
     initials = false;
+    weak = false;
     if (keyword == word.text)
         return own ? 50 : 30;
     int score = -1;
@@ -379,13 +381,16 @@ int keywordScore(std::string_view keyword, const Word& word, bool own, bool& ini
             score = 14;
         else if (text::isWordStart(keyword, pos))
             score = 10; // "saver" in "battery saver settings"
-        else if (word.han)
+        else if (word.han) {
             score = 8; // "网络连接" in "以太网网络连接"
+            weak = true;
+        }
     }
     if (score < 0 && word.pinyin.valid() && pinyin::hasHan(keyword)) {
         if (const auto span = word.pinyin.findUtf8(keyword); span && text::isWordStart(keyword, span->start)) {
             score = span->start == 0 && span->length == keyword.size() ? 14 : 10; // "spq" for 适配器
             initials = charCount(keyword.substr(span->start, span->length)) == word.text.size();
+            weak = initials;
         }
     }
     return score < 0 || !own ? score : score + 6;
@@ -434,6 +439,7 @@ std::vector<PlaceHit> searchPlaces(
         std::size_t index;
         int score;
         bool byInitials; // through a keyword's initials, not the name
+        bool weak; // see PlaceHit
     };
     std::vector<Found> found;
     int belowNames = std::numeric_limits<int>::max(); // the cap for those places
@@ -441,22 +447,29 @@ std::vector<PlaceHit> searchPlaces(
         const PlaceInfo& place = places[i];
         int score = matcher.matchName(place.nameUtf8);
         bool byInitials = false;
+        bool weak = true; // until every word is shown to be meant
         const bool excludedByName = std::any_of(excluded.begin(), excluded.end(),
             [&](const std::string& x) { return text::findFolded(place.nameUtf8, x) != text::npos; });
         if (byKeyword && !excludedByName) {
             // Each word in the name or in a keyword.
             int byWords = 0;
             std::size_t filled = 0; // characters of the name
+            bool anyWeak = false;
             for (const Word& w : words) {
                 const std::size_t inName = charsInName(place.nameUtf8, w);
                 int best = inName > 0 ? 8 : -1;
                 bool initials = false;
+                // Spelled out in the name: meant. Else, so far, a guess.
+                const bool inNameAsTyped = inName > 0 && text::findFolded(place.nameUtf8, w.text) != text::npos;
+                bool wordWeak = !inNameAsTyped;
                 const auto tryKeywords = [&](const std::vector<std::string>& keywords, bool own) {
                     for (const std::string& keyword : keywords) {
                         bool ini = false;
-                        if (const int s = keywordScore(keyword, w, own, ini); s > best) {
+                        bool guess = false;
+                        if (const int s = keywordScore(keyword, w, own, ini, guess); s > best) {
                             best = s;
                             initials = ini;
+                            wordWeak = guess && !inNameAsTyped;
                         }
                     }
                 };
@@ -471,7 +484,10 @@ std::vector<PlaceHit> searchPlaces(
                 byWords += best;
                 filled += inName;
                 byInitials = byInitials || (initials && inName == 0);
+                anyWeak = anyWeak || wordWeak;
             }
+            if (byWords >= 0)
+                weak = anyWeak;
             if (byWords > score) {
                 score = byWords;
             } else {
@@ -481,13 +497,13 @@ std::vector<PlaceHit> searchPlaces(
                 belowNames = std::min(belowNames, score - 1);
         }
         if (score >= 0)
-            found.push_back({i, score, byInitials});
+            found.push_back({i, score, byInitials, weak});
     }
     for (const Found& f : found) {
         int score = f.byInitials ? std::min(f.score, belowNames) : f.score;
         if (const auto it = recent.constFind(places[f.index].key); it != recent.cend())
             score += 20 - std::min(*it, 10);
-        hits.push_back({f.index, score});
+        hits.push_back({f.index, score, f.weak});
     }
     // Equal scores: the shorter name, which is more often the page itself
     // than one of the tasks on it.
@@ -497,11 +513,32 @@ std::vector<PlaceHit> searchPlaces(
         return places[a.index].name.size() < places[b.index].name.size();
     });
 
-    // One row per command: the tasks of a page all open the page.
+    // One row per command: the tasks of a page all open the page. A switch
+    // is one row per switch, not per command (hidden files and extensions
+    // open the same dialog); the page it shares its command with gives way
+    // to it, unless the page is the better match.
+    QHash<QString, int> switchScore; // command -> the best score of a switch with it
+    for (const PlaceHit& hit : hits) {
+        const PlaceInfo& place = places[hit.index];
+        if (place.switchId.isEmpty())
+            continue;
+        int& best = switchScore[place.command.toLower()];
+        best = std::max(best, hit.score);
+    }
     QSet<QString> commands;
+    QSet<QString> switches;
     std::erase_if(hits, [&](const PlaceHit& hit) {
-        const QString command = places[hit.index].command.toLower();
+        const PlaceInfo& place = places[hit.index];
+        if (!place.switchId.isEmpty()) {
+            if (switches.contains(place.switchId))
+                return true;
+            switches.insert(place.switchId);
+            return false;
+        }
+        const QString command = place.command.toLower();
         if (commands.contains(command))
+            return true;
+        if (const auto it = switchScore.constFind(command); it != switchScore.cend() && hit.score <= *it)
             return true;
         commands.insert(command);
         return false;
@@ -719,6 +756,9 @@ QStringList applyPlaceExtras(PlaceList& places, QStringView text, bool chinese)
             : kind == u"security"    ? AppKind::Security
                                      : AppKind::Tool;
         p.ownKeywords = keywords;
+        p.switchId = b.fields.value(u"switch"_s);
+        p.onWords = splitKeywords(b.fields.value(u"on"_s));
+        p.offWords = splitKeywords(b.fields.value(u"off"_s));
         if (!p.name.isEmpty())
             places.push_back(std::move(p));
     }
@@ -742,6 +782,12 @@ std::shared_ptr<const PlaceList> SystemCatalog::places() const
     static const auto kEmpty = std::make_shared<const PlaceList>();
     std::lock_guard lock(m_mutex);
     return m_places ? m_places : kEmpty;
+}
+
+void SystemCatalog::setPlaces(std::shared_ptr<const PlaceList> places)
+{
+    std::lock_guard lock(m_mutex);
+    m_places = std::move(places);
 }
 
 void SystemCatalog::refresh(bool force)

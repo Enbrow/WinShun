@@ -30,6 +30,7 @@
 #include "ShareIndexer.h"
 #include "ShareLister.h"
 #include "Snapshot.h"
+#include "SwitchCommand.h"
 #include "SystemCatalog.h"
 #include "TextUtil.h"
 #include "Unc.h"
@@ -554,6 +555,38 @@ struct SampleTree {
         windows = index.add(root, "Windows", EntryFlag::Directory | EntryFlag::LowPriority);
     }
 };
+
+// The places of Windows' Settings index that the system switches share a
+// command with (as Windows lists them, with the keywords it has for them),
+// and the switches of places.txt as shipped, applied the way loadPlaces does.
+PlaceList switchPlaces()
+{
+    const auto page = [](const QString& name, const QString& command, const QStringList& keywords) {
+        PlaceInfo p;
+        p.name = name;
+        p.key = name;
+        p.command = command;
+        p.kind = AppKind::Setting;
+        p.keywords = keywords;
+        p.page = true;
+        return p;
+    };
+    PlaceList places {
+        page(u"蓝牙和其他设备"_s, u"ms-settings:bluetooth"_s, {u"蓝牙"_s, u"bluetooth"_s, u"设备"_s}),
+        page(u"颜色"_s, u"ms-settings:colors"_s, {u"深色模式"_s, u"强调色"_s}),
+        page(u"声音"_s, u"ms-settings:sound"_s, {u"音量"_s, u"扬声器"_s}),
+        page(u"夜灯"_s, u"ms-settings:nightlight"_s, {u"夜间模式"_s}),
+        page(u"文件夹选项"_s, uR"(%windir%\system32\control.exe /name Microsoft.FolderOptions)"_s, {u"选项"_s}),
+        page(u"Wi-Fi"_s, u"ms-settings:network-wifi"_s, {u"wifi"_s, u"无线网络"_s}),
+        page(u"电池"_s, u"ms-settings:batterysaver"_s, {u"电源"_s, u"睡眠"_s}),
+    };
+    QFile file(u":/winshun/places.txt"_s);
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text))
+        applyPlaceExtras(places, QString::fromUtf8(file.readAll()), true);
+    for (PlaceInfo& p : places)
+        p.prepare();
+    return places;
+}
 
 } // namespace
 
@@ -5155,6 +5188,392 @@ private slots:
         QVERIFY(found(password, u"pass"_s));
         QVERIFY(found(password, u"password"_s));
         QVERIFY(found({u"pass-word"_s}, u"word"_s));
+    }
+
+    void switchExtras()
+    {
+        const QString text = u"[switch-test]\n"
+                             u"name = 深色模式 | Dark mode\n"
+                             u"switch = theme\n"
+                             u"open = ms-settings:colors\n"
+                             u"kind = settings\n"
+                             u"keywords = 深浅色; dark mode\n"
+                             u"on = 深色; dark\n"
+                             u"off = 浅色; light\n"
+                             u"[plain]\n"
+                             u"name = 运行 | Run\n"
+                             u"open = shell:::{2559a1f3}\n"_s;
+        PlaceList places;
+        QVERIFY(applyPlaceExtras(places, text, true).isEmpty());
+        QCOMPARE(places.size(), std::size_t {2});
+        QCOMPARE(places[0].name, u"深色模式"_s);
+        QCOMPARE(places[0].switchId, u"theme"_s);
+        QCOMPARE(places[0].ownKeywords, (QStringList {u"深浅色"_s, u"dark mode"_s}));
+        QCOMPARE(places[0].onWords, (QStringList {u"深色"_s, u"dark"_s}));
+        QCOMPARE(places[0].offWords, (QStringList {u"浅色"_s, u"light"_s}));
+        QVERIFY(places[0].kind == AppKind::Setting);
+        QVERIFY(places[1].switchId.isEmpty() && places[1].onWords.isEmpty() && places[1].offWords.isEmpty());
+        places[0].prepare();
+        QCOMPARE(places[0].ownFolded.size(), std::size_t {6}); // the state words find the switch too
+
+        PlaceList english;
+        applyPlaceExtras(english, text, false);
+        QCOMPARE(english[0].name, u"Dark mode"_s);
+        QCOMPARE(english[0].switchId, u"theme"_s);
+    }
+
+    void switchPlacesShipped()
+    {
+        const PlaceList places = switchPlaces();
+        QHash<QString, const PlaceInfo*> byId;
+        for (const PlaceInfo& p : places) {
+            if (!p.switchId.isEmpty())
+                byId.insert(p.switchId, &p);
+        }
+        const QStringList ids {u"theme"_s, u"hidden-files"_s, u"file-extensions"_s, u"bluetooth"_s, u"wlan"_s,
+            u"volume"_s, u"keep-awake"_s};
+        QCOMPARE(byId.size(), qsizetype {7});
+        for (const QString& id : ids)
+            QVERIFY2(byId.contains(id), qPrintable(id));
+        QCOMPARE(byId[u"bluetooth"_s]->key, u"winshun/switch-bluetooth"_s);
+        QCOMPARE(byId[u"bluetooth"_s]->command, u"ms-settings:bluetooth"_s);
+        QCOMPARE(byId[u"theme"_s]->key, u"winshun/switch-dark-mode"_s);
+        QCOMPARE(byId[u"keep-awake"_s]->key, u"winshun/switch-keep-awake"_s);
+        QVERIFY(std::all_of(byId.cbegin(), byId.cend(), [](const PlaceInfo* p) { return p->kind == AppKind::Setting; }));
+
+        // No word names two switches: "关××" has to know which one.
+        QHash<QString, QString> owner;
+        for (const QString& id : ids) {
+            const PlaceInfo& p = *byId[id];
+            for (const QString& word : QStringList {p.name} + p.ownKeywords + p.onWords + p.offWords) {
+                QVERIFY2(owner.value(word.toLower(), id) == id, qPrintable(word));
+                owner.insert(word.toLower(), id);
+            }
+        }
+
+        // What the switches took from the pages: the rest stays there.
+        const auto ownOf = [&](const QString& name) {
+            const auto it = std::find_if(places.begin(), places.end(), [&](const PlaceInfo& p) { return p.name == name; });
+            return it == places.end() ? QStringList {u"(none)"_s} : it->ownKeywords;
+        };
+        QCOMPARE(ownOf(u"蓝牙和其他设备"_s), (QStringList {u"配对"_s, u"蓝牙耳机"_s, u"添加设备"_s}));
+        QCOMPARE(ownOf(u"颜色"_s), (QStringList {u"主题色"_s, u"强调色"_s, u"透明效果"_s}));
+        QCOMPARE(ownOf(u"文件夹选项"_s), QStringList {u"文件夹选项"_s});
+        QCOMPARE(ownOf(u"Wi-Fi"_s), (QStringList {u"已知网络"_s, u"忘记网络"_s}));
+        QVERIFY(!ownOf(u"声音"_s).contains(u"音量"_s));
+    }
+
+    void switchCommandSyntax()
+    {
+        const PlaceList places = switchPlaces();
+        using K = SwitchIntent::Kind;
+        struct Case {
+            QStringView text;
+            QStringView id; // empty: not a command, searched as typed
+            K kind = K::Toggle;
+            int value = 0;
+            bool onTop = true; // false: a state word alone, an ordinary row
+        };
+        const std::vector<Case> cases {
+            // The switch alone: an ordinary row.
+            {u"蓝牙", {}}, {u"bluetooth", {}}, {u"bt", {}}, {u"ly", {}}, {u"音量", {}}, {u"深色模式", {}},
+            {u"dark mode", {}}, {u"深浅色", {}}, {u"隐藏文件", {}}, {u"hidden files", {}}, {u"扩展名", {}},
+            {u"后缀名", {}}, {u"file extensions", {}}, {u"保持唤醒", {}}, {u"唤醒", {}}, {u"不睡眠", {}},
+            {u"防止睡眠", {}}, {u"awake", {}}, {u"caffeine", {}}, {u"Bluetooth", {}}, {u"WiFi", {}},
+            // Verb and switch, either way round.
+            {u"开蓝牙", u"bluetooth", K::On}, {u"打开蓝牙", u"bluetooth", K::On}, {u"开启蓝牙", u"bluetooth", K::On},
+            {u"启用蓝牙", u"bluetooth", K::On}, {u"蓝牙开", u"bluetooth", K::On}, {u"蓝牙 开", u"bluetooth", K::On},
+            {u"bluetooth on", u"bluetooth", K::On}, {u"turn on bluetooth", u"bluetooth", K::On},
+            {u"enable bt", u"bluetooth", K::On}, {u"BLUETOOTH ON", u"bluetooth", K::On},
+            {u"关蓝牙", u"bluetooth", K::Off}, {u"关闭蓝牙", u"bluetooth", K::Off}, {u"关掉蓝牙", u"bluetooth", K::Off},
+            {u"关上蓝牙", u"bluetooth", K::Off}, {u"蓝牙关", u"bluetooth", K::Off}, {u"bluetooth off", u"bluetooth", K::Off},
+            {u"disable bt", u"bluetooth", K::Off}, {u"bt off", u"bluetooth", K::Off},
+            {u"停用蓝牙", u"bluetooth", K::Off}, {u"禁用蓝牙", u"bluetooth", K::Off},
+            {u"切换蓝牙", u"bluetooth", K::Toggle}, {u"蓝牙开关", u"bluetooth", K::Toggle},
+            {u"toggle bluetooth", u"bluetooth", K::Toggle},
+            {u"wifi off", u"wlan", K::Off}, {u"关 WiFi", u"wlan", K::Off}, {u"关闭无线网", u"wlan", K::Off},
+            {u"关wlan", u"wlan", K::Off}, {u"turn off wifi", u"wlan", K::Off}, {u"开 wi-fi", u"wlan", K::On},
+            // Full-width letters and digits are half-width.
+            {u"关闭ＷＬＡＮ", u"wlan", K::Off}, {u"音量　２０", u"volume", K::SetLevel, 20},
+            // The settings page.
+            {u"蓝牙设置", u"bluetooth", K::OpenSettings}, {u"深色模式设置", u"theme", K::OpenSettings},
+            {u"隐藏文件设置", u"hidden-files", K::OpenSettings}, {u"bluetooth settings", u"bluetooth", K::OpenSettings},
+            {u"wifi 选项", u"wlan", K::OpenSettings},
+            // A state word: alone it only tells Enter what to do.
+            {u"深色", u"theme", K::On, 0, false}, {u"暗色", u"theme", K::On, 0, false},
+            {u"dark", u"theme", K::On, 0, false}, {u"浅色", u"theme", K::Off, 0, false},
+            {u"亮色", u"theme", K::Off, 0, false}, {u"light", u"theme", K::Off, 0, false},
+            {u"静音", u"volume", K::Off, 0, false}, {u"mute", u"volume", K::Off, 0, false},
+            {u"取消静音", u"volume", K::On, 0, false}, {u"解除静音", u"volume", K::On, 0, false},
+            {u"unmute", u"volume", K::On, 0, false},
+            {u"结束保持唤醒", u"keep-awake", K::Off, 0, false}, {u"停止保持唤醒", u"keep-awake", K::Off, 0, false},
+            {u"stop keeping awake", u"keep-awake", K::Off, 0, false},
+            {u"显示隐藏文件", u"hidden-files", K::On, 0, false}, {u"show hidden files", u"hidden-files", K::On, 0, false},
+            {u"不显示隐藏文件", u"hidden-files", K::Off, 0, false}, {u"hide hidden files", u"hidden-files", K::Off, 0, false},
+            {u"显示扩展名", u"file-extensions", K::On, 0, false}, {u"隐藏扩展名", u"file-extensions", K::Off, 0, false},
+            {u"不显示后缀名", u"file-extensions", K::Off, 0, false},
+            // A verb with a state word.
+            {u"关闭深色", u"theme", K::Off}, {u"关深色模式", u"theme", K::Off}, {u"打开深色模式", u"theme", K::On},
+            {u"dark mode on", u"theme", K::On}, {u"开浅色", u"theme", K::Off}, {u"关闭静音", u"volume", K::On},
+            // Volume.
+            {u"音量 20", u"volume", K::SetLevel, 20}, {u"音量20", u"volume", K::SetLevel, 20},
+            {u"音量 20%", u"volume", K::SetLevel, 20}, {u"vol 20", u"volume", K::SetLevel, 20},
+            {u"volume 20", u"volume", K::SetLevel, 20}, {u"音量 0", u"volume", K::SetLevel, 0},
+            {u"音量 150", u"volume", K::SetLevel, 150}, {u"音量 +10", u"volume", K::StepLevel, 10},
+            {u"音量 -5", u"volume", K::StepLevel, -5}, {u"音量+10", u"volume", K::StepLevel, 10},
+            {u"音量 12345", {}}, {u"音量 abc", {}}, {u"蓝牙 20", {}},
+            // Keep awake.
+            {u"保持唤醒 1小时", u"keep-awake", K::AwakeFor, 60}, {u"保持唤醒 一小时", u"keep-awake", K::AwakeFor, 60},
+            {u"唤醒 60分钟", u"keep-awake", K::AwakeFor, 60}, {u"awake 1h", u"keep-awake", K::AwakeFor, 60},
+            {u"keep awake 90m", u"keep-awake", K::AwakeFor, 90}, {u"保持唤醒 半小时", u"keep-awake", K::AwakeFor, 30},
+            {u"保持唤醒 一个半小时", u"keep-awake", K::AwakeFor, 90}, {u"保持唤醒 1.5小时", u"keep-awake", K::AwakeFor, 90},
+            {u"保持唤醒 两小时", u"keep-awake", K::AwakeFor, 120}, {u"awake 2 hours", u"keep-awake", K::AwakeFor, 120},
+            {u"保持唤醒 到 18:00", u"keep-awake", K::AwakeUntil, 18 * 60},
+            {u"保持唤醒到18点", u"keep-awake", K::AwakeUntil, 18 * 60},
+            {u"保持唤醒 到18：30", u"keep-awake", K::AwakeUntil, 18 * 60 + 30},
+            {u"保持唤醒到9点半", u"keep-awake", K::AwakeUntil, 9 * 60 + 30},
+            {u"awake until 18:00", u"keep-awake", K::AwakeUntil, 18 * 60},
+            {u"关闭保持唤醒", u"keep-awake", K::Off}, {u"取消唤醒", u"keep-awake", K::Off},
+            {u"awake off", u"keep-awake", K::Off}, {u"开启保持唤醒", u"keep-awake", K::On},
+            {u"保持唤醒 100小时", {}}, {u"保持唤醒 0分钟", {}}, {u"保持唤醒 到 25:00", {}}, {u"保持唤醒 1", {}},
+            {u"音量 1小时", {}}, // a duration is for keeping awake only
+            // Not about a switch: searched as typed.
+            {u"夜间模式", {}}, {u"关于", {}}, {u"关机", {}}, {u"开始菜单", {}}, {u"打开方式", {}},
+            {u"关闭防火墙", {}}, {u"关闭实时保护", {}}, {u"开热点", {}}, {u"关闭更新", {}}, {u"启用网卡", {}},
+            {u"禁用网卡", {}}, {u"开蓝牙耳机", {}}, {u"关蓝牙和wifi", {}}, {u"蓝牙 设置 打开", {}}, {u"online", {}},
+            {u"daemon", {}}, {u"on", {}}, {u"关", {}}, {u"", {}}, {u"   ", {}}, {u"ext:txt", {}},
+        };
+        for (const Case& c : cases) {
+            const auto command = parseSwitchCommand(c.text, places);
+            const QString what = u"\""_s + c.text.toString() + u"\""_s;
+            if (c.id.isEmpty()) {
+                QVERIFY2(!command, qPrintable(what + u" should not be a command"_s));
+                continue;
+            }
+            QVERIFY2(command.has_value(), qPrintable(what + u" should be a command"_s));
+            QVERIFY2(places[command->place].switchId == c.id, qPrintable(what + u" is the switch " + places[command->place].switchId));
+            QVERIFY2(command->intent.kind == c.kind, qPrintable(what + u" has intent " + QString::number(int(command->intent.kind))));
+            QVERIFY2(command->intent.value == c.value, qPrintable(what + u" has value " + QString::number(command->intent.value)));
+            QVERIFY2(command->onTop == c.onTop, qPrintable(what + u" onTop " + QString::number(command->onTop)));
+        }
+        // No switch in the list: nothing is one.
+        QVERIFY(!parseSwitchCommand(u"关蓝牙", PlaceList {}));
+    }
+
+    void switchPlaceSearch()
+    {
+        const PlaceList places = switchPlaces();
+        const auto hits = [&](const QString& text, const QStringList& history = {}) {
+            const ParsedQuery query = ws::parseQuery(text);
+            const NameMatcher matcher(query);
+            return searchPlaces(places, query, matcher, history);
+        };
+        const auto names = [&](const QString& text, const QStringList& history = {}) {
+            QStringList out;
+            for (const PlaceHit& hit : hits(text, history))
+                out.append(places[hit.index].name);
+            return out;
+        };
+
+        // The switch is the one row of its concept: the page with the same command gives way.
+        QCOMPARE(names(u"蓝牙"_s), QStringList {u"蓝牙"_s});
+        QCOMPARE(names(u"bluetooth"_s), QStringList {u"蓝牙"_s});
+        QCOMPARE(names(u"深色"_s), QStringList {u"深色模式"_s});
+        QCOMPARE(names(u"深色模式"_s), QStringList {u"深色模式"_s});
+        QCOMPARE(names(u"音量"_s), QStringList {u"音量"_s});
+        QCOMPARE(names(u"静音"_s), QStringList {u"音量"_s});
+        QCOMPARE(names(u"wifi"_s), QStringList {u"WLAN"_s});
+        QCOMPARE(names(u"无线网络"_s), QStringList {u"WLAN"_s});
+        QCOMPARE(names(u"唤醒"_s), QStringList {u"保持唤醒"_s});
+        QCOMPARE(names(u"隐藏文件"_s), QStringList {u"显示隐藏的文件"_s});
+        QCOMPARE(names(u"扩展名"_s), QStringList {u"显示文件扩展名"_s});
+        // What the pages keep is still theirs.
+        QCOMPARE(names(u"蓝牙耳机"_s), QStringList {u"蓝牙和其他设备"_s});
+        QCOMPARE(names(u"扬声器"_s).value(0), u"声音"_s); // (the Control Panel's sound dialog too)
+        QVERIFY(!names(u"扬声器"_s).contains(u"音量"_s));
+        QCOMPARE(names(u"文件夹选项"_s), QStringList {u"文件夹选项"_s});
+        QCOMPARE(names(u"强调色"_s), QStringList {u"颜色"_s});
+        QCOMPARE(names(u"夜间模式"_s), QStringList {u"夜灯"_s}); // Windows' name for the night light, not dark mode
+        // Two switches with one command are two rows.
+        const QStringList both = names(u"显示"_s);
+        QVERIFY(both.contains(u"显示隐藏的文件"_s) && both.contains(u"显示文件扩展名"_s));
+        // A page the query names better than it names the switch stays, above it.
+        {
+            PlaceInfo page;
+            page.name = u"abc"_s;
+            page.key = u"k/page"_s;
+            page.command = u"x:one"_s;
+            PlaceInfo sw;
+            sw.name = u"开关"_s;
+            sw.key = u"k/switch"_s;
+            sw.command = u"X:ONE"_s;
+            sw.switchId = u"one"_s;
+            sw.ownKeywords = {u"abc"_s};
+            PlaceInfo other = sw;
+            other.name = u"另一个"_s;
+            other.key = u"k/other"_s;
+            other.command = u"x:other"_s;
+            other.ownKeywords = {u"abc"_s};
+            PlaceList mixed {sw, page, other};
+            for (PlaceInfo& p : mixed)
+                p.prepare();
+            const ParsedQuery query = ws::parseQuery(u"abc"_s);
+            const NameMatcher matcher(query);
+            QStringList found;
+            for (const PlaceHit& hit : searchPlaces(mixed, query, matcher, {}))
+                found.append(mixed[hit.index].name);
+            // The page (a name spelled out) above the switch; "another" has the same switch id: one row.
+            QCOMPARE(found, (QStringList {u"abc"_s, u"开关"_s}));
+        }
+
+        // How sure a hit is: the initials of a Chinese keyword are a guess.
+        const auto weak = [&](const QString& text) {
+            const std::vector<PlaceHit> found = hits(text);
+            return found.empty() ? std::optional<bool>() : std::optional<bool>(found.front().weak);
+        };
+        QCOMPARE(weak(u"ly"_s), std::optional<bool>(true));
+        QCOMPARE(weak(u"lanya"_s), std::optional<bool>(false)); // spelled out
+        QCOMPARE(weak(u"蓝牙"_s), std::optional<bool>(false));
+        QCOMPARE(weak(u"bt"_s), std::optional<bool>(false));
+        QCOMPARE(weak(u"blue"_s), std::optional<bool>(false));
+        QCOMPARE(weak(u"dark"_s), std::optional<bool>(false));
+        QCOMPARE(names(u"ly"_s).value(0), u"蓝牙"_s);
+    }
+
+    void switchRowsInSearch()
+    {
+        QTemporaryDir dir;
+        IndexService::Options options;
+        options.content.enabled = false;
+        IndexService service(dir.path() + u"/index"_s, options);
+        AppCatalog apps;
+        SystemCatalog catalog;
+        const auto setApps = [&](const QStringList& names) {
+            auto list = std::make_shared<AppList>();
+            for (const QString& name : names) {
+                AppInfo a;
+                a.name = name;
+                a.id = uR"(C:\Apps\)"_s + name + u".exe"_s;
+                a.target = a.id;
+                a.prepare();
+                list->push_back(std::move(a));
+            }
+            apps.setApps(list);
+        };
+        setApps({});
+        const auto places = std::make_shared<const PlaceList>(switchPlaces());
+        catalog.setPlaces(places);
+        const QString bluetoothPage = (*places)[0].path();
+        const auto keepAwake = std::find_if(places->begin(), places->end(), [](const PlaceInfo& p) { return p.switchId == u"keep-awake"_s; });
+        QVERIFY(keepAwake != places->end());
+
+        SearchEngine engine(&service, &apps, &catalog);
+        QSignalSpy spy(&engine, &SearchEngine::resultsReady);
+        const auto search = [&](const QString& text, Scope scope = Scope::All, const QStringList& history = {},
+                                const QStringList& pinned = {}) {
+            spy.clear();
+            SearchEngine::Request request;
+            request.text = text;
+            request.scope = scope;
+            request.history = history;
+            request.pinnedPlaces = pinned;
+            engine.submit(std::move(request));
+            if (!spy.wait(5000))
+                return SearchResults {};
+            return spy.at(0).at(1).value<SearchResults>();
+        };
+        const auto switches = [](const SearchResults& rows) {
+            QStringList ids;
+            for (const SearchResult& r : rows) {
+                if (!r.switchId.isEmpty())
+                    ids.append(r.switchId);
+            }
+            return ids;
+        };
+        const auto indexOfSwitch = [](const SearchResults& rows, const QString& id) {
+            const auto it = std::find_if(rows.cbegin(), rows.cend(), [&](const SearchResult& r) { return r.switchId == id; });
+            return it == rows.cend() ? qsizetype {-1} : it - rows.cbegin();
+        };
+
+        // A command: the switch with what was asked, first; the page and the plain row give way.
+        SearchResults rows = search(u"关蓝牙"_s);
+        QVERIFY(!rows.isEmpty());
+        QCOMPARE(rows[0].switchId, u"bluetooth"_s);
+        QVERIFY(rows[0].intent == (SwitchIntent {SwitchIntent::Kind::Off, 0}));
+        QVERIFY(rows[0].isPlace());
+        QCOMPARE(rows[0].target, u"ms-settings:bluetooth"_s);
+        QVERIFY(!rows[0].statusRow);
+        QCOMPARE(switches(rows), QStringList {u"bluetooth"_s});
+        QVERIFY(std::none_of(rows.cbegin(), rows.cend(), [&](const SearchResult& r) { return r.path == bluetoothPage; }));
+
+        rows = search(u"音量 30"_s);
+        QCOMPARE(rows.value(0).switchId, u"volume"_s);
+        QVERIFY(rows[0].intent == (SwitchIntent {SwitchIntent::Kind::SetLevel, 30}));
+        rows = search(u"蓝牙设置"_s);
+        QCOMPARE(rows.value(0).switchId, u"bluetooth"_s);
+        QVERIFY(rows[0].intent.kind == SwitchIntent::Kind::OpenSettings);
+        QCOMPARE(switches(rows), QStringList {u"bluetooth"_s});
+
+        // The switch alone: the ordinary row, Enter toggles; the page is not listed.
+        rows = search(u"蓝牙"_s);
+        QCOMPARE(rows.value(0).switchId, u"bluetooth"_s);
+        QVERIFY(rows[0].intent == SwitchIntent {});
+        QCOMPARE(rows.size(), qsizetype {1});
+        // A state word alone is an ordinary row that knows what Enter does.
+        rows = search(u"深色"_s);
+        QCOMPARE(rows.value(0).switchId, u"theme"_s);
+        QVERIFY(rows[0].intent == (SwitchIntent {SwitchIntent::Kind::On, 0}));
+        rows = search(u"静音"_s);
+        QCOMPARE(rows.value(0).switchId, u"volume"_s);
+        QVERIFY(rows[0].intent == (SwitchIntent {SwitchIntent::Kind::Off, 0}));
+        // Not about a switch.
+        QVERIFY(switches(search(u"夜间模式"_s)).isEmpty());
+        QCOMPARE(search(u"夜间模式"_s).value(0).name, u"夜灯"_s);
+
+        // A state word does not push an app named so down; "dark" ...
+        setApps({u"dark"_s});
+        rows = search(u"dark"_s);
+        QCOMPARE(rows.value(0).name, u"dark"_s);
+        QVERIFY(rows[0].app == AppKind::Desktop);
+        QVERIFY(indexOfSwitch(rows, u"theme"_s) > 0);
+        // ... and a guess does not push an app found as well down either.
+        setApps({u"蓝宇"_s});
+        rows = search(u"ly"_s);
+        QCOMPARE(rows.value(0).name, u"蓝宇"_s);
+        QVERIFY(indexOfSwitch(rows, u"bluetooth"_s) > 0);
+        // With no such app the guess is first.
+        setApps({});
+        rows = search(u"ly"_s);
+        QCOMPARE(rows.value(0).switchId, u"bluetooth"_s);
+        // A name spelled out is not a guess.
+        setApps({u"蓝牙助手"_s});
+        QCOMPARE(search(u"蓝牙"_s).value(0).switchId, u"bluetooth"_s);
+        setApps({});
+
+        // Files, folders and contents: no switch rows.
+        for (const Scope scope : {Scope::Files, Scope::Folders}) {
+            for (const QString& text : {u"关蓝牙"_s, u"蓝牙"_s, u"静音"_s})
+                QVERIFY(switches(search(text, scope)).isEmpty());
+        }
+
+        // The start list: never a switch, even one in the history.
+        const QString switchPath = keepAwake->path();
+        rows = search(QString(), Scope::All, {switchPath, bluetoothPage});
+        QCOMPARE(rows.size(), qsizetype {1});
+        QCOMPARE(rows[0].path, bluetoothPage);
+        QVERIFY(switches(rows).isEmpty());
+        // ... but one asked to be kept in view, first, marked.
+        rows = search(QString(), Scope::All, {switchPath, bluetoothPage}, {switchPath});
+        QCOMPARE(rows.size(), qsizetype {2});
+        QCOMPARE(rows[0].switchId, u"keep-awake"_s);
+        QVERIFY(rows[0].statusRow);
+        QVERIFY(!rows[1].statusRow);
+        QCOMPARE(rows[1].path, bluetoothPage);
+        rows = search(QString(), Scope::All, {}, {switchPath, switchPath, bluetoothPage}); // a switch only, once
+        QCOMPARE(rows.size(), qsizetype {1});
+        QVERIFY(search(QString(), Scope::Files, {}, {switchPath}).isEmpty());
+        QVERIFY(switches(search(u"蓝牙"_s, Scope::All, {}, {switchPath})).size() == 1); // typing: no pinned row
+        QVERIFY(!search(u"蓝牙"_s, Scope::All, {}, {switchPath}).first().statusRow);
     }
 
     void appLogoChoice()

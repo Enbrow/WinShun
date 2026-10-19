@@ -25,8 +25,81 @@
 #    打开命令和清单里某一条相同时，搜索结果里只出现得分高的那一条。
 #    程序或管理单元（.msc）不存在的入口不显示（家庭版没有 gpedit.msc）。
 #
+#    系统开关是带 switch 的新入口：搜索框里一行，看得到现状，回车就地切换（docs/design-system-switches.md）。
+#    switch 是固定的英文 id（程序按它找后端，不要改）；open 是 Ctrl+Enter 去的设置页；
+#    keywords 是开关本身的叫法（“蓝牙”），on / off 是自带状态的词（“深色”就是主题设为深色）。
+#    名字、keywords、on、off 合起来不能让两个开关共用同一个词，否则“关××”会认不出是哪一个。
+#    原来页面条目上的同类关键词已经挪到开关上；开关和页面同命令时，页面让位。
+#
 # 关键词用分号隔开，拼音自动可用（“wk”能找到“网卡”），不用另写。
 # 单个字不按关键词匹配，所以不必写“卡”“网”这样的单字。
+
+# ---------------------------------------------------------------- 系统开关
+
+[switch-dark-mode]
+name = 深色模式 | Dark mode
+switch = theme
+open = ms-settings:colors
+kind = settings
+icon = app:windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel
+keywords = 深色模式; 暗色模式; 黑暗模式; 夜间主题; 深浅色; 浅色模式; dark mode; light mode; dark theme; light theme
+on = 深色; 暗色; 黑色主题; dark
+off = 浅色; 亮色; 白色主题; light
+
+[switch-hidden-files]
+name = 显示隐藏的文件 | Hidden files
+switch = hidden-files
+open = %windir%\system32\rundll32.exe shell32.dll,Options_RunDLL 7
+kind = settings
+icon = shell:::{26EE0668-A00A-44D7-9371-BEB064C98683}
+keywords = 隐藏文件; 隐藏的文件; hidden files; hidden file
+on = 显示隐藏文件; show hidden files
+off = 不显示隐藏文件; 不显示隐藏的文件; hide hidden files
+
+[switch-file-extensions]
+name = 显示文件扩展名 | File extensions
+switch = file-extensions
+open = %windir%\system32\rundll32.exe shell32.dll,Options_RunDLL 7
+kind = settings
+icon = shell:::{26EE0668-A00A-44D7-9371-BEB064C98683}
+keywords = 扩展名; 后缀名; 文件扩展名; 文件后缀; file extensions; file extension; extensions
+on = 显示扩展名; 显示后缀名; show file extensions; show extensions
+off = 隐藏扩展名; 隐藏后缀名; 不显示扩展名; 不显示后缀名; hide file extensions; hide extensions
+
+[switch-bluetooth]
+name = 蓝牙 | Bluetooth
+switch = bluetooth
+open = ms-settings:bluetooth
+kind = settings
+icon = app:windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel
+keywords = 蓝牙; bluetooth; bt
+
+[switch-wlan]
+name = WLAN | WLAN
+switch = wlan
+open = ms-settings:network-wifi
+kind = settings
+icon = app:windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel
+keywords = wifi; wi-fi; wlan; 无线; 无线网; 无线网络
+
+[switch-volume]
+name = 音量 | Volume
+switch = volume
+open = ms-settings:sound
+kind = settings
+icon = app:windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel
+keywords = 音量; 声音大小; volume; vol
+on = 取消静音; 解除静音; 恢复声音; unmute
+off = 静音; mute
+
+[switch-keep-awake]
+name = 保持唤醒 | Keep awake
+switch = keep-awake
+open = ms-settings:powersleep
+kind = settings
+icon = app:windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel
+keywords = 保持唤醒; 唤醒; 不睡眠; 防止睡眠; 阻止睡眠; keep awake; stay awake; awake; caffeine
+off = 结束保持唤醒; 停止保持唤醒; 取消保持唤醒; 允许睡眠; stop keeping awake; end keep awake
 
 # ---------------------------------------------------------------- 网络
 
@@ -43,7 +116,7 @@ keywords = 高级网络设置; 网络重置; 重置网络; 网络适配器
 keywords = 代理; 代理服务器; 系统代理; 梯子; 翻墙; proxy; pac
 
 [ms-settings:network-wifi]
-keywords = wifi; wi-fi; 无线; 无线网; 无线网络; wlan; 已知网络; 忘记网络
+keywords = 已知网络; 忘记网络
 
 [ms-settings:network-ethernet]
 keywords = 以太网; 有线网络; 网线; ip地址; dns
@@ -108,7 +181,7 @@ keywords = 关于; 电脑配置; 配置; 系统信息; 系统版本; 版本号; 
 keywords = 显示; 屏幕; 显示器; 分辨率; 缩放; 缩放比例; dpi; 刷新率; 多显示器; 扩展屏幕; 副屏; 亮度; 夜间模式; 护眼模式; hdr
 
 [ms-settings:sound]
-keywords = 声音; 音量; 扬声器; 耳机; 音箱; 麦克风; 输出设备; 输入设备; 声音设置
+keywords = 声音; 扬声器; 耳机; 音箱; 麦克风; 输出设备; 输入设备; 声音设置
 
 [ms-settings:batterysaver]
 keywords = 电源; 电池; 省电; 节电模式; 睡眠; 休眠; 关闭屏幕; 盖上盖子; 电源模式
@@ -163,7 +236,7 @@ keywords = 启动项; 开机启动; 开机自启; 自启动; 开机启动项; �
 keywords = 壁纸; 桌面壁纸; 桌面背景; 背景图片; 换壁纸
 
 [ms-settings:colors]
-keywords = 深色模式; 浅色模式; 暗色模式; 黑暗模式; 夜间主题; 主题色; 强调色; 透明效果
+keywords = 主题色; 强调色; 透明效果
 
 [ms-settings:themes]
 keywords = 主题; 桌面图标; 此电脑图标; 回收站图标; 鼠标指针
@@ -196,7 +269,7 @@ keywords = 鼠标; 鼠标速度; 指针速度; 滚轮; 滚动行数; 左右键
 keywords = 触摸板; 触控板; 手势
 
 [ms-settings:bluetooth]
-keywords = 蓝牙; bluetooth; 配对; 蓝牙耳机; 添加设备
+keywords = 配对; 蓝牙耳机; 添加设备
 
 [ms-settings:printers]
 keywords = 打印机; 扫描仪; 添加打印机; 打印
@@ -228,7 +301,7 @@ keywords = 凭据; 凭证; 保存的密码; 密码管理; windows凭据; 网络�
 keywords = 防火墙; 关闭防火墙; firewall; firewall.cpl
 
 [%windir%\system32\control.exe /name Microsoft.FolderOptions]
-keywords = 文件夹选项; 显示隐藏文件; 隐藏文件; 扩展名; 显示扩展名; 文件扩展名; 后缀名
+keywords = 文件夹选项
 
 [%windir%\system32\control.exe /name Microsoft.RegionAndLanguage]
 keywords = 区域; 系统区域设置; 非unicode; 乱码; intl.cpl

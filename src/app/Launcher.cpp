@@ -11,6 +11,8 @@
 #include "Query.h"
 #include "SearchEngine.h"
 #include "ShareLister.h"
+#include "SwitchBackend.h"
+#include "Switches.h"
 #include "SystemCatalog.h"
 #include "Unc.h"
 #include "platform/DragOut.h"
@@ -28,6 +30,7 @@
 #include <QRegularExpression>
 #include <QScreen>
 #include <QSet>
+#include <QSettings>
 #include <QStyleHints>
 
 #include <windows.h>
@@ -222,6 +225,12 @@ Launcher::Launcher(IndexService* index, AppCatalog* apps, SystemCatalog* places,
     connect(&m_statusPoll, &QTimer::timeout, this, [this] {
         if (m_index->state() != IndexService::State::Ready || m_index->isRefreshing())
             refreshStatus();
+    });
+
+    m_awakeTick.setSingleShot(true);
+    connect(&m_awakeTick, &QTimer::timeout, this, [this] {
+        m_results.switchChanged(u"keep-awake"_s); // its second line counts the minutes
+        scheduleAwakeTick();
     });
 
     m_slowSearch.setSingleShot(true);
@@ -658,6 +667,36 @@ bool Launcher::hasFavorites() const
     return m_favorites && !m_favorites->items().isEmpty();
 }
 
+void Launcher::setSwitches(Switches* switches, const QString& stateFile)
+{
+    if (m_switches)
+        disconnect(m_switches, nullptr, this, nullptr);
+    m_switches = switches;
+    m_stateFile = stateFile;
+    m_switchPageTold = !stateFile.isEmpty() && QSettings(stateFile, QSettings::IniFormat).value(u"Hints/SwitchPage"_s).toBool();
+    m_results.setSwitches(switches);
+    if (!switches)
+        return;
+    // What Enter does on the row the keyboard is on follows its switch, whoever changed it.
+    connect(switches, &Switches::changed, this, [this](const QString& id) {
+        const SearchResult* r = m_results.at(m_currentRow);
+        if (r && r->switchId == id)
+            refreshKeyHints();
+        if (id == u"keep-awake" && m_window && m_window->isVisible())
+            scheduleAwakeTick(); // turned on or off, or given another end time
+    });
+    // A toggle that had to wait for the state is done, or given up.
+    connect(switches, &Switches::waitEnded, this, [this](const QString& id, Switches::Outcome outcome) {
+        const auto waiting = m_switchWaiting.find(id);
+        if (waiting == m_switchWaiting.end())
+            return;
+        const SearchResult row = waiting.value();
+        m_switchWaiting.erase(waiting);
+        if (m_window && m_window->isVisible()) // closed meanwhile: it is not opened or said after the fact
+            switchOutcome(row, {}, static_cast<int>(outcome));
+    });
+}
+
 void Launcher::setResultOptions(KindOrder kindOrder, bool showModified, bool thumbnails, const QString& numberKeys)
 {
     m_results.setThumbnails(thumbnails);
@@ -834,6 +873,9 @@ void Launcher::handleShown()
     m_statusPoll.start();
     m_apps->refresh(); // reads the list again only if apps were installed or removed
     m_places->refresh(); // ... if Windows was updated or its language changed
+    if (m_switches)
+        m_switches->refresh(); // the switches' rows show what they are now
+    scheduleAwakeTick();
     search(); // refresh: files may have changed, and "recent" certainly has
     emit historyChanged(); // things were opened since
     refreshFrequentApps();
@@ -904,6 +946,7 @@ void Launcher::handleHidden()
     m_results.setSelection({});
     m_held.reset();
     m_statusPoll.stop();
+    m_awakeTick.stop();
     m_contentDebounce.stop();
     m_slowSearch.stop();
     m_searchSlow = false;
@@ -1048,6 +1091,12 @@ void Launcher::search(bool more)
     request.web = m_web;
     if (m_favorites)
         request.favorites = m_favorites->items();
+    // Keep awake is Win顺's own state: while it is on it is listed first, to be seen and ended.
+    if (m_switches) {
+        const SwitchState awake = m_switches->state(u"keep-awake");
+        if (awake.ready() && awake.on == SwitchState::Value::On)
+            request.pinnedPlaces = {placePath(u"winshun/switch-keep-awake"_s)};
+    }
     m_requestId = m_engine->submit(std::move(request)); // also stops a running content scan
     m_nameRequestId = m_requestId;
     m_pending = true;
@@ -1870,6 +1919,7 @@ void Launcher::refreshKeyHints()
         : completionRow(m_currentRow)                          ? tr("补全")
         : m_keyword                                            ? QString()
                                                                : tr("切换范围");
+    QString tabKeys = u"Tab"_s; // the volume's row: its place is Alt+←→'s (Tab still does the same)
     const SearchResult* r = m_results.at(m_currentRow);
     if (!r) {
         if (!m_keyword) {
@@ -1899,6 +1949,12 @@ void Launcher::refreshKeyHints()
         enter = r->words.isEmpty() ? tr("打开网站") : tr("搜索");
     } else if (r->isPlace()) {
         enter = tr("打开");
+        if (!r->switchId.isEmpty())
+            switchKeyHints(*r, enter, secondKeys, second);
+        if (steppable(*r)) {
+            tabKeys = u"Alt+←→"_s;
+            tab = tr("调音量");
+        }
     } else if (r->isApp()) {
         enter = tr("打开");
         if (!r->target.isEmpty()) {
@@ -1910,11 +1966,45 @@ void Launcher::refreshKeyHints()
         secondKeys = u"Ctrl+Enter"_s;
         second = tr("打开位置");
     }
-    const QVariantMap hints {{u"enter"_s, enter}, {u"secondKeys"_s, secondKeys}, {u"second"_s, second}, {u"tab"_s, tab}};
+    const QVariantMap hints {{u"enter"_s, enter}, {u"secondKeys"_s, secondKeys}, {u"second"_s, second}, {u"tab"_s, tab},
+        {u"tabKeys"_s, tabKeys}};
     if (hints == m_keyHints)
         return;
     m_keyHints = hints;
     emit keyHintsChanged();
+}
+
+// The words of Enter and of the second key on a system switch's row: the
+// state it goes to, not "打开" (that means a file here, and "Esc 关闭" is
+// the window). Before the first read, "切换"; a switch that cannot be
+// switched here (no device, not allowed) opens its page; one without a
+// backend is an ordinary place.
+void Launcher::switchKeyHints(const SearchResult& row, QString& enter, QString& secondKeys, QString& second) const
+{
+    using Kind = SwitchIntent::Kind;
+    if (!m_switches)
+        return;
+    if (row.intent.kind == Kind::OpenSettings) { // "蓝牙设置": the page is what was asked for
+        enter = ResultModel::switchWords(row, row.intent, false);
+        return;
+    }
+    if (!liveSwitch(row))
+        return;
+    if (!drawsSwitch(row)) {
+        enter = tr("打开设置");
+        return;
+    }
+    const SwitchState state = m_switches->state(row.switchId);
+    const SwitchIntent resolved = m_switches->resolve(row.switchId, row.intent);
+    enter = ResultModel::switchWords(row, resolved, false);
+    if (row.switchId == u"theme" && state.on == SwitchState::Value::Mixed && row.intent.kind == Kind::Toggle)
+        enter = resolved.kind == Kind::On ? tr("全部切到深色") : tr("全部切到浅色");
+    if (row.intent.kind == Kind::SetLevel && row.intent.value > 100) // "音量 150"
+        enter = tr("%1（最大 100）").arg(enter);
+    if (resolved.kind == Kind::Off && state.carriesInternet) // WLAN off, the internet with it: said, not asked
+        enter = tr("%1（会断网）").arg(enter);
+    secondKeys = u"Ctrl+Enter"_s;
+    second = row.switchId == u"keep-awake" ? tr("电源设置") : tr("打开设置");
 }
 
 void Launcher::flash(const QString& message)
@@ -2434,6 +2524,59 @@ void Launcher::trigger(int row, int action)
         perform(*r, static_cast<Action>(action));
 }
 
+void Launcher::clickRow(int row, bool onSwitch)
+{
+    const SearchResult* r = m_results.at(row);
+    if (r && drawsSwitch(*r)) {
+        // Two clicks within the system's double-click interval are one: the
+        // second would switch it back (the first press of a double click gets
+        // its clicked(), the second may not: see pitfalls, so decided here).
+        if (m_clickedSwitch == r->path && m_switchClicked.isValid()
+            && m_switchClicked.elapsed() < QGuiApplication::styleHints()->mouseDoubleClickInterval())
+            return;
+        m_clickedSwitch = r->path;
+        m_switchClicked.start();
+        if (onSwitch && r->intent.kind != SwitchIntent::Kind::Toggle) { // its switch is the state, whatever the row asks
+            SearchResult plain = *r;
+            plain.intent = {};
+            perform(plain, Open);
+            return;
+        }
+    }
+    trigger(row, Open);
+}
+
+bool Launcher::isSwitchRow(int row) const
+{
+    const SearchResult* r = m_results.at(row);
+    return r && drawsSwitch(*r);
+}
+
+bool Launcher::stepSwitch(int row, int steps)
+{
+    const SearchResult* r = m_results.at(row);
+    if (!r || !steppable(*r))
+        return false;
+    const SearchResult stepped = *r;
+    const SwitchState state = m_switches->state(stepped.switchId);
+    const SwitchIntent resolved = state.level >= 0 ? Switches::stepped(state.level, steps)
+                                                   : SwitchIntent {SwitchIntent::Kind::StepLevel, steps * 5};
+    // Not remembered as a use (Enter is): a key held down would count dozens.
+    // Nor are the words selected: the keys go on with the same row.
+    switch (m_switches->step(stepped.switchId, steps)) {
+    case Switches::Outcome::Already: // at 0 or 100 already
+        flash(switchAlready(stepped, resolved));
+        emit m_results.switchNudged(stepped.switchId);
+        break;
+    case Switches::Outcome::NotRead:
+        flash(tr("还没读到%1的状态").arg(stepped.name));
+        break;
+    default: // Started; Busy: that level is on its way already
+        break;
+    }
+    return true;
+}
+
 void Launcher::triggerSelection(int action)
 {
     const SearchResults items = m_results.selection();
@@ -2471,7 +2614,7 @@ void Launcher::dragOut(int row)
 void Launcher::toggleSelected(int row)
 {
     const SearchResult* r = m_results.at(row);
-    if (!r)
+    if (!r || drawsSwitch(*r)) // a switch's row is acted on alone: Enter switches it
         return;
     QSet<QString> paths = m_results.selectedPaths();
     if (!paths.remove(r->path))
@@ -2483,7 +2626,7 @@ void Launcher::selectRange(int from, int to, bool add)
 {
     QSet<QString> paths = add ? m_results.selectedPaths() : QSet<QString>();
     for (int row = std::max(0, std::min(from, to)); row <= std::max(from, to); ++row) {
-        if (const SearchResult* r = m_results.at(row))
+        if (const SearchResult* r = m_results.at(row); r && !drawsSwitch(*r))
             paths.insert(r->path);
     }
     m_results.setSelection(std::move(paths));
@@ -2691,6 +2834,8 @@ void Launcher::performApp(const SearchResult& app, Action action)
 // It has no file of its own to reveal or copy: copying takes the command.
 void Launcher::performPlace(const SearchResult& place, Action action)
 {
+    if (!place.switchId.isEmpty() && performSwitch(place, action))
+        return;
     switch (action) {
     case Open:
     case RunAsAdmin:
@@ -2720,8 +2865,138 @@ void Launcher::performPlace(const SearchResult& place, Action action)
     case FavoriteFolder:
     case EditFavorite:
     case OpenTerminal:
+    case SwitchOn:
+    case SwitchOff:
         break;
     }
+}
+
+bool Launcher::liveSwitch(const SearchResult& row) const
+{
+    return !row.switchId.isEmpty() && m_switches
+        && m_switches->state(row.switchId).availability != SwitchState::Availability::Unsupported;
+}
+
+bool Launcher::drawsSwitch(const SearchResult& row) const
+{
+    if (!liveSwitch(row))
+        return false;
+    const auto availability = m_switches->state(row.switchId).availability;
+    return availability == SwitchState::Availability::Ready || availability == SwitchState::Availability::Unknown;
+}
+
+bool Launcher::steppable(const SearchResult& row) const
+{
+    return row.switchId == u"volume" && drawsSwitch(row);
+}
+
+// A system switch's row: Enter (a click, a number key) switches it with the
+// window left open, Ctrl+Enter opens its page. False: no backend for it yet,
+// an ordinary place; likewise for copying and the like.
+bool Launcher::performSwitch(const SearchResult& row, Action action)
+{
+    if (!liveSwitch(row))
+        return false;
+    SwitchIntent intent = row.intent;
+    switch (action) {
+    case Reveal:
+        openSwitchPage(row);
+        return true;
+    case SwitchOn:
+        intent = {SwitchIntent::Kind::On, 0};
+        break;
+    case SwitchOff:
+        intent = {SwitchIntent::Kind::Off, 0};
+        break;
+    case Open:
+    case RunAsAdmin: // no switch needs more rights
+        break;
+    default:
+        return false;
+    }
+    const SwitchIntent resolved = m_switches->resolve(row.switchId, intent);
+    switchOutcome(row, resolved, static_cast<int>(m_switches->apply(row.switchId, intent)));
+    return true;
+}
+
+void Launcher::switchOutcome(const SearchResult& row, const SwitchIntent& resolved, int outcome)
+{
+    using Outcome = Switches::Outcome;
+    switch (static_cast<Outcome>(outcome)) {
+    case Outcome::OpenPage: // nothing to switch here (no device, not allowed): the page, as before
+        openSwitchPage(row);
+        return;
+    case Outcome::NotRead:
+        flash(tr("还没读到%1的状态").arg(row.name));
+        break;
+    case Outcome::Started:
+        remember(row.path, m_shownText); // counted for the next search; the list on screen does not move
+        if (!m_switchPageTold) { // who pressed Enter on 蓝牙 for its page, once
+            m_switchPageTold = true;
+            if (!m_stateFile.isEmpty())
+                QSettings(m_stateFile, QSettings::IniFormat).setValue(u"Hints/SwitchPage"_s, true);
+            flash(tr("要打开设置页：Ctrl+Enter"));
+        }
+        break;
+    case Outcome::Already:
+        flash(switchAlready(row, resolved));
+        emit m_results.switchNudged(row.switchId);
+        break;
+    case Outcome::Waiting:
+        m_switchWaiting.insert(row.switchId, row);
+        break;
+    case Outcome::Busy:
+        break;
+    }
+    // The window stays and the keyboard with it: the words are selected, so that
+    // what is typed next is the next command.
+    emit selectionRequested(0, static_cast<int>(m_query.size()));
+}
+
+void Launcher::scheduleAwakeTick()
+{
+    m_awakeTick.stop();
+    if (!m_switches)
+        return;
+    const SwitchState awake = m_switches->state(u"keep-awake");
+    if (awake.on != SwitchState::Value::On || !awake.until.isValid())
+        return;
+    // The minutes left round up, so the text changes as the time left passes a whole minute.
+    const qint64 left = QDateTime::currentDateTime().msecsTo(awake.until);
+    if (left <= 0)
+        return; // ending: the switch's own timer says so
+    const qint64 untilNext = left % 60'000 == 0 ? 60'000 : left % 60'000;
+    m_awakeTick.start(static_cast<int>(untilNext) + 100);
+}
+
+void Launcher::openSwitchPage(const SearchResult& row)
+{
+    const QString instead = m_switches ? m_switches->state(row.switchId).openInstead : QString();
+    remember(row.path, m_shownText);
+    shell::run(instead.isEmpty() ? row.target : instead, reportFailure(row.name));
+    emit dismissRequested();
+}
+
+QString Launcher::switchAlready(const SearchResult& row, const SwitchIntent& resolved) const
+{
+    using Kind = SwitchIntent::Kind;
+    if (resolved.kind == Kind::SetLevel || resolved.kind == Kind::LevelOnly)
+        return tr("音量已经是 %1").arg(resolved.value);
+    if (resolved.kind != Kind::On && resolved.kind != Kind::Off)
+        return tr("%1已经是这样了").arg(row.name);
+    const bool on = resolved.kind == Kind::On;
+    const QString& id = row.switchId;
+    if (id == u"theme")
+        return on ? tr("已经是深色") : tr("已经是浅色");
+    if (id == u"hidden-files")
+        return on ? tr("已经显示隐藏的文件") : tr("已经不显示隐藏的文件");
+    if (id == u"file-extensions")
+        return on ? tr("已经显示文件扩展名") : tr("已经隐藏文件扩展名");
+    if (id == u"volume")
+        return on ? tr("声音已经是开的") : tr("已经静音");
+    if (id == u"keep-awake")
+        return on ? tr("保持唤醒已经开着") : tr("保持唤醒没有开着");
+    return on ? tr("%1已经是开的").arg(row.name) : tr("%1已经是关的").arg(row.name);
 }
 
 // A web shortcut's site or search opens in the default browser, with the
@@ -2852,7 +3127,7 @@ void Launcher::performMany(const SearchResults& items, Action action)
                 continue; // not remembered (see performWeb)
             }
             if (r.isPlace()) {
-                if (admin)
+                if (admin || drawsSwitch(r)) // a switch is not "opened" with the others
                     continue;
                 shell::run(r.target, reportFailure(r.name));
             } else if (r.isApp()) {
@@ -3192,6 +3467,24 @@ QVariantList Launcher::menuItems(int row) const
         items.append(entry(CopyName, tr("复制名称"), QString(), u"\uE8AC"_s));
         items.append(separator);
         items.append(entry(EditWebShortcuts, tr("编辑网页搜索…"), QString(), u"\uE70F"_s)); // Edit
+        return items;
+    }
+    if (r->isPlace() && liveSwitch(*r)) {
+        // Both states by their words, so that the menu says what it will do;
+        // the page is Ctrl+Enter's.
+        if (drawsSwitch(*r)) {
+            items.append(entry(SwitchOn, ResultModel::switchWords(*r, {SwitchIntent::Kind::On, 0}, false), QString(), u"\uE7E8"_s)); // Power
+            items.append(entry(SwitchOff, ResultModel::switchWords(*r, {SwitchIntent::Kind::Off, 0}, false), QString(), u"\uE7E8"_s));
+            items.append(entry(Reveal, r->switchId == u"keep-awake" ? tr("电源设置") : tr("打开设置"), u"Ctrl+Enter"_s, u"\uE713"_s)); // Settings
+        } else {
+            items.append(entry(Open, tr("打开设置"), u"Enter"_s, u"\uE713"_s));
+        }
+        items.append(separator);
+        items.append(entry(CopyName, tr("复制名称"), QString(), u"\uE8AC"_s));
+        if (r->recent) {
+            items.append(separator);
+            items.append(entry(ForgetRecent, tr("从最近使用中移除"), QString(), u"\uE711"_s));
+        }
         return items;
     }
     if (r->isPlace()) {

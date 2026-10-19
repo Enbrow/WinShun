@@ -11,6 +11,7 @@
 #include "PathText.h"
 #include "Query.h"
 #include "SystemCatalog.h"
+#include "SwitchCommand.h"
 #include "ShareLister.h"
 #include "TextUtil.h"
 #include "Unc.h"
@@ -345,6 +346,7 @@ SearchResult fromPlace(const PlaceInfo& place, bool recent)
     r.target = place.command;
     r.icon = place.icon;
     r.recent = recent;
+    r.switchId = place.switchId;
     return r;
 }
 
@@ -1034,7 +1036,9 @@ void SearchEngine::runNameSearch(const Job& job)
                 }
                 if (isPlacePath(path)) {
                     const PlaceInfo* place = request.scope == Scope::All ? findPlace(*places, path) : nullptr;
-                    if (place)
+                    // A switch is never listed here: Enter on the first row as
+                    // the window opens would flip it back (pinnedPlaces).
+                    if (place && place->switchId.isEmpty())
                         round.emplace_back(fromPlace(*place, true));
                     continue;
                 }
@@ -1145,6 +1149,7 @@ void SearchEngine::runNameSearch(const Job& job)
             struct Ranked {
                 int score;
                 SearchResult result;
+                bool guessedSwitch = false; // a switch found by a guess (PlaceHit::weak)
             };
             std::vector<Ranked> ranked;
             for (const AppHit& hit : searchApps(*apps, query, matcher, request.history)) {
@@ -1152,15 +1157,55 @@ void SearchEngine::runNameSearch(const Job& job)
                 ranked.back().result.exact = hit.exact; // by name, another name or an abbreviation ("ps")
             }
             const std::size_t appCount = ranked.size();
+            std::size_t shown = 0; // places other than switches (those are few, and each one a concept)
             for (const PlaceHit& hit : searchPlaces(*places, query, matcher, request.history)) {
-                if (ranked.size() - appCount >= kPlacesShown)
-                    break;
                 const PlaceInfo& place = (*places)[hit.index];
+                const bool isSwitch = !place.switchId.isEmpty();
+                if (!isSwitch && shown >= kPlacesShown)
+                    continue;
                 // An app of that name (控制面板) is the same thing.
                 const bool isApp = std::any_of(ranked.cbegin(), ranked.cbegin() + appCount,
                     [&](const Ranked& r) { return r.result.name.compare(place.name, Qt::CaseInsensitive) == 0; });
-                if (!isApp)
-                    ranked.push_back({hit.score, fromPlace(place, false)});
+                if (isApp)
+                    continue;
+                ranked.push_back({hit.score, fromPlace(place, false), isSwitch && hit.weak});
+                shown += isSwitch ? 0 : 1;
+            }
+            // A wrong Enter on an app opens it; on a switch it changes the
+            // system. So a switch found by a guess ("ly") goes behind every
+            // app and page found as well, and first only where there are none.
+            int behind = std::numeric_limits<int>::max();
+            for (const Ranked& r : ranked) {
+                if (r.result.switchId.isEmpty())
+                    behind = std::min(behind, r.score);
+            }
+            for (Ranked& r : ranked) {
+                if (r.guessedSwitch)
+                    r.score = std::min(r.score, behind - 1);
+            }
+            // "关蓝牙", "音量 30", "蓝牙设置": the switch with what was asked of
+            // it, above everything but a typed keyword; the plain row of the
+            // same switch and the page that opens the same place give way.
+            // A state word alone ("深色") only tells the plain row what Enter
+            // then does.
+            std::optional<SearchResult> commandRow;
+            if (const std::optional<SwitchCommand> command = parseSwitchCommand(request.text, *places)) {
+                const PlaceInfo& target = (*places)[command->place];
+                if (command->onTop) {
+                    commandRow = fromPlace(target, false);
+                    commandRow->intent = command->intent;
+                    commandRow->score = kTypedKeywordScore;
+                    std::erase_if(ranked, [&](const Ranked& r) {
+                        return r.result.switchId == target.switchId
+                            || (r.result.switchId.isEmpty() && r.result.isPlace()
+                                && r.result.target.compare(target.command, Qt::CaseInsensitive) == 0);
+                    });
+                } else {
+                    for (Ranked& r : ranked) {
+                        if (r.result.switchId == target.switchId)
+                            r.result.intent = command->intent;
+                    }
+                }
             }
             const std::optional<TypedKeyword> typed = typedKeyword(request.web, request.text);
             for (const WebHit& hit : searchWebShortcuts(request.web, matcher)) {
@@ -1175,6 +1220,8 @@ void SearchEngine::runNameSearch(const Job& job)
                 top.back().score = kTypedKeywordScore; // nothing a plugin pushes goes above it
                 top.back().exact = true;
             }
+            if (commandRow)
+                top.push_back(std::move(*commandRow));
             total += static_cast<qint64>(ranked.size()) + top.size();
             for (Ranked& r : ranked) {
                 if (top.size() >= request.limit)
@@ -1341,6 +1388,24 @@ void SearchEngine::runNameSearch(const Job& job)
         SearchResults rows = favoriteRows(shown, *apps, *places, *m_onDisk, m_index);
         results.removeIf([&](const SearchResult& r) { return indexOfFavorite(request.favorites, r.path) >= 0; });
         total = rows.size() + results.size();
+        rows.append(std::move(results));
+        results = std::move(rows);
+    }
+
+    // Nothing typed, 全部: the switches to keep in view (a keep-awake that is
+    // on) above everything else, even the favorites.
+    if (query.isEmpty() && !listing && request.scope == Scope::All && !request.pinnedPlaces.isEmpty() && !isStale(job.id)) {
+        SearchResults rows;
+        for (const QString& path : request.pinnedPlaces) {
+            const PlaceInfo* place = findPlace(*places, path);
+            if (!place || place->switchId.isEmpty())
+                continue;
+            if (std::any_of(rows.cbegin(), rows.cend(), [&](const SearchResult& r) { return r.path == path; }))
+                continue;
+            rows.push_back(fromPlace(*place, false));
+            rows.back().statusRow = true;
+        }
+        total += rows.size();
         rows.append(std::move(results));
         results = std::move(rows);
     }

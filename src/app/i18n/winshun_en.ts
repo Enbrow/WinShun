@@ -1698,6 +1698,10 @@
 <context>
     <name>ResultRow</name>
     <message>
+        <source>打开设置</source>
+        <translation>Open settings</translation>
+    </message>
+    <message>
         <source>%1 被别的程序占用了，在这里按也会交给那个程序。可在设置的“结果列表”里改用 %2</source>
         <translation>Another program uses %1, so pressing it here goes to that program. Settings › Result list can switch to %2</translation>
     </message>
@@ -3947,6 +3951,10 @@
 <context>
     <name>ToggleSwitch</name>
     <message>
+        <source>自定义</source>
+        <translation>Custom</translation>
+    </message>
+    <message>
         <source>开</source>
         <translation>On</translation>
     </message>
@@ -4349,6 +4357,22 @@
     <message>
         <source>Win顺 — %1 打开</source>
         <translation>WinShun — %1 to open</translation>
+    </message>
+    <message>
+        <source>%1 · 保持唤醒到 %2</source>
+        <translation>%1 · Keep awake until %2</translation>
+    </message>
+    <message>
+        <source>%1 · 保持唤醒</source>
+        <translation>%1 · Keep awake</translation>
+    </message>
+    <message>
+        <source>保持唤醒（到 %1）</source>
+        <translation>Keep awake (until %1)</translation>
+    </message>
+    <message>
+        <source>保持唤醒</source>
+        <translation>Keep awake</translation>
     </message>
     <message>
         <source>双击左 Ctrl</source>
@@ -5407,6 +5431,94 @@
 </context>
 <context>
     <name>ws::Launcher</name>
+    <message>
+        <source>全部切到深色</source>
+        <translation>Switch all to dark</translation>
+    </message>
+    <message>
+        <source>全部切到浅色</source>
+        <translation>Switch all to light</translation>
+    </message>
+    <message>
+        <source>电源设置</source>
+        <translation>Power settings</translation>
+    </message>
+    <message>
+        <source>调音量</source>
+        <translation>Volume</translation>
+    </message>
+    <message>
+        <source>%1（最大 100）</source>
+        <translation>%1 (max 100)</translation>
+    </message>
+    <message>
+        <source>%1（会断网）</source>
+        <translation>%1 (goes offline)</translation>
+    </message>
+    <message>
+        <source>音量已经是 %1</source>
+        <translation>Volume is already %1</translation>
+    </message>
+    <message>
+        <source>还没读到%1的状态</source>
+        <translation>%1: state not read yet</translation>
+    </message>
+    <message>
+        <source>要打开设置页：Ctrl+Enter</source>
+        <translation>To open the settings page: Ctrl+Enter</translation>
+    </message>
+    <message>
+        <source>%1已经是这样了</source>
+        <translation>%1 is already set that way</translation>
+    </message>
+    <message>
+        <source>已经是深色</source>
+        <translation>Already dark</translation>
+    </message>
+    <message>
+        <source>已经是浅色</source>
+        <translation>Already light</translation>
+    </message>
+    <message>
+        <source>已经显示隐藏的文件</source>
+        <translation>Hidden files are already shown</translation>
+    </message>
+    <message>
+        <source>已经不显示隐藏的文件</source>
+        <translation>Hidden files are already hidden</translation>
+    </message>
+    <message>
+        <source>已经显示文件扩展名</source>
+        <translation>File extensions are already shown</translation>
+    </message>
+    <message>
+        <source>已经隐藏文件扩展名</source>
+        <translation>File extensions are already hidden</translation>
+    </message>
+    <message>
+        <source>声音已经是开的</source>
+        <translation>Sound is already on</translation>
+    </message>
+    <message>
+        <source>已经静音</source>
+        <translation>Already muted</translation>
+    </message>
+    <message>
+        <source>保持唤醒已经开着</source>
+        <translation>Keep awake is already on</translation>
+    </message>
+    <message>
+        <source>保持唤醒没有开着</source>
+        <translation>Keep awake is not on</translation>
+    </message>
+    <message>
+        <source>%1已经是开的</source>
+        <translation>%1 is already on</translation>
+    </message>
+    <message>
+        <source>%1已经是关的</source>
+        <translation>%1 is already off</translation>
+    </message>
     <message>
         <source>在终端中打开</source>
         <translation>Open in Terminal</translation>
@@ -6480,6 +6592,116 @@
 </context>
 <context>
     <name>ws::ResultModel</name>
+    <message numerus="yes">
+        <source>%n 分钟</source>
+        <translation>
+            <numerusform>%n minute</numerusform>
+            <numerusform>%n minutes</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 小时</source>
+        <translation>
+            <numerusform>%n hour</numerusform>
+            <numerusform>%n hours</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>%1 %2</source>
+        <translation>%1 %2</translation>
+    </message>
+    <message>
+        <source>切换%1</source>
+        <translation>Toggle %1</translation>
+    </message>
+    <message>
+        <source>设为深色</source>
+        <translation>Set to dark</translation>
+    </message>
+    <message>
+        <source>设为浅色</source>
+        <translation>Set to light</translation>
+    </message>
+    <message>
+        <source>切换到深色</source>
+        <translation>Switch to dark</translation>
+    </message>
+    <message>
+        <source>切换到浅色</source>
+        <translation>Switch to light</translation>
+    </message>
+    <message>
+        <source>显示隐藏的文件</source>
+        <translation>Show hidden files</translation>
+    </message>
+    <message>
+        <source>不显示隐藏的文件</source>
+        <translation>Don't show hidden files</translation>
+    </message>
+    <message>
+        <source>显示文件扩展名</source>
+        <translation>Show file extensions</translation>
+    </message>
+    <message>
+        <source>隐藏文件扩展名</source>
+        <translation>Hide file extensions</translation>
+    </message>
+    <message>
+        <source>取消静音</source>
+        <translation>Unmute</translation>
+    </message>
+    <message>
+        <source>静音</source>
+        <translation>Mute</translation>
+    </message>
+    <message>
+        <source>保持唤醒</source>
+        <translation>Keep awake</translation>
+    </message>
+    <message>
+        <source>结束保持唤醒</source>
+        <translation>End keep awake</translation>
+    </message>
+    <message>
+        <source>打开%1</source>
+        <translation>Turn on %1</translation>
+    </message>
+    <message>
+        <source>关闭%1</source>
+        <translation>Turn off %1</translation>
+    </message>
+    <message>
+        <source>音量设为 %1%</source>
+        <translation>Set volume to %1%</translation>
+    </message>
+    <message>
+        <source>音量设为 %1</source>
+        <translation>Set volume to %1</translation>
+    </message>
+    <message>
+        <source>音量 %1</source>
+        <translation>Volume %1</translation>
+    </message>
+    <message>
+        <source>保持唤醒 %1</source>
+        <translation>Keep awake for %1</translation>
+    </message>
+    <message>
+        <source>保持唤醒到 %1</source>
+        <translation>Keep awake until %1</translation>
+    </message>
+    <message>
+        <source>打开%1设置</source>
+        <translation>Open %1 settings</translation>
+    </message>
+    <message>
+        <source>已静音，会同时取消静音</source>
+        <translation>Muted; this unmutes it too</translation>
+    </message>
+    <message>
+        <source>%1 · 已静音，会同时取消静音</source>
+        <translation>%1 · Muted; this unmutes it too</translation>
+    </message>
     <message>
         <source>Microsoft Store 应用</source>
         <translation>Microsoft Store app</translation>
@@ -7023,6 +7245,191 @@
     <message>
         <source>诊断包已生成，把 WinShun-diagnostics.zip 发给开发者即可</source>
         <translation>Diagnostic archive created. Send WinShun-diagnostics.zip to the developer.</translation>
+    </message>
+</context>
+<context>
+    <name>ws::SwitchAudio</name>
+    <message>
+        <source>没有声音输出设备</source>
+        <translation>No sound output device</translation>
+    </message>
+    <message>
+        <source>声音设备没有回应</source>
+        <translation>the sound device didn't respond</translation>
+    </message>
+    <message>
+        <source>被系统改回去了</source>
+        <translation>Windows changed it back</translation>
+    </message>
+    <message>
+        <source>没能静音：%1</source>
+        <translation>Couldn't mute: %1</translation>
+    </message>
+    <message>
+        <source>没能取消静音：%1</source>
+        <translation>Couldn't unmute: %1</translation>
+    </message>
+    <message>
+        <source>没能调音量：%1</source>
+        <translation>Couldn't change the volume: %1</translation>
+    </message>
+</context>
+<context>
+    <name>ws::SwitchExplorer</name>
+    <message>
+        <source>Windows 不让改这项设置</source>
+        <translation>Windows doesn't allow changing this setting</translation>
+    </message>
+    <message>
+        <source>被系统改回去了</source>
+        <translation>Windows changed it back</translation>
+    </message>
+    <message>
+        <source>没能打开“显示隐藏的文件”：%1</source>
+        <translation>Couldn't turn on “Show hidden files”: %1</translation>
+    </message>
+    <message>
+        <source>没能关掉“显示隐藏的文件”：%1</source>
+        <translation>Couldn't turn off “Show hidden files”: %1</translation>
+    </message>
+    <message>
+        <source>没能打开“显示文件扩展名”：%1</source>
+        <translation>Couldn't turn on “Show file extensions”: %1</translation>
+    </message>
+    <message>
+        <source>没能关掉“显示文件扩展名”：%1</source>
+        <translation>Couldn't turn off “Show file extensions”: %1</translation>
+    </message>
+</context>
+<context>
+    <name>ws::SwitchKeepAwake</name>
+    <message>
+        <source>直到手动结束或退出 Win顺</source>
+        <translation>Until you end it or quit WinShun</translation>
+    </message>
+    <message>
+        <source>到 %1</source>
+        <translation>Until %1</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 分钟</source>
+        <translation>
+            <numerusform>%n minute</numerusform>
+            <numerusform>%n minutes</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 小时</source>
+        <translation>
+            <numerusform>%n hour</numerusform>
+            <numerusform>%n hours</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>%1 %2</source>
+        <translation>%1 %2</translation>
+    </message>
+    <message>
+        <source>到 %1 · 还剩 %2</source>
+        <translation>Until %1 · %2 left</translation>
+    </message>
+    <message>
+        <source>电脑不睡眠、屏幕不关；合盖仍会睡眠</source>
+        <translation>The PC stays awake and the screen stays on; closing the lid still sleeps</translation>
+    </message>
+    <message>
+        <source>没能保持唤醒：Windows 没有接受请求</source>
+        <translation>Couldn't keep awake: Windows refused the request</translation>
+    </message>
+</context>
+<context>
+    <name>ws::SwitchRadios</name>
+    <message>
+        <source>“让应用控制设备无线电”已关闭</source>
+        <translation>“Let apps control device radios” is off</translation>
+    </message>
+    <message>
+        <source>系统不让应用控制无线电</source>
+        <translation>Windows doesn't let apps control radios</translation>
+    </message>
+    <message>
+        <source>这台电脑没有蓝牙</source>
+        <translation>This PC has no Bluetooth</translation>
+    </message>
+    <message>
+        <source>这台电脑没有 WLAN</source>
+        <translation>This PC has no WLAN</translation>
+    </message>
+    <message>
+        <source>被硬件开关关闭</source>
+        <translation>Turned off by a hardware switch</translation>
+    </message>
+    <message>
+        <source>已连接</source>
+        <translation>Connected</translation>
+    </message>
+    <message>
+        <source>未连接</source>
+        <translation>Not connected</translation>
+    </message>
+    <message>
+        <source>没能打开蓝牙：%1</source>
+        <translation>Couldn't turn on Bluetooth: %1</translation>
+    </message>
+    <message>
+        <source>没能关闭蓝牙：%1</source>
+        <translation>Couldn't turn off Bluetooth: %1</translation>
+    </message>
+    <message>
+        <source>没能打开 WLAN：%1</source>
+        <translation>Couldn't turn on WLAN: %1</translation>
+    </message>
+    <message>
+        <source>没能关闭 WLAN：%1</source>
+        <translation>Couldn't turn off WLAN: %1</translation>
+    </message>
+    <message>
+        <source>Windows 没有回应</source>
+        <translation>Windows didn't respond</translation>
+    </message>
+    <message>
+        <source>Windows 不让改</source>
+        <translation>Windows doesn't allow it</translation>
+    </message>
+    <message>
+        <source>被系统改回去了</source>
+        <translation>Windows changed it back</translation>
+    </message>
+</context>
+<context>
+    <name>ws::SwitchTheme</name>
+    <message>
+        <source>自定义：应用深色，系统浅色</source>
+        <translation>Custom: apps dark, system light</translation>
+    </message>
+    <message>
+        <source>自定义：应用浅色，系统深色</source>
+        <translation>Custom: apps light, system dark</translation>
+    </message>
+    <message>
+        <source>对比度主题开着时，深浅色不起作用</source>
+        <translation>Dark and light don't apply while a contrast theme is on</translation>
+    </message>
+    <message>
+        <source>Windows 不让改这项设置</source>
+        <translation>Windows doesn't allow changing this setting</translation>
+    </message>
+    <message>
+        <source>被系统改回去了</source>
+        <translation>Windows changed it back</translation>
+    </message>
+    <message>
+        <source>没能切到深色：%1</source>
+        <translation>Couldn't switch to dark: %1</translation>
+    </message>
+    <message>
+        <source>没能切到浅色：%1</source>
+        <translation>Couldn't switch to light: %1</translation>
     </message>
 </context>
 <context>

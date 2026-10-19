@@ -6,8 +6,10 @@
 
 namespace ws {
 
-ComWorker::ComWorker()
-    : m_thread([this](std::stop_token stop) { run(stop); })
+ComWorker::ComWorker(Apartment apartment, std::function<void()> last)
+    : m_apartment(apartment)
+    , m_last(std::move(last))
+    , m_thread([this](std::stop_token stop) { run(stop); })
 {
 }
 
@@ -24,7 +26,8 @@ void ComWorker::post(std::function<void()> task)
 
 void ComWorker::run(std::stop_token stop)
 {
-    const HRESULT com = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    const DWORD model = m_apartment == Apartment::MultiThreaded ? COINIT_MULTITHREADED : COINIT_APARTMENTTHREADED;
+    const HRESULT com = ::CoInitializeEx(nullptr, model | COINIT_DISABLE_OLE1DDE);
     for (;;) {
         std::function<void()> task;
         {
@@ -37,6 +40,8 @@ void ComWorker::run(std::stop_token stop)
         }
         task();
     }
+    if (m_last)
+        m_last();
     if (SUCCEEDED(com))
         ::CoUninitialize();
 }

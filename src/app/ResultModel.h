@@ -6,11 +6,14 @@
 #include <QColor>
 #include <QDateTime>
 #include <QFont>
+#include <QPointer>
 #include <QSet>
 #include <QStringList>
 #include <QtQml/qqmlregistration.h>
 
 namespace ws {
+
+class Switches;
 
 // The visible result list. Holds at most a few hundred rows; HTML for match
 // highlighting is generated lazily for the rows QML actually draws.
@@ -68,6 +71,16 @@ public:
         FolderMatchesRole,
         NameMatchesRole, // the same for the terms in a file's or folder's name; none for an app
         SuggestionRole, // a web search on one of the site's suggestions (SearchResult::suggestion)
+        // A system switch's row (SearchResult::switchId), as Switches has it
+        // now; typed defaults ("", -1, false) for any other row.
+        SwitchIdRole,
+        SwitchOnRole, // -1 not known, 0 off, 1 on, 2 mixed
+        SwitchLevelRole, // the volume, 0-100; -1 for the others
+        SwitchBusyRole, // being written
+        SwitchNoteRole, // the second line: a device, why it is not ready
+        SwitchErrorRole, // ... in red: why the last write failed
+        SwitchReadyRole, // draws its switch (ready, or not read yet); else the row is an ordinary place
+        StatusRowRole, // listed above the recent items because it is on (SearchResult::statusRow)
     };
 
     explicit ResultModel(QObject* parent = nullptr);
@@ -80,6 +93,10 @@ public:
     const SearchResult* at(int row) const;
     int indexOf(const QString& path) const; // -1 if no row has that path
     Q_INVOKABLE QString pathAt(int row) const; // empty if out of range
+    // The row the highlight starts on when rows are new: the first, but not
+    // a status row (keep awake, listed above the recent items), which Enter
+    // must not act on at once. 0 when there is no other.
+    Q_INVOKABLE int defaultRow() const;
     // `text` with `matches` (NameMatchesRole, FolderMatchesRole) highlighted,
     // shortened in the middle to `width` in `font` as Text.ElideMiddle would,
     // but around them: they stay in sight, with the start and the end of the
@@ -105,6 +122,15 @@ public:
     QColor highlightColor() const { return m_highlightColor; }
     void setHighlightColor(const QColor& color);
     void setThumbnails(bool on); // ThumbnailRole: Settings::thumbnails
+    // The rows of system switches take their state from it, and follow it.
+    void setSwitches(Switches* switches);
+    // A row's title or footer words for what it asks of its switch ("关闭蓝牙",
+    // "音量设为 30%"): `title` for the row (a plain row is just its name), else
+    // for the footer's Enter ("切换到浅色", "音量设为 30"). `intent` is what
+    // Enter will do (Switches::resolve) for the footer, the row's own for the title.
+    static QString switchWords(const SearchResult& row, const SwitchIntent& intent, bool title);
+    // The rows of switch `id` are drawn again: its state, or the minutes in its second line, are different.
+    void switchChanged(const QString& id);
 
     int selectedCount() const { return static_cast<int>(m_selected.size()); }
     const QSet<QString>& selectedPaths() const { return m_selected; }
@@ -113,17 +139,20 @@ public:
     SearchResults selection() const; // in list order, each file once
 
 signals:
+    void switchNudged(const QString& id); // asked for what it already is: its row's switch lights up
     void countChanged();
     void highlightColorChanged();
     void selectionChanged();
 
 private:
+    QString switchTitle(const SearchResult& r) const; // a switch row's title when it is not its name, else empty
     void keepSelectionInList(); // after rows went away
     SearchResults m_items;
     QStringList m_highlights;
     QColor m_highlightColor {0x00, 0x5F, 0xB8};
     bool m_thumbnails = true;
     QSet<QString> m_selected; // paths
+    QPointer<Switches> m_switches;
 };
 
 } // namespace ws

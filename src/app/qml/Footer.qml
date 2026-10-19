@@ -270,7 +270,7 @@ Item {
 
         KeyHint { id: enterHint; visible: hints.given < 1 && label.length > 0; keys: "Enter"; label: hints.keyHints.enter ?? "" }
         KeyHint { id: secondHint; visible: hints.given < 2 && label.length > 0; keys: hints.keyHints.secondKeys ?? ""; label: hints.keyHints.second ?? "" }
-        KeyHint { id: tabHint; visible: label.length > 0; keys: "Tab"; label: hints.keyHints.tab ?? "" }
+        KeyHint { id: tabHint; visible: label.length > 0; keys: hints.keyHints.tabKeys || "Tab"; label: hints.keyHints.tab ?? "" }
     }
 
     // The launcher's other shortcuts, while the mouse rests on it.
