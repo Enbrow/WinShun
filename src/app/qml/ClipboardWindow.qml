@@ -23,7 +23,9 @@ Window {
     required property WindowFrame frame
 
     readonly property int listWidth: 480
-    property int previewWidth: 400 // set as it opens
+    readonly property int defaultPreviewWidth: 560
+    readonly property int minPreviewWidth: 280
+    property int previewWidth: defaultPreviewWidth // set as it opens, and as it is dragged
     readonly property int maxRows: 8
     readonly property int minRows: 3 // it settles no lower than these fit below
     // As many rows as fit below where it is put (above, over the caret or a
@@ -69,6 +71,12 @@ Window {
         value: window.listWidth
     }
 
+    // The preview as wide as asked, or as the room to the right allows (at
+    // least the least): the window grows to the right, the list stays.
+    function fitPreview(wanted: int): int {
+        return Math.max(minPreviewWidth, Math.min(wanted, placement.roomRight() - 1))
+    }
+
     // Hidden: also free the menu window until it is needed again.
     onVisibleChanged: {
         if (!visible)
@@ -91,7 +99,16 @@ Window {
         frame: window.frame
         rows: window.rows
         above: window.placement.above // over the caret or box: maybe upside down (clipboard.flipAbove)
-        onPreviewOpening: window.previewWidth = Math.max(280, Math.min(400, window.placement.roomRight() - 1))
+        previewWidth: window.previewWidth
+        // Less room than remembered: narrower for now, the remembered width stays.
+        onPreviewOpening: window.previewWidth = window.fitPreview(window.clipboard.previewWidth > 0
+                                                                  ? window.clipboard.previewWidth : window.defaultPreviewWidth)
+        onPreviewResizing: (wanted) => window.previewWidth = window.fitPreview(wanted)
+        onPreviewResized: window.clipboard.previewWidth = window.previewWidth // once, as it is let go
+        onPreviewWidthReset: {
+            window.previewWidth = window.fitPreview(window.defaultPreviewWidth)
+            window.clipboard.previewWidth = 0
+        }
     }
 
     WindowEdge {}

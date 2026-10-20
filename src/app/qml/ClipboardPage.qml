@@ -30,7 +30,13 @@ Item {
     property bool previewOpen: false
     property bool above: false // over the caret or box it opens by (ClipboardWindow: Placement.above)
 
+    property int previewWidth: 400 // as the window has it (ClipboardWindow.qml)
+    property bool previewSizing: false // its edge is being dragged
+
     signal previewOpening() // just before: the window sizes it (ClipboardWindow.qml)
+    signal previewResizing(int wanted) // the edge dragged: the width asked for
+    signal previewResized() // ... let go
+    signal previewWidthReset() // ... double clicked: the default
 
     readonly property int rowHeight: Theme.rowHeight // what the window's height is counted in
     // A picture's row: its thumbnail larger (ClipRow), larger still with largePictures.
@@ -177,7 +183,7 @@ Item {
         if (globalPos.x === hoverPos.x && globalPos.y === hoverPos.y)
             return
         hoverPos = globalPos
-        if (!previewOpen || list.rowDragging || (Qt.application.keyboardModifiers & (Qt.ControlModifier | Qt.ShiftModifier)))
+        if (!previewOpen || previewSizing || list.rowDragging || (Qt.application.keyboardModifiers & (Qt.ControlModifier | Qt.ShiftModifier)))
             return
         hoverCandidate = index
         if (index === previewIndex)
@@ -189,7 +195,7 @@ Item {
         id: hoverTimer
         interval: 100
         onTriggered: {
-            if (page.previewOpen && !list.rowDragging && !(Qt.application.keyboardModifiers & (Qt.ControlModifier | Qt.ShiftModifier))
+            if (page.previewOpen && !page.previewSizing && !list.rowDragging && !(Qt.application.keyboardModifiers & (Qt.ControlModifier | Qt.ShiftModifier))
                     && page.hoverCandidate >= 0 && page.hoverCandidate < list.count)
                 page.hoverIndex = page.hoverCandidate === list.currentIndex ? -1 : page.hoverCandidate
         }
@@ -816,6 +822,53 @@ Item {
                 // compiler, and the binding would not depend on it.
                 info: page.previewRevision >= 0 && list.count > 0 && page.previewIndex >= 0
                       ? page.clipboard.preview(page.previewIndex) : ({})
+            }
+
+            // The edge between the list and the preview: drag to size the
+            // preview (the window's left edge stays), double click for the
+            // default.
+            MouseArea {
+                id: edge
+                visible: page.previewOpen
+                x: listArea.width // the line and 7 px of the preview; the scroll bar ends before it
+                width: 8
+                height: parent.height
+                hoverEnabled: true
+                cursorShape: Qt.SplitHCursor
+                preventStealing: true
+                property real pressX: 0
+                property int pressWidth: 0
+                property bool moved: false
+                onPressed: (mouse) => {
+                    page.clearHover()
+                    page.previewSizing = true
+                    pressX = mouse.x
+                    pressWidth = page.previewWidth
+                    moved = false
+                }
+                onPositionChanged: (mouse) => {
+                    if (!pressed)
+                        return
+                    const wanted = pressWidth + Math.round(mouse.x - pressX)
+                    if (wanted !== page.previewWidth) {
+                        moved = true
+                        page.previewResizing(wanted)
+                    }
+                }
+                onReleased: {
+                    page.previewSizing = false
+                    if (moved)
+                        page.previewResized()
+                }
+                onCanceled: {
+                    page.previewSizing = false
+                    if (moved)
+                        page.previewResized()
+                }
+                onDoubleClicked: {
+                    moved = false
+                    page.previewWidthReset()
+                }
             }
         }
 

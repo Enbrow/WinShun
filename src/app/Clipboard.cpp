@@ -69,6 +69,7 @@ Clipboard::Clipboard(ClipStore* store, ClipboardWatcher* watcher, QObject* paren
     if (!kSeparators.contains(m_separator))
         m_separator = kSeparators.constFirst();
     m_previewOpen = m_store->value(u"preview"_s) == u"open"_s;
+    m_previewWidth = std::max(0, m_store->value(u"previewWidth"_s).toInt());
     m_pinnedFirst = m_store->value(u"order"_s) == u"pinnedFirst"_s;
     m_store->setListener({
         .lost = [this] { historyChanged(); },
@@ -177,6 +178,16 @@ void Clipboard::setPreviewOpen(bool open)
     m_previewOpen = open;
     m_store->setValue(u"preview"_s, open ? u"open"_s : u"closed"_s);
     emit previewOpenChanged();
+}
+
+void Clipboard::setPreviewWidth(int width)
+{
+    width = std::max(0, width);
+    if (m_previewWidth == width)
+        return;
+    m_previewWidth = width;
+    m_store->setValue(u"previewWidth"_s, QString::number(width));
+    emit previewWidthChanged();
 }
 
 void Clipboard::setPinnedFirst(bool on)
