@@ -28,6 +28,7 @@ const QPointF kHome {0.5, 0.2}; // centred, a fifth of the way down
 constexpr int kSnapDistance = 12; // logical pixels, where a dropped window settles home
 constexpr int kGlideMs = 220;
 constexpr int kBoxGap = 4; // logical pixels, between a box and the window attached to it
+constexpr int kCaretGap = 12; // ... and another program's text caret: the line typed in stays clear
 // Logical pixels between the taskbar and a window over it, and that window
 // and the work area's edges: Windows 11's Start menu and search keep 12.
 constexpr int kTaskbarGap = 12;
@@ -262,8 +263,14 @@ void Placement::placeOn(QScreen* screen)
 
 void Placement::attach(const QRect& box, QScreen* screen)
 {
+    attachBy(box, screen, kBoxGap);
+}
+
+void Placement::attachBy(const QRect& box, QScreen* screen, int gap)
+{
     m_glide.stop();
     m_box = box;
+    m_boxGap = gap;
     setTaskbar({});
     m_dropped = false;
     m_left = box.x();
@@ -298,7 +305,7 @@ void Placement::attachNative(const QRect& box)
         std::max(top, up(box.y() + box.height(), origin.y()) - 1)));
     // On that screen, as converted: in a gap between monitors' logical
     // areas (mixed scales) screenAt would find none, or another one.
-    attach(logical, screen);
+    attachBy(logical, screen, kCaretGap); // further off it than off a box of ours
 }
 
 void Placement::attachTaskbar(const taskbar::Spot& spot)
@@ -497,8 +504,8 @@ QPoint Placement::settleBy(QScreen* screen)
     int x = std::clamp(m_left, area.left(), std::max(area.left(), area.x() + area.width() - width));
     x = native.keepInside(x, width, native.work.left(), right, native.origin.x());
 
-    const int under = m_box->y() + m_box->height() + kBoxGap;
-    const int over = m_box->y() - kBoxGap;
+    const int under = m_box->y() + m_box->height() + m_boxGap;
+    const int over = m_box->y() - m_boxGap;
     const int roomUnder = int(std::floor((bottom - native.toNative(under, native.origin.y())) / native.scale));
     const int roomOver = int(std::floor((native.toNative(over, native.origin.y()) - native.work.y()) / native.scale));
     setAbove(boxside::above(roomUnder, roomOver, m_roomNeeded, m_roomWanted, m_roomStep));

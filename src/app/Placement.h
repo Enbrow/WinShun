@@ -221,6 +221,7 @@ private:
     void applyWidth(int width, qreal centre);
     void keepWidth(); // as it is now: remembered, and m_left (dropped) where it went
     QPoint settleOn(QScreen* screen); // where the window goes there; sets room
+    void attachBy(const QRect& box, QScreen* screen, int gap); // attach, this far off the box
     QPoint settleBy(QScreen* screen); // ... by the box; sets room, and with it the height (QML)
     QPoint settleByTaskbar(QScreen* screen); // ... over the taskbar; likewise
     void refit(); // its size changed: where it goes now
@@ -249,6 +250,7 @@ private:
     QPointF m_anchor; // centre across, top down; fractions of the work area
     int m_anchorWidth = 0;
     std::optional<QRect> m_box; // attached to it
+    int m_boxGap = 0; // ... this far off it, logical pixels
     std::optional<TaskbarBox> m_taskbar; // over it
     std::optional<taskbar::Spot> m_taskbarSpot; // ... as attachTaskbar was given it
     QPointer<QScreen> m_taskbarScreen; // the taskbar's
