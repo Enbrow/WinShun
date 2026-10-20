@@ -2831,3 +2831,11 @@
 - **现象**：用 UI Automation 按坐标找托盘里的 Win顺 图标，命中的总是任务栏窗口本身，找不到图标按钮。
 - **原因**：UI Automation 的命中测试在任务栏窗口停住，到不了里面的托盘图标。
 - **做法**：用 `Shell_NotifyIconGetRect` 或位置去找托盘按钮，不靠 UIA 的命中测试。
+
+## 打开应用（2026-10-20）
+
+### 从 VS Code 里启动的 Win顺，打不开 VS Code 和别的 Electron 应用
+
+- **现象**：搜 vscode 按 Enter，什么都不出来：没有新窗口，开着的 VS Code 也不到前面，日志里也没有失败。记事本这类原生程序照常打开。从资源管理器启动同一个 `shell:AppsFolder\Microsoft.VisualStudioCode` 却没问题。
+- **原因**：Win顺 是从 VS Code 里启动的（终端，或扩展里跑的工具重启了它），继承了扩展宿主的 `ELECTRON_RUN_AS_NODE=1`。Win顺 用 `ShellExecuteEx` 启动应用，环境变量原样传下去；Electron 应用（VS Code、Cherry Studio……）看到它就当普通 Node.js 运行，不开窗口直接退出。看起来很像前台权限问题，其实不是：测试窗口一直留在前台也一样打不开，去掉这个变量后马上就好。
+- **做法**：`main()` 里 `qunsetenv("ELECTRON_RUN_AS_NODE")`，和 `QT_QPA_PLATFORM` 一样不传给启动的程序。测试脚本自己也是从 VS Code 里跑的，排查“某个应用打不开”时，先看看 `env | grep ELECTRON`。

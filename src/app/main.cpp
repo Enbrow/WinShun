@@ -223,6 +223,11 @@ int main(int argc, char* argv[])
     QGuiApplication app(argc, argv);
     if (setPlatform)
         qunsetenv("QT_QPA_PLATFORM"); // programs we launch must not inherit it
+    // Started from inside VS Code (its terminal, or a tool run by one of its
+    // extensions), Win顺 inherits ELECTRON_RUN_AS_NODE=1, and every Electron
+    // app it then opens (VS Code itself, Cherry Studio...) runs as a bare
+    // Node.js and quits at once, without a window.
+    qunsetenv("ELECTRON_RUN_AS_NODE");
     QGuiApplication::setApplicationDisplayName(u"Win顺"_s); // in English "WinShun" (App::applyAppearance)
     QGuiApplication::setQuitOnLastWindowClosed(false);
     // On every clipboard change each Qt Quick text field reads the clipboard's
