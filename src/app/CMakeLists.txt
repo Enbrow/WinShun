@@ -101,7 +101,6 @@ qt_add_executable(WinShun WIN32
     platform/TypeToSearch.cpp platform/TypeToSearch.h
     platform/TaskbarSearch.cpp platform/TaskbarSearch.h
     platform/TaskbarSearchBox.cpp platform/TaskbarSearchBox.h
-    platform/TaskbarStartGap.cpp platform/TaskbarStartGap.h
     platform/TextCaret.cpp platform/TextCaret.h
     platform/PaddleOcr.cpp platform/PaddleOcr.h
     platform/TextRecognizer.cpp platform/TextRecognizer.h
@@ -301,10 +300,7 @@ target_link_libraries(WinShun PRIVATE
     mfplat mfreadwrite mfuuid delayimp
     windowsapp # TextRecognizer: Windows.Media.Ocr, through C++/WinRT from the Windows SDK
     onnxruntime_headers) # PaddleOcr
-# The gap right of Start (platform/TaskbarStartGap): the channel to WinShunTap.dll
-# (src/tap), the DLL's SHA-256 (bcrypt), its folder's DACL (advapi32).
-target_link_libraries(WinShun PRIVATE wstap_api bcrypt advapi32 miniz) # miniz: settings backups (BackupFiles)
-add_dependencies(WinShun WinShunTap) # built first: it is staged from next to WinShun.exe
+target_link_libraries(WinShun PRIVATE advapi32 miniz) # miniz: settings backups (BackupFiles)
 # The execution level (asInvoker, since 0.8.0) comes from app.manifest alone,
 # with the rest of the manifest; the linker's own UAC fragment would be a
 # second one. Media Foundation is loaded only when used (SoundClip): Windows

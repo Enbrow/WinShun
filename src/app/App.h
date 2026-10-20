@@ -6,7 +6,6 @@
 #include "platform/KeyRouter.h"
 #include "platform/TaskbarSearch.h"
 #include "platform/TaskbarSearchBox.h"
-#include "platform/TaskbarStartGap.h"
 
 #include <QDeadlineTimer>
 #include <QElapsedTimer>
@@ -234,9 +233,6 @@ private:
     void setSearchBoxShown(taskbar::SearchBox::Hidden why); // it is on the taskbar (None), or why not
     void setSearchBoxWide(bool wide); // the whole box, or its label or icon alone (SearchBox::wide)
     void setClassicTaskbar(bool classic); // SearchBox::Callbacks::classicChanged
-    void applyStartGap(bool boxWas);
-    void prepareTaskbarStartGap(); // only --stage-tap runs elevated; the app keeps its current rights
-    void setStartGapStatus(const taskbar::StartGap::Status& status);
     void updateSearchBoxLook(); // placeholder, accent
     void searchBoxPressed(const taskbar::SearchBox::Press& press);
     void showLauncherInBox(); // the launcher over the box (or, without one shown, over the taskbar)
@@ -407,10 +403,7 @@ private:
     std::unique_ptr<taskbar::SearchBox> m_searchBox; // while [Taskbar] SearchBox is on (Windows 11)
     bool m_searchBoxShown = false; // ... and it is on the taskbar
     taskbar::SearchBox::Hidden m_searchBoxHidden = taskbar::SearchBox::Hidden::Pending; // ... or why not
-    bool m_classicTaskbar = false; // ... measured on Windows 10's taskbar (StartAllBack, ExplorerPatcher): no StartGap
-    std::unique_ptr<taskbar::StartGap> m_startGap; // while [Taskbar] StartGap is on too: the room right of Start
-    taskbar::StartGap::Status m_startGapStatus; // its latest, for the settings page
-    bool m_startGapPreparing = false;
+    bool m_classicTaskbar = false; // ... measured on Windows 10's taskbar (StartAllBack, ExplorerPatcher)
     // The launcher is open over the box: typing in it when the box is wide
     // (Launcher::inTaskbarBox), else with its own field, the box looking open.
     bool m_launcherOverBox = false;

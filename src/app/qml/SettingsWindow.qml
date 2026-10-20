@@ -1058,30 +1058,46 @@ Window {
                     id: taskbarButtonRow
 
                     property bool missing: false // no WinShunSearch.exe next to Win顺
+                    // The tab last clicked here, while Windows does not show it
+                    // yet: the button's pinning asked for (1), or off with the
+                    // button still pinned (2). Win顺 can ask Windows to pin its
+                    // button; unpinning is left to the user.
+                    property int chosen: -1
                     readonly property bool boxes: window.editor.searchBoxSupported // Windows 11; else the button alone
                     readonly property bool boxOn: window.editor.taskbarSearchBox
                     readonly property bool pinned: window.editor.taskbarButtonPinned
+                    // Windows 11: 0 the box, 1 the pinned button, 2 neither.
+                    readonly property int way: boxOn ? 0 : chosen === 2 ? 2 : pinned || chosen === 1 ? 1 : 2
                     // The box can't be put on this taskbar: the pinned button instead.
                     readonly property bool unreadable: boxes && boxOn && window.editor.searchBoxHidden === "unreadable"
-                    readonly property bool available: boxes ? (boxOn && window.editor.searchBoxShown) || (unreadable && pinned)
-                                                            : pinned
+                    // Pinned, but the box or nothing chosen: only the user can take it off.
+                    readonly property bool unpinNeeded: boxes && pinned && !unreadable && way !== 1
 
-                    title: boxes ? qsTr("在任务栏上放 Win顺 的搜索框") : qsTr("把 Win顺 按钮固定到任务栏")
-                    keywords: qsTr("固定;任务栏;按钮;搜索框;pin;taskbar").split(";")
+                    // Clicked again, 固定图标 asks again (its prompt turned down or missed).
+                    function choose(index) {
+                        chosen = index
+                        window.editor.taskbarSearchBox = index === 0
+                        if (index === 1 && !pinned)
+                            missing = !window.editor.pinTaskbarButton()
+                    }
+
+                    title: boxes ? qsTr("任务栏上的 Win顺") : qsTr("把 Win顺 按钮固定到任务栏")
+                    keywords: qsTr("固定;任务栏;按钮;图标;搜索框;取消固定;pin;taskbar").split(";")
                     description: {
-                        if (!boxes)
+                        if (!boxes || way === 1)
                             return pinned ? qsTr("已固定，点它就能打开 Win顺")
-                                          : qsTr("点“固定”后选“是”；打开的若是文件夹，右键其中的图标选“固定到任务栏”")
-                        if (!boxOn)
-                            return qsTr("放在任务栏图标旁边，点它直接打字")
+                                 : boxes ? qsTr("在 Windows 的提示里选“是”；没看到提示，再点一次“固定图标”")
+                                 : qsTr("点“固定”后选“是”；打开的若是文件夹，右键其中的图标选“固定到任务栏”")
+                        if (way === 2)
+                            return qsTr("任务栏上不放 Win顺，用快捷键打开")
                         switch (window.editor.searchBoxHidden) {
                         case "":
-                            return qsTr("已放好，点它就能打字")
+                            return qsTr("图标居中时在任务栏最左边，靠左时在托盘图标左边；点它直接打字")
                         case "noroom":
-                            return qsTr("任务栏太挤，放不下：取消固定几个图标")
+                            return qsTr("任务栏太挤，放不下：取消固定几个图标，或改用“固定图标”")
                         case "unreadable":
-                            return pinned ? qsTr("这个任务栏放不了搜索框，已改用固定的 Win顺 按钮")
-                                          : qsTr("这个任务栏读不到图标，放不了搜索框；可以改用固定按钮（原因在 WinShun.log）")
+                            return pinned ? qsTr("这个任务栏放不了搜索框；Win顺 的图标已固定，可改选“固定图标”")
+                                          : qsTr("这个任务栏读不到图标，放不了搜索框；可以改用“固定图标”（原因在 WinShun.log）")
                         case "notaskbar":
                             return qsTr("没找到任务栏；重启资源管理器后会再放")
                         case "offscreen":
@@ -1092,30 +1108,33 @@ Window {
                             return qsTr("正在放到任务栏上…")
                         }
                     }
-                    bodyShown: missing && !available
-                    ToggleSwitch {
+                    bodyShown: unpinNeeded || (missing && !pinned && (!boxes || way === 1))
+                    ScopeTabs {
                         visible: taskbarButtonRow.boxes
-                        checked: taskbarButtonRow.boxOn
-                        onToggled: (on) => window.editor.taskbarSearchBox = on
+                        labels: [qsTr("搜索框"), qsTr("固定图标"), qsTr("关闭")]
+                        current: taskbarButtonRow.way
+                        onActivated: (index) => taskbarButtonRow.choose(index)
                     }
                     FlatButton {
-                        visible: (!taskbarButtonRow.boxes || taskbarButtonRow.unreadable) && !taskbarButtonRow.available
-                        text: taskbarButtonRow.boxes ? qsTr("固定按钮") : qsTr("固定")
+                        visible: !taskbarButtonRow.boxes && !taskbarButtonRow.pinned
+                        text: qsTr("固定")
                         glyph: "" // Pin
                         onClicked: taskbarButtonRow.missing = !window.editor.pinTaskbarButton()
                     }
 
                     body: Text {
                         width: parent.width
-                        text: qsTr("没找到 WinShunSearch.exe，重新安装 Win顺 就有了")
-                        color: Theme.danger
+                        text: taskbarButtonRow.unpinNeeded
+                              ? qsTr("Win顺 的图标还固定在任务栏上，Win顺 取消不了：右键那个图标，选“从任务栏取消固定”")
+                              : qsTr("没找到 WinShunSearch.exe，重新安装 Win顺 就有了")
+                        color: taskbarButtonRow.unpinNeeded ? Theme.subtext : Theme.danger
                         font.pixelSize: Theme.fontCaption
                         wrapMode: Text.Wrap
                     }
                 }
 
                 SettingRow {
-                    // Under the box's own switch: how wide it may be, as
+                    // Under 搜索框 chosen above: how wide it may be, as
                     // Windows' own search has it (Settings › Taskbar ›
                     // Search). Narrower ones still where that does not fit.
                     shown: taskbarButtonRow.boxes && taskbarButtonRow.boxOn
@@ -1133,66 +1152,6 @@ Window {
                         current: Math.max(0, styles.indexOf(window.editor.taskbarSearchBoxStyle))
                         onActivated: (index) => window.editor.taskbarSearchBoxStyle = styles[index]
                     }
-                }
-
-                SettingRow {
-                    id: startGapRow
-
-                    // Under the box's own switch: the icons moved over for it
-                    // right of Start, where Windows' box sits (StartGap).
-                    readonly property string gapState: window.editor.startGapState
-                    bodyShown: gapState === "needssetup" || gapState === "preparing"
-
-                    // Not on Windows 10's taskbar (StartAllBack, ExplorerPatcher): no
-                    // XAML for the gap to be made in.
-                    shown: taskbarButtonRow.boxes && taskbarButtonRow.boxOn && !window.editor.classicTaskbar
-                    title: qsTr("放在开始按钮右边")
-                    keywords: qsTr("开始按钮;右边;位置;任务栏;搜索框").split(";")
-                    description: {
-                        if (!window.editor.taskbarStartGap)
-                            return qsTr("和 Windows 自带的搜索框一样，图标往右让出位置")
-                        if (startGapRow.gapState === "off" && !window.editor.searchBoxShown)
-                            return qsTr("等搜索框放上任务栏")
-                        if (startGapRow.gapState === "off") // dragged beside the icons: no gap asked for
-                            return qsTr("搜索框在图标旁边；按住它的图标拖到开始按钮上，图标就会让位")
-                        switch (startGapRow.gapState) {
-                        case "applied":
-                            return qsTr("已放在开始按钮右边")
-                        case "conflict":
-                            return qsTr("资源管理器里另一个改任务栏的工具不让留位置（%1），搜索框先放在图标旁边")
-                                .arg(window.editor.startGapReason)
-                        case "incompatible":
-                            return qsTr("重启资源管理器后生效")
-                        case "nogap":
-                            return qsTr("没能在开始按钮旁留出位置，搜索框先放在图标旁边；重启资源管理器后再试")
-                        case "failed":
-                            return qsTr("没能在开始按钮旁留出位置（%1），搜索框先放在图标旁边")
-                                .arg(window.editor.startGapReason)
-                        case "needssetup":
-                            return window.editor.startGapReason === "cancelled"
-                                 ? qsTr("已取消准备；点击“准备定位组件”后，在 Windows 管理员提示中选“是”")
-                                 : qsTr("需要先准备任务栏定位组件，仅这一步需要管理员权限，完成后自动重试")
-                        case "preparing":
-                            return qsTr("正在准备任务栏定位组件，请在 Windows 管理员提示中选“是”")
-                        default:
-                            return qsTr("正在留出位置…")
-                        }
-                    }
-
-                    ToggleSwitch {
-                        checked: window.editor.taskbarStartGap
-                        enabled: startGapRow.gapState !== "preparing"
-                        onToggled: (on) => window.editor.taskbarStartGap = on
-                    }
-
-                    body: [
-                        FlatButton {
-                            visible: startGapRow.gapState === "needssetup" || startGapRow.gapState === "preparing"
-                            enabled: startGapRow.gapState !== "preparing"
-                            text: startGapRow.gapState === "preparing" ? qsTr("正在准备…") : qsTr("准备定位组件")
-                            onClicked: window.editor.prepareTaskbarStartGap()
-                        }
-                    ]
                 }
 
                 SettingRow {

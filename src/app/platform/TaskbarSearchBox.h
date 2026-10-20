@@ -9,9 +9,8 @@
 
 namespace ws::taskbar {
 
-// Win顺's own search box on the taskbar, next to its icons (a setting; the
-// pinned button is the other way in, see TaskbarSearch.h). Windows' own
-// search may stay there too.
+// Win顺's own search box on the taskbar (a setting; the pinned button is the
+// other way in, see TaskbarSearch.h). Windows' own search may stay there too.
 //
 // A window of ours made a child of the taskbar (Shell_TrayWnd), as
 // EverythingToolbar does: Windows lets an elevated process put one there,
@@ -24,59 +23,45 @@ namespace ws::taskbar {
 // has it when the taskbar is clicked, a child of ours or not (MA_NOACTIVATE
 // only keeps the taskbar itself from taking it): the launcher is brought back.
 //
-// Placed in a free stretch beside the icons, which UI Automation measures:
-// by default left of them when they are centred (against Start), else right
-// of them; the user drags it to either side (Spot). With the Start gap on
-// (StartGap: a margin on the Start button, made inside Explorer), right of
-// Start where Windows' own box sits: the box says how many DIPs it needs
-// (gapWanted), and goes there once the gap is measured. As wide as that stretch
-// allows, as Windows' own search: the whole box, then its icon and a short
-// label, then its icon alone, a taskbar button like Windows' search icon (no
-// wider than the user's Style); typing shows in the whole box only (wide), else
-// the launcher opens over it with its own field. On the other side only where
-// not even the icon fits. When the taskbar moves its icons (a location event on
-// its thread), they are measured again on every frame until they settle, and
-// the box moves with them; a jump that would leave it in the clear is taken
-// only once the taskbar has drawn it (see follow in the .cpp). Explorer
-// restarted, it goes onto the new taskbar (reattach, TaskbarCreated; it also
-// looks by itself for a while).
+// It has one place, at an end of the taskbar, out of the icons' way: left
+// of them when they are centred, at the taskbar's left end (right of the
+// widgets' button, if that is there); right of them when they are at the
+// left, against the tray. Icons coming and going leave it where it is: it
+// does not slide with them. As wide as that stretch allows, as Windows' own
+// search: the whole box, else its icon and a short label, else its icon
+// alone, a taskbar button like Windows' search icon (no wider than the
+// user's Style), each one width; hidden where not even the icon fits.
+// Typing shows in the whole box only (wide); otherwise the launcher opens
+// over it with its own field. UI Automation measures that stretch once the
+// taskbar has settled after a change (what it says while the icons slide
+// runs ahead of the screen, see measureLoop in the .cpp); only icons come
+// over the box make it narrower sooner. Explorer restarted, it goes onto
+// the new taskbar (reattach, TaskbarCreated; it also looks by itself for a
+// while).
 //
-// Animated once per frame the screen's compositor draws (DwmFlush), with the
-// curves of Windows 11's own motion; not when the system's animation effects
-// are off.
+// Its own animations (hover, press, opening, appearing) go once per frame
+// the screen's compositor draws (DwmFlush), with the curves of Windows 11's
+// own motion; not when the system's animation effects are off.
 //
 // On Windows 10's taskbar, as StartAllBack and ExplorerPatcher bring it back
 // on Windows 11 (classicTaskList), the same way: the task buttons measured,
-// the rest of the taskbar windows in the way. No gap right of Start there
-// (classicChanged).
+// the rest of the taskbar windows in the way (classicChanged).
 //
 // Its window lives on a thread of its own: a child of another program's
 // window shares that program's input queue, and a hung Explorer must not
 // take the launcher with it. Measuring is on a third thread: UI Automation
-// asks the windows on the taskbar, this one among them; a fourth paces both
-// to the compositor's frames while they animate. Windows 11 only (Windows
-// 10 itself has the pinned button; its taskbar is measured as above, but
+// asks the windows on the taskbar, this one among them; a fourth paces the
+// box's animations to the compositor's frames. Windows 11 only (Windows 10
+// itself has the pinned button; its taskbar is measured as above, but
 // untried there).
 class SearchBox {
 public:
-    // A left button press on the box (on its icon: a click, not a drag).
+    // A left button press on the box (on its icon: a click, on release).
     struct Press {
         POINT anchor {}; // the middle of the box's top edge, on the screen (physical pixels)
         bool wide = false; // the whole box (see wide())
         std::optional<int> at; // while active: where in the text it was pressed (UTF-16)
         bool word = false; // a double click: the word there
-    };
-    // Where the user put the box: on one side of the icons, so far from
-    // their edge or from the far end of that stretch (the screen's edge,
-    // the widgets, the tray). The default is against the icons, before them
-    // when they are centred.
-    struct Spot {
-        // Before (left of) or after the icons; AfterStart: in the gap right of
-        // Start (the default while there is one).
-        enum class Side { Auto, Before, After, AfterStart };
-        Side side = Side::Auto;
-        bool fromIcons = true; // else from the far end (AfterStart: from Start, else from the next icon)
-        int offset = 0; // logical pixels
     };
     // Why it is not on the taskbar (None while it is).
     enum class Hidden {
@@ -86,18 +71,15 @@ public:
         Unreadable, // UI Automation does not give its icons (a taskbar neither Windows 11's nor Windows 10's)
         OffScreen, // not all on its screen: auto-hidden, or sliding
         Vertical, // at a side of the screen
-        NoRoom, // not even the icon fits beside the icons
+        NoRoom, // not even the icon fits at its end of the taskbar
     };
     struct Callbacks {
         std::function<void(const Press&)> pressed;
         std::function<void(int anchor, int at)> dragged; // the button held down, moved: select from anchor
         std::function<void(Hidden why)> shownChanged; // on the taskbar (None), or why not
         std::function<void()> caretMoved; // caret() is somewhere else
-        std::function<void(const Spot&)> moved; // dragged somewhere else by the user
         std::function<void(bool wide)> wideChanged; // see wide()
-        std::function<void(double dips)> gapWanted; // the gap right of Start the box's form needs; 0: none (StartGap::set)
-        std::function<void()> gapMissing; // the gap was reported but never measured: fell back (StartGap::noGapSeen)
-        std::function<void(bool classic)> classicChanged; // measured a classic taskbar (classicTaskList), or no longer: no gap right of Start there
+        std::function<void(bool classic)> classicChanged; // measured a classic taskbar (classicTaskList), or no longer
     };
     // What the launcher's field has while it is open over the box.
     struct Text {
@@ -123,7 +105,7 @@ public:
     };
 
     // The callbacks run on the box's own thread.
-    SearchBox(Callbacks callbacks, Look look, Spot spot);
+    SearchBox(Callbacks callbacks, Look look);
     ~SearchBox(); // gone from the taskbar
 
     SearchBox(const SearchBox&) = delete;
@@ -133,11 +115,7 @@ public:
     void setLook(Look look);
     void setText(Text text);
     void reattach(); // Explorer started again (TaskbarCreated)
-    void setStartGapWanted(bool on, bool justTurnedOn = false); // the setting: ask for the gap right of Start (gapWanted); just turned on: a spot dragged beside the icons is dropped
-    // What StartGap reports: the margin on the Start button, or not; unavailable:
-    // it gave up (a conflict, a failure, the gap never seen), not to be asked for by a drag.
-    void setStartGap(bool applied, double dips, bool unavailable = false);
-    std::optional<RECT> rect() const; // where it settles, on the screen, physical pixels; none while not shown
+    std::optional<RECT> rect() const; // where it is, on the screen, physical pixels; none while not shown
     bool wide() const; // ... as the whole box, which shows what is typed (else its label or icon alone)
     std::optional<RECT> caret() const; // ... the caret while active
     bool underPointer() const; // the mouse pointer is on it

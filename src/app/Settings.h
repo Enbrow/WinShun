@@ -218,7 +218,6 @@ struct Settings {
     bool taskbarStartTyping = false; // typing in the Start menu searches with Win顺 (TypeToSearch)
     bool taskbarSearchBox = false; // Win顺's own search box on the taskbar (taskbar::SearchBox)
     QString taskbarSearchBoxStyle = QStringLiteral("box"); // box | label | icon: the widest form it takes, as Windows' own
-    bool taskbarStartGap = false; // ... right of Start, the icons moved over for it (taskbar::StartGap)
 
     // [Capture]: the screen capture (src/capture), shown as a card on the
     // 插件 page. Off until turned on; nothing of it is made while off.

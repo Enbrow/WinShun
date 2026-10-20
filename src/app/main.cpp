@@ -7,7 +7,6 @@
 #include "SystemCatalog.h"
 #include "platform/MessageWindow.h"
 #include "platform/Shell.h"
-#include "platform/TaskbarStartGap.h"
 
 #include <QClipboard>
 #include <QCommandLineParser>
@@ -167,10 +166,6 @@ int main(int argc, char* argv[])
         }
         ::LocalFree(wide);
     }
-    // --stage-tap: WinShunTap.dll put where Explorer may load it from, by the
-    // installer (elevated); nothing else is started (no Qt, no window).
-    if (wideArgs.contains(u"--stage-tap"_s))
-        return ws::taskbar::stageTap();
     // A portable copy: everything in the "data" folder beside the program.
     bool portable = false;
     if (ws::Settings::profile().isEmpty()) {

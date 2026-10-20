@@ -23,7 +23,7 @@
 
 - 实测：未签名稀疏包含 COM 类时，普通权限 `Add-AppxPackage -AllowUnsigned` 被拒（0x80073D2B），**提权注册成功**（开发者模式关着也行，按用户注册，约 250 ms，Explorer 不用重启）。微软文档说这是「测试用途，勿广泛分发」：政策风险在于哪天收紧后 Win11 顶层项消失，经典菜单不受影响。备选：自签证书 + `.cer` 导入 `Cert:\CurrentUser\TrustedPeople`（未实测；.pfx 不能进公开仓库）。
 - 两套互不重复：新菜单只列包注册的，经典菜单只列注册表动词。`Drive` 进不了包（schema 不允许），盘根只在经典菜单里。
-- DLL 按哈希暂存到 `%ProgramData%\WinShun\shell\<sha256 前缀>\`（照 `TaskbarStartGap::stage()` + `protect()`），升级时安装目录里没有被 Explorer 锁住的文件。包里的类跑在 DllHost.exe，经典动词跑在 explorer.exe，都是中完整性。
+- DLL 按哈希暂存到 `%ProgramData%\WinShun\shell\<sha256 前缀>\`（照 0.11 及以前给任务栏留位置的 DLL 那样按哈希暂存、只读保护；那段代码已删，见 git 历史里的 `TaskbarStartGap::stage()` + `protect()`），升级时安装目录里没有被 Explorer 锁住的文件。包里的类跑在 DllHost.exe，经典动词跑在 explorer.exe，都是中完整性。
 - `Invoke`：`FindWindow(L"WinShun.MessageWindow")` → `AllowSetForegroundWindow(pid)` → `SendMessageTimeout(WM_COPYDATA)`；找不到实例就 `ShellExecute(<home>\WinShunSearch.exe --query "<文本>")`（给 stub 加这个选项：先走登录任务免 UAC 启动，否则启动 WinShun.exe 弹一次 UAC，等消息窗口出现再发）。
 - `GetState`：多选、非文件系统项、zip 文件夹、`<home>` 不存在（便携版被删）→ `ECS_HIDDEN`；UNC 路径在 `okToBeSlow == FALSE` 时返回 `E_PENDING`。背景右键经 `SID_SFolderView → IFolderView::GetFolder` 取当前文件夹。
 - 标题要短（新菜单会截断且无省略号）：「用 Win顺 搜索此处」/「Search here with WinShun」。语言由 WinShun 写进 `HKCU\Software\WinShun\Shell\Language`。图标：DLL 资源 `"<dll>,-1"`，经典注册还要写 `Icon` 值。

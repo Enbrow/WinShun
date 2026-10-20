@@ -1,13 +1,15 @@
 # The taskbar box (post page 7): the launcher opened from the box, a query in
 # it in 文件 (全部 would list the apps of this PC), the whole screen and the
-# launcher cut out. The box's place is that of this 2560x1600 screen, right
-# of Start (the profile takes Taskbar/StartGap from the user's settings);
-# another screen or place: find it again, and measure TASKBAR in art.py on
-# the new screen-taskbar.png.
+# launcher cut out. The box's place is that of this 2560x1600 screen at 150%
+# with the icons centred and no widgets button: the left end of the taskbar,
+# (12,1540) 360x48 since the box stopped following the icons (2026-10-20;
+# docs/images/taskbar.jpg is from before, the box right of Start); another
+# screen or place: find it again, and measure TASKBAR in art.py on the new
+# screen-taskbar.png.
 scene --theme light --wallpaper dawn
 # the box is placed again after the theme changes
 sleep 6000
-clickbox 700 1564
+clickbox 192 1564
 sleep 1200
 type ndbg
 sleep 800

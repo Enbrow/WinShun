@@ -89,7 +89,7 @@
 - **搜索面板**：结果太多时，点搜索框右上角的小按钮或按 `Ctrl+E`，同一个窗口展开成面板（像 Listary）：左边按范围、类型、修改时间、大小、位置筛选，右边名称 / 路径 / 大小 / 修改时间四列，点列头排序；什么都不输入也能按条件浏览整个索引（三百万个文件也是毫秒级）。`size:>10mb`、`dm:7d` 这类写法直接打在搜索框里也行。再按一次就缩回搜索框。
 - **长文件名**：名字放不下时在中间缩短，扩展名和结尾留着（“…第二版.xlsx”）；鼠标停在这一行上，显示完整的名字、位置、大小、修改和创建时间。拖动搜索框的左边或右边可以调宽（记住宽度，双击边缘恢复默认）。
 - **钉住**：按 `Ctrl+T` 或点搜索框右上角的图钉，点别处、打开文件后搜索框都不收起，`Esc` 关闭；按住左边的放大镜拖动窗口，单击它打开设置。
-- **预览**：在结果上按 `Alt+P`（或右键“预览”）看一眼文件，启动器不关：图片、文本（自动认 UTF-8 / GBK）、Word / Excel / PowerPoint / PDF（用资源管理器预览窗格的同一套预览程序）、文件夹里有什么；上下键换一行就换一个文件，再按 `Alt+P` 或 `Esc` 关掉。后台开着 QuickLook 或 Seer 时交给它们。
+- **预览**：在结果上按 `Alt+P`（或右键“预览”）看一眼文件，启动器不关：图片、文本（自动认 UTF-8 / GBK）、Word / Excel / PowerPoint / PDF（用资源管理器预览窗格的同一套预览程序）、文件夹里有什么；上下键换一行就换一个文件，再按 `Alt+P`（或点预览窗口的叉）关掉；`Esc` 关的是启动器，预览开着时下次打开还在。后台开着 QuickLook 或 Seer 时交给它们。
 - **缩略图**：图片、视频、PDF 等在结果里直接显示缩略图，代替类型图标，“打开”“另存为”对话框旁的搜索框里也一样；设置 › 结果列表里可以关。
 - **右键菜单**：右键一行有打开位置、复制路径、加入收藏等；按住 `Shift` 右键（或菜单里的“更多选项”），出现 Windows 自己的完整右键菜单，和资源管理器里一样，选中几行也行；复制、剪切、删除之后搜索框不关。
 - **拖出去就能用**：结果直接拖进微信、邮件、资源管理器。
@@ -171,7 +171,7 @@
 #### 🔎 任务栏搜索框
 
 - 在 Windows 11 任务栏上放 Win顺 自己的搜索框（Windows 10 是固定一个按钮），结果从任务栏上方滑出。
-- 可以像 Windows 自带的搜索框一样放在开始按钮右边，图标往右让出位置（设置里打开，默认关），和 TranslucentTB 一起用也行。
+- 位置固定，不跟着图标挪：图标居中时在任务栏最左边，图标靠左时在托盘图标左边；任务栏挤了就自动变窄。也可以改成在任务栏上固定一个 Win顺 图标。
 - 样式和 Windows 搜索一样三选一：整个搜索框、图标和“搜索”、仅图标（像任务栏上的一个按钮）。
 - 搜索框可以单独使用，也可以与 Windows 搜索并存；是否隐藏 Windows 搜索、接管 `Win+S` 或开始菜单打字，都按需选择。
 
@@ -292,7 +292,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Search panel**: too many hits? The small button at the box's corner or `Ctrl+E` grows the same window into a panel, as Listary has it: filters down the left (scope, kind, date modified, size, folder), the rows in columns on the right (name, path, size, date modified) with sortable headers; with nothing typed it browses the whole index by those filters (milliseconds over three million files). `size:>10mb` and `dm:7d` work in the box too. Press it again to collapse.
   - **Long names**: a name that does not fit is shortened in the middle, keeping its extension and end ("…v3 final.xlsx"); rest the pointer on the row to see the full name, location, size, modified and created times. Drag the left or right edge of the search box to widen it (the width is remembered; double-click an edge for the default).
   - **Pin**: `Ctrl+T` or the pin at the box's corner keeps the search box up through clicks elsewhere and opened files; `Esc` closes it. Drag the window by the magnifier on the left; click it for the settings.
-  - **Preview**: `Alt+P` on a result (or Preview in its menu) shows the file without leaving the launcher: pictures, text (UTF-8 or GBK, detected), Word, Excel, PowerPoint and PDF (through the same preview handlers as File Explorer's preview pane), what a folder holds; the arrows move it to the next row, `Alt+P` again or `Esc` closes it. QuickLook or Seer, when running in the background, shows it instead.
+  - **Preview**: `Alt+P` on a result (or Preview in its menu) shows the file without leaving the launcher: pictures, text (UTF-8 or GBK, detected), Word, Excel, PowerPoint and PDF (through the same preview handlers as File Explorer's preview pane), what a folder holds; the arrows move it to the next row, `Alt+P` again (or the × on the preview) closes it; `Esc` closes the launcher and leaves the preview as it is, so it is back the next time the launcher opens. QuickLook or Seer, when running in the background, shows it instead.
   - **Thumbnails**: pictures, videos, PDFs and the like show their thumbnail instead of their type's icon, in the results and in the search bar beside Open / Save dialogs; Settings › Result list can turn them off.
   - **Context menu**: right-click a row for its location, Copy path, Add to favorites and more; `Shift`+right-click (or More options in that menu) brings up Windows' own full context menu, as in File Explorer, for one row or several; after copy, cut or delete the search box stays open.
   - **By kind**: under **Files**, a row of kinds (folders, documents, pictures, videos, archives…); `Ctrl+Tab` steps through them, `+` adds your own.
@@ -335,7 +335,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Organize**: pins, groups, multi-paste in order, and `Alt+1`…`Alt+9`; pinned items can come first, and the order is yours to drag or move with `Ctrl+↑`/`↓`.
   - **Privacy**: passwords from password managers are not kept, and the history stays on your PC.
   - **Screenshots** (off by default; turn it on in Settings › Plugins): a shortcut or `PrtScn`, then click a window or a control, or drag an area; `Enter` copies it, into the clipboard history too, where the words in it can be searched; `F3` pins it on the screen, and its text can be read out. `jt` and a space in the search box list past screenshots by the text in them.
-- 🔎 **Taskbar search box**: WinShun's own search box on the Windows 11 taskbar (a pinned button on Windows 10), optionally right of Start where Windows' own box sits (alongside TranslucentTB too); a whole box, its icon and label, or its icon alone, as Windows' own search. It works on its own or alongside Windows search; hiding Windows search, taking over `Win+S`, and searching as you type in the Start menu are all optional.
+- 🔎 **Taskbar search box**: WinShun's own search box on the Windows 11 taskbar, or a pinned WinShun icon instead (the only way on Windows 10). The box has a fixed place the icons never push around: the taskbar's left end with centred icons, left of the tray icons with left-aligned ones; a whole box, its icon and label, or its icon alone, as Windows' own search, narrower by itself when the taskbar fills up. It works on its own or alongside Windows search; hiding Windows search, taking over `Win+S`, and searching as you type in the Start menu are all optional.
 - 🤖 **AI assistants (MCP)**
   - **What**: WinShun is an MCP server. Claude Desktop, Claude Code, Cursor and VS Code connect in one click and search file names, file contents and recent changes.
   - **Safety**: read-only by default, limited to what the AI client may see, with folders kept from AI and a call log.

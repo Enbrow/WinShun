@@ -472,6 +472,7 @@ int runSettings(const QStringList& args)
     SystemTheme::setRoundedCorners(settings.corners == u"round");
     settings.mcp = true;
     settings.mcpPlugins = true;
+    settings.taskbarSearchBox = true; // its style row
     const QString shareOnline = u"\\\\192.168.1.10\\资料"_s;
     const QString shareSignIn = u"\\\\nas\\photos"_s;
     settings.shares = {{shareOnline, u"公司资料"_s}, {shareSignIn, {}}};

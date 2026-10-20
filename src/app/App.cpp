@@ -276,38 +276,11 @@ void prepareBackdrop(QQuickWindow* window)
     QObject::connect(window, &QQuickWindow::colorChanged, window, keepAlpha);
 }
 
-// Where the user dragged Win顺's box on the taskbar: in state.ini, with the
-// windows' spots.
+// What is remembered between runs that is not a setting: the windows'
+// spots and sizes, the launcher's last choices.
 QString statePath()
 {
     return Settings::dataDir() + u"\\state.ini"_s;
-}
-
-taskbar::SearchBox::Spot loadBoxSpot()
-{
-    using Spot = taskbar::SearchBox::Spot;
-    const QSettings state(statePath(), QSettings::IniFormat);
-    const QString side = state.value(u"SearchBox/Side"_s).toString();
-    Spot spot;
-    spot.side = side == u"before" ? Spot::Side::Before
-        : side == u"after"        ? Spot::Side::After
-        : side == u"start"        ? Spot::Side::AfterStart
-                                  : Spot::Side::Auto;
-    spot.fromIcons = state.value(u"SearchBox/From"_s).toString() != u"end";
-    spot.offset = std::clamp(state.value(u"SearchBox/Offset"_s).toInt(), 0, 10000);
-    return spot;
-}
-
-void saveBoxSpot(const taskbar::SearchBox::Spot& spot)
-{
-    using Spot = taskbar::SearchBox::Spot;
-    QSettings state(statePath(), QSettings::IniFormat);
-    state.setValue(u"SearchBox/Side"_s, spot.side == Spot::Side::Before ? u"before"_s
-                                         : spot.side == Spot::Side::After ? u"after"_s
-                                         : spot.side == Spot::Side::AfterStart ? u"start"_s
-                                                                          : u"auto"_s);
-    state.setValue(u"SearchBox/From"_s, spot.fromIcons ? u"icons"_s : u"end"_s);
-    state.setValue(u"SearchBox/Offset"_s, spot.offset);
 }
 
 // Rounded corners and the shadow, for our windows without a system title bar
@@ -640,8 +613,6 @@ bool App::start(const StartOptions& options)
         applyTaskbarHotkeys();
         if (m_searchBox)
             m_searchBox->reattach(); // onto the new taskbar
-        if (m_startGap)
-            m_startGap->reattach(); // the new Explorer has no gap yet
         QTimer::singleShot(3s, this, [this] { // once it has registered its own keys
             applyClipboardHotkeys();
             applyTaskbarHotkeys();
@@ -711,6 +682,10 @@ bool App::start(const StartOptions& options)
     connect(m_launcher.get(), &Launcher::fileChoiceChanged, this, [this] {
         QSettings(statePath(), QSettings::IniFormat).setValue(u"Search/FileType"_s, m_launcher->fileChoice());
     });
+    // 0.11 and before: where the taskbar box was dragged to. It has one
+    // place now (taskbar::SearchBox), not to be dragged.
+    if (QSettings state(statePath(), QSettings::IniFormat); state.childGroups().contains(u"SearchBox"_s))
+        state.remove(u"SearchBox"_s);
     applyTheme();
     connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, &App::applyTheme);
 
@@ -1698,7 +1673,6 @@ static QString searchBoxHiddenName(taskbar::SearchBox::Hidden why)
 void App::applySearchBox()
 {
     const bool wanted = m_settings.taskbarSearchBox && taskbar::SearchBox::supported();
-    const bool boxWas = m_searchBox != nullptr;
     if (wanted && !m_searchBox) {
         // Called on the box's thread: over to the GUI thread.
         taskbar::SearchBox::Callbacks callbacks;
@@ -1720,30 +1694,14 @@ void App::applySearchBox()
                     QGuiApplication::inputMethod()->update(Qt::ImCursorRectangle);
             }, Qt::QueuedConnection);
         };
-        callbacks.moved = [this](const taskbar::SearchBox::Spot& spot) {
-            QMetaObject::invokeMethod(this, [spot] { saveBoxSpot(spot); }, Qt::QueuedConnection);
-        };
         callbacks.wideChanged = [this](bool wide) {
             QMetaObject::invokeMethod(this, [this, wide] { setSearchBoxWide(wide); }, Qt::QueuedConnection);
-        };
-        callbacks.gapWanted = [this](double dips) {
-            QMetaObject::invokeMethod(this, [this, dips] {
-                if (m_startGap)
-                    m_startGap->set(dips);
-            }, Qt::QueuedConnection);
         };
         callbacks.classicChanged = [this](bool classic) {
             QMetaObject::invokeMethod(this, [this, classic] { setClassicTaskbar(classic); }, Qt::QueuedConnection);
         };
-        callbacks.gapMissing = [this] {
-            QMetaObject::invokeMethod(this, [this] {
-                if (m_startGap)
-                    m_startGap->noGapSeen();
-            }, Qt::QueuedConnection);
-        };
-        m_searchBox = std::make_unique<taskbar::SearchBox>(
-            std::move(callbacks), taskbar::SearchBox::Look {}, loadBoxSpot());
-        // Until the box has measured it (classicChanged): no StartGap tried on it meanwhile.
+        m_searchBox = std::make_unique<taskbar::SearchBox>(std::move(callbacks), taskbar::SearchBox::Look {});
+        // Until the box has measured it (classicChanged).
         m_classicTaskbar = taskbar::classicTaskList(::FindWindowW(L"Shell_TrayWnd", nullptr)) != nullptr;
         if (m_settingsEditor)
             m_settingsEditor->setClassicTaskbar(m_classicTaskbar);
@@ -1752,87 +1710,9 @@ void App::applySearchBox()
     } else if (!wanted && m_searchBox) {
         if (m_launcher->inTaskbarBox())
             hideLauncher();
-        m_startGap.reset(); // the gap closes first
-        setStartGapStatus({});
         m_searchBox.reset();
         setSearchBoxShown(taskbar::SearchBox::Hidden::Pending);
     }
-    applyStartGap(boxWas);
-}
-
-// The room right of Start, made in Explorer (StartGap), for the box; the
-// box says how much it needs (gapWanted). Made before the box wants it,
-// gone before it stops wanting it.
-void App::applyStartGap(bool boxWas)
-{
-    const bool wanted = m_searchBox && m_settings.taskbarStartGap && !m_classicTaskbar; // that needs the XAML taskbar
-    if (wanted && !m_startGap) {
-        // Called on its thread: over to the GUI thread.
-        m_startGap = std::make_unique<taskbar::StartGap>([this](const taskbar::StartGap::Status& status) {
-            QMetaObject::invokeMethod(this, [this, status] { setStartGapStatus(status); }, Qt::QueuedConnection);
-        });
-        m_searchBox->setStartGapWanted(true, boxWas); // turned on with the box already there: by Start
-    } else if (!wanted && m_startGap) {
-        m_startGap.reset(); // asks for the margin back
-        setStartGapStatus({});
-        if (m_searchBox)
-            m_searchBox->setStartGapWanted(false);
-    }
-}
-
-void App::setStartGapStatus(const taskbar::StartGap::Status& status)
-{
-    using State = taskbar::StartGap::State;
-    static const char* const names[] = {
-        "off", "attaching", "ready", "applied", "nogap", "conflict", "incompatible", "failed", "needssetup", "preparing"};
-    if (m_startGapPreparing && status.state != State::Preparing)
-        return; // a late cleanup response while the setup helper is running
-    if (!m_startGap && status.state != State::Off)
-        return; // a late word from one gone since
-    if (status.state != m_startGapStatus.state || status.reason != m_startGapStatus.reason)
-        qWarning().noquote() << "Start gap:" << names[static_cast<int>(status.state)]
-                             << QString::fromStdWString(status.reason) << status.dips << "DIPs";
-    m_startGapStatus = status;
-    if (m_searchBox)
-        m_searchBox->setStartGap(status.state == State::Applied, status.dips,
-            status.state == State::NoGapSeen || status.state == State::Conflict || status.state == State::Incompatible
-                || status.state == State::Failed || status.state == State::NeedsSetup || status.state == State::Preparing);
-    if (m_settingsEditor) {
-        m_settingsEditor->setStartGapState(QString::fromLatin1(names[static_cast<int>(status.state)]),
-            QString::fromStdWString(status.reason));
-    }
-}
-
-void App::prepareTaskbarStartGap()
-{
-    using State = taskbar::StartGap::State;
-    if (!m_startGap || m_startGapPreparing || m_startGapStatus.state != State::NeedsSetup)
-        return;
-    m_startGapPreparing = true;
-    setStartGapStatus({State::Preparing});
-    const std::wstring program = QDir::toNativeSeparators(QCoreApplication::applicationFilePath()).toStdWString();
-    shell::runElevated(program, L"--stage-tap", [app = QPointer<App>(this)](std::optional<unsigned long> code) {
-        if (!app)
-            return;
-        QMetaObject::invokeMethod(app.data(), [app, code] {
-            if (!app)
-                return;
-            app->m_startGapPreparing = false;
-            if (!app->m_searchBox || !app->m_settings.taskbarStartGap || app->m_classicTaskbar) {
-                app->setStartGapStatus({});
-                app->applyStartGap(false);
-                return;
-            }
-            if (!code || *code != 0) {
-                app->setStartGapStatus({State::NeedsSetup,
-                    !code ? L"cancelled" : L"component preparation failed: " + std::to_wstring(*code)});
-                return;
-            }
-            app->m_startGap.reset();
-            app->setStartGapStatus({});
-            app->applyStartGap(true); // also clears a fallback spot saved beside the icons
-        }, Qt::QueuedConnection);
-    });
 }
 
 void App::setClassicTaskbar(bool classic)
@@ -1842,7 +1722,6 @@ void App::setClassicTaskbar(bool classic)
     m_classicTaskbar = classic;
     if (m_settingsEditor)
         m_settingsEditor->setClassicTaskbar(classic);
-    applyStartGap(false); // not the user turning it on: a spot dragged beside the icons kept
 }
 
 void App::setSearchBoxShown(taskbar::SearchBox::Hidden why)
@@ -2210,7 +2089,6 @@ void App::showSettings()
         connect(editor, &SettingsEditor::recordingHotkeyChanged, this, &App::applyFolderMenuHotkey);
         connect(editor, &SettingsEditor::recordingHotkeyChanged, this, &App::applyCaptureHotkeys);
         connect(editor, &SettingsEditor::explorerRestartRequested, this, &App::restartExplorer);
-        connect(editor, &SettingsEditor::taskbarStartGapSetupRequested, this, &App::prepareTaskbarStartGap);
         connect(editor, &SettingsEditor::clipboardClearRequested, this, [this, editor] {
             m_clipStore->clearHistory();
             m_clipboard->historyChanged();
@@ -2300,7 +2178,6 @@ void App::showSettings()
         editor->refreshTaskbarState();
         editor->setSearchBoxShown(searchBoxHiddenName(m_searchBoxHidden));
         editor->setClassicTaskbar(m_classicTaskbar);
-        setStartGapStatus(m_startGapStatus);
         editor->refreshFileManagers();
         editor->refreshMcpClients();
         refreshMcpStatus();

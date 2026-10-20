@@ -888,18 +888,27 @@
 - **现象**：开着微软拼音（中文模式）在开始菜单里打 `not`，转到 Win顺 的搜索框后是输入法的组字（候选“农田、弄他”），不是直接搜索；接着按 `Esc` 取消的是组字，Win顺 不关。
 - **原因**：截到的键重新发给 Win顺 时，和用户直接在搜索框里打字一样经过输入法。在 Windows 自带的搜索里打字也是这样，是有意的：用户打的是拼音还是英文，由他自己的输入法状态决定。测试脚本按 `Esc` 想关窗口时，要按两次，或先确认没有组字。
 
-### 任务栏的图标还没动，UI 自动化先报了终点
+### 任务栏搜索框为什么固定位置
 
-- **现象**：Win顺 的框跟着任务栏的图标挪，开关窗口时却先跳到一边、再跳回来、再跟着走。以前的做法（位置变化后 150 毫秒量一次、再隔 150 毫秒量一次）还会跳两下。
-- **原因**：任务栏的图标是一个接一个滑的，每个比前一个晚约 15 毫秒，一次滑约 280 毫秒。正在滑的图标，UI 自动化报的位置就是屏幕上的位置；还没轮到的，先报终点，再跳回原处，然后才滑。走一个按钮时开始按钮最后滑，约 370 毫秒里一直报终点（按钮越多越久）；来一个按钮时开始按钮有时也跳一次（只有位置变化后的第一次读数）。位置变化的 WinEvent 只在开头来两个，滑的过程中没有。
-- **做法**：变化后每帧都量（缓存请求一次取回所有子元素，3–5 毫秒），小步直接跟；大跳先不动，挡到图标的等 100 毫秒、留在空地上的等 800 毫秒，读数回到框附近就作废（`TaskbarSearchBox.cpp` 的 `follow`）。
-- **怎么查**：`tbmotion` 探测程序（scratchpad）让两个最小化的窗口进出任务栏，同时记三样：逐帧截屏找开始按钮画在哪（按它的样子横向比对）、UI 自动化报的位置、框的窗口位置。
+- **现象**：0.7 到 0.11 的任务栏搜索框跟着任务栏的图标走（在图标旁边，或在开始按钮右边的空当里，还能拖），开关窗口时总比图标晚几十毫秒，或者先跳到一边再回来。为了在开始按钮右边留出空当，还得往资源管理器里注入 WinShunTap.dll，和 TranslucentTB 这类工具一起开时会一直停在“正在留出位置…”（GitHub #35）。2026-10-20 用户定下改成固定位置，去掉空当、拖动和记住的位置。
+- **原因**（这几轮实测和读源码得来，以后换做法还用得上）：
+  - 图标一个接一个地滑，后一个比前一个晚约 16.6 毫秒（一帧），往哪边滑就从那边的图标先开始。逐帧比对屏幕，每个图标约 255 毫秒滑完；按动画本身算是 333 毫秒，曲线约 `(0.4,0,0.2,1)`，最后几十毫秒挪不到 1 像素，两个数说的是同一段动画。一排图标全部停下，要 333 毫秒再加上图标数乘 16.6 毫秒。
+  - 位置变化的 WinEvent 只在开头来（隐藏的旧 `Start` 窗口最先动，比图标还早），滑的过程中一个也没有。所以“最后一个事件之后等多久”要按整段滑动来算。
+  - UI 自动化走在屏幕前面：还没轮到的图标先报终点，再跳回原处，然后才滑。走一个按钮时，开始按钮从约 20 毫秒起一直报终点，到约 400 毫秒为止（按钮越多越久）。
+  - 读数本身慢，还要看资源管理器忙不忙：加按钮时每段的第一次读数要 18–94 毫秒，滑的过程中最慢 59–151 毫秒；连框架外的托盘图标一起搜整棵树（`TreeScope_Descendants`）要 48–164 毫秒。跟着读数走的框，读数晚多少它就晚多少；按速度往前推，图标减速时框又会往回晃。
+  - XAML 诊断（`InitializeXamlDiagnosticsEx`）可以有好几个使用者，但树的变化只告诉最后连上的那个（WinUI 的 `DiagnosticsInterop` 只记一个）：TranslucentTB 在我们之后连上，我们的 DLL 就看不到新建的开始按钮，边距设不上（#35）。DLL 一旦被资源管理器加载就卸不掉，要等它重启。
+- **做法**：
+  - 不跟图标走：图标居中时放在任务栏最左端（那里有小组件按钮就放在它右边；经典任务栏放在开始按钮右边），图标靠左时放在右端、托盘的左边。图标来来去去碰不到它，只有那一端的东西变了（小组件出现、托盘变宽）才换位置，直接跳过去，不滑。经典任务栏（StartAllBack、ExplorerPatcher）也一样。
+  - 每种样子只有一个宽度：整框 240 逻辑像素、图标加“搜索”、仅图标（44）。放不下就换窄一档，连图标都放不下就先藏起来（`Hidden::NoRoom`）。
+  - 不逐帧量。变化后马上量一次，之后每 125 毫秒量一次，直到安定；这些没安定的读数只在图标或托盘真压到框上时才用（马上变窄或藏起来），不拿来变宽、挪位置。最后一个事件过去约 1 秒、相隔约 250 毫秒的两次读数一样，才算安定，再按它放；事件一直不停，最多等约 4 秒。
+  - 不再往资源管理器里放 DLL。安装、卸载时删 `%ProgramData%\WinShun\tap`；被资源管理器占着的那份登记成重启后删（`MoveFileEx` 加 `MOVEFILE_DELAY_UNTIL_REBOOT`），删不掉也不让安装失败。设置里旧的 `Taskbar/StartGap` 和 `state.ini` 的 `[SearchBox]` 读到就删。
+- **怎么查**：scratchpad 里的 `tbmotion`（一个不抢前台的窗口进出任务栏，同时每毫秒读一次框的 `GetWindowRect`，逐帧记下屏幕上任务栏那一条）和 `tbcrowd`（一个个加按钮把任务栏挤满再拿走；每个窗口一个 AppUserModelID，免得合并成一个按钮）。
 
 ### 任务栏上的框描边发虚
 
 - **现象**：用户说框的描边“看着不正常，有的发虚”。150%、直角，逐像素读：上边、左边 1 行，下边、右边 2 行，而且那 2 行深浅不一（亮度 93、84）。
 - **原因**：描边是 1 逻辑像素 = 1.5 物理像素，没取整。直角关了抗锯齿，1.5 像素宽的线按像素中心落格，靠外的两边落 1 行、另两边落 2 行；圆角开着抗锯齿，也是糊成两行半透明的。另外底色只铺到描边的中线，描边内侧压在底色上、外侧没有，同一条边的两行颜色就不一样。我们的 Qt 窗口（`WindowEdge.qml`，`border.width: 1`）在 150% 下实测是 2 行一样亮的像素，Qt 把它取整了。
-- **做法**：描边宽度按 Qt 的办法取整（`std::round(s)`，至少 1），底色铺满整个框，描边整条画在上面（`TaskbarSearchBox.cpp`，图标形态的那圈边也一样）。改完四边都是 2 行，每边两行亮度相同（差 1 是背景渐变），和启动器的边一致。框停着时本来就在整像素上（`frac` 为 0）；移动中按小数位置画，那时的边虚一点看不出来。
+- **做法**：描边宽度按 Qt 的办法取整（`std::round(s)`，至少 1），底色铺满整个框，描边整条画在上面（`TaskbarSearchBox.cpp`，图标形态的那圈边也一样）。改完四边都是 2 行，每边两行亮度相同（差 1 是背景渐变），和启动器的边一致。框的位置总在整像素上（2026-10-20 起不再滑动；以前滑动中按小数位置画，那时的边虚一点看不出来）。
 - **怎么查**：截下框的窗口，横竖各读一行像素的亮度，数每条边几行、每行多亮；别只看放大图。
 
 ### 透明任务栏（TranslucentTB）上，收起后启动器的一截留在任务栏里
@@ -983,48 +992,9 @@
 - **原因**：Windows 11 的这个函数在显卡被重置（混合显卡的笔记本睡眠后）、远程桌面断开后，可能永远卡在内核里等一个不会来的垂直同步，进程成了结束不掉的僵尸（Zed 编辑器踩过，zed-industries/zed#36934，后来退回 `DwmFlush`）。
 - **做法**：框的动画用一个单独的线程每帧调 `DwmFlush`；它连续几次立刻返回（没有显示器）就每次睡 15 毫秒，不空转（`waitForFrame`）。
 
-### 开始按钮右边让位置：XAML 诊断的几个硬规矩
-
-- **现象**：用 `InitializeXamlDiagnosticsEx` 让 Explorer 加载 WinShunTap.dll（开始按钮右边的空当），几种写法会让 Explorer 直接退出、卡住，或者什么也不发生还报成功。
-- **原因**（读 WinUI 的源码 `DebugTool.cpp`、`LiveVisualTree.cpp` 和 TranslucentTB 的做法得来）：
-  - DLL 路径是相对路径时 Explorer 直接 fail-fast（整个进程退出）。
-  - 同一个线程只能调一次：第二次返回 S_OK，但什么也不做。
-  - `OnVisualTreeChange` 返回失败，运行时枚举现有的树会整个中止，之后再也收不到变化；回调里的 `VisualElement` 字符串是交给我们的，要自己 `SysFreeString`。
-  - `AdviseVisualTreeChange` 在 XAML 线程上调可能卡住，要在自己的线程上调。
-  - 用 `IVisualTreeService::CreateInstance("Windows.UI.Xaml.Thickness", "0,0,N,0")` + `SetProperty` 设 Margin 返回 E_INVALIDARG。
-  - ~~同一个 Explorer 里只能有一个诊断的使用者~~：错的，见下面的“和 TranslucentTB 一起开”。可以有好几个，但树的变化只告诉最后连上的那个。
-  - DLL 加载以后卸不掉，直到 Explorer 重启。
-- **做法**：只传绝对路径；每次调用开一个新线程；回调永远返回 S_OK，字符串在作用域结束时释放；工作线程上 advise；设 Margin 用 C++/WinRT 的 `FrameworkElement::Margin`，并且派回 XAML 线程（`DispatcherQueue`）；不事先查别的程序（2026-10-16 去掉，只看调用的结果）；DLL 复制到 ProgramData 按哈希命名的文件夹再加载，模块钉住（`GET_MODULE_HANDLE_EX_FLAG_PIN`），`DllCanUnloadNow` 返回 S_FALSE。
-- **怎么查**：scratchpad `xamltap/` 的 `TapProbe.exe`（`--status` 读共享内存里 DLL 的状态并用 UI 自动化量开始按钮和下一个图标之间的空当，`--margin N --wait S --clear` 单独试边距）。DLL 的 `OutputDebugString` 用 DebugView 看。
-
-### 拖搜索框时空当开合的几个连锁坑
-
-- **现象**：改成空当跟着拖动实时开合时（2026-10-12），推演出几种“我放这儿它却动了”：拖到一半框自己消失；贴着图标放在左边，过一会儿自己跑回开始按钮右边；在开始按钮右边松手，先落到左边再滑回来；重启后开始按钮那一块拖不进去。
-- **原因**：
-  - 拖动中每帧的 `apply` 还按拖动前的 `spot` 要空当，和拖动刚要的正相反；`setTarget` 按旧位置算出“没地方”就把框藏起来，藏起来又清掉了拖动状态。
-  - `spotAt` 把“贴着图标、偏移 0、等于默认那边”存成 `auto`，而 `wantGap` 把 `auto` 当成“要空当”：开着这个设置时，贴着图标放在左边也会被存成 `auto`，然后自己要空当、自己挪过去。
-  - 松手时存成 `auto`，`targetIn` 用 `defaultSide` 定那一边，而 `defaultSide` 要空当“量到了”才算，刚要的空当还没量到，于是先落到左边。
-  - 用“TAP 做成过空当”当拖动能不能指望空当的条件，重启后框在图标旁边时从来没要过，就永远不成立。
-  - 空当滑开时 UI 自动化先报图标的终点，图标两边的空地加起来一下子少了半个空当，超过换样子的回差（24），会要一个更窄的样子、再改回来，边距抖一次。
-  - 实测时又找到一个（2026-10-12，逐帧记 `GetWindowRect`，加临时日志看每次读数和每个决定）：边距一设上，UI 自动化先报开始按钮的终点（约 330 毫秒），再报回原处，然后才真的滑（约 300 毫秒）。框松手后跟着这些读数走，先按旧位置往右、再到终点、半秒后又跳回去滑一遍。
-  - 用户自己一拖就发现（2026-10-12）：拖不到开始按钮右边，日志里空当几十毫秒开一次关一次。图标居中时空当一开，开始按钮往左挪约 300 像素，按开始按钮现在的位置算的“开始按钮区”跟着挪走，框的中点落到区外，空当关上；开始按钮回来，又落进区里……每帧都在开关。我的测试是停在区里不动，没碰到；而且以前的区只到开始按钮右边一个框高，人会把框的左端对着开始按钮右边放，中点早就出了区。
-- **做法**：开始按钮区按“没有我们的空当时”开始按钮的位置算（`closedStart`：空当没开、也没在要、放掉后过了 1 秒才记），从开始按钮到它右边一个框宽，空当开着时再并上空当本身：开着的区总包住关着的区，进出都不会来回切；拖动中 `apply`、`refit` 按 `dragSide` 要空当，不 `setTarget`；松手落进还在开的空当时框先不动，量到了一次滑进去，之后到图标静下来 600 毫秒前不跟读数（`landed`）；开着设置时只有放回开始按钮右边才存成 `auto`；`defaultSide` 也认“要了、在路上”的空当（`Room::startWanted`）；拖动能不能指望空当看 StartGap 是否放弃了（`unavailable`：冲突、失败、报了却量不到），不看是否成功过；空当在路上时 `wantGap` 不换样子。
-
-### “放在开始按钮右边”和 TranslucentTB 一起开：说被占，重启电脑后又好了
-
-- **现象**：linux.do #153：开着 TranslucentTB 时打开“放在开始按钮右边”，设置页说“另一个改任务栏的工具占着”；重启电脑后框却在开始按钮右边，TranslucentTB 的透明也还在。
-- **原因**：是我们自己挡的。注入前先查 `translucenttb.exe` 进程和 Explorer 里的 `ExplorerTAP.dll`，有就报 `Conflict` 不注入，依据是“一个 Explorer 只能有一个 XAML 诊断的使用者”。这不对：WinUI 的 `DebugTool.cpp` 每次连接都新建一个 `XamlDiagnostics`，各自 advise。开机时 Win顺（计划任务）多半比 TranslucentTB（商店应用的启动任务）先起来，查不到它，就注入成功了（推断）。实测（2026-10-16，150%，深色，TapProbe 加截图逐像素比任务栏底色）：TranslucentTB 先、我们后，S_OK，空当 384 像素，透明照旧；Explorer 刚重启、我们先、它后，两个都好。
-- **做法**：去掉事先的检查，只看 `InitializeXamlDiagnosticsEx` 和 DLL 有没有出现；那几个程序名只写进日志和失败的原因。以后再想“检测到某某就不做”，先两种先后都实测一遍，看它到底改了什么（TranslucentTB 只改 `TaskbarFrame` 里 `BackgroundFill`、`BackgroundStroke` 两个矩形的填充，挂任务栏的子类，钩 `SetWindowCompositionAttribute`，不碰开始按钮）。
-
-### 后连上的 XAML 诊断把先来的变成“聋子”
-
-- **现象**：我们的 DLL 在 Explorer 里设好边距后再开 TranslucentTB，任务栏上再多一个按钮，DLL 记的“新加元素”数停在 353 不动（共享内存里的计数）。
-- **原因**：WinUI 的 `DiagnosticsInterop` 进程里只记一个 `m_diagnostics`，每次 `Launch` 换成最新的那个，`SignalMutation` 只发给它。先来的那个已经拿到的元素还能用（边距照样设、照样清），只是再也收不到新元素。
-- **做法**：DLL 只靠变化找开始按钮，所以后来的工具一连上，开始按钮被重建就找不到新的；框量不到空当会自己退回图标旁边（`noGapSeen`），设置页让用户重启资源管理器。换对齐方式不重建开始按钮（实测：先左后居中，边距还在）。反过来我们后连上，TranslucentTB 就收不到新的任务栏（按它的源码）。每个 Explorer 只注入一次，Win顺 重启用已经在里面的那份，别多连。
-
 ### TranslucentTB 自己会让 Explorer 崩
 
-- **现象**：2026-10-16 测试时，我们的 DLL 在一个开了 4 天的 Explorer 里，再开 TranslucentTB，Explorer 立刻崩了重启；TranslucentTB 弹出“初始化 XAML 诊断失败（0x80070102 超时）”。
+- **现象**：2026-10-16 测试时，我们的 DLL（0.11 及以前给开始按钮右边留位置用的，已删）在一个开了 4 天的 Explorer 里，再开 TranslucentTB，Explorer 立刻崩了重启；TranslucentTB 弹出“初始化 XAML 诊断失败（0x80070102 超时）”。
 - **原因**：崩在 `ExplorerTAP.dll`（TranslucentTB 的），c0000409 子码 7（`FAST_FAIL_FATAL_APP_EXIT`，即 `std::terminate`）：它的 `VisualTreeWatcher` 构造时起一个线程 `check_hresult(AdviseVisualTreeChange())`，失败就抛异常、没人接。WinUI 的 advise 要往每个 XAML 线程的 `DispatcherQueue` 投递，有一个投不进去就失败。本机的 WER 记录里 9/17、9/24、9/25、10/1 还有四次一样崩在 `ExplorerTAP.dll`，那时 Explorer 里没有我们的 DLL。新开的 Explorer 里两种先后都没再崩过；这一次是不是和我们有关没能复现确认。
 - **做法**：查 Explorer 崩溃先看 `%ProgramData%\Microsoft\Windows\WER\ReportArchive\AppCrash_explorer.exe_*\Report.wer` 里的出错模块和有没有我们的 DLL，别先怀疑自己。要抓 dump：`HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\explorer.exe`（DumpType 2 一个 1 GB），测完删掉这个键和 dump。
 
@@ -1343,6 +1313,12 @@
 - **现象**：编译报 `qmlimportscanner: No such file or directory F:/电脑便捷工具/src/app`。
 - **原因**：6.12 起编译时就做 QML 导入扫描，是否扫描在 `qt_add_qml_module` 里就定了，之后再设 `QT_QML_MODULE_NO_IMPORT_SCAN` 目标属性已经晚了。
 - **做法**：用共享库版 Qt 时，直接在 `qt_add_qml_module` 里写 `NO_IMPORT_SCAN`（`src/app/CMakeLists.txt`）。部署时由 windeployqt 按 `--qmldir` 扫描。
+
+### 编译目录的路径一长，配置时 qmlimportscanner 又读不了中文路径
+
+- **现象**：2026-10-20 在 scratchpad 里另开编译目录（`cmake --preset release -B C:\Users\…\Temp\claude\…\scratchpad\build-tb`），配置报 `qmlimportscanner: No such file or directory: "F:/电脑便捷工具"`、`Failed to scan target capture-probe-qt for QML imports`。同样的预设在 `build\release` 里没事。
+- **原因**：`capture-probe-qt`（`CMakeLists.txt` 里的 `qt_add_executable`）配置时会扫一次 QML 导入。参数超过 240 个字符时，Qt 改用响应文件（`Qt6QmlMacros.cmake` 约 4885 行），qmlimportscanner 按 ANSI 代码页读它，中文的源码路径就坏了。编译目录的路径短，参数直接在命令行上，就没事。
+- **做法**：把长路径映射成一个盘符再配置、编译：`subst T: <scratchpad>`，然后 `cmake --preset release -B T:\build-tb`，用完 `subst T: /d`。CMake 没改。
 
 ### aqtinstall 装 6.12 要另装 TaskTree 模块
 

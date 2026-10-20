@@ -779,7 +779,9 @@ void Settings::load()
     taskbarSearchBoxStyle = readOrDefault(s, u"Taskbar/SearchBoxStyle"_s, d.taskbarSearchBoxStyle).trimmed().toLower();
     if (taskbarSearchBoxStyle != u"label" && taskbarSearchBoxStyle != u"icon")
         taskbarSearchBoxStyle = d.taskbarSearchBoxStyle;
-    taskbarStartGap = readOrDefault(s, u"Taskbar/StartGap"_s, d.taskbarStartGap);
+    // 0.7.1 to 0.11: the box right of Start (a DLL in Explorer made room
+    // there). The box has one place now (taskbar::SearchBox).
+    s.remove(u"Taskbar/StartGap"_s);
 
     captureEnabled = readOrDefault(s, u"Capture/Enabled"_s, d.captureEnabled);
     captureHotkey = readOrDefault(s, u"Capture/Hotkey"_s, d.captureHotkey).trimmed();
@@ -891,7 +893,6 @@ void Settings::save() const
     s.setValue(u"Taskbar/StartMenuTyping"_s, taskbarStartTyping);
     s.setValue(u"Taskbar/SearchBox"_s, taskbarSearchBox);
     s.setValue(u"Taskbar/SearchBoxStyle"_s, taskbarSearchBoxStyle);
-    s.setValue(u"Taskbar/StartGap"_s, taskbarStartGap);
     s.setValue(u"Capture/Enabled"_s, captureEnabled);
     s.setValue(u"Capture/Hotkey"_s, captureHotkey);
     s.setValue(u"Capture/PrintScreen"_s, capturePrintScreen);

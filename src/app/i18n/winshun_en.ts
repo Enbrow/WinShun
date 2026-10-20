@@ -791,8 +791,8 @@
         <translation>Copy the path</translation>
     </message>
     <message>
-        <source>预览文件；再按一次或 Esc 关闭</source>
-        <translation>Preview the file; press again or Esc to close</translation>
+        <source>预览文件；再按一次关闭</source>
+        <translation>Preview the file; press again to close</translation>
     </message>
     <message>
         <source>切换排序；不输入时切换最近打开、最近修改</source>
@@ -2107,14 +2107,6 @@
         <translation>Clear</translation>
     </message>
     <message>
-        <source>这个任务栏放不了搜索框，已改用固定的 Win顺 按钮</source>
-        <translation>This taskbar can’t take the search box; the pinned Win顺 button is used instead</translation>
-    </message>
-    <message>
-        <source>这个任务栏读不到图标，放不了搜索框；可以改用固定按钮（原因在 WinShun.log）</source>
-        <translation>Can’t read this taskbar’s icons, so the search box can’t go on it; pin the button instead (why: WinShun.log)</translation>
-    </message>
-    <message>
         <source>没找到任务栏；重启资源管理器后会再放</source>
         <translation>No taskbar found; it goes on once Explorer is restarted</translation>
     </message>
@@ -2161,26 +2153,6 @@
     <message>
         <source>仅图标</source>
         <translation>Icon only</translation>
-    </message>
-    <message>
-        <source>等搜索框放上任务栏</source>
-        <translation>Waiting for the search box to be on the taskbar</translation>
-    </message>
-    <message>
-        <source>搜索框在图标旁边；按住它的图标拖到开始按钮上，图标就会让位</source>
-        <translation>The box is beside the icons; hold its icon and drag it onto Start to make the icons move over</translation>
-    </message>
-    <message>
-        <source>资源管理器里另一个改任务栏的工具不让留位置（%1），搜索框先放在图标旁边</source>
-        <translation>Another taskbar tool in Explorer kept it from making room (%1): the box is beside the icons for now</translation>
-    </message>
-    <message>
-        <source>没能在开始按钮旁留出位置，搜索框先放在图标旁边；重启资源管理器后再试</source>
-        <translation>Couldn’t make room by the Start button: the box is beside the icons for now; restart Explorer to try again</translation>
-    </message>
-    <message>
-        <source>没能在开始按钮旁留出位置（%1），搜索框先放在图标旁边</source>
-        <translation>Couldn’t make room by the Start button (%1): the box is beside the icons for now</translation>
     </message>
     <message>
         <source>资源管理器右键“用 Win顺 搜索此处”</source>
@@ -2583,64 +2555,48 @@
         <translation>Chinese;English;language</translation>
     </message>
     <message>
-        <source>放在开始按钮右边</source>
-        <translation>Right of the Start button</translation>
+        <source>任务栏上的 Win顺</source>
+        <translation>WinShun on the taskbar</translation>
     </message>
     <message>
-        <source>开始按钮;右边;位置;任务栏;搜索框</source>
-        <translation>start button;right;position;taskbar;search box</translation>
+        <source>固定;任务栏;按钮;图标;搜索框;取消固定;pin;taskbar</source>
+        <translation>pin;unpin;taskbar;button;icon;search box</translation>
     </message>
     <message>
-        <source>和 Windows 自带的搜索框一样，图标往右让出位置</source>
-        <translation>Where Windows’ own search box goes: the icons move over for it</translation>
+        <source>在 Windows 的提示里选“是”；没看到提示，再点一次“固定图标”</source>
+        <translation>Choose Yes in the Windows prompt; if none showed up, click “Pinned icon” again</translation>
     </message>
     <message>
-        <source>已放在开始按钮右边</source>
-        <translation>Right of the Start button now</translation>
+        <source>任务栏上不放 Win顺，用快捷键打开</source>
+        <translation>Nothing on the taskbar: open WinShun with its shortcut</translation>
     </message>
     <message>
-        <source>重启资源管理器后生效</source>
-        <translation>Takes effect after Explorer restarts</translation>
+        <source>图标居中时在任务栏最左边，靠左时在托盘图标左边；点它直接打字</source>
+        <translation>At the taskbar’s left end when its icons are centred, left of the tray icons when they are on the left; click it and type</translation>
     </message>
     <message>
-        <source>正在留出位置…</source>
-        <translation>Making room…</translation>
+        <source>任务栏太挤，放不下：取消固定几个图标，或改用“固定图标”</source>
+        <translation>The taskbar is too crowded for it: unpin a few icons, or use “Pinned icon”</translation>
     </message>
     <message>
-        <source>已取消准备；点击“准备定位组件”后，在 Windows 管理员提示中选“是”</source>
-        <translation>Setup was cancelled. Click “Set up positioning” and choose Yes in the Windows administrator prompt</translation>
+        <source>这个任务栏放不了搜索框；Win顺 的图标已固定，可改选“固定图标”</source>
+        <translation>This taskbar can’t take the search box; WinShun’s icon is pinned, so choose “Pinned icon”</translation>
     </message>
     <message>
-        <source>需要先准备任务栏定位组件，仅这一步需要管理员权限，完成后自动重试</source>
-        <translation>Set up taskbar positioning first. Only this step needs administrator rights; placement retries automatically</translation>
+        <source>这个任务栏读不到图标，放不了搜索框；可以改用“固定图标”（原因在 WinShun.log）</source>
+        <translation>Can’t read this taskbar’s icons, so the search box can’t go on it; use “Pinned icon” instead (why: WinShun.log)</translation>
     </message>
     <message>
-        <source>正在准备任务栏定位组件，请在 Windows 管理员提示中选“是”</source>
-        <translation>Setting up taskbar positioning. Choose Yes in the Windows administrator prompt</translation>
+        <source>固定图标</source>
+        <translation>Pinned icon</translation>
     </message>
     <message>
-        <source>正在准备…</source>
-        <translation>Setting up…</translation>
-    </message>
-    <message>
-        <source>准备定位组件</source>
-        <translation>Set up positioning</translation>
-    </message>
-    <message>
-        <source>在任务栏上放 Win顺 的搜索框</source>
-        <translation>Put WinShun’s search box on the taskbar</translation>
-    </message>
-    <message>
-        <source>固定;任务栏;按钮;搜索框;pin;taskbar</source>
-        <translation>pin;taskbar;button;search box</translation>
+        <source>Win顺 的图标还固定在任务栏上，Win顺 取消不了：右键那个图标，选“从任务栏取消固定”</source>
+        <translation>WinShun’s icon is still pinned to the taskbar, and WinShun can’t unpin it: right-click the icon and choose “Unpin from taskbar”</translation>
     </message>
     <message>
         <source>固定</source>
         <translation>Pin</translation>
-    </message>
-    <message>
-        <source>固定按钮</source>
-        <translation>Pin button</translation>
     </message>
     <message>
         <source>通知区域和任务栏搜索框里的图标。单色随任务栏的浅色、深色变成黑或白，和系统图标一致</source>
@@ -3572,10 +3528,6 @@
         <translation>Taskbar</translation>
     </message>
     <message>
-        <source>任务栏太挤，放不下：取消固定几个图标</source>
-        <translation>No room on the taskbar: unpin a few icons</translation>
-    </message>
-    <message>
         <source>保留</source>
         <translation>Keeping</translation>
     </message>
@@ -3656,10 +3608,6 @@
         <translation>Pinned: click it to open WinShun</translation>
     </message>
     <message>
-        <source>已放好，点它就能打字</source>
-        <translation>In place: click it and type</translation>
-    </message>
-    <message>
         <source>常规</source>
         <translation>General</translation>
     </message>
@@ -3735,10 +3683,6 @@
     <message>
         <source>搜索记录、剪贴板历史和日志</source>
         <translation>Search history, clipboard history and logs</translation>
-    </message>
-    <message>
-        <source>放在任务栏图标旁边，点它直接打字</source>
-        <translation>Next to the taskbar icons: click it and type</translation>
     </message>
     <message>
         <source>文件和文件夹分两组排，选哪组在前</source>

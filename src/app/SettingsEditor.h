@@ -173,14 +173,6 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool searchBoxSupported READ searchBoxSupported CONSTANT FINAL)
     Q_PROPERTY(bool searchBoxShown READ searchBoxShown NOTIFY searchBoxShownChanged FINAL)
     Q_PROPERTY(QString searchBoxHidden READ searchBoxHidden NOTIFY searchBoxShownChanged FINAL)
-    // ... on Windows 10's taskbar (StartAllBack, ExplorerPatcher): no box right of Start there.
-    Q_PROPERTY(bool classicTaskbar READ classicTaskbar NOTIFY searchBoxShownChanged FINAL)
-    // The box right of Start (taskbar::StartGap): the setting, and how it went
-    // ("off", "attaching", "ready", "applied", "nogap", "conflict",
-    // "incompatible", "failed", "needssetup", "preparing"; the reason in English, for the details).
-    Q_PROPERTY(bool taskbarStartGap READ taskbarStartGap WRITE setTaskbarStartGap NOTIFY changed FINAL)
-    Q_PROPERTY(QString startGapState READ startGapState NOTIFY startGapStateChanged FINAL)
-    Q_PROPERTY(QString startGapReason READ startGapReason NOTIFY startGapStateChanged FINAL)
     // Read again as the window comes to the front (refreshTaskbarState): the
     // user pins the button and hides Windows' search outside Win顺.
     Q_PROPERTY(bool taskbarButtonPinned READ taskbarButtonPinned NOTIFY taskbarStateChanged FINAL)
@@ -507,14 +499,9 @@ public:
     bool searchBoxShown() const { return m_searchBoxHidden.isEmpty(); }
     QString searchBoxHidden() const { return m_searchBoxHidden; } // why not: "pending", "noroom"... (App)
     void setSearchBoxShown(const QString& hidden); // set by the app: empty when shown
-    bool classicTaskbar() const { return m_classicTaskbar; }
-    void setClassicTaskbar(bool classic); // set by the app
-    bool taskbarStartGap() const { return m_settings.taskbarStartGap; }
-    void setTaskbarStartGap(bool on);
-    QString startGapState() const { return m_startGapState; }
-    QString startGapReason() const { return m_startGapReason; }
-    void setStartGapState(const QString& state, const QString& reason); // set by the app
-    Q_INVOKABLE void prepareTaskbarStartGap() { emit taskbarStartGapSetupRequested(); }
+    // Set by the app: the box measured Windows 10's taskbar (StartAllBack,
+    // ExplorerPatcher), where Windows' search is another thing (refreshTaskbarState).
+    void setClassicTaskbar(bool classic);
     bool taskbarButtonPinned() const { return m_taskbarButtonPinned; }
     bool windowsSearchShown() const { return m_windowsSearchShown; }
     Q_INVOKABLE void refreshTaskbarState();
@@ -675,8 +662,6 @@ signals:
     void winVStateChanged();
     void winSStateChanged();
     void searchBoxShownChanged();
-    void startGapStateChanged();
-    void taskbarStartGapSetupRequested(); // stage the DLL once with administrator rights, then retry
     void taskbarStateChanged();
     void fileManagersChanged();
     void clipboardCountChanged();
@@ -739,8 +724,6 @@ private:
     bool m_windowsSearchShown = true;
     QString m_searchBoxHidden = QStringLiteral("pending");
     bool m_classicTaskbar = false;
-    QString m_startGapState = QStringLiteral("off");
-    QString m_startGapReason;
     QString m_clipboardHotkeyError;
     int m_clipboardCount = 0;
     QPointer<QWindow> m_window;

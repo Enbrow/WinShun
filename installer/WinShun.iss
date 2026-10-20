@@ -102,9 +102,6 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 ; (LocalSystem, automatic start) and started, by the installer's own
 ; (elevated) rights; installed again, it is pointed at the new files.
 Filename: "{app}\WinShunService.exe"; Parameters: "--install"; Flags: runhidden waituntilterminated runascurrentuser
-; WinShunTap.dll (the room right of Start) copied to {commonappdata}\WinShun\tap,
-; writable by administrators only: WinShun cannot do that with normal rights.
-Filename: "{app}\{#AppExe}"; Parameters: "--stage-tap"; Flags: runhidden waituntilterminated runascurrentuser
 ; The rest as the user who started Setup, with normal rights (runasoriginaluser):
 ; WinShun runs so, and its autostart task and settings are that user's, not
 ; the administrator's who answered UAC for a standard user (GitHub #21).
@@ -168,6 +165,49 @@ begin
   end;
 end;
 
+// MoveFileExW: with no new name and MOVEFILE_DELAY_UNTIL_REBOOT, the file
+// (or empty folder) is deleted when Windows next starts. NewName 0: NULL.
+function MoveFileEx(ExistingName: String; NewName: Cardinal; Flags: Cardinal): Boolean;
+  external 'MoveFileExW@kernel32.dll stdcall';
+
+const
+  MOVEFILE_DELAY_UNTIL_REBOOT = 4;
+
+// What is left in Folder, files first, then their folders: deleted at the
+// next restart.
+procedure DeleteAtRestart(Folder: String);
+var
+  Find: TFindRec;
+begin
+  if FindFirst(Folder + '\*', Find) then
+    try
+      repeat
+        if (Find.Name <> '.') and (Find.Name <> '..') then
+          if (Find.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+            DeleteAtRestart(Folder + '\' + Find.Name)
+          else
+            MoveFileEx(Folder + '\' + Find.Name, 0, MOVEFILE_DELAY_UNTIL_REBOOT);
+      until not FindNext(Find);
+    finally
+      FindClose(Find);
+    end;
+  MoveFileEx(Folder, 0, MOVEFILE_DELAY_UNTIL_REBOOT);
+end;
+
+// The copies of WinShunTap.dll that Win顺 0.7.1 to 0.11 had Explorer load
+// (the search box right of Start, since dropped): {commonappdata}\WinShun\
+// tap\<hash>\. An Explorer that loaded one keeps it until it ends, and the
+// file cannot be deleted meanwhile: that much goes at the next restart.
+// Never a reason for Setup to fail; nothing asks for the restart.
+procedure RemoveTapCopies();
+var
+  Folder: String;
+begin
+  Folder := ExpandConstant('{commonappdata}\WinShun\tap');
+  if DirExists(Folder) and not DelTree(Folder, True, True, True) then
+    DeleteAtRestart(Folder);
+end;
+
 // Started in the tray as the files were in place ([Run]); "run Win顺" left
 // unticked on the last page, it goes again. A silent install leaves it
 // running, as it was before an update.
@@ -175,6 +215,9 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
 begin
+  // The new files in place (an update that failed keeps the old version's copies).
+  if CurStep = ssPostInstall then
+    RemoveTapCopies();
   if (CurStep = ssDone) and not WizardSilent() and
      ((WizardForm.RunList.Items.Count = 0) or not WizardForm.RunList.Checked[0]) then
     Exec(ExpandConstant('{app}\{#AppExe}'), '--quit', '', SW_HIDE, ewNoWait, ResultCode);
@@ -348,11 +391,11 @@ begin
     GiveBackKey('Clipboard', 'WinV', 'V');
     GiveBackKey('Taskbar', 'WinS', 'S');
   end;
-  // The copies of WinShunTap.dll made for Explorer (the room right of Start);
-  // one Explorer still has loaded stays until it is gone too.
+  // Old versions' copies of WinShunTap.dll (RemoveTapCopies); the folder
+  // itself only when nothing else is in it (the index service's log).
   if CurUninstallStep = usPostUninstall then
   begin
-    DelTree(ExpandConstant('{commonappdata}\WinShun\tap'), True, True, True);
+    RemoveTapCopies();
     RemoveDir(ExpandConstant('{commonappdata}\WinShun'));
   end;
   if (CurUninstallStep = usPostUninstall) and not UninstallSilent then

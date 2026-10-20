@@ -1061,23 +1061,6 @@ void SettingsEditor::setTaskbarSearchBoxStyle(const QString& style)
     commit();
 }
 
-void SettingsEditor::setTaskbarStartGap(bool on)
-{
-    if (m_settings.taskbarStartGap == on)
-        return;
-    m_settings.taskbarStartGap = on;
-    commit();
-}
-
-void SettingsEditor::setStartGapState(const QString& state, const QString& reason)
-{
-    if (m_startGapState == state && m_startGapReason == reason)
-        return;
-    m_startGapState = state;
-    m_startGapReason = reason;
-    emit startGapStateChanged();
-}
-
 bool SettingsEditor::searchBoxSupported() const
 {
     return taskbar::SearchBox::supported();
@@ -1096,7 +1079,6 @@ void SettingsEditor::setClassicTaskbar(bool classic)
     if (m_classicTaskbar == classic)
         return;
     m_classicTaskbar = classic;
-    emit searchBoxShownChanged();
     refreshTaskbarState(); // Windows' search, as that taskbar has it
 }
 
