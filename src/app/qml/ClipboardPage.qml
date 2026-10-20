@@ -187,7 +187,7 @@ Item {
     }
     Timer {
         id: hoverTimer
-        interval: 180
+        interval: 100
         onTriggered: {
             if (page.previewOpen && !list.rowDragging && !(Qt.application.keyboardModifiers & (Qt.ControlModifier | Qt.ShiftModifier))
                     && page.hoverCandidate >= 0 && page.hoverCandidate < list.count)
