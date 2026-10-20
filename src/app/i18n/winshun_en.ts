@@ -3991,15 +3991,15 @@
     </message>
     <message>
         <source>在后台记下文件里的文字，内容搜索快得多。关掉会清空内容索引</source>
-        <translation type="unfinished"></translation>
+        <translation>Notes the text in files in the background, which makes content searches much faster. Turning it off clears the content index</translation>
     </message>
     <message>
         <source>打开后在后台记下文件里的文字，内容搜索快得多。只用于 NTFS 磁盘，约占一两百 MB</source>
-        <translation type="unfinished"></translation>
+        <translation>Turned on, it notes the text in files in the background, which makes content searches much faster. NTFS disks only; takes about 100–200 MB</translation>
     </message>
     <message>
         <source>内容索引</source>
-        <translation type="unfinished"></translation>
+        <translation>Content index</translation>
     </message>
 </context>
 <context>
