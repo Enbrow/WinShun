@@ -9,7 +9,7 @@ import WinShun
 // preview pane uses (a window of its own over the content area, see
 // PreviewHost), or a large thumbnail and what is known about the file.
 // Beside the launcher, never taking the focus from it: the keys stay
-// there, Alt+P or Esc closes this, ↑ ↓ show the next row's file here.
+// there, Alt+P or the × closes this, ↑ ↓ show the next row's file here.
 Window {
     id: window
 
@@ -95,7 +95,7 @@ Window {
                 width: 32
                 height: 32
                 glyph: "" // ChromeClose
-                onClicked: window.preview.close()
+                onClicked: window.preview.closeByUser()
                 Component.onCompleted: window.frame.addControl(closeButton)
             }
         }

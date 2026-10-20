@@ -479,8 +479,10 @@ public:
     // Alt+P, 预览 in the menu: the row's file or folder in a preview
     // (FilePreview: QuickLook or Seer when running, else Win顺's own window),
     // or, shown already, closed. While it is open the current row's file
-    // follows (setCurrentRow); the launcher hidden closes it. closePreview:
-    // Esc's first step, true when there was one to close.
+    // follows (setCurrentRow); the launcher hidden closes it, but it comes
+    // back when the launcher opens again (state.ini Launcher/PreviewOpen),
+    // until Alt+P or the × closes it. Esc leaves it alone: it closes the
+    // launcher. closePreview: true when there was one to close.
     void setPreview(FilePreview* preview);
     Q_INVOKABLE void togglePreview(int row);
     Q_INVOKABLE bool closePreview();
@@ -836,6 +838,9 @@ private:
     QPointer<Favorites> m_favorites;
     QPointer<Switches> m_switches;
     QString m_stateFile; // state.ini
+    bool m_previewWanted = false; // the preview was left open by the user: it comes back with the launcher
+    bool m_previewResume = false; // shown now, and the preview not yet back
+    void setPreviewWanted(bool on);
     bool m_switchPageTold = false; // "要打开设置页：Ctrl+Enter", said once for good (state.ini)
     // Toggles waiting for their state (Switches::Outcome::Waiting), by switch id.
     QHash<QString, SearchResult> m_switchWaiting;

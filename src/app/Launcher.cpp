@@ -674,6 +674,7 @@ void Launcher::setSwitches(Switches* switches, const QString& stateFile)
     m_switches = switches;
     m_stateFile = stateFile;
     m_switchPageTold = !stateFile.isEmpty() && QSettings(stateFile, QSettings::IniFormat).value(u"Hints/SwitchPage"_s).toBool();
+    m_previewWanted = !stateFile.isEmpty() && QSettings(stateFile, QSettings::IniFormat).value(u"Launcher/PreviewOpen"_s).toBool();
     m_results.setSwitches(switches);
     if (!switches)
         return;
@@ -876,6 +877,7 @@ void Launcher::handleShown()
     if (m_switches)
         m_switches->refresh(); // the switches' rows show what they are now
     scheduleAwakeTick();
+    m_previewResume = m_previewWanted;
     search(); // refresh: files may have changed, and "recent" certainly has
     emit historyChanged(); // things were opened since
     refreshFrequentApps();
@@ -940,7 +942,8 @@ void Launcher::retranslate()
 
 void Launcher::handleHidden()
 {
-    closePreview();
+    closePreview(); // the wish to have it stays (m_previewWanted)
+    m_previewResume = false;
     m_index->contentIndexer()->setSearchBoxOpen(false);
     m_systemCommand = false;
     m_results.setSelection({});
@@ -2444,6 +2447,7 @@ void Launcher::setPreview(FilePreview* preview)
         QMetaObject::invokeMethod(this, &Launcher::followPreview, Qt::QueuedConnection);
     });
     // 打开 in the preview's header: as Enter on that file's row.
+    connect(preview, &FilePreview::closedByUser, this, [this] { setPreviewWanted(false); });
     connect(preview, &FilePreview::openRequested, this, [this](const QString& path) {
         for (int row = 0; row < m_results.count(); ++row) {
             const SearchResult* r = m_results.at(row);
@@ -2465,10 +2469,12 @@ void Launcher::togglePreview(int row)
     // Open: the same key closes it, unless it was pressed for another file
     // (the row under the pointer), which it then shows.
     if (m_preview->isOpen()) {
-        if (!item || m_preview->isShowing(item->path))
+        if (!item || m_preview->isShowing(item->path)) {
             m_preview->close();
-        else
+            setPreviewWanted(false);
+        } else {
             m_preview->show(*item);
+        }
         return;
     }
     if (!item) {
@@ -2476,6 +2482,16 @@ void Launcher::togglePreview(int row)
         return;
     }
     m_preview->show(*item);
+    setPreviewWanted(true);
+}
+
+void Launcher::setPreviewWanted(bool on)
+{
+    if (m_previewWanted == on)
+        return;
+    m_previewWanted = on;
+    if (!m_stateFile.isEmpty())
+        QSettings(m_stateFile, QSettings::IniFormat).setValue(u"Launcher/PreviewOpen"_s, on);
 }
 
 bool Launcher::closePreview()
@@ -2490,8 +2506,20 @@ bool Launcher::closePreview()
 
 void Launcher::followPreview()
 {
-    if (m_preview && m_preview->isOpen())
+    if (!m_preview)
+        return;
+    if (m_preview->isOpen()) {
         m_preview->follow(previewItem(m_results.at(m_currentRow)));
+        return;
+    }
+    // Left open last time: back with the launcher, on the first row that
+    // has a file to show.
+    if (m_previewWanted && m_previewResume) {
+        if (const std::optional<FilePreview::Item> item = previewItem(m_results.at(m_currentRow))) {
+            m_previewResume = false;
+            m_preview->show(*item);
+        }
+    }
 }
 
 void Launcher::keyboardMoved()

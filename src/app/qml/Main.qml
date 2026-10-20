@@ -602,11 +602,10 @@ Window {
             break
         }
         case Qt.Key_Escape:
-            // A preview open goes first (Alt+P); in a plugin's keyword mode,
-            // then the words after the keyword go; in 内容 in a folder chosen,
-            // the words (the folder stays); then the window.
-            if (window.launcher.closePreview())
-                break
+            // In a plugin's keyword mode the words after the keyword go; in
+            // 内容 in a folder chosen, the words (the folder stays); then the
+            // window. An open preview stays as it is (Alt+P closes it) and
+            // comes back when the launcher opens again.
             if (selectedCount > 0)
                 window.launcher.clearSelection()
             else if (!window.launcher.clearToKeyword() && !window.launcher.clearContentWords())

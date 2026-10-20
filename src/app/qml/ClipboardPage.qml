@@ -303,9 +303,7 @@ Item {
         case Qt.Key_Escape:
             if (selectedCount > 0)
                 clipboard.clearSelection()
-            else if (previewOpen)
-                closePreview()
-            else
+            else // an open preview stays (clipboard.previewOpen): it is there next time
                 clipboard.dismiss()
             break
         case Qt.Key_Tab: clipboard.cycleCategory(1); break

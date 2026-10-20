@@ -417,6 +417,12 @@ void FilePreview::close()
     emit contentChanged();
 }
 
+void FilePreview::closeByUser()
+{
+    close();
+    emit closedByUser();
+}
+
 void FilePreview::forgetClosedExternal()
 {
     if (!m_open || !m_external || m_externalSince.elapsed() < 1500 || extpreview::visible(*m_external))

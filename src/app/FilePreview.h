@@ -50,8 +50,9 @@ QImage decodePictureFile(const QString& path, int largest, QSize* original = nul
 // what it holds.
 //
 // The launcher stays open and keeps the keyboard (the window never takes
-// the focus): Alt+P again or Esc closes the preview, the arrows show the
-// next row's file in it (follow). Reading the file is never done on the GUI
+// the focus): Alt+P again or the × closes the preview (Esc closes the
+// launcher, and the preview comes back with it), the arrows show the next
+// row's file in it (follow). Reading the file is never done on the GUI
 // thread; a newer request makes an older one's result go unseen.
 class FilePreview : public QObject {
     Q_OBJECT
@@ -108,6 +109,9 @@ public:
     // Open: the current row's file now (none: a row that is not a file).
     void follow(const std::optional<Item>& item);
     Q_INVOKABLE void close();
+    // The × in the header: closes, and says so (the launcher then does not
+    // bring the preview back the next time it opens).
+    Q_INVOKABLE void closeByUser();
     // The window in front belongs to the preview (ours, or the external
     // previewer's): the launcher is not to go for that.
     bool ownsForeground() const;
@@ -138,6 +142,7 @@ public:
 signals:
     void contentChanged();
     void slowChanged();
+    void closedByUser();
     void openRequested(const QString& path); // 打开: the launcher opens it, as Enter would
 
 private:
