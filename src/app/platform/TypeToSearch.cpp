@@ -17,7 +17,11 @@ thread_local TypeToSearch* t_typing = nullptr;
 
 constexpr UINT kDeliverMessage = WM_APP + 1; // to the hook's thread (deliver)
 constexpr UINT kGiveBackMessage = WM_APP + 2; // to the hook's thread (giveBack)
+constexpr UINT kPassedMessage = WM_APP + 3; // to the hook's thread: the keys typed again have gone by
 constexpr UINT kHoldTimeoutMs = 3000; // the launcher comes in well under a second; keys held longer are dropped
+// The keys typed again go by within milliseconds; should some never (a hook
+// before this one took them), the hold ends after this all the same.
+constexpr UINT kPassTimeoutMs = 1000;
 
 bool held(int vk)
 {
@@ -90,6 +94,8 @@ TypeToSearch::TypeToSearch(Surfaces surfaces, Callbacks callbacks)
                 typeHeld();
             else if (msg.hwnd == nullptr && msg.message == kGiveBackMessage)
                 returnHeld();
+            else if (msg.hwnd == nullptr && msg.message == kPassedMessage)
+                heldPassed();
             else if (msg.hwnd == nullptr && msg.message == WM_TIMER && msg.wParam == m_timer)
                 dropHeld();
             else
@@ -121,9 +127,17 @@ void TypeToSearch::giveBack()
 
 LRESULT CALLBACK TypeToSearch::keyboardProc(int code, WPARAM wParam, LPARAM lParam)
 {
-    if (code == HC_ACTION && t_typing && t_typing->handleKey(wParam, *reinterpret_cast<const KBDLLHOOKSTRUCT*>(lParam)))
+    if (code != HC_ACTION || !t_typing)
+        return ::CallNextHookEx(nullptr, code, wParam, lParam);
+    const auto& event = *reinterpret_cast<const KBDLLHOOKSTRUCT*>(lParam);
+    if (t_typing->handleKey(wParam, event))
         return 1; // seen by nobody else
-    return ::CallNextHookEx(nullptr, code, wParam, lParam);
+    const LRESULT result = ::CallNextHookEx(nullptr, code, wParam, lParam);
+    // Through the rest of the chain: on its way to the window, ahead of any
+    // key that comes here after it.
+    if (event.dwExtraInfo == kOwnInput)
+        t_typing->ownKeyPassed(wParam, event);
+    return result;
 }
 
 void CALLBACK TypeToSearch::foregroundProc(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD)
@@ -166,15 +180,17 @@ void TypeToSearch::setHooked(bool hooked)
 
 // Whether the files and folders shown in m_explorer have the keyboard focus
 // (not a name being renamed, the address bar, the search box, the navigation
-// pane), and which tab they are. GetGUIThreadInfo reads the other thread's
-// state without sending it anything: safe inside the hook, microseconds.
+// pane), with no menu of the window's open over them (GitHub #37), and which
+// tab they are. GetGUIThreadInfo reads the other thread's state without
+// sending it anything: safe inside the hook, microseconds.
 bool TypeToSearch::explorerFocused(HWND& tab) const
 {
     GUITHREADINFO info {sizeof info};
     if (!::GetGUIThreadInfo(::GetWindowThreadProcessId(m_explorer, nullptr), &info) || !info.hwndFocus)
         return false;
     const folderview::Hit hit = folderview::classify(info.hwndFocus, {});
-    if (hit.surface != folderview::Surface::Explorer || hit.root != m_explorer)
+    const bool itemsView = hit.surface == folderview::Surface::Explorer && hit.root == m_explorer;
+    if (searchtyping::focusOf(static_cast<unsigned>(info.flags), itemsView) != searchtyping::Focus::ItemsView)
         return false;
     tab = hit.tab;
     return true;
@@ -232,11 +248,15 @@ bool TypeToSearch::handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event)
 
 void TypeToSearch::typeHeld()
 {
-    if (!m_holding)
-        return;
-    endHolding();
-    // In order, with Shift around the keys pressed with it (unless it is
-    // held now).
+    if (!m_holding || m_retyped.pending())
+        return; // nothing held, or on its way already (what is typed meanwhile follows it)
+    sendHeld();
+}
+
+// The keys held, as input to send: in order, with Shift around the keys
+// pressed with it (unless it is held now).
+std::vector<INPUT> TypeToSearch::takeHeld()
+{
     const bool shiftNow = held(VK_SHIFT);
     std::vector<INPUT> inputs;
     for (const Held& key : m_held) {
@@ -250,8 +270,49 @@ void TypeToSearch::typeHeld()
                 KEYEVENTF_KEYUP));
     }
     m_held.clear();
-    if (!inputs.empty())
-        ::SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+    return inputs;
+}
+
+// The keys held, typed again. The hold goes on until the last of them has
+// gone down the hook chain (ownKeyPassed): a key typed or let go meanwhile
+// is held too and follows them. Let through at once, it went in among them
+// (q down, z down, z up, q up) and "qz" came out "zq" (GitHub #39).
+void TypeToSearch::sendHeld()
+{
+    std::vector<INPUT> inputs = takeHeld();
+    if (inputs.empty()) {
+        endHolding();
+        return;
+    }
+    std::vector<searchtyping::Retyped::Key> keys;
+    keys.reserve(inputs.size());
+    for (const INPUT& input : inputs)
+        keys.push_back({input.ki.wVk, (input.ki.dwFlags & KEYEVENTF_KEYUP) != 0});
+    m_retyped.sent(std::move(keys));
+    restartTimer(kPassTimeoutMs);
+    if (::SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT)) != inputs.size()) {
+        m_retyped.clear(); // not all went in (blocked): none to wait for
+        heldPassed();
+    }
+}
+
+// One of Win顺's own keys went down the chain (keyboardProc): the last of
+// those typed again lets the keys typed meanwhile follow, once out of the
+// hook (a posted message comes after the hooks' calls already waiting).
+void TypeToSearch::ownKeyPassed(WPARAM message, const KBDLLHOOKSTRUCT& event)
+{
+    if (m_retyped.passed(event.vkCode, message == WM_KEYUP || message == WM_SYSKEYUP))
+        ::PostThreadMessageW(m_threadId.load(), kPassedMessage, 0, 0);
+}
+
+void TypeToSearch::heldPassed()
+{
+    if (!m_holding || m_retyped.pending())
+        return; // over already (it waited too long), or more on their way
+    if (m_held.empty())
+        endHolding();
+    else
+        sendHeld(); // typed while those were on their way: after them
 }
 
 // The same keys, to the window they were typed in: Explorer is still in
@@ -267,6 +328,16 @@ void TypeToSearch::dropHeld()
 {
     if (!m_holding)
         return;
+    // Typed again, and some never went by (a hook before this one took
+    // them): the keys typed since go on after them, and the hold ends.
+    if (m_retyped.pending()) {
+        m_retyped.clear();
+        std::vector<INPUT> inputs = takeHeld();
+        endHolding();
+        if (!inputs.empty())
+            ::SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+        return;
+    }
     // Typed in Explorer, the keys are the user's: back to it rather than
     // lost. In the Start menu they would go into Windows' search, which was
     // not wanted: dropped.
@@ -278,10 +349,17 @@ void TypeToSearch::dropHeld()
     m_held.clear();
 }
 
+void TypeToSearch::restartTimer(UINT ms)
+{
+    ::KillTimer(nullptr, m_timer);
+    m_timer = ::SetTimer(nullptr, 0, ms, nullptr);
+}
+
 void TypeToSearch::endHolding()
 {
     m_holding = false;
     m_holdingForExplorer = false;
+    m_retyped.clear();
     ::KillTimer(nullptr, m_timer);
     m_timer = 0;
     setHooked(m_startInFront || m_explorer); // the launcher is in front: gone

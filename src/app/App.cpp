@@ -482,11 +482,14 @@ bool App::start(const StartOptions& options)
     // result opened, whose program is coming to the front instead. Esc hides
     // it, pinned or not (dismissRequested follows, for the rest).
     connect(m_launcher.get(), &Launcher::escaped, this, [this] {
-        const HWND back = std::exchange(m_typingExplorer, nullptr);
+        const HWND back = std::exchange(m_typingExplorer, {}).root;
         if (back && ::IsWindow(back) && m_window && m_window->isActive())
             ::SetForegroundWindow(back);
         hideLauncher();
     });
+    // ... and a folder opened goes to that tab, which comes back to the
+    // front the same way (GitHub #39).
+    m_launcher->setFolderOpener([this](const QString& folder) { return openInTypingTab(folder); });
     connect(m_launcher.get(), &Launcher::pinnedChanged, this, &App::launcherPinnedChanged);
     connect(m_launcher.get(), &Launcher::pinRequested, this, &App::pinPicture);
     connect(m_launcher.get(), &Launcher::settingsRequested, this, [this] { showSettings(); });
@@ -851,6 +854,7 @@ bool App::createWindow()
                 m_launcher->systemCommandDone();
             }
             if (m_launcher->pinned()) { // stays up, behind nothing (topmost), until Esc
+                m_typingExplorer = {}; // used elsewhere now: a folder opened later is not for that tab
                 m_boxPressGrace.stop();
                 // A press on Win顺's box took the focus: that press hides it
                 // (searchBoxPressed), as double Ctrl would.
@@ -1990,12 +1994,12 @@ void App::explorerTyped(HWND root, HWND tab)
         clock.start();
         const QString folder = QString::fromStdWString(filemanager::explorerFolder(tab));
         qInfo().noquote() << u"Explorer typing: folder \"%1\" %2 ms"_s.arg(folder).arg(clock.elapsed());
-        QMetaObject::invokeMethod(this, [this, root, folder] { explorerFolderKnown(root, folder); },
+        QMetaObject::invokeMethod(this, [this, root, tab, folder] { explorerFolderKnown(root, tab, folder); },
             Qt::QueuedConnection);
     });
 }
 
-void App::explorerFolderKnown(HWND root, const QString& folder)
+void App::explorerFolderKnown(HWND root, HWND tab, const QString& folder)
 {
     if (!m_typing)
         return;
@@ -2012,9 +2016,39 @@ void App::explorerFolderKnown(HWND root, const QString& folder)
     m_deliverTyping = true;
     showLauncher(folder.endsWith(u'\\') ? folder + u' ' : folder + u"\\ "_s, {}, false,
         screenOf(::MonitorFromWindow(root, MONITOR_DEFAULTTONEAREST)));
-    m_typingExplorer = root;
+    m_typingExplorer = {root, tab}; // after showLauncher, which clears it
     if (m_window && m_window->isActive())
         deliverTyping();
+}
+
+bool App::openInTypingTab(const QString& folder)
+{
+    const TypingOrigin from = std::exchange(m_typingExplorer, {});
+    if (!from.tab)
+        return false;
+    const HWND root = ::IsWindow(from.tab) ? ::GetAncestor(from.tab, GA_ROOT) : nullptr;
+    if (!root) {
+        qWarning() << "Explorer typing: the tab typed in is gone; the folder opens in a new window";
+        return false;
+    }
+    // Back to the front first (allowed: the launcher is in front), as Esc
+    // does; the tab goes there on the worker that asks Explorer its folder,
+    // which waits until it shows it: a key typed at once, asked behind it,
+    // searches the new folder.
+    ::SetForegroundWindow(root);
+    if (!m_typingWorker)
+        m_typingWorker = std::make_unique<ComWorker>();
+    m_typingWorker->post([tab = from.tab, path = QDir::toNativeSeparators(folder)] {
+        QElapsedTimer clock;
+        clock.start();
+        if (filemanager::goToKeepingFocus(tab, path.toStdWString())) {
+            qInfo().noquote() << u"Explorer typing: the tab went to \"%1\", %2 ms"_s.arg(path).arg(clock.elapsed());
+            return;
+        }
+        qWarning() << "Explorer typing: the tab is not among the shell's windows; a new window instead";
+        shell::open(path);
+    });
+    return true;
 }
 
 void App::applyTaskbarHotkeys()
@@ -2641,6 +2675,8 @@ void App::dumpLauncher(const QString& file) const
     state[u"panel"_s] = m_launcher->panel();
     state[u"pinned"_s] = m_launcher->pinned();
     state[u"active"_s] = m_window && m_window->isActive();
+    // Up from typing in Explorer: the tab a folder opened goes to (GitHub #39); "0" otherwise.
+    state[u"typingTab"_s] = QString::number(reinterpret_cast<quintptr>(m_typingExplorer.tab), 16);
     state[u"doubleCtrlService"_s] = m_keyListener && m_keyListener->serviceActive();
     if (m_window) {
         const QRect g = m_window->geometry();
@@ -2968,7 +3004,7 @@ void App::showLauncher(const QString& query, const std::optional<taskbar::Spot>&
 {
     if (!m_window)
         return;
-    m_typingExplorer = nullptr; // opened anew: set again by explorerFolderKnown when that is why
+    m_typingExplorer = {}; // opened anew: set again by explorerFolderKnown when that is why
     if (m_idleTrim->takeTrimmed() && m_index->index()) {
         // The index's pages back while the window comes up, before the first
         // search needs them (IdleTrim, FileIndex::warm).
@@ -3470,6 +3506,7 @@ void App::finishPrewarm()
 
 void App::hideLauncher()
 {
+    m_typingExplorer = {}; // whatever opened it, that opening is over
     if (!m_window || !m_window->isVisible() || m_launcherClosing)
         return;
     if (m_launcher->systemMenuOpen())

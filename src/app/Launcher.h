@@ -484,6 +484,11 @@ public:
     void setPreview(FilePreview* preview);
     Q_INVOKABLE void togglePreview(int row);
     Q_INVOKABLE bool closePreview();
+    // A folder opened by Enter or a click (one row, not as administrator) is
+    // offered here first: true when it was taken there instead of a new
+    // window of the file manager (App: the Explorer tab the launcher was
+    // opened from by typing, GitHub #39). Remembered as opened either way.
+    void setFolderOpener(std::function<bool(const QString& folder)> opener) { m_folderOpener = std::move(opener); }
     // Which row Alt+P is for: the one under the pointer when the mouse moved
     // there after the keyboard last moved (keyboardMoved, the arrows), else
     // the keyboard's. pointerIfMoved: the pointer (global, logical) in the
@@ -712,6 +717,7 @@ private:
     History* m_history;
     ResultModel m_results;
     QPointer<QWindow> m_window;
+    std::function<bool(const QString& folder)> m_folderOpener; // setFolderOpener
 
     QString m_query;
     Scope m_scope = All;

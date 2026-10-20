@@ -2724,7 +2724,9 @@ void Launcher::perform(const SearchResult& result, Action action)
     case Open:
     case RunAsAdmin:
         remember(r.path, m_shownText);
-        shell::open(r.path, action == RunAsAdmin, reportFailure(r.name));
+        // Opened by typing in Explorer, a folder goes to that tab (GitHub #39).
+        if (action != Open || !r.isDir || !m_folderOpener || !m_folderOpener(r.path))
+            shell::open(r.path, action == RunAsAdmin, reportFailure(r.name));
         emit dismissRequested();
         break;
     case Reveal:

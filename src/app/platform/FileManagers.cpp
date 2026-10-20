@@ -1,5 +1,6 @@
 #include "FileManagers.h"
 
+#include "FolderViewHit.h"
 #include "Integrity.h"
 #include "PathText.h"
 #include "Shell.h"
@@ -23,10 +24,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <concepts>
 #include <cstdint>
 #include <initializer_list>
 #include <mutex>
 #include <string_view>
+#include <thread>
 #include <utility>
 
 using Microsoft::WRL::ComPtr;
@@ -436,6 +440,41 @@ bool findTab(HWND tab, ComPtr<IWebBrowser2>& web, ComPtr<IShellBrowser>& browser
     return false;
 }
 
+// The tab goes to `folder`, as going there in it would (its Back button
+// comes back).
+bool navigate(IWebBrowser2* web, const std::wstring& folder)
+{
+    VARIANT target {};
+    target.vt = VT_BSTR;
+    target.bstrVal = ::SysAllocString(folder.c_str());
+    VARIANT empty {};
+    const HRESULT hr = web->Navigate2(&target, &empty, &empty, &empty, &empty);
+    ::VariantClear(&target);
+    return SUCCEEDED(hr);
+}
+
+// Whether the thread of the Explorer window `root` has the keyboard on its
+// files and folders (a DirectUIHWND under SHELLDLL_DefView in that window).
+bool filesFocused(HWND root)
+{
+    GUITHREADINFO info {sizeof(GUITHREADINFO)};
+    if (!::GetGUIThreadInfo(::GetWindowThreadProcessId(root, nullptr), &info) || !info.hwndFocus)
+        return false;
+    const folderview::Hit hit = folderview::classify(info.hwndFocus, {});
+    return hit.surface == folderview::Surface::Explorer && hit.root == root;
+}
+
+bool waitFor(std::predicate auto done, std::chrono::milliseconds limit)
+{
+    const auto end = std::chrono::steady_clock::now() + limit;
+    while (!done()) {
+        if (std::chrono::steady_clock::now() >= end)
+            return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return true;
+}
+
 // The folders a Total Commander window shows: the panel with the focus first.
 std::vector<std::wstring> totalCommanderFolders(HWND window)
 {
@@ -580,15 +619,32 @@ bool goTo(HWND tab, const std::wstring& folder)
 {
     ComPtr<IWebBrowser2> web;
     ComPtr<IShellBrowser> browser;
-    if (!findTab(tab, web, browser))
+    return findTab(tab, web, browser) && navigate(web.Get(), folder);
+}
+
+bool goToKeepingFocus(HWND tab, const std::wstring& folder)
+{
+    const HWND root = ::GetAncestor(tab, GA_ROOT);
+    const auto inFront = [root] { return ::GetForegroundWindow() == root && filesFocused(root); };
+    // Just handed the front, the window has not given its files the keyboard
+    // back yet (docs/pitfalls.md: the file dialogs' "刚交还前台就操作"); gone
+    // on from there, Explorer gives the new folder's files the focus too.
+    waitFor(inFront, std::chrono::milliseconds(500));
+    ComPtr<IWebBrowser2> web;
+    ComPtr<IShellBrowser> browser;
+    if (!findTab(tab, web, browser) || !navigate(web.Get(), folder))
         return false;
-    VARIANT target {};
-    target.vt = VT_BSTR;
-    target.bstrVal = ::SysAllocString(folder.c_str());
-    VARIANT empty {};
-    const HRESULT hr = web->Navigate2(&target, &empty, &empty, &empty, &empty);
-    ::VariantClear(&target);
-    return SUCCEEDED(hr);
+    const QString wanted = QString::fromStdWString(folder);
+    waitFor([&] { return pathtext::sameFolder(QString::fromStdWString(folderPath(browser.Get())), wanted); },
+        std::chrono::milliseconds(2000));
+    // The new view takes the focus as it comes; should it not have it (the
+    // window was not in front with its files focused), it is given to it.
+    if (::GetForegroundWindow() == root && !waitFor(inFront, std::chrono::milliseconds(300))) {
+        ComPtr<IShellView> view;
+        if (SUCCEEDED(browser->QueryActiveShellView(&view)) && view)
+            view->UIActivate(SVUIA_ACTIVATE_FOCUS);
+    }
+    return true;
 }
 
 std::wstring program(Kind kind)

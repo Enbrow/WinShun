@@ -2379,6 +2379,37 @@
 - **原因**：三个键统一写了 `MultiSelectModel=Single`。空白处没有选中项，外壳按“恰好选中一项”去比，就把动词藏了。
 - **做法**：`ShellMenu.cpp` 只给 `Directory`、`Drive` 写 `Single`，`Background` 不写，已有的删掉（老用户启动新版即修好）。验证用 `IShellFolder::CreateViewObject(IID_IContextMenu)` 取空白处菜单、`GetUIObjectOf` 取文件夹本身的菜单，列出菜单项对比，不必点界面。
 
+### 经典右键菜单开着时，焦点还在文件列表上（GitHub #37）
+
+- **现象**：Shift+右键弹出经典菜单，按 R 想点“属性(R)”，弹出来的是 Win顺 的启动器。
+- **原因**：经典菜单（`#32768`）是资源管理器线程自己的弹出菜单，焦点不挪：`GetGUIThreadInfo` 报的焦点仍是 `DirectUIHWND<SHELLDLL_DefView<CabinetWClass`（捕获和菜单所有者是 `SHELLDLL_DefView`），只按焦点判断就截下了。同一次调用的 `flags` 实测 `0x14`（`GUI_INMENUMODE | GUI_POPUPMENUMODE`），没开菜单、按 `Esc` 关掉后都是 0。
+- **做法**：`flags` 带 `0x4`、`0x8`、`0x10` 任一位就放过（`searchtyping::focusOf`，有单测），还是那一次 `GetGUIThreadInfo`，不多花。只测了经典菜单和新式菜单；Menu 键、Shift+F10、Alt 的按键提示、命令栏的下拉、导航窗格的右键没有逐个测。
+
+### Windows 11 的新式右键菜单：焦点进了 XAML 岛，`flags` 是 0
+
+- **现象**：担心新式右键菜单开着时也截键，想加一个“有没有弹出窗口”的检查。
+- **实际**：探测（Windows 11 26200）：菜单开着时 `flags` 是 0，焦点在 `InputSiteWindowClass<Microsoft.UI.Content.DesktopChildSiteBridge<CabinetWClass`（和 `Alt+D` 地址栏同一类），焦点规则本来就不匹配，键给菜单，不用另加检查。菜单本身是资源管理器进程里的顶层窗口 `Microsoft.UI.Content.PopupWindowSiteBridge`（标题“主机弹出窗口”，一次两个）。
+- **测试注意**：新式菜单里 R 同时是“共享对象”和“属性”的访问键，按 R 是在两项之间切换、不直接打开属性（Windows 自己的行为）。验收“按 R 出属性”要用经典菜单。
+
+### 截下的键重发时，紧跟着打的键夹进中间，“qz”成了“zq”（GitHub #39）
+
+- **现象**：在资源管理器里打 `qzleveltwo`（脚本键间隔 60 ms），框里成了 `zqleveltwo`，没有结果。先是在跳进子文件夹后马上再打字时看到的；复现时普通的第一次打字也出了（`F:\wstyping\ zqlevelone`），和跳转无关。
+- **原因**：钩子截下第一个键 q，等启动器拿到键盘再用 `SendInput` 重发。原来的 `typeHeld` 先结束持键（`m_holding = false`，启动器在前台时连钩子也卸了）再重发；重发的键要走完整条钩子链才进窗口，这期间打的 z 不再被截，直接走，夹进了重发的键中间。脚本自己的低级钩子记到的顺序是 `q 按下（Win顺 重发）· z 按下 · z 松开 · q 松开（Win顺 重发）`：q 的按下和松开被 z 隔开，框里出来是“zq”。启动器约 70–75 ms 拿到键盘，正好撞上 60 ms 后的第二个键，所以脚本里常见；手打得快时一样会撞上。不是工作线程排队：问文件夹只要 12 ms，跳转早就结束了。
+- **做法**：持键一直持续到重发的最后一个键走完钩子链。`keyboardProc` 在 `CallNextHookEx` 返回后对 Win顺 自己的键调 `ownKeyPassed`，按发出的顺序逐个对上（`searchtyping::Retyped`，有单测；Win顺 别的键不算），对上最后一个时给钩子线程投一条消息（`kPassedMessage`）。消息到之前进来的键照样截下、排在后面，消息到了就把它们作为下一批发出去，没有了才结束持键（`heldPassed`）。投递的消息排在已经在等的钩子调用后面，不会漏掉键。重发的键要是被链上更前面的钩子吞了，1 秒后照样结束（`kPassTimeoutMs`）。不靠调时间。
+- **怎么看到的**：只看框里的结果，分不出是哪一层乱的。测试脚本自己装一个 `WH_KEYBOARD_LL`，比 Win顺 的钩子装得早，所以在链上排在它后面；按 `dwExtraInfo == kOwnInput` 区分 Win顺 重发的键和脚本发的键，记下每个键经过的时刻和前台进程。
+
+### 从 PowerShell 7 用 `Start-Process` 起的 Windows PowerShell 5.1 找不到 `Get-FileHash`
+
+- **现象**：隐藏窗口里跑的 5.1 验收脚本，收尾时报 `The term 'Get-FileHash' is not recognized`：用户那份 Win顺 已经重新启动了，最后一行现场检查（在不在跑、是哪个 exe、提没提权）没记下来，只好事后手查。
+- **原因**：`Start-Process powershell.exe` 把 PowerShell 7 的 `PSModulePath`（`Documents\PowerShell\Modules`、`Program Files\PowerShell\Modules` 在前）原样传了下去，5.1 自动加载 `Microsoft.PowerShell.Utility` 里的脚本函数失败。`Add-Type`、`Get-Date` 这些内置的照常能用，所以前面都没事。直接在 7 里敲 `powershell.exe …` 时 7 会修好这个变量，没有这个问题（实测）。
+- **做法**：脚本开头重设 `$env:PSModulePath`，或者不用 `Get-FileHash`（比文件用 `[Security.Cryptography.SHA256]` 或逐字节比）。收尾检查放进各自的 `try`，一处出错不要连带跳过现场还原。
+
+### 给有两个标签页的资源管理器窗口发 `WM_CLOSE`，窗口还在
+
+- **现象**：测试脚本收尾时 `PostMessage(WM_CLOSE)` 关测试窗口，三次都剩下一个窗口，里面只有第一个标签页（`F:\wstyping`）。
+- **原因**：每次关掉的都是当时在前面的第二个标签页，窗口本身没关（Windows 11 带标签页的资源管理器）。
+- **做法**：收尾时查一遍还剩哪些窗口的所有标签页都在测试目录下，再关一次，直到窗口没了；或者逐个标签页 `IWebBrowser2.Quit`。
+
 ## 预览（Alt+P）
 
 ### 发布包里的 Qt 读不了 JPEG

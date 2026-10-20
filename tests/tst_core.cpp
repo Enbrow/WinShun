@@ -7400,6 +7400,39 @@ private slots:
         QVERIFY(!starts('A', true, false, Focus::ItemsView, true));
         QVERIFY(isModifier(kVkShift) && isModifier(kVkRMenu) && isModifier(kVkLWin));
         QVERIFY(!isModifier('A') && !isModifier(kVkSpace));
+        // A menu open (GitHub #37): its keys, whichever they are. Measured on
+        // Windows 11 25H2: the classic context menu (Shift+right-click on a
+        // file) leaves the focus on the files with the flags 0x14 (in menu
+        // mode, a pop-up menu); nothing open, 0.
+        QCOMPARE(focusOf(0, true), Focus::ItemsView);
+        QCOMPARE(focusOf(0x14, true), Focus::Menu);
+        QCOMPARE(focusOf(kGuiInMenuMode | kGuiSystemMenuMode, true), Focus::Menu); // the system menu
+        QCOMPARE(focusOf(kGuiInMenuMode, true), Focus::Menu);
+        QCOMPARE(focusOf(0x14, false), Focus::Menu);
+        QCOMPARE(focusOf(0, false), Focus::Other); // Windows 11's context menu: the focus in its XAML island
+        QCOMPARE(focusOf(0x01, true), Focus::ItemsView); // a caret blinking says nothing of menus
+        QVERIFY(!starts('R', true, false, focusOf(0x14, true))); // 属性(R) goes to the menu
+        QVERIFY(starts('R', true, false, focusOf(0, true))); // the menu closed (Esc): typing searches again
+        // The keys typed again go by first; the ones typed meanwhile wait
+        // behind the last of them (GitHub #39: "qz" came out "zq").
+        Retyped retyped;
+        QVERIFY(!retyped.pending());
+        QVERIFY(!retyped.passed('Q', false)); // nothing sent: nothing to wait for
+        retyped.sent({{'Q', false}, {'Q', true}});
+        QVERIFY(retyped.pending());
+        QVERIFY(!retyped.passed(kVkEscape, false)); // another of Win顺's keys (the Start menu's Esc)
+        QVERIFY(!retyped.passed('Q', true)); // not the next one
+        QVERIFY(!retyped.passed('Q', false));
+        QVERIFY(retyped.pending());
+        QVERIFY(retyped.passed('Q', true)); // the last: the keys typed meanwhile follow now
+        QVERIFY(!retyped.pending());
+        QVERIFY(!retyped.passed('Q', true)); // gone by already
+        retyped.sent({{kVkLShift, false}, {'A', false}, {kVkLShift, true}, {'A', true}}); // a capital, Shift let go since
+        QVERIFY(!retyped.passed('A', false));
+        QVERIFY(!retyped.passed(kVkLShift, false));
+        retyped.clear(); // the hold ended (it waited too long)
+        QVERIFY(!retyped.pending());
+        QVERIFY(!retyped.passed('A', false));
     }
 
     // The folder menu's hotkey (GitHub #25): a press opens, closes or

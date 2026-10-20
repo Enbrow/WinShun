@@ -223,7 +223,12 @@ private:
     // that window's screen, and the keys follow; with no folder there, the
     // keys go back to Explorer.
     void explorerTyped(HWND root, HWND tab);
-    void explorerFolderKnown(HWND root, const QString& folder);
+    void explorerFolderKnown(HWND root, HWND tab, const QString& folder);
+    // A folder opened in the launcher (Launcher::setFolderOpener): up from
+    // typing in an Explorer tab, that tab goes there and its window comes
+    // back to the front, so typing goes on in the new folder (GitHub #39).
+    // False otherwise, or with the tab gone: a new window, as from anywhere.
+    bool openInTypingTab(const QString& folder);
     // Win顺's own search box on the taskbar ([Taskbar] SearchBox, taskbar::SearchBox).
     void applySearchBox();
     void setSearchBoxShown(taskbar::SearchBox::Hidden why); // it is on the taskbar (None), or why not
@@ -389,7 +394,16 @@ private:
     bool m_launcherClosing = false; // sliding out (hideLauncher)
     std::unique_ptr<ComWorker> m_typingWorker; // asks Explorer its folder (explorerTyped); before m_typing
     std::unique_ptr<TypeToSearch> m_typing; // while [Taskbar] StartMenuTyping or [Launcher] ExplorerTyping is on
-    HWND m_typingExplorer = nullptr; // the launcher is up from typing in this Explorer window: Esc goes back to it
+    // The launcher is up from typing in this Explorer window, in this tab
+    // (ShellTabWindowClass; the window itself on Windows 10): Esc goes back
+    // to the window, a folder opened goes to the tab (openInTypingTab).
+    // Cleared by any other opening (showLauncher), by hiding the launcher,
+    // and when a pinned one loses the focus: never another opening's.
+    struct TypingOrigin {
+        HWND root = nullptr;
+        HWND tab = nullptr;
+    };
+    TypingOrigin m_typingExplorer;
     std::unique_ptr<taskbar::SearchBox> m_searchBox; // while [Taskbar] SearchBox is on (Windows 11)
     bool m_searchBoxShown = false; // ... and it is on the taskbar
     taskbar::SearchBox::Hidden m_searchBoxHidden = taskbar::SearchBox::Hidden::Pending; // ... or why not

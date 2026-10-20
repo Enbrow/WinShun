@@ -1,5 +1,7 @@
 #pragma once
 
+#include "SearchTyping.h"
+
 #include <windows.h>
 
 #include <atomic>
@@ -20,12 +22,15 @@ namespace ws {
 // search) is in front is taken from it, and the launcher is asked for: it
 // opens over the taskbar. In Explorer, the first key typed while the files
 // and folders shown have the keyboard (not a name being renamed, the address
-// bar, its search box or the navigation pane) is taken the same way, and the
-// launcher is asked for with that window's folder (typedInExplorer). That
+// bar, its search box or the navigation pane) and no menu of the window's is
+// open (its keys are the menu's: 属性(R), GitHub #37) is taken the same way,
+// and the launcher is asked for with that window's folder (typedInExplorer). That
 // key and the ones typed after it are held back until the launcher has the
 // keyboard (deliver), then typed again in order (SendInput, marked as
 // Win顺's own): they go through the input method as if typed into the search
-// box. When the folder turns out to be none (This PC, Home, the Recycle
+// box. The hold lasts until those have gone down the hook chain: a key typed
+// in the meantime follows them instead of slipping in among them (GitHub
+// #39). When the folder turns out to be none (This PC, Home, the Recycle
 // Bin), the keys are given back to Explorer instead (giveBack), which then
 // jumps by them as it would have.
 //
@@ -86,7 +91,12 @@ private:
     void setHooked(bool hooked);
     void typeHeld(); // deliver(), on the hook's thread
     void returnHeld(); // giveBack(), on the hook's thread
-    void dropHeld(); // the launcher never came
+    void dropHeld(); // the launcher never came, or the keys typed again never went by
+    std::vector<INPUT> takeHeld(); // m_held as input to send; emptied
+    void sendHeld(); // types m_held again; held on until those have gone by
+    void ownKeyPassed(WPARAM message, const KBDLLHOOKSTRUCT& event); // a key of Win顺's went down the chain
+    void heldPassed(); // ... the last of those typed again
+    void restartTimer(UINT ms);
     void endHolding();
 
     const Surfaces m_surfaces;
@@ -101,7 +111,8 @@ private:
     bool m_holding = false; // keys are held back for the launcher
     bool m_holdingForExplorer = false; // ... typed in Explorer: given back when the launcher does not come
     std::vector<Held> m_held;
-    UINT_PTR m_timer = 0; // while holding: gives up on the launcher
+    searchtyping::Retyped m_retyped; // typed again, not all gone by: what is typed now waits behind them
+    UINT_PTR m_timer = 0; // while holding: gives up on the launcher (on those typed again, once sent)
 
     std::jthread m_thread; // last: joined before the members above go
 };

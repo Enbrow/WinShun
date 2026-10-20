@@ -75,6 +75,13 @@ std::vector<Folder> openFolders();
 // False when the tab is not among the shell's windows (they can miss one).
 std::wstring explorerFolder(HWND tab);
 bool goTo(HWND tab, const std::wstring& folder);
+// goTo, for a tab whose window was just handed the front with the keyboard
+// on its files (the launcher opened by typing there, GitHub #39): first
+// waits until it is in front with that focus again (half a second at most),
+// then, once there, until the tab shows the folder (two seconds at most), so
+// that the folder asked for next is the new one; the new folder's files get
+// the keyboard. Waits on Explorer: not on the GUI thread.
+bool goToKeepingFocus(HWND tab, const std::wstring& folder);
 
 // The program that takes the commands: TOTALCMD64.EXE (TOTALCMD.EXE),
 // dopusrt.exe, XYplorer.exe, the custom open command's; empty when it is
