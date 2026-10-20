@@ -54,6 +54,7 @@ Item {
     signal moveHeld(bool held) // its handle pressed, let go
     signal menuRequested(int index, point globalPos)
     signal actionRequested(int index, int action)
+    signal hoverMoved(int index, point globalPos) // the mouse moved over it (not pressed)
 
     // Text on whole device pixels (see ResultRow).
     function onPixel(y) { return Math.round(y * Screen.devicePixelRatio) / Screen.devicePixelRatio }
@@ -293,6 +294,8 @@ Item {
                               && mouse.source === Qt.MouseEventNotSynthesized
         }
         onPositionChanged: (mouse) => {
+            if (!pressed)
+                row.hoverMoved(row.index, area.mapToGlobal(mouse.x, mouse.y))
             if (!pressed || !preventStealing || draggedOut || !(mouse.buttons & Qt.LeftButton))
                 return
             if (Math.hypot(mouse.x - pressedAt.x, mouse.y - pressedAt.y) < Application.styleHints.startDragDistance)

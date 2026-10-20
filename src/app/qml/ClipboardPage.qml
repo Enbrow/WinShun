@@ -78,6 +78,7 @@ Item {
         list.contentY = list.restY()
     }
     function windowHidden() {
+        clearHover()
         list.stopScrolling()
         numberHints.reset()
         closeContextMenu()
@@ -153,8 +154,45 @@ Item {
         previewOpen = true
     }
     function closePreview() {
+        clearHover()
         previewOpen = false
         clipboard.previewOpen = false
+    }
+
+    // An open preview shows the row the mouse rests on for a moment (GitHub
+    // #47), the current row stays where it is. It never opens or closes the
+    // preview: the window's width must not jump under the mouse.
+    property int hoverIndex: -1 // -1: the current row
+    property int hoverCandidate: -1
+    property point hoverPos: Qt.point(-1, -1) // the last real mouse move, global
+    // The row the preview shows; out of range (rows went) counts as none.
+    readonly property int previewIndex: hoverIndex >= 0 && hoverIndex < list.count ? hoverIndex : list.currentIndex
+    function clearHover() {
+        hoverTimer.stop()
+        hoverIndex = -1
+        hoverCandidate = -1
+    }
+    function hoverRow(index: int, globalPos: point) {
+        // A wheel moving rows under a still mouse sends the same position.
+        if (globalPos.x === hoverPos.x && globalPos.y === hoverPos.y)
+            return
+        hoverPos = globalPos
+        if (!previewOpen || list.rowDragging || (Qt.application.keyboardModifiers & (Qt.ControlModifier | Qt.ShiftModifier)))
+            return
+        hoverCandidate = index
+        if (index === previewIndex)
+            hoverTimer.stop()
+        else
+            hoverTimer.restart()
+    }
+    Timer {
+        id: hoverTimer
+        interval: 180
+        onTriggered: {
+            if (page.previewOpen && !list.rowDragging && !(Qt.application.keyboardModifiers & (Qt.ControlModifier | Qt.ShiftModifier))
+                    && page.hoverCandidate >= 0 && page.hoverCandidate < list.count)
+                page.hoverIndex = page.hoverCandidate === list.currentIndex ? -1 : page.hoverCandidate
+        }
     }
 
     readonly property ContextMenu contextMenu: menuLoader.item as ContextMenu
@@ -346,11 +384,15 @@ Item {
         target: page.clipboard.items
         function onDataChanged() { page.previewRevision++ }
         function onModelReset() { // an entry moved up (copied again): stay on a row
+            page.clearHover()
             if (list.count > 0 && (list.currentIndex < 0 || list.currentIndex >= list.count))
                 list.currentIndex = 0
             page.previewRevision++
         }
-        function onCountChanged() { page.previewRevision++ }
+        function onCountChanged() {
+            page.clearHover() // the rows' indexes moved
+            page.previewRevision++
+        }
     }
 
     // A Shift pressed alone under a Chinese layout while the keys come from
@@ -552,6 +594,13 @@ Item {
             width: parent.width
             height: page.rows * page.rowHeight + 8
 
+            // The mouse left the list and the preview: the preview is the
+            // current row's again. Into the preview it stays (to scroll it,
+            // pick words in it).
+            HoverHandler {
+                onHoveredChanged: if (!hovered) page.clearHover()
+            }
+
             Item {
                 id: listArea
                 width: page.previewOpen ? page.listWidth : parent.width
@@ -585,7 +634,10 @@ Item {
                         enabled: SystemTheme.animations && !list.rowDragging
                         NumberAnimation { property: "y"; duration: 150; easing.type: Easing.OutCubic }
                     }
-                    onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+                    onCurrentIndexChanged: {
+                        page.clearHover() // the keys and clicks pick the row
+                        positionViewAtIndex(currentIndex, ListView.Contain)
+                    }
                     onCountChanged: {
                         if (count > 0 && (currentIndex < 0 || currentIndex >= count))
                             currentIndex = Math.min(Math.max(0, currentIndex), count - 1)
@@ -652,7 +704,9 @@ Item {
                             viewY: page.y + body.y + list.y
                             itemY: clipRow.y
                         }
+                        onHoverMoved: (index, globalPos) => page.hoverRow(index, globalPos)
                         onClicked: (index, modifiers) => {
+                            page.clearHover()
                             const ctrl = (modifiers & Qt.ControlModifier) !== 0
                             if (modifiers & Qt.ShiftModifier) {
                                 page.selectTo(index, ctrl)
@@ -760,8 +814,8 @@ Item {
                 // Re-read when the rows change. The revision is part of the
                 // condition: a bare read of it would be dropped by the QML
                 // compiler, and the binding would not depend on it.
-                info: page.previewRevision >= 0 && list.count > 0 && list.currentIndex >= 0
-                      ? page.clipboard.preview(list.currentIndex) : ({})
+                info: page.previewRevision >= 0 && list.count > 0 && page.previewIndex >= 0
+                      ? page.clipboard.preview(page.previewIndex) : ({})
             }
         }
 
