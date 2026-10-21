@@ -39,6 +39,13 @@ VersionInfoCompany=LingCore
 ; reads the NTFS master file tables for WinShun, GitHub #21) is registered
 ; once, by this installer; WinShun itself runs with the user's normal rights.
 PrivilegesRequired=admin
+; Off (Inno Setup 6.7 turns it on by default, GitHub #50): the WinShun Setup
+; starts in [Run] inherits it, and so does Explorer when WinShun restarts it;
+; every program started from the desktop then fails on junctions (Scoop,
+; WSL moved to another drive) with "untrusted mount point" until a reboot.
+#if Ver >= EncodeVer(6, 7, 0)
+RedirectionGuard=no
+#endif
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
