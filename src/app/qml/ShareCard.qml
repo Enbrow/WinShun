@@ -2,12 +2,15 @@ import QtQuick
 import WinShun
 
 // A network share in the settings (SettingsEditor.shares): its name, where it
-// stands, and what can be done about it.
+// stands, and what can be done about it. Also a folder chosen for the index
+// (kind "folder", SettingsEditor.folders, GitHub #52): no signing in, and
+// 立即核对 only where it means something (`verifiable`).
 Rectangle {
     id: card
 
-    property var share: blank // {path, name, tone, status, signIn, suspect, busy}
-    readonly property var blank: ({ path: "", name: "", tone: "idle", status: "", signIn: false, suspect: false, busy: false })
+    property string kind: "share" // share | folder
+    property var share: blank // {path, name, tone, status, signIn, suspect, busy[, verifiable]}
+    readonly property var blank: ({ path: "", name: "", tone: "idle", status: "", signIn: false, suspect: false, busy: false, verifiable: false })
     property bool marked: false // what the settings search found
 
     signal verifyClicked()
@@ -31,7 +34,7 @@ Rectangle {
         id: icon
         x: 14
         y: 14
-        glyph: "" // MapDrive
+        glyph: card.kind === "folder" ? "\uE8B7" : "\uE8CE" // Folder, MapDrive
         size: 20
         color: Theme.subtext
     }
@@ -63,6 +66,7 @@ Rectangle {
             elide: Text.ElideMiddle
         }
         Item {
+            visible: card.share.status.length > 0 // a folder while the disks are indexed whole: nothing to say
             width: parent.width
             height: status.implicitHeight
 
@@ -105,20 +109,20 @@ Rectangle {
         spacing: 4
 
         FlatButton {
-            visible: card.share.signIn
+            visible: card.kind === "share" && card.share.signIn
             implicitHeight: 32
             highlighted: true
             text: qsTr("登录")
             onClicked: card.signInClicked()
         }
         FlatButton {
-            visible: card.share.suspect
+            visible: card.kind === "share" && card.share.suspect
             implicitHeight: 32
             text: qsTr("按现在的内容更新")
             onClicked: card.acceptClicked()
         }
         FlatButton {
-            visible: !card.share.signIn
+            visible: card.kind === "share" ? !card.share.signIn : card.share.verifiable === true
             enabled: !card.share.busy
             implicitHeight: 32
             flat: true

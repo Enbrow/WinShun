@@ -34,6 +34,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStyleHints>
+#include <QUrl>
 #include <QVariantMap>
 #include <QWinEventNotifier>
 
@@ -91,6 +92,9 @@ SettingsEditor::SettingsEditor(const Settings& settings, const QString& runningR
     , m_settings(settings)
     , m_runningRenderer(runningRenderer)
     , m_knownShares(unc::knownShares())
+    , m_knownFolders(Settings::knownFolders())
+    , m_foldersAnnounced(settings.indexFolders)
+    , m_sharesAnnounced(settings.shares)
     , m_taskbarWatch(std::make_unique<TaskbarWatch>())
     , m_plugins(new PluginSettings(this, this))
     , m_favorites(new FavoritesSettings(this, this))
@@ -123,6 +127,17 @@ void SettingsEditor::commit()
     m_settings.save();
     emit changed();
     emit edited(m_settings);
+    noteFoldersEdited();
+}
+
+void SettingsEditor::noteFoldersEdited()
+{
+    // The cards and the folders offered follow the list (added, removed, restored).
+    if (m_settings.indexFolders == m_foldersAnnounced && m_settings.shares == m_sharesAnnounced)
+        return;
+    m_foldersAnnounced = m_settings.indexFolders;
+    m_sharesAnnounced = m_settings.shares; // a known folder on a server is offered until it is a share
+    emit foldersChanged();
 }
 
 void SettingsEditor::setSettings(const Settings& settings)
@@ -139,6 +154,7 @@ void SettingsEditor::setSettings(const Settings& settings)
     emit changed();
     if (shares)
         emit sharesChanged();
+    noteFoldersEdited();
     if (keys)
         refreshNumberKeys();
 }
@@ -494,8 +510,11 @@ void SettingsEditor::setIndexAccessState(const IndexAccessState& state)
 {
     if (m_indexAccessState == state)
         return;
+    const bool scope = state.foldersInEffect != m_indexAccessState.foldersInEffect;
     m_indexAccessState = state;
     emit indexAccessStateChanged();
+    if (scope)
+        emit foldersChanged(); // the cards say where each stands only while the folders are what is indexed
 }
 
 QStringList SettingsEditor::excludedPaths() const
@@ -1638,8 +1657,9 @@ QString SettingsEditor::exportWebShortcuts()
 
 namespace {
 
-// "刚刚", "10 分钟前", "昨天 18:02", "10月3日": when a share was last read in full.
-QString sinceText(FileTime time)
+// "刚刚", "10 分钟前", "昨天 18:02", "10月3日": when a share or a chosen folder
+// was last read in full (seconds since 1970).
+QString sinceText(qint64 time)
 {
     const QDateTime then = QDateTime::fromSecsSinceEpoch(time);
     const qint64 minutes = std::max<qint64>(0, then.secsTo(QDateTime::currentDateTime()) / 60);
@@ -1852,6 +1872,288 @@ void SettingsEditor::acceptShareMissing(int index)
 {
     if (index >= 0 && index < m_settings.shares.size())
         emit shareAcceptRequested(m_settings.shares[index].path);
+}
+
+// ---- 索引哪些地方 (GitHub #52) ---------------------------------------------------
+
+namespace {
+
+// "3 秒", "2 分钟": how long a folder's last walk took.
+QString tookText(std::chrono::milliseconds took)
+{
+    const qint64 seconds = took.count() / 1000;
+    if (seconds < 1)
+        return SettingsEditor::tr("不到 1 秒");
+    if (seconds < 60)
+        return SettingsEditor::tr("%n 秒", "", static_cast<int>(seconds));
+    if (seconds < 3600)
+        return SettingsEditor::tr("%n 分钟", "", static_cast<int>(seconds / 60));
+    return SettingsEditor::tr("%n 小时", "", static_cast<int>(seconds / 3600));
+}
+
+// `path` is `folder` or lies inside it, as IndexService writes them ("D:"
+// is that whole drive).
+bool folderHolds(std::wstring_view folder, std::wstring_view path)
+{
+    return path.size() >= folder.size() && win32::equalsIgnoreCase(path.substr(0, folder.size()), folder)
+        && (path.size() == folder.size() || path[folder.size()] == L'\\');
+}
+
+// A path typed or chosen, or a file:/// URL dropped: native separators, no
+// backslash at the end but a drive's ("D:\").
+QString folderText(const QString& text)
+{
+    QString t = text.trimmed();
+    if (t.startsWith(u"file:"_s, Qt::CaseInsensitive))
+        t = QUrl(t).toLocalFile();
+    t = QDir::toNativeSeparators(t);
+    while (t.size() > 3 && t.endsWith(u'\\'))
+        t.chop(1);
+    if (t.size() == 2 && t[1] == u':')
+        t += u'\\';
+    return t;
+}
+
+// A known folder's path as IndexService writes it, without reading the disk
+// (Windows gives them in full): "D:\" -> "D:".
+std::wstring knownKey(const QString& path)
+{
+    std::wstring key = path.toStdWString();
+    while (key.size() > 2 && key.back() == L'\\')
+        key.pop_back();
+    return key;
+}
+
+} // namespace
+
+const std::vector<std::wstring>& SettingsEditor::folderKeys() const
+{
+    if (m_folderKeysOf != m_settings.indexFolders || m_folderKeys.size() != static_cast<std::size_t>(m_settings.indexFolders.size())) {
+        m_folderKeys.clear();
+        for (const QString& folder : m_settings.indexFolders)
+            m_folderKeys.push_back(Settings::indexFolderPath(folder));
+        m_folderKeysOf = m_settings.indexFolders;
+    }
+    return m_folderKeys;
+}
+
+void SettingsEditor::setIndexScope(const QString& scope)
+{
+    if (scope == m_settings.indexScope || (scope != u"auto" && scope != u"drives" && scope != u"folders"))
+        return;
+    m_settings.indexScope = scope;
+    commit(); // the app prunes the index to the folders, or reads the disks whole again (IndexService::setScope)
+}
+
+void SettingsEditor::setFolderVerifyHours(int hours)
+{
+    hours = std::clamp(hours, 0, 24 * 7);
+    if (hours == m_settings.folderVerifyHours)
+        return;
+    m_settings.folderVerifyHours = hours;
+    commit();
+}
+
+QVariantList SettingsEditor::folders() const
+{
+    using State = IndexService::FolderStatus::State;
+    const std::vector<std::wstring>& keys = folderKeys();
+    const auto statusOf = [this](std::wstring_view key) {
+        return std::ranges::find_if(
+            m_folderStatuses, [&](const IndexService::FolderStatus& s) { return win32::equalsIgnoreCase(s.path, key); });
+    };
+    QVariantList list;
+    for (qsizetype i = 0; i < m_settings.indexFolders.size(); ++i) {
+        const QString path = displayPath(m_settings.indexFolders[i]);
+        const std::wstring& key = keys[static_cast<std::size_t>(i)];
+        // 桌面, 文档 …: as Windows calls its own folders; else the folder's name.
+        QString name = path.size() > 3 ? QDir(QDir::fromNativeSeparators(path)).dirName() : path;
+        if (const auto known = std::ranges::find_if(
+                m_knownFolders, [&](const Settings::KnownFolder& k) { return k.path.compare(path, Qt::CaseInsensitive) == 0; });
+            known != m_knownFolders.end())
+            name = known->name;
+        QString tone = u"idle"_s;
+        QString status;
+        bool busy = false;
+        bool verifiable = false;
+        const bool network = key.empty() && Settings::isNetworkPath(path);
+        if (key.empty()) {
+            tone = u"warn"_s;
+            status = network ? tr("这是网络位置，请在“网络共享”里添加") : tr("不是完整的文件夹路径，不会索引");
+        } else if (m_indexAccessState.foldersInEffect) { // else nothing to say: the disks are indexed whole
+            if (const auto it = statusOf(key); it == m_folderStatuses.end()) {
+                // Inside another one: that one has it.
+                const auto outer = std::ranges::find_if(m_folderStatuses, [&](const IndexService::FolderStatus& s) {
+                    return !win32::equalsIgnoreCase(s.path, key) && folderHolds(s.path, key);
+                });
+                status = outer != m_folderStatuses.end() ? tr("已经包含在 %1 里").arg(QString::fromStdWString(outer->path))
+                                                         : tr("稍后开始索引");
+            } else {
+                const IndexService::FolderStatus& s = *it;
+                const QString walked
+                    = s.lastVerified ? tr("上次核对 %1（用时 %2）").arg(sinceText(s.lastVerified), tookText(s.took)) : QString();
+                verifiable = true;
+                switch (s.state) {
+                case State::Waiting:
+                    status = s.lastVerified ? QStringList {itemsText(s.items), walked}.join(u" · "_s) : tr("稍后开始索引");
+                    break;
+                case State::Verifying:
+                    tone = u"busy"_s;
+                    busy = true;
+                    status = s.lastVerified ? tr("正在核对… · %1").arg(itemsText(s.items)) : tr("正在建立索引…");
+                    break;
+                case State::Ready: {
+                    tone = u"ok"_s;
+                    QStringList parts {itemsText(s.items), walked};
+                    if (s.failed > 0)
+                        parts.push_back(tr("其中 %n 个文件夹读不了", "", static_cast<int>(s.failed)));
+                    status = parts.join(u" · "_s);
+                    break;
+                }
+                case State::NotFound:
+                    tone = u"error"_s;
+                    status = tr("找不到这个文件夹");
+                    break;
+                case State::Unreadable:
+                    tone = u"error"_s;
+                    status = tr("读不了（没有权限）");
+                    break;
+                case State::Excluded:
+                    tone = u"warn"_s;
+                    verifiable = false;
+                    status = tr("在“不搜索的文件夹”里，不会索引");
+                    break;
+                case State::Offline:
+                    verifiable = false;
+                    status = tr("所在的磁盘现在不在，接上后再索引");
+                    break;
+                case State::WholeDrive:
+                    tone = u"ok"_s;
+                    verifiable = false;
+                    status = tr("整个磁盘都索引");
+                    break;
+                }
+                if (!s.watching && (s.state == State::Ready || s.state == State::Waiting))
+                    status += u'\n' + tr("没有实时更新：改动等下次核对时补上");
+            }
+        }
+        list.append(QVariantMap {
+            {u"path"_s, path},
+            {u"name"_s, name},
+            {u"tone"_s, tone},
+            {u"status"_s, status},
+            {u"busy"_s, busy},
+            {u"verifiable"_s, verifiable && !busy},
+            {u"network"_s, network},
+            {u"signIn"_s, false},
+            {u"suspect"_s, false},
+        });
+    }
+    return list;
+}
+
+QVariantList SettingsEditor::commonFolders() const
+{
+    const std::vector<std::wstring>& keys = folderKeys();
+    QVariantList list;
+    for (const Settings::KnownFolder& k : m_knownFolders) {
+        if (k.network) {
+            // On a server: offered for 网络共享, unless a share added has it.
+            const QString share = Settings::sharePath(k.path);
+            if (share.isEmpty() || std::ranges::any_of(m_settings.shares, [&](const NetworkShare& s) {
+                    return unc::contains(s.path.toStdWString(), share.toStdWString());
+                }))
+                continue;
+        } else if (const std::wstring key = knownKey(k.path);
+            std::ranges::any_of(keys, [&](const std::wstring& chosen) { return !chosen.empty() && folderHolds(chosen, key); })) {
+            continue; // chosen, or in one that is
+        }
+        list.append(QVariantMap {{u"name"_s, k.name}, {u"path"_s, k.path}, {u"network"_s, k.network}});
+    }
+    return list;
+}
+
+void SettingsEditor::setFolderStatuses(std::vector<IndexService::FolderStatus> statuses)
+{
+    // The words of each are what counts ("10 分钟前" moves on by itself).
+    const QVariantList before = folders();
+    m_folderStatuses = std::move(statuses);
+    if (folders() != before)
+        emit foldersChanged();
+}
+
+void SettingsEditor::retranslateFolders()
+{
+    m_knownFolders = Settings::knownFolders(); // 桌面 or Desktop: translated as they are read
+    emit foldersChanged();
+}
+
+QString SettingsEditor::addFolder(const QString& text)
+{
+    const QString folder = folderText(text);
+    if (folder.isEmpty())
+        return {};
+    if (Settings::isNetworkPath(folder))
+        return tr("这是网络位置，请在“网络共享”里添加");
+    const std::wstring key = Settings::indexFolderPath(folder);
+    if (key.empty())
+        return tr("请选一个完整的文件夹路径");
+    if (const QFileInfo info(folder); !info.isDir())
+        return info.exists() ? tr("只能添加文件夹") : tr("找不到这个文件夹");
+    const std::vector<std::wstring>& keys = folderKeys();
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+        if (keys[i].empty())
+            continue;
+        if (win32::equalsIgnoreCase(keys[i], key))
+            return tr("已经添加过了");
+        if (folderHolds(keys[i], key))
+            return tr("已经包含在 %1 里").arg(displayPath(m_settings.indexFolders[static_cast<qsizetype>(i)]));
+    }
+    // One that holds folders added takes their place: none twice.
+    QStringList kept;
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+        if (keys[i].empty() || !folderHolds(key, keys[i]))
+            kept.push_back(m_settings.indexFolders[static_cast<qsizetype>(i)]);
+    }
+    kept.push_back(folder);
+    m_settings.indexFolders = kept;
+    commit();
+    return {};
+}
+
+void SettingsEditor::removeFolder(int index)
+{
+    if (index < 0 || index >= m_settings.indexFolders.size())
+        return;
+    m_settings.indexFolders.removeAt(index);
+    commit();
+}
+
+void SettingsEditor::verifyFolder(int index)
+{
+    if (index < 0 || index >= m_settings.indexFolders.size())
+        return;
+    const std::wstring& key = folderKeys()[static_cast<std::size_t>(index)];
+    const auto it = std::ranges::find_if(
+        m_folderStatuses, [&](const IndexService::FolderStatus& s) { return !key.empty() && win32::equalsIgnoreCase(s.path, key); });
+    if (it != m_folderStatuses.end())
+        emit folderVerifyRequested(QString::fromStdWString(it->path));
+}
+
+bool SettingsEditor::isNetworkFolder(const QString& text) const
+{
+    return Settings::isNetworkPath(folderText(text));
+}
+
+QString SettingsEditor::localPath(const QString& text) const
+{
+    return folderText(text);
+}
+
+QString SettingsEditor::pickFolder(const QString& title)
+{
+    const HWND owner = m_window ? reinterpret_cast<HWND>(m_window->winId()) : nullptr;
+    return shell::pickFolder(owner, title);
 }
 
 void SettingsEditor::listServerShares(const QString& server)

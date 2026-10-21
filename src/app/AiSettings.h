@@ -41,11 +41,13 @@ enum class Widens {
     No,
     Shrink, // a list of what is kept out: taking items out widens
     TurnOn, // a switch: turning it on widens
+    Grow, // a list of what is let in: putting items in widens
 };
 // What the user still has to do before the change shows.
 enum class Effect { Now, ExplorerRestart, AppRestart };
 // What the items of a list are, and so how one is written and kept.
-enum class ListKind { Programs, Extensions, ContentExtensions, Names, Folders };
+// LocalFolders: folders on this PC's disks, no network paths (网络共享 has those).
+enum class ListKind { Programs, Extensions, ContentExtensions, Names, Folders, LocalFolders };
 
 // The settings as a change works on them: those of Settings, and the one
 // that lives elsewhere (autostart, a task in the Task Scheduler).

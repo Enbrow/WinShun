@@ -90,14 +90,14 @@ Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 ; each choice means, in the words of the buttons and above them. The
 ; "recommended" forms are the same: which one is right depends on the computer.
 [Messages]
-english.PrivilegesRequiredOverrideText1=%1 can be installed for all users or for you only.%n%nAll users (needs an administrator): with the index service, which indexes whole disks and is the fastest.%nOnly me (no administrator needed): without the service, folders are walked instead. Choose this on a work computer.
-english.PrivilegesRequiredOverrideText2=%1 can be installed for you only or for all users.%n%nAll users (needs an administrator): with the index service, which indexes whole disks and is the fastest.%nOnly me (no administrator needed): without the service, folders are walked instead. Choose this on a work computer.
+english.PrivilegesRequiredOverrideText1=%1 can be installed for all users or for you only.%n%nAll users (needs an administrator): with the index service, which indexes whole disks and is the fastest.%nOnly me (no administrator needed): without the service, only the folders you choose are indexed. Choose this on a work computer.
+english.PrivilegesRequiredOverrideText2=%1 can be installed for you only or for all users.%n%nAll users (needs an administrator): with the index service, which indexes whole disks and is the fastest.%nOnly me (no administrator needed): without the service, only the folders you choose are indexed. Choose this on a work computer.
 english.PrivilegesRequiredOverrideAllUsers=Install for &all users (needs an administrator)
 english.PrivilegesRequiredOverrideAllUsersRecommended=Install for &all users (needs an administrator)
 english.PrivilegesRequiredOverrideCurrentUser=Install for &me only (no administrator needed)
 english.PrivilegesRequiredOverrideCurrentUserRecommended=Install for &me only (no administrator needed)
-chinesesimplified.PrivilegesRequiredOverrideText1=%1 可以为所有用户安装，也可以只为您安装。%n%n为所有用户安装（需要管理员）：带索引服务，索引整个磁盘，最快。%n只为我安装（不需要管理员）：不装服务，按文件夹遍历。公司电脑选这个。
-chinesesimplified.PrivilegesRequiredOverrideText2=%1 可以只为您安装，也可以为所有用户安装。%n%n为所有用户安装（需要管理员）：带索引服务，索引整个磁盘，最快。%n只为我安装（不需要管理员）：不装服务，按文件夹遍历。公司电脑选这个。
+chinesesimplified.PrivilegesRequiredOverrideText1=%1 可以为所有用户安装，也可以只为您安装。%n%n为所有用户安装（需要管理员）：带索引服务，索引整个磁盘，最快。%n只为我安装（不需要管理员）：不装服务，只索引你选的文件夹。公司电脑选这个。
+chinesesimplified.PrivilegesRequiredOverrideText2=%1 可以只为您安装，也可以为所有用户安装。%n%n为所有用户安装（需要管理员）：带索引服务，索引整个磁盘，最快。%n只为我安装（不需要管理员）：不装服务，只索引你选的文件夹。公司电脑选这个。
 chinesesimplified.PrivilegesRequiredOverrideAllUsers=为所有用户安装(&A)（需要管理员）
 chinesesimplified.PrivilegesRequiredOverrideAllUsersRecommended=为所有用户安装(&A)（需要管理员）
 chinesesimplified.PrivilegesRequiredOverrideCurrentUser=只为我安装(&M)（不需要管理员）

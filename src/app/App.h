@@ -302,6 +302,15 @@ private:
     void refreshIndexAccess(); // shown in the settings window
     QString serviceProblem() const; // why the index service is not in use and what happens instead, a sentence for the user
     void installIndexService(bool install); // WinShunService.exe --install / --uninstall, elevated (a portable copy)
+    // 索引哪些地方 (Settings::indexScope, GitHub #52): only the chosen folders,
+    // as the settings and the service have it, when the volumes are walked
+    // (`walked`: no way to their MFT and journals, NoVolumeAccess).
+    bool foldersInEffect(bool walked) const;
+    // The way to the volumes changed: the index takes the chosen folders, or
+    // whole disks, as foldersInEffect says now; `told`: the user is told
+    // when that changes (the service came or went), not for their own settings.
+    void applyIndexScope(bool told);
+    void refreshFolderStatuses(); // the chosen folders' cards in the settings window
     void applyTheme();
     void applyAppearance(); // the chosen theme and language
     QString trayTooltip() const;
@@ -421,6 +430,7 @@ private:
     std::atomic<bool> m_serviceProbing {false};
     std::jthread m_serviceProbe;
     bool m_accessTakenFromTask = false; // the mode was taken over from an old elevated task: said in the settings
+    bool m_foldersInEffect = false; // only the chosen folders are indexed (foldersInEffect), as last applied
     QString m_serviceMessage; // ... and how installing or uninstalling the service went
     bool m_serviceBusy = false; // WinShunService.exe --install / --uninstall running
     QString m_indexDir; // where the index files are, '/' separated

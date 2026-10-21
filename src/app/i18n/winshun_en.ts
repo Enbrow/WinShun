@@ -919,6 +919,30 @@
         <source>截图</source>
         <translation>Screenshot</translation>
     </message>
+    <message>
+        <source>索引哪些地方</source>
+        <translation>What to index</translation>
+    </message>
+    <message>
+        <source>整个磁盘</source>
+        <translation>Whole disks</translation>
+    </message>
+    <message>
+        <source>只索引选中的文件夹</source>
+        <translation>Only the chosen folders</translation>
+    </message>
+    <message>
+        <source>索引的文件夹</source>
+        <translation>Indexed folders</translation>
+    </message>
+    <message>
+        <source>定时核对</source>
+        <translation>Regular checks</translation>
+    </message>
+    <message>
+        <source>只在启动时</source>
+        <translation>Only at startup</translation>
+    </message>
 </context>
 <context>
     <name>AnnotateLayer</name>
@@ -5242,6 +5266,121 @@
         <source>导出诊断日志</source>
         <translation>Export diagnostic logs</translation>
     </message>
+    <message>
+        <source>索引哪些地方</source>
+        <translation>What to index</translation>
+    </message>
+    <message>
+        <source>索引范围;范围;整个磁盘;选中的文件夹;工作文件夹;普通用户;没有管理员权限;scope</source>
+        <translation>index scope;whole disk;chosen folders;work folders;standard user;no administrator rights;scope</translation>
+    </message>
+    <message>
+        <source>索引所有固定磁盘上的文件</source>
+        <translation>Indexes the files on every fixed disk</translation>
+    </message>
+    <message>
+        <source>只索引下面选中的文件夹，建索引和核对都快得多</source>
+        <translation>Indexes only the folders chosen below: building and checking the index is much faster</translation>
+    </message>
+    <message>
+        <source>没有索引服务、也没有以管理员身份运行时只索引选中的文件夹，否则索引整个磁盘</source>
+        <translation>Only the chosen folders when there is no index service and WinShun does not run as administrator; else the whole disks</translation>
+    </message>
+    <message>
+        <source>整个磁盘</source>
+        <translation>Whole disks</translation>
+    </message>
+    <message>
+        <source>只索引选中的文件夹</source>
+        <translation>Only chosen folders</translation>
+    </message>
+    <message>
+        <source>索引的文件夹</source>
+        <translation>Indexed folders</translation>
+    </message>
+    <message>
+        <source>文件夹;添加文件夹;工作文件夹;桌面;文档;下载;立即核对;folders</source>
+        <translation>folders;add folder;work folders;desktop;documents;downloads;check now</translation>
+    </message>
+    <message>
+        <source>只有这些文件夹里的文件能搜到；也可以从资源管理器把文件夹拖到这里</source>
+        <translation>Only the files in these folders are found; you can also drag folders here from File Explorer</translation>
+    </message>
+    <message>
+        <source>现在索引整个磁盘；改成“只索引选中的文件夹”后用下面这些</source>
+        <translation>The whole disks are indexed now; with “Only chosen folders” these are used</translation>
+    </message>
+    <message>
+        <source>添加文件夹…</source>
+        <translation>Add folder…</translation>
+    </message>
+    <message>
+        <source>选择要索引的文件夹</source>
+        <translation>Choose a folder to index</translation>
+    </message>
+    <message>
+        <source>、</source>
+        <translation>, </translation>
+    </message>
+    <message>
+        <source>还没有选文件夹</source>
+        <translation>No folders chosen yet</translation>
+    </message>
+    <message>
+        <source>还没有选文件夹：本机磁盘上的文件都搜不到</source>
+        <translation>No folders chosen yet: no file on this PC’s disks can be found</translation>
+    </message>
+    <message>
+        <source>加到网络共享</source>
+        <translation>Add to network shares</translation>
+    </message>
+    <message>
+        <source>常用位置，点一下添加：</source>
+        <translation>Common places, click to add:</translation>
+    </message>
+    <message>
+        <source>%1（在服务器上：加到网络共享）</source>
+        <translation>%1 (on a server: add to network shares)</translation>
+    </message>
+    <message>
+        <source>定时核对</source>
+        <translation>Regular checks</translation>
+    </message>
+    <message>
+        <source>核对;重新扫描;每天;每小时;定时;verify;rescan</source>
+        <translation>check;rescan;daily;hourly;schedule;verify</translation>
+    </message>
+    <message>
+        <source>把选中的文件夹重新走一遍，补上没跟上的改动；到时间后等你离开电脑一会儿再核对</source>
+        <translation>Walks the chosen folders again for changes that were missed; when it is time, it waits until you have been away from the computer for a while</translation>
+    </message>
+    <message>
+        <source>每小时</source>
+        <translation>Hourly</translation>
+    </message>
+    <message>
+        <source>每 4 小时</source>
+        <translation>Every 4 hours</translation>
+    </message>
+    <message>
+        <source>每天</source>
+        <translation>Daily</translation>
+    </message>
+    <message>
+        <source>只在启动时</source>
+        <translation>Only at startup</translation>
+    </message>
+    <message numerus="yes">
+        <source>现在是每 %n 小时一次</source>
+        <translation>
+            <numerusform>Now every hour</numerusform>
+            <numerusform>Now every %n hours</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>你在这台电脑上没有管理员权限，装不了索引服务。Win顺 会索引你选的文件夹，并定时核对。</source>
+        <translation>You have no administrator rights on this computer, so the index service cannot be installed. WinShun indexes the folders you choose and checks them regularly.</translation>
+    </message>
 </context>
 <context>
     <name>ShareCard</name>
@@ -6084,6 +6223,74 @@
     <message>
         <source>关闭全部贴图</source>
         <translation>Close all pins</translation>
+    </message>
+    <message>
+        <source>双击 Ctrl 打开搜索。Win顺 先索引你常用的文件夹（桌面、文档、下载等），可以在设置里增减。</source>
+        <translation>Press Ctrl twice to search. WinShun indexes the folders you use most first (desktop, documents, downloads and so on); add or remove folders in the settings.</translation>
+    </message>
+    <message>
+        <source>没有索引服务，只索引选中的文件夹</source>
+        <translation>No index service; only the chosen folders are indexed</translation>
+    </message>
+    <message>
+        <source>索引服务已停用，只索引选中的文件夹</source>
+        <translation>Index service disabled; only the chosen folders are indexed</translation>
+    </message>
+    <message>
+        <source>索引服务未连接，只索引选中的文件夹</source>
+        <translation>Index service not connected; only the chosen folders are indexed</translation>
+    </message>
+    <message>
+        <source>索引范围</source>
+        <translation>What is indexed</translation>
+    </message>
+    <message>
+        <source>索引服务不可用：改为只索引选中的文件夹（可在设置里改）</source>
+        <translation>The index service is not available: only the chosen folders are indexed now (you can change this in the settings)</translation>
+    </message>
+    <message>
+        <source>索引服务可用了：改为索引整个磁盘</source>
+        <translation>The index service is available: the whole disks are indexed now</translation>
+    </message>
+    <message>
+        <source>你在这台电脑上没有管理员权限，装不了索引服务。Win顺 会索引你选的文件夹，并定时核对。</source>
+        <translation>You have no administrator rights on this computer, so the index service cannot be installed. WinShun indexes the folders you choose and checks them regularly.</translation>
+    </message>
+    <message>
+        <source>没有安装索引服务，现在只索引你选的文件夹。装上服务可以索引整个磁盘，更快。</source>
+        <translation>The index service is not installed, so only the folders you chose are indexed. With the service, the whole disks are indexed, and faster.</translation>
+    </message>
+    <message>
+        <source>索引服务被停用了，现在只索引你选的文件夹。</source>
+        <translation>The index service is disabled, so only the folders you chose are indexed.</translation>
+    </message>
+    <message>
+        <source>索引服务没有运行，现在只索引你选的文件夹。</source>
+        <translation>The index service is not running, so only the folders you chose are indexed.</translation>
+    </message>
+    <message>
+        <source>索引服务在运行，但连不上（%1），现在只索引你选的文件夹。</source>
+        <translation>The index service is running but cannot be reached (%1), so only the folders you chose are indexed.</translation>
+    </message>
+    <message>
+        <source>现在：按文件夹遍历，只索引你选的文件夹</source>
+        <translation>Now: walking the folders, only those you chose</translation>
+    </message>
+    <message>
+        <source>现在：只索引选中的文件夹</source>
+        <translation>Now: only the chosen folders are indexed</translation>
+    </message>
+    <message>
+        <source>现在：索引整个磁盘。使用索引服务时总是索引整个磁盘</source>
+        <translation>Now: the whole disks are indexed. With the index service they always are</translation>
+    </message>
+    <message>
+        <source>现在：索引整个磁盘。管理员直读时总是索引整个磁盘</source>
+        <translation>Now: the whole disks are indexed. In administrator mode they always are</translation>
+    </message>
+    <message>
+        <source>现在：索引整个磁盘</source>
+        <translation>Now: the whole disks are indexed</translation>
     </message>
 </context>
 <context>
@@ -8260,6 +8467,18 @@
         <source>代码</source>
         <translation>Code</translation>
     </message>
+    <message>
+        <source>桌面</source>
+        <translation>Desktop</translation>
+    </message>
+    <message>
+        <source>下载</source>
+        <translation>Downloads</translation>
+    </message>
+    <message>
+        <source>音乐</source>
+        <translation>Music</translation>
+    </message>
 </context>
 <context>
     <name>ws::SettingsEditor</name>
@@ -8689,6 +8908,94 @@
     <message>
         <source>诊断包已生成，把 WinShun-diagnostics.zip 发给开发者即可</source>
         <translation>Diagnostic archive created. Send WinShun-diagnostics.zip to the developer.</translation>
+    </message>
+    <message>
+        <source>不到 1 秒</source>
+        <translation>under a second</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 秒</source>
+        <translation>
+            <numerusform>%n second</numerusform>
+            <numerusform>%n seconds</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 分钟</source>
+        <translation>
+            <numerusform>%n minute</numerusform>
+            <numerusform>%n minutes</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 小时</source>
+        <translation>
+            <numerusform>%n hour</numerusform>
+            <numerusform>%n hours</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>这是网络位置，请在“网络共享”里添加</source>
+        <translation>This is a network location: add it under Network shares</translation>
+    </message>
+    <message>
+        <source>不是完整的文件夹路径，不会索引</source>
+        <translation>Not a full folder path: not indexed</translation>
+    </message>
+    <message>
+        <source>已经包含在 %1 里</source>
+        <translation>Already in %1</translation>
+    </message>
+    <message>
+        <source>稍后开始索引</source>
+        <translation>Indexed in a moment</translation>
+    </message>
+    <message>
+        <source>上次核对 %1（用时 %2）</source>
+        <translation>last checked %1 (took %2)</translation>
+    </message>
+    <message>
+        <source>正在建立索引…</source>
+        <translation>Indexing…</translation>
+    </message>
+    <message numerus="yes">
+        <source>其中 %n 个文件夹读不了</source>
+        <translation>
+            <numerusform>%n folder in it could not be read</numerusform>
+            <numerusform>%n folders in it could not be read</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>找不到这个文件夹</source>
+        <translation>This folder cannot be found</translation>
+    </message>
+    <message>
+        <source>读不了（没有权限）</source>
+        <translation>Cannot be read (no permission)</translation>
+    </message>
+    <message>
+        <source>在“不搜索的文件夹”里，不会索引</source>
+        <translation>In the excluded folders: not indexed</translation>
+    </message>
+    <message>
+        <source>所在的磁盘现在不在，接上后再索引</source>
+        <translation>Its disk is not there now: indexed once it is connected</translation>
+    </message>
+    <message>
+        <source>整个磁盘都索引</source>
+        <translation>The whole disk is indexed</translation>
+    </message>
+    <message>
+        <source>没有实时更新：改动等下次核对时补上</source>
+        <translation>No live updates: changes come in with the next check</translation>
+    </message>
+    <message>
+        <source>请选一个完整的文件夹路径</source>
+        <translation>Choose a full folder path</translation>
+    </message>
+    <message>
+        <source>只能添加文件夹</source>
+        <translation>Only folders can be added</translation>
     </message>
 </context>
 <context>

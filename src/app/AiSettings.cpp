@@ -126,7 +126,7 @@ Entry integer(const Head& head, int Settings::* field, int min, int max, const c
     e.max = max;
     e.zeroLabel = zeroLabel;
     if (zeroMeaning)
-        e.zeroMeaning = QString::fromLatin1(zeroMeaning);
+        e.zeroMeaning = QString::fromUtf8(zeroMeaning); // "only when Win顺 starts"
     e.field = field;
     return e;
 }
@@ -355,6 +355,22 @@ std::vector<Entry> buildCatalog()
             {u"en"_s, u"English"_s, "English"}}));
 
     // ---- 搜索范围 ----
+    {
+        // GitHub #52. Changing it prunes the index or reads whole disks again.
+        Entry& e = add(choice({"Index/Scope", QT_TRANSLATE_NOOP("AiSettings", "索引哪些地方"), "scope", 0,
+                                  "How much of the PC's disks the index holds. 'folders' indexes only Index/Folders, while the disks are walked (no index service, not as administrator: with either, the disks are read whole all the same); 'drives' every fixed disk whole. Changing it drops what is outside or reads the disks again, so every change asks the user."},
+            &Settings::indexScope,
+            {{u"auto"_s, u"only the chosen folders when there is no index service (not installed or disabled) and Win顺 runs without administrator rights, or when Index/Access is walk; else whole disks"_s, QT_TRANSLATE_NOOP("AiSettings", "自动")},
+                {u"drives"_s, u"every fixed disk, whole"_s, QT_TRANSLATE_NOOP("AiSettings", "整个磁盘")},
+                {u"folders"_s, u"only the folders in Index/Folders (whole disks while the index service or administrator mode is in use)"_s, QT_TRANSLATE_NOOP("AiSettings", "只索引选中的文件夹")}}));
+        e.access = Access::AlwaysAsk;
+    }
+    add(list({"Index/Folders", QT_TRANSLATE_NOOP("AiSettings", "索引的文件夹"), "scope", 0,
+                 "The folders indexed when Index/Scope comes to folders (full paths on this PC's own disks like D:\\Work; a drive's root like E:\\ is that whole drive). Network folders go in 网络共享 instead. Putting one in makes its files searchable, so that asks the user every time."},
+        &Settings::indexFolders, ListKind::LocalFolders, Widens::Grow));
+    add(integer({"Index/FolderVerifyHours", QT_TRANSLATE_NOOP("AiSettings", "定时核对"), "scope", 0,
+                    "Hours between two walks of each chosen folder (Index/Folders), done once the user has been away from the PC for a while; a folder whose walk took long waits longer. 0: only when Win顺 starts."},
+        &Settings::folderVerifyHours, 1, 24 * 7, QT_TRANSLATE_NOOP("AiSettings", "只在启动时"), "only when Win顺 starts"));
     add(list({"Index/ExcludedPaths", QT_TRANSLATE_NOOP("AiSettings", "不搜索的文件夹"), "scope", 0,
                  "Folders (full paths like D:\\Games) that are left out of the index: nothing in them is found. Taking one out makes its files searchable again, so that asks the user every time."},
         &Settings::excludedPaths, ListKind::Folders, Widens::Shrink));
@@ -681,12 +697,19 @@ QString folderKey(QString path)
     path = QDir::toNativeSeparators(path.trimmed());
     while (path.size() > 3 && path.endsWith(u'\\'))
         path.chop(1);
+    if (path.size() == 2 && path[1] == u':')
+        path += u'\\'; // "D:" is "D:\", the whole drive
     return path.toCaseFolded();
+}
+
+bool isFolderList(ListKind kind)
+{
+    return kind == ListKind::Folders || kind == ListKind::LocalFolders;
 }
 
 bool containsItem(const QStringList& list, const QString& item, ListKind kind)
 {
-    if (kind == ListKind::Folders) {
+    if (isFolderList(kind)) {
         const QString key = folderKey(item);
         return std::ranges::any_of(list, [&](const QString& other) { return folderKey(other) == key; });
     }
@@ -740,12 +763,17 @@ QStringList normalizedItems(ListKind kind, const QString& raw, QString& error)
         }
         return {name};
     }
-    case ListKind::Folders: {
+    case ListKind::Folders:
+    case ListKind::LocalFolders: {
         QString path = QDir::toNativeSeparators(raw.trimmed());
         const bool full = path.startsWith(u'%') || path.startsWith(u"\\\\"_s)
             || (path.size() >= 3 && path[0].isLetter() && path[1] == u':' && path[2] == u'\\');
         if (!full || path.contains(u"\\..\\"_s) || path.endsWith(u"\\.."_s)) {
             error = u"'%1' is not a full folder path; write one like D:\\Games."_s.arg(raw);
+            return {};
+        }
+        if (kind == ListKind::LocalFolders && Settings::isNetworkPath(path)) {
+            error = u"'%1' is a network place: shares are indexed by 网络共享 (设置 → 搜索范围 → 网络共享), which the user adds in the settings window."_s.arg(raw);
             return {};
         }
         while (path.size() > 3 && path.endsWith(u'\\'))
@@ -782,7 +810,7 @@ QStringList parsedItems(const Entry& e, const QJsonValue& v, bool wholeList, QSt
         error = wholeList ? u"Must be an array of strings."_s : u"Must be a string or an array of strings."_s;
         return {};
     }
-    const qsizetype longest = e.list == ListKind::Folders ? kMaxPathChars : kMaxNameChars;
+    const qsizetype longest = isFolderList(e.list) ? kMaxPathChars : kMaxNameChars;
     QStringList out;
     for (const QString& r : raw) {
         if (error = textProblem(r, longest, u"An item"_s); !error.isEmpty())
@@ -1117,6 +1145,11 @@ bool widensAccess(const Entry& e, const QJsonValue& before, const QJsonValue& af
     }
     case Widens::TurnOn:
         return !before.toBool() && after.toBool();
+    case Widens::Grow: {
+        const QStringList was = stringsOf(before);
+        const QStringList now = stringsOf(after);
+        return std::ranges::any_of(now, [&](const QString& item) { return !containsItem(was, item, e.list); });
+    }
     case Widens::No:
         break;
     }
@@ -1158,6 +1191,8 @@ QString listItemsName(ListKind k)
         return u"folder names such as node_modules"_s;
     case ListKind::Folders:
         return u"full folder paths such as D:\\Games"_s;
+    case ListKind::LocalFolders:
+        return u"full paths of folders on this PC's own disks such as D:\\Work (no network paths)"_s;
     }
     return {};
 }
@@ -1374,6 +1409,7 @@ QJsonObject entryJson(const Entry& e, const State& current, const State& default
     if (e.access == Access::AlwaysAsk || e.widens != Widens::No) {
         o.insert(u"ask_always"_s, e.access == Access::AlwaysAsk ? u"every change asks the user, even when AI may change settings by itself"_s
                 : e.widens == Widens::Shrink                    ? u"taking items out asks the user, even when AI may change settings by itself"_s
+                : e.widens == Widens::Grow                      ? u"putting items in asks the user, even when AI may change settings by itself"_s
                                                                 : u"turning it on asks the user, even when AI may change settings by itself"_s);
     }
     if (e.type == Type::Choice) {

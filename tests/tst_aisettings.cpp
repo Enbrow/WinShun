@@ -84,6 +84,8 @@ QJsonValue sampleFor(const aisettings::Entry& e, State& s, int variant)
             return QJsonArray {u"sample_folder"_s};
         case ListKind::Folders:
             return QJsonArray {u"D:\\Sample\\Folder"_s};
+        case ListKind::LocalFolders: // on a disk of this PC's whatever the test machine is
+            return QJsonArray {u"C:\\Sample\\Folder"_s};
         }
         break;
     }
@@ -161,9 +163,9 @@ private slots:
             const Plan unknown = makePlan(state, one(u"No/SuchKey"_s, true), {});
             QCOMPARE(QString(plan.problems.first()).replace(key, u"X"_s), QString(unknown.problems.first()).replace(u"No/SuchKey"_s, u"X"_s));
         }
-        // And is not listed.
+        // And is not listed (as a whole key: Index/Folders is not Index/Folder).
         const QByteArray listed = QJsonDocument(describe(state, {})).toJson();
-        QVERIFY2(!listed.contains(key.toUtf8()) || (e && visible(*e)), qPrintable(key));
+        QVERIFY2(!listed.contains('"' + key.toUtf8() + '"') || (e && visible(*e)), qPrintable(key));
     }
 
     void hiddenAndSecretsAreNotListed()
@@ -555,6 +557,18 @@ private slots:
         QVERIFY(!makePlan(typed, adding(u"Index/ExcludedTypes"_s, u"wbk"_s), env).askAlways());
         QVERIFY(makePlan(state, removing(u"Clipboard/ExcludedApps"_s, u"keepass"_s), env).askAlways());
         QVERIFY(!makePlan(state, adding(u"Clipboard/ExcludedApps"_s, u"Other.exe"_s), env).askAlways());
+        // The folders indexed (GitHub #52): putting one in shows its files,
+        // taking one out does not; a network place is refused (网络共享's).
+        State scoped = state;
+        scoped.settings.indexFolders = {u"C:\\Work"_s, u"E:\\"_s};
+        QVERIFY(makePlan(scoped, adding(u"Index/Folders"_s, u"C:\\Other"_s), env).askAlways());
+        QVERIFY(makePlan(scoped, one(u"Index/Folders"_s, QJsonArray {u"C:\\Work"_s, u"C:\\Other"_s}), env).askAlways());
+        QVERIFY(!makePlan(scoped, removing(u"Index/Folders"_s, u"C:\\Work"_s), env).askAlways());
+        QVERIFY(!makePlan(scoped, adding(u"Index/Folders"_s, u"c:\\work\\"_s), env).changed()); // so already
+        QVERIFY(!makePlan(scoped, adding(u"Index/Folders"_s, u"E:\\"_s), env).changed());
+        QVERIFY(problemText(makePlan(scoped, adding(u"Index/Folders"_s, u"\\\\nas\\docs"_s), env)).contains(u"网络共享"));
+        QVERIFY(makePlan(scoped, one(u"Index/Scope"_s, u"folders"_s), env).askAlways()); // every change
+        QVERIFY(!makePlan(scoped, one(u"Index/FolderVerifyHours"_s, 4), env).askAlways());
         // A switch that shows nothing more is not asked.
         QVERIFY(!makePlan(state, one(u"Clipboard/ClickToPaste"_s, !state.settings.clipboardClickToPaste), env).askAlways());
         // The model is told which ones ask.
@@ -746,6 +760,10 @@ private slots:
         QCOMPARE(row.value(u"max"_s).toInt(), 100000);
         QCOMPARE(row.value(u"zero_means"_s).toString(), u"no limit"_s);
         QCOMPARE(row.value(u"writable"_s).toBool(), true);
+        q.keys = {u"Index/FolderVerifyHours"_s}; // not only ASCII (GitHub #52)
+        const QJsonObject verify = describe(state, q).value(u"settings"_s).toArray().first().toObject();
+        QCOMPARE(verify.value(u"zero_means"_s).toString(), u"only when Win顺 starts"_s);
+        QCOMPARE(verify.value(u"max"_s).toInt(), 168);
         q.keys = {u"Launcher/Autostart"_s};
         const QJsonObject autostart = describe(state, q).value(u"settings"_s).toArray().first().toObject();
         QVERIFY(autostart.contains(u"ask_always"_s) && !autostart.contains(u"default"_s));

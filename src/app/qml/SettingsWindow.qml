@@ -357,7 +357,8 @@ Window {
     }
 
     // Files dropped from File Explorer (which a DropArea never hears of: see
-    // FileDropTarget): on 收藏夹 added, on 插件 installed.
+    // FileDropTarget): on 收藏夹 added, on 插件 installed, on 搜索范围 › 文件夹
+    // indexed (GitHub #52; the first problem stays shown).
     FileDropTarget {
         window: window
         onDropped: (urls) => {
@@ -368,6 +369,17 @@ Window {
             } else if (window.currentPage === window.pluginsPage) {
                 for (const url of urls)
                     pluginsSection.plugins.install(String(url))
+            } else if (window.currentPage === 2 && window.currentTab === 0 && window.editor.foldersInEffect) {
+                let problem = ""
+                let networkPath = ""
+                for (const url of urls) {
+                    if (!foldersRow.add(String(url)) && problem.length === 0) {
+                        problem = foldersRow.problem
+                        networkPath = foldersRow.networkPath
+                    }
+                }
+                foldersRow.problem = problem
+                foldersRow.networkPath = networkPath
             }
         }
     }
@@ -1892,6 +1904,199 @@ Window {
                 note: qsTr("修改后在后台重新整理，不影响搜索。")
 
                 SettingRow {
+                    id: indexScopeRow
+
+                    // 索引哪些地方 (GitHub #52): the chosen folders only while the
+                    // disks are walked; with the index service or 管理员直读 they
+                    // are read whole, and the third choice waits.
+                    readonly property var scopes: ["auto", "drives", "folders"]
+
+                    title: qsTr("索引哪些地方")
+                    keywords: qsTr("索引范围;范围;整个磁盘;选中的文件夹;工作文件夹;普通用户;没有管理员权限;scope").split(";")
+                    description: {
+                        let what
+                        switch (window.editor.indexScope) {
+                        case "drives":
+                            what = qsTr("索引所有固定磁盘上的文件")
+                            break
+                        case "folders":
+                            what = qsTr("只索引下面选中的文件夹，建索引和核对都快得多")
+                            break
+                        default:
+                            what = qsTr("没有索引服务、也没有以管理员身份运行时只索引选中的文件夹，否则索引整个磁盘")
+                        }
+                        return what + "\n" + window.editor.indexScopeStatus
+                    }
+
+                    ScopeTabs {
+                        labels: [qsTr("自动"), qsTr("整个磁盘"), qsTr("只索引选中的文件夹")]
+                        current: Math.max(0, indexScopeRow.scopes.indexOf(window.editor.indexScope))
+                        disabled: window.editor.foldersPossible ? [] : [2]
+                        onActivated: (index) => window.editor.indexScope = indexScopeRow.scopes[index]
+                    }
+                }
+
+                SettingRow {
+                    id: foldersRow
+
+                    // Why the last one could not be added, and the network place
+                    // it was (offered for 网络共享 instead).
+                    property string problem
+                    property string networkPath
+
+                    function add(text) {
+                        const path = window.editor.localPath(text)
+                        const problem = window.editor.addFolder(path)
+                        foldersRow.problem = problem
+                        foldersRow.networkPath = problem.length > 0 && window.editor.isNetworkFolder(path) ? path : ""
+                        return problem.length === 0
+                    }
+                    function addShare(path) {
+                        const problem = window.editor.addShare(path)
+                        foldersRow.problem = problem
+                        foldersRow.networkPath = ""
+                        if (problem.length === 0)
+                            window.showPage(2, 3) // 网络共享, where it is now
+                    }
+
+                    title: qsTr("索引的文件夹")
+                    keywords: qsTr("文件夹;添加文件夹;工作文件夹;桌面;文档;下载;立即核对;folders").split(";")
+                    values: window.editor.folders.map(folder => folder.path)
+                    description: window.editor.foldersInEffect
+                                 ? qsTr("只有这些文件夹里的文件能搜到；也可以从资源管理器把文件夹拖到这里")
+                                 : qsTr("现在索引整个磁盘；改成“只索引选中的文件夹”后用下面这些")
+
+                    FlatButton {
+                        visible: window.editor.foldersInEffect
+                        text: qsTr("添加文件夹…")
+                        glyph: "" // Add
+                        onClicked: {
+                            const path = window.editor.pickFolder(qsTr("选择要索引的文件夹"))
+                            if (path.length > 0)
+                                foldersRow.add(path)
+                        }
+                    }
+
+                    body: [
+                        Text { // folded into a line while the disks are indexed whole
+                            visible: !window.editor.foldersInEffect
+                            width: parent.width
+                            text: window.editor.folders.length > 0
+                                  ? window.editor.folders.map(folder => folder.name).join(qsTr("、"))
+                                  : qsTr("还没有选文件夹")
+                            textFormat: Text.PlainText
+                            color: Theme.subtext
+                            font.pixelSize: Theme.fontCaption
+                            wrapMode: Text.Wrap
+                        },
+                        Text {
+                            visible: window.editor.foldersInEffect && window.editor.folders.length === 0
+                            width: parent.width
+                            text: qsTr("还没有选文件夹：本机磁盘上的文件都搜不到")
+                            color: Theme.caution
+                            font.pixelSize: Theme.fontCaption
+                            wrapMode: Text.Wrap
+                        },
+                        Row {
+                            visible: window.editor.foldersInEffect && foldersRow.problem.length > 0
+                            width: parent.width
+                            spacing: 8
+
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: Math.min(implicitWidth, parent.width - (toShares.visible ? toShares.width + 8 : 0))
+                                text: foldersRow.problem
+                                textFormat: Text.PlainText
+                                color: Theme.danger
+                                font.pixelSize: Theme.fontCaption
+                                wrapMode: Text.Wrap
+                            }
+                            FlatButton {
+                                id: toShares
+                                visible: foldersRow.networkPath.length > 0
+                                text: qsTr("加到网络共享")
+                                onClicked: foldersRow.addShare(foldersRow.networkPath)
+                            }
+                        },
+                        Column { // the known folders not chosen yet, a click away
+                            visible: window.editor.foldersInEffect && window.editor.commonFolders.length > 0
+                            width: parent.width
+                            spacing: 6
+
+                            Text {
+                                text: qsTr("常用位置，点一下添加：")
+                                color: Theme.subtext
+                                font.pixelSize: Theme.fontCaption
+                            }
+                            Flow {
+                                width: parent.width
+                                spacing: 6
+
+                                Repeater {
+                                    model: window.editor.commonFolders
+
+                                    delegate: FlatButton {
+                                        required property var modelData
+                                        glyph: "" // Add
+                                        // Redirected to a server, as companies do: 网络共享's.
+                                        text: modelData.network ? qsTr("%1（在服务器上：加到网络共享）").arg(modelData.name) : modelData.name
+                                        onClicked: modelData.network ? foldersRow.addShare(modelData.path) : foldersRow.add(modelData.path)
+                                    }
+                                }
+                            }
+                        },
+                        Column {
+                            visible: window.editor.foldersInEffect
+                            width: parent.width
+                            spacing: 8
+
+                            Repeater {
+                                // By count: a card stays as its words change, while it is walked.
+                                model: window.editor.folders.length
+
+                                delegate: ShareCard {
+                                    required property int index
+                                    width: parent.width
+                                    kind: "folder"
+                                    share: window.editor.folders[index] ?? blank // gone, before the card goes
+                                    marked: foldersRow.valueFound(share.path)
+                                    onVerifyClicked: window.editor.verifyFolder(index)
+                                    onRemoveClicked: {
+                                        foldersRow.problem = ""
+                                        window.editor.removeFolder(index)
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
+
+                SettingRow {
+                    id: folderVerifyRow
+
+                    readonly property var hours: [1, 4, 24, 0]
+
+                    shown: window.editor.foldersInEffect
+                    title: qsTr("定时核对")
+                    keywords: qsTr("核对;重新扫描;每天;每小时;定时;verify;rescan").split(";")
+                    description: qsTr("把选中的文件夹重新走一遍，补上没跟上的改动；到时间后等你离开电脑一会儿再核对")
+                    bodyShown: folderVerifyRow.hours.indexOf(window.editor.folderVerifyHours) < 0
+
+                    ScopeTabs {
+                        labels: [qsTr("每小时"), qsTr("每 4 小时"), qsTr("每天"), qsTr("只在启动时")]
+                        current: folderVerifyRow.hours.indexOf(window.editor.folderVerifyHours)
+                        onActivated: (index) => window.editor.folderVerifyHours = folderVerifyRow.hours[index]
+                    }
+
+                    body: Text { // another number, written in the file (or by AI)
+                        width: parent.width
+                        text: qsTr("现在是每 %n 小时一次", "", window.editor.folderVerifyHours)
+                        color: Theme.subtext
+                        font.pixelSize: Theme.fontCaption
+                    }
+                }
+
+                SettingRow {
                     title: qsTr("不搜索的文件夹")
                     keywords: qsTr("排除;忽略;隐藏;黑名单;exclude").split(";")
                     values: window.editor.excludedPaths
@@ -2192,6 +2397,8 @@ Window {
                     description: !window.editor.indexServiceInstallable
                                  ? (window.editor.indexServiceInstalled
                                     ? qsTr("已安装 Windows 服务“Win顺 索引服务”，它替普通权限的 Win顺 读取主文件表。这个账户不是管理员，不能卸载它")
+                                    : window.editor.foldersInEffect
+                                    ? qsTr("你在这台电脑上没有管理员权限，装不了索引服务。Win顺 会索引你选的文件夹，并定时核对。")
                                     : qsTr("你在这台电脑上没有管理员权限，装不了索引服务。Win顺 按文件夹遍历整个磁盘。"))
                                  : window.editor.indexServiceInstalled
                                  ? qsTr("已安装 Windows 服务“Win顺 索引服务”，它替普通权限的 Win顺 读取主文件表")

@@ -26,6 +26,9 @@ Rectangle {
     property string subLabel
     property string pluginLabel
     property string pluginIcon
+    // Tabs shown but not to be chosen now (their indices), greyed: the
+    // settings' choices that mean nothing at the moment.
+    property var disabled: []
 
     signal activated(int scope)
     signal pluginClicked()
@@ -68,6 +71,7 @@ Rectangle {
                 // The plugin's chip: in the first tab, while it is current.
                 readonly property bool hasPlugin: index === 0 && tabs.pluginLabel.length > 0
                 readonly property bool pluginOpen: hasPlugin && tabs.current === 0
+                readonly property bool off: tabs.disabled.length > 0 && tabs.disabled.indexOf(index) >= 0
                 // Whole pixels: a half one would leave the labels to its right blurred.
                 readonly property int labelWidth: Math.ceil(label.implicitWidth) + 24
 
@@ -86,7 +90,7 @@ Rectangle {
                     y: tabs.onPixel((tab.height - height) / 2)
                     text: tab.modelData
                     // The smaller tab (or the plugin's chip) current: this one is the way back to the whole.
-                    color: tab.active && !tab.subCurrent && !tab.pluginOpen ? Theme.text : Theme.subtext
+                    color: tab.off ? Theme.faint : tab.active && !tab.subCurrent && !tab.pluginOpen ? Theme.text : Theme.subtext
                     font.pixelSize: tabs.bodySize
                     font.weight: tab.active ? Font.DemiBold : Font.Normal
                 }
@@ -95,6 +99,7 @@ Rectangle {
                     id: area
                     width: tab.labelWidth
                     height: parent.height
+                    enabled: !tab.off
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: tabs.activated(tab.index)

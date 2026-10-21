@@ -1,6 +1,7 @@
 #include "Settings.h"
 
 #include <QCoreApplication>
+#include <QFileInfo>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -193,6 +194,85 @@ private slots:
         ws::Settings odd;
         odd.load();
         QCOMPARE(odd.sort, u"match"_s);
+    }
+
+    // GitHub #52: a new install starts with auto and the known folders; an
+    // older file, which indexed whole disks, goes on so (and says so in the
+    // file). The folders stay as written: an emptied list is not filled again.
+    void indexScope()
+    {
+        QTemporaryDir fresh;
+        QVERIFY(fresh.isValid());
+        ws::Settings::useProfile(fresh.path());
+        ws::Settings installed;
+        installed.load();
+        QCOMPARE(installed.indexScope, u"auto"_s);
+        QCOMPARE(installed.indexFolders, ws::Settings::defaultIndexFolders());
+        QCOMPARE(installed.folderVerifyHours, 24);
+        QCOMPARE(QSettings(ws::Settings::filePath(), QSettings::IniFormat).value(u"Index/Scope"_s).toString(), u"auto"_s);
+
+        QTemporaryDir old;
+        QVERIFY(old.isValid());
+        ws::Settings::useProfile(old.path());
+        {
+            QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+            ini.setValue(u"Index/RescanOnStartup"_s, true);
+        }
+        ws::Settings upgraded;
+        upgraded.load();
+        QCOMPARE(upgraded.indexScope, u"drives"_s);
+        QCOMPARE(QSettings(ws::Settings::filePath(), QSettings::IniFormat).value(u"Index/Scope"_s).toString(), u"drives"_s);
+        ws::Settings again;
+        again.load();
+        QCOMPARE(again.indexScope, u"drives"_s);
+
+        // Kept as written, nested ones and variables too; an empty list stays empty.
+        const QStringList written {u"D:\\Work"_s, u"D:\\Work\\Sub"_s, u"%USERPROFILE%\\Desktop"_s, u"E:\\"_s};
+        again.indexScope = u"folders"_s;
+        again.indexFolders = written;
+        again.folderVerifyHours = 4;
+        again.save();
+        ws::Settings back;
+        back.load();
+        QCOMPARE(back.indexScope, u"folders"_s);
+        QCOMPARE(back.indexFolders, written);
+        QCOMPARE(back.folderVerifyHours, 4);
+        back.indexFolders.clear();
+        back.save();
+        ws::Settings emptied;
+        emptied.load();
+        QVERIFY(emptied.indexFolders.isEmpty());
+
+        {
+            QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+            ini.setValue(u"Index/Scope"_s, u"Everything"_s);
+            ini.setValue(u"Index/FolderVerifyHours"_s, 1000);
+        }
+        ws::Settings odd;
+        odd.load();
+        QCOMPARE(odd.indexScope, u"auto"_s);
+        QCOMPARE(odd.folderVerifyHours, 24 * 7);
+    }
+
+    // As IndexService takes them: full, the letter upper case, "D:" for a
+    // drive; network places and what is no full path left out.
+    void indexFolderPaths()
+    {
+        ws::Settings s;
+        s.indexFolders = {u"d:\\Work\\"_s, u"E:\\"_s, u"e:"_s, u"\\\\nas\\docs"_s, u"Documents"_s, u"F:Work"_s, u"  "_s};
+        const std::vector<std::wstring> expected {L"D:\\Work", L"E:", L"E:"};
+        QCOMPARE(s.indexFolderPaths(), expected);
+        QVERIFY(ws::Settings::isNetworkPath(u"\\\\nas\\docs"_s));
+        QVERIFY(!ws::Settings::isNetworkPath(u"C:\\Windows"_s));
+
+        // None inside another, none on a network, every one there.
+        const QStringList defaults = ws::Settings::defaultIndexFolders();
+        for (const QString& f : defaults) {
+            QVERIFY2(QFileInfo(f).isDir(), qPrintable(f));
+            QVERIFY(!ws::Settings::isNetworkPath(f));
+            for (const QString& o : defaults)
+                QVERIFY2(f == o || !f.startsWith(o + u'\\', Qt::CaseInsensitive), qPrintable(f + u" in "_s + o));
+        }
     }
 };
 

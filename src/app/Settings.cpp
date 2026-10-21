@@ -13,8 +13,11 @@
 
 #include <windows.h>
 
+#include <shlobj.h>
+
 #include <algorithm>
 #include <cmath>
+#include <cwctype>
 
 using namespace Qt::StringLiterals;
 
@@ -431,6 +434,85 @@ QString Settings::sharePath(const QString& text)
     return QString::fromStdWString(unc::normalize(path));
 }
 
+bool Settings::isNetworkPath(const QString& path)
+{
+    const std::wstring p = win32::expandEnvironment(QDir::toNativeSeparators(path.trimmed()).toStdWString());
+    if (unc::isUnc(p))
+        return true;
+    if (p.size() < 2 || p[1] != L':' || !std::iswalpha(p[0]))
+        return false;
+    // The letter's type as the process's drive map has it: nothing is read.
+    const wchar_t root[] {p[0], L':', L'\\', L'\0'};
+    const UINT type = ::GetDriveTypeW(root);
+    // An elevated Win顺 does not see the user's mapped letters: as Windows remembers them.
+    return type == DRIVE_REMOTE || (type == DRIVE_NO_ROOT_DIR && !unc::fromMappedDrive(std::wstring(root, 2)).empty());
+}
+
+std::vector<Settings::KnownFolder> Settings::knownFolders()
+{
+    struct Known {
+        const KNOWNFOLDERID* id;
+        const char* name;
+    };
+    static const Known kKnown[] {
+        {&FOLDERID_Desktop, QT_TRANSLATE_NOOP("ws::Settings", "桌面")},
+        {&FOLDERID_Documents, QT_TRANSLATE_NOOP("ws::Settings", "文档")},
+        {&FOLDERID_Downloads, QT_TRANSLATE_NOOP("ws::Settings", "下载")},
+        {&FOLDERID_Pictures, QT_TRANSLATE_NOOP("ws::Settings", "图片")},
+        {&FOLDERID_Videos, QT_TRANSLATE_NOOP("ws::Settings", "视频")},
+        {&FOLDERID_Music, QT_TRANSLATE_NOOP("ws::Settings", "音乐")},
+    };
+    std::vector<KnownFolder> known;
+    const auto add = [&known](const QString& name, QString path) {
+        path = QDir::toNativeSeparators(path.trimmed());
+        while (path.size() > 3 && path.endsWith(u'\\'))
+            path.chop(1);
+        if (path.isEmpty()
+            || std::ranges::any_of(known, [&](const KnownFolder& k) { return k.path.compare(path, Qt::CaseInsensitive) == 0; }))
+            return;
+        const bool network = isNetworkPath(path);
+        if (!network) { // one on a server is not looked for (that can take long)
+            const DWORD attributes = ::GetFileAttributesW(reinterpret_cast<const wchar_t*>(path.utf16()));
+            if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY))
+                return;
+        }
+        known.push_back({name.isEmpty() ? path : name, path, network});
+    };
+    for (const Known& k : kKnown) {
+        PWSTR folder = nullptr;
+        // Not checked by Windows: that looks on the server for a folder redirected there.
+        if (SUCCEEDED(::SHGetKnownFolderPath(*k.id, KF_FLAG_DONT_VERIFY, nullptr, &folder)))
+            add(QCoreApplication::translate("ws::Settings", k.name), QString::fromWCharArray(folder));
+        ::CoTaskMemFree(folder);
+    }
+    // OneDrive's roots, personal and work, named as they are ("OneDrive - Contoso").
+    for (const wchar_t* variable : {L"OneDrive", L"OneDriveCommercial"}) {
+        wchar_t value[MAX_PATH] {};
+        if (const DWORD n = ::GetEnvironmentVariableW(variable, value, MAX_PATH); n > 0 && n < MAX_PATH) {
+            const QString path = QString::fromWCharArray(value, static_cast<qsizetype>(n));
+            add(QDir(QDir::fromNativeSeparators(path)).dirName(), path);
+        }
+    }
+    return known;
+}
+
+QStringList Settings::defaultIndexFolders()
+{
+    std::vector<KnownFolder> known = knownFolders();
+    std::erase_if(known, [](const KnownFolder& k) { return k.network; });
+    const auto inside = [](const QString& path, const QString& folder) {
+        const QString prefix = folder.endsWith(u'\\') ? folder : folder + u'\\';
+        return path.size() > folder.size() && path.startsWith(prefix, Qt::CaseInsensitive);
+    };
+    QStringList folders;
+    for (const KnownFolder& k : known) {
+        // In another one: OneDrive's root holds the desktop and documents it backs up.
+        if (std::ranges::none_of(known, [&](const KnownFolder& o) { return inside(k.path, o.path); }))
+            folders.push_back(k.path);
+    }
+    return folders;
+}
+
 QString Settings::filePath()
 {
     return QSettings(QSettings::IniFormat, QSettings::UserScope, u"WinShun"_s, u"WinShun"_s).fileName();
@@ -652,6 +734,7 @@ Settings Settings::defaults()
     Settings d;
     d.excludedPaths = kDefaultExcludedPaths;
     d.excludedNames = kDefaultExcludedNames;
+    d.indexFolders = defaultIndexFolders();
     d.contentExtensions = kDefaultContentExtensions;
     d.preferredTypes = defaultPreferredTypes();
     d.clipboard = windowsClipboardHistory(); // whoever kept Windows' clipboard history keeps ours
@@ -811,6 +894,20 @@ void Settings::load()
     if (indexAccess != u"service" && indexAccess != u"direct" && indexAccess != u"walk")
         indexAccess = d.indexAccess;
     indexFolder = readOrDefault(s, u"Index/Folder"_s, d.indexFolder).trimmed();
+    // GitHub #52. Whole disks were all there was: an older file without the
+    // key goes on so (written, so that it stays so), a new install starts
+    // with auto.
+    if (!s.contains(u"Index/Scope"_s)) {
+        indexScope = firstRun ? d.indexScope : u"drives"_s;
+        s.setValue(u"Index/Scope"_s, indexScope);
+    } else {
+        indexScope = s.value(u"Index/Scope"_s).toString().trimmed().toLower();
+        if (indexScope != u"drives" && indexScope != u"folders")
+            indexScope = d.indexScope;
+    }
+    // As written, nested ones too: an empty list stays empty (no defaults put back).
+    indexFolders = readOrDefault(s, u"Index/Folders"_s, d.indexFolders);
+    folderVerifyHours = std::clamp(readOrDefault(s, u"Index/FolderVerifyHours"_s, d.folderVerifyHours), 0, 24 * 7);
 
     contentSearch = readOrDefault(s, u"Content/Enabled"_s, d.contentSearch);
     contentExtensions = readOrDefault(s, u"Content/Extensions"_s, d.contentExtensions);
@@ -991,6 +1088,9 @@ void Settings::save() const
     s.setValue(u"Index/IncludeRemovableDrives"_s, includeRemovableDrives);
     s.setValue(u"Index/RescanOnStartup"_s, rescanOnStartup);
     s.setValue(u"Index/Access"_s, indexAccess);
+    s.setValue(u"Index/Scope"_s, indexScope);
+    s.setValue(u"Index/Folders"_s, indexFolders);
+    s.setValue(u"Index/FolderVerifyHours"_s, folderVerifyHours);
     s.setValue(u"Index/Folder"_s, indexFolder);
     s.setValue(u"Content/Enabled"_s, contentSearch);
     s.setValue(u"Content/Extensions"_s, contentExtensions);
@@ -1085,6 +1185,28 @@ CrawlRules Settings::crawlRules() const
     for (const QString& n : kLowPriorityNames)
         rules.lowPriorityNames.push_back(normalizeName(n));
     return rules;
+}
+
+std::wstring Settings::indexFolderPath(const QString& folder)
+{
+    if (folder.trimmed().isEmpty() || isNetworkPath(folder))
+        return {}; // a share's place is 网络共享 (ShareIndexer), and its folders are not looked up here
+    std::wstring path = win32::expandEnvironment(QDir::toNativeSeparators(folder.trimmed()).toStdWString());
+    if (path.size() < 2 || path[1] != L':' || !std::iswalpha(path[0]) || (path.size() > 2 && path[2] != L'\\'))
+        return {}; // no full path
+    path = path.find_first_not_of(L'\\', 2) == std::wstring::npos ? path.substr(0, 2) : normalizePath(folder); // "D:\" -> "D:"
+    path[0] = static_cast<wchar_t>(std::towupper(path[0]));
+    return path;
+}
+
+std::vector<std::wstring> Settings::indexFolderPaths() const
+{
+    std::vector<std::wstring> paths;
+    for (const QString& folder : indexFolders) {
+        if (std::wstring path = indexFolderPath(folder); !path.empty())
+            paths.push_back(std::move(path));
+    }
+    return paths;
 }
 
 ShareIndexer::Options Settings::shareOptions() const

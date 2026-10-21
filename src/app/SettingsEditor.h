@@ -1,5 +1,6 @@
 #pragma once
 
+#include "IndexService.h"
 #include "Settings.h"
 #include "Unc.h"
 
@@ -122,6 +123,21 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString indexServiceState READ indexServiceState NOTIFY indexAccessStateChanged FINAL)
     Q_PROPERTY(bool indexServiceInstallable READ indexServiceInstallable NOTIFY indexAccessStateChanged FINAL)
     Q_PROPERTY(QString indexServiceMessage READ indexServiceMessage NOTIFY indexAccessStateChanged FINAL)
+    // 索引哪些地方 (Settings::indexScope, GitHub #52): auto | drives | folders,
+    // and, as the app has it (setIndexAccessState): only the chosen folders
+    // are indexed now, they could be (not while the disks are read whole, by
+    // the index service or 管理员直读), and what that comes to, said.
+    Q_PROPERTY(QString indexScope READ indexScope WRITE setIndexScope NOTIFY changed FINAL)
+    Q_PROPERTY(bool foldersInEffect READ foldersInEffect NOTIFY indexAccessStateChanged FINAL)
+    Q_PROPERTY(bool foldersPossible READ foldersPossible NOTIFY indexAccessStateChanged FINAL)
+    Q_PROPERTY(QString indexScopeStatus READ indexScopeStatus NOTIFY indexAccessStateChanged FINAL)
+    // The chosen folders, each as a ShareCard shows it: {path, name, tone (ok
+    // | busy | idle | warn | error), status, busy, verifiable, network,
+    // signIn, suspect}, as the app reports them (setFolderStatuses). The
+    // known folders not chosen yet: [{name, path, network}].
+    Q_PROPERTY(QVariantList folders READ folders NOTIFY foldersChanged FINAL)
+    Q_PROPERTY(QVariantList commonFolders READ commonFolders NOTIFY foldersChanged FINAL)
+    Q_PROPERTY(int folderVerifyHours READ folderVerifyHours WRITE setFolderVerifyHours NOTIFY changed FINAL)
     Q_PROPERTY(QStringList excludedPaths READ excludedPaths NOTIFY changed FINAL) // expanded, for display
     Q_PROPERTY(QStringList excludedNames READ excludedNames NOTIFY changed FINAL)
     Q_PROPERTY(QStringList excludedTypes READ excludedTypes NOTIFY changed FINAL)
@@ -387,6 +403,9 @@ public:
         bool serviceInstallable = false; // the account can install it (an administrator's); else it is not offered (GitHub #52)
         bool serviceBusy = false; // --install / --uninstall running
         QString serviceMessage; // how the last install or uninstall went
+        bool foldersInEffect = false; // only the chosen folders are indexed (App::foldersInEffect)
+        bool foldersPossible = true; // the disks are walked: choosing folders takes effect
+        QString scopeStatus; // what is indexed now, said for the user
         bool operator==(const IndexAccessState&) const = default;
     };
     void setIndexAccessState(const IndexAccessState& state); // set by the app
@@ -406,6 +425,28 @@ public:
     Q_INVOKABLE void restartAsAdministrator() { emit elevatedRestartRequested(); }
     Q_INVOKABLE void installIndexService() { emit indexServiceInstallRequested(true); }
     Q_INVOKABLE void uninstallIndexService() { emit indexServiceInstallRequested(false); }
+    QString indexScope() const { return m_settings.indexScope; }
+    void setIndexScope(const QString& scope); // "auto", "drives", "folders"
+    bool foldersInEffect() const { return m_indexAccessState.foldersInEffect; }
+    bool foldersPossible() const { return m_indexAccessState.foldersPossible; }
+    QString indexScopeStatus() const { return m_indexAccessState.scopeStatus; }
+    int folderVerifyHours() const { return m_settings.folderVerifyHours; }
+    void setFolderVerifyHours(int hours); // 0: only at startup
+    QVariantList folders() const;
+    QVariantList commonFolders() const;
+    void setFolderStatuses(std::vector<IndexService::FolderStatus> statuses); // set by the app
+    // The language changed: the folders (Windows' own names, their states) in the new one.
+    void retranslateFolders();
+    // Adds a folder to index: a path, or a file:/// URL (dropped). Returns
+    // why it cannot be ("已经包含在 C:\a 里", a network place: 网络共享's),
+    // or an empty string once it is. One that holds folders added takes
+    // their place; a drive's root is that whole drive.
+    Q_INVOKABLE QString addFolder(const QString& text);
+    Q_INVOKABLE void removeFolder(int index);
+    Q_INVOKABLE void verifyFolder(int index); // walked again now
+    Q_INVOKABLE bool isNetworkFolder(const QString& text) const; // a share's place (path or file:// URL)
+    Q_INVOKABLE QString localPath(const QString& text) const; // a path or a file:/// URL, with native separators
+    Q_INVOKABLE QString pickFolder(const QString& title); // asks for one; empty when none was chosen
     QStringList excludedPaths() const;
     QStringList excludedNames() const { return m_settings.excludedNames; }
     QStringList excludedTypes() const { return m_settings.excludedTypes; }
@@ -728,6 +769,8 @@ signals:
     void serverSharesListed(const QString& server, const QStringList& shares, const QString& problem, bool signIn);
     void shareVerifyRequested(const QString& path);
     void shareAcceptRequested(const QString& path);
+    void foldersChanged();
+    void folderVerifyRequested(const QString& path); // as IndexService has it (FolderStatus::path)
     void signInRequested(const QString& path); // a share, or "\\host"
     void signedIn(const QString& path, const QString& problem); // empty problem: connected
     void mcpStatusChanged();
@@ -742,6 +785,10 @@ private:
     friend class FavoritesSettings; // reads the web shortcuts' keywords and the window
     void commit();
     void setCaptureMouse(QString& field, const QString& action, bool allowBack);
+    void noteFoldersEdited(); // foldersChanged() when the chosen folders (or the shares) are others now
+    // m_settings.indexFolders as IndexService has them (Settings::indexFolderPath),
+    // worked out when they change, not each time the cards are: no disk is read for those.
+    const std::vector<std::wstring>& folderKeys() const;
     QVariantMap keepSvgIcon(QByteArrayView svg); // pickWebIcon's and webIconFromSvg's answer for SVG code
     void setIndexFolder(const QString& folder);
     void setMcpMessage(const QString& message);
@@ -782,6 +829,12 @@ private:
     bool m_diagnosticsBusy = false;
     std::vector<ShareIndexer::Status> m_shareStatuses;
     std::vector<unc::Known> m_knownShares; // read once, with the window
+    std::vector<IndexService::FolderStatus> m_folderStatuses;
+    std::vector<Settings::KnownFolder> m_knownFolders; // read once, with the window
+    QStringList m_foldersAnnounced; // as foldersChanged() last had them
+    QList<NetworkShare> m_sharesAnnounced;
+    mutable QStringList m_folderKeysOf; // folderKeys(): of these
+    mutable std::vector<std::wstring> m_folderKeys;
     SystemCatalog* m_places = nullptr; // the app's; outlives the window
     std::unique_ptr<ShortcutCapture> m_capture; // while recording a hotkey
     struct TaskbarWatch; // the taskbar's pinned programs and Windows' search box setting

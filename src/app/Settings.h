@@ -222,6 +222,23 @@ struct Settings {
     // administrator's account; service and walk never read the volumes
     // themselves, and the task runs with the user's normal rights.
     QString indexAccess = QStringLiteral("auto");
+    // auto | drives | folders: how much of the disks the index holds
+    // (GitHub #52; App::foldersInEffect). drives: every fixed disk, whole.
+    // folders: only indexFolders, while the disks are walked (with the index
+    // service or 管理员直读 they are read whole all the same). auto: folders
+    // when indexAccess is walk, or when Win顺 runs without administrator
+    // rights and the service is not installed or is disabled; else drives.
+    // An older file without the key indexed whole disks, and keeps doing so.
+    QString indexScope = QStringLiteral("auto");
+    // The folders indexed when that is folders, as written (%VARS% kept);
+    // "D:\" stands for that whole drive. Kept as the user left it, nested
+    // ones too (IndexService takes the outer one). defaults(): the user's
+    // known folders (defaultIndexFolders).
+    QStringList indexFolders;
+    // Hours between two walks of each of indexFolders (IndexService's
+    // folderVerifyEvery, at least 60 times as long as the last one took); 0:
+    // only when Win顺 starts.
+    int folderVerifyHours = 24;
     // Where the index files (index.bin, content\) are kept, '/' separated;
     // %VARS% are expanded. Empty: dataDir(), the default.
     QString indexFolder;
@@ -364,6 +381,26 @@ struct Settings {
     ShareIndexer::Options shareOptions() const;
     ContentSizeLimits contentSizeLimits() const;
     QString indexDir() const; // indexFolder expanded, with native separators; dataDir() when it is empty
+    // indexFolders as IndexService takes them (Options::folders): expanded,
+    // full, the drive letter upper case, "D:" for a whole drive. Network
+    // places (a share, a mapped drive) are left out: those are 网络共享's.
+    std::vector<std::wstring> indexFolderPaths() const;
+    static std::wstring indexFolderPath(const QString& folder); // one of them; empty when it is left out
+    // The folders a new list starts with (GitHub #52): the user's desktop,
+    // documents, downloads, pictures, videos and music, and OneDrive's root;
+    // none inside another (OneDrive's root holds a desktop it backs up),
+    // none that is not there, none on a network.
+    static QStringList defaultIndexFolders();
+    // ... the same known folders by name (桌面, 文档 …), on a network too,
+    // for the settings to offer: {name, path, network}.
+    struct KnownFolder {
+        QString name; // translated
+        QString path; // native separators
+        bool network = false; // a share or a mapped drive: 网络共享's
+    };
+    static std::vector<KnownFolder> knownFolders();
+    // A share's place, not one of this PC's disks: "\\host\..." or on a mapped drive.
+    static bool isNetworkPath(const QString& path);
 
     static QString filePath();
     static QString storedRenderer(); // just [Launcher] Renderer; works before QGuiApplication exists

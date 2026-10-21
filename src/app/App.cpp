@@ -166,7 +166,8 @@ enum TrayCommand {
     KeepAwakeCommand // 保持唤醒（到 16:42）: only while it is on; ends it
 };
 
-IndexService::Options indexOptions(const Settings& settings)
+// `folders`: only the chosen ones are indexed (App::foldersInEffect, GitHub #52).
+IndexService::Options indexOptions(const Settings& settings, bool folders)
 {
     IndexService::Options options;
     options.rules = settings.crawlRules();
@@ -178,6 +179,9 @@ IndexService::Options indexOptions(const Settings& settings)
     options.content.includeLowPriority = settings.contentInLowPriority;
     options.content.documents = settings.contentDocuments;
     options.shares = settings.shareOptions();
+    if (folders)
+        options.folders = settings.indexFolderPaths();
+    options.folderVerifyEvery = std::chrono::hours(settings.folderVerifyHours);
     return options;
 }
 
@@ -329,7 +333,13 @@ App::App()
     connect(&m_settingsReload, &QTimer::timeout, this, &App::reloadSettings);
     m_indexOptionsApply.setSingleShot(true);
     m_indexOptionsApply.setInterval(1s);
-    connect(&m_indexOptionsApply, &QTimer::timeout, this, [this] { m_index->setOptions(indexOptions(m_settings)); });
+    connect(&m_indexOptionsApply, &QTimer::timeout, this, [this] {
+        // 索引哪些地方 and the folders are settings too: no telling the user what they chose.
+        m_foldersInEffect = foldersInEffect(m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None);
+        m_index->setOptions(indexOptions(m_settings, m_foldersInEffect));
+        refreshIndexAccess();
+        refreshFolderStatuses();
+    });
     m_revealTimeout.setSingleShot(true);
     // Never waited for longer: the first frame is up by then, and fresh rows
     // coming in a moment later (while it slides in) beat a launcher that comes late.
@@ -357,6 +367,7 @@ App::App()
     m_contentStatusTimer.setInterval(2s);
     connect(&m_contentStatusTimer, &QTimer::timeout, this, &App::refreshContentIndexStatus);
     connect(&m_contentStatusTimer, &QTimer::timeout, this, &App::refreshShareStatuses); // counts while reading
+    connect(&m_contentStatusTimer, &QTimer::timeout, this, &App::refreshFolderStatuses); // "10 分钟前" moves on
     m_serviceRetry.setSingleShot(true); // serviceProbed() starts the next
     connect(&m_serviceRetry, &QTimer::timeout, this, &App::probeService);
 }
@@ -436,12 +447,14 @@ bool App::start(const StartOptions& options)
     });
     // Sites' icons: fetched when a row of theirs is first shown, not before.
     siteicons::setFolder(dataDir + u"\\icons\\web"_s);
-    IndexService::Options indexStart = indexOptions(m_settings);
+    IndexService::Options indexStart;
     {
         AccessChoice choice = chooseVolumeAccess(m_settings.indexAccess);
         m_serviceWanted = choice.wantsService;
         m_serviceWhy = choice.why;
         m_serviceState = choice.state;
+        m_foldersInEffect = foldersInEffect(choice.access->kind() == ntfs::VolumeAccess::Kind::None);
+        indexStart = indexOptions(m_settings, m_foldersInEffect);
         // On its way, maybe; not when it is not installed or switched off.
         if (m_serviceWanted && choice.access->kind() == ntfs::VolumeAccess::Kind::None && !serviceLongAbsent(choice.state))
             indexStart.accessWaitMs = static_cast<int>(std::chrono::milliseconds(kServiceWait).count());
@@ -456,6 +469,7 @@ bool App::start(const StartOptions& options)
     // Files still in the default place go where the settings say, once read.
     connect(m_index.get(), &IndexService::stateChanged, this, &App::applyIndexFolder);
     connect(m_index.get(), &IndexService::sharesChanged, this, &App::refreshShareStatuses);
+    connect(m_index.get(), &IndexService::foldersChanged, this, &App::refreshFolderStatuses);
     // Shares that could not be reached are tried again when the network changes.
     m_network = std::make_unique<NetworkNotifier>([index = m_index.get()] { index->shares().networkChanged(); });
     m_idleTrim = std::make_unique<IdleTrim>([this]() -> const char* {
@@ -766,11 +780,13 @@ bool App::start(const StartOptions& options)
         // settings offer the index service and running as administrator.
         const bool walking = !Settings::portableFolder().isEmpty()
             && m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None;
-        // An account that cannot install the service (GitHub #52) is not told to.
+        // An account that cannot install the service (GitHub #52) is not told
+        // to; with no service, the known folders are indexed, not the disks.
         const bool cannotInstall = m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None
             && m_serviceState == ntfs::ServiceState::NotInstalled && !userIsAdministrator();
         m_messages->showNotification(tr("Win顺已在后台运行"),
-            cannotInstall ? tr("双击 Ctrl 打开搜索。Win顺 按文件夹遍历建立索引，首次运行需要一点时间。")
+            m_foldersInEffect ? tr("双击 Ctrl 打开搜索。Win顺 先索引你常用的文件夹（桌面、文档、下载等），可以在设置里增减。")
+                : cannotInstall ? tr("双击 Ctrl 打开搜索。Win顺 按文件夹遍历建立索引，首次运行需要一点时间。")
                 : walking ? tr("双击 Ctrl 打开搜索。便携版按文件夹遍历建立索引；要快一些，可以在设置里安装索引服务，或以管理员身份运行。")
                           : tr("双击 Ctrl 打开搜索。首次运行需要一点时间建立文件索引。"));
     } else if (clipboardIsNew) {
@@ -1205,8 +1221,11 @@ void App::applyAppearance()
     m_launcher->retranslate();
     updateSearchBoxLook();
     m_clipboard->retranslate();
-    if (m_settingsEditor)
+    if (m_settingsEditor) {
         m_settingsEditor->plugins()->setLocale(language); // the cards' names and texts
+        m_settingsEditor->retranslateFolders(); // GitHub #52: the indexed folders' cards
+        refreshIndexAccess(); // and the line saying what is indexed now
+    }
     m_messages->setTrayTooltip(trayTooltip());
     applyHotkey(); // its error message
     applyFolderMenuHotkey();
@@ -2196,6 +2215,8 @@ void App::showSettings()
             [this](const QString& path) { m_index->shares().verifyNow(path.toStdWString()); });
         connect(editor, &SettingsEditor::shareAcceptRequested, this,
             [this](const QString& path) { m_index->shares().acceptMissing(path.toStdWString()); });
+        connect(editor, &SettingsEditor::folderVerifyRequested, this,
+            [this](const QString& path) { m_index->verifyFolder(path.toStdWString()); });
         connect(editor, &SettingsEditor::signInRequested, this, [this](const QString& path) { signInToServer(path); });
         connect(editor, &SettingsEditor::elevatedRestartRequested, this,
             [this] { restart({u"--settings"_s, u"--settings-at"_s, u"indexAccess"_s}, Elevation::Elevated); });
@@ -2221,6 +2242,30 @@ void App::showSettings()
             const auto access = m_index->volumeAccessKind();
             context[u"index_access"_s] = access == ntfs::VolumeAccess::Kind::Direct ? u"direct"_s
                 : access == ntfs::VolumeAccess::Kind::Service ? u"service"_s : u"directory-walk"_s;
+            // 索引哪些地方 (GitHub #52): in effect, as set, and each chosen folder's
+            // last walk (no paths: they name the user).
+            context[u"index_scope"_s] = m_foldersInEffect ? u"folders"_s : u"whole-disks"_s;
+            context[u"index_scope_setting"_s] = m_settings.indexScope;
+            context[u"folder_verify_hours"_s] = m_settings.folderVerifyHours;
+            context[u"chosen_folder_count"_s] = static_cast<int>(m_settings.indexFolders.size());
+            QJsonArray chosen;
+            for (const IndexService::FolderStatus& f : m_index->folderStatuses()) {
+                using FolderState = IndexService::FolderStatus::State;
+                static constexpr std::pair<FolderState, const char*> kStates[] {{FolderState::Waiting, "waiting"},
+                    {FolderState::Verifying, "verifying"}, {FolderState::Ready, "ready"}, {FolderState::NotFound, "not-found"},
+                    {FolderState::Unreadable, "unreadable"}, {FolderState::Excluded, "excluded"},
+                    {FolderState::Offline, "offline"}, {FolderState::WholeDrive, "whole-drive"}};
+                const auto state = std::ranges::find(kStates, f.state, &std::pair<FolderState, const char*>::first);
+                chosen.append(QJsonObject {
+                    {u"state"_s, QString::fromLatin1(state != std::end(kStates) ? state->second : "?")},
+                    {u"items"_s, static_cast<qint64>(f.items)},
+                    {u"failed"_s, static_cast<qint64>(f.failed)},
+                    {u"last_verified"_s, f.lastVerified ? QDateTime::fromSecsSinceEpoch(f.lastVerified).toString(Qt::ISODate) : QString()},
+                    {u"took_ms"_s, static_cast<qint64>(f.took.count())},
+                    {u"watching"_s, f.watching},
+                });
+            }
+            context[u"chosen_folders"_s] = chosen;
             const QString dataFolder = Settings::dataDir();
             const QString serviceFolder = QDir(QString::fromStdWString(win32::expandEnvironment(L"%ProgramData%")))
                                               .filePath(u"WinShun"_s);
@@ -2296,6 +2341,7 @@ void App::showSettings()
     }
     refreshContentIndexStatus();
     refreshShareStatuses();
+    refreshFolderStatuses();
     refreshIndexFolder(true);
     m_settingsEditor->setHistoryCount(static_cast<int>(m_history->items().size()));
     m_settingsEditor->setClipboardCount(static_cast<int>(m_clipStore->clips().size()));
@@ -3635,11 +3681,13 @@ void App::showTrayMenu()
         const auto at = std::ranges::find_if(items, [](const shell::MenuItem& i) { return i.id == IndexInfo; });
         QString text = tr("索引服务未连接，正在遍历文件夹");
         if (m_serviceState == ntfs::ServiceState::NotInstalled)
-            text = tr("没有索引服务，正在遍历文件夹");
+            text = m_foldersInEffect ? tr("没有索引服务，只索引选中的文件夹") : tr("没有索引服务，正在遍历文件夹");
         else if (m_serviceState == ntfs::ServiceState::Disabled)
-            text = tr("索引服务已停用，正在遍历文件夹");
+            text = m_foldersInEffect ? tr("索引服务已停用，只索引选中的文件夹") : tr("索引服务已停用，正在遍历文件夹");
         else if (m_serviceState == ntfs::ServiceState::Starting)
             text = tr("正在等索引服务启动…");
+        else if (m_foldersInEffect)
+            text = tr("索引服务未连接，只索引选中的文件夹");
         items.insert(at + 1, {AccessInfo, text, false, false});
     }
     // Under the clipboard's, with the key that does it too. With the capture
@@ -3834,7 +3882,7 @@ void App::applyIndexAccess()
         else
             m_serviceRetry.start(kServiceRecheck);
     }
-    refreshIndexAccess();
+    applyIndexScope(false); // the user's own choice: the settings say what came of it
 }
 
 void App::startServiceRetry()
@@ -3880,25 +3928,70 @@ void App::serviceProbed(std::shared_ptr<ntfs::ServiceVolumeAccess> service, bool
         m_serviceWhy.clear();
     } else {
         m_serviceWhy = serviceAbsent(state) ? kServiceNotRunning : QString::fromStdWString(service->lastError());
+        // Uninstalled or disabled while in use (GitHub #52): given up, so
+        // that the chosen folders take over where they would. With whole
+        // disks the failing service stays, as before: those are walked.
+        if (serviceLongAbsent(state) && m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::Service
+            && foldersInEffect(true)) {
+            qWarning("WinShun: the index service is gone (%s): only the chosen folders from now on",
+                ntfs::ServiceVolumeAccess::stateName(state));
+            m_index->setVolumeAccess(std::make_shared<ntfs::NoVolumeAccess>());
+        }
     }
     const bool none = m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None;
     const bool soon = none && !serviceLongAbsent(state) && m_serviceRetrySince.isValid()
         && m_serviceRetrySince.elapsed() < std::chrono::milliseconds(kServiceWait).count();
     m_serviceRetry.start(soon ? kServiceRetry : kServiceRecheck);
+    applyIndexScope(true);
+}
+
+bool App::foldersInEffect(bool walked) const
+{
+    // Read whole by the service or as administrator: the chosen folders
+    // come in there with step 6 of GitHub #52, not yet.
+    if (!walked || m_settings.indexScope == u"drives")
+        return false;
+    if (m_settings.indexScope == u"folders")
+        return true;
+    // auto: walked for good, not just while the service is away for a moment.
+    return m_settings.indexAccess == u"walk"
+        || (!integrity::processElevated() && m_serviceWanted && serviceLongAbsent(m_serviceState));
+}
+
+void App::applyIndexScope(bool told)
+{
+    const bool folders = foldersInEffect(m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None);
+    if (folders != m_foldersInEffect && told)
+        m_messages->showNotification(tr("索引范围"), folders ? tr("索引服务不可用：改为只索引选中的文件夹（可在设置里改）")
+                                                              : tr("索引服务可用了：改为索引整个磁盘"));
+    m_foldersInEffect = folders;
+    m_index->setScope(folders ? std::optional(m_settings.indexFolderPaths()) : std::nullopt);
     refreshIndexAccess();
+    refreshFolderStatuses();
+}
+
+void App::refreshFolderStatuses()
+{
+    if (m_settingsEditor)
+        m_settingsEditor->setFolderStatuses(m_index->folderStatuses());
 }
 
 QString App::serviceProblem() const
 {
+    // What is indexed meanwhile (GitHub #52): the chosen folders, or every disk, walked.
+    const bool folders = m_foldersInEffect;
     switch (m_serviceState) {
     case ntfs::ServiceState::NotInstalled:
         // An account that cannot install it is not told to (GitHub #52).
-        return userIsAdministrator() ? tr("没有安装索引服务，现在按文件夹遍历整个磁盘。装上服务可以更快。")
-                                     : tr("你在这台电脑上没有管理员权限，装不了索引服务。现在按文件夹遍历整个磁盘。");
+        if (!userIsAdministrator())
+            return folders ? tr("你在这台电脑上没有管理员权限，装不了索引服务。Win顺 会索引你选的文件夹，并定时核对。")
+                           : tr("你在这台电脑上没有管理员权限，装不了索引服务。现在按文件夹遍历整个磁盘。");
+        return folders ? tr("没有安装索引服务，现在只索引你选的文件夹。装上服务可以索引整个磁盘，更快。")
+                       : tr("没有安装索引服务，现在按文件夹遍历整个磁盘。装上服务可以更快。");
     case ntfs::ServiceState::Disabled:
-        return tr("索引服务被停用了，现在按文件夹遍历整个磁盘。");
+        return folders ? tr("索引服务被停用了，现在只索引你选的文件夹。") : tr("索引服务被停用了，现在按文件夹遍历整个磁盘。");
     case ntfs::ServiceState::Stopped:
-        return tr("索引服务没有运行，现在按文件夹遍历整个磁盘。");
+        return folders ? tr("索引服务没有运行，现在只索引你选的文件夹。") : tr("索引服务没有运行，现在按文件夹遍历整个磁盘。");
     case ntfs::ServiceState::Starting:
         return tr("正在等索引服务启动…");
     case ntfs::ServiceState::Unknown:
@@ -3908,8 +4001,9 @@ QString App::serviceProblem() const
     if (m_serviceWhy.contains(u"another version") || m_serviceWhy.contains(u"run the installer again"))
         return tr("索引服务的版本和 Win顺 不配，请重新运行安装程序");
     if (m_serviceWhy.contains(u"not running"))
-        return tr("索引服务没有运行，现在按文件夹遍历整个磁盘。");
-    return tr("索引服务在运行，但连不上（%1），现在按文件夹遍历。").arg(m_serviceWhy);
+        return folders ? tr("索引服务没有运行，现在只索引你选的文件夹。") : tr("索引服务没有运行，现在按文件夹遍历整个磁盘。");
+    return folders ? tr("索引服务在运行，但连不上（%1），现在只索引你选的文件夹。").arg(m_serviceWhy)
+                   : tr("索引服务在运行，但连不上（%1），现在按文件夹遍历。").arg(m_serviceWhy);
 }
 
 void App::refreshIndexAccess()
@@ -3942,9 +4036,17 @@ void App::refreshIndexAccess()
     case ntfs::VolumeAccess::Kind::None:
         state.effective = u"walk"_s;
         state.status = m_serviceWanted ? tr("现在：%1").arg(serviceProblem())
+            : m_foldersInEffect        ? tr("现在：按文件夹遍历，只索引你选的文件夹")
                                        : tr("现在：按文件夹遍历，不读取主文件表");
         break;
     }
+    // 索引哪些地方 (GitHub #52): with the disks read whole, the chosen folders cannot be.
+    state.foldersInEffect = m_foldersInEffect;
+    state.foldersPossible = kind == ntfs::VolumeAccess::Kind::None;
+    state.scopeStatus = m_foldersInEffect                ? tr("现在：只索引选中的文件夹")
+        : kind == ntfs::VolumeAccess::Kind::Service      ? tr("现在：索引整个磁盘。使用索引服务时总是索引整个磁盘")
+        : kind == ntfs::VolumeAccess::Kind::Direct       ? tr("现在：索引整个磁盘。管理员直读时总是索引整个磁盘")
+                                                         : tr("现在：索引整个磁盘");
     QStringList notes;
     if (m_settings.indexAccess == u"direct" && !state.elevated) {
         notes << (state.administrator ? tr("“管理员直读”要以管理员身份运行；这次是以普通权限启动的，点“以管理员身份重新启动”。")
@@ -3991,8 +4093,10 @@ void App::installIndexService(bool install)
                         probeService(); // taken into use as soon as it answers
                     } else {
                         m_serviceMessage = tr("索引服务已卸载。");
+                        m_serviceState = ntfs::ServiceVolumeAccess::state();
                         if (m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::Service)
                             m_index->setVolumeAccess(std::make_shared<ntfs::NoVolumeAccess>()); // walked and watched from here on
+                        applyIndexScope(true); // the chosen folders, where they would be without it
                     }
                     refreshIndexAccess();
                 },
