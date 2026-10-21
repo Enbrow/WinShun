@@ -857,6 +857,9 @@ void Settings::load()
     if (clipboardMaxItems != 0) // 0 = no limit (GitHub #32)
         clipboardMaxItems = std::clamp(clipboardMaxItems, 10, 100000);
     clipboardMaxDays = std::clamp(readOrDefault(s, u"Clipboard/MaxDays"_s, d.clipboardMaxDays), 0, 3650);
+    clipboardMissingFiles = readOrDefault(s, u"Clipboard/MissingFiles"_s, d.clipboardMissingFiles).trimmed().toLower();
+    if (clipboardMissingFiles != u"hide" && clipboardMissingFiles != u"clean")
+        clipboardMissingFiles = d.clipboardMissingFiles;
     clipboardImages = readOrDefault(s, u"Clipboard/Images"_s, d.clipboardImages);
     clipboardClickToPaste = readOrDefault(s, u"Clipboard/ClickToPaste"_s, d.clipboardClickToPaste);
     clipboardLargePictures = readOrDefault(s, u"Clipboard/LargePictures"_s, d.clipboardLargePictures);
@@ -997,6 +1000,7 @@ void Settings::save() const
     s.setValue(u"Clipboard/Hotkey"_s, clipboardHotkey);
     s.setValue(u"Clipboard/MaxItems"_s, clipboardMaxItems);
     s.setValue(u"Clipboard/MaxDays"_s, clipboardMaxDays);
+    s.setValue(u"Clipboard/MissingFiles"_s, clipboardMissingFiles);
     s.setValue(u"Clipboard/Images"_s, clipboardImages);
     s.setValue(u"Clipboard/ClickToPaste"_s, clipboardClickToPaste);
     s.setValue(u"Clipboard/LargePictures"_s, clipboardLargePictures);

@@ -3466,6 +3466,20 @@ Window {
                 }
 
                 SettingRow {
+                    // Copied files deleted or moved since (GitHub #54); "固定"
+                    // and groups are left alone.
+                    title: qsTr("已不存在的文件记录")
+                    keywords: qsTr("删除;移走;失效;找不到;missing").split(";")
+                    description: qsTr("隐藏：仍占条数上限，搜索还能找到，改回后会再出现；清理：直接删掉，不占条数")
+
+                    ScopeTabs {
+                        labels: [qsTr("不处理"), qsTr("自动隐藏"), qsTr("自动清理")]
+                        current: Math.max(0, ["keep", "hide", "clean"].indexOf(window.editor.clipboardMissingFiles))
+                        onActivated: (index) => window.editor.clipboardMissingFiles = ["keep", "hide", "clean"][index]
+                    }
+                }
+
+                SettingRow {
                     title: qsTr("清除剪贴板历史")
                     keywords: qsTr("删除;清空").split(";")
                     description: window.editor.clipboardCount > 0

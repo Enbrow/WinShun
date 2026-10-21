@@ -253,6 +253,9 @@ struct Settings {
     QString clipboardHotkey; // another shortcut for it; empty = none
     int clipboardMaxItems = 300; // entries kept outside groups, 0 = no limit
     int clipboardMaxDays = 30; // since last copied or pasted; 0 = no limit
+    // keep | hide | clean: entries of copied files deleted or moved since,
+    // left as they are, hidden from the list, or cleaned out (MissingFiles, GitHub #54)
+    QString clipboardMissingFiles = QStringLiteral("keep");
     bool clipboardImages = true;
     QStringList clipboardExcludedApps; // program files whose copies are not kept, "KeePass.exe"
     QString clipboardNumberKeys = QStringLiteral("alt"); // alt | ctrl | off: Alt+1…9 pastes the nth row

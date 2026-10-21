@@ -23,6 +23,7 @@ qt_add_library(wscore STATIC
     IndexFolder.cpp IndexFolder.h
     IndexService.cpp IndexService.h
     MenuHotkey.h
+    MissingFiles.cpp MissingFiles.h
     NameSearch.cpp NameSearch.h
     Ntfs.cpp Ntfs.h
     NtfsBulk.cpp NtfsBulk.h

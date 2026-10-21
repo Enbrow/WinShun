@@ -1124,6 +1124,19 @@ void ClipStore::setValue(const QString& key, const QString& value)
     });
 }
 
+bool ClipStore::hidden(const Clip& clip) const
+{
+    const auto it = m_hidden.constFind(clip.id);
+    return it != m_hidden.cend() && *it == clip.used && clip.group == 0;
+}
+
+int ClipStore::hiddenCount() const
+{
+    if (m_hidden.isEmpty())
+        return 0;
+    return static_cast<int>(std::ranges::count_if(m_clips, [this](const Clip& c) { return hidden(c); }));
+}
+
 std::vector<int> ClipStore::find(const ClipFilter& filter) const
 {
     using Category = ClipFilter::Category;
@@ -1138,6 +1151,8 @@ std::vector<int> ClipStore::find(const ClipFilter& filter) const
                 rows.push_back(static_cast<int>(i));
             continue;
         }
+        if (matcher.empty() && hidden(c))
+            continue; // only a search finds it
         switch (filter.category) {
         case Category::All:
             break;

@@ -9,6 +9,7 @@
 #include "Documents.h"
 #include "DoubleClickDetector.h"
 #include "MenuHotkey.h"
+#include "MissingFiles.h"
 #include "DoubleTapDetector.h"
 #include "Extract.h"
 #include "GameGuard.h"
@@ -45,6 +46,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -8056,6 +8058,206 @@ private slots:
         QCOMPARE(highlight(u"a<b>\n图片"_s, {{5, 2}}, u"#0067c0"_s),
             u"a&lt;b&gt;<br><font color=\"#0067c0\">图片</font>"_s);
         QCOMPARE(highlight(u"x"_s, {{3, 1}}, u"red"_s), u"x"_s); // past the end: ignored
+    }
+
+    // Clipboard entries of copied files that are gone (MissingFiles, GitHub
+    // #54): what counts as gone, on a made-up disk, then on Windows' own.
+    void missingFilesJudge()
+    {
+        struct Disk {
+            std::unordered_map<wchar_t, std::uint32_t> drives; // GetDriveTypeW by letter; others: no such drive
+            QHash<QString, std::uint32_t> answers; // GetLastError by path; others: not found
+            QStringList asked; // what GetFileAttributesW was asked
+            int drivesAsked = 0;
+        };
+        const auto fake = std::make_shared<Disk>();
+        fake->drives = {{L'C', DRIVE_FIXED}, {L'E', DRIVE_REMOVABLE}, {L'R', DRIVE_REMOVABLE}, {L'Z', DRIVE_REMOTE}};
+        fake->answers = {
+            {u"C:\\"_s, ERROR_SUCCESS},
+            {u"E:\\"_s, ERROR_SUCCESS}, // a USB stick that is there
+            {u"R:\\"_s, ERROR_NOT_READY}, // a card reader without its card
+            {u"Z:\\"_s, ERROR_SUCCESS},
+            {u"\\\\?\\C:\\here\\a.txt"_s, ERROR_SUCCESS},
+            {u"\\\\?\\C:\\locked\\b.txt"_s, ERROR_ACCESS_DENIED}, // Win顺 runs unelevated
+            {u"\\\\?\\C:\\no folder\\c.txt"_s, ERROR_PATH_NOT_FOUND},
+        };
+        const MissingFiles::Disk disk {
+            .driveType = [fake](const std::wstring& root) -> std::uint32_t {
+                ++fake->drivesAsked;
+                const auto it = fake->drives.find(root.front());
+                return root.size() == 3 && it != fake->drives.end() ? it->second : DRIVE_NO_ROOT_DIR;
+            },
+            .lookUp = [fake](const std::wstring& path) -> std::uint32_t {
+                const QString p = QString::fromStdWString(path);
+                fake->asked.append(p);
+                return fake->answers.value(p, ERROR_FILE_NOT_FOUND);
+            },
+        };
+        using Presence = MissingFiles::Presence;
+        MissingFiles::Judge judge(disk);
+        QCOMPARE(judge.file(u"C:\\here\\a.txt"_s), Presence::Present);
+        QCOMPARE(judge.file(u"C:\\here\\gone.txt"_s), Presence::Gone);
+        QCOMPARE(judge.file(u"c:\\here\\gone.txt"_s), Presence::Gone);
+        QCOMPARE(judge.file(u"C:\\no folder\\c.txt"_s), Presence::Gone); // its folder gone too
+        QCOMPARE(judge.file(u"E:\\gone.txt"_s), Presence::Gone);
+        // Anything else is not known to be gone.
+        QCOMPARE(judge.file(u"C:\\locked\\b.txt"_s), Presence::Unknown);
+        QCOMPARE(judge.file(u"Z:\\gone.txt"_s), Presence::Unknown); // a mapped network drive
+        QCOMPARE(judge.file(u"X:\\gone.txt"_s), Presence::Unknown); // no such drive: pulled out
+        QCOMPARE(judge.file(u"R:\\gone.txt"_s), Presence::Unknown); // not ready
+        QCOMPARE(judge.file(u"\\\\server\\share\\gone.txt"_s), Presence::Unknown);
+        QCOMPARE(judge.file(u"C:gone.txt"_s), Presence::Unknown);
+        QCOMPARE(judge.file(QString()), Presence::Unknown);
+        // Each drive asked about once a pass; shares and the drives that do
+        // not answer never asked about their files; files by their long-path form.
+        QCOMPARE(fake->drivesAsked, 5); // C, E, Z, X, R
+        for (const QString& asked : std::as_const(fake->asked)) {
+            QVERIFY2(QStringList({u"C:\\"_s, u"E:\\"_s, u"R:\\"_s}).contains(asked)
+                    || asked.startsWith(u"\\\\?\\C:\\"_s, Qt::CaseInsensitive) || asked.startsWith(u"\\\\?\\E:\\"_s),
+                qPrintable(asked));
+        }
+
+        // An entry is gone when all its files are; the first that is not ends it.
+        QVERIFY(judge.allGone({u"C:\\here\\gone.txt"_s, u"C:\\no folder\\c.txt"_s, u"E:\\gone.txt"_s}));
+        fake->asked.clear();
+        QVERIFY(!judge.allGone({u"C:\\here\\a.txt"_s, u"C:\\here\\gone.txt"_s}));
+        QCOMPARE(fake->asked.size(), 1);
+        QVERIFY(!judge.allGone({u"C:\\here\\gone.txt"_s, u"C:\\here\\a.txt"_s}));
+        QVERIFY(!judge.allGone({u"C:\\here\\gone.txt"_s, u"C:\\locked\\b.txt"_s}));
+        QVERIFY(!judge.allGone({u"C:\\here\\gone.txt"_s, u"Z:\\gone.txt"_s}));
+        QVERIFY(!judge.allGone({u"C:\\here\\gone.txt"_s, u"X:\\gone.txt"_s}));
+        QVERIFY(!judge.allGone({u"C:\\here\\gone.txt"_s, u"\\\\server\\share\\gone.txt"_s}));
+        QVERIFY(!judge.allGone({}));
+
+        // Windows' answers.
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString file = QDir::toNativeSeparators(dir.filePath(u"there.txt"_s));
+        QFile there(file);
+        QVERIFY(there.open(QIODevice::WriteOnly));
+        there.close();
+        MissingFiles::Judge windows(MissingFiles::Disk::windows());
+        QCOMPARE(windows.file(file), Presence::Present);
+        QCOMPARE(windows.file(QDir::toNativeSeparators(dir.path())), Presence::Present); // a folder
+        QCOMPARE(windows.file(QDir::toNativeSeparators(dir.filePath(u"not there.txt"_s))), Presence::Gone);
+        QCOMPARE(windows.file(QDir::toNativeSeparators(dir.filePath(u"no folder/not there.txt"_s))), Presence::Gone);
+        QVERIFY(there.remove());
+        QCOMPARE(windows.file(file), Presence::Gone);
+    }
+
+    // Cleaned out only when two passes, a wait apart, found it gone.
+    void missingFilesSightings()
+    {
+        using namespace std::chrono_literals;
+        using Ids = std::vector<qint64>;
+        MissingFiles::Sightings seen;
+        const MissingFiles::Clock::time_point t0 {};
+        QCOMPARE(seen.update(Ids {1, 2, 3}, t0, 10min), Ids {}); // the first pass to find them
+        QCOMPARE(seen.update(Ids {1, 2, 3}, t0 + 9min, 10min), Ids {}); // too soon
+        QCOMPARE(seen.update(Ids {1, 3}, t0 + 10min, 10min), (Ids {1, 3})); // 2 found there: forgotten
+        QCOMPARE(seen.update(Ids {1, 2}, t0 + 15min, 10min), Ids {1}); // 2 starts over, 3 is forgotten
+        QCOMPARE(seen.update(Ids {2}, t0 + 25min, 10min), Ids {2});
+        // Two passes, however short the wait (WINSHUN_MISSING_SECONDS=0).
+        seen.clear();
+        QCOMPARE(seen.update(Ids {4}, t0, 0s), Ids {});
+        QCOMPARE(seen.update(Ids {4}, t0, 0s), Ids {4});
+    }
+
+    // On a history in a folder of its own, the disk made up: what is hidden
+    // and when, what a search still finds, what is cleaned out, and what is
+    // never touched.
+    void missingFilesInTheHistory()
+    {
+        qputenv("WINSHUN_MISSING_SECONDS", "0"); // no waits: after the start, between passes, before cleaning
+        const auto unset = qScopeGuard([] { qunsetenv("WINSHUN_MISSING_SECONDS"); });
+        struct Gone {
+            std::mutex mutex;
+            QSet<QString> paths;
+        };
+        const auto gone = std::make_shared<Gone>(); // asked on the pass's thread
+        const auto setGone = [&gone](const QStringList& paths) {
+            const std::scoped_lock lock(gone->mutex);
+            gone->paths = QSet<QString>(paths.begin(), paths.end());
+        };
+        const MissingFiles::Disk disk {
+            .driveType = [](const std::wstring&) -> std::uint32_t { return DRIVE_FIXED; },
+            .lookUp = [gone](const std::wstring& path) -> std::uint32_t {
+                QString p = QString::fromStdWString(path);
+                if (p.startsWith(u"\\\\?\\"_s))
+                    p.remove(0, 4);
+                const std::scoped_lock lock(gone->mutex);
+                return gone->paths.contains(p) ? ERROR_FILE_NOT_FOUND : ERROR_SUCCESS;
+            },
+        };
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        ClipStore store(dir.path());
+        QVERIFY(store.open(1000));
+        const auto add = [&store](ClipKind kind, const QString& text, qint64 at) {
+            return store.add({.kind = kind, .text = text}, at);
+        };
+        const qint64 files = add(ClipKind::Files, u"C:\\old\\a.txt\nC:\\old\\b.txt"_s, 1000);
+        const qint64 half = add(ClipKind::Files, u"C:\\old\\c.txt\nC:\\kept\\d.txt"_s, 1001); // one still there
+        const qint64 pinned = add(ClipKind::Files, u"C:\\old\\e.txt"_s, 1002);
+        store.setGroup(std::vector {pinned}, ClipStore::kPinned);
+        const qint64 path = add(ClipKind::Path, u"C:\\old\\f.txt"_s, 1003); // a path copied as text
+        setGone({u"C:\\old\\a.txt"_s, u"C:\\old\\b.txt"_s, u"C:\\old\\c.txt"_s, u"C:\\old\\e.txt"_s, u"C:\\old\\f.txt"_s});
+        const auto listed = [&store](const ClipFilter& filter) {
+            QList<qint64> ids;
+            for (const int row : store.find(filter))
+                ids.append(store.clips()[static_cast<std::size_t>(row)].id);
+            return ids;
+        };
+
+        // Hidden from the lists after the first pass, not from a search.
+        MissingFiles missing(&store, MissingFiles::Mode::Hide, disk);
+        QTRY_COMPARE(store.hiddenCount(), 1);
+        QVERIFY(store.hidden(*store.clip(files)));
+        QCOMPARE(listed({}), (QList<qint64> {path, pinned, half}));
+        QCOMPARE(listed({.category = ClipFilter::Category::Files}), (QList<qint64> {path, pinned, half}));
+        QCOMPARE(listed({.query = u"a.txt"_s}), QList<qint64> {files});
+
+        // Copied again (its files back, it seems): listed again at once.
+        add(ClipKind::Files, u"C:\\old\\a.txt\nC:\\old\\b.txt"_s, 2000);
+        QVERIFY(!store.hidden(*store.clip(files)));
+        QCOMPARE(store.hiddenCount(), 0);
+
+        // While the window is up, a pass's findings wait until it is put away.
+        missing.setListShown(true);
+        missing.setMode(MissingFiles::Mode::Keep);
+        missing.setMode(MissingFiles::Mode::Hide); // turned on: a pass at once
+        QVERIFY(missing.checking());
+        QTRY_VERIFY(!missing.checking());
+        QCOMPARE(store.hiddenCount(), 0);
+        missing.setListShown(false); // and another pass, none being due later
+        QCOMPARE(store.hiddenCount(), 1);
+        QTRY_VERIFY(!missing.checking());
+
+        // 不处理: listed again at once.
+        QSignalSpy changed(&missing, &MissingFiles::changed);
+        missing.setMode(MissingFiles::Mode::Keep);
+        QCOMPARE(changed.size(), 1);
+        QCOMPARE(store.hiddenCount(), 0);
+        missing.setListShown(true);
+        missing.setListShown(false);
+        QVERIFY(!missing.checking()); // no passes then
+
+        // Cleaned out once a second pass found it gone too; hidden till then.
+        missing.setMode(MissingFiles::Mode::Clean);
+        QTRY_COMPARE(store.hiddenCount(), 1);
+        QVERIFY(store.clip(files));
+        missing.setListShown(true);
+        missing.setListShown(false);
+        QTRY_VERIFY(!store.clip(files));
+        QCOMPARE(store.hiddenCount(), 0);
+        QVERIFY(store.clip(half) && store.clip(pinned) && store.clip(path)); // never those
+        QVERIFY(store.clip(pinned)->group == ClipStore::kPinned);
+        QTRY_VERIFY(!missing.checking());
+        missing.setListShown(true);
+        missing.setListShown(false);
+        QTRY_VERIFY(!missing.checking());
+        QCOMPARE(store.clips().size(), std::size_t {3});
     }
 };
 

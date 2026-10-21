@@ -159,7 +159,7 @@ public:
     void setCategory(int category);
     QVariantList categories() const;
     ClipModel* items() { return &m_model; }
-    int total() const { return static_cast<int>(m_store->clips().size()); }
+    int total() const { return static_cast<int>(m_store->clips().size()) - m_store->hiddenCount(); }
     QString statusText() const { return m_flash.isEmpty() ? m_status : m_flash; }
     QString separatorName() const;
     bool canUndo() const { return !m_removed.empty() || m_removedGroup.has_value(); }

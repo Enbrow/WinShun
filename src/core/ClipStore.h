@@ -3,6 +3,7 @@
 #include "Pinyin.h"
 
 #include <QByteArray>
+#include <QHash>
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -129,7 +130,9 @@ struct ClipFilter {
     enum class Category { All, Text, Links, Images, Files, Group };
     Category category = Category::All;
     qint64 group = 0; // Category::Group
-    QString query; // words that must all occur; "@name" is the program it came from
+    // Words that must all occur; "@name" is the program it came from. With
+    // any, hidden entries are found too (ClipStore::setHidden).
+    QString query;
     // The entries in "固定" first, in their own order, then the rest newest
     // first (not for a group: its entries are in their own order anyway).
     bool pinnedFirst = false;
@@ -261,6 +264,14 @@ public:
     QString value(const QString& key) const;
     void setValue(const QString& key, const QString& value);
 
+    // Entries find() leaves out unless words are searched for: records of
+    // copied files that are gone (MissingFiles). By id, with `used` as it
+    // was when judged: one copied or pasted again since, or put in a group,
+    // is listed again. In memory only; they still count toward the limits.
+    void setHidden(QHash<qint64, qint64> used) { m_hidden = std::move(used); }
+    bool hidden(const Clip& clip) const;
+    int hiddenCount() const; // of the entries in the history now
+
     // Indexes into clips() of the entries to list: newest first; a group's
     // in their order (and "固定"'s first with pinnedFirst); screenshots by
     // when they were taken.
@@ -283,6 +294,7 @@ private:
     std::vector<ClipGroup> m_groups;
     qint64 m_nextId = 1; // ids are never used twice (a removed entry's picture stays for undo)
     QSet<qint64> m_picturesPending;
+    QHash<qint64, qint64> m_hidden; // id -> when it was last used, as judged (setHidden)
     Listener m_listener;
     std::unique_ptr<QObject> m_context; // what the writer's news is queued to, on the store's thread
     std::unique_ptr<Writer> m_writer; // last: stopped first

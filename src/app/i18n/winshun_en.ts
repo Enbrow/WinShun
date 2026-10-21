@@ -733,6 +733,22 @@
         <translation>Keep for</translation>
     </message>
     <message>
+        <source>已不存在的文件记录</source>
+        <translation>Records of files that are gone</translation>
+    </message>
+    <message>
+        <source>不处理</source>
+        <translation>Leave as is</translation>
+    </message>
+    <message>
+        <source>自动隐藏</source>
+        <translation>Hide</translation>
+    </message>
+    <message>
+        <source>自动清理</source>
+        <translation>Clean up</translation>
+    </message>
+    <message>
         <source>屏幕截图</source>
         <translation>Screen capture</translation>
     </message>
@@ -3973,6 +3989,30 @@
     <message>
         <source>一直保留</source>
         <translation>Forever</translation>
+    </message>
+    <message>
+        <source>已不存在的文件记录</source>
+        <translation>Records of files that are gone</translation>
+    </message>
+    <message>
+        <source>删除;移走;失效;找不到;missing</source>
+        <translation>deleted;moved;gone;not found;missing</translation>
+    </message>
+    <message>
+        <source>隐藏：仍占条数上限，搜索还能找到，改回后会再出现；清理：直接删掉，不占条数</source>
+        <translation>Hidden: they still count toward the limit, a search still finds them, and they come back when switched back. Cleaned up: deleted, no longer counted</translation>
+    </message>
+    <message>
+        <source>不处理</source>
+        <translation>Leave as is</translation>
+    </message>
+    <message>
+        <source>自动隐藏</source>
+        <translation>Hide</translation>
+    </message>
+    <message>
+        <source>自动清理</source>
+        <translation>Clean up</translation>
     </message>
     <message>
         <source>不记录这些程序复制的内容</source>

@@ -1213,6 +1213,14 @@ void SettingsEditor::setClipboardMaxDays(int days)
     commit();
 }
 
+void SettingsEditor::setClipboardMissingFiles(const QString& mode)
+{
+    if (m_settings.clipboardMissingFiles == mode || (mode != u"keep" && mode != u"hide" && mode != u"clean"))
+        return;
+    m_settings.clipboardMissingFiles = mode;
+    commit();
+}
+
 void SettingsEditor::setClipboardClickToPaste(bool on)
 {
     if (m_settings.clipboardClickToPaste == on)

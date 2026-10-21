@@ -24,6 +24,7 @@
 #include "Launcher.h"
 #include "McpServer.h"
 #include "McpTools.h"
+#include "MissingFiles.h"
 #include "Pipe.h"
 #include "Placement.h"
 #include "PluginSettings.h"
@@ -579,6 +580,17 @@ bool App::start(const StartOptions& options)
         settingsEdited(settings);
         if (m_settingsEditor)
             m_settingsEditor->setSettings(m_settings);
+    });
+    // Its entries of copied files that are gone since: hidden or cleaned out
+    // as set, the disk asked while the window is put away.
+    m_missingFiles
+        = std::make_unique<MissingFiles>(m_clipStore.get(), MissingFiles::modeOf(m_settings.clipboardMissingFiles));
+    connect(m_clipboard.get(), &Clipboard::activeChanged, m_missingFiles.get(),
+        [this] { m_missingFiles->setListShown(m_clipboard->active()); });
+    connect(m_missingFiles.get(), &MissingFiles::changed, this, [this] {
+        m_clipboard->historyChanged();
+        if (m_settingsEditor)
+            m_settingsEditor->setClipboardCount(static_cast<int>(m_clipStore->clips().size()));
     });
 
     m_updater = std::make_unique<Updater>();
@@ -1628,6 +1640,7 @@ void App::applyClipboard()
     m_winVApplied = m_settings.clipboardWinV;
     m_clipWatcher->setOptions(clipboardOptions());
     m_clipStore->setLimits({m_settings.clipboardMaxItems, m_settings.clipboardMaxDays}, QDateTime::currentMSecsSinceEpoch());
+    m_missingFiles->setMode(MissingFiles::modeOf(m_settings.clipboardMissingFiles));
     m_clipboard->historyChanged();
     applyClipboardHotkeys();
 }

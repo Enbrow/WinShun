@@ -535,6 +535,14 @@ std::vector<Entry> buildCatalog()
     add(integer({"Clipboard/MaxDays", QT_TRANSLATE_NOOP("AiSettings", "保留时间"), "clipboard", 2,
                     "How many days an entry is kept after it was last copied or pasted."},
         &Settings::clipboardMaxDays, 1, 3650, QT_TRANSLATE_NOOP("AiSettings", "不限"), "no limit"));
+    add(choice({"Clipboard/MissingFiles", QT_TRANSLATE_NOOP("AiSettings", "已不存在的文件记录"), "clipboard", 2,
+                   "History entries of copied files that were deleted or moved since (never pinned or grouped ones): left "
+                   "as they are, marked as gone; hidden from the list (a search still finds them, and they still count "
+                   "toward the limit); or removed from the history once two checks ten minutes apart find them gone."},
+        &Settings::clipboardMissingFiles,
+        {{u"keep"_s, u"left as they are"_s, QT_TRANSLATE_NOOP("AiSettings", "不处理")},
+            {u"hide"_s, u"hidden"_s, QT_TRANSLATE_NOOP("AiSettings", "自动隐藏")},
+            {u"clean"_s, u"removed"_s, QT_TRANSLATE_NOOP("AiSettings", "自动清理")}}));
 
     // ---- 截图 (the 插件 page's card) ----
     add(recording({"Capture/Enabled", QT_TRANSLATE_NOOP("AiSettings", "屏幕截图"), "capture", -1,
