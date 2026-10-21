@@ -550,6 +550,37 @@ std::vector<Entry> buildCatalog()
                     "Letting go of a drag, or a click on a window, copies the picture at once."},
         &Settings::captureCopyOnSelect));
     {
+        // What each mouse button does once a selection is there (issue #46); with an annotation tool on, a stroke
+        // or a text under way, the right button steps back as Esc does and the others do nothing.
+        const auto mouseChoices = [](bool withBack) {
+            std::vector<Choice> list {{u"none"_s, u"nothing"_s, QT_TRANSLATE_NOOP("AiSettings", "无")},
+                {u"copy"_s, u"copy the picture and close"_s, QT_TRANSLATE_NOOP("AiSettings", "复制并关闭")},
+                {u"save"_s, u"save the picture to a file and close"_s, QT_TRANSLATE_NOOP("AiSettings", "保存")},
+                {u"pin"_s, u"pin the picture on the screen"_s, QT_TRANSLATE_NOOP("AiSettings", "贴图")},
+                {u"ocr"_s, u"read the words in the picture"_s, QT_TRANSLATE_NOOP("AiSettings", "识别文字")},
+                {u"cancel"_s, u"end the capture"_s, QT_TRANSLATE_NOOP("AiSettings", "取消截图")}};
+            if (withBack)
+                list.insert(list.begin() + 1, {u"back"_s, u"put the selection down to choose again (Esc's step)"_s,
+                                                  QT_TRANSLATE_NOOP("AiSettings", "后退（重新框选）")});
+            return list;
+        };
+        add(choice({"Capture/MouseDoubleLeft", QT_TRANSLATE_NOOP("AiSettings", "截图：双击左键"), "capture", -1,
+                       "What a double click with the left button inside the selection does."},
+            &Settings::captureMouseDoubleLeft, mouseChoices(false)));
+        add(choice({"Capture/MouseRight", QT_TRANSLATE_NOOP("AiSettings", "截图：右键"), "capture", -1,
+                       "What the right button does once there is a selection. Esc always steps back."},
+            &Settings::captureMouseRight, mouseChoices(true)));
+        add(choice({"Capture/MouseMiddle", QT_TRANSLATE_NOOP("AiSettings", "截图：中键"), "capture", -1,
+                       "What the middle button does once there is a selection."},
+            &Settings::captureMouseMiddle, mouseChoices(false)));
+        add(choice({"Capture/MouseBack", QT_TRANSLATE_NOOP("AiSettings", "截图：侧键（后退）"), "capture", -1,
+                       "What the side button toward the user (back, X1) does once there is a selection."},
+            &Settings::captureMouseBack, mouseChoices(false)));
+        add(choice({"Capture/MouseForward", QT_TRANSLATE_NOOP("AiSettings", "截图：侧键（前进）"), "capture", -1,
+                       "What the side button away from the user (forward, X2) does once there is a selection."},
+            &Settings::captureMouseForward, mouseChoices(false)));
+    }
+    {
         Entry e = base({"Capture/Keyword", QT_TRANSLATE_NOOP("AiSettings", "截图历史的关键词"), "capture", -1,
                            "The word typed first in the search box (with a space after it) that lists the screenshot history. One word, no spaces or quotes; not one a web search or a favorite has."},
             Type::Text);

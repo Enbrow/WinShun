@@ -804,6 +804,170 @@ private slots:
         QCOMPARE(item.style.width, 7);
         QVERIFY(!rig.session.stylesChanged()); // nothing was changed on the panel
     }
+
+    // ---- the mouse buttons after a selection (#46) -----------------------------
+
+    void defaultButtonsKeepTheOldBehaviour()
+    {
+        Rig rig;
+        rig.begin();
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.drag({100, 100}, {299, 299});
+        // middle and the side buttons do nothing by default
+        for (Qt::MouseButton b : {Qt::MiddleButton, Qt::BackButton, Qt::ForwardButton})
+            rig.session.pointerPress(0, {150, 150}, b);
+        QCOMPARE(finished.count(), 0);
+        QVERIFY(rig.session.hasSelection());
+        // the right button steps back: selection down, then the capture ends
+        rig.session.pointerPress(0, {150, 150}, Qt::RightButton);
+        QVERIFY(!rig.session.hasSelection());
+        QCOMPARE(finished.count(), 0);
+        rig.session.pointerPress(0, {150, 150}, Qt::RightButton);
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Cancel);
+    }
+
+    void buttonsRunTheirActions_data()
+    {
+        QTest::addColumn<int>("button");
+        QTest::addColumn<QString>("name");
+        QTest::addColumn<int>("action");
+        using A = CaptureSession::Action;
+        const struct {
+            Qt::MouseButton button;
+            const char* name;
+            A action;
+        } rows[] {{Qt::MiddleButton, "copy", A::Copy}, {Qt::BackButton, "save", A::Save},
+            {Qt::ForwardButton, "pin", A::Pin}, {Qt::RightButton, "ocr", A::Ocr}, {Qt::MiddleButton, "cancel", A::Cancel}};
+        for (const auto& r : rows)
+            QTest::newRow(r.name) << int(r.button) << QString::fromLatin1(r.name) << int(r.action);
+    }
+    void buttonsRunTheirActions()
+    {
+        QFETCH(int, button);
+        QFETCH(QString, name);
+        QFETCH(int, action);
+        Rig rig;
+        rig.begin();
+        CaptureSession::MouseActions actions;
+        const auto b = Qt::MouseButton(button);
+        (b == Qt::MiddleButton ? actions.middle : b == Qt::BackButton ? actions.back : b == Qt::ForwardButton ? actions.forward : actions.right) = name;
+        rig.session.setMouseActions(actions);
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.session.pointerPress(0, {50, 50}, b); // no selection yet: the right button steps back, the others nothing
+        rig.session.pointerRelease(0, {50, 50}, b);
+        QCOMPARE(finished.count(), b == Qt::RightButton ? 1 : 0);
+        if (b == Qt::RightButton) { // the capture ended; start again
+            rig.begin();
+            finished.clear();
+        }
+        rig.drag({100, 100}, {299, 299});
+        rig.session.pointerPress(0, {150, 150}, b);
+        QCOMPARE(finished.count(), 0); // it acts when the same button is let go of on the capture
+        rig.session.pointerRelease(0, {150, 150}, b);
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action(action));
+        if (CaptureSession::Action(action) != CaptureSession::Action::Cancel) // a cancel takes nothing
+            QCOMPARE(finished[0][2].toRect(), QRect(100, 100, 200, 200));
+    }
+
+    void unsetButtonsOrBadNamesDoNothing()
+    {
+        Rig rig;
+        rig.begin();
+        CaptureSession::MouseActions actions;
+        actions.middle = u"nonsense"_s; // unknown: the default (none)
+        actions.back = u"back"_s; // back is the right button's alone
+        actions.right = u"none"_s;
+        rig.session.setMouseActions(actions);
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.drag({100, 100}, {299, 299});
+        for (Qt::MouseButton b : {Qt::MiddleButton, Qt::BackButton, Qt::ForwardButton, Qt::RightButton})
+            rig.session.pointerPress(0, {150, 150}, b);
+        QCOMPARE(finished.count(), 0);
+        QVERIFY(rig.session.hasSelection()); // right set to none: the selection stays; Esc still steps back
+        rig.session.key(Qt::Key_Escape, Qt::NoModifier);
+        QVERIFY(!rig.session.hasSelection());
+    }
+
+    void whileAnnotatingTheRightButtonStepsBackAndTheRestSleep()
+    {
+        Rig rig;
+        rig.begin();
+        CaptureSession::MouseActions actions;
+        actions.right = u"copy"_s;
+        actions.middle = u"copy"_s;
+        actions.back = u"save"_s;
+        rig.session.setMouseActions(actions);
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.drag({100, 100}, {499, 399});
+        rig.session.key(Qt::Key_R, Qt::NoModifier); // a tool is on
+        for (Qt::MouseButton b : {Qt::MiddleButton, Qt::BackButton, Qt::ForwardButton})
+            rig.session.pointerPress(0, {150, 150}, b);
+        QCOMPARE(finished.count(), 0);
+        rig.session.pointerPress(0, {150, 150}, Qt::LeftButton); // a stroke under way
+        QVERIFY(rig.session.annotation()->gestureActive());
+        rig.session.pointerPress(0, {200, 200}, Qt::MiddleButton);
+        QCOMPARE(finished.count(), 0);
+        rig.session.pointerPress(0, {200, 200}, Qt::RightButton); // back(): the stroke is dropped, not copied
+        QCOMPARE(finished.count(), 0);
+        QVERIFY(!rig.session.annotation()->gestureActive());
+        QVERIFY(rig.session.hasSelection());
+    }
+
+    void aPressedButtonActsOnlyOnItsRelease()
+    {
+        Rig rig;
+        rig.begin();
+        CaptureSession::MouseActions actions;
+        actions.middle = u"copy"_s;
+        actions.back = u"save"_s;
+        rig.session.setMouseActions(actions);
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.drag({100, 100}, {299, 299});
+        // the phase changed between press and release (a tool turned on): void
+        rig.session.pointerPress(0, {150, 150}, Qt::MiddleButton);
+        rig.session.key(Qt::Key_R, Qt::NoModifier);
+        rig.session.pointerRelease(0, {150, 150}, Qt::MiddleButton);
+        QCOMPARE(finished.count(), 0);
+        rig.session.key(Qt::Key_R, Qt::NoModifier); // tool off
+        // moved before the release: void
+        rig.session.pointerPress(0, {150, 150}, Qt::MiddleButton);
+        rig.session.pointerMove(0, {190, 190});
+        rig.session.pointerRelease(0, {190, 190}, Qt::MiddleButton);
+        QCOMPARE(finished.count(), 0);
+        // another button between: void; and a different button's release does nothing
+        rig.session.pointerPress(0, {150, 150}, Qt::MiddleButton);
+        rig.session.pointerRelease(0, {150, 150}, Qt::BackButton);
+        QCOMPARE(finished.count(), 0);
+        rig.session.pointerPress(0, {150, 150}, Qt::BackButton);
+        rig.session.pointerRelease(0, {150, 150}, Qt::MiddleButton);
+        QCOMPARE(finished.count(), 0);
+        // a still release of the same button acts
+        rig.session.pointerPress(0, {150, 150}, Qt::BackButton);
+        rig.session.pointerRelease(0, {150, 150}, Qt::BackButton);
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Save);
+    }
+
+    void doubleLeftFollowsTheSetting()
+    {
+        for (const QString& name : {u"none"_s, u"save"_s}) {
+            Rig rig;
+            rig.begin();
+            CaptureSession::MouseActions actions;
+            actions.doubleLeft = name;
+            rig.session.setMouseActions(actions);
+            QSignalSpy finished(&rig.session, &CaptureSession::finished);
+            rig.drag({100, 100}, {199, 199});
+            rig.click({150, 150});
+            rig.session.pointerPress(0, {150, 150}, Qt::LeftButton);
+            rig.session.doubleClick(0, {150, 150});
+            QCOMPARE(finished.count(), name == u"none" ? 0 : 1);
+            if (name == u"save")
+                QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Save);
+        }
+    }
 };
 
 QTEST_GUILESS_MAIN(TestCapture)

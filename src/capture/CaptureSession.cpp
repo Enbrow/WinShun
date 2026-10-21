@@ -222,6 +222,7 @@ void CaptureSession::dropParked()
 
 void CaptureSession::begin(std::vector<CaptureScreen*> screens, Windows windows)
 {
+    m_pendingButton = Qt::NoButton;
     m_screens = std::move(screens);
     m_windows = std::move(windows);
     m_flyout = {};
@@ -419,6 +420,9 @@ void CaptureSession::pointerMove(int screen, QPoint p, Qt::KeyboardModifiers mod
 {
     if (!m_active || !screenAt(screen))
         return;
+    if (m_pendingButton != Qt::NoButton
+        && (screen != m_pendingScreen || (p - m_pendingAt).manhattanLength() > dragStart(screen)))
+        m_pendingButton = Qt::NoButton; // moved before the release: not a click
     switch (m_phase) {
     case Phase::Hover:
         updateHover(screen, clampTo(screen, p));
@@ -465,8 +469,10 @@ void CaptureSession::pointerPress(int screen, QPoint p, Qt::MouseButton button, 
 {
     if (!m_active || !screenAt(screen))
         return;
-    if (button == Qt::RightButton) {
-        back();
+    m_pendingButton = Qt::NoButton; // another press voids one waiting for its release
+    if (button == Qt::RightButton || button == Qt::MiddleButton || button == Qt::BackButton
+        || button == Qt::ForwardButton) {
+        mouseButton(button, screen, p);
         return;
     }
     if (button != Qt::LeftButton)
@@ -524,6 +530,15 @@ void CaptureSession::pointerPress(int screen, QPoint p, Qt::MouseButton button, 
 
 void CaptureSession::pointerRelease(int screen, QPoint p, Qt::MouseButton button)
 {
+    if (m_active && button != Qt::LeftButton && button == m_pendingButton) {
+        // The button that was pressed on a selection at rest is let go of on
+        // the capture: now it acts (the release must not reach the window
+        // below, which a closed capture would let it).
+        m_pendingButton = Qt::NoButton;
+        if (m_phase == Phase::Selected && m_selection.screen >= 0 && !annotationBusy())
+            perform(m_pendingAct);
+        return;
+    }
     if (!m_active || button != Qt::LeftButton)
         return;
     switch (m_phase) {
@@ -601,7 +616,92 @@ void CaptureSession::doubleClick(int screen, QPoint p)
             m_selection.rect = m_startRect; // the press began a move that did not happen
             m_phase = Phase::Selected;
         }
+        perform(m_actDoubleLeft);
+    }
+}
+
+void CaptureSession::setMouseActions(const MouseActions& actions)
+{
+    m_actDoubleLeft = parseMouseAct(actions.doubleLeft, MouseAct::Copy);
+    m_actRight = parseMouseAct(actions.right, MouseAct::Back);
+    m_actMiddle = parseMouseAct(actions.middle, MouseAct::None);
+    m_actBack = parseMouseAct(actions.back, MouseAct::None);
+    m_actForward = parseMouseAct(actions.forward, MouseAct::None);
+    // "back" is the right button's alone.
+    if (m_actDoubleLeft == MouseAct::Back)
+        m_actDoubleLeft = MouseAct::Copy;
+    for (MouseAct* act : {&m_actMiddle, &m_actBack, &m_actForward}) {
+        if (*act == MouseAct::Back)
+            *act = MouseAct::None;
+    }
+}
+
+CaptureSession::MouseAct CaptureSession::parseMouseAct(const QString& name, MouseAct fallback)
+{
+    static const std::pair<const char16_t*, MouseAct> names[] {{u"none", MouseAct::None}, {u"copy", MouseAct::Copy},
+        {u"save", MouseAct::Save}, {u"pin", MouseAct::Pin}, {u"ocr", MouseAct::Ocr}, {u"cancel", MouseAct::Cancel},
+        {u"back", MouseAct::Back}};
+    for (const auto& [text, act] : names) {
+        if (name == QStringView(text))
+            return act;
+    }
+    return fallback;
+}
+
+bool CaptureSession::annotationBusy() const
+{
+    return m_annot.active()
+        && (m_annot.tool() >= 0 || m_annot.gestureActive() || m_annot.editingText() || m_annot.editingNumber());
+}
+
+// Right, middle and the side buttons. The right button always has a say
+// (without the settings' action it is Esc's step back); the others act only
+// on a selection at rest, and never in the middle of drawing.
+void CaptureSession::mouseButton(Qt::MouseButton button, int screen, QPoint p)
+{
+    const bool atRest = m_phase == Phase::Selected && m_selection.screen >= 0 && !annotationBusy();
+    if (button == Qt::RightButton && (!atRest || m_actRight == MouseAct::Back)) {
+        back();
+        return;
+    }
+    if (!atRest)
+        return;
+    // The action waits for the same button's release on the capture (a side
+    // button let go of over the window below would go Back in a browser).
+    m_pendingAct = button == Qt::RightButton ? m_actRight
+        : button == Qt::MiddleButton         ? m_actMiddle
+        : button == Qt::BackButton           ? m_actBack
+                                             : m_actForward;
+    if (m_pendingAct == MouseAct::None)
+        return;
+    m_pendingButton = button;
+    m_pendingScreen = screen;
+    m_pendingAt = p;
+}
+
+void CaptureSession::perform(MouseAct act)
+{
+    switch (act) {
+    case MouseAct::Copy:
         finish(Action::Copy);
+        break;
+    case MouseAct::Save:
+        finish(Action::Save);
+        break;
+    case MouseAct::Pin:
+        finish(Action::Pin);
+        break;
+    case MouseAct::Ocr:
+        finish(Action::Ocr);
+        break;
+    case MouseAct::Cancel:
+        finish(Action::Cancel);
+        break;
+    case MouseAct::Back:
+        back();
+        break;
+    case MouseAct::None:
+        break;
     }
 }
 

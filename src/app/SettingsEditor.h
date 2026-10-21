@@ -93,6 +93,11 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString captureHotkeyError READ captureHotkeyError NOTIFY hotkeyErrorChanged FINAL)
     Q_PROPERTY(bool capturePrintScreen READ capturePrintScreen WRITE setCapturePrintScreen NOTIFY changed FINAL)
     Q_PROPERTY(bool captureCopyOnSelect READ captureCopyOnSelect WRITE setCaptureCopyOnSelect NOTIFY changed FINAL)
+    Q_PROPERTY(QString captureMouseDoubleLeft READ captureMouseDoubleLeft WRITE setCaptureMouseDoubleLeft NOTIFY changed FINAL)
+    Q_PROPERTY(QString captureMouseRight READ captureMouseRight WRITE setCaptureMouseRight NOTIFY changed FINAL)
+    Q_PROPERTY(QString captureMouseMiddle READ captureMouseMiddle WRITE setCaptureMouseMiddle NOTIFY changed FINAL)
+    Q_PROPERTY(QString captureMouseBack READ captureMouseBack WRITE setCaptureMouseBack NOTIFY changed FINAL)
+    Q_PROPERTY(QString captureMouseForward READ captureMouseForward WRITE setCaptureMouseForward NOTIFY changed FINAL)
     Q_PROPERTY(QString captureNote READ captureNote NOTIFY hotkeyErrorChanged FINAL)
     // The screenshot history's keyword (jt): set through saveCaptureKeyword.
     Q_PROPERTY(QString captureKeyword READ captureKeyword NOTIFY changed FINAL)
@@ -324,6 +329,17 @@ public:
     void setCapturePrintScreen(bool on);
     bool captureCopyOnSelect() const { return m_settings.captureCopyOnSelect; }
     void setCaptureCopyOnSelect(bool on);
+    // What the mouse buttons do after a selection (Settings::captureMouse*).
+    QString captureMouseDoubleLeft() const { return m_settings.captureMouseDoubleLeft; }
+    void setCaptureMouseDoubleLeft(const QString& action) { setCaptureMouse(m_settings.captureMouseDoubleLeft, action, false); }
+    QString captureMouseRight() const { return m_settings.captureMouseRight; }
+    void setCaptureMouseRight(const QString& action) { setCaptureMouse(m_settings.captureMouseRight, action, true); }
+    QString captureMouseMiddle() const { return m_settings.captureMouseMiddle; }
+    void setCaptureMouseMiddle(const QString& action) { setCaptureMouse(m_settings.captureMouseMiddle, action, false); }
+    QString captureMouseBack() const { return m_settings.captureMouseBack; }
+    void setCaptureMouseBack(const QString& action) { setCaptureMouse(m_settings.captureMouseBack, action, false); }
+    QString captureMouseForward() const { return m_settings.captureMouseForward; }
+    void setCaptureMouseForward(const QString& action) { setCaptureMouse(m_settings.captureMouseForward, action, false); }
     QString captureNote() const { return m_captureNote; }
     void setCaptureNote(const QString& note);
     QString captureKeyword() const { return m_settings.captureKeyword; }
@@ -713,6 +729,7 @@ private:
     friend class PluginSettings; // edits m_settings' plugin sections and commits
     friend class FavoritesSettings; // reads the web shortcuts' keywords and the window
     void commit();
+    void setCaptureMouse(QString& field, const QString& action, bool allowBack);
     QVariantMap keepSvgIcon(QByteArrayView svg); // pickWebIcon's and webIconFromSvg's answer for SVG code
     void setIndexFolder(const QString& folder);
     void setMcpMessage(const QString& message);

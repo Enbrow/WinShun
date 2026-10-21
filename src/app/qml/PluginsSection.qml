@@ -104,7 +104,7 @@ SettingsSection {
         id: builtinRow
 
         title: qsTr("内置功能")
-        keywords: qsTr("截图;截屏;屏幕截图;PrtScn;Print Screen;放大镜;取色;screenshot;capture").split(";")
+        keywords: qsTr("截图;截屏;屏幕截图;PrtScn;Print Screen;放大镜;取色;鼠标;中键;右键;侧键;双击;贴图;识别文字;框选;screenshot;capture;mouse").split(";")
         values: pluginsSection.editor ? [pluginsSection.editor.captureHotkey] : []
         description: qsTr("随 Win顺 一起提供，默认关着；关着时不占内存，也不注册快捷键")
         shown: pluginsSection.editor !== null

@@ -884,6 +884,16 @@ void Settings::load()
     capturePrintScreen = readOrDefault(s, u"Capture/PrintScreen"_s, d.capturePrintScreen);
     capturePrintScreenBefore = readOrDefault(s, u"Capture/PrintScreenBefore"_s, d.capturePrintScreenBefore).trimmed();
     captureCopyOnSelect = readOrDefault(s, u"Capture/CopyOnSelect"_s, d.captureCopyOnSelect);
+    const auto mouseAction = [&](const QString& key, const QString& fallback, bool allowBack) {
+        const QString v = readOrDefault(s, key, fallback).trimmed().toLower();
+        static const QStringList known {u"none"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"cancel"_s};
+        return known.contains(v) || (allowBack && v == u"back") ? v : fallback;
+    };
+    captureMouseDoubleLeft = mouseAction(u"Capture/MouseDoubleLeft"_s, d.captureMouseDoubleLeft, false);
+    captureMouseRight = mouseAction(u"Capture/MouseRight"_s, d.captureMouseRight, true);
+    captureMouseMiddle = mouseAction(u"Capture/MouseMiddle"_s, d.captureMouseMiddle, false);
+    captureMouseBack = mouseAction(u"Capture/MouseBack"_s, d.captureMouseBack, false);
+    captureMouseForward = mouseAction(u"Capture/MouseForward"_s, d.captureMouseForward, false);
     captureKeyword = readOrDefault(s, u"Capture/Keyword"_s, d.captureKeyword).trimmed();
     captureAnnotateStyles = readOrDefault(s, u"Capture/AnnotateStyles"_s, d.captureAnnotateStyles).trimmed();
 
@@ -1003,6 +1013,11 @@ void Settings::save() const
     s.setValue(u"Capture/PrintScreen"_s, capturePrintScreen);
     s.setValue(u"Capture/PrintScreenBefore"_s, capturePrintScreenBefore);
     s.setValue(u"Capture/CopyOnSelect"_s, captureCopyOnSelect);
+    s.setValue(u"Capture/MouseDoubleLeft"_s, captureMouseDoubleLeft);
+    s.setValue(u"Capture/MouseRight"_s, captureMouseRight);
+    s.setValue(u"Capture/MouseMiddle"_s, captureMouseMiddle);
+    s.setValue(u"Capture/MouseBack"_s, captureMouseBack);
+    s.setValue(u"Capture/MouseForward"_s, captureMouseForward);
     s.setValue(u"Capture/Keyword"_s, captureKeyword);
     s.setValue(u"Capture/AnnotateStyles"_s, captureAnnotateStyles);
     writeWebShortcuts(s, webShortcuts, webSuggestions);

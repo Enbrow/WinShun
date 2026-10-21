@@ -191,6 +191,7 @@ public:
     // when it did one of them.
     bool escape();
     bool editingText() const { return m_editing.has_value(); }
+    bool editingNumber() const { return m_numberEdit.has_value(); }
     void cancelGesture();
     // Commits a text under way (for Ctrl+S / F3 / Enter, and the hotkey).
     void commitPending();

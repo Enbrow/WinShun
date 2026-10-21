@@ -1400,8 +1400,11 @@ void App::applyCapture()
         closeCaptureOcr(true);
         m_idleTrim->poke();
     }
-    if (m_capture)
+    if (m_capture) {
         m_capture->setCopyOnSelect(m_settings.captureCopyOnSelect);
+        m_capture->setMouseActions({m_settings.captureMouseDoubleLeft, m_settings.captureMouseRight,
+            m_settings.captureMouseMiddle, m_settings.captureMouseBack, m_settings.captureMouseForward});
+    }
     applyScreenshots();
 
     // PrtScn: taken from the Snipping Tool while it is wanted, the value

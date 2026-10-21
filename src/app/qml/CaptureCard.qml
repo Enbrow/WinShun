@@ -17,6 +17,19 @@ Rectangle {
     // The hotkey box records: SettingsWindow's binding stops the app's hotkeys meanwhile.
     readonly property bool recordingHotkey: hotkeyRecorder.recording
 
+    // The mouse buttons' choices (Settings::captureMouse*), the right button's with 后退 besides.
+    readonly property var mouseChoices: [
+        { value: "none", text: qsTr("无") },
+        { value: "copy", text: qsTr("复制并关闭") },
+        { value: "save", text: qsTr("保存") },
+        { value: "pin", text: qsTr("贴图") },
+        { value: "ocr", text: qsTr("识别文字") },
+        { value: "cancel", text: qsTr("取消截图") }
+    ]
+    readonly property var rightChoices: [mouseChoices[0], { value: "back", text: qsTr("后退（重新框选）") }].concat(mouseChoices.slice(1))
+    readonly property var mouseValues: [editor.captureMouseDoubleLeft, editor.captureMouseRight, editor.captureMouseMiddle,
+        editor.captureMouseBack, editor.captureMouseForward]
+
     implicitHeight: body.implicitHeight + 24
     radius: Theme.controlRadius
     color: marked ? Theme.selection : "transparent"
@@ -279,6 +292,73 @@ Rectangle {
                     anchors.right: parent.right
                     checked: card.editor.captureCopyOnSelect
                     onToggled: (on) => card.editor.captureCopyOnSelect = on
+                }
+            }
+
+            Column { // what the mouse buttons do after a selection (issue #46)
+                width: parent.width
+                spacing: 4
+
+                Text {
+                    width: parent.width
+                    text: qsTr("框选后的鼠标操作")
+                    color: Theme.text
+                    font.pixelSize: Theme.fontBody
+                }
+                Text {
+                    width: parent.width
+                    text: qsTr("选好区域之后，每个键按下去做什么。正在标注（选了标注工具、正在画或写字）时，右键用来撤回当前笔画，其他键不动作，不执行这里的设置；Esc 随时可以后退、重新框选")
+                    color: Theme.subtext
+                    font.pixelSize: Theme.fontCaption
+                    wrapMode: Text.Wrap
+                }
+                Repeater {
+                    model: [
+                        { title: qsTr("双击左键"), prop: "captureMouseDoubleLeft", withBack: false },
+                        { title: qsTr("右键"), prop: "captureMouseRight", withBack: true },
+                        { title: qsTr("中键"), prop: "captureMouseMiddle", withBack: false },
+                        { title: qsTr("侧键（后退）"), prop: "captureMouseBack", withBack: false },
+                        { title: qsTr("侧键（前进）"), prop: "captureMouseForward", withBack: false }
+                    ]
+
+                    delegate: Item {
+                        id: mouseRow
+
+                        required property var modelData
+                        required property int index
+                        readonly property var choices: modelData.withBack ? card.rightChoices : card.mouseChoices
+                        readonly property string value: card.mouseValues[index]
+                        readonly property int current: choices.findIndex(c => c.value === value)
+
+                        width: parent.width
+                        height: 40
+
+                        Text {
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: mouseRow.modelData.title
+                            color: Theme.text
+                            font.pixelSize: Theme.fontBody
+                        }
+                        FlatButton {
+                            id: pick
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: mouseRow.current >= 0 ? mouseRow.choices[mouseRow.current].text : ""
+                            trailingGlyph: String.fromCharCode(0xE70D) // ChevronDown
+                            onClicked: pickMenu.open = !pickMenu.open
+
+                            DropMenu {
+                                id: pickMenu
+                                anchor: pick
+                                entries: mouseRow.choices.map((c, i) => ({
+                                    text: c.text,
+                                    glyph: i === mouseRow.current ? String.fromCharCode(0xE73E) : "" // CheckMark
+                                }))
+                                onActivated: (i) => card.editor[mouseRow.modelData.prop] = mouseRow.choices[i].value
+                            }
+                        }
+                    }
                 }
             }
         }

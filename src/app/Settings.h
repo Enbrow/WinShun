@@ -278,6 +278,14 @@ struct Settings {
     // ("absent" or the number), to put back when given up; empty while not taken.
     QString capturePrintScreenBefore;
     bool captureCopyOnSelect = false; // letting go of a drag or a click on a window copies at once
+    // What a mouse button does once a selection is there (and no annotation
+    // tool, stroke or text is under way): none | copy | save | pin | ocr |
+    // cancel, the right button also back (Esc's step back). Issue #46.
+    QString captureMouseDoubleLeft = QStringLiteral("copy");
+    QString captureMouseRight = QStringLiteral("back");
+    QString captureMouseMiddle = QStringLiteral("none");
+    QString captureMouseBack = QStringLiteral("none"); // the side button toward the user (X1)
+    QString captureMouseForward = QStringLiteral("none"); // X2
     // Keyword=: typed first in the search box with a space after it, the
     // screenshot history (the launcher's jt). Plugins' keywords alike give
     // way to it; a web search's or a favorite's alike is refused when set.

@@ -991,6 +991,15 @@ void SettingsEditor::setCaptureCopyOnSelect(bool on)
     commit();
 }
 
+void SettingsEditor::setCaptureMouse(QString& field, const QString& action, bool allowBack)
+{
+    static const QStringList known {u"none"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"cancel"_s};
+    if (field == action || !(known.contains(action) || (allowBack && action == u"back")))
+        return;
+    field = action;
+    commit();
+}
+
 void SettingsEditor::setCaptureNote(const QString& note)
 {
     if (m_captureNote == note)

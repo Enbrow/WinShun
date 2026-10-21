@@ -72,6 +72,7 @@ public:
     ~Capture() override;
 
     void setCopyOnSelect(bool on) { m_session.setCopyOnSelect(on); }
+    void setMouseActions(const CaptureSession::MouseActions& actions) { m_session.setMouseActions(actions); }
     // The hotkey, PrtScn, the tray menu: a capture, or the end of the one
     // under way (what a key opened, the same key closes).
     void trigger();

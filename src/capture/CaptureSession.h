@@ -185,6 +185,19 @@ public:
     QRect hoverRect() const;
     void setCopyOnSelect(bool on) { m_copyOnSelect = on; } // a drag or a click on a window copies at once
 
+    // What the mouse buttons do once a selection is there (issue #46), as
+    // Settings keeps them: none | copy | save | pin | ocr | cancel, the right
+    // button also back. Only with no annotation tool on and no stroke or text
+    // under way; then the right button steps back like Esc, the rest do nothing.
+    struct MouseActions {
+        QString doubleLeft = QStringLiteral("copy");
+        QString right = QStringLiteral("back");
+        QString middle = QStringLiteral("none");
+        QString back = QStringLiteral("none"); // X1
+        QString forward = QStringLiteral("none"); // X2
+    };
+    void setMouseActions(const MouseActions& actions);
+
     AnnotationModel* annotation() { return &m_annot; }
     // The monitor the annotations are on (the selection's, even while it is
     // put down with Esc), -1 when there are none.
@@ -246,6 +259,11 @@ private:
     void publish(); // the state onto the screens
     void finish(Action action);
     void back(); // Esc, right click
+    enum class MouseAct { None, Copy, Save, Pin, Ocr, Cancel, Back };
+    static MouseAct parseMouseAct(const QString& name, MouseAct fallback);
+    bool annotationBusy() const; // a tool on, a gesture or a text under way
+    void mouseButton(Qt::MouseButton button, int screen, QPoint p); // right, middle, X1, X2
+    void perform(MouseAct act);
     void syncAnnotation(); // the model follows the selection
     void retireAnnotation(); // the model ended, its styles kept
     void dropParked(); // a new selection: the annotations put down with Esc are gone
@@ -261,6 +279,16 @@ private:
     bool m_active = false;
     bool m_ocrAvailable = false;
     bool m_copyOnSelect = false;
+    MouseAct m_actDoubleLeft = MouseAct::Copy;
+    MouseAct m_actRight = MouseAct::Back;
+    MouseAct m_actMiddle = MouseAct::None;
+    MouseAct m_actBack = MouseAct::None;
+    MouseAct m_actForward = MouseAct::None;
+    // A button pressed on a selection at rest, its action waiting for the release.
+    Qt::MouseButton m_pendingButton = Qt::NoButton;
+    MouseAct m_pendingAct = MouseAct::None;
+    int m_pendingScreen = -1;
+    QPoint m_pendingAt;
     Phase m_phase = Phase::Hover;
     Pick m_selection;
     Pick m_previous; // kept while a press outside it may still be a click

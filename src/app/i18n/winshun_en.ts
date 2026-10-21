@@ -749,6 +749,54 @@
         <translation>Copy right after selecting</translation>
     </message>
     <message>
+        <source>截图：双击左键</source>
+        <translation>Screenshot: double click</translation>
+    </message>
+    <message>
+        <source>截图：右键</source>
+        <translation>Screenshot: right button</translation>
+    </message>
+    <message>
+        <source>截图：中键</source>
+        <translation>Screenshot: middle button</translation>
+    </message>
+    <message>
+        <source>截图：侧键（后退）</source>
+        <translation>Screenshot: side button (back)</translation>
+    </message>
+    <message>
+        <source>截图：侧键（前进）</source>
+        <translation>Screenshot: side button (forward)</translation>
+    </message>
+    <message>
+        <source>无</source>
+        <translation>Nothing</translation>
+    </message>
+    <message>
+        <source>复制并关闭</source>
+        <translation>Copy and close</translation>
+    </message>
+    <message>
+        <source>保存</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>贴图</source>
+        <translation>Pin to screen</translation>
+    </message>
+    <message>
+        <source>识别文字</source>
+        <translation>Recognize text</translation>
+    </message>
+    <message>
+        <source>取消截图</source>
+        <translation>Cancel the capture</translation>
+    </message>
+    <message>
+        <source>后退（重新框选）</source>
+        <translation>Step back (select again)</translation>
+    </message>
+    <message>
         <source>截图历史的关键词</source>
         <translation>Keyword for the screenshot history</translation>
     </message>
@@ -1217,6 +1265,62 @@
     <message>
         <source>松开鼠标或点选窗口后马上复制并关闭，不再调整。关着时：按 Enter 或双击选区复制并关闭，Ctrl+S 保存到“图片 › 屏幕截图”，Esc 或右键先取消选区、再退出</source>
         <translation>Letting go of the mouse or clicking a window copies and closes at once, with no adjusting. Off: Enter or a double click on the selection copies and closes, Ctrl+S saves to Pictures › Screenshots, Esc or a right click first clears the selection, then exits</translation>
+    </message>
+    <message>
+        <source>框选后的鼠标操作</source>
+        <translation>Mouse buttons after a selection</translation>
+    </message>
+    <message>
+        <source>选好区域之后，每个键按下去做什么。正在标注（选了标注工具、正在画或写字）时，右键用来撤回当前笔画，其他键不动作，不执行这里的设置；Esc 随时可以后退、重新框选</source>
+        <translation>What each button does once an area is selected. While annotating (a tool is on, or a stroke or text is under way) the right button undoes the current stroke and the others do nothing; these settings do not apply. Esc always steps back to select again</translation>
+    </message>
+    <message>
+        <source>双击左键</source>
+        <translation>Double click</translation>
+    </message>
+    <message>
+        <source>右键</source>
+        <translation>Right button</translation>
+    </message>
+    <message>
+        <source>中键</source>
+        <translation>Middle button</translation>
+    </message>
+    <message>
+        <source>侧键（后退）</source>
+        <translation>Side button (back)</translation>
+    </message>
+    <message>
+        <source>侧键（前进）</source>
+        <translation>Side button (forward)</translation>
+    </message>
+    <message>
+        <source>无</source>
+        <translation>Nothing</translation>
+    </message>
+    <message>
+        <source>复制并关闭</source>
+        <translation>Copy and close</translation>
+    </message>
+    <message>
+        <source>保存</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>贴图</source>
+        <translation>Pin to screen</translation>
+    </message>
+    <message>
+        <source>识别文字</source>
+        <translation>Recognize text</translation>
+    </message>
+    <message>
+        <source>取消截图</source>
+        <translation>Cancel the capture</translation>
+    </message>
+    <message>
+        <source>后退（重新框选）</source>
+        <translation>Step back (select again)</translation>
     </message>
 </context>
 <context>
@@ -2646,8 +2750,8 @@
         <translation>Built-in features</translation>
     </message>
     <message>
-        <source>截图;截屏;屏幕截图;PrtScn;Print Screen;放大镜;取色;screenshot;capture</source>
-        <translation>screenshot;screen capture;snip;PrtScn;Print Screen;magnifier;colour picker;color picker</translation>
+        <source>截图;截屏;屏幕截图;PrtScn;Print Screen;放大镜;取色;鼠标;中键;右键;侧键;双击;贴图;识别文字;框选;screenshot;capture;mouse</source>
+        <translation>screenshot;screen capture;snip;PrtScn;Print Screen;magnifier;colour picker;color picker;mouse;middle button;right button;side button;double click;pin;recognize text;OCR;select</translation>
     </message>
     <message>
         <source>随 Win顺 一起提供，默认关着；关着时不占内存，也不注册快捷键</source>

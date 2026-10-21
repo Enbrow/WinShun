@@ -116,6 +116,51 @@ private slots:
 
     // GitHub #44: the other sorts and the double-click setting. A click opens
     // by default; every sort name is kept, and a stranger reads as the best match.
+    // The capture's mouse buttons (#46): the old behaviour by default, kept
+    // across a save, and a name not known (or "back" on a button that cannot
+    // step back) falls to the default.
+    void captureMouseActions()
+    {
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        ws::Settings::useProfile(profile.path());
+        ws::Settings fresh;
+        fresh.load();
+        QCOMPARE(fresh.captureMouseDoubleLeft, u"copy"_s);
+        QCOMPARE(fresh.captureMouseRight, u"back"_s);
+        QCOMPARE(fresh.captureMouseMiddle, u"none"_s);
+        QCOMPARE(fresh.captureMouseBack, u"none"_s);
+        QCOMPARE(fresh.captureMouseForward, u"none"_s);
+
+        ws::Settings s;
+        s.load();
+        s.captureMouseDoubleLeft = u"save"_s;
+        s.captureMouseRight = u"cancel"_s;
+        s.captureMouseMiddle = u"pin"_s;
+        s.captureMouseBack = u"ocr"_s;
+        s.captureMouseForward = u"copy"_s;
+        s.save();
+        ws::Settings back;
+        back.load();
+        QCOMPARE(back.captureMouseDoubleLeft, u"save"_s);
+        QCOMPARE(back.captureMouseRight, u"cancel"_s);
+        QCOMPARE(back.captureMouseMiddle, u"pin"_s);
+        QCOMPARE(back.captureMouseBack, u"ocr"_s);
+        QCOMPARE(back.captureMouseForward, u"copy"_s);
+
+        {
+            QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+            ini.setValue(u"Capture/MouseDoubleLeft"_s, u"back"_s);
+            ini.setValue(u"Capture/MouseRight"_s, u"Back"_s);
+            ini.setValue(u"Capture/MouseMiddle"_s, u"nonsense"_s);
+        }
+        ws::Settings odd;
+        odd.load();
+        QCOMPARE(odd.captureMouseDoubleLeft, u"copy"_s);
+        QCOMPARE(odd.captureMouseRight, u"back"_s);
+        QCOMPARE(odd.captureMouseMiddle, u"none"_s);
+    }
+
     void sortAndDoubleClick()
     {
         QTemporaryDir profile;

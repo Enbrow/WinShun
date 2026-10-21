@@ -351,12 +351,16 @@ Window {
         anchors.fill: parent
         z: -1
         hoverEnabled: true
-        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton | Qt.BackButton | Qt.ForwardButton
         cursorShape: overlay.screenModel.cursorShape
         onPositionChanged: (mouse) => overlay.session.mouseMoved(overlay.screenModel.index, mouse.x, mouse.y)
         onPressed: (mouse) => overlay.session.mousePressed(overlay.screenModel.index, mouse.x, mouse.y, mouse.button)
         onReleased: (mouse) => overlay.session.mouseReleased(overlay.screenModel.index, mouse.x, mouse.y, mouse.button)
-        onDoubleClicked: (mouse) => overlay.session.mouseDoubleClicked(overlay.screenModel.index, mouse.x, mouse.y)
+        // Only the left button's: a second middle or side click is two presses of their own
+        onDoubleClicked: (mouse) => {
+            if (mouse.button === Qt.LeftButton)
+                overlay.session.mouseDoubleClicked(overlay.screenModel.index, mouse.x, mouse.y)
+        }
         onWheel: (wheel) => overlay.session.wheeled(overlay.screenModel.index, wheel.x, wheel.y, wheel.angleDelta.y)
     }
 
