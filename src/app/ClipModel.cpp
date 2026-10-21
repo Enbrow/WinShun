@@ -481,6 +481,30 @@ void ClipModel::clearSelection()
     selectionEdited();
 }
 
+std::vector<qint64> ClipModel::listedIds(bool grouped) const
+{
+    std::vector<qint64> ids;
+    ids.reserve(m_ids.size());
+    for (const qint64 id : m_ids) {
+        if (const Clip* c = m_store->clip(id); c && (grouped || c->group == 0))
+            ids.push_back(id);
+    }
+    return ids;
+}
+
+int ClipModel::selectListed(bool grouped)
+{
+    const std::vector<qint64> ids = listedIds(grouped);
+    if (ids.empty())
+        return 0;
+    QList<qint64> picked(ids.begin(), ids.end());
+    if (picked != m_selected) {
+        m_selected = std::move(picked);
+        selectionEdited(); // one repaint for all of them
+    }
+    return static_cast<int>(ids.size());
+}
+
 std::vector<const Clip*> ClipModel::selection() const
 {
     std::vector<const Clip*> clips;

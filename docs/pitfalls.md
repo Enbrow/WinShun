@@ -804,6 +804,11 @@
   - **组字时按键归输入法**：窗口有焦点时（从 Win顺 自己的框打开、开在开始菜单或提权的程序上、起分组名）照常用输入法打。搜索框的 `preeditText` 不空时页面不处理按键（`ClipboardPage.qml`），`Alt+1` 不会在半截拼音时粘贴，`Esc` 不会关窗口。转发时不看这一条，残留的组字不能让按键失灵。普通键不接，输入法已经处理了；带 `Ctrl`、`Alt` 的键要接下（吞掉）。实测组字 `tu` 时按 `Alt+5`，框里成了 `tu5`，`Esc` 取消组字后 `5` 留在搜索词里筛了列表。这个 5 是 Qt 插的，不是输入法组的字：`QWindowsKeyMapper` 把 `WM_SYSCHAR` 的 `5` 当成事件文字，`QInputControl::isAcceptableInput` 只拒 `Ctrl` 和 `Ctrl+Shift`，`QQuickTextInput` 就把它插进了文字（`Esc` 只去掉了组字）。`Ctrl+V`、`Ctrl+Z` 同理会改文字。
 - **验证**（2026-10-19，微软拼音，提权 SendInput，不提权的 WinForms 测试窗口和单独的测试 VS Code）：中文布局单按 `Shift` 仍在转发、测试窗口的输入法不变，空框的占位字变成提示，打 `tupian` 后提示消失；有搜索词时底栏提示约 5 秒、下一个键就收；英文布局和 `Shift+↓` 都没有提示。VS Code 里 `Ctrl+P` 开着时打开剪贴板、单按 `Shift`，快速打开框一直开着，`qing` 搜到“请”并高亮，Enter 把那条粘进了快速打开框。测剪贴板粘贴前先看 Windows 自带的历史满没满：满了（25 条）时粘贴一次会挤掉用户最老的一条，删掉测试那条也回不来。
 
+### Ctrl+A 选了全部条目，按 Delete 却删了搜索框里的字（GitHub #55）
+
+- **现象**：搜索框里有字时按两次 `Ctrl+A`（第一次选字，第二次选条目），搜索框的字仍是选中的，`Delete` 被当成“删字”让给了输入框，条目没删。
+- **做法**：`ClipboardPage.qml` 里有选中的条目时，`Delete` 不再看搜索框的选区和光标（`Ctrl+C` 早就是这样）。`Ctrl+A` 只在搜索框没字或字已全选时才选条目；选条目用 `ClipModel::selectListed` 一次换掉整个选择、只发一次 `dataChanged`，几千条也不卡。
+
 ## 搜索面板（Ctrl+E，linux.do #209）
 
 ### 面板里的筛选输入框把键盘留住了

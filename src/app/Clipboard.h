@@ -126,6 +126,7 @@ public:
         MoveDown,
         RenameGroup, // on a category tab
         RemoveGroup,
+        RemoveAll, // everything listed (not what is in a group, unless a group's tab)
         MoveToGroup = 1000, // + the group's id
     };
     Q_ENUM(Action)
@@ -234,6 +235,11 @@ public:
     Q_INVOKABLE void toggleSelected(int row);
     Q_INVOKABLE void selectRange(int from, int to, bool add);
     Q_INVOKABLE void clearSelection();
+    // Ctrl+A and 全部删除: the listed entries (this tab, this search). What is
+    // in a group is left out, unless the tab is a group's. selectAll() returns
+    // how many it picked; removeListed() can be undone as any delete.
+    Q_INVOKABLE int selectAll();
+    void removeListed();
     Q_INVOKABLE void cycleCategory(int delta);
     Q_INVOKABLE void cycleSeparator();
     Q_INVOKABLE void dismiss(); // Esc, Win+V again: back to the field it came from, or closed (pinned: the keys given back)

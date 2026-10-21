@@ -6337,6 +6337,31 @@
         <source>删除</source>
         <translation>Delete</translation>
     </message>
+    <message numerus="yes">
+        <source>删除全部 %Ln 条</source>
+        <translation>
+            <numerusform>Delete all %Ln entry</numerusform>
+            <numerusform>Delete all %Ln entries</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>删除搜到的 %Ln 条</source>
+        <translation>
+            <numerusform>Delete the %Ln entry found</numerusform>
+            <numerusform>Delete the %Ln entries found</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>删除本组全部 %Ln 条</source>
+        <translation>
+            <numerusform>Delete all %Ln entry in this group</numerusform>
+            <numerusform>Delete all %Ln entries in this group</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>（固定和分组的保留）</source>
+        <translation> (pinned and grouped ones stay)</translation>
+    </message>
     <message>
         <source>重命名…</source>
         <translation>Rename…</translation>

@@ -1030,6 +1030,20 @@ void Clipboard::clearSelection()
     m_model.clearSelection();
 }
 
+int Clipboard::selectAll()
+{
+    return m_model.selectListed(m_categoryGroup != 0);
+}
+
+void Clipboard::removeListed()
+{
+    const std::vector<qint64> ids = m_model.listedIds(m_categoryGroup != 0);
+    if (ids.empty())
+        return;
+    removeEntries(ids);
+    flash(tr("已删除 %Ln 条，按 Ctrl+Z 撤销", nullptr, static_cast<int>(ids.size())));
+}
+
 void Clipboard::dismiss()
 {
     if (m_pinned) { // it stays up
@@ -1185,6 +1199,17 @@ QVariantList Clipboard::menuItems(int row) const
         items.append(entry(LeaveGroup, tr("移出分组"), QString(), u""_s));
     items.append(separator);
     items.append(entry(Remove, many ? tr("删除 %Ln 条", nullptr, n) : tr("删除"), u"Delete"_s, u""_s));
+    // The whole list: in a group's tab that group, else what is in no group.
+    const bool inGroup = m_categoryGroup != 0;
+    const auto all = static_cast<int>(m_model.listedIds(inGroup).size());
+    if (all > 1) {
+        QString text = inGroup ? tr("删除本组全部 %Ln 条", nullptr, all)
+            : !m_query.trimmed().isEmpty() ? tr("删除搜到的 %Ln 条", nullptr, all)
+                                           : tr("删除全部 %Ln 条", nullptr, all);
+        if (all < m_model.count())
+            text += tr("（固定和分组的保留）");
+        items.append(entry(RemoveAll, text, QString(), u""_s));
+    }
     return items;
 }
 
@@ -1239,6 +1264,9 @@ void Clipboard::trigger(int row, int action)
         break;
     case Remove:
         remove(row);
+        break;
+    case RemoveAll:
+        removeListed();
         break;
     case PinImage: {
         const Clip* c = m_model.at(row);

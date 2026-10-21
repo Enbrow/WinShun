@@ -79,6 +79,12 @@ public:
     void toggle(int row);
     void selectRange(int from, int to, bool add);
     void clearSelection();
+    // The listed entries a whole-list action takes (Ctrl+A, delete all): all
+    // of them, or with `grouped` false only those in no group ("固定" too is one).
+    std::vector<qint64> listedIds(bool grouped) const;
+    // Picks them in the order listed, instead of what was picked; how many.
+    // Nothing to pick leaves the picks as they are.
+    int selectListed(bool grouped);
     std::vector<const Clip*> selection() const; // in the order picked
 
     QColor highlightColor() const { return m_highlightColor; }

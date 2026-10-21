@@ -367,9 +367,21 @@ Item {
                 return
             clipboard.togglePin(targetRow())
             break
+        case Qt.Key_A:
+            // The field's own first: Ctrl+A selects its text. With no text, or
+            // all of it selected already, it picks the listed rows (not what
+            // is in a group, unless this is a group's tab).
+            if (!ctrl || shift || alt || (input.text.length > 0 && input.selectedText.length < input.text.length))
+                return
+            if (clipboard.selectAll() === 0)
+                return
+            selectionAnchor = -1
+            break
         case Qt.Key_Delete:
-            // Deletes an entry only where it would delete no typed text.
-            if (ctrl || shift || input.selectedText.length > 0 || input.cursorPosition < input.text.length)
+            // Deletes an entry only where it would delete no typed text; picked
+            // rows are deleted whatever the field holds (Ctrl+A in a search
+            // leaves its text selected).
+            if (ctrl || shift || (selectedCount === 0 && (input.selectedText.length > 0 || input.cursorPosition < input.text.length)))
                 return
             clipboard.remove(targetRow())
             break
