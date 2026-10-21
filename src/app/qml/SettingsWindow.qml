@@ -3470,7 +3470,7 @@ Window {
                     // and groups are left alone.
                     title: qsTr("已不存在的文件记录")
                     keywords: qsTr("删除;移走;失效;找不到;missing").split(";")
-                    description: qsTr("隐藏：仍占条数上限，搜索还能找到，改回后会再出现；清理：直接删掉，不占条数")
+                    description: qsTr("隐藏的不显示，搜索还能找到，仍占条数上限；清理的会删掉，不占条数。U 盘拔了、网络盘断了不算")
 
                     ScopeTabs {
                         labels: [qsTr("不处理"), qsTr("自动隐藏"), qsTr("自动清理")]

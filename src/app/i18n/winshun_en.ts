@@ -3999,8 +3999,8 @@
         <translation>deleted;moved;gone;not found;missing</translation>
     </message>
     <message>
-        <source>隐藏：仍占条数上限，搜索还能找到，改回后会再出现；清理：直接删掉，不占条数</source>
-        <translation>Hidden: they still count toward the limit, a search still finds them, and they come back when switched back. Cleaned up: deleted, no longer counted</translation>
+        <source>隐藏的不显示，搜索还能找到，仍占条数上限；清理的会删掉，不占条数。U 盘拔了、网络盘断了不算</source>
+        <translation>Hidden ones are not listed but a search still finds them, and they count toward the limit; cleaned-up ones are deleted and no longer count. A USB drive pulled out or a network drive offline does not count as gone</translation>
     </message>
     <message>
         <source>不处理</source>

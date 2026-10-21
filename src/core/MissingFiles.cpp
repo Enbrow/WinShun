@@ -135,7 +135,7 @@ void MissingFiles::setMode(Mode mode)
 {
     if (mode == m_mode)
         return;
-    const Mode was = std::exchange(m_mode, mode);
+    m_mode = mode;
     if (mode == Mode::Keep) {
         // Everything is listed again at once; a pass under way is let go of.
         m_pending.reset();
@@ -147,9 +147,9 @@ void MissingFiles::setMode(Mode mode)
         }
         return;
     }
-    // Turned on: a pass now rather than in ten minutes (before the one
-    // after the start, that one).
-    if (was == Mode::Keep && m_started)
+    // Turned on, or from hiding to cleaning: a pass now rather than in ten
+    // minutes (before the one after the start, that one).
+    if (m_started)
         check();
 }
 
