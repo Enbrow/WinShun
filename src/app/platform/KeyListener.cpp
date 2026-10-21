@@ -1,9 +1,11 @@
 #include "KeyListener.h"
 #include "KeyListenerProtocol.h"
+#include "OwnInput.h"
 
 #include <algorithm>
 #include <format>
 #include <latch>
+#include <optional>
 #include <vector>
 
 namespace ws {
@@ -20,7 +22,10 @@ constexpr USHORT kAnyButtonDown = RI_MOUSE_LEFT_BUTTON_DOWN | RI_MOUSE_RIGHT_BUT
 constexpr USHORT kWheel = RI_MOUSE_WHEEL | RI_MOUSE_HWHEEL;
 constexpr UINT_PTR kMouseOffTimer = 1;
 
-// Ctrl pressed while dragging switches between moving and copying.
+using Key = DoubleTapDetector::Key;
+
+// The key pressed while dragging: Ctrl switches between moving and copying,
+// Alt drags a column selection or (AltSnap) the window.
 bool mouseButtonHeld()
 {
     for (const int button : {VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2}) {
@@ -31,8 +36,8 @@ bool mouseButtonHeld()
 }
 
 // As long as a double click may take (Control Panel → Mouse), so a slow
-// setting there is honoured; within limits, so two separate Ctrl presses do
-// not make one.
+// setting there is honoured; within limits, so two separate presses do not
+// make one.
 std::uint32_t maxGapMs()
 {
     return std::clamp<std::uint32_t>(::GetDoubleClickTime(), 400, 900);
@@ -52,6 +57,16 @@ bool modifierHeld()
 bool isDown(std::uint32_t vk)
 {
     return held(static_cast<int>(vk));
+}
+
+DoubleTapDetector detectorFor(Key key)
+{
+    return DoubleTapDetector({.key = key, .isDown = &isDown});
+}
+
+bool takes(KeyListener::Keys keys, Key key)
+{
+    return keys == KeyListener::Keys::CtrlAndAlt || (keys == KeyListener::Keys::Alt) == (key == Key::Alt);
 }
 
 bool keyboardRegistered(HWND window)
@@ -113,11 +128,51 @@ std::uint8_t recentKey(std::uint32_t vk)
     }
 }
 
+// WINSHUN_KEYLOG=1: every key event in the log (Callbacks::log).
+bool keyLogWanted()
+{
+    wchar_t value[4] {};
+    return ::GetEnvironmentVariableW(L"WINSHUN_KEYLOG", value, 4) == 1 && value[0] == L'1';
+}
+
+const char* keysName(KeyListener::Keys keys)
+{
+    return keys == KeyListener::Keys::Alt ? "Alt" : keys == KeyListener::Keys::Ctrl ? "Ctrl" : "Ctrl and Alt";
+}
+
+const char* sideName(DoubleTapDetector::Side side)
+{
+    return side == DoubleTapDetector::Side::Left ? "left" : side == DoubleTapDetector::Side::Right ? "right" : "both";
+}
+
+const char* yesNo(bool yes)
+{
+    return yes ? "yes" : "no";
+}
+
+// For the key log: a modifier (or KeyRouter's E8) with what Raw Input said
+// of it, any other key only as "key" (nothing typed is kept); when, and from
+// where.
+std::string describeKey(const RAWKEYBOARD& key, std::uint32_t vk, bool up, bool device, bool sent, std::uint32_t time)
+{
+    const std::uint8_t name = recentKey(vk);
+    std::string text = std::format("Key log: {}{}", kRecentNames[name], up ? "↑" : "↓");
+    if (name != 9 || key.VKey == 0xE8)
+        text += std::format(" (vk {:#x}, scan {:#x}, flags {:#x})", key.VKey, key.MakeCode, key.Flags);
+    return text
+        + std::format(" at {}, {}, extra {:#x}", time,
+            device  ? "from a keyboard"
+            : sent  ? "sent by a program"
+                    : "sent by Win顺",
+            key.ExtraInformation);
+}
+
 } // namespace
 
 KeyListener::KeyListener(Callbacks callbacks)
     : m_callbacks(std::move(callbacks))
-    , m_detector(DoubleTapDetector::Config {.isDown = &isDown})
+    , m_detectors {detectorFor(Key::Ctrl), detectorFor(Key::Alt)}
+    , m_keyLog(m_callbacks.log && keyLogWanted())
 {
     std::latch ready(1);
     m_thread = std::jthread([this, &ready] {
@@ -131,7 +186,7 @@ KeyListener::KeyListener(Callbacks callbacks)
         const HWND hwnd = ::CreateWindowExW(0, kClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, instance, this);
         m_window = hwnd;
         // Every keyboard, also while other programs have the focus; the mouse
-        // only around a Ctrl press (listenToMouse), or all the time for
+        // only around a press of the key (listenToMouse), or all the time for
         // double clicks.
         bool active = hwnd != nullptr;
         if (hwnd && m_callbacks.doubleCtrl) {
@@ -174,26 +229,27 @@ LRESULT CALLBACK KeyListener::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     switch (msg) {
     case keyproto::kReady:
         if (self && wParam != 0 && wParam == self->m_servicePid.load()) {
+            const bool alt = (lParam & keyproto::kReportsAlt) != 0;
+            if (self->m_keyLog && (self->m_readyPid.load() != wParam || self->m_serviceAlt.load() != alt))
+                self->log(std::format("Key log: UIAccess listener {} ready, it tells of {}", wParam,
+                    alt ? "Ctrl and Alt" : "Ctrl only"));
             self->m_readyPid = static_cast<DWORD>(wParam);
+            self->m_serviceAlt = alt;
             self->m_heartbeat = ::GetTickCount64();
-            if (!self->m_usingService) {
-                self->m_detector.reset();
-                self->m_usingService = true;
-            }
+            self->followService();
         }
         return 0;
     case keyproto::kTap:
-        if (self && self->serviceActive() && static_cast<DWORD>(wParam >> 32) == self->m_servicePid.load()
-            && keyboardRegistered(hwnd)) {
+        if (self && static_cast<DWORD>(wParam >> 32) == self->m_servicePid.load()) {
             const auto key = static_cast<std::uint32_t>(wParam & 0xFF);
             const auto time = static_cast<std::uint32_t>(lParam);
-            const auto side = self->m_side.load();
-            if ((key == VK_LCONTROL || key == VK_RCONTROL)
-                && (side == DoubleTapDetector::Side::Both
-                    || (side == DoubleTapDetector::Side::Left && key == VK_LCONTROL)
-                    || (side == DoubleTapDetector::Side::Right && key == VK_RCONTROL))
-                && static_cast<DWORD>(::GetTickCount()) - time < 1000)
-                self->deliver({(wParam & 0x100) ? "UIAccess listener: simulated Ctrl" : "", key, time});
+            const bool taken = self->serviceTells() && keyboardRegistered(hwnd)
+                && static_cast<DWORD>(::GetTickCount()) - time < 1000;
+            if (self->m_keyLog)
+                self->log(std::format("Key log: UIAccess listener: double {} at {}{}", kRecentNames[recentKey(key)],
+                    time, taken ? "" : ", passed over (not its key now, stale, or a shortcut being recorded)"));
+            if (taken)
+                self->deliver({(wParam & 0x100) ? "UIAccess listener: partly simulated" : "", key, time});
         }
         return 0;
     case WM_INPUT:
@@ -203,7 +259,7 @@ LRESULT CALLBACK KeyListener::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     case WM_TIMER:
         if (wParam == kMouseOffTimer && self) {
             ::KillTimer(hwnd, kMouseOffTimer);
-            if (::GetAsyncKeyState(VK_CONTROL) < 0) // still down: wait for its release
+            if (self->keyHeld()) // still down: wait for its release
                 ::SetTimer(hwnd, kMouseOffTimer, maxGapMs(), nullptr);
             else
                 self->listenToMouse(false);
@@ -244,39 +300,62 @@ void KeyListener::onInput(HRAWINPUT input)
     if (raw.header.dwType != RIM_TYPEKEYBOARD || !m_callbacks.doubleCtrl)
         return;
     const RAWKEYBOARD& key = raw.data.keyboard;
-    if (key.VKey == 0xFF)
-        return; // the extra part of an escaped key sequence, not a key
     const bool up = key.Flags & RI_KEY_BREAK;
-    const bool external = serviceActive();
-    if (external != m_usingService) {
-        // Never join half a local gesture to one from before a lost service
-        // connection (or from before an elevated window stopped delivering).
-        m_detector = DoubleTapDetector(DoubleTapDetector::Config {.isDown = &isDown});
-        m_usingService = external;
-    }
     const std::uint32_t vk = sidedKey(key);
-    const bool ctrl = DoubleTapDetector::isCtrl(vk);
+    // A program's has no device. Not Win顺's own: the Alt KeyRouter lets go
+    // after its mask was pressed by a finger.
+    const bool device = raw.header.hDevice != nullptr;
+    const bool sent = !device && !isOwnInput(key.ExtraInformation);
     const auto time = static_cast<std::uint32_t>(::GetMessageTime()); // when it was pressed, not when we got to it
-    m_recent[m_recentNext] = {recentKey(vk), up, raw.header.hDevice == nullptr, time};
+    // 0xFF: the extra part of an escaped key sequence, not a key. kOwnMask:
+    // KeyRouter's mask just before it lets a Shift or Alt pressed alone go
+    // on to the program: no key in between, the Alt was alone.
+    if (key.VKey == 0xFF || key.ExtraInformation == kOwnMask) {
+        if (m_keyLog)
+            log(describeKey(key, vk, up, device, sent, time) + ", passed over");
+        return;
+    }
+    followService();
+    m_recent[m_recentNext] = {recentKey(vk), up, sent, time};
     m_recentNext = (m_recentNext + 1) % m_recent.size();
+    const Keys keys = m_keys.load();
+    const bool tapped
+        = std::ranges::any_of(m_detectors, [&](const auto& d) { return takes(keys, d.key()) && d.isKey(vk); });
     POINT pt {};
-    if (ctrl) {
+    if (tapped) {
         ::GetCursorPos(&pt);
-        if (!up) {
-            m_detector.setMaxGap(maxGapMs());
-            m_detector.setSide(m_side.load());
+        if (!up)
             listenToMouse(true);
-        }
         // Until a second tap can no longer follow. Armed on the press too: a
         // release can be lost (Ctrl+Alt+Del to lock the screen), and the timer
-        // then finds Ctrl up.
+        // then finds the key up.
         ::SetTimer(m_window.load(), kMouseOffTimer, maxGapMs() + 100, nullptr);
     }
-    const bool fire = up ? m_detector.keyUp(vk, time, pt.x, pt.y) : m_detector.keyDown(vk, time, pt.x, pt.y);
-    if (ctrl && !up && mouseButtonHeld())
-        m_detector.mouseUsed();
-    if (fire && !external)
-        deliver({sentTrace(), vk, time});
+    std::optional<Tap> tap;
+    std::string states; // for the key log
+    for (DoubleTapDetector& d : m_detectors) {
+        if (!takes(keys, d.key()))
+            continue;
+        const bool own = d.isKey(vk);
+        if (own && !up) {
+            d.setMaxGap(maxGapMs());
+            d.setSide(m_side.load());
+        }
+        const bool fire = up ? d.keyUp(vk, time, pt.x, pt.y, sent) : d.keyDown(vk, time, pt.x, pt.y, sent);
+        if (own && !up && mouseButtonHeld())
+            d.mouseUsed();
+        if (fire && !m_usingService)
+            tap = Tap {sentTrace(d.key()), vk, time};
+        if (m_keyLog)
+            states += std::format("; {} {}{}{}", d.key() == Key::Alt ? "Alt" : "Ctrl", d.clean() ? "clean" : "not clean",
+                d.armed() ? ", armed" : "", fire ? ", DOUBLE TAP" : "");
+    }
+    if (m_keyLog)
+        log(std::format("{}; keys {}, side {}; service active {}, tells {}, used {}{}",
+            describeKey(key, vk, up, device, sent, time), keysName(keys), sideName(m_side.load()),
+            yesNo(serviceActive()), yesNo(serviceTells()), yesNo(m_usingService), states));
+    if (tap)
+        deliver(std::move(*tap));
 }
 
 bool KeyListener::serviceActive() const noexcept
@@ -285,29 +364,101 @@ bool KeyListener::serviceActive() const noexcept
     return pid && pid == m_readyPid.load() && ::GetTickCount64() - m_heartbeat.load() < keyproto::kLeaseMs;
 }
 
+// The UIAccess listener tells of the key's taps, and then only it, so that
+// none comes twice. One from before double Alt never tells of Alt's: they
+// are left to this one.
+bool KeyListener::serviceTells() const noexcept
+{
+    return serviceActive() && (m_keys.load() != Keys::Alt || m_serviceAlt.load());
+}
+
+// Never joins half a gesture seen here to one from before the service came
+// or went (a lost connection, an elevated window that stopped delivering).
+void KeyListener::followService()
+{
+    // Said once: Alt is then this process's own, and over administrator
+    // windows its Raw Input brings nothing (UIPI, docs/pitfalls.md).
+    if (!m_oldServiceLogged && m_keys.load() == Keys::Alt && serviceActive() && !m_serviceAlt.load()) {
+        m_oldServiceLogged = true;
+        log("Double Alt: the service's UIAccess listener is from before double Alt and tells of Ctrl only. "
+            "Over administrator windows double Alt does nothing until the service is updated.");
+    }
+    const bool external = serviceTells();
+    if (external == m_usingService)
+        return;
+    for (DoubleTapDetector& d : m_detectors)
+        d.reset();
+    m_usingService = external;
+    if (m_keyLog)
+        log(external ? "Key log: double taps now from the UIAccess listener"
+                     : "Key log: double taps now from this process's Raw Input");
+}
+
+// A key listened for is down: its release is still to come, or was lost.
+bool KeyListener::keyHeld() const
+{
+    const Keys keys = m_keys.load();
+    return (takes(keys, Key::Ctrl) && held(VK_CONTROL)) || (takes(keys, Key::Alt) && held(VK_MENU));
+}
+
+// A double tap of the key and side set. The UIAccess listener tells of all.
+bool KeyListener::wanted(std::uint32_t key) const noexcept
+{
+    const bool alt = key == VK_LMENU || key == VK_RMENU;
+    if ((!alt && key != VK_LCONTROL && key != VK_RCONTROL) || !takes(m_keys.load(), alt ? Key::Alt : Key::Ctrl))
+        return false;
+    switch (m_side.load()) {
+    case DoubleTapDetector::Side::Left:
+        return key == VK_LCONTROL || key == VK_LMENU;
+    case DoubleTapDetector::Side::Right:
+        return key == VK_RCONTROL || key == VK_RMENU;
+    case DoubleTapDetector::Side::Both:
+        break;
+    }
+    return true;
+}
+
 void KeyListener::deliver(Tap tap)
 {
+    const char* const name = kRecentNames[recentKey(tap.key)];
+    if (!wanted(tap.key)) {
+        if (m_keyLog)
+            log(std::format("Key log: double {} passed over: not the key or side set", name));
+        return;
+    }
     // Both sources can finish the same gesture during a handover. WM_INPUT
     // uses the same event timestamp in both processes; late duplicates lose.
     if (m_delivered && static_cast<DWORD>(::GetTickCount()) - m_lastDelivered < 1000
-        && static_cast<std::int32_t>(tap.time - m_lastDelivered) <= 0)
+        && static_cast<std::int32_t>(tap.time - m_lastDelivered) <= 0) {
+        if (m_keyLog)
+            log(std::format("Key log: double {} passed over: already told", name));
         return;
+    }
     m_delivered = true;
     m_lastDelivered = tap.time;
+    if (m_keyLog)
+        log(std::format("Key log: double {} at {} told", name, tap.time));
     m_callbacks.doubleCtrl(tap);
 }
 
-// The last keys, oldest first, when a program sent any of the last four Ctrl
-// events: "LAlt↓ +0, LCtrl↓ sent +812, …". Empty when the taps were all
-// typed.
-std::string KeyListener::sentTrace() const
+void KeyListener::log(const std::string& line) const
 {
+    if (m_callbacks.log)
+        m_callbacks.log(line);
+}
+
+// The last keys, oldest first, when a program sent any of the last four
+// events of the key tapped: "LAlt↓ +0, LCtrl↓ sent +812, …". Empty when the
+// taps were all typed.
+std::string KeyListener::sentTrace(Key key) const
+{
+    const int left = key == Key::Alt ? 5 : 1; // its left one among the names, the right one next
     bool sent = false;
-    int ctrlEvents = 0;
-    for (std::size_t i = 0; i < m_recent.size() && ctrlEvents < 4; ++i) {
+    int events = 0;
+    for (std::size_t i = 0; i < m_recent.size() && events < 4; ++i) {
         const Recent& r = m_recent[(m_recentNext + m_recent.size() - 1 - i) % m_recent.size()];
-        if (r.key == 1 || r.key == 2) {
-            ++ctrlEvents;
+        if (r.key == left || r.key == left + 1) {
+            ++events;
             sent = sent || r.sent;
         }
     }
@@ -331,7 +482,8 @@ std::string KeyListener::sentTrace() const
 
 void KeyListener::onMouse(const RAWMOUSE& mouse)
 {
-    m_detector.mouseUsed();
+    for (DoubleTapDetector& d : m_detectors)
+        d.mouseUsed();
     if (!m_callbacks.doubleClick)
         return;
     // The device's buttons: with them swapped (left-handed), its right one
@@ -360,8 +512,8 @@ void KeyListener::onMouse(const RAWMOUSE& mouse)
     m_callbacks.doubleClick(window, pt);
 }
 
-// The mouse only while it can spoil a tap: from a Ctrl press until a second
-// tap can no longer follow. Listened to all the time, every move wakes this
+// The mouse only while it can spoil a tap: from a press of the key until a
+// second tap can no longer follow. Listened to all the time, every move wakes this
 // thread, up to thousands of times a second with a gaming mouse: only when
 // double clicks are asked for (cheap still: nothing waits on it, and a move
 // is one look at the button flags).

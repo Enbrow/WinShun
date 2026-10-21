@@ -69,6 +69,7 @@ Window {
     readonly property int advancedPage: 8 // where the updates are
     readonly property int aiPage: 9 // AI 助手: the MCP server (AiAccessSection, AiClientsSection, AiPrivacySection)
     readonly property int pluginsPage: 10 // 插件: 已安装 (PluginsSection), 开发者 (PluginDevSection)
+    readonly property string tapKey: editor.doubleTapKey === "alt" ? "Alt" : "Ctrl" // the key tapped twice to open Win顺
     property int currentPage: 0
     property int currentTab: 0
     property var lastTabs: [] // by page: the tab it was left on, to come back to
@@ -913,27 +914,33 @@ Window {
                 width: parent.width
 
                 SettingRow {
-                    title: qsTr("双击 Ctrl 打开")
-                    keywords: qsTr("双击;呼出;唤出;double ctrl").split(";")
+                    title: qsTr("双击 Ctrl 或 Alt 打开")
+                    keywords: qsTr("双击;连按;呼出;唤出;double ctrl;double alt").split(";")
                     unlocks: [doubleCtrlKeyRow, gamesRow, fullScreenRow, doubleCtrlAppsRow]
-                    description: qsTr("连按两下 Ctrl，打开或关闭搜索框。管理员或部分输入法窗口中需要 Win顺 服务支持")
+                    description: qsTr("连按两下 %1，打开或关闭搜索框。管理员或部分输入法窗口中需要 Win顺 服务支持")
+                                 .arg(window.tapKey)
 
-                    ToggleSwitch {
-                        checked: window.editor.doubleCtrl
-                        onToggled: (on) => window.editor.doubleCtrl = on
+                    ScopeTabs {
+                        labels: ["Ctrl", "Alt", qsTr("关闭")]
+                        current: !window.editor.doubleCtrl ? 2 : window.editor.doubleTapKey === "alt" ? 1 : 0
+                        onActivated: (index) => {
+                            if (index < 2)
+                                window.editor.doubleTapKey = ["ctrl", "alt"][index]
+                            window.editor.doubleCtrl = index < 2
+                        }
                     }
                 }
 
                 SettingRow {
                     id: doubleCtrlKeyRow
                     shown: window.editor.doubleCtrl
-                    title: qsTr("用哪个 Ctrl")
-                    keywords: qsTr("左 Ctrl;右 Ctrl;左边;右边;冲突;PowerToys;查找鼠标;left ctrl;right ctrl").split(";")
-                    description: qsTr("同一个 Ctrl 连按两下才算。和别的软件撞了时，可以只用一边")
+                    title: qsTr("用哪个 %1").arg(window.tapKey)
+                    keywords: qsTr("左 Ctrl;右 Ctrl;左 Alt;右 Alt;左边;右边;冲突;PowerToys;查找鼠标;left ctrl;right ctrl;left alt;right alt").split(";")
+                    description: qsTr("同一个 %1 连按两下才算。和别的软件撞了时，可以只用一边").arg(window.tapKey)
                     bodyShown: window.editor.doubleCtrlClash.length > 0
 
                     ScopeTabs {
-                        labels: [qsTr("左右都行"), qsTr("左 Ctrl"), qsTr("右 Ctrl")]
+                        labels: [qsTr("左右都行"), qsTr("左 %1").arg(window.tapKey), qsTr("右 %1").arg(window.tapKey)]
                         current: Math.max(0, ["both", "left", "right"].indexOf(window.editor.doubleCtrlKey))
                         onActivated: (index) => window.editor.doubleCtrlKey = ["both", "left", "right"][index]
                     }
@@ -967,9 +974,10 @@ Window {
                 SettingRow {
                     id: gamesRow
                     shown: window.editor.doubleCtrl
-                    title: qsTr("玩游戏时不响应双击 Ctrl")
+                    title: qsTr("玩游戏时不响应双击 %1").arg(window.tapKey)
                     keywords: qsTr("游戏;蹲下;误触;game").split(";")
-                    description: qsTr("游戏全屏或藏起鼠标时不打开，免得蹲下时误触")
+                    description: window.tapKey === "Alt" ? qsTr("游戏全屏或藏起鼠标时不打开，免得误触")
+                                                         : qsTr("游戏全屏或藏起鼠标时不打开，免得蹲下时误触")
 
                     ToggleSwitch {
                         checked: window.editor.doubleCtrlPauseInGames
@@ -980,7 +988,7 @@ Window {
                 SettingRow {
                     id: fullScreenRow
                     shown: window.editor.doubleCtrl
-                    title: qsTr("任何程序全屏时都不响应双击 Ctrl")
+                    title: qsTr("任何程序全屏时都不响应双击 %1").arg(window.tapKey)
                     keywords: qsTr("全屏;视频;幻灯片;误触;fullscreen").split(";")
                     description: qsTr("看视频、放幻灯片时也不打开")
 
@@ -993,7 +1001,7 @@ Window {
                 SettingRow {
                     id: doubleCtrlAppsRow
                     shown: window.editor.doubleCtrl
-                    title: qsTr("在这些程序里不响应双击 Ctrl")
+                    title: qsTr("在这些程序里不响应双击 %1").arg(window.tapKey)
                     keywords: qsTr("排除;程序;游戏;exe").split(";")
                     values: window.editor.doubleCtrlExcludedApps
                     description: qsTr("没被认出来的游戏，可以加在这里")

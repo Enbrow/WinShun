@@ -314,6 +314,15 @@ void SettingsEditor::setDoubleCtrl(bool on)
     refreshDoubleCtrlClash();
 }
 
+void SettingsEditor::setDoubleTapKey(const QString& key)
+{
+    if (m_settings.doubleTapKey == key || (key != u"ctrl" && key != u"alt"))
+        return;
+    m_settings.doubleTapKey = key;
+    commit();
+    refreshDoubleCtrlClash();
+}
+
 void SettingsEditor::setDoubleCtrlKey(const QString& key)
 {
     if (m_settings.doubleCtrlKey == key || (key != u"both" && key != u"left" && key != u"right"))
@@ -357,7 +366,7 @@ QString findMyMouseCtrl()
 void SettingsEditor::refreshDoubleCtrlClash()
 {
     QString clash;
-    if (m_settings.doubleCtrl) {
+    if (m_settings.doubleCtrl && m_settings.doubleTapKey == u"ctrl") {
         clash = findMyMouseCtrl();
         if (m_settings.doubleCtrlKey != u"both" && m_settings.doubleCtrlKey != clash)
             clash.clear();

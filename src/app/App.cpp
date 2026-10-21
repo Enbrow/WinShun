@@ -1194,14 +1194,15 @@ QString App::trayTooltip() const
                                  : tr("%1 · 保持唤醒").arg(name);
 }
 
-// "双击 Ctrl", "双击左 Ctrl": the keys as set.
+// "双击 Ctrl", "双击左 Alt": the key as set.
 QString App::doubleCtrlName() const
 {
+    const QString key = m_settings.doubleTapKey == u"alt" ? u"Alt"_s : u"Ctrl"_s;
     if (m_settings.doubleCtrlKey == u"left")
-        return tr("双击左 Ctrl");
+        return tr("双击左 %1").arg(key);
     if (m_settings.doubleCtrlKey == u"right")
-        return tr("双击右 Ctrl");
-    return tr("双击 Ctrl");
+        return tr("双击右 %1").arg(key);
+    return tr("双击 %1").arg(key);
 }
 
 void App::applySettings(bool initial)
@@ -1225,21 +1226,24 @@ void App::applySettings(bool initial)
                     // A few times a run (a key remapped to Ctrl makes every one).
                     static std::atomic<int> logged {0};
                     if (!tap.sent.empty() && logged.fetch_add(1) < 10)
-                        qWarning().noquote() << "Double Ctrl partly sent by a program:" << QString::fromStdString(tap.sent);
+                        qWarning().noquote() << "Double tap partly sent by a program:" << QString::fromStdString(tap.sent);
                     QMetaObject::invokeMethod(this, &App::onDoubleCtrl, Qt::QueuedConnection);
                 };
             if (FolderMenu* menu = doubleClicks ? m_folderMenu.get() : nullptr)
                 callbacks.doubleClick = [menu](HWND window, POINT pt) { menu->doubleClicked(window, pt); };
+            callbacks.log = [](const std::string& line) { qWarning().noquote() << QString::fromStdString(line); };
             m_keyListener = std::make_unique<KeyListener>(std::move(callbacks));
             if (m_settings.doubleCtrl && m_keyListener->isActive())
                 m_serviceKeyListener = std::make_unique<ServiceKeyListener>(m_keyListener->window(),
                     [listener = m_keyListener.get()](DWORD pid) { listener->setServiceProcess(pid); });
         }
     }
-    if (m_keyListener)
+    if (m_keyListener) {
+        m_keyListener->setKeys(m_settings.doubleTapKey == u"alt" ? KeyListener::Keys::Alt : KeyListener::Keys::Ctrl);
         m_keyListener->setSide(m_settings.doubleCtrlKey == u"left" ? DoubleTapDetector::Side::Left
                 : m_settings.doubleCtrlKey == u"right"            ? DoubleTapDetector::Side::Right
                                                                   : DoubleTapDetector::Side::Both);
+    }
     applyDialogs();
     applyClipboard();
     applyTaskbar();

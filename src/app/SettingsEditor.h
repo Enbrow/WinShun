@@ -27,6 +27,7 @@ class SettingsEditor : public QObject {
     QML_ELEMENT
     QML_UNCREATABLE("Provided by the application")
     Q_PROPERTY(bool doubleCtrl READ doubleCtrl WRITE setDoubleCtrl NOTIFY changed FINAL)
+    Q_PROPERTY(QString doubleTapKey READ doubleTapKey WRITE setDoubleTapKey NOTIFY changed FINAL) // ctrl | alt
     Q_PROPERTY(QString doubleCtrlKey READ doubleCtrlKey WRITE setDoubleCtrlKey NOTIFY changed FINAL) // both | left | right
     // The Ctrl PowerToys' Find My Mouse also opens on with a double tap,
     // when that is one Win顺 listens to as well: left | right; empty when
@@ -255,6 +256,8 @@ public:
 
     bool doubleCtrl() const { return m_settings.doubleCtrl; }
     void setDoubleCtrl(bool on);
+    QString doubleTapKey() const { return m_settings.doubleTapKey; }
+    void setDoubleTapKey(const QString& key);
     QString doubleCtrlKey() const { return m_settings.doubleCtrlKey; }
     void setDoubleCtrlKey(const QString& key);
     QString doubleCtrlClash() const { return m_doubleCtrlClash; }

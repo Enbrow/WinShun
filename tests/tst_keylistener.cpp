@@ -12,8 +12,11 @@
 #include <QTest>
 #include <QUuid>
 
+#include <algorithm>
 #include <atomic>
 #include <memory>
+#include <string>
+#include <vector>
 
 using namespace ws;
 using namespace ws::volproto;
@@ -21,10 +24,11 @@ using namespace ws::volproto;
 class KeyListenerTest : public QObject {
     Q_OBJECT
 
-    static void ready(KeyListener& listener, DWORD pid)
+    // `reports`: 0 for a listener from before double Alt.
+    static void ready(KeyListener& listener, DWORD pid, LPARAM reports = keyproto::kReportsAlt)
     {
         listener.setServiceProcess(pid);
-        ::SendMessageW(listener.window(), keyproto::kReady, pid, 0);
+        ::SendMessageW(listener.window(), keyproto::kReady, pid, reports);
     }
 
     static void tap(KeyListener& listener, DWORD pid, DWORD key, DWORD time)
@@ -65,6 +69,45 @@ private slots:
         listener.setServiceProcess(0);
         QVERIFY(!listener.serviceActive());
         tap(listener, second, VK_RCONTROL, ++time);
+        QCOMPARE(count.load(), 3);
+    }
+
+    void altTaps()
+    {
+        std::atomic<int> count {0};
+        std::vector<std::string> lines; // the listener's thread writes them while the test waits in SendMessage
+        KeyListener listener({.doubleCtrl = [&](const KeyListener::Tap&) { ++count; },
+            .log = [&](const std::string& line) { lines.push_back(line); }});
+        constexpr DWORD pid = 12345;
+        DWORD time = ::GetTickCount() - 100;
+        ready(listener, pid); // it tells of Ctrl's and Alt's taps; only the key set counts
+        tap(listener, pid, VK_LMENU, ++time);
+        QCOMPARE(count.load(), 0);
+        listener.setKeys(KeyListener::Keys::Alt);
+        tap(listener, pid, VK_LCONTROL, ++time);
+        QCOMPARE(count.load(), 0);
+        tap(listener, pid, VK_LMENU, ++time);
+        QCOMPARE(count.load(), 1);
+        listener.setSide(DoubleTapDetector::Side::Right);
+        tap(listener, pid, VK_LMENU, ++time);
+        QCOMPARE(count.load(), 1);
+        tap(listener, pid, VK_RMENU, ++time);
+        QCOMPARE(count.load(), 2);
+        // One from before double Alt: Alt's are this process's own Raw Input's
+        // to tell of, Ctrl's still its. The log says so, once.
+        const auto oldService = [&] {
+            return std::ranges::count_if(lines, [](const std::string& l) { return l.starts_with("Double Alt:"); });
+        };
+        QCOMPARE(oldService(), 0);
+        ready(listener, pid, 0);
+        ready(listener, pid, 0);
+        QCOMPARE(oldService(), 1);
+        QVERIFY(listener.serviceActive());
+        tap(listener, pid, VK_RMENU, ++time);
+        QCOMPARE(count.load(), 2);
+        listener.setKeys(KeyListener::Keys::Ctrl);
+        listener.setSide(DoubleTapDetector::Side::Both);
+        tap(listener, pid, VK_LCONTROL, ++time);
         QCOMPARE(count.load(), 3);
     }
 

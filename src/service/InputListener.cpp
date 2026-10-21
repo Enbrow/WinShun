@@ -269,10 +269,11 @@ int runInputListener(DWORD clientPid, HWND target)
     KeyListener listener(std::move(callbacks));
     if (!listener.isActive())
         return ERROR_NOT_READY;
+    listener.setKeys(KeyListener::Keys::CtrlAndAlt); // the GUI keeps the one set, and its side
     do {
         if (!targetOf(target, clientPid))
             break;
-        ::PostMessageW(target, keyproto::kReady, ::GetCurrentProcessId(), 0);
+        ::PostMessageW(target, keyproto::kReady, ::GetCurrentProcessId(), keyproto::kReportsAlt);
     } while (::WaitForSingleObject(client.get(), keyproto::kHeartbeatMs) == WAIT_TIMEOUT);
     return 0;
 }

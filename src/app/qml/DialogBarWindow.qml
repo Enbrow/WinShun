@@ -162,6 +162,10 @@ Window {
             return
         }
         hideNumbers()
+        if (event.key === Qt.Key_Alt) {
+            event.accepted = true // alone, it would open the window menu (see Main.qml)
+            return
+        }
         if (isNumberChord(event) && input.preeditText.length === 0) {
             window.bar.pressNumber(event.key - Qt.Key_0)
             event.accepted = true

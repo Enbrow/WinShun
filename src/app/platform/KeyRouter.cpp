@@ -209,14 +209,14 @@ bool wanted(const KeyRouter::Key& key, Qt::KeyboardModifier numberKeys)
     }
 }
 
-INPUT keyInput(WORD vk, WORD scanCode, DWORD flags)
+INPUT keyInput(WORD vk, WORD scanCode, DWORD flags, ULONG_PTR mark = kOwnInput)
 {
     INPUT input {};
     input.type = INPUT_KEYBOARD;
     input.ki.wVk = vk;
     input.ki.wScan = scanCode;
     input.ki.dwFlags = flags;
-    input.ki.dwExtraInfo = kOwnInput;
+    input.ki.dwExtraInfo = mark;
     return input;
 }
 
@@ -228,11 +228,12 @@ void sendMask()
     ::SendInput(static_cast<UINT>(keys.size()), keys.data(), sizeof(INPUT));
 }
 
-// The release of a modifier, after a masking key.
+// The release of a modifier, after a masking key. That one is marked: the
+// double tap listener does not count it as a key in between (KeyListener).
 void sendMaskedRelease(const KBDLLHOOKSTRUCT& event)
 {
     const DWORD extended = (event.flags & LLKHF_EXTENDED) ? KEYEVENTF_EXTENDEDKEY : 0;
-    std::array keys {keyInput(kMaskKey, 0, 0), keyInput(kMaskKey, 0, KEYEVENTF_KEYUP),
+    std::array keys {keyInput(kMaskKey, 0, 0, kOwnMask), keyInput(kMaskKey, 0, KEYEVENTF_KEYUP, kOwnMask),
         keyInput(static_cast<WORD>(event.vkCode), static_cast<WORD>(event.scanCode), KEYEVENTF_KEYUP | extended)};
     ::SendInput(static_cast<UINT>(keys.size()), keys.data(), sizeof(INPUT));
 }
@@ -340,7 +341,7 @@ LRESULT KeyRouter::handleKey(int code, WPARAM message, LPARAM lParam)
     // nonzero. A key it sends in its place (a remapper's) comes here at once,
     // inside this call, ahead of the one it replaces.
     const auto next = [&] { return ::CallNextHookEx(nullptr, code, message, lParam); };
-    if (event.dwExtraInfo == kOwnInput)
+    if (isOwnInput(event.dwExtraInfo))
         return next();
     const UINT vk = event.vkCode;
     // Any other key while a Shift is down: not a Shift pressed alone (see

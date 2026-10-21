@@ -74,8 +74,9 @@ struct PluginConfig {
 // their defaults so every option is discoverable in the file.
 struct Settings {
     // [Launcher]
-    bool doubleCtrl = true;
-    QString doubleCtrlKey = QStringLiteral("both"); // both | left | right: the Ctrl tapped (twice the same one)
+    bool doubleCtrl = true; // a double tap opens the launcher: of Ctrl, or Alt (doubleTapKey)
+    QString doubleTapKey = QStringLiteral("ctrl"); // ctrl | alt
+    QString doubleCtrlKey = QStringLiteral("both"); // both | left | right: which of the two is tapped (twice the same one)
     bool doubleCtrlPauseInGames = true; // not while a game has the mouse or exclusive full screen (GameGuard)
     bool doubleCtrlPauseInFullScreen = false; // not over any full-screen window
     QStringList doubleCtrlExcludedApps; // program files ("TheFinals.exe") in front of which double Ctrl does nothing

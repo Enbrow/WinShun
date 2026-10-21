@@ -180,23 +180,27 @@ std::vector<Entry> buildCatalog()
     const auto add = [&t](Entry e) -> Entry& { return t.emplace_back(std::move(e)); };
 
     // ---- 打开 Win顺: 快捷键 ----
-    add(boolean({"Launcher/DoubleCtrl", QT_TRANSLATE_NOOP("AiSettings", "双击 Ctrl 打开"), "shortcuts", 0,
-                    "Tapping Ctrl twice quickly opens the search window. Turn off if it fires by accident or clashes with another program."},
+    add(boolean({"Launcher/DoubleCtrl", QT_TRANSLATE_NOOP("AiSettings", "双击 Ctrl 或 Alt 打开"), "shortcuts", 0,
+                    "Tapping Ctrl twice quickly (or Alt, Launcher/DoubleTapKey) opens the search window. Turn off if it fires by accident or clashes with another program."},
         &Settings::doubleCtrl));
-    add(choice({"Launcher/DoubleCtrlKey", QT_TRANSLATE_NOOP("AiSettings", "用哪个 Ctrl"), "shortcuts", 0,
-                   "Which Ctrl key counts for the double tap. Use one side only when another program (PowerToys' Find My Mouse) uses the same double tap."},
+    add(choice({"Launcher/DoubleTapKey", QT_TRANSLATE_NOOP("AiSettings", "双击哪个键"), "shortcuts", 0,
+                   "Which key is tapped twice to open the search window. Alt when another program already takes double Ctrl (Listary, PowerToys' Find My Mouse); its first tap may light up the menu bar of the program in front for a moment."},
+        &Settings::doubleTapKey,
+        {{u"ctrl"_s, u"the Ctrl key"_s, "Ctrl"}, {u"alt"_s, u"the Alt key"_s, "Alt"}}));
+    add(choice({"Launcher/DoubleCtrlKey", QT_TRANSLATE_NOOP("AiSettings", "用哪一边"), "shortcuts", 0,
+                   "Which of the two keys (left or right Ctrl, or Alt with Launcher/DoubleTapKey alt) counts for the double tap. Use one side only when another program (PowerToys' Find My Mouse) uses the same double tap."},
         &Settings::doubleCtrlKey,
-        {{u"both"_s, u"either Ctrl key (the same one twice)"_s, QT_TRANSLATE_NOOP("AiSettings", "左右都行")},
-            {u"left"_s, u"only the left Ctrl key"_s, QT_TRANSLATE_NOOP("AiSettings", "左 Ctrl")},
-            {u"right"_s, u"only the right Ctrl key"_s, QT_TRANSLATE_NOOP("AiSettings", "右 Ctrl")}}));
-    add(boolean({"Launcher/DoubleCtrlPauseInGames", QT_TRANSLATE_NOOP("AiSettings", "玩游戏时不响应双击 Ctrl"), "shortcuts", 0,
-                    "Double Ctrl does nothing while a game has the mouse or runs in exclusive full screen (crouching in a shooter taps Ctrl twice)."},
+        {{u"both"_s, u"either key (the same one twice)"_s, QT_TRANSLATE_NOOP("AiSettings", "左右都行")},
+            {u"left"_s, u"only the left one"_s, QT_TRANSLATE_NOOP("AiSettings", "左边")},
+            {u"right"_s, u"only the right one"_s, QT_TRANSLATE_NOOP("AiSettings", "右边")}}));
+    add(boolean({"Launcher/DoubleCtrlPauseInGames", QT_TRANSLATE_NOOP("AiSettings", "玩游戏时不响应双击 Ctrl 或 Alt"), "shortcuts", 0,
+                    "The double tap does nothing while a game has the mouse or runs in exclusive full screen (crouching in a shooter taps Ctrl twice)."},
         &Settings::doubleCtrlPauseInGames));
-    add(boolean({"Launcher/DoubleCtrlPauseInFullScreen", QT_TRANSLATE_NOOP("AiSettings", "任何程序全屏时都不响应双击 Ctrl"), "shortcuts", 0,
-                    "Double Ctrl does nothing over any full-screen window (videos, presentations)."},
+    add(boolean({"Launcher/DoubleCtrlPauseInFullScreen", QT_TRANSLATE_NOOP("AiSettings", "任何程序全屏时都不响应双击 Ctrl 或 Alt"), "shortcuts", 0,
+                    "The double tap does nothing over any full-screen window (videos, presentations)."},
         &Settings::doubleCtrlPauseInFullScreen));
-    add(list({"Launcher/DoubleCtrlExcludedApps", QT_TRANSLATE_NOOP("AiSettings", "在这些程序里不响应双击 Ctrl"), "shortcuts", 0,
-                 "Program files (like TheFinals.exe) in front of which double Ctrl does nothing."},
+    add(list({"Launcher/DoubleCtrlExcludedApps", QT_TRANSLATE_NOOP("AiSettings", "在这些程序里不响应双击 Ctrl 或 Alt"), "shortcuts", 0,
+                 "Program files (like TheFinals.exe) in front of which the double tap does nothing."},
         &Settings::doubleCtrlExcludedApps, ListKind::Programs));
     add(hotkey({"Launcher/Hotkey", QT_TRANSLATE_NOOP("AiSettings", "快捷键"), "shortcuts", 0,
                    "A keyboard shortcut that opens the search window, written like Alt+Space or Ctrl+Alt+F. Empty: none. If another program already holds it the change is not kept."},
@@ -1247,7 +1251,7 @@ QString Section::titleText() const
 const std::vector<Section>& sections()
 {
     static const std::vector<Section> all {
-        {u"shortcuts"_s, QT_TRANSLATE_NOOP("AiSettings", "快捷键与双击 Ctrl"), 0},
+        {u"shortcuts"_s, QT_TRANSLATE_NOOP("AiSettings", "快捷键与双击 Ctrl 或 Alt"), 0},
         {u"taskbar"_s, QT_TRANSLATE_NOOP("AiSettings", "任务栏"), 0},
         {u"files_and_dialogs"_s, QT_TRANSLATE_NOOP("AiSettings", "文件管理器与对话框"), 0},
         {u"startup"_s, QT_TRANSLATE_NOOP("AiSettings", "启动与历史"), 0},

@@ -135,7 +135,7 @@ LRESULT CALLBACK TypeToSearch::keyboardProc(int code, WPARAM wParam, LPARAM lPar
     const LRESULT result = ::CallNextHookEx(nullptr, code, wParam, lParam);
     // Through the rest of the chain: on its way to the window, ahead of any
     // key that comes here after it.
-    if (event.dwExtraInfo == kOwnInput)
+    if (isOwnInput(event.dwExtraInfo))
         t_typing->ownKeyPassed(wParam, event);
     return result;
 }
@@ -202,7 +202,7 @@ bool TypeToSearch::handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event)
     // menu for the launcher (win::bringToFront). Other programs' are typing
     // all the same (keys remapped by AutoHotkey or PowerToys, the on-screen
     // keyboard).
-    if (event.dwExtraInfo == kOwnInput)
+    if (isOwnInput(event.dwExtraInfo))
         return false;
     const UINT vk = event.vkCode;
     const bool press = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;

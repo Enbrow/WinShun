@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OwnInput.h" // kOwnInput: the paste keys, KeyRouter's masking key
+
 #include <QString>
 #include <qnamespace.h>
 
@@ -12,10 +14,6 @@
 #include <unordered_map>
 
 namespace ws {
-
-// Marks the input Win顺 sends itself (SendInput's dwExtraInfo): the paste
-// keys, KeyRouter's masking key. KeyRouter lets it through.
-inline constexpr ULONG_PTR kOwnInput = 0x5753'4B52; // "WSKR"
 
 // The clipboard window over another program, the way Windows' own Win+V
 // panel is: that program keeps the foreground and its text field the
@@ -47,7 +45,7 @@ inline constexpr ULONG_PTR kOwnInput = 0x5753'4B52; // "WSKR"
 // input method between Chinese and English. So while one is held, a key
 // taken is replaced by one that means nothing (vkE8, as AutoHotkey masks
 // the Start menu), and a Shift or Alt let go goes on to the program only
-// after such a key. A double Ctrl stays a double Ctrl.
+// after such a key (kOwnMask). A double Ctrl or Alt stays one.
 //
 // No input method composes the keys taken: they reach the window without
 // one, and its search finds Chinese by the pinyin typed. A Shift pressed

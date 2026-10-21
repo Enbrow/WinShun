@@ -7718,6 +7718,130 @@ private slots:
         }
     }
 
+    void doubleTapAlt()
+    {
+        using Key = DoubleTapDetector::Key;
+        using Side = DoubleTapDetector::Side;
+        constexpr std::uint32_t alt = 0xA4, rightAlt = 0xA5, ctrl = 0xA2, shift = 0xA0;
+        const auto altDetector = [](Side side = Side::Both) {
+            return DoubleTapDetector({.key = Key::Alt, .side = side});
+        };
+        const auto tap = [](DoubleTapDetector& d, std::uint32_t vk, std::uint32_t t, std::uint32_t press = 50,
+                             bool sent = false) {
+            d.keyDown(vk, t, 0, 0, sent);
+            return d.keyUp(vk, t + press, 0, 0, sent);
+        };
+        const auto tapTwice = [&](DoubleTapDetector& d, std::uint32_t vk, std::uint32_t t) {
+            tap(d, vk, t);
+            return tap(d, vk, t + 150);
+        };
+        { // VK_MENU is the left one; AltGr the right one, as Raw Input tells of it
+            DoubleTapDetector d = altDetector();
+            QVERIFY(d.key() == Key::Alt && d.isKey(alt) && d.isKey(rightAlt) && d.isKey(0x12) && !d.isKey(ctrl));
+            QVERIFY(DoubleTapDetector::isKey(Key::Ctrl, 0x11) && !DoubleTapDetector::isKey(Key::Ctrl, alt));
+            QVERIFY(tapTwice(d, alt, 0));
+            QVERIFY(tapTwice(d, 0x12, 1'000));
+            QVERIFY(tapTwice(d, rightAlt, 2'000));
+        }
+        { // Alt+Tab, Alt+F4, Alt+Shift (the input language), Alt+1 (a clipboard entry), Alt+`: no tap
+            for (const std::uint32_t key : {0x09u /*VK_TAB*/, 0x73u /*VK_F4*/, shift, 0x31u /*1*/, 0xC0u /*`*/}) {
+                DoubleTapDetector d = altDetector();
+                tap(d, alt, 0);
+                d.keyDown(alt, 150, 0, 0);
+                d.keyDown(key, 170, 0, 0);
+                d.keyUp(key, 190, 0, 0);
+                QVERIFY(!d.keyUp(alt, 210, 0, 0));
+                QVERIFY(!tap(d, alt, 300)); // nor with the next one
+            }
+        }
+        { // another modifier held: Shift+Alt, Ctrl+Alt (+Del, +arrows), Win+Alt
+            for (const std::uint32_t modifier : {shift, ctrl, 0x11u /*VK_CONTROL*/, 0x5Bu /*VK_LWIN*/}) {
+                DoubleTapDetector d = altDetector();
+                d.keyDown(modifier, 0, 0, 0);
+                QVERIFY(!tapTwice(d, alt, 100));
+                d.keyUp(modifier, 500, 0, 0);
+                QVERIFY(tapTwice(d, alt, 600)); // and once it is let go, it works
+            }
+        }
+        { // a hotkey tool taps Ctrl while Alt is down (AutoHotkey's menu mask), at each press
+            DoubleTapDetector d = altDetector();
+            for (const std::uint32_t t : {0u, 150u}) {
+                d.keyDown(alt, t, 0, 0);
+                d.keyDown(ctrl, t + 20, 0, 0);
+                d.keyUp(ctrl, t + 21, 0, 0);
+                QVERIFY(!d.keyUp(alt, t + 40, 0, 0));
+            }
+        }
+        { // the other Alt starts over; one side only: the other one is another key
+            DoubleTapDetector d = altDetector();
+            tap(d, alt, 0);
+            QVERIFY(!tap(d, rightAlt, 150));
+            QVERIFY(tap(d, rightAlt, 300));
+            DoubleTapDetector left = altDetector(Side::Left);
+            QVERIFY(!tapTwice(left, rightAlt, 0));
+            QVERIFY(tapTwice(left, alt, 1'000));
+            DoubleTapDetector right = altDetector(Side::Right);
+            QVERIFY(!tapTwice(right, alt, 0));
+            QVERIFY(tapTwice(right, rightAlt, 1'000));
+        }
+        { // AltGr with the left Ctrl Windows adds to it, were that there: neither Alt's tap nor Ctrl's
+            for (const Key key : {Key::Alt, Key::Ctrl}) {
+                DoubleTapDetector d({.key = key});
+                for (const std::uint32_t t : {0u, 150u}) {
+                    d.keyDown(ctrl, t, 0, 0);
+                    d.keyDown(rightAlt, t, 0, 0);
+                    QVERIFY(!d.keyUp(ctrl, t + 50, 0, 0));
+                    QVERIFY(!d.keyUp(rightAlt, t + 50, 0, 0));
+                }
+            }
+        }
+        { // each listens to its own key: the other's taps are another key's
+            DoubleTapDetector ctrlOnly;
+            QVERIFY(!tapTwice(ctrlOnly, alt, 0));
+            QVERIFY(tapTwice(ctrlOnly, ctrl, 1'000));
+            DoubleTapDetector altOnly = altDetector();
+            QVERIFY(!tapTwice(altOnly, ctrl, 0));
+            tap(altOnly, alt, 1'000);
+            tap(altOnly, ctrl, 1'100); // between the two
+            QVERIFY(!tap(altOnly, alt, 1'200));
+        }
+        { // a tap a program sent whole is none (AutoHotkey's WinActivate: {Alt 2}); one held as long as a finger is
+            DoubleTapDetector d = altDetector();
+            tap(d, alt, 0, 0, true);
+            QVERIFY(!tap(d, alt, 30, 1, true));
+            tap(d, alt, 500, 16, true); // the clock moved on in between
+            QVERIFY(!tap(d, alt, 530, 15, true));
+            QVERIFY(!tap(d, alt, 1'000, 50, true)); // a key remapped to Alt
+            QVERIFY(tap(d, alt, 1'150, 50, true));
+            tap(d, alt, 2'000);
+            QVERIFY(!tap(d, alt, 2'100, 0, true)); // a program's between the user's two
+            QVERIFY(!tap(d, alt, 2'200));
+            DoubleTapDetector ctrlOnly; // Ctrl's count however they come
+            tap(ctrlOnly, ctrl, 0, 0, true);
+            QVERIFY(tap(ctrlOnly, ctrl, 30, 0, true));
+        }
+        { // the mouse used while Alt is down (Alt+click, Alt+drag), or right after a tap
+            DoubleTapDetector d = altDetector();
+            d.keyDown(alt, 0, 0, 0);
+            d.mouseUsed();
+            d.keyUp(alt, 50, 0, 0);
+            QVERIFY(!tap(d, alt, 150));
+            tap(d, alt, 1'000);
+            d.mouseUsed();
+            QVERIFY(!tap(d, alt, 1'150));
+        }
+        { // held long, or repeating: not a tap
+            DoubleTapDetector d = altDetector();
+            QVERIFY(!tap(d, alt, 0, 600));
+            QVERIFY(!tap(d, alt, 700));
+            QVERIFY(tap(d, alt, 850)); // the long one was not the first of the two
+            d.keyDown(alt, 2'000, 0, 0);
+            for (std::uint32_t t = 2'500; t <= 4'000; t += 33)
+                d.keyDown(alt, t, 0, 0);
+            QVERIFY(!d.keyUp(alt, 4'010, 0, 0));
+        }
+    }
+
     void doubleClick()
     {
         constexpr std::uintptr_t view = 0x1234;

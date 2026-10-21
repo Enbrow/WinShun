@@ -257,6 +257,30 @@
         <translation>Ignore Ctrl twice in these programs</translation>
     </message>
     <message>
+        <source>双击 Ctrl 或 Alt 打开</source>
+        <translation>Press Ctrl or Alt twice to open</translation>
+    </message>
+    <message>
+        <source>双击哪个键</source>
+        <translation>Key to press twice</translation>
+    </message>
+    <message>
+        <source>用哪一边</source>
+        <translation>Which side</translation>
+    </message>
+    <message>
+        <source>玩游戏时不响应双击 Ctrl 或 Alt</source>
+        <translation>Ignore Ctrl or Alt twice while gaming</translation>
+    </message>
+    <message>
+        <source>任何程序全屏时都不响应双击 Ctrl 或 Alt</source>
+        <translation>Ignore Ctrl or Alt twice over any full-screen program</translation>
+    </message>
+    <message>
+        <source>在这些程序里不响应双击 Ctrl 或 Alt</source>
+        <translation>Ignore Ctrl or Alt twice in these programs</translation>
+    </message>
+    <message>
         <source>快捷键</source>
         <translation>Shortcut</translation>
     </message>
@@ -850,6 +874,10 @@
     <message>
         <source>快捷键与双击 Ctrl</source>
         <translation>Shortcuts and Ctrl twice</translation>
+    </message>
+    <message>
+        <source>快捷键与双击 Ctrl 或 Alt</source>
+        <translation>Shortcuts and Ctrl or Alt twice</translation>
     </message>
     <message>
         <source>任务栏</source>
@@ -3276,6 +3304,54 @@
         <translation>Ignore Ctrl twice in these programs</translation>
     </message>
     <message>
+        <source>双击 Ctrl 或 Alt 打开</source>
+        <translation>Press Ctrl or Alt twice to open</translation>
+    </message>
+    <message>
+        <source>双击;连按;呼出;唤出;double ctrl;double alt</source>
+        <translation>double tap;double press;summon;ctrl;alt</translation>
+    </message>
+    <message>
+        <source>连按两下 %1，打开或关闭搜索框。管理员或部分输入法窗口中需要 Win顺 服务支持</source>
+        <translation>Press %1 twice quickly to open or close the search box. Elevated windows and some input methods require the WinShun service.</translation>
+    </message>
+    <message>
+        <source>用哪个 %1</source>
+        <translation>Which %1</translation>
+    </message>
+    <message>
+        <source>左 Ctrl;右 Ctrl;左 Alt;右 Alt;左边;右边;冲突;PowerToys;查找鼠标;left ctrl;right ctrl;left alt;right alt</source>
+        <translation>left ctrl;right ctrl;left alt;right alt;left;right;conflict;PowerToys;Find My Mouse;both ctrl;both alt</translation>
+    </message>
+    <message>
+        <source>同一个 %1 连按两下才算。和别的软件撞了时，可以只用一边</source>
+        <translation>Both taps on the same %1. When another program uses them too, keep to one side</translation>
+    </message>
+    <message>
+        <source>左 %1</source>
+        <translation>Left %1</translation>
+    </message>
+    <message>
+        <source>右 %1</source>
+        <translation>Right %1</translation>
+    </message>
+    <message>
+        <source>玩游戏时不响应双击 %1</source>
+        <translation>Ignore %1 twice while gaming</translation>
+    </message>
+    <message>
+        <source>游戏全屏或藏起鼠标时不打开，免得误触</source>
+        <translation>Not while a game is full screen or hides the pointer, so it doesn’t open by accident</translation>
+    </message>
+    <message>
+        <source>任何程序全屏时都不响应双击 %1</source>
+        <translation>Ignore %1 twice over any full-screen program</translation>
+    </message>
+    <message>
+        <source>在这些程序里不响应双击 %1</source>
+        <translation>Ignore %1 twice in these programs</translation>
+    </message>
+    <message>
         <source>排除;程序;游戏;exe</source>
         <translation>exclude;programs;games;exe</translation>
     </message>
@@ -5618,6 +5694,18 @@
     <message>
         <source>双击右 Ctrl</source>
         <translation>Right Ctrl twice</translation>
+    </message>
+    <message>
+        <source>双击 %1</source>
+        <translation>%1 twice</translation>
+    </message>
+    <message>
+        <source>双击左 %1</source>
+        <translation>Left %1 twice</translation>
+    </message>
+    <message>
+        <source>双击右 %1</source>
+        <translation>Right %1 twice</translation>
     </message>
     <message>
         <source>截图历史</source>

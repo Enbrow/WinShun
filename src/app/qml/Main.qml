@@ -526,8 +526,10 @@ Window {
             event.accepted = true
             return
         }
-        if (event.key === Qt.Key_Alt && numberKey === Qt.Key_Alt) {
-            event.accepted = true // alone, it would open the window menu
+        // Alone, it would open the window menu, and the next keys would go to
+        // that: also on the first of a double Alt that comes too slowly.
+        if (event.key === Qt.Key_Alt) {
+            event.accepted = true
             return
         }
         if (isNumberChord(event) && searchBar.composition.length === 0) {

@@ -137,6 +137,17 @@
 - **原因**：快捷键工具用低级键盘钩子吞掉 \`，Raw Input 看不到它；Alt 按着时它还会自己补发 Ctrl 的按下和抬起，免得 Alt 一松开就激活窗口的菜单栏（AutoHotkey 的 `#MenuMaskKey`，默认左 Ctrl `vk11sc01D`；它的 `Send` 在 Alt 按着时要先放开 Alt，也会这样补发）。连按两次快捷键补发两次，两次靠得近，就成了“双击 Ctrl”。用户没说是哪个工具，这是按现象推出来的最常见的一类；`KeyListener` 现在会在“有一次是程序发出来的（`hDevice` 为 NULL）双击 Ctrl”时往日志写一行最近的按键（只记修饰键和 Ctrl 的名字，别的键只记“key”，不记打了什么），下次有人报告可以直接看。
 - **做法**：Ctrl 按下时 Shift、Alt、Win 有一个按着，这次就不算敲击（`DoubleTapDetector`）。修饰键是否按着，按事件流本身的先后记，不能在处理 `WM_INPUT` 时问 `GetAsyncKeyState`：消息是事后才处理的，工具一口气发完“Ctrl 按下、Alt 抬起、Ctrl 抬起”，轮到处理 Ctrl 时 Alt 可能已经是抬起状态。只在修饰键安静超过 1.5 秒时才问 `GetAsyncKeyState`，用来清掉收不到抬起的情况（Win+L、Ctrl+Alt+Del 的抬起去了安全桌面）。同时两次敲击必须是同一个 Ctrl，左右各按一下不算。
 
+### 双击 Alt：别的程序自己也会连按两下 Alt
+
+- **现象**：2026-10-21 做双击 Alt（GitHub #53）时查资料推出来的，没实测：用 AutoHotkey 脚本切换窗口，Win顺 的搜索框会自己弹出来。
+- **原因**：程序想把窗口拿到前台，常用的办法是先模拟按一下 Alt（见下一节 `SetForegroundWindow` 的限制）。AutoHotkey 的 `WinActivate` 第一次没成功时会发 `{Alt 2}`，正好是连按两下 Alt，而且够快。
+- **做法**：
+  - 程序一口气发完的一次敲击（`hDevice` 为 NULL，按下到抬起不到 20 ms：按键时间约 16 ms 跳一格，紧挨着的两个事件也可能差一格）不算 Alt 的敲击（`DoubleTapDetector`）。手指按一下至少几十毫秒；用 AutoHotkey、PowerToys 映射成 Alt 的键跟着手指按下抬起，照样算。Ctrl 不加这一条，和以前一样。
+  - 剪贴板浮在别的程序上时，`KeyRouter` 吞掉单独按的 Alt 的抬起，补发 E8 掩护键再放开 Alt，免得菜单栏亮起来。这两个 E8 带 `kOwnMask`（`OwnInput.h`），`KeyListener` 跳过它们，剪贴板开着也能双击 Alt；Alt+1 这类被拿走的键换成的 E8 带 `kOwnInput`，仍算“中间按了别的键”。这要靠 Raw Input 的 `ExtraInformation` 带上 `dwExtraInfo`，没实测；不带的话只是剪贴板开着时双击 Alt 不灵，不会误触发。
+  - 旧版服务的 UIAccess 监听进程只报 Ctrl。它的 `kReady` 带 `kReportsAlt` 时才把 Alt 交给它，否则 Alt 用本进程的 Raw Input（管理员窗口在前台时收不到，升级服务后就好）。
+  - 第一下 Alt 会让前台程序的菜单栏或 Office 的按键提示亮一下，第二下又让它灭掉，不去屏蔽：Raw Input 是事后通知，拦不住；用钩子吞 Alt 会弄坏别的程序的 Alt 快捷键。
+- **查“双击 Alt 没反应”**：日志里有 `Double Alt: the service's UIAccess listener is from before double Alt` 就是服务太旧。启动 Win顺 前设环境变量 `WINSHUN_KEYLOG=1`，日志逐个记下 Raw Input 收到的按键（修饰键带 vk、scan、flags，别的键只记 key）、当时听哪个键、服务在不在报、两个检测器的状态和最后是否交出。服务是旧的、前台又是管理员窗口时，一行按键都没有；提权测试脚本自己建的窗口也是管理员窗口。
+
 ### 后台进程抢不到前台
 
 - **原因**：`SetForegroundWindow` 只在几种情况下允许，其中之一是“调用的进程收到了最后一次输入”。按下 `RegisterHotKey` 注册的热键算收到，Raw Input 的 `WM_INPUT` 不算（Raymond Chen 2009-02-26；没有资料说 `WM_INPUT` 或低级钩子也算）。所以双击 Ctrl 之后靠 `AttachThreadInput` 和前台线程共享输入状态，绕过这个限制。

@@ -12,8 +12,13 @@ constexpr UINT kTap = WM_APP + 72;
 constexpr DWORD kHeartbeatMs = 1000;
 constexpr DWORD kLeaseMs = 3000;
 
+// Ready's lParam: which taps the listener tells of besides Ctrl's. One from
+// before double Alt sends 0: the GUI's own Raw Input then tells of Alt's.
+constexpr LPARAM kReportsAlt = 1;
+
 // WinShun is x64. The sender PID is in the upper half; the lower half is
-// VK_LCONTROL / VK_RCONTROL, plus whether any tap came from SendInput.
+// VK_LCONTROL / VK_RCONTROL / VK_LMENU / VK_RMENU, plus whether any tap
+// came from SendInput.
 constexpr WPARAM tapWord(DWORD pid, DWORD key, bool sent) noexcept
 {
     return (static_cast<WPARAM>(pid) << 32) | key | (sent ? 0x100 : 0);
