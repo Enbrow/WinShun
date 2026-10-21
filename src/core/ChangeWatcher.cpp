@@ -24,6 +24,12 @@ struct Watch {
     DWORD bytes = 0;
     bool pending = false;
 
+    void resize(std::size_t size)
+    {
+        bytes = static_cast<DWORD>(size);
+        buffer = std::make_unique_for_overwrite<DWORD[]>(size / sizeof(DWORD));
+    }
+
     bool arm()
     {
         ::ResetEvent(event.get());
@@ -92,8 +98,7 @@ std::unique_ptr<Watch> openWatch(const std::wstring& root)
         return nullptr;
     w->event.reset(::CreateEventW(nullptr, TRUE, FALSE, nullptr));
     for (std::size_t bytes = ChangeWatcher::bufferBytes(root);; bytes = kBufferBytes) {
-        w->bytes = static_cast<DWORD>(bytes);
-        w->buffer = std::make_unique_for_overwrite<DWORD[]>(bytes / sizeof(DWORD));
+        w->resize(bytes);
         if (w->arm())
             return w;
         // Never less than before: a drive letter that leads to the network
@@ -127,6 +132,11 @@ std::size_t ChangeWatcher::bufferBytes(const std::wstring& root)
     // GetDriveTypeW reads the drive letters this process sees: no disk is touched.
     const bool volume = root.size() == 2 && root[1] == L':' && ::GetDriveTypeW((root + L'\\').c_str()) != DRIVE_REMOTE;
     return volume ? kVolumeBufferBytes : kBufferBytes;
+}
+
+std::size_t ChangeWatcher::bufferAfter(std::size_t bytes, bool completed, unsigned long error)
+{
+    return !completed && error != ERROR_NOTIFY_ENUM_DIR && bytes > kBufferBytes ? kBufferBytes : bytes;
 }
 
 void ChangeWatcher::setRoots(std::vector<std::wstring> roots, std::vector<Fallback> instead)
@@ -249,6 +259,7 @@ void ChangeWatcher::run(std::stop_token stop)
         Watch& w = *watches[idx];
         DWORD bytes = 0;
         const BOOL ok = ::GetOverlappedResult(w.dir.get(), &w.overlapped, &bytes, FALSE);
+        const DWORD error = ok ? ERROR_SUCCESS : ::GetLastError();
         w.pending = false;
 
         std::vector<FsChange> changes;
@@ -257,8 +268,17 @@ void ChangeWatcher::run(std::stop_token stop)
         else
             parse(w, bytes, changes);
 
+        // GitHub #52: a big buffer whose read failed, 64 KB from now on
+        // (bufferAfter); one that cannot be armed again, too (as openWatch).
+        if (const std::size_t next = bufferAfter(w.bytes, ok, error); next != w.bytes)
+            w.resize(next);
         // Re-arm before handing the batch over so no events slip through.
-        if (!w.arm()) {
+        bool armed = w.arm();
+        if (!armed && w.bytes > kBufferBytes) {
+            w.resize(kBufferBytes);
+            armed = w.arm();
+        }
+        if (!armed) {
             watches.erase(watches.begin() + static_cast<std::ptrdiff_t>(idx)); // volume went away
             publish(0);
         }

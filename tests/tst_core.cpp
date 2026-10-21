@@ -688,6 +688,41 @@ bool allReady(const IndexService& service)
         && std::all_of(states.begin(), states.end(), [](FolderState s) { return s == FolderState::Ready; });
 }
 
+// A drive letter no disk has here ("Q:"): for a chosen folder whose disk is away.
+std::wstring absentDrive()
+{
+    const DWORD drives = ::GetLogicalDrives();
+    for (wchar_t letter = L'Z'; letter > L'D'; --letter) {
+        if (!(drives & (1u << (letter - L'A'))))
+            return {letter, L':'};
+    }
+    return {};
+}
+
+// The volume `path` is on, as the index lists it.
+std::optional<VolumeInfo> volumeOfPath(const QString& path)
+{
+    const std::wstring root = QDir::toNativeSeparators(path).left(2).toStdWString();
+    for (const VolumeInfo& v : listLocalVolumes(true)) {
+        if (win32::equalsIgnoreCase(v.root, root))
+            return v;
+    }
+    return std::nullopt;
+}
+
+// The snapshot in `store` saved again as it is: its scope.json no longer goes with it.
+bool resaveSnapshot(const QString& store, const std::function<void(snapshot::Contents&)>& change = {})
+{
+    const QString path = indexfolder::snapshotPath(store);
+    std::optional<snapshot::Contents> contents = snapshot::load(path);
+    if (!contents || !contents->rules)
+        return false;
+    if (change)
+        change(*contents);
+    const auto lock = contents->index->readLock();
+    return snapshot::save(*contents->index, contents->volumes, contents->journals, *contents->rules, path);
+}
+
 } // namespace
 
 class CoreTest : public QObject {
@@ -2438,6 +2473,22 @@ private slots:
         watcher.setRoots({});
     }
 
+    // GitHub #52 review: a 1 MB buffer the system took but whose reads then
+    // fail (and not because events were lost) goes down to 64 KB; lost
+    // events, a read that came back, or a small buffer leave it as it is.
+    void changeWatcherShrinks()
+    {
+        constexpr std::size_t big = 1024 * 1024;
+        constexpr std::size_t small = 64 * 1024;
+        QCOMPARE(ChangeWatcher::bufferAfter(big, true, ERROR_SUCCESS), big);
+        QCOMPARE(ChangeWatcher::bufferAfter(big, false, ERROR_NOTIFY_ENUM_DIR), big); // events lost
+        QCOMPARE(ChangeWatcher::bufferAfter(big, false, ERROR_INVALID_PARAMETER), small);
+        QCOMPARE(ChangeWatcher::bufferAfter(big, false, ERROR_NOT_ENOUGH_QUOTA), small);
+        QCOMPARE(ChangeWatcher::bufferAfter(big, false, ERROR_INVALID_FUNCTION), small);
+        QCOMPARE(ChangeWatcher::bufferAfter(small, false, ERROR_INVALID_PARAMETER), small);
+        QCOMPARE(ChangeWatcher::bufferAfter(small, true, ERROR_SUCCESS), small);
+    }
+
     // ---- GitHub #52: only the chosen folders ---------------------------------
 
     // With no way to the journals and folders chosen, only they are indexed,
@@ -2693,6 +2744,45 @@ private slots:
         service.shutdown();
     }
 
+    // GitHub #52 review: a folder above a chosen one renamed in case only
+    // (up -> UP): a move. Its entries stay, spelled as the disk has them now,
+    // and nothing is walked again; not gone for a moment either, though
+    // Windows first says the folder was removed (its 8.3 name goes).
+    void aboveRenamedInCase()
+    {
+        QTemporaryDir tree;
+        QTemporaryDir store;
+        QDir base(tree.path());
+        QVERIFY(base.mkpath(u"up/docs/sub"_s));
+        {
+            QFile f(base.filePath(u"up/docs/sub/b.txt"_s));
+            QVERIFY(f.open(QIODevice::WriteOnly));
+        }
+        const QString t = QDir::toNativeSeparators(tree.path());
+        IndexService service(store.path(), walkedOptions(std::vector {(t + u"\\up\\docs"_s).toStdWString()}));
+        service.start();
+        QTRY_VERIFY_WITH_TIMEOUT(allReady(service), 30'000);
+        const std::int64_t walked = service.folderStatuses().front().lastVerified;
+        const std::wstring up = (t + u"\\up"_s).toStdWString();
+        const auto spelled = [&] {
+            const std::shared_ptr<FileIndex> index = service.index();
+            const auto lock = index->readLock();
+            const EntryId e = index->findPath(up);
+            return e != kNoEntry ? std::string(index->name(e)) : std::string();
+        };
+        QCOMPARE(spelled(), std::string("up"));
+        QVERIFY(::MoveFileW(up.c_str(), (t + u"\\UP"_s).toStdWString().c_str()));
+        const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(4500); // past a walk 3 s later
+        while (std::chrono::steady_clock::now() < until) {
+            QVERIFY(indexedIn(service, t + u"\\up\\docs\\sub\\b.txt"_s)); // not gone, not for a moment
+            QTest::qWait(25);
+        }
+        QCOMPARE(spelled(), std::string("UP"));
+        QCOMPARE(folderStates(service), std::vector {FolderState::Ready});
+        QCOMPARE(service.folderStatuses().front().lastVerified, walked);
+        service.shutdown();
+    }
+
     // The same, one batch at a time (the watcher gives them so): what is
     // applied, and which chosen folders are walked again because of it.
     void scopedChangeBatches()
@@ -2757,6 +2847,84 @@ private slots:
         QVERIFY(s.owed.empty());
         QVERIFY(!s.lost);
         QVERIFY(s.wholeLost);
+
+        // GitHub #52 review: a folder at or above chosen ones renamed, both
+        // halves there. In case only: a move, its entries going along, and
+        // nothing walked again (the folders are where they were). To above
+        // other chosen ones: a move too, theirs walked again; only a move
+        // (moveOnly), never walked in whole should it fail. Into a chosen
+        // folder: what is there of it is the way to others, not all that is
+        // in it: gone, and walked in whole where it came.
+        s = changesInScope({{Kind::RenamedFrom, L"C:\\Users\\me"}, {Kind::RenamedTo, L"C:\\Users\\ME"},
+                               {Kind::RenamedFrom, L"C:\\Work"}, {Kind::RenamedTo, L"C:\\WORK"}},
+            chosenOn);
+        QCOMPARE(applied(s),
+            (std::vector<Change> {{Kind::RenamedFrom, L"C:\\Users\\me"}, {Kind::RenamedTo, L"C:\\Users\\ME"},
+                {Kind::RenamedFrom, L"C:\\Work"}, {Kind::RenamedTo, L"C:\\WORK"}}));
+        QVERIFY(!s.apply[0].moveOnly && s.apply[1].moveOnly && s.apply[3].moveOnly);
+        QVERIFY(s.owed.empty());
+        s = changesInScope({{Kind::RenamedFrom, L"C:\\Users\\me"}, {Kind::RenamedTo, L"C:\\Work"}}, chosenOn);
+        QCOMPARE(applied(s), (std::vector<Change> {{Kind::RenamedFrom, L"C:\\Users\\me"}, {Kind::RenamedTo, L"C:\\Work"}}));
+        QVERIFY(s.apply[1].moveOnly);
+        QCOMPARE(s.owed, chosen);
+        s = changesInScope({{Kind::RenamedFrom, L"C:\\Users\\me"}, {Kind::RenamedTo, L"C:\\Work\\me"}}, chosenOn);
+        QCOMPARE(applied(s), (std::vector<Change> {{Kind::Removed, L"C:\\Users\\me"}, {Kind::Added, L"C:\\Work\\me"}}));
+        QVERIFY(!s.apply[1].moveOnly);
+        QCOMPARE(s.owed, std::vector<std::wstring> {L"C:\\Users\\me\\Documents"});
+        // ... and out of one to above another: gone from there, the other walked again.
+        s = changesInScope({{Kind::RenamedFrom, L"C:\\Work\\me"}, {Kind::RenamedTo, L"C:\\Users\\me"}}, chosenOn);
+        QCOMPARE(applied(s), (std::vector<Change> {{Kind::Removed, L"C:\\Work\\me"}}));
+        QCOMPARE(s.owed, std::vector<std::wstring> {L"C:\\Users\\me\\Documents"});
+
+        // Above chosen ones, said to be gone while it is there all the same
+        // (Windows says so a batch before a rename in case only): nothing
+        // goes, none is walked again; half a rename whose other half comes
+        // later, too. Gone indeed, or half of a rename here: as before. In a
+        // chosen folder: as it says.
+        const auto there = [](const std::wstring& path) { return path == L"C:\\Users\\me"; };
+        s = changesInScope({{Kind::Removed, L"C:\\Users\\me"}}, chosenOn, there);
+        QVERIFY(s.apply.empty());
+        QVERIFY(s.owed.empty());
+        s = changesInScope({{Kind::RenamedFrom, L"C:\\Users\\me"}}, chosenOn, there);
+        QVERIFY(s.apply.empty());
+        QVERIFY(s.owed.empty());
+        s = changesInScope({{Kind::Removed, L"C:\\Work"}}, chosenOn, there);
+        QCOMPARE(applied(s), (std::vector<Change> {{Kind::Removed, L"C:\\Work"}}));
+        QCOMPARE(s.owed, std::vector<std::wstring> {L"C:\\Work"});
+        s = changesInScope({{Kind::RenamedFrom, L"C:\\Users\\me"}, {Kind::RenamedTo, L"C:\\Users\\ME"}}, chosenOn, there);
+        QCOMPARE(applied(s), (std::vector<Change> {{Kind::RenamedFrom, L"C:\\Users\\me"}, {Kind::RenamedTo, L"C:\\Users\\ME"}}));
+        QVERIFY(s.owed.empty());
+        s = changesInScope({{Kind::Removed, L"C:\\Work\\sub"}}, chosenOn, [](const std::wstring&) { return true; });
+        QCOMPARE(applied(s), (std::vector<Change> {{Kind::Removed, L"C:\\Work\\sub"}}));
+        QVERIFY(s.owed.empty());
+    }
+
+    // GitHub #52 review: a moved folder's new name that only ends the move
+    // (moveOnly) brings nothing in when the move cannot be made: not walked
+    // in whole, as a folder above chosen ones would be (all of a profile).
+    void moveOnlyChange()
+    {
+        QTemporaryDir dir;
+        QVERIFY(QDir(dir.path()).mkpath(u"there/sub"_s));
+        const std::wstring t = QDir::toNativeSeparators(dir.path()).toStdWString();
+        const auto build = [&](FileIndex& index) {
+            auto lock = index.writeLock();
+            EntryId e = index.addRoot(QString::fromStdWString(t.substr(0, 2)).toStdString());
+            for (const QString& part : QString::fromStdWString(t.substr(3)).split(u'\\'))
+                e = index.add(e, part.toStdString(), EntryFlag::Directory);
+        };
+        const Crawler crawler(CrawlRules {});
+        for (const bool moveOnly : {true, false}) {
+            FileIndex index;
+            build(index);
+            FsChange to {FsChange::Kind::RenamedTo, t + L"\\there"};
+            to.moveOnly = moveOnly;
+            // Moved from a folder the index does not have: the move cannot be made.
+            applyChanges(index, {{FsChange::Kind::RenamedFrom, t + L"\\gone"}, to}, crawler, {});
+            const auto lock = index.readLock();
+            QCOMPARE(index.findPath(t + L"\\there") != kNoEntry, !moveOnly);
+            QCOMPARE(index.findPath(t + L"\\there\\sub") != kNoEntry, !moveOnly);
+        }
     }
 
     // A chosen folder deleted: its entries go, and it is "not found"; made
@@ -2899,6 +3067,30 @@ private slots:
         QVERIFY(backoff.next(t + 17min) == 30s);
     }
 
+    // GitHub #52 review: a pass that ends clears its flag before it looks at
+    // what is owed. A folder asked to be walked at that very moment (立即核对)
+    // is seen by the pass, or whoever asked sees no pass running and starts
+    // one; never neither.
+    void passOverOrder()
+    {
+        std::atomic<bool> running = true;
+        std::vector<std::wstring> owed;
+        bool launched = false;
+        // Asked for right after the pass looked: the worst moment.
+        const bool walk = passOver(running, [&] {
+            const bool any = !owed.empty();
+            owed.push_back(L"C:\\Work"); // verifyFolder()
+            launched = !running.load(); // walkOwedFolders(): no pass running, one is started
+            return any;
+        });
+        QVERIFY(walk || launched);
+        QVERIFY(!running.load());
+        // Owed before: the end of the pass takes them up.
+        running = true;
+        QVERIFY(passOver(running, [] { return true; }));
+        QVERIFY(!running.load());
+    }
+
     // A chosen folder whose regular check is due is walked again by itself:
     // what changed while Win顺 was not running comes in then, not at startup
     // (no startup rescan here), and not when only startup checks are wanted.
@@ -2954,6 +3146,201 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(allReady(service) && service.folderStatuses().front().lastVerified >= walked, 10'000);
         QVERIFY(!indexedIn(service, t + u"\\other"_s));
         service.shutdown();
+    }
+
+    // GitHub #52 review: folders chosen while the index service is on its
+    // way (the index waits for it, accessWaitMs), with a disk followed
+    // through its journal so far. Nothing of a disk without a chosen folder
+    // goes while it waits; the service there, the disks are whole and stay
+    // so; not there in time, only the chosen folders are left.
+    void chosenFoldersAwaitService()
+    {
+        QTemporaryDir tree;
+        QTemporaryDir store;
+        QVERIFY(makeScopeTree(tree.path()));
+        const QString t = QDir::toNativeSeparators(tree.path());
+        const std::optional<VolumeInfo> volume = volumeOfPath(t);
+        QVERIFY(volume);
+        if (!volume->ntfs)
+            QSKIP("the temporary folder is not on an NTFS volume");
+        const std::wstring away = absentDrive() + L"\\Work"; // the folder chosen, on no disk here
+        QVERIFY(away.size() > 2);
+        const CrawlRules rules = branchRules(t);
+        // As the index service left it: the volume followed through its journal.
+        const auto followed = [&] {
+            return resaveSnapshot(store.path(), [](snapshot::Contents& contents) {
+                for (JournalPosition& j : contents.journals)
+                    j = {0x5eed, 1};
+            });
+        };
+        {
+            IndexService first(store.path(), walkedOptions(std::nullopt, rules));
+            first.start();
+            QTRY_COMPARE_WITH_TIMEOUT(first.state(), IndexService::State::Ready, 60'000);
+            first.shutdown();
+        }
+        QVERIFY(followed());
+
+        IndexService::Options options = walkedOptions(std::vector {away}, rules);
+        options.accessWaitMs = 60'000;
+        options.rescanDelayMs = 200;
+        {
+            IndexService service(store.path(), options);
+            QVERIFY(service.foldersOnly());
+            service.start();
+            QTRY_COMPARE_WITH_TIMEOUT(service.state(), IndexService::State::Ready, 10'000);
+            QTest::qWait(500);
+            QVERIFY(indexedIn(service, t + u"\\other\\o.txt"_s)); // waiting: nothing went
+            service.setVolumeAccess(std::make_shared<ServiceDown>());
+            QVERIFY(!service.foldersOnly());
+            QTest::qWait(1500); // walked whole (its journal cannot be read now), never emptied
+            QTRY_VERIFY_WITH_TIMEOUT(!service.isRefreshing(), 30'000);
+            QVERIFY(indexedIn(service, t + u"\\other\\o.txt"_s));
+            QCOMPARE(service.volumeRoots(), std::vector {volume->root});
+            service.shutdown();
+        }
+
+        // Not there in time: only the chosen folder, whose disk is not here.
+        QVERIFY(followed());
+        options.accessWaitMs = 1500;
+        IndexService late(store.path(), options);
+        late.start();
+        QTRY_VERIFY_WITH_TIMEOUT(!indexedIn(late, t), 30'000);
+        QTRY_COMPARE_WITH_TIMEOUT(folderStates(late), std::vector {FolderState::Offline}, 10'000);
+        QVERIFY(late.volumeRoots().empty());
+        late.shutdown();
+    }
+
+    // GitHub #52 review: a chosen folder written otherwise than the disk has
+    // it, in letters beyond ASCII (доки for ДОКИ): the index, whose names are
+    // the disk's, finds it all the same; walked once and ready, not put off
+    // every few seconds. One it cannot find even so (an 8.3 short name) is
+    // told unreadable at once, and not looked for again and again.
+    void chosenFolderSpelledOtherwise()
+    {
+        QTemporaryDir tree;
+        QTemporaryDir store;
+        QDir base(tree.path());
+        QVERIFY(base.mkpath(u"ДОКИ/внутри"_s) && base.mkpath(u"longfoldername/sub"_s));
+        for (const QString& file : {u"ДОКИ/a.txt"_s, u"longfoldername/sub/b.txt"_s}) {
+            QFile f(base.filePath(file));
+            QVERIFY(f.open(QIODevice::WriteOnly));
+        }
+        const QString t = QDir::toNativeSeparators(tree.path());
+        IndexService service(store.path(), walkedOptions(std::vector {(t + u"\\доки"_s).toStdWString()}));
+        service.start();
+        QTRY_VERIFY_WITH_TIMEOUT(allReady(service), 30'000);
+        QVERIFY(indexedIn(service, t + u"\\ДОКИ\\a.txt"_s));
+        QVERIFY(indexedIn(service, t + u"\\ДОКИ\\внутри"_s));
+        const std::int64_t walked = service.folderStatuses().front().lastVerified;
+        QTest::qWait(4500); // past the 3 s after which one not found was walked again
+        QCOMPARE(folderStates(service), std::vector {FolderState::Ready});
+        QCOMPARE(service.folderStatuses().front().lastVerified, walked);
+
+        // An 8.3 name, where the volume keeps them: the index has the long one.
+        const std::wstring full = (t + u"\\longfoldername"_s).toStdWString();
+        wchar_t shortPath[MAX_PATH] {};
+        const DWORD n = ::GetShortPathNameW(full.c_str(), shortPath, MAX_PATH);
+        if (n == 0 || n >= MAX_PATH || win32::equalsIgnoreCase(std::wstring_view(shortPath, n), full)) {
+            service.shutdown();
+            QSKIP("no 8.3 names on this volume");
+        }
+        service.setScope(std::vector {std::wstring(shortPath, n)});
+        QTRY_COMPARE_WITH_TIMEOUT(folderStates(service), std::vector {FolderState::Unreadable}, 10'000);
+        const std::int64_t told = service.folderStatuses().front().lastVerified;
+        QTest::qWait(4500);
+        QCOMPARE(folderStates(service), std::vector {FolderState::Unreadable});
+        QCOMPARE(service.folderStatuses().front().lastVerified, told);
+        service.shutdown();
+    }
+
+    // GitHub #52 review: a chosen folder whose disk is not here is offline,
+    // whatever scope.json says of how it stood when it last was.
+    void offlineOverScopeFile()
+    {
+        QTemporaryDir tree;
+        QTemporaryDir store;
+        QVERIFY(makeScopeTree(tree.path()));
+        const QString t = QDir::toNativeSeparators(tree.path());
+        const std::wstring docs = (t + u"\\docs"_s).toStdWString();
+        const std::wstring away = absentDrive() + L"\\Work";
+        QVERIFY(away.size() > 2);
+        {
+            IndexService first(store.path(), walkedOptions(std::vector {docs}));
+            first.start();
+            QTRY_VERIFY_WITH_TIMEOUT(allReady(first), 30'000);
+            first.shutdown();
+        }
+        // Ready when it was last here, as scope.json has it (still with the snapshot).
+        QFile scopeFile(indexfolder::scopePath(store.path()));
+        QVERIFY(scopeFile.open(QIODevice::ReadOnly));
+        QJsonObject root = QJsonDocument::fromJson(scopeFile.readAll()).object();
+        scopeFile.close();
+        QJsonArray folders = root.value(u"folders"_s).toArray();
+        QCOMPARE(folders.size(), 1);
+        QJsonObject was = folders[0].toObject();
+        QCOMPARE(was.value(u"state"_s).toString(), u"ready"_s);
+        was[u"path"_s] = QString::fromStdWString(away);
+        folders.append(was);
+        root[u"folders"_s] = folders;
+        QVERIFY(scopeFile.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QVERIFY(scopeFile.write(QJsonDocument(root).toJson()) > 0);
+        scopeFile.close();
+
+        IndexService second(store.path(), walkedOptions(std::vector {docs, away}));
+        second.start();
+        QTRY_COMPARE_WITH_TIMEOUT(folderStates(second), (std::vector {FolderState::Ready, FolderState::Offline}), 10'000);
+        QTest::qWait(500);
+        QCOMPARE(folderStates(second), (std::vector {FolderState::Ready, FolderState::Offline}));
+        second.shutdown();
+    }
+
+    // GitHub #52 review: a chosen folder on a drive left out whole ("C:" in
+    // 不搜索的文件夹) says so, not that its disk is away.
+    void chosenFolderOnExcludedDrive()
+    {
+        QTemporaryDir tree;
+        QTemporaryDir store;
+        QVERIFY(makeScopeTree(tree.path()));
+        const QString t = QDir::toNativeSeparators(tree.path());
+        CrawlRules rules;
+        rules.excludedPaths.push_back(t.left(2).toStdWString());
+        IndexService service(store.path(), walkedOptions(std::vector {(t + u"\\docs"_s).toStdWString()}, rules));
+        service.start();
+        QTRY_COMPARE_WITH_TIMEOUT(folderStates(service), std::vector {FolderState::Excluded}, 10'000);
+        QVERIFY(!indexedIn(service, t + u"\\docs"_s));
+        QVERIFY(service.volumeRoots().empty());
+        service.shutdown();
+    }
+
+    // GitHub #52 review: a snapshot whose scope.json does not go with it
+    // (saved again by an older Win顺, or the file could not be written) may
+    // hold a disk's chosen folders only. With whole disks now, the disks
+    // walked are walked whole a while after startup, even with no rescan
+    // asked for at startup.
+    void staleScopeFileWholeDisks()
+    {
+        QTemporaryDir tree;
+        QTemporaryDir store;
+        QVERIFY(makeScopeTree(tree.path()));
+        const QString t = QDir::toNativeSeparators(tree.path());
+        const CrawlRules rules = branchRules(t);
+        {
+            IndexService first(store.path(), walkedOptions(std::vector {(t + u"\\docs"_s).toStdWString()}, rules));
+            first.start();
+            QTRY_VERIFY_WITH_TIMEOUT(allReady(first), 30'000);
+            QVERIFY(!indexedIn(first, t + u"\\other"_s));
+            first.shutdown();
+        }
+        QVERIFY(QFileInfo::exists(indexfolder::scopePath(store.path())));
+        QVERIFY(resaveSnapshot(store.path()));
+        IndexService::Options options = walkedOptions(std::nullopt, rules); // rescanOnStartup off
+        options.rescanDelayMs = 200;
+        IndexService second(store.path(), options);
+        second.start();
+        QTRY_VERIFY_WITH_TIMEOUT(indexedIn(second, t + u"\\other\\o.txt"_s), 30'000);
+        QVERIFY(indexedIn(second, t + u"\\pics\\p.png"_s));
+        second.shutdown();
     }
 
     // scope.json is an index file: counted, moved and deleted with the others,

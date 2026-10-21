@@ -16,6 +16,11 @@ struct FsChange {
     enum class Kind : std::uint8_t { Added, Removed, RenamedFrom, RenamedTo, Overflow };
     Kind kind;
     std::wstring path; // full path; the root watched ("C:", or a folder) for Overflow
+    // GitHub #52: a RenamedTo that only ends a move, of a folder above chosen
+    // ones (its entry holds no more than the way to them): when the move
+    // cannot be made, nothing comes in its place (applyChanges), let alone
+    // walked; the chosen folders' walk sets them right.
+    bool moveOnly = false;
 };
 
 // Watches whole volumes for name changes with ReadDirectoryChangesW on one
@@ -60,6 +65,12 @@ public:
     // archive, a build) and losing them costs a walk; 64 KB for the rest:
     // over the network ReadDirectoryChangesW takes no more (shares).
     static std::size_t bufferBytes(const std::wstring& root);
+    // GitHub #52: the bytes a watch goes on with once a read of `bytes` came
+    // back (`completed`, or failed with `error`): a big buffer whose read
+    // failed, and not because events were lost (ERROR_NOTIFY_ENUM_DIR), is
+    // taken down to 64 KB. Some file systems take 1 MB and then fail every
+    // read: each would lose the root's events and have it walked again.
+    static std::size_t bufferAfter(std::size_t bytes, bool completed, unsigned long error);
 
 private:
     void run(std::stop_token stop);

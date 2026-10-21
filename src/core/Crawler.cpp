@@ -536,7 +536,7 @@ void applyChanges(FileIndex& index, const std::vector<FsChange>& changes, const 
         // File system probes happen before taking the lock.
         std::vector<PathProbe> probes(end - i);
         for (std::size_t k = i; k < end; ++k) {
-            if (changes[k].kind == Kind::Added || changes[k].kind == Kind::RenamedTo)
+            if (changes[k].kind == Kind::Added || (changes[k].kind == Kind::RenamedTo && !changes[k].moveOnly))
                 probes[k - i] = probePath(changes[k].path);
         }
 
@@ -606,7 +606,8 @@ void applyChanges(FileIndex& index, const std::vector<FsChange>& changes, const 
                     break;
                 case Kind::Added:
                 case Kind::RenamedTo:
-                    addPath(c.path, probes[k - i]);
+                    if (!c.moveOnly) // GitHub #52: the move could not be made, and nothing comes instead
+                        addPath(c.path, probes[k - i]);
                     break;
                 case Kind::Overflow:
                     break;

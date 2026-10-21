@@ -259,6 +259,34 @@ std::size_t countBelow(const FileIndex& index, EntryId id)
     return count;
 }
 
+// A chosen folder's entry, however its path is written (GitHub #52 review):
+// findPath ignores ASCII case only, while the entries are named as the disk
+// has them (ДОКИ for a chosen доки). Each step by its name first, then by
+// the names compared as NTFS does. Caller holds a lock.
+EntryId findFolder(const FileIndex& index, std::wstring_view path)
+{
+    if (const EntryId e = index.findPath(path); e != kNoEntry)
+        return e;
+    EntryId e = index.findPath(volumeOf(path));
+    std::u16string decoded;
+    for (std::size_t at = 2; e != kNoEntry && at < path.size();) {
+        const std::size_t begin = at + 1;
+        at = std::min(path.find(L'\\', begin), path.size());
+        const std::wstring_view name = path.substr(begin, at - begin);
+        if (name.empty())
+            continue;
+        EntryId next = index.findChild(e, toUtf8(name));
+        for (EntryId c = index.entry(e).firstChild; next == kNoEntry && c != kNoEntry; c = index.entry(c).nextSibling) {
+            decoded.clear();
+            wtf8::decodeAppend(decoded, index.name(c));
+            if (win32::equalsIgnoreCase(wtf8::wview(decoded), name))
+                next = c;
+        }
+        e = next;
+    }
+    return e;
+}
+
 using FolderState = IndexService::FolderStatus::State;
 
 const char* stateName(FolderState state)
@@ -340,17 +368,27 @@ bool writeScopeFile(const QString& snapshotPath, const ScopeFile& file)
     return out.open(QIODevice::WriteOnly) && out.write(json) == json.size() && out.commit();
 }
 
-// Nothing when there is none, or it was not written with this snapshot.
-std::optional<ScopeFile> readScopeFile(const QString& snapshotPath)
+// Nothing when there is none, or it was not written with this snapshot. Then
+// `stale` tells which: there is one, but not this snapshot's (or not to be
+// read), so the snapshot may hold volumes cut down to chosen folders it
+// does not name.
+std::optional<ScopeFile> readScopeFile(const QString& snapshotPath, bool& stale)
 {
+    stale = false;
     QFile in(scopeFileOf(snapshotPath));
     const auto stamp = stampOf(snapshotPath);
-    if (!stamp || !in.open(QIODevice::ReadOnly))
+    if (!stamp || !in.exists())
         return std::nullopt;
+    if (!in.open(QIODevice::ReadOnly)) {
+        stale = true;
+        return std::nullopt;
+    }
     const QJsonObject root = QJsonDocument::fromJson(in.readAll()).object();
     if (root.value(u"index_bytes"_s).toString() != QString::number(stamp->first)
-        || root.value(u"index_written"_s).toString() != QString::number(stamp->second))
+        || root.value(u"index_written"_s).toString() != QString::number(stamp->second)) {
+        stale = true;
         return std::nullopt;
+    }
     ScopeFile file;
     for (const QJsonValue& v : root.value(u"scoped"_s).toArray())
         file.scoped.push_back(v.toString().toStdWString());
@@ -419,8 +457,9 @@ std::chrono::milliseconds LostEventsBackoff::next(std::chrono::steady_clock::tim
     return kLostSteps[step];
 }
 
-ScopedChanges changesInScope(
-    std::vector<FsChange> changes, const std::function<const std::vector<std::wstring>&(std::wstring_view)>& chosenOn)
+ScopedChanges changesInScope(std::vector<FsChange> changes,
+    const std::function<const std::vector<std::wstring>&(std::wstring_view)>& chosenOn,
+    const std::function<bool(const std::wstring&)>& stillThere)
 {
     using Kind = FsChange::Kind;
     ScopedChanges out;
@@ -428,9 +467,78 @@ ScopedChanges changesInScope(
         if (!contains(out.owed, f))
             out.owed.push_back(f);
     };
-    // Above a chosen folder, only what takes it away (its entries go now):
-    // whether it is gone or back, its walk tells.
-    const auto dropped = [&](const FsChange& c) {
+    // Where a change is: in a chosen folder (or on a volume indexed whole),
+    // at or above one (where the index has the way to it only), or neither.
+    enum class Place { Inside, Above, Outside };
+    const auto placeOf = [&](const FsChange& c) {
+        const std::vector<std::wstring>& chosen = chosenOn(volumeOf(c.path));
+        if (chosen.empty())
+            return Place::Inside; // a volume indexed whole
+        bool above = false;
+        for (const std::wstring& f : chosen) {
+            if (isUnder(c.path, f))
+                return Place::Inside;
+            above = above || win32::equalsIgnoreCase(c.path, f) || isUnder(f, c.path);
+        }
+        return above ? Place::Above : Place::Outside;
+    };
+    std::vector<Place> places(changes.size(), Place::Outside);
+    std::vector<bool> drop(changes.size(), true);
+    std::vector<bool> owes(changes.size(), true); // the chosen folders at or below it are walked again
+    std::vector<bool> paired(changes.size(), false); // half of a rename in this batch
+    for (std::size_t k = 0; k < changes.size(); ++k) {
+        if (changes[k].kind == Kind::Overflow)
+            continue;
+        places[k] = placeOf(changes[k]);
+        // Above a chosen folder, only what takes it away (its entries go
+        // now): whether it is gone or back, its walk tells.
+        drop[k] = places[k] == Place::Outside
+            || (places[k] == Place::Above && changes[k].kind != Kind::Removed && changes[k].kind != Kind::RenamedFrom);
+    }
+    for (std::size_t k = 0; k + 1 < changes.size(); ++k) {
+        if (changes[k].kind != Kind::RenamedFrom || changes[k + 1].kind != Kind::RenamedTo)
+            continue;
+        paired[k] = paired[k + 1] = true;
+        const Place from = places[k];
+        const Place to = places[k + 1];
+        if (from == Place::Above && to == Place::Above) {
+            // A folder above chosen ones renamed, or moved to above others:
+            // its entries go along (GitHub #52 review: not removed and walked
+            // again). Only as a move: should that fail, nothing comes in its
+            // place (moveOnly), the walks below set it right. A new name that
+            // differs in case alone changes nothing below: none walked.
+            drop[k] = drop[k + 1] = false;
+            changes[k + 1].moveOnly = true;
+            if (win32::equalsIgnoreCase(changes[k].path, changes[k + 1].path))
+                owes[k] = owes[k + 1] = false;
+        } else if (from == Place::Above && to == Place::Inside) {
+            // Into a chosen folder: what the index has of it is the way to
+            // others, not all that is in it. Gone from there, walked in whole here.
+            drop[k] = drop[k + 1] = false;
+            changes[k].kind = Kind::Removed;
+            changes[k + 1].kind = Kind::Added;
+        } else if (drop[k] != drop[k + 1]) {
+            // Half a rename leaving (or entering) one: by itself.
+            if (!drop[k])
+                changes[k].kind = Kind::Removed;
+            else
+                changes[k + 1].kind = Kind::Added;
+        }
+        ++k;
+    }
+    // Above chosen folders, said to be gone and there all the same: Windows
+    // says a folder is removed when its name changes in case only (up to UP,
+    // its 8.3 name goes), a batch before the rename itself. It stays, with
+    // the way to them. Had it gone and another come in its place, that one's
+    // Added says so (and has them walked).
+    for (std::size_t k = 0; stillThere && k < changes.size(); ++k) {
+        if (places[k] == Place::Above && !paired[k] && !drop[k] && stillThere(changes[k].path)) {
+            drop[k] = true;
+            owes[k] = false;
+        }
+    }
+    for (std::size_t k = 0; k < changes.size(); ++k) {
+        const FsChange& c = changes[k];
         const std::vector<std::wstring>& chosen = chosenOn(volumeOf(c.path));
         if (c.kind == Kind::Overflow) {
             if (chosen.empty())
@@ -441,34 +549,12 @@ ScopedChanges changesInScope(
                     out.lost = true;
                 }
             }
-            return true;
-        }
-        if (chosen.empty())
-            return false; // a volume indexed whole
-        bool above = false;
-        for (const std::wstring& f : chosen) {
-            if (isUnder(c.path, f))
-                return false;
-            if (win32::equalsIgnoreCase(c.path, f) || isUnder(f, c.path)) {
-                above = true;
-                owe(f);
+        } else if (places[k] == Place::Above && owes[k]) {
+            for (const std::wstring& f : chosen) {
+                if (win32::equalsIgnoreCase(c.path, f) || isUnder(f, c.path))
+                    owe(f);
             }
         }
-        return !above || !(c.kind == Kind::Removed || c.kind == Kind::RenamedFrom);
-    };
-    std::vector<bool> drop(changes.size());
-    for (std::size_t k = 0; k < changes.size(); ++k)
-        drop[k] = dropped(changes[k]);
-    for (std::size_t k = 0; k + 1 < changes.size(); ++k) {
-        if (changes[k].kind != Kind::RenamedFrom || changes[k + 1].kind != Kind::RenamedTo)
-            continue;
-        if (drop[k] != drop[k + 1]) {
-            if (!drop[k])
-                changes[k].kind = Kind::Removed;
-            else
-                changes[k + 1].kind = Kind::Added;
-        }
-        ++k;
     }
     for (std::size_t k = 0; k < changes.size(); ++k) {
         if (!drop[k])
@@ -988,14 +1074,18 @@ void IndexService::launch(Pass pass)
     m_worker = std::jthread([this, pass](std::stop_token stop) { run(stop, pass); });
 }
 
+bool passOver(std::atomic<bool>& running, const std::function<bool()>& owed)
+{
+    running = false;
+    return owed();
+}
+
 void IndexService::ranOut()
 {
-    bool owed = false;
-    {
+    const bool owed = passOver(m_running, [this] {
         std::lock_guard lock(m_journalMutex);
-        owed = !m_verifyOwed.empty();
-    }
-    m_running = false;
+        return !m_verifyOwed.empty();
+    });
     if (owed) // asked for after this pass's walks were done
         QMetaObject::invokeMethod(this, [this] { walkOwedFolders(); }, Qt::QueuedConnection);
 }
@@ -1005,8 +1095,7 @@ void IndexService::run(std::stop_token stop, Pass pass)
     const auto ran = qScopeGuard([this] { ranOut(); });
     const auto crawler = this->crawler();
     const auto scope = this->scope();
-    // GitHub #52: only the chosen folders, and only the disks they are on.
-    const bool foldersOnly = this->foldersOnly(*scope);
+    m_placed.clear();
     std::vector<VolumeInfo> previous;
     std::vector<JournalPosition> previousJournals;
     std::vector<std::wstring> suspended;
@@ -1021,9 +1110,11 @@ void IndexService::run(std::stop_token stop, Pass pass)
 
     // The volumes here now. Suspended ones are not looked at: they keep their
     // place and entries while their drive letter is there, and are forgotten
-    // once it is gone.
-    std::vector<VolumeInfo> volumes
-        = listLocalVolumes(m_options.includeRemovable || (foldersOnly && scope->onRemovable()), suspended);
+    // once it is gone. Removable ones with a chosen folder too: whether only
+    // the chosen folders are indexed is told once the index service had its
+    // chance (below), and those not wanted then go.
+    const bool listedForScope = !m_options.includeRemovable && scope->set() && scope->onRemovable();
+    std::vector<VolumeInfo> volumes = listLocalVolumes(m_options.includeRemovable || listedForScope, suspended);
     std::vector<std::wstring> gone;
     for (const std::wstring& root : suspended) {
         const auto it = std::find_if(previous.begin(), previous.end(),
@@ -1038,31 +1129,8 @@ void IndexService::run(std::stop_token stop, Pass pass)
     // go below like those of a drive taken out, and come back when it is
     // excluded no more.
     std::erase_if(volumes, [&](const VolumeInfo& v) { return crawler->isExcludedDir(v.root, v.root); });
-    // GitHub #52: the disks with a chosen folder; removable ones without one
-    // whole, when they are asked for. A chosen folder whose disk is not here
-    // keeps nothing (as a drive taken out) and says so.
-    if (foldersOnly) {
-        std::erase_if(volumes, [&](const VolumeInfo& v) {
-            return !scope->touches(v.root) && !(m_options.includeRemovable && isRemovableDrive(v.root));
-        });
-        std::vector<std::pair<std::wstring, FolderStatus::State>> away;
-        for (const std::wstring& f : scope->all()) {
-            const bool here = std::any_of(volumes.begin(), volumes.end(),
-                [&](const VolumeInfo& v) { return win32::equalsIgnoreCase(v.root, volumeOf(f)); });
-            if (!here)
-                away.push_back({f, FolderStatus::State::Offline});
-            else if (f.size() == 2)
-                away.push_back({f, FolderStatus::State::WholeDrive});
-        }
-        setFolderStates(away);
-    }
     std::sort(volumes.begin(), volumes.end(), [](const VolumeInfo& a, const VolumeInfo& b) { return a.root < b.root; });
     const auto isSuspended = [&](const VolumeInfo& v) { return contains(suspended, v.root) && !contains(gone, v.root); };
-    // Walked for its chosen folders alone (they are none of a volume read through its journal).
-    const auto scopedOn = [&](const VolumeInfo& v) -> const std::vector<std::wstring>& {
-        static const std::vector<std::wstring> none;
-        return foldersOnly ? scope->on(v.root) : none;
-    };
 
     // Where each volume's entries stand: in the index already (`known`), and
     // how far its change journal has been applied.
@@ -1070,6 +1138,9 @@ void IndexService::run(std::stop_token stop, Pass pass)
     std::vector<bool> known(volumes.size(), false);
     std::optional<CrawlRules> snapshotRules;
     bool timesMissing = false; // a snapshot from before the index kept write times: every volume is read again
+    bool fromSnapshot = false;
+    bool scopeKnown = false; // ... with its scope.json (GitHub #52)
+    bool scopeStale = false; // ... with one that does not go with it
     if (pass == Pass::Startup) {
         setState(State::Loading);
         const std::lock_guard files(m_filesMutex); // a move waits until they are read
@@ -1095,10 +1166,13 @@ void IndexService::run(std::stop_token stop, Pass pass)
             m_index.store(std::shared_ptr<FileIndex>(std::move(contents->index)));
             snapshotRules = std::move(contents->rules);
             timesMissing = !contents->times;
+            fromSnapshot = true;
             // GitHub #52: what of it the chosen folders are, and how each stood.
             // Not known (none, or written with another snapshot): all of them
-            // are walked now, and what is not theirs goes (prepareScope).
-            std::optional<ScopeFile> scopeFile = readScopeFile(indexfolder::snapshotPath(m_folder));
+            // are walked now, and what is not theirs goes (prepareScope); with
+            // whole disks, the disks walked are walked again (see below).
+            std::optional<ScopeFile> scopeFile = readScopeFile(indexfolder::snapshotPath(m_folder), scopeStale);
+            scopeKnown = scopeFile.has_value();
             if (scopeFile) {
                 std::lock_guard lock(m_foldersMutex);
                 for (FolderStatus& s : m_folderStatus) {
@@ -1120,19 +1194,15 @@ void IndexService::run(std::stop_token stop, Pass pass)
             // nothing, it would take every root for a drive that is gone.
             // (timesMissing is not kept: such a snapshot is from before
             // 0.5, and a pass cut short reads the times the next time the
-            // MFT is read.)
+            // MFT is read.) All the disks here, those without a chosen
+            // folder too: whether they keep their entries is told after
+            // awaitAccess (GitHub #52 review).
             std::lock_guard lock(m_journalMutex);
             m_volumes = volumes;
             m_journals = journals;
             if (snapshotRules && !(*snapshotRules == crawler->rules()) && !m_rulesBefore)
                 m_rulesBefore = *snapshotRules; // the rules were edited while we were not running
             m_scopedVolumes = scopeFile ? std::move(scopeFile->scoped) : std::vector<std::wstring> {};
-            if (!scopeFile && foldersOnly) {
-                for (const std::wstring& f : scope->all()) {
-                    if (f.size() > 2 && !contains(m_verifyOwed, f))
-                        m_verifyOwed.push_back(f);
-                }
-            }
         } else {
             m_content->restore({}, 0); // clears out segment files nothing refers to
             setState(State::Building);
@@ -1157,6 +1227,60 @@ void IndexService::run(std::stop_token stop, Pass pass)
     awaitAccess(stop, volumes, journals, known);
     if (stop.stop_requested())
         return; // planned again by whoever stopped us, from what is stored
+
+    // GitHub #52: only the chosen folders, and only the disks they are on;
+    // told now that the index service had its chance (with it, the disks
+    // are whole). The others go, removable ones without one too unless they
+    // are asked for; with whole disks, those listed only for a chosen folder.
+    const bool foldersOnly = this->foldersOnly(*scope);
+    {
+        bool erased = false;
+        for (std::size_t i = volumes.size(); i-- > 0;) {
+            const std::wstring& root = volumes[i].root;
+            const bool outside = foldersOnly
+                ? !scope->touches(root) && !(m_options.includeRemovable && isRemovableDrive(root))
+                : listedForScope && isRemovableDrive(root) && !contains(suspended, root);
+            if (!outside)
+                continue;
+            volumes.erase(volumes.begin() + static_cast<std::ptrdiff_t>(i));
+            journals.erase(journals.begin() + static_cast<std::ptrdiff_t>(i));
+            known.erase(known.begin() + static_cast<std::ptrdiff_t>(i));
+            erased = true;
+        }
+        if (erased) {
+            const auto index = m_index.load();
+            std::lock_guard journalLock(m_journalMutex); // keeps compaction out
+            auto lock = index->writeLock();
+            dropStaleRoots(*index, volumes, known);
+        }
+    }
+    if (foldersOnly) {
+        // A chosen folder whose disk is not here keeps nothing (as a drive
+        // taken out) and says so: after what scope.json said of it, and as
+        // left out when its drive is (GitHub #52 review).
+        std::vector<std::pair<std::wstring, FolderStatus::State>> away;
+        for (const std::wstring& f : scope->all()) {
+            const bool here = std::any_of(volumes.begin(), volumes.end(),
+                [&](const VolumeInfo& v) { return win32::equalsIgnoreCase(v.root, volumeOf(f)); });
+            if (!here)
+                away.push_back({f, crawler->isExcludedPath(f) ? FolderStatus::State::Excluded : FolderStatus::State::Offline});
+            else if (f.size() == 2)
+                away.push_back({f, FolderStatus::State::WholeDrive});
+        }
+        setFolderStates(away);
+        if (fromSnapshot && !scopeKnown) {
+            std::lock_guard lock(m_journalMutex);
+            for (const std::wstring& f : scope->all()) {
+                if (f.size() > 2 && !contains(m_verifyOwed, f))
+                    m_verifyOwed.push_back(f);
+            }
+        }
+    }
+    // Walked for its chosen folders alone (they are none of a volume read through its journal).
+    const auto scopedOn = [&](const VolumeInfo& v) -> const std::vector<std::wstring>& {
+        static const std::vector<std::wstring> none;
+        return foldersOnly ? scope->on(v.root) : none;
+    };
 
     // NTFS volumes follow their change journal from where the index left
     // off. When the journal no longer reaches back that far, the MFT is read
@@ -1209,9 +1333,12 @@ void IndexService::run(std::stop_token stop, Pass pass)
             const bool wasScoped = contains(scopedBefore, volumes[i].root);
             const bool walkNow = !known[i] || pass == Pass::Full || pass == Pass::Walked || timesMissing
                 || contains(rewalk, volumes[i].root) || wasScoped;
+            // A scope.json that does not go with the snapshot cannot tell
+            // whether it held its chosen folders only (GitHub #52 review):
+            // walked as after a startup rescan.
             if (walkNow)
                 toSync.push_back(i);
-            else if (pass == Pass::Startup && (m_options.rescanOnStartup || wasFollowed))
+            else if (pass == Pass::Startup && (m_options.rescanOnStartup || wasFollowed || scopeStale))
                 walkLater.push_back(i); // let login settle first
         }
     }
@@ -1271,7 +1398,16 @@ void IndexService::run(std::stop_token stop, Pass pass)
         std::vector<std::wstring> roots;
         for (const std::size_t i : scoped)
             roots.push_back(volumes[i].root);
-        folderWalks = prepareScope(*scope, roots, *crawler);
+        folderWalks = prepareScope(stop, *scope, roots, *crawler);
+        if (stop.stop_requested()) {
+            // Planned again by whoever stopped us: what came in is walked then.
+            std::lock_guard lock(m_journalMutex);
+            for (std::wstring& f : folderWalks) {
+                if (!contains(m_verifyOwed, f))
+                    m_verifyOwed.push_back(std::move(f));
+            }
+            return;
+        }
     }
 
     // Rules that changed since the index was built, applied in place.
@@ -1443,13 +1579,14 @@ IndexService::RuleChange IndexService::applyRuleChanges(
 }
 
 std::vector<std::wstring> IndexService::prepareScope(
-    const Scope& scope, const std::vector<std::wstring>& roots, const Crawler& crawler)
+    std::stop_token stop, const Scope& scope, const std::vector<std::wstring>& roots, const Crawler& crawler)
 {
     using State = FolderStatus::State;
     // As they are on disk, looked at before locking: each chosen folder, and
     // the folders on the way to it (whose attributes their entries take).
     // One the index does not vouch for (new, or not read in full at its last
     // walk) is walked, even if it is there by name, on the way to another.
+    // Stopped meanwhile (a disk being ejected waits for us), nothing is done.
     struct Chosen {
         std::wstring root;
         std::wstring path;
@@ -1462,6 +1599,8 @@ std::vector<std::wstring> IndexService::prepareScope(
     std::vector<Chosen> chosen;
     for (const std::wstring& root : roots) {
         for (const std::wstring& path : scope.on(root)) {
+            if (stop.stop_requested())
+                return {};
             Chosen c {root, path};
             c.vouched = std::any_of(statuses.begin(), statuses.end(), [&](const FolderStatus& s) {
                 return s.state == State::Ready && win32::equalsIgnoreCase(s.path, path);
@@ -1513,7 +1652,7 @@ std::vector<std::wstring> IndexService::prepareScope(
                 if (c.presence == Presence::Unknown) {
                     // Cannot be looked at: what the index has of it stays.
                     states.push_back({c.path, State::Unreadable});
-                    if (const EntryId e = index->findPath(c.path); e != kNoEntry) {
+                    if (const EntryId e = findFolder(*index, c.path); e != kNoEntry) {
                         keep.push_back(e);
                         for (EntryId p = index->entry(e).parent; p != kNoEntry && p != rootId; p = index->entry(p).parent)
                             through.push_back(p);
@@ -1551,6 +1690,8 @@ std::vector<std::wstring> IndexService::prepareScope(
                 else if (!c.vouched)
                     added.push_back(c.path);
                 keep.push_back(e);
+                if (!contains(m_placed, c.path))
+                    m_placed.push_back(c.path); // its entry is there now: see walkFolders
             }
             // What is neither in a chosen folder nor on the way to one.
             removed += pruneOutside(*index, rootId, keep, through);
@@ -1631,7 +1772,7 @@ bool IndexService::walkFolders(
             std::uint8_t inherited = 0;
             {
                 const auto lock = index.readLock();
-                id = index.findPath(path);
+                id = findFolder(index, path);
                 if (id != kNoEntry && index.entry(id).isDir())
                     inherited = static_cast<std::uint8_t>(index.entry(id).flags & EntryFlag::Inherited);
                 else
@@ -1644,6 +1785,13 @@ bool IndexService::walkFolders(
                 if (crawler.isExcludedPath(path)) {
                     state = State::Excluded;
                 } else if (const Presence presence = presenceOf(path); presence == Presence::Unknown) {
+                    state = State::Unreadable;
+                } else if (presence == Presence::Folder && contains(m_placed, path)) {
+                    // Its entry made this pass, and it cannot be found as the
+                    // path is written (GitHub #52 review: walked again every
+                    // 3 s): told so, not looked for again and again.
+                    qWarning("WinShun: the chosen folder %ls is there, but not in the index as written: not walked",
+                        path.c_str());
                     state = State::Unreadable;
                 } else if (presence == Presence::Folder) {
                     {
@@ -1676,7 +1824,7 @@ bool IndexService::walkFolders(
                 // Not read at all: gone meanwhile (its entries go), or not for this account (they stay).
                 if (presenceOf(path) == Presence::Missing && driveLetterExists(volumeOf(path))) {
                     auto lock = index.writeLock();
-                    if (const EntryId e = index.findPath(path); e != kNoEntry)
+                    if (const EntryId e = findFolder(index, path); e != kNoEntry)
                         index.remove(e);
                     state = State::NotFound;
                 } else {
@@ -2085,8 +2233,9 @@ void IndexService::onChanges(std::vector<FsChange>&& changes)
     if (!foldersOnly(*scope)) {
         overflow = std::any_of(changes.begin(), changes.end(), [](const FsChange& c) { return c.kind == Kind::Overflow; });
     } else {
-        ScopedChanges scoped = changesInScope(std::move(changes),
-            [&](std::wstring_view root) -> const std::vector<std::wstring>& { return scope->on(root); });
+        ScopedChanges scoped = changesInScope(
+            std::move(changes), [&](std::wstring_view root) -> const std::vector<std::wstring>& { return scope->on(root); },
+            [](const std::wstring& path) { return presenceOf(path) == Presence::Folder; });
         changes = std::move(scoped.apply);
         owed = std::move(scoped.owed);
         lost = scoped.lost;

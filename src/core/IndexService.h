@@ -82,17 +82,30 @@ private:
 // one indexed whole, whose changes all stay): what happens in a chosen
 // folder, and above one what takes it away. Half a rename that leaves (or
 // enters) one is a removal (or an addition) by itself, never paired with half
-// of another. `owed` gets the chosen folders something happened to or above,
-// or whose watcher lost events (to be walked again in a moment; `lost` then);
-// `wholeLost` says a volume indexed whole lost events.
+// of another; a folder above chosen ones renamed (or moved above others) is
+// moved with what the index has of it (the new half moveOnly). `owed` gets
+// the chosen folders something happened to or above, or whose watcher lost
+// events (to be walked again in a moment; `lost` then), not for a new name
+// that differs in case only; `wholeLost` says a volume indexed whole lost
+// events. A folder above chosen ones said to be gone (not half of a rename
+// here) that `stillThere` finds on the disk stays, and nothing is owed:
+// Windows says so of one whose name changes in case only, before the rename.
 struct ScopedChanges {
     std::vector<FsChange> apply;
     std::vector<std::wstring> owed;
     bool lost = false;
     bool wholeLost = false;
 };
-ScopedChanges changesInScope(
-    std::vector<FsChange> changes, const std::function<const std::vector<std::wstring>&(std::wstring_view)>& chosenOn);
+ScopedChanges changesInScope(std::vector<FsChange> changes,
+    const std::function<const std::vector<std::wstring>&(std::wstring_view)>& chosenOn,
+    const std::function<bool(const std::wstring&)>& stillThere = {});
+
+// GitHub #52: a worker pass is over. `running` (IndexService's) is cleared,
+// and only then is `owed` asked whether chosen folders were owed a walk
+// meanwhile, which then get a pass of their own (true). In that order one
+// asked for at the last moment is never lost: the pass sees it, or whoever
+// asked sees no pass running and starts one (walkOwedFolders).
+bool passOver(std::atomic<bool>& running, const std::function<bool()>& owed);
 
 class IndexService : public QObject {
     Q_OBJECT
@@ -294,9 +307,10 @@ private:
     // chosen folders, brought in line with them: what is neither in one nor
     // on the way to one goes, the folders on the way and the chosen ones
     // come in. Returns the chosen folders to walk: those that came in, and
-    // those whose last walk did not finish (or found them unreadable).
-    std::vector<std::wstring> prepareScope(
-        const Scope& scope, const std::vector<std::wstring>& roots, const Crawler& crawler);
+    // those whose last walk did not finish (or found them unreadable);
+    // nothing, and nothing done, when stopped while it looks at the disk.
+    std::vector<std::wstring> prepareScope(std::stop_token stop, const Scope& scope,
+        const std::vector<std::wstring>& roots, const Crawler& crawler);
     bool walkFolders(std::stop_token stop, FileIndex& index, const Crawler& crawler, std::vector<std::wstring> folders,
         bool firstBuild);
     void setFolderStates(const std::vector<std::pair<std::wstring, FolderStatus::State>>& states,
@@ -365,6 +379,10 @@ private:
     // after a snapshot is loaded, when the index is Ready already.
     std::atomic<bool> m_volumesKnown {false};
     std::atomic<bool> m_dirty {false};
+    // Worker thread only: the chosen folders whose entries prepareScope() made
+    // (or found) this pass. One of them walkFolders() cannot find is not
+    // looked for again (GitHub #52 review).
+    std::vector<std::wstring> m_placed;
 
     // While a sync reads the disk, watcher changes are journaled and replayed
     // afterwards, so the final index reflects the latest state. Whatever
