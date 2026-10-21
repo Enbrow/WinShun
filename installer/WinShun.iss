@@ -38,7 +38,12 @@ VersionInfoCompany=LingCore
 ; Installed for all users under Program Files: the index service (which
 ; reads the NTFS master file tables for WinShun, GitHub #21) is registered
 ; once, by this installer; WinShun itself runs with the user's normal rights.
+; The dialog also offers "for me only" (GitHub #52, a company computer
+; without administrator rights): under the user's own folders, with no
+; service and nothing written for all users; /CURRENTUSER and /ALLUSERS
+; choose without the dialog.
 PrivilegesRequired=admin
+PrivilegesRequiredOverridesAllowed=dialog
 ; Off (Inno Setup 6.7 turns it on by default, GitHub #50): the WinShun Setup
 ; starts in [Run] inherits it, and so does Explorer when WinShun restarts it;
 ; every program started from the desktop then fails on junctions (Scoop,
@@ -81,7 +86,28 @@ SolidCompression=yes
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 
+; The install mode dialog (originals: ChineseSimplified.isl / Default.isl): what
+; each choice means, in the words of the buttons and above them. The
+; "recommended" forms are the same: which one is right depends on the computer.
+[Messages]
+english.PrivilegesRequiredOverrideText1=%1 can be installed for all users or for you only.%n%nAll users (needs an administrator): with the index service, which indexes whole disks and is the fastest.%nOnly me (no administrator needed): without the service, folders are walked instead. Choose this on a work computer.
+english.PrivilegesRequiredOverrideText2=%1 can be installed for you only or for all users.%n%nAll users (needs an administrator): with the index service, which indexes whole disks and is the fastest.%nOnly me (no administrator needed): without the service, folders are walked instead. Choose this on a work computer.
+english.PrivilegesRequiredOverrideAllUsers=Install for &all users (needs an administrator)
+english.PrivilegesRequiredOverrideAllUsersRecommended=Install for &all users (needs an administrator)
+english.PrivilegesRequiredOverrideCurrentUser=Install for &me only (no administrator needed)
+english.PrivilegesRequiredOverrideCurrentUserRecommended=Install for &me only (no administrator needed)
+chinesesimplified.PrivilegesRequiredOverrideText1=%1 可以为所有用户安装，也可以只为您安装。%n%n为所有用户安装（需要管理员）：带索引服务，索引整个磁盘，最快。%n只为我安装（不需要管理员）：不装服务，按文件夹遍历。公司电脑选这个。
+chinesesimplified.PrivilegesRequiredOverrideText2=%1 可以只为您安装，也可以为所有用户安装。%n%n为所有用户安装（需要管理员）：带索引服务，索引整个磁盘，最快。%n只为我安装（不需要管理员）：不装服务，按文件夹遍历。公司电脑选这个。
+chinesesimplified.PrivilegesRequiredOverrideAllUsers=为所有用户安装(&A)（需要管理员）
+chinesesimplified.PrivilegesRequiredOverrideAllUsersRecommended=为所有用户安装(&A)（需要管理员）
+chinesesimplified.PrivilegesRequiredOverrideCurrentUser=只为我安装(&M)（不需要管理员）
+chinesesimplified.PrivilegesRequiredOverrideCurrentUserRecommended=只为我安装(&M)（不需要管理员）
+
 [CustomMessages]
+english.PersonalInstalled=WinShun is already installed for you only (without administrator rights).%n%nUninstall that copy first (Settings > Apps), then run this Setup again to install for all users.
+chinesesimplified.PersonalInstalled=Win顺 已经只为您一个人安装了（没有用管理员权限）。%n%n请先卸载那一份（设置 > 应用），再运行这个安装程序为所有用户安装。
+english.AllUsersInstalled=WinShun is already installed for all users on this computer.%n%nJust use it; there is no need to install it again for yourself.
+chinesesimplified.AllUsersInstalled=这台电脑已经为所有用户装了 Win顺，直接用它即可，不用再装一份。
 english.RemoveData=Also delete WinShun's settings, file index and search history?%n%nKeep them if you are going to install WinShun again.
 chinesesimplified.RemoveData=要同时删除 Win顺 的设置、文件索引和搜索记录吗？%n%n如果还会再装 Win顺，可以保留它们。
 ; The Start menu shortcut users pin to the taskbar (WinShunSearch.exe).
@@ -95,7 +121,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; Everything build.ps1 -Deploy put in dist\WinShun, the index service
 ; WinShunService.exe (src/service) among them: it is stopped in
 ; PrepareToInstall before the files are replaced, and registered again in [Run].
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Installed for the user alone (GitHub #52) there is no service: its file stays out.
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "WinShunService.exe"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceDir}\WinShunService.exe"; DestDir: "{app}"; Flags: ignoreversion; Check: IsAdminInstallMode
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"
@@ -108,7 +136,7 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 ; The index service (GitHub #21): registered as the service "WinShun"
 ; (LocalSystem, automatic start) and started, by the installer's own
 ; (elevated) rights; installed again, it is pointed at the new files.
-Filename: "{app}\WinShunService.exe"; Parameters: "--install"; Flags: runhidden waituntilterminated runascurrentuser
+Filename: "{app}\WinShunService.exe"; Parameters: "--install"; Flags: runhidden waituntilterminated runascurrentuser; Check: IsAdminInstallMode
 ; The rest as the user who started Setup, with normal rights (runasoriginaluser):
 ; WinShun runs so, and its autostart task and settings are that user's, not
 ; the administrator's who answered UAC for a standard user (GitHub #21).
@@ -210,6 +238,8 @@ procedure RemoveTapCopies();
 var
   Folder: String;
 begin
+  if not IsAdminInstallMode then
+    exit; // installed for the user alone: nothing of ours under ProgramData, and no right to it
   Folder := ExpandConstant('{commonappdata}\WinShun\tap');
   if DirExists(Folder) and not DelTree(Folder, True, True, True) then
     DeleteAtRestart(Folder);
@@ -250,26 +280,56 @@ begin
   end;
 end;
 
-// Its autostart: the logon task WinShun creates itself. Only when it starts
-// this copy; a portable copy elsewhere keeps its own. True when one went.
+// Its autostart: the logon task WinShun creates itself, or, where Task
+// Scheduler would not take one (GitHub #52), the value "WinShun" in the
+// Run key. Only when it starts this copy; a portable copy elsewhere keeps
+// its own. True when one went.
 function RemoveAutostart(): Boolean;
 var
   Listing: AnsiString;
-  ListFile: String;
+  ListFile, RunCommand: String;
   ResultCode: Integer;
 begin
   Result := False;
+  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'WinShun', RunCommand) and
+     (Pos(Lowercase(ExpandConstant('{app}\{#AppExe}')), Lowercase(RunCommand)) > 0) then
+    Result := RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'WinShun');
   ListFile := AddBackslash(GetTempDir()) + 'WinShun-task.txt';
   if Exec(ExpandConstant('{cmd}'), '/C schtasks /Query /TN WinShun /V /FO LIST > "' + ListFile + '"', '',
        SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) and LoadStringFromFile(ListFile, Listing) then
     if Pos(Lowercase(ExpandConstant('{app}\{#AppExe}')), Lowercase(String(Listing))) > 0 then
-      Result := Exec(ExpandConstant('{sys}\schtasks.exe'), '/Delete /TN WinShun /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
-        and (ResultCode = 0);
+      Result := (Exec(ExpandConstant('{sys}\schtasks.exe'), '/Delete /TN WinShun /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
+        and (ResultCode = 0)) or Result;
   DeleteFile(ListFile);
 end;
 
 var
   HadAutostart: Boolean;
+
+const
+  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{C582F95C-EAF2-4AF2-961D-E35C4506652A}_is1';
+
+// Installed for all users and for one user at once would be two copies with
+// one set of settings (GitHub #52): the second kind is not started. As an
+// administrator: this user has a copy of their own; for the user alone: the
+// computer has the all-users one.
+function InitializeSetup(): Boolean;
+begin
+  Result := True;
+  if IsAdminInstallMode then
+  begin
+    if RegKeyExists(HKCU, UninstallKey) then
+    begin
+      SuppressibleMsgBox(CustomMessage('PersonalInstalled'), mbInformation, MB_OK, IDOK);
+      Result := False;
+    end;
+  end
+  else if RegKeyExists(HKLM64, UninstallKey) or RegKeyExists(HKLM32, UninstallKey) then
+  begin
+    SuppressibleMsgBox(CustomMessage('AllUsersInstalled'), mbInformation, MB_OK, IDOK);
+    Result := False;
+  end;
+end;
 
 // For [Run]: --take-autostart writes the task whether or not one is left
 // when PrepareToInstall removed this copy's.
@@ -285,7 +345,8 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   // The installed copy if there is one; a portable copy is ended.
   CloseWinShun(ExpandConstant('{app}\{#AppExe}'));
-  StopIndexService();
+  if IsAdminInstallMode then
+    StopIndexService(); // there is no service when installed for the user alone
   // This copy's autostart task of old (GitHub #21): registered elevated by
   // the version before, and by whoever answered UAC then, which for a
   // standard user was an administrator, whose task that user can neither
@@ -390,7 +451,8 @@ begin
   begin
     CloseWinShun(ExpandConstant('{app}\{#AppExe}'));
     // The index service: stopped and removed (while its file is still there).
-    Exec(ExpandConstant('{app}\WinShunService.exe'), '--uninstall', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    if IsAdminInstallMode then
+      Exec(ExpandConstant('{app}\WinShunService.exe'), '--uninstall', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     RemoveAutostart();
     RemoveExplorerMenu();
     // Directory Opus's double click on blank space, if Win顺 set it to run this copy.
@@ -403,7 +465,8 @@ begin
   if CurUninstallStep = usPostUninstall then
   begin
     RemoveTapCopies();
-    RemoveDir(ExpandConstant('{commonappdata}\WinShun'));
+    if IsAdminInstallMode then
+      RemoveDir(ExpandConstant('{commonappdata}\WinShun'));
   end;
   if (CurUninstallStep = usPostUninstall) and not UninstallSilent then
     if MsgBox(CustomMessage('RemoveData'), mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
