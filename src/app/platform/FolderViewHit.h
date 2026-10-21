@@ -15,6 +15,7 @@ enum class Surface {
     // The hotkey only (FolderMenu::hotkeyPressed):
     TotalCommander, // its window in front: the panel with the focus
     XYplorer, // its window in front: the tab with the focus
+    Pulse, // its window in front: the pane with the focus in the tab on top (GitHub #41)
     Dialog, // an Open or Save dialog in front: chosen, it goes there
     Other, // any other window: chosen, the file manager opens it
 };

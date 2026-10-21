@@ -58,6 +58,8 @@ QString managerName(filemanager::Kind kind)
         return u"Directory Opus"_s;
     case filemanager::Kind::XYplorer:
         return u"XYplorer"_s;
+    case filemanager::Kind::Pulse:
+        return u"Pulse"_s;
     case filemanager::Kind::Custom: // cannot be asked: never among them
     case filemanager::Kind::Explorer:
         break;

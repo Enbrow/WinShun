@@ -342,6 +342,64 @@ void bringToFront(HWND window)
         ::SetForegroundWindow(window);
 }
 
+// Pulse (GitHub #41), an open-source file manager that draws its windows
+// itself: nothing to ask, nothing for UI Automation but their titles. What
+// they show is in its session file, which it saves at most every 3 s once
+// something changed, from a timer of 100 ms (200 ms with its windows
+// hidden): kPulseSaveWait is a little more.
+constexpr const wchar_t* kPulseClass = L"PulseMainWindow";
+constexpr auto kPulseSaveWait = std::chrono::milliseconds(3500);
+// Its setup's entry under Programs and Features (an Inno Setup AppId, which
+// its own setup kept): where it was installed, C:\Program Files\Pulse.
+constexpr const wchar_t* kPulseUninstallKey
+    = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{A3F47C2E-9D1B-4E58-8C6A-2B5D0F9E1734}_is1";
+
+bool isPulseProgram(std::wstring_view path)
+{
+    return win32::equalsIgnoreCase(baseName(path), L"pulse.exe");
+}
+
+// Pulse's main windows, front to back; shown or not (one closed to the tray is hidden).
+std::vector<HWND> pulseMainWindows()
+{
+    std::vector<HWND> windows;
+    for (HWND hwnd = nullptr; (hwnd = ::FindWindowExW(nullptr, hwnd, kPulseClass, nullptr));) {
+        if (isPulseProgram(programOf(hwnd)))
+            windows.push_back(hwnd);
+    }
+    return windows;
+}
+
+std::wstring pulseProgram()
+{
+    for (HWND hwnd = nullptr; (hwnd = ::FindWindowExW(nullptr, hwnd, kPulseClass, nullptr));) {
+        if (std::wstring program = programOf(hwnd); isPulseProgram(program))
+            return program; // maybe the portable one, which leaves no trace in the registry
+    }
+    const std::pair<HKEY, DWORD> places[] {
+        {HKEY_LOCAL_MACHINE, RRF_SUBKEY_WOW6464KEY}, {HKEY_LOCAL_MACHINE, RRF_SUBKEY_WOW6432KEY}, {HKEY_CURRENT_USER, 0}};
+    for (const auto& [root, flags] : places) {
+        for (const wchar_t* value : {L"InstallLocation", L"Inno Setup: App Path"}) {
+            std::wstring dir = registryText(root, kPulseUninstallKey, value, flags);
+            while (dir.ends_with(L'\\'))
+                dir.pop_back();
+            if (!dir.empty() && isFile(dir + L"\\pulse.exe"))
+                return dir + L"\\pulse.exe";
+        }
+    }
+    return {};
+}
+
+// The Pulse that runs may take the front for what it is handed: that comes
+// through a second pulse.exe (its single-instance hand-over), which can pass
+// on only what foreground rights it was started with.
+void letPulseToFront()
+{
+    DWORD pid = 0;
+    if (const HWND window = ::FindWindowW(kPulseClass, nullptr); window && ::GetWindowThreadProcessId(window, &pid) && pid)
+        ::AllowSetForegroundWindow(pid);
+}
+
 // The command lines of Kind::Custom (setCustomCommands).
 std::mutex g_customMutex;
 QString g_customOpen;
@@ -528,6 +586,151 @@ QList<pathtext::OpusTab> opusTabs()
     return tabs;
 }
 
+// Where Pulse keeps its session, the portable copy too: every window's place,
+// tabs and panes.
+std::wstring pulseSessionFile()
+{
+    PWSTR folder = nullptr;
+    std::wstring file;
+    if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &folder)))
+        file = std::wstring(folder) + L"\\Pulse\\session.json";
+    ::CoTaskMemFree(folder);
+    return file;
+}
+
+// When a file was written last; zero when it is not there.
+FILETIME writtenAt(const std::wstring& file)
+{
+    WIN32_FILE_ATTRIBUTE_DATA data {};
+    return ::GetFileAttributesExW(file.c_str(), GetFileExInfoStandard, &data) ? data.ftLastWriteTime : FILETIME {};
+}
+
+struct SharedRead {
+    QByteArray bytes;
+    FILETIME written {};
+};
+
+// A file's bytes and when they were written, read with every sharing allowed:
+// Pulse replaces its session file whole (MoveFileEx over it), which a reader
+// without FILE_SHARE_DELETE would make fail, its last save as it exits too.
+SharedRead readShared(const std::wstring& file)
+{
+    SharedRead read;
+    const win32::UniqueHandle handle(::CreateFileW(file.c_str(), GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    LARGE_INTEGER size {};
+    if (!handle.valid() || !::GetFileSizeEx(handle.get(), &size) || size.QuadPart <= 0
+        || size.QuadPart > 64 * 1024 * 1024) // Pulse's own limit
+        return read;
+    QByteArray bytes(static_cast<qsizetype>(size.QuadPart), Qt::Uninitialized);
+    DWORD got = 0;
+    if (!::ReadFile(handle.get(), bytes.data(), static_cast<DWORD>(bytes.size()), &got, nullptr)
+        || !::GetFileTime(handle.get(), nullptr, nullptr, &read.written))
+        return read;
+    bytes.truncate(got);
+    read.bytes = std::move(bytes);
+    return read;
+}
+
+// The version of Pulse's session a wait was spent on in vain, and the title
+// its window had then (pulseSession).
+std::mutex g_pulseMutex;
+FILETIME g_pulseWaited {};
+std::wstring g_pulseWaitedTitle;
+
+// What Pulse's windows show, as its session says (`windows`: its main
+// windows, pulseMainWindows). Saved a few seconds late (kPulseSaveWait),
+// while a window's title changes at once: with one window open, whose title
+// names the folder in its front pane ("乙 — Pulse"), a session that names
+// another is waited for, so that Ctrl+G right after going somewhere in Pulse
+// goes there and not to the folder before. Once per version of the file and
+// title: one the session never names costs one wait, not one each time,
+// while going on to another folder is waited for again. More windows are
+// called by names of their own ("t — Pulse", for the folder their panes
+// have in common): the session goes as it is then, a few seconds old at
+// worst.
+QList<pathtext::PulseWindow> pulseSession(const std::vector<HWND>& windows)
+{
+    const std::wstring file = windows.empty() ? std::wstring() : pulseSessionFile();
+    if (file.empty())
+        return {};
+    SharedRead read = readShared(file);
+    QList<pathtext::PulseWindow> session = pathtext::pulseWindows(read.bytes);
+    std::wstring title;
+    const auto current = [&] {
+        if (windows.size() != 1 || session.isEmpty() || session.front().frontName.isEmpty())
+            return true;
+        title = caption(windows.front());
+        return title == pathtext::pulseTitle(session.front().frontName).toStdWString();
+    };
+    if (current())
+        return session;
+    {
+        const std::lock_guard lock(g_pulseMutex);
+        if (::CompareFileTime(&g_pulseWaited, &read.written) == 0 && g_pulseWaitedTitle == title)
+            return session;
+    }
+    const FILETIME stale = read.written;
+    if (waitFor([&] {
+            const FILETIME now = writtenAt(file);
+            return ::CompareFileTime(&now, &stale) != 0;
+        }, kPulseSaveWait)) {
+        read = readShared(file);
+        session = pathtext::pulseWindows(read.bytes);
+    }
+    if (!current()) {
+        const std::lock_guard lock(g_pulseMutex);
+        g_pulseWaited = read.written;
+        g_pulseWaitedTitle = title;
+    }
+    return session;
+}
+
+// Whether Pulse's `window` is where the session says `w` is when restored,
+// as Pulse sees it: GetWindowPlacement scales it for a thread of another DPI
+// awareness.
+bool samePlace(HWND window, const pathtext::PulseWindow& w)
+{
+    const DPI_AWARENESS_CONTEXT ours = ::SetThreadDpiAwarenessContext(::GetWindowDpiAwarenessContext(window));
+    WINDOWPLACEMENT placement {sizeof(WINDOWPLACEMENT)};
+    const bool got = ::GetWindowPlacement(window, &placement);
+    if (ours)
+        ::SetThreadDpiAwarenessContext(ours);
+    const RECT& r = placement.rcNormalPosition;
+    return got && r.left == w.left && r.top == w.top && r.right == w.right && r.bottom == w.bottom;
+}
+
+struct PulseShown {
+    HWND window;
+    QList<pathtext::XYplorerTab> folders; // as pathtext::PulseWindow's, on disk
+};
+
+// Each main window of Pulse, front to back, with the folders on disk it
+// shows: the only one is the session's first (the one used last); more are
+// told apart by their places, each taken once. One moved or opened since the
+// session was saved is not in it: it shows nothing until the next save.
+std::vector<PulseShown> pulseShown()
+{
+    const std::vector<HWND> windows = pulseMainWindows();
+    const QList<pathtext::PulseWindow> session = pulseSession(windows);
+    std::vector<bool> taken(static_cast<std::size_t>(session.size()), false);
+    std::vector<PulseShown> shown;
+    for (const HWND window : windows) {
+        qsizetype found = -1;
+        for (qsizetype i = 0; i < session.size() && found < 0; ++i) {
+            if (!taken[static_cast<std::size_t>(i)] && (windows.size() == 1 || samePlace(window, session[i])))
+                found = i;
+        }
+        if (found < 0)
+            continue;
+        taken[static_cast<std::size_t>(found)] = true;
+        PulseShown entry {window, session[found].folders};
+        entry.folders.removeIf([](const pathtext::XYplorerTab& f) { return !isFolder(f.path.toStdWString()); }); // archives, gone
+        shown.push_back(std::move(entry));
+    }
+    return shown;
+}
+
 } // namespace
 
 std::optional<Kind> kindOf(HWND window)
@@ -543,6 +746,8 @@ std::optional<Kind> kindOf(HWND window)
         return Kind::DirectoryOpus;
     if (::wcscmp(name, L"ThunderRT6FormDC") == 0 && isXYplorerMain(window))
         return Kind::XYplorer;
+    if (::wcscmp(name, kPulseClass) == 0 && isPulseProgram(programOf(window)))
+        return Kind::Pulse;
     return std::nullopt;
 }
 
@@ -551,9 +756,10 @@ std::vector<Folder> openFolders()
     struct Search {
         std::vector<ExplorerTab> explorer;
         QList<pathtext::OpusTab> opus;
+        std::vector<PulseShown> pulse;
         std::vector<Folder> onTop; // each window's folder in front
         std::vector<Folder> behind; // the others
-    } search {explorerTabs(), opusTabs(), {}, {}};
+    } search {explorerTabs(), opusTabs(), pulseShown(), {}, {}};
     // Top-level windows come front to back, and so do a window's children.
     ::EnumWindows(
         [](HWND hwnd, LPARAM param) -> BOOL {
@@ -593,6 +799,14 @@ std::vector<Folder> openFolders()
                         if (tab.state == state)
                             (state == 1 ? search.onTop : search.behind).push_back({tab.path.toStdWString(), *kind});
                     }
+                }
+            } else if (kind == Kind::Pulse && ::IsWindowVisible(hwnd)) {
+                // Likewise, as its session says (in that order already); one in the tray left out.
+                for (const PulseShown& shown : search.pulse) {
+                    if (shown.window != hwnd)
+                        continue;
+                    for (const pathtext::XYplorerTab& folder : shown.folders)
+                        (folder.state == 1 ? search.onTop : search.behind).push_back({folder.path.toStdWString(), *kind});
                 }
             }
             return TRUE;
@@ -656,6 +870,8 @@ std::wstring program(Kind kind)
         return opusProgram();
     case Kind::XYplorer:
         return xyplorerProgram();
+    case Kind::Pulse:
+        return pulseProgram();
     case Kind::Custom: {
         const std::lock_guard lock(g_customMutex);
         return QDir::toNativeSeparators(customProgram(g_customOpen)).toStdWString();
@@ -700,6 +916,14 @@ bool openFolder(Kind kind, const std::wstring& folder)
         // Not running: started on it. "D:\" bare: a backslash before the closing quote would escape it.
         return run(exe, folder.ends_with(L'\\') ? folder : quoted(folder), false);
     }
+    case Kind::Pulse:
+        // Its single-instance hand-over (pulse.exe <folder>) to the Pulse that
+        // runs, or started on it. Its window that shows it already comes to
+        // it; else it goes where Pulse puts any folder from outside: by its
+        // setting, by default a new tab in the window used last, or a new
+        // window when that one is busy or was used in the last 8 s.
+        letPulseToFront();
+        return run(exe, pathtext::commandArgument(QString::fromStdWString(folder)).toStdWString(), false);
     case Kind::Custom:
     case Kind::Explorer:
         break;
@@ -739,6 +963,16 @@ std::wstring frontFolder(HWND window)
                 return tab.path.toStdWString();
         }
         return {};
+    case Kind::Pulse:
+        for (const PulseShown& shown : pulseShown()) {
+            if (shown.window != window)
+                continue;
+            for (const pathtext::XYplorerTab& folder : shown.folders) {
+                if (folder.state == 1)
+                    return folder.path.toStdWString();
+            }
+        }
+        return {};
     case Kind::Custom:
         break;
     }
@@ -757,6 +991,7 @@ bool goToInFront(Kind kind, const std::wstring& folder)
         return !exe.empty() && run(exe, L"/O /S /L=" + quoted(folder), false);
     }
     case Kind::XYplorer:
+    case Kind::Pulse:
         return openFolder(kind, folder);
     case Kind::Explorer:
     case Kind::Custom:
@@ -899,6 +1134,30 @@ bool revealInXYplorer(const std::wstring& exe, const std::vector<std::wstring>& 
     return shown;
 }
 
+// Each item's folder in Pulse, by its single-instance hand-over (openFolder):
+// a file is handed over itself, and Pulse opens its folder with it selected
+// (one each time: the first of each folder). Pulse selects files only: a
+// folder's folder opens as it is; a drive, nothing above it, is opened.
+bool revealInPulse(const std::wstring& exe, const std::vector<std::wstring>& paths)
+{
+    std::vector<std::wstring> folders; // shown already
+    bool shown = false;
+    for (const std::wstring& path : paths) {
+        const QFileInfo info(QString::fromStdWString(path));
+        const QString folder = QDir::toNativeSeparators(info.isRoot() ? info.filePath() : info.path());
+        std::wstring native = folder.toStdWString();
+        if (std::ranges::any_of(folders, [&](const std::wstring& f) { return ::_wcsicmp(f.c_str(), native.c_str()) == 0; }))
+            continue;
+        folders.push_back(std::move(native));
+        const QString handed = info.isFile() ? QDir::toNativeSeparators(info.filePath()) : folder;
+        letPulseToFront();
+        if (!run(exe, pathtext::commandArgument(handed).toStdWString(), paths.size() > 1))
+            return shown;
+        shown = true;
+    }
+    return shown;
+}
+
 // Each item's folder opened by the custom open command (no reveal command).
 bool openFoldersOf(const QString& openCommand, const std::vector<std::wstring>& paths)
 {
@@ -947,6 +1206,8 @@ bool reveal(Kind kind, const std::vector<std::wstring>& paths)
         return false;
     if (kind == Kind::XYplorer)
         return revealInXYplorer(exe, paths);
+    if (kind == Kind::Pulse)
+        return revealInPulse(exe, paths);
     std::vector<std::wstring> folders; // shown already (Total Commander)
     bool shown = false;
     for (const std::wstring& path : paths) {

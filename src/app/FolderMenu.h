@@ -42,10 +42,11 @@ class KeyRouter;
 // double click), for whatever window is in front (hotkeyPressed()): a File
 // Explorer folder, the desktop, a Directory Opus, Total Commander or
 // XYplorer window, an Open or Save dialog, which a folder chosen takes
-// there, or any other, from which the file manager opens it. Pressed again
-// while the menu is up, it closes it. Pressed with the search bar beside a
-// file dialog in front (a window of Win顺's own), the dialog is given the
-// front back and the menu is for it.
+// there, a Pulse window (GitHub #41: handed to Pulse, which opens it where
+// its own setting says, a new window maybe), or any other, from which the
+// file manager opens it. Pressed again while the menu is up, it closes it.
+// Pressed with the search bar beside a file dialog in front (a window of
+// Win顺's own), the dialog is given the front back and the menu is for it.
 //
 // The menu never takes the focus: the window it is for (File Explorer,
 // Total Commander, a dialog…) stays in front, its selection and caret as

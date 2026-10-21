@@ -228,6 +228,7 @@ std::vector<Entry> buildCatalog()
                 {u"totalcmd"_s, u"Total Commander"_s, "Total Commander"},
                 {u"dopus"_s, u"Directory Opus"_s, "Directory Opus"},
                 {u"xyplorer"_s, u"XYplorer"_s, "XYplorer"},
+                {u"pulse"_s, u"Pulse, an open-source file manager"_s, "Pulse"},
                 {u"custom"_s, u"a program with the user's own command lines"_s, QT_TRANSLATE_NOOP("AiSettings", "其他（自定义）")}}));
         e.check = [](const State& s, const QString& value, const Env& env) -> QString {
             if (value == u"custom" && s.settings.fileManagerOpenCommand.isEmpty())

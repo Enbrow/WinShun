@@ -12,19 +12,21 @@
 #include <vector>
 
 // The file managers Win顺 works with: File Explorer, Total Commander,
-// Directory Opus and XYplorer. They are asked which folders their windows
-// show (for the Open and Save dialogs: Ctrl+G, the bar beside them, going
-// there by themselves), and told to open a folder or to show where an item
-// is (Settings::fileManager, through shell::open and shell::reveal). Any
-// other one (Kind::Custom) only opens folders and shows items, by command
-// lines of the user's own (setCustomCommands): it cannot be asked.
+// Directory Opus, XYplorer and Pulse. They are asked which folders their
+// windows show (for the Open and Save dialogs: Ctrl+G, the bar beside them,
+// going there by themselves), and told to open a folder or to show where an
+// item is (Settings::fileManager, through shell::open and shell::reveal).
+// Any other one (Kind::Custom) only opens folders and shows items, by
+// command lines of the user's own (setCustomCommands): it cannot be asked.
 //
 // Total Commander answers window messages (WM_USER+50) at once. Directory
 // Opus answers through its dopusrt.exe, started with the user's normal
 // rights: started elevated, as Win顺 is, it waits for an answer that never
 // comes (docs/pitfalls.md). XYplorer runs a script sent by WM_COPYDATA and
 // answers by WM_COPYDATA to a window of ours, while the message is still
-// being sent (GitHub #23).
+// being sent (GitHub #23). Pulse cannot be asked (GitHub #41): its session
+// file says what its windows show (pathtext::pulseWindows), saved a few
+// seconds late, which the title of a lone window gives away.
 namespace ws::filemanager {
 
 enum class Kind {
@@ -32,6 +34,7 @@ enum class Kind {
     TotalCommander,
     DirectoryOpus,
     XYplorer,
+    Pulse,
     Custom,
 };
 
@@ -41,6 +44,7 @@ inline constexpr std::pair<Kind, const char*> kSettingNames[] {
     {Kind::TotalCommander, "totalcmd"},
     {Kind::DirectoryOpus, "dopus"},
     {Kind::XYplorer, "xyplorer"},
+    {Kind::Pulse, "pulse"},
     {Kind::Custom, "custom"},
 };
 
@@ -61,11 +65,12 @@ struct Folder {
 };
 
 // The folders their windows show: each window's folder in front (the tab on
-// top, the panel with the focus), front to back, then the others (tabs
-// behind, the other panel). Folders on disk only: no Home, This PC,
+// top, the panel or pane with the focus), front to back, then the others
+// (tabs behind, the other panel). Folders on disk only: no Home, This PC,
 // searches, FTP sites or archives. Needs COM; asks the other programs
 // (Directory Opus only while one of its windows is open: asking starts it),
-// so not on the GUI thread.
+// and may wait for Pulse to save what it shows (3.5 s at most), so not on
+// the GUI thread.
 std::vector<Folder> openFolders();
 
 // An Explorer tab by its window (ShellTabWindowClass; the top-level window
@@ -84,16 +89,17 @@ bool goTo(HWND tab, const std::wstring& folder);
 bool goToKeepingFocus(HWND tab, const std::wstring& folder);
 
 // The program that takes the commands: TOTALCMD64.EXE (TOTALCMD.EXE),
-// dopusrt.exe, XYplorer.exe, the custom open command's; empty when it is
-// not installed. A Total Commander or XYplorer that runs (maybe a portable
-// one) before the one installed. Explorer: always empty.
+// dopusrt.exe, XYplorer.exe, pulse.exe, the custom open command's; empty
+// when it is not installed. A Total Commander, XYplorer or Pulse that runs
+// (maybe a portable one) before the one installed. Explorer: always empty.
 std::wstring program(Kind kind);
 bool installed(Kind kind); // Explorer and Custom always: Custom is to be set up
 
-// With the user's normal rights, in a new tab (Directory Opus and XYplorer:
-// the tab that shows it already, if any), starting the program if it does
-// not run. False when it is not installed or did not start. Not for
-// Explorer: that is shell::open's and shell::reveal's own.
+// With the user's normal rights, in a new tab (Directory Opus, XYplorer and
+// Pulse: the tab that shows it already, if any; Pulse may open a new window
+// instead, as it chooses for any folder from outside), starting the program
+// if it does not run. False when it is not installed or did not start. Not
+// for Explorer: that is shell::open's and shell::reveal's own.
 bool openFolder(Kind kind, const std::wstring& folder);
 // Directory Opus's lister used last, in its tab in front, goes to `folder`
 // (its Back button comes back), as the folder menu's double click there
@@ -101,16 +107,17 @@ bool openFolder(Kind kind, const std::wstring& folder);
 bool goToInOpus(const std::wstring& folder);
 // The folder shown in front in `window`, one of theirs (kindOf): the tab on
 // top in File Explorer and Directory Opus, the panel with the focus in Total
-// Commander, the tab with the focus in XYplorer. Empty when that is no
-// folder on disk (Home, This PC, an archive), or the window is not one of
-// theirs. Needs COM, asks the programs: not on the GUI thread. For the
-// folder menu's hotkey (GitHub #25).
+// Commander, the tab with the focus in XYplorer, the pane with the focus in
+// the tab on top in Pulse. Empty when that is no folder on disk (Home, This
+// PC, an archive), or the window is not one of theirs. Needs COM, asks the
+// programs: not on the GUI thread. For the folder menu's hotkey (GitHub #25).
 std::wstring frontFolder(HWND window);
 // The window of that program used last goes to `folder` where its user
 // looks: Directory Opus's tab in front (goToInOpus), Total Commander's
-// panel with the focus (its current tab), XYplorer's tab showing it already
-// or a new one (openFolder). Not for Explorer (goTo takes its tab) or
-// Custom (openFolder). False when it is not installed.
+// panel with the focus (its current tab), XYplorer's and Pulse's tab
+// showing it already or a new one (openFolder; Pulse may take a new window
+// for it). Not for Explorer (goTo takes its tab) or Custom (openFolder).
+// False when it is not installed.
 bool goToInFront(Kind kind, const std::wstring& folder);
 // Directory Opus's Preferences window.
 bool openOpusPreferences();
@@ -130,7 +137,8 @@ enum class PrefsEdit {
 };
 PrefsEdit editOpusPrefs(const std::function<std::optional<QByteArray>(const QByteArray&)>& edit);
 // Each item's folder, with the item selected (in Total Commander, which has
-// one cursor, the first item of each folder).
+// one cursor, and in Pulse, the first item of each folder; Pulse selects
+// files only: a folder's folder opens as it is).
 bool reveal(Kind kind, const std::vector<std::wstring>& paths);
 
 } // namespace ws::filemanager

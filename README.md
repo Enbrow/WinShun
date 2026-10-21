@@ -143,7 +143,7 @@
 #### 📂 “打开”“另存为”对话框
 
 - **对话框旁的搜索框**：输入文件夹或文件名（拼音也行），回车，对话框直接转过去；网页上传文件、WPS 的对话框、VBA 宏弹出的“浏览文件夹”也认。
-- **`Ctrl+G`**：转到资源管理器、Total Commander、Directory Opus 或 XYplorer 正在显示的文件夹，和 Listary 的同名快捷键一样。
+- **`Ctrl+G`**：转到资源管理器、Total Commander、Directory Opus、XYplorer 或 Pulse 正在显示的文件夹，和 Listary 的同名快捷键一样。
 - **不输入时**：列出打开着的文件夹、刚复制的路径、收藏和最近用过的文件夹。
 - **自动转过去**：可以设成对话框一出现就转到文件管理器的文件夹，或者先停在上次的位置，从文件管理器切回来时再转。
 
@@ -152,7 +152,7 @@
 - **双击空白处**：在资源管理器或桌面的空白处双击，弹出收藏的、最近的、别的窗口里开着的文件夹，选一个就在这个窗口里转过去（桌面上开新窗口），和 Listary 一样；还能在当前文件夹里搜、把它加进收藏。
 - 菜单不抢焦点，方向键、回车、Esc、首字母都能用；点别处或再双击就关。Listary 在运行时让给它。
 - **Directory Opus 里也能双击**：Win顺 可以替你在 Opus 的设置里加好这条命令（Opus 会重启一下），关掉或卸载时换回原来的。
-- **用快捷键弹出**：双击被别的程序占了，或者想在 Total Commander、XYplorer 里用，就在设置里给文件夹菜单设一个快捷键，在任何窗口里按：资源管理器、桌面、Directory Opus、Total Commander、XYplorer、“打开”“另存为”对话框里选中的文件夹在那个窗口里打开，别的窗口里用文件管理器打开；再按一次关闭。
+- **用快捷键弹出**：双击被别的程序占了，或者想在 Total Commander、XYplorer、Pulse 里用，就在设置里给文件夹菜单设一个快捷键，在任何窗口里按：资源管理器、桌面、Directory Opus、Total Commander、XYplorer、“打开”“另存为”对话框里选中的文件夹在那个窗口里打开（Pulse 里交给 Pulse，按它的“从其他程序打开的文件夹”设置开新标签或新窗口），别的窗口里用文件管理器打开；再按一次关闭。
 - **右键“用 Win顺 搜索此处”**：文件夹、文件夹的空白处和磁盘的右键菜单里都有（Windows 11 在“显示更多选项”里），搜索框带着这个文件夹打开，接着打字就在里面找。设置里可以关。
 - **直接打字搜索**：在资源管理器的文件列表里随意打字，Win顺 就带着打的字、在这个窗口的文件夹里搜，和 Listary 一样；中文输入法照常组拼音，`Esc` 回到资源管理器。设置里打开（它代替了资源管理器自己的按首字母跳到文件，所以默认关）。
 
@@ -189,7 +189,7 @@
 
 - **外观**：浅色、深色跟随系统，Windows 11 云母（Mica）效果；圆角或直角（直角和 Windows 10 一样）；图标在 150% 缩放下也清晰。界面大小有紧凑、标准、宽松三档，托盘和任务栏的图标可以换成单色。
 - **设置**：可以搜索（`Ctrl+F`，`kjj` 找到“快捷键”），改了立即生效。
-- **文件管理器**：打开文件夹、打开所在位置时用资源管理器、Total Commander、Directory Opus 或 XYplorer（装了的才列出）；别的文件管理器也行，在设置 › 打开 Win顺 › 对话框里填它的命令。
+- **文件管理器**：打开文件夹、打开所在位置时用资源管理器、Total Commander、Directory Opus、XYplorer 或 Pulse（装了的才列出）；别的文件管理器也行，在设置 › 打开 Win顺 › 对话框里填它的命令。
 - **备份**：设置 → 高级里选一个文件夹（放在同步盘里就是云备份），设置、收藏、对话框的固定项、自己加的网页图标和插件会自动备份，保留最近 10 份，随时恢复。
 - **更新**：有新版本时在托盘提醒，Win顺 不会自己下载、替换程序文件。
 
@@ -317,14 +317,14 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Your own**: zero-code `plugin.json`, scripts in any language, or resident processes, with SDKs for Python, PowerShell and C++. Plugins run with normal rights under a memory limit. See [docs/plugins.en.md](docs/plugins.en.md).
 - 📂 **Open / Save dialogs**
   - **Search bar**: a search bar under every file dialog; type a name (pinyin too), press Enter, and the dialog goes there; web page uploads, WPS dialogs and the "Browse For Folder" box of VBA macros too.
-  - **`Ctrl+G`**: jumps to the folder open in File Explorer, Total Commander, Directory Opus or XYplorer, like Listary.
+  - **`Ctrl+G`**: jumps to the folder open in File Explorer, Total Commander, Directory Opus, XYplorer or Pulse, like Listary.
   - **Suggestions**: open folders, a path you just copied, favorites and recent folders.
   - **Going there by itself**: optional, as the dialog opens, or only when you come back to it from the file manager.
 - 🗂️ **In File Explorer: a double click, a right-click**
   - **Folder menu**: double-click the blank space of a File Explorer folder or of the desktop: favorite, recent and open folders; pick one and the same window goes there (the desktop opens a new one), like Listary. Also: search this folder, add it to the favorites.
   - It never takes the focus: arrows, Enter, Esc and first letters work; a click elsewhere or another double click closes it. It stays out of the way while Listary runs.
   - **In Directory Opus too**: WinShun can add its command to Opus's settings for you (Opus restarts once), and puts the old one back when turned off or uninstalled.
-  - **By a shortcut**: when another program has the double click, or for Total Commander and XYplorer, give the folder menu a shortcut in the settings and press it in any window: in File Explorer, on the desktop, in Directory Opus, Total Commander, XYplorer and Open / Save dialogs the folder picked opens in that window; anywhere else, in your file manager. Press it again to close the menu.
+  - **By a shortcut**: when another program has the double click, or for Total Commander, XYplorer and Pulse, give the folder menu a shortcut in the settings and press it in any window: in File Explorer, on the desktop, in Directory Opus, Total Commander, XYplorer and Open / Save dialogs the folder picked opens in that window (in Pulse, where its “Folders opened from other apps” setting puts it: a new tab or a new window); anywhere else, in your file manager. Press it again to close the menu.
   - **“Search here with WinShun”** on the right-click menu of folders, a folder's blank space and drives (under “Show more options” on Windows 11): the search window opens with that folder typed. It can be turned off.
   - **Type to search**: type anywhere in a File Explorer file list and WinShun searches that window's folder for what you typed, like Listary; a Chinese input method composes as usual, and `Esc` goes back to File Explorer. Turn it on in the settings (it replaces Explorer's own jump to a file by its first letters, so it is off by default).
 - 📋 **Clipboard history (replaces Win+V)**
@@ -344,7 +344,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 - 🎨 **Looks and settings**
   - **Looks**: light and dark themes following Windows, Windows 11 Mica, rounded or square corners (square as in Windows 10), sharp icons at any scaling; compact, standard or roomy sizes, and a monochrome tray and taskbar icon if you like.
   - **Settings**: searchable (`Ctrl+F`); changes apply at once.
-  - **File manager**: folders and file locations open in File Explorer, Total Commander, Directory Opus or XYplorer (those installed are listed), or in any other file manager whose commands you enter under Settings › Open WinShun › Dialogs.
+  - **File manager**: folders and file locations open in File Explorer, Total Commander, Directory Opus, XYplorer or Pulse (those installed are listed), or in any other file manager whose commands you enter under Settings › Open WinShun › Dialogs.
   - **Backup**: choose a folder under Settings → Advanced (a synced folder makes it a cloud backup); settings, favorites, dialog pins, your own web icons and plugins are backed up as they change, the last 10 kept, ready to restore.
   - **Updates**: announced in the tray; WinShun never replaces its own files.
 

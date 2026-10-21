@@ -118,6 +118,7 @@ Window {
         case "totalcmd": return "Total Commander"
         case "dopus": return "Directory Opus"
         case "xyplorer": return "XYplorer"
+        case "pulse": return "Pulse"
         case "custom": return qsTr("其他（自定义）")
         default: return qsTr("资源管理器")
         }
@@ -1250,7 +1251,7 @@ Window {
                 SettingRow {
                     shown: window.editor.fileManagers.length > 1
                     title: qsTr("用哪个文件管理器打开文件夹")
-                    keywords: qsTr("文件管理器;资源管理器;打开文件夹;打开所在位置;Total Commander;Directory Opus;TC;Opus;XYplorer;自定义;其他;Tessoa;custom").split(";")
+                    keywords: qsTr("文件管理器;资源管理器;打开文件夹;打开所在位置;Total Commander;Directory Opus;TC;Opus;XYplorer;Pulse;自定义;其他;Tessoa;custom").split(";")
                     description: qsTr("打开文件夹、打开文件所在位置时用它；没装的不列")
 
                     body: Flow { // keep full names inside the card, even with every manager installed
@@ -1275,7 +1276,7 @@ Window {
                     shown: window.editor.fileManager === "custom"
                     title: qsTr("其他文件管理器的命令")
                     keywords: qsTr("文件管理器;自定义;命令;命令行;其他;Tessoa;custom;command").split(";")
-                    description: qsTr("命令里的 {path} 会换成文件夹或文件的完整路径，Win顺 自动加引号。这样的文件管理器 Win顺 读不到它正在显示的文件夹：对话框里的 Ctrl+G 和搜索框的建议只认资源管理器、Total Commander、Directory Opus 和 XYplorer")
+                    description: qsTr("命令里的 {path} 会换成文件夹或文件的完整路径，Win顺 自动加引号。这样的文件管理器 Win顺 读不到它正在显示的文件夹：对话框里的 Ctrl+G 和搜索框的建议只认资源管理器、Total Commander、Directory Opus、XYplorer 和 Pulse")
                     values: [window.editor.fileManagerOpenCommand, window.editor.fileManagerRevealCommand]
 
                     body: [
@@ -1575,9 +1576,9 @@ Window {
                     // Shown with the double click off too: the hotkey alone
                     // brings the menu (GitHub #25).
                     title: qsTr("用快捷键弹出文件夹菜单")
-                    keywords: qsTr("快捷键;热键;组合键;文件夹菜单;收藏;最近;对话框;Directory Opus;Total Commander;XYplorer;hotkey;folder menu").split(";")
+                    keywords: qsTr("快捷键;热键;组合键;文件夹菜单;收藏;最近;对话框;Directory Opus;Total Commander;XYplorer;Pulse;hotkey;folder menu").split(";")
                     values: [window.editor.folderMenuHotkey]
-                    description: qsTr("双击被别的程序占用时用：在资源管理器、桌面、Directory Opus、Total Commander、XYplorer 或“打开”“另存为”对话框里按它，选中的文件夹在那个窗口里打开；在别的窗口里按，用文件管理器打开。再按一次关闭")
+                    description: qsTr("双击被别的程序占用时用：在资源管理器、桌面、Directory Opus、Total Commander、XYplorer 或“打开”“另存为”对话框里按它，选中的文件夹在那个窗口里打开，在 Pulse 里按就交给 Pulse，按它自己的设置开；在别的窗口里按，用文件管理器打开。再按一次关闭")
 
                     FlatButton {
                         visible: window.editor.folderMenuHotkey.length > 0 && !folderMenuHotkeyRecorder.recording

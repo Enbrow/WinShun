@@ -772,6 +772,112 @@ private slots:
         QCOMPARE(pathtext::xyplorerQuoted({}), u"''"_s);
     }
 
+    // What Pulse keeps in its session.json (filemanager::, GitHub #41).
+    void pulseText()
+    {
+        using pathtext::pulseWindows;
+        // As Pulse 1.0.56 wrote it (two windows, the one used last first; the
+        // other split in two, the right pane with the focus, and a tab behind).
+        const QByteArray session = QString::fromUtf16(uR"json({
+  "version":8,
+  "left":500,
+  "top":250,
+  "right":1500,
+  "bottom":1000,
+  "maximized":false,
+  "dark":true,
+  "path":"\\\\?\\F:\\wspulse\\t\\丁",
+  "sidebarCollapsed":0,
+  "sidebarHidden":0,
+  "sidebarOrder":"6,7,1,0,2,4,3,5",
+  "quickAccessHidden":0,
+  "starredExpanded":true,
+  "detailsPanel":0,
+  "detailsPanelWidth":340,
+  "detailsPreviewOnly":false,
+  "detailsPreview":true,
+  "tray":[
+],
+  "undo":[
+],
+  "activeTab":0,
+  "tabGroups":[],
+  "layoutTabs":[{"pinned":false,"group":0,"marker_rgb":0,"title":"","layout":0,"focused":0,"target":-1,"splitRatios":"","panes":[{"path":"\\\\?\\F:\\wspulse\\t\\丁","view":"details","cols":"0,0,0","searchCols":"0,0,0,0","colLayout":false,"colWidths":""}]}],
+  "focusedWindow":0,
+  "windows":[
+    {"left":500,"top":250,"right":1500,"bottom":1000,"maximized":false,
+     "sidebarCollapsed":0,"sidebarHidden":0,"sidebarOrder":"6,7,1,0,2,4,3,5","quickAccessHidden":0,"starredExpanded":true,
+     "detailsPanel":0,"detailsPanelWidth":340,"detailsPreviewOnly":false,"detailsPreview":true,
+     "windowName":"","windowColor":1,
+     "activeTab":0,
+     "tabGroups":[],
+     "layoutTabs":[{"pinned":false,"group":0,"marker_rgb":0,"title":"","layout":0,"focused":0,"target":-1,"splitRatios":"","panes":[{"path":"\\\\?\\F:\\wspulse\\t\\丁","view":"details","cols":"0,0,0","searchCols":"0,0,0,0","colLayout":false,"colWidths":""}]}]},
+    {"left":100,"top":100,"right":1300,"bottom":900,"maximized":false,
+     "sidebarCollapsed":0,"sidebarHidden":0,"sidebarOrder":"6,7,1,0,2,4,3,5","quickAccessHidden":0,"starredExpanded":true,
+     "detailsPanel":0,"detailsPanelWidth":340,"detailsPreviewOnly":false,"detailsPreview":true,
+     "windowName":"","windowColor":0,
+     "activeTab":0,
+     "tabGroups":[],
+     "layoutTabs":[{"pinned":false,"group":0,"marker_rgb":0,"title":"","layout":1,"focused":1,"target":-1,"splitRatios":"5000","panes":[{"path":"\\\\?\\F:\\wspulse\\t\\甲 folder","view":"details","cols":"0,0,0","searchCols":"0,0,0,0","colLayout":false,"colWidths":""},{"path":"\\\\?\\F:\\wspulse\\t\\乙","view":"details","cols":"0,0,0","searchCols":"0,0,0,0","colLayout":false,"colWidths":""}]},{"pinned":false,"group":0,"marker_rgb":0,"title":"","layout":0,"focused":0,"target":-1,"splitRatios":"","panes":[{"path":"\\\\?\\F:\\wspulse\\t\\丙\\子 文件夹","view":"details","cols":"0,0,0","searchCols":"0,0,0,0","colLayout":false,"colWidths":""}]}]}
+  ]
+}
+)json").toUtf8();
+        QList<pathtext::PulseWindow> windows = pulseWindows(session);
+        QCOMPARE(windows.size(), 2); // windows[] only, not the top level's copy of the first
+        QCOMPARE(windows[0].left, 500);
+        QCOMPARE(windows[0].top, 250);
+        QCOMPARE(windows[0].right, 1500);
+        QCOMPARE(windows[0].bottom, 1000);
+        QCOMPARE(windows[0].frontName, u"丁"_s);
+        QCOMPARE(windows[0].folders.size(), 1);
+        QCOMPARE(windows[0].folders[0].path, u"F:\\wspulse\\t\\丁"_s); // without "\\?\"
+        QCOMPARE(windows[0].folders[0].state, 1);
+        QCOMPARE(windows[1].left, 100);
+        QCOMPARE(windows[1].frontName, u"乙"_s); // the pane with the focus
+        QCOMPARE(windows[1].folders.size(), 3);
+        QCOMPARE(windows[1].folders[0].path, u"F:\\wspulse\\t\\乙"_s);
+        QCOMPARE(windows[1].folders[0].state, 1);
+        QCOMPARE(windows[1].folders[1].path, u"F:\\wspulse\\t\\甲 folder"_s); // the other pane
+        QCOMPARE(windows[1].folders[1].state, 2);
+        QCOMPARE(windows[1].folders[2].path, u"F:\\wspulse\\t\\丙\\子 文件夹"_s); // the tab behind
+        QCOMPARE(windows[1].folders[2].state, 0);
+        QCOMPARE(pathtext::pulseTitle(windows[0].frontName), u"丁 \u2014 Pulse"_s);
+
+        // The second tab in front, showing a share; a drive and Pulse's own places behind.
+        windows = pulseWindows(QByteArray(R"({"windows":[{"left":-8,"top":0,"right":800,"bottom":600,"activeTab":1,"layoutTabs":[
+            {"focused":0,"panes":[{"path":"pulse:recycle"},{"path":"\\\\?\\D:\\"}]},
+            {"focused":0,"panes":[{"path":"\\\\?\\UNC\\nas\\photos\\2024"}]},
+            {"focused":0,"panes":[{"path":""}]}]}]})"));
+        QCOMPARE(windows.size(), 1);
+        QCOMPARE(windows[0].left, -8);
+        QCOMPARE(windows[0].frontName, u"2024"_s);
+        QCOMPARE(windows[0].folders.size(), 2);
+        QCOMPARE(windows[0].folders[0].path, u"\\\\nas\\photos\\2024"_s);
+        QCOMPARE(windows[0].folders[0].state, 1);
+        QCOMPARE(windows[0].folders[1].path, u"D:\\"_s);
+        QCOMPARE(windows[0].folders[1].state, 0);
+        // A drive in front is named "D:"; This PC in front has no name to check.
+        windows = pulseWindows(QByteArray(R"({"windows":[{"activeTab":0,"layoutTabs":[{"focused":0,"panes":[{"path":"\\\\?\\D:\\"}]}]},
+            {"activeTab":0,"layoutTabs":[{"focused":0,"panes":[{"path":""}]}]}]})"));
+        QCOMPARE(windows.size(), 2);
+        QCOMPARE(windows[0].frontName, u"D:"_s);
+        QVERIFY(windows[1].frontName.isEmpty());
+        QVERIFY(windows[1].folders.isEmpty());
+
+        // Version 7 and before: one window, at the top level; a pane out of range is none.
+        windows = pulseWindows(QByteArray(R"({"version":7,"left":10,"top":20,"right":30,"bottom":40,"activeTab":0,
+            "layoutTabs":[{"focused":5,"panes":[{"path":"C:\\Work"}]}]})"));
+        QCOMPARE(windows.size(), 1);
+        QCOMPARE(windows[0].top, 20);
+        QVERIFY(windows[0].frontName.isEmpty()); // no pane has the focus
+        QCOMPARE(windows[0].folders.size(), 1);
+        QCOMPARE(windows[0].folders[0].path, u"C:\\Work"_s);
+        QCOMPARE(windows[0].folders[0].state, 2);
+        QVERIFY(pulseWindows("not json").isEmpty());
+        QVERIFY(pulseWindows({}).isEmpty());
+        QVERIFY(pulseWindows(R"({"version":8})").isEmpty());
+    }
+
     // A command of the user's own for another file manager, with {path}.
     void customFileManagerCommand()
     {

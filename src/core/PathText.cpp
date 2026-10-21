@@ -6,6 +6,9 @@
 #include <QCollator>
 #include <QDirListing>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QTimeZone>
 #include <QUrl>
@@ -298,6 +301,75 @@ QString xyplorerQuoted(const QString& text)
     QString quoted = text;
     quoted.replace(u'\'', u"''"_s);
     return u'\'' + quoted + u'\'';
+}
+
+namespace {
+
+// A path as Pulse keeps it, "\\?\F:\Work" or "\\?\UNC\nas\photos", as on a
+// drive or share; empty for a place of its own ("", "pulse:recycle").
+QString fromPulse(QString path)
+{
+    if (path.startsWith(u"\\\\?\\UNC\\"_s, Qt::CaseInsensitive))
+        path = u"\\\\"_s + path.mid(8);
+    else if (path.startsWith(u"\\\\?\\"_s))
+        path = path.mid(4);
+    return normalized(path);
+}
+
+} // namespace
+
+QList<PulseWindow> pulseWindows(const QByteArray& session)
+{
+    QList<PulseWindow> windows;
+    const QJsonObject root = QJsonDocument::fromJson(session).object();
+    QJsonArray list = root.value(u"windows").toArray();
+    if (list.isEmpty() && root.contains(u"layoutTabs"))
+        list.append(root); // version 7 and before: the one window, at the top
+    for (const QJsonValue& value : std::as_const(list)) {
+        const QJsonObject object = value.toObject();
+        PulseWindow window;
+        window.left = object.value(u"left").toInt();
+        window.top = object.value(u"top").toInt();
+        window.right = object.value(u"right").toInt();
+        window.bottom = object.value(u"bottom").toInt();
+        const QJsonArray tabs = object.value(u"layoutTabs").toArray();
+        const int active = object.value(u"activeTab").toInt();
+        QList<XYplorerTab> behind; // the other tabs'
+        for (int t = 0; t < tabs.size(); ++t) {
+            const QJsonObject tab = tabs[t].toObject();
+            const QJsonArray panes = tab.value(u"panes").toArray();
+            const int focused = tab.value(u"focused").toInt();
+            QList<int> order; // the pane with the focus first
+            if (focused >= 0 && focused < panes.size())
+                order.append(focused);
+            for (int p = 0; p < panes.size(); ++p) {
+                if (p != focused)
+                    order.append(p);
+            }
+            for (const int p : std::as_const(order)) {
+                QString path = fromPulse(panes[p].toObject().value(u"path").toString());
+                if (t == active && p == focused && !path.isEmpty()) {
+                    // As Pulse names a tab: the last name, "C:" for a drive.
+                    const QStringView name = path.endsWith(u'\\') ? QStringView(path).chopped(1) : QStringView(path);
+                    window.frontName = name.mid(name.lastIndexOf(u'\\') + 1).toString();
+                }
+                if (path.isEmpty())
+                    continue;
+                if (t != active)
+                    behind.append({std::move(path), 0});
+                else
+                    window.folders.append({std::move(path), p == focused ? 1 : 2});
+            }
+        }
+        window.folders += behind;
+        windows.append(std::move(window));
+    }
+    return windows;
+}
+
+QString pulseTitle(const QString& name)
+{
+    return name + u' ' + QChar(0x2014) + u" Pulse"_s; // an em dash
 }
 
 QString commandArgument(const QString& path)

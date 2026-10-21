@@ -2249,6 +2249,30 @@
 - **原因**：VB6 程序的每个窗体都是 `ThunderRT6FormDC`，属主是运行时的隐藏窗口 `ThunderRT6Main`（标题是程序名 `XYplorer`，`IsWindowVisible` 为真但 0×0）；它自己的对话框（试用版提示、设置、脚本错误）的属主才是主窗体。别的 VB6 程序的窗体类名一样。
 - **做法**：类名 `ThunderRT6FormDC`，属主为空或类名是 `ThunderRT6Main`，再查窗口进程的 exe 是 `XYplorer.exe`（`filemanager::kindOf`）。找“有没有 XYplorer 在跑”（含在托盘里的）用 `FindWindowEx(ThunderRT6Main, "XYplorer")` 再核对 exe。它第一天第一次启动弹“XYplorer Trial Version”（有 Continue Evaluation 按钮，不是许可协议），按钮是 `ThunderRT6CommandButton`，`BM_CLICK` 就行；之后再启动不弹。
 
+### Pulse：刚换的文件夹，会话文件里还是上一个（GitHub #41）
+
+- **现象**：2026-10-21（Pulse 1.0.56）在 Pulse 里换了文件夹马上读 `%LOCALAPPDATA%\Pulse\session.json`，读到的还是上一个文件夹，0.9–3.3 秒后才变；窗口标题约 70 毫秒就变了。
+- **原因**：Pulse 自己画窗口，没有对外查询的接口（UI Automation 只有顶层窗口，单实例的 `WM_COPYDATA` 只收“打开”），能读的只有会话文件；它在界面计时器里每 3 秒最多存一次（有变化才写，鼠标拖动中不写）。
+- **做法**：只开一个窗口时，标题是“有焦点那一格的文件夹名 — Pulse”（盘根 `C:`，`pathtext::pulseTitle`），和会话里的对不上就等文件的修改时间变（最多 3.5 秒）再读；同一版等过一次还对不上（标题不按这个规则出），记住这一版，不再为它等（`filemanager::pulseSession`）。两个以上窗口时标题是窗口的名字（各窗格共同的文件夹，或用户起的），核对不了，接受最多 3 秒左右的旧数据。会话里的路径是 `\\?\F:\…`、`\\?\UNC\…`，`""` 是此电脑，`pulse:…` 是它自己的地方（`pathtext::pulseWindows` 换回普通路径、扔掉后两种）。
+
+### Pulse：多个窗口按位置对，位置被缩放了
+
+- **现象**：用 `GetWindowPlacement` 取 Pulse 窗口的 `rcNormalPosition` 去对会话里的 `left/top/right/bottom`，150% 缩放下取到 1067×640，会话里是 1600×960。
+- **原因**：取位置的线程没有 DPI 感知（当时是 PowerShell），系统按缩放换算了；Pulse 是 Per-Monitor v2，存的是它自己看到的值。
+- **做法**：取之前把线程的 DPI 感知设成窗口自己的（`SetThreadDpiAwarenessContext(GetWindowDpiAwarenessContext(窗口))`），取完还原（`filemanager::samePlace`），之后完全一致。
+
+### Pulse：读它的会话文件时，它那一次保存会失败（看源码）
+
+- **现象**：没有实测；Pulse 保存会话是先写临时文件，再 `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)` 换过去。
+- **原因**：别的进程开着这个文件而没给 `FILE_SHARE_DELETE` 时，替换会因共享冲突失败；`QFile` 打开时不给这个共享。退出时的最后一次保存也一样。
+- **做法**：自己 `CreateFileW`，共享给 `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE`，同一个句柄上 `GetFileTime` 记下这一版（`filemanager::readShared`）。
+
+### Pulse：从 Win顺 打开的文件夹，开在了新窗口里（看源码）
+
+- **现象**：文件夹菜单在 Pulse 上选了一个文件夹，Pulse 不在原窗口里转过去，而是开一个新窗口。
+- **原因**：Pulse 只接受“打开”请求（`pulse.exe 路径`，第二个实例转交给在运行的那个），开在哪儿按它的设置“从其他程序打开的文件夹”：默认“智能”——已有窗口显示那个文件夹就切过去；最近用的窗口最小化或在托盘里就在它里面开标签；正忙（改名、菜单、拖动）或 8 秒内在它里面按过键、点过鼠标就开新窗口；否则开标签。快捷键是在 Pulse 里按的，选的时候多半还在 8 秒内。没有“让这个窗口转过去”的接口。
+- **做法**：不绕（不模拟按键去改它的地址栏），交给 Pulse，使用说明里写明：要在原窗口开标签，把 Pulse 的这项设置改成“标签页”。Pulse 在新窗口里会弹提示，可以一键改回标签。
+
 ### 模拟按键的 `INPUT` 结构在 x64 上是 40 字节
 
 - **现象**：2026-10-14 测试脚本里 `SendInput` 返回 0，回车没按下去，看起来像启动器没响应。
