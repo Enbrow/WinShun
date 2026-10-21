@@ -1116,11 +1116,14 @@ void SearchEngine::runNameSearch(const Job& job)
             total = static_cast<qint64>(out.totalMatches);
             results.reserve(static_cast<qsizetype>(out.hits.size()));
             // The folders of a typed path match names anywhere along the way:
-            // only what really lies under the folder typed.
+            // only what really lies under the folder typed. One the index does
+            // not have holds nothing (#49: "F1\" found the files of "F11"
+            // and of every folder with "f1" in its name); the disk listing
+            // below has what it holds.
             const EntryId folder = typedPath.folder.isEmpty() ? kNoEntry : index->findPath(typedPath.folder.toStdWString());
             UnderFolder under(*index, folder);
             for (const NameHit& hit : out.hits) {
-                if (folder != kNoEntry && !under(hit.id)) {
+                if (!typedPath.folder.isEmpty() && !under(hit.id)) {
                     --total;
                     continue;
                 }

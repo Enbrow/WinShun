@@ -4335,6 +4335,57 @@ private slots:
         QVERIFY(matcher.match(index, index.entry(other)) >= 0);
     }
 
+    // GitHub #49: "search here" on F1 (the box holds "…\F1\ ") also showed
+    // what F11 holds: the folders of a typed path match by name, and "f1" is
+    // in "f11".
+    void typedFolderDoesNotTakeSimilarNames()
+    {
+        QTemporaryDir dir;
+        IndexService::Options options;
+        options.content.enabled = false;
+        IndexService service(dir.path() + u"/index"_s, options);
+        {
+            const auto index = service.index();
+            const auto lock = index->writeLock();
+            const EntryId root = index->addRoot("F:");
+            const EntryId top = index->add(root, "wsno49", EntryFlag::Directory);
+            const EntryId f1 = index->add(top, "F1", EntryFlag::Directory);
+            const EntryId f11 = index->add(top, "F11", EntryFlag::Directory);
+            index->add(f1, "report.txt", 0);
+            index->add(index->add(f1, "sub", EntryFlag::Directory), "report-deep.txt", 0);
+            index->add(f11, "report.txt", 0);
+            index->add(index->add(f11, "sub", EntryFlag::Directory), "report-deep.txt", 0);
+            index->add(top, "report-top.txt", 0);
+        }
+        SearchEngine engine(&service);
+        QSignalSpy spy(&engine, &SearchEngine::resultsReady);
+        const auto search = [&](const QString& text) {
+            spy.clear();
+            SearchEngine::Request request;
+            request.text = text;
+            engine.submit(std::move(request));
+            QStringList paths;
+            if (!spy.wait(5000))
+                return QStringList {u"(no results)"_s};
+            for (const SearchResult& r : spy.at(0).at(1).value<SearchResults>())
+                paths.append(r.path);
+            paths.sort();
+            return paths;
+        };
+        const QStringList inF1 {u"F:\\wsno49\\F1\\report.txt"_s, u"F:\\wsno49\\F1\\sub\\report-deep.txt"_s};
+        // As Explorer's menu types it, and with the other slash.
+        for (const QString& folder : {u"F:\\wsno49\\F1\\ "_s, u"F:/wsno49/F1/ "_s}) {
+            const QStringList found = search(folder + u"report"_s);
+            QCOMPARE(found, inF1);
+        }
+        // A folder the index does not have holds nothing of its own, whatever
+        // folders have its name in theirs.
+        QCOMPARE(search(u"F:\\wsno49\\F\\ report"_s), QStringList());
+        // Nothing typed after it: the folder's own, not F11's.
+        const QStringList bare = search(u"F:\\wsno49\\F1\\ "_s);
+        QVERIFY2(std::ranges::none_of(bare, [](const QString& p) { return p.contains(u"F11"); }), qPrintable(bare.join(u'|')));
+    }
+
     void newestFiles()
     {
         constexpr FileTime T = 1'700'000'000;
