@@ -99,6 +99,7 @@ Item {
     property bool deleteArmed: false // first click on delete; the second one deletes
 
     signal clicked(int index, int modifiers)
+    signal doubleClicked(int index, int modifiers) // opens, where a click only selects (Launcher.doubleClickToOpen, #44)
     signal menuRequested(int index, point globalPos, int modifiers) // with Shift: the system's menu
     signal actionRequested(int index, int action)
     signal switchClicked(int index) // its switch clicked
@@ -406,6 +407,10 @@ Item {
                 row.menuRequested(row.index, area.mapToGlobal(mouse.x, mouse.y), mouse.modifiers)
             else
                 row.clicked(row.index, mouse.modifiers)
+        }
+        onDoubleClicked: (mouse) => {
+            if (mouse.button === Qt.LeftButton)
+                row.doubleClicked(row.index, mouse.modifiers)
         }
 
         // Inside the MouseArea so that hovering a button still hovers the row.

@@ -95,6 +95,9 @@ class Launcher : public QObject {
     Q_PROPERTY(StartList startList READ startList WRITE setStartList NOTIFY startListChanged FINAL)
     // Rows say when each file or folder was last written.
     Q_PROPERTY(bool showModified READ showModified NOTIFY resultOptionsChanged FINAL)
+    // A click on a row only selects it; a double click (or Enter) opens it
+    // (Settings::doubleClickToOpen, GitHub #44).
+    Q_PROPERTY(bool doubleClickToOpen READ doubleClickToOpen NOTIFY resultOptionsChanged FINAL)
     // The modifier that opens the nth row shown with a digit: "ctrl", "alt",
     // or "" for none (Settings::numberKeys).
     Q_PROPERTY(QString numberKeys READ numberKeys NOTIFY resultOptionsChanged FINAL)
@@ -230,8 +233,9 @@ public:
         PluginAction = 100
     };
     Q_ENUM(Action)
-    // As ws::RankBy and ws::StartList.
-    enum Sort { BestMatch, NewestFirst, OldestFirst };
+    // The first three as ws::RankBy and ws::StartList; the rest are a
+    // ws::SortOrder over the names (#44), the content matches staying as ranked.
+    enum Sort { BestMatch, NewestFirst, OldestFirst, ByName, ByFolder, ByType, LargestFirst, SmallestFirst };
     Q_ENUM(Sort)
     enum StartList { RecentlyOpened, RecentlyModified, NoStartList }; // none: only the favorites
     Q_ENUM(StartList)
@@ -362,6 +366,8 @@ public:
     // (best match, newest, oldest).
     Q_INVOKABLE void switchOrder();
     bool showModified() const { return m_showModified; }
+    bool doubleClickToOpen() const { return m_doubleClickToOpen; }
+    void setDoubleClickToOpen(bool on);
     QString numberKeys() const { return m_numberKeys; }
     QString numberHints() const { return m_numberHints; }
     void setNumberHints(const QString& hints);
@@ -630,6 +636,9 @@ private:
     void applyEffects(const QList<ws::plugin::Effect>& effects);
     void showPluginRows(SearchResults rows); // keyword mode: the whole list (showRows)
     RankBy rankBy() const; // as the current scope has it
+    // The names' order when it is a column's (the panel's, or the sorts by
+    // name, folder, type and size, #44); Rank: rankBy().
+    SortOrder nameOrder() const;
     // The panel's filters as the engine takes them (the dates as of now),
     // and what of the panel the rows are for (as m_shownText is): the
     // filters, the order, and whether nothing typed lists everything.
@@ -737,6 +746,7 @@ private:
     QString m_shownText;
     Scope m_shownScope = All;
     RankBy m_shownRankBy = RankBy::Match;
+    SortOrder m_shownOrder;
     StartList m_shownStartList = RecentlyOpened;
     KindOrder m_shownKindOrder = KindOrder::FilesFirst;
     QStringList m_shownPreferredTypes;
@@ -820,6 +830,7 @@ private:
     Sort m_sort = BestMatch;
     StartList m_startList = RecentlyOpened;
     bool m_showModified = true;
+    bool m_doubleClickToOpen = false;
     QString m_numberKeys = QStringLiteral("ctrl");
     QString m_numberHints = QStringLiteral("held");
     unsigned m_numberKeysLeft = 0;

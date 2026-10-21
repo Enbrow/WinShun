@@ -735,7 +735,11 @@ SearchResults::iterator exactFirst(SearchResults::iterator begin, SearchResults:
 void arrange(SearchResults& results, const SearchEngine::Request& request, const NameMatcher& matcher, RankBy rankBy,
     RecentOnDisk& onDisk)
 {
-    if (request.order.key != SortKey::Rank) { // a column's order: as it came, nothing put first
+    // The launcher sorted by name, folder, type or size (#44) is the same list
+    // as by time: nothing put first, the kinds apart as asked. The panel's
+    // column order is one list, as it came.
+    const bool ordered = request.order.key != SortKey::Rank;
+    if (ordered && request.browse) {
         markRecent(results, request.history);
         if (results.size() > request.limit)
             results.resize(request.limit);
@@ -745,9 +749,10 @@ void arrange(SearchResults& results, const SearchEngine::Request& request, const
     // index): not into a list narrowed by when, how large or where, which
     // the history knows nothing of (a recent file would show through the filter).
     const bool filtered = request.filter.any() || !request.folders.isEmpty() || parseQuery(request.text).filter.any();
-    const qsizetype promoted = rankBy == RankBy::Match && !filtered ? promoteHistory(results, request, matcher, onDisk) : 0;
+    const qsizetype promoted
+        = rankBy == RankBy::Match && !ordered && !filtered ? promoteHistory(results, request, matcher, onDisk) : 0;
     auto rest = results.begin() + promoted; // after promoteHistory: it puts `results` together anew
-    if (rankBy == RankBy::Match) {
+    if (rankBy == RankBy::Match && !ordered) {
         const auto exactBegin = rest;
         rest = exactFirst(rest, results.end(), matcher, PreferredTypes(foldedExtensions(request.preferredTypes)));
         for (auto it = exactBegin; it != rest; ++it)
@@ -1112,7 +1117,7 @@ void SearchEngine::runNameSearch(const Job& job)
             const NameSearchOptions options {.limit = static_cast<std::size_t>(request.limit),
                 .foldersOnly = foldersOnly,
                 .rankBy = rankBy,
-                .kindsApart = true,
+                .kindsApart = !request.browse || request.order.key == SortKey::Rank,
                 .filter = filter,
                 .order = request.order,
                 .trustedUntil = trustedUntil(),
@@ -1357,7 +1362,7 @@ void SearchEngine::runNameSearch(const Job& job)
                 const NameSearchOptions options {.limit = static_cast<std::size_t>(request.limit),
                     .foldersOnly = foldersOnly,
                     .rankBy = rankBy,
-                    .kindsApart = true,
+                    .kindsApart = !request.browse || request.order.key == SortKey::Rank,
                     .filter = filter,
                     .order = request.order,
                     .trustedUntil = trustedUntil(),

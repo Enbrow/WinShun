@@ -34,8 +34,10 @@ enum class StartList : std::uint8_t { Opened, Modified };
 // How files and folders are listed in the search panel: as ranked (RankBy),
 // or by one of its columns, up or down. By name and by size, a tie goes as
 // ranked; by path, a folder's files stay together (its path, then the
-// name). A size or a time not known comes last either way.
-enum class SortKey : std::uint8_t { Rank, Name, Path, Size, Modified };
+// name). A size or a time not known comes last either way. By type, the
+// extension, then the name (#44: the launcher's own menu sorts by it; the
+// panel has no column for it).
+enum class SortKey : std::uint8_t { Rank, Name, Path, Size, Modified, Type };
 struct SortOrder {
     SortKey key = SortKey::Rank;
     bool descending = false;

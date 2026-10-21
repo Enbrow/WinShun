@@ -26,6 +26,7 @@ Item {
 
     signal keyPressed(var event)
     signal rowClicked(int index, int modifiers)
+    signal rowDoubleClicked(int index, int modifiers)
     signal rowMenuRequested(int index, point globalPos, int modifiers)
     signal rowDragRequested(int index)
 
@@ -574,6 +575,7 @@ Item {
                 itemY: panelRow.y
             }
             onClicked: (index, modifiers) => panel.rowClicked(index, modifiers)
+            onDoubleClicked: (index, modifiers) => panel.rowDoubleClicked(index, modifiers)
             onMenuRequested: (index, globalPos, modifiers) => panel.rowMenuRequested(index, globalPos, modifiers)
             onDragRequested: (index) => panel.rowDragRequested(index)
         }

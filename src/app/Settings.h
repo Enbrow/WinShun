@@ -25,6 +25,24 @@ inline double roundedSizeMB(double mb)
     return mb < 1 ? std::max(1.0, std::round(mb * 1024)) / 1024 : std::round(mb * 100) / 100;
 }
 
+// The orders of the results (Settings::sort), in Launcher::Sort's order:
+// best match, newest, oldest, then by name, by the folder each is in, by
+// type, largest first, smallest first (GitHub #44).
+inline constexpr QStringView kSortNames[] {
+    u"match", u"newest", u"oldest", u"name", u"folder", u"type", u"largest", u"smallest"};
+
+inline bool isSortName(QStringView name)
+{
+    return std::ranges::find(kSortNames, name) != std::end(kSortNames);
+}
+
+// Its place in kSortNames; 0 (best match) for a name not in it.
+inline int sortIndex(QStringView name)
+{
+    const auto at = std::ranges::find(kSortNames, name);
+    return at == std::end(kSortNames) ? 0 : static_cast<int>(at - std::begin(kSortNames));
+}
+
 // A network share searched with the local disks (ShareIndexer).
 struct NetworkShare {
     QString path; // "\\host\share", or a folder in it (unc::normalize)
@@ -118,9 +136,14 @@ struct Settings {
     QStringList preferredTypes;
     static QStringList defaultPreferredTypes(); // exe, bat, cmd, ps1, msi
     bool showModified = true; // each file and folder found says when it was last written
+    // A click on a result only selects it; a double click or Enter opens it
+    // (GitHub #44: a stray click opened things). Off: a click opens.
+    bool doubleClickToOpen = false;
     bool thumbnails = true; // a picture, video, PDF found shows its thumbnail for an icon
-    // match | newest | oldest: how 文件 and 文件夹 order what they find, by
-    // best match or by when last written (the footer's switch, remembered).
+    // match | newest | oldest | name | folder | type | largest | smallest
+    // (kSortNames): how 文件 and 文件夹 order what they find, by best match,
+    // by when last written, or (#44) by name, folder, type or size (the
+    // footer's switch, remembered).
     QString sort = QStringLiteral("match");
     // opened | modified | none: with nothing typed, what was opened last, or
     // the files written last (the footer's switch, remembered), or nothing

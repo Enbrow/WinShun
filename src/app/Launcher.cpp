@@ -714,6 +714,14 @@ void Launcher::setResultOptions(KindOrder kindOrder, bool showModified, bool thu
         search();
 }
 
+void Launcher::setDoubleClickToOpen(bool on)
+{
+    if (on == m_doubleClickToOpen)
+        return;
+    m_doubleClickToOpen = on;
+    emit resultOptionsChanged();
+}
+
 void Launcher::setPreferredTypes(const QStringList& types)
 {
     if (types == m_preferredTypes)
@@ -791,7 +799,31 @@ RankBy Launcher::rankBy() const
     // The panel with nothing typed: ranked means nothing, the newest first.
     if (m_panel && m_panelSort.key == SortKey::Rank && m_query.trimmed().isEmpty())
         return RankBy::Newest;
-    return static_cast<RankBy>(m_sort);
+    // The sorts by a column are the names' (nameOrder); content matches stay as ranked.
+    return m_sort <= OldestFirst ? static_cast<RankBy>(m_sort) : RankBy::Match;
+}
+
+SortOrder Launcher::nameOrder() const
+{
+    if (m_panel)
+        return m_panelSort; // its columns; the sorts below are the compact list's
+    switch (m_sort) {
+    case ByName:
+        return {SortKey::Name, false};
+    case ByFolder:
+        return {SortKey::Path, false};
+    case ByType:
+        return {SortKey::Type, false};
+    case LargestFirst:
+        return {SortKey::Size, true};
+    case SmallestFirst:
+        return {SortKey::Size, false};
+    case BestMatch:
+    case NewestFirst:
+    case OldestFirst:
+        break;
+    }
+    return {};
 }
 
 bool Launcher::showsStartList() const
@@ -817,7 +849,9 @@ void Launcher::switchOrder()
             setStartList(m_startList == RecentlyOpened ? RecentlyModified : RecentlyOpened);
     }
     else if (!m_keyword) // a command's list is in the plugin's order
-        setSort(static_cast<Sort>((m_sort + 1) % 3));
+        // Ctrl+S goes round the first three; the other sorts (#44) are chosen
+        // from the menu, and from one of them it goes back to the best match.
+        setSort(m_sort <= OldestFirst ? static_cast<Sort>((m_sort + 1) % 3) : BestMatch);
 }
 
 void Launcher::setInTaskbarBox(bool on)
@@ -1000,7 +1034,7 @@ void Launcher::search(bool more)
     std::optional<KeywordMode> keyword = matchKeyword(m_query);
     const QString keywordKey = keyword ? keyword->pluginId + u'/' + keyword->commandId : QString();
     m_refresh = m_haveResults && !m_replacePending && text == m_shownText && m_scope == m_shownScope
-        && fileExtensions() == m_shownExtensions && rankBy() == m_shownRankBy && m_kindOrder == m_shownKindOrder
+        && fileExtensions() == m_shownExtensions && rankBy() == m_shownRankBy && nameOrder() == m_shownOrder && m_kindOrder == m_shownKindOrder
         && m_preferredTypes == m_shownPreferredTypes && keywordKey == m_shownKeyword
         && (m_scope != Content || (m_contentFolder == m_shownContentFolder && pickKey(m_contentPick) == m_shownPick))
         && (!text.isEmpty() || m_startList == m_shownStartList) && panelKey() == m_shownPanelKey;
@@ -1097,9 +1131,10 @@ void Launcher::search(bool more)
         request.filter = panelFilter();
         if (!m_folderFilter.isEmpty())
             request.folders = {m_folderFilter};
-        request.order = m_panelSort;
         request.browse = true;
     }
+    if (m_panel || !text.isEmpty()) // nothing typed lists the start list, in its own order
+        request.order = nameOrder();
     // With no start list, nothing opened shows before something is typed.
     if (m_recordHistory && !(text.isEmpty() && m_startList == NoStartList))
         request.history = m_history->ranked(text, QDateTime::currentMSecsSinceEpoch());
@@ -1146,6 +1181,7 @@ void Launcher::showRows(SearchResults rows, QStringList highlights)
     m_shownScope = m_scope;
     m_shownExtensions = fileExtensions();
     m_shownRankBy = rankBy();
+    m_shownOrder = nameOrder();
     m_shownStartList = m_startList;
     m_shownKindOrder = m_kindOrder;
     m_shownPreferredTypes = m_preferredTypes;

@@ -51,6 +51,7 @@ Item {
     readonly property var results: ListView.view ? ListView.view.model : null
 
     signal clicked(int index, int modifiers)
+    signal doubleClicked(int index, int modifiers) // as ResultRow's
     signal menuRequested(int index, point globalPos, int modifiers)
     signal dragRequested(int index)
 
@@ -227,6 +228,10 @@ Item {
                 row.menuRequested(row.index, area.mapToGlobal(mouse.x, mouse.y), mouse.modifiers)
             else
                 row.clicked(row.index, mouse.modifiers)
+        }
+        onDoubleClicked: (mouse) => {
+            if (mouse.button === Qt.LeftButton)
+                row.doubleClicked(row.index, mouse.modifiers)
         }
     }
 }

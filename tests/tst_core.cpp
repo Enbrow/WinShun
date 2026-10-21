@@ -1628,6 +1628,29 @@ private slots:
         out = searchNames(index, everything, o, pool, {});
         QCOMPARE(names(out), (QStringList {u"old"_s, u"work"_s, u"c.txt"_s, u"d.txt"_s, u"e.txt"_s, u"a.txt"_s, u"b.txt"_s, u"f.log"_s, u"sub"_s}));
 
+        // By type (#44): the extension, then the name; folders have none.
+        o.order = {SortKey::Type, false};
+        out = searchNames(index, everything, o, pool, {});
+        QCOMPARE(names(out), (QStringList {u"old"_s, u"sub"_s, u"work"_s, u"f.log"_s, u"a.txt"_s, u"b.txt"_s, u"c.txt"_s, u"d.txt"_s, u"e.txt"_s}));
+        o.order = {SortKey::Type, true};
+        out = searchNames(index, everything, o, pool, {});
+        QCOMPARE(names(out).first(2), (QStringList {u"e.txt"_s, u"d.txt"_s}));
+        QCOMPARE(names(out).last(), u"old"_s);
+
+        // The kinds apart (the launcher's sorts): each kind keeps its own best
+        // `limit`, in the order, where one list would cut folders off.
+        o.order = {SortKey::Name, false};
+        o.limit = 3;
+        o.kindsApart = false;
+        QCOMPARE(names(searchNames(index, everything, o, pool, {})), (QStringList {u"a.txt"_s, u"b.txt"_s, u"c.txt"_s}));
+        o.kindsApart = true;
+        out = searchNames(index, everything, o, pool, {});
+        QCOMPARE(out.hits.size(), std::size_t {6});
+        QCOMPARE(names(out).first(3), (QStringList {u"a.txt"_s, u"b.txt"_s, u"c.txt"_s}));
+        QCOMPARE(names(out).last(3), (QStringList {u"old"_s, u"sub"_s, u"work"_s}));
+        o.kindsApart = false;
+        o.limit = 100;
+
         // Filters: when written (a time not known left out), how large
         // (folders and sizes not known left out), under which folders.
         o.order = {};

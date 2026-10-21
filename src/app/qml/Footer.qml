@@ -5,7 +5,8 @@ import WinShun
 
 // On the left, how the list is chosen (Ctrl+S goes to the next): with nothing
 // typed, what was opened last or the files written last; else best match
-// first or by when last written, newest or oldest first. Beside it a word
+// first or by when last written, newest or oldest first (Ctrl+S goes round
+// these), or from the 更多 menu by name, folder, type or size (#44). Beside it a word
 // when there is something to say ("已复制路径"); keyboard hints on the
 // right (the three used most; the info button after them lists the rest),
 // and at the very right a button that clears the recent items (while there
@@ -221,18 +222,42 @@ Item {
         anchors.leftMargin: 16
         anchors.verticalCenter: parent.verticalCenter
         glyph: footer.atStart ? "\uE81C" : "\uE8CB" // History, Sort
+        // Last chip: "更多", or the name of the sort chosen from its menu (#44).
         labels: footer.atStart ? [qsTr("最近打开"), qsTr("最近修改")]
-                                 : [qsTr("最匹配"), qsTr("最新"), qsTr("最早")]
-        current: footer.atStart ? footer.launcher.startList : footer.launcher.sort
+                                 : [qsTr("最匹配"), qsTr("最新"), qsTr("最早"),
+                                    footer.moreSorts ? footer.sortLabels[footer.launcher.sort - 3] : qsTr("更多")]
+        current: footer.atStart ? footer.launcher.startList : footer.moreSorts ? 3 : footer.launcher.sort
         tip: footer.atStart ? qsTr("不输入时列出最近打开的，或最近修改的文件")
-                              : qsTr("最匹配的在前，或按修改时间：最新的在前、最早的在前")
+                              : qsTr("最匹配的在前，或按修改时间：最新的在前、最早的在前；“更多”里还能按名称、所在文件夹、类型、大小排")
         onActivated: (index) => {
             if (footer.atStart)
                 footer.launcher.startList = index
+            else if (index === 3)
+                sortMenu.open = !sortMenu.open // opened by it, closed by it again
             else
                 footer.launcher.sort = index
         }
         Component.onCompleted: footer.frame.addControl(order) // buttons, not part of the drag area
+    }
+
+    // The sorts the chips have no room for (Launcher.Sort from ByName on).
+    readonly property var sortLabels: [qsTr("名称"), qsTr("所在文件夹"), qsTr("类型"), qsTr("大的在前"), qsTr("小的在前")]
+    readonly property bool moreSorts: launcher.sort >= Launcher.ByName
+
+    DropMenu {
+        id: sortMenu
+        anchor: order
+        menuWidth: 150
+        entries: footer.sortLabels.map((label, i) => ({
+            text: label,
+            glyph: footer.launcher.sort === i + Launcher.ByName ? "" : "" // CheckMark: the one in force
+        }))
+        onActivated: (index) => footer.launcher.sort = Launcher.ByName + index
+    }
+
+    Connections {
+        target: footer.launcher
+        function onSortChanged() { sortMenu.open = false } // Ctrl+S while it is open
     }
 
     Row {

@@ -840,7 +840,8 @@ void ToolHost::addTools()
     search.inputSchema = object(
         {{u"query"_s, typed("string", u"What to find; see the server instructions for the syntax"_s)},
             {u"kind"_s, choice(u"Both files and folders, files only, or folders only"_s, {u"all"_s, u"files"_s, u"folders"_s}, u"all"_s)},
-            {u"sort"_s, choice(u"Best matches first, the most recently modified first, or the oldest first"_s, {u"relevance"_s, u"modified"_s, u"oldest"_s}, u"relevance"_s)},
+            {u"sort"_s, choice(u"Best matches first, the most recently modified first, the oldest first, or by name, containing folder, file type (extension), largest first, smallest first"_s,
+                                         {u"relevance"_s, u"modified"_s, u"oldest"_s, u"name"_s, u"folder"_s, u"type"_s, u"largest"_s, u"smallest"_s}, u"relevance"_s)},
             {u"limit"_s, integer(u"How many results at most"_s, 1, kMaxFiles, kDefaultFiles)}},
         {u"query"_s});
     search.outputSchema = object({{u"items"_s, array(itemSchema(), u"The matches, best first"_s)},
@@ -1185,7 +1186,8 @@ void ToolHost::searchFiles(const std::shared_ptr<Call>& call)
     Args args(call->arguments);
     const QString query = args.string(u"query"_s, true).trimmed();
     const QString kind = args.choice(u"kind"_s, u"all"_s, {u"all"_s, u"files"_s, u"folders"_s});
-    const QString sort = args.choice(u"sort"_s, u"relevance"_s, {u"relevance"_s, u"modified"_s, u"oldest"_s});
+    const QString sort = args.choice(u"sort"_s, u"relevance"_s,
+        {u"relevance"_s, u"modified"_s, u"oldest"_s, u"name"_s, u"folder"_s, u"type"_s, u"largest"_s, u"smallest"_s});
     const int limit = args.integer(u"limit"_s, kDefaultFiles, 1, kMaxFiles);
     if (!args.error().isEmpty())
         return finish(call, {{}, true, args.error()});
@@ -1197,6 +1199,17 @@ void ToolHost::searchFiles(const std::shared_ptr<Call>& call)
     request.scope = kind == u"folders" ? Scope::Folders : Scope::Files;
     request.kindOrder = m_policy.kindOrder;
     request.rankBy = sort == u"modified" ? RankBy::Newest : sort == u"oldest" ? RankBy::Oldest : RankBy::Match;
+    // The launcher's other sorts (#44), over every match, not the first page.
+    if (sort == u"name")
+        request.order = {SortKey::Name, false};
+    else if (sort == u"folder")
+        request.order = {SortKey::Path, false};
+    else if (sort == u"type")
+        request.order = {SortKey::Type, false};
+    else if (sort == u"largest")
+        request.order = {SortKey::Size, true};
+    else if (sort == u"smallest")
+        request.order = {SortKey::Size, false};
     request.excludedTypes = m_policy.excludedTypes; // unless the query says ext:
     // Files and folders are each kept to the limit (kindsApart); excluded
     // ones are taken out afterwards, so a few more are asked for.

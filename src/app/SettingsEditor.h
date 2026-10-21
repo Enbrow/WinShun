@@ -134,9 +134,10 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString preferredTypes READ preferredTypes WRITE setPreferredTypes NOTIFY changed FINAL)
     Q_PROPERTY(bool preferredTypesDefault READ preferredTypesDefault NOTIFY changed FINAL)
     Q_PROPERTY(bool showModified READ showModified WRITE setShowModified NOTIFY changed FINAL)
+    Q_PROPERTY(bool doubleClickToOpen READ doubleClickToOpen WRITE setDoubleClickToOpen NOTIFY changed FINAL)
     Q_PROPERTY(bool thumbnails READ thumbnails WRITE setThumbnails NOTIFY changed FINAL)
     Q_PROPERTY(bool webSuggestions READ webSuggestions WRITE setWebSuggestions NOTIFY changed FINAL)
-    Q_PROPERTY(QString sort READ sort WRITE setSort NOTIFY changed FINAL) // match | newest | oldest
+    Q_PROPERTY(QString sort READ sort WRITE setSort NOTIFY changed FINAL) // match | newest | oldest | name | folder | type | largest | smallest (kSortNames)
     Q_PROPERTY(QString startList READ startList WRITE setStartList NOTIFY changed FINAL) // opened | modified | none
     Q_PROPERTY(bool clearOnOpen READ clearOnOpen WRITE setClearOnOpen NOTIFY changed FINAL)
     Q_PROPERTY(QString numberKeys READ numberKeys WRITE setNumberKeys NOTIFY changed FINAL) // ctrl | alt | off
@@ -478,6 +479,8 @@ public:
     Q_INVOKABLE void resetPreferredTypes();
     bool showModified() const { return m_settings.showModified; }
     void setShowModified(bool on);
+    bool doubleClickToOpen() const { return m_settings.doubleClickToOpen; }
+    void setDoubleClickToOpen(bool on);
     bool thumbnails() const { return m_settings.thumbnails; }
     void setThumbnails(bool on);
     bool webSuggestions() const { return m_settings.webSuggestions; }

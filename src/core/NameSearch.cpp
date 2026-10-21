@@ -268,6 +268,35 @@ struct NameOrder {
     }
 };
 
+// By type: the extension (ASCII case aside), then the name. A folder or a
+// file with no extension has none, so it comes before "7z" ascending.
+struct TypeOrder {
+    const FileIndex& index;
+    bool descending;
+    bool operator()(const NameHit& a, const NameHit& b) const noexcept
+    {
+        if (a.id == b.id)
+            return false;
+        int c = compareNames(extensionOf(a.id), extensionOf(b.id));
+        if (c == 0)
+            c = compareNames(index.name(a.id), index.name(b.id));
+        if (c != 0)
+            return descending ? c > 0 : c < 0;
+        return a.id < b.id;
+    }
+
+private:
+    std::string_view extensionOf(EntryId id) const noexcept
+    {
+        const Entry& e = index.entry(id);
+        if (e.isDir())
+            return {};
+        std::size_t extLength = 0;
+        const std::string_view name = index.fileName(e, extLength);
+        return name.substr(name.size() - extLength);
+    }
+};
+
 // The folders in the order of their paths: each folder's place in a walk
 // of the tree, roots and children by name (ASCII case aside), parents
 // before what is in them. One number a slot (folders alone mean anything):
@@ -376,9 +405,10 @@ NameSearchOutput search(const FileIndex& index, const NameMatcher& matcher, cons
 {
     NameSearchOutput output;
     const std::size_t limit = options.limit;
-    // Files and folders apart only in the ranked list (KindOrder); a column's
-    // order is one list.
-    const bool apart = options.kindsApart && !options.foldersOnly && options.order.key == SortKey::Rank;
+    // Files and folders apart as the caller asks (KindOrder). The panel asks
+    // not to in a column's order: that is one list; the launcher's sorts
+    // (#44) keep the kinds apart, each in the order.
+    const bool apart = options.kindsApart && !options.foldersOnly;
     // The types listed first: by how well they match only.
     const bool prefer = !options.preferred.empty() && !options.foldersOnly && options.rankBy == RankBy::Match
         && options.order.key == SortKey::Rank;
@@ -550,6 +580,8 @@ NameSearchOutput searchNames(const FileIndex& index, const NameMatcher& matcher,
         return search(index, matcher, options, pool, isCancelled,
             [down, &ranks](const FileIndex& i) { return PathOrder {i, ranks, down}; });
     }
+    case SortKey::Type:
+        return search(index, matcher, options, pool, isCancelled, [down](const FileIndex& i) { return TypeOrder {i, down}; });
     case SortKey::Size:
         return search(index, matcher, options, pool, isCancelled, [down](const FileIndex&) { return SizeOrder {down}; });
     case SortKey::Modified:

@@ -529,6 +529,26 @@
         <translation>Oldest first</translation>
     </message>
     <message>
+        <source>按名称</source>
+        <translation>By name</translation>
+    </message>
+    <message>
+        <source>按所在文件夹</source>
+        <translation>By folder</translation>
+    </message>
+    <message>
+        <source>按类型</source>
+        <translation>By type</translation>
+    </message>
+    <message>
+        <source>大的在前</source>
+        <translation>Largest first</translation>
+    </message>
+    <message>
+        <source>小的在前</source>
+        <translation>Smallest first</translation>
+    </message>
+    <message>
         <source>文件夹排在文件前面</source>
         <translation>Folders before files</translation>
     </message>
@@ -555,6 +575,10 @@
     <message>
         <source>只有收藏夹</source>
         <translation>Favorites only</translation>
+    </message>
+    <message>
+        <source>双击打开结果</source>
+        <translation>Double-click to open results</translation>
     </message>
     <message>
         <source>显示修改日期</source>
@@ -1373,8 +1397,32 @@
         <translation>With nothing typed: what you opened lately, or the files changed lately</translation>
     </message>
     <message>
-        <source>最匹配的在前，或按修改时间：最新的在前、最早的在前</source>
-        <translation>Best match first, or by date modified: newest or oldest first</translation>
+        <source>最匹配的在前，或按修改时间：最新的在前、最早的在前；“更多”里还能按名称、所在文件夹、类型、大小排</source>
+        <translation>Best match first, or by date modified: newest or oldest first; More also sorts by name, folder, type or size</translation>
+    </message>
+    <message>
+        <source>更多</source>
+        <translation>More</translation>
+    </message>
+    <message>
+        <source>名称</source>
+        <translation>Name</translation>
+    </message>
+    <message>
+        <source>所在文件夹</source>
+        <translation>Folder</translation>
+    </message>
+    <message>
+        <source>类型</source>
+        <translation>Type</translation>
+    </message>
+    <message>
+        <source>大的在前</source>
+        <translation>Largest first</translation>
+    </message>
+    <message>
+        <source>小的在前</source>
+        <translation>Smallest first</translation>
     </message>
     <message>
         <source>清除最近使用记录</source>
@@ -3803,12 +3851,12 @@
         <translation>Sort</translation>
     </message>
     <message>
-        <source>排序;修改时间;修改日期;最新;最早;升序;降序;sort;date</source>
-        <translation>sort;order;date modified;modified;newest;oldest;ascending;descending;date</translation>
+        <source>排序;修改时间;修改日期;最新;最早;名称;文件名;所在文件夹;目录;类型;扩展名;大小;升序;降序;sort;date;size;type</source>
+        <translation>sort;order;date modified;modified;newest;oldest;name;file name;folder;directory;type;extension;size;ascending;descending;date</translation>
     </message>
     <message>
-        <source>文件和内容匹配怎么排（“全部”里应用和设置仍在前面）；底栏左边也能切换（Ctrl+S）</source>
-        <translation>How files and content matches are ordered (in All, apps and settings stay on top); also at the bottom left of the search box (Ctrl+S)</translation>
+        <source>文件和文件夹怎么排（“全部”里应用和设置仍在前面）；底栏左边也能切换（Ctrl+S 在前三种里轮换）</source>
+        <translation>How files and folders are ordered (in All, apps and settings stay on top); also at the bottom left of the search box (Ctrl+S goes round the first three)</translation>
     </message>
     <message>
         <source>最匹配</source>
@@ -3821,6 +3869,46 @@
     <message>
         <source>最早在前</source>
         <translation>Oldest first</translation>
+    </message>
+    <message>
+        <source>名称</source>
+        <translation>Name</translation>
+    </message>
+    <message>
+        <source>所在文件夹</source>
+        <translation>Folder</translation>
+    </message>
+    <message>
+        <source>类型</source>
+        <translation>Type</translation>
+    </message>
+    <message>
+        <source>大的在前</source>
+        <translation>Largest first</translation>
+    </message>
+    <message>
+        <source>小的在前</source>
+        <translation>Smallest first</translation>
+    </message>
+    <message>
+        <source>点击结果</source>
+        <translation>Clicking a result</translation>
+    </message>
+    <message>
+        <source>单击;双击;点击;鼠标;误触;打开;选中;click;double</source>
+        <translation>click;double click;single click;mouse;mis-click;open;select</translation>
+    </message>
+    <message>
+        <source>单击就打开；或者单击只选中（高亮），双击或按 Enter 才打开，结果多时不怕点错</source>
+        <translation>A click opens the result; or a click only selects (highlights) it, and a double click or Enter opens it, so a stray click does no harm</translation>
+    </message>
+    <message>
+        <source>单击打开</source>
+        <translation>Click to open</translation>
+    </message>
+    <message>
+        <source>双击打开</source>
+        <translation>Double-click to open</translation>
     </message>
     <message>
         <source>优先显示的文件类型</source>

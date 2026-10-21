@@ -173,6 +173,14 @@ void SettingsEditor::setShowModified(bool on)
     commit();
 }
 
+void SettingsEditor::setDoubleClickToOpen(bool on)
+{
+    if (m_settings.doubleClickToOpen == on)
+        return;
+    m_settings.doubleClickToOpen = on;
+    commit();
+}
+
 void SettingsEditor::setThumbnails(bool on)
 {
     if (m_settings.thumbnails == on)
@@ -191,7 +199,7 @@ void SettingsEditor::setWebSuggestions(bool on)
 
 void SettingsEditor::setSort(const QString& sort)
 {
-    if (m_settings.sort == sort || (sort != u"match" && sort != u"newest" && sort != u"oldest"))
+    if (m_settings.sort == sort || !isSortName(sort))
         return;
     m_settings.sort = sort;
     commit();

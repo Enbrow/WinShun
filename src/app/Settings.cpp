@@ -747,12 +747,13 @@ void Settings::load()
     if (preferredTypes == d.preferredTypes)
         s.remove(kPreferredTypesKey); // as the first build with it wrote it
     showModified = readOrDefault(s, u"Results/ShowModified"_s, d.showModified);
+    doubleClickToOpen = readOrDefault(s, u"Results/DoubleClickToOpen"_s, d.doubleClickToOpen);
     thumbnails = readOrDefault(s, u"Results/Thumbnails"_s, d.thumbnails);
     if (!s.contains(u"Results/Sort"_s) && s.value(u"Results/SortByModified"_s).toBool())
         s.setValue(u"Results/Sort"_s, u"newest"_s); // 0.6.0's switch: newest first, or best match
     s.remove(u"Results/SortByModified"_s);
     sort = readOrDefault(s, u"Results/Sort"_s, d.sort).trimmed().toLower();
-    if (sort != u"newest" && sort != u"oldest")
+    if (!isSortName(sort))
         sort = d.sort;
     startList = readOrDefault(s, u"Results/StartList"_s, d.startList).trimmed().toLower();
     if (startList != u"modified" && startList != u"none")
@@ -949,6 +950,7 @@ void Settings::save() const
     else
         s.setValue(kPreferredTypesKey, preferredTypes);
     s.setValue(u"Results/ShowModified"_s, showModified);
+    s.setValue(u"Results/DoubleClickToOpen"_s, doubleClickToOpen);
     s.setValue(u"Results/Thumbnails"_s, thumbnails);
     s.setValue(u"Results/Sort"_s, sort);
     s.setValue(u"Results/StartList"_s, startList);

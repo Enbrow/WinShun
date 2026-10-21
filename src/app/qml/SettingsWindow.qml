@@ -2409,15 +2409,28 @@ Window {
                 }
 
                 SettingRow {
+                    id: sortRow
                     title: qsTr("排序")
-                    keywords: qsTr("排序;修改时间;修改日期;最新;最早;升序;降序;sort;date").split(";")
-                    description: qsTr("文件和内容匹配怎么排（“全部”里应用和设置仍在前面）；底栏左边也能切换（Ctrl+S）")
+                    keywords: qsTr("排序;修改时间;修改日期;最新;最早;名称;文件名;所在文件夹;目录;类型;扩展名;大小;升序;降序;sort;date;size;type").split(";")
+                    description: qsTr("文件和文件夹怎么排（“全部”里应用和设置仍在前面）；底栏左边也能切换（Ctrl+S 在前三种里轮换）")
+
+                    readonly property var sorts: ["match", "newest", "oldest", "name", "folder", "type", "largest", "smallest"]
+                    readonly property int chosen: sorts.indexOf(window.editor.sort)
 
                     ScopeTabs {
                         labels: [qsTr("最匹配"), qsTr("最新在前"), qsTr("最早在前")]
-                        current: Math.max(0, ["match", "newest", "oldest"].indexOf(window.editor.sort))
-                        onActivated: (index) => window.editor.sort = ["match", "newest", "oldest"][index]
+                        current: sortRow.chosen < 3 ? Math.max(0, sortRow.chosen) : -1
+                        onActivated: (index) => window.editor.sort = sortRow.sorts[index]
                     }
+
+                    // Too many for one line (#44): the other orders under the first.
+                    body: [
+                        ScopeTabs {
+                            labels: [qsTr("名称"), qsTr("所在文件夹"), qsTr("类型"), qsTr("大的在前"), qsTr("小的在前")]
+                            current: sortRow.chosen - 3 // below 0 while one of the three above is in force
+                            onActivated: (index) => window.editor.sort = sortRow.sorts[index + 3]
+                        }
+                    ]
                 }
 
                 SettingRow {
@@ -2461,6 +2474,18 @@ Window {
                         labels: [qsTr("最近打开"), qsTr("最近修改"), qsTr("不显示")]
                         current: Math.max(0, lists.indexOf(window.editor.startList))
                         onActivated: (index) => window.editor.startList = lists[index]
+                    }
+                }
+
+                SettingRow {
+                    title: qsTr("点击结果")
+                    keywords: qsTr("单击;双击;点击;鼠标;误触;打开;选中;click;double").split(";")
+                    description: qsTr("单击就打开；或者单击只选中（高亮），双击或按 Enter 才打开，结果多时不怕点错")
+
+                    ScopeTabs {
+                        labels: [qsTr("单击打开"), qsTr("双击打开")]
+                        current: window.editor.doubleClickToOpen ? 1 : 0
+                        onActivated: (index) => window.editor.doubleClickToOpen = index === 1
                     }
                 }
 

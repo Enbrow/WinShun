@@ -400,7 +400,12 @@ std::vector<Entry> buildCatalog()
         &Settings::sort,
         {{u"match"_s, u"best match first"_s, QT_TRANSLATE_NOOP("AiSettings", "最匹配的在前")},
             {u"newest"_s, u"most recently written first"_s, QT_TRANSLATE_NOOP("AiSettings", "最新的在前")},
-            {u"oldest"_s, u"oldest first"_s, QT_TRANSLATE_NOOP("AiSettings", "最旧的在前")}}));
+            {u"oldest"_s, u"oldest first"_s, QT_TRANSLATE_NOOP("AiSettings", "最旧的在前")},
+            {u"name"_s, u"by file name, A to Z"_s, QT_TRANSLATE_NOOP("AiSettings", "按名称")},
+            {u"folder"_s, u"by the folder each is in, A to Z"_s, QT_TRANSLATE_NOOP("AiSettings", "按所在文件夹")},
+            {u"type"_s, u"by file type (extension), then name"_s, QT_TRANSLATE_NOOP("AiSettings", "按类型")},
+            {u"largest"_s, u"largest files first"_s, QT_TRANSLATE_NOOP("AiSettings", "大的在前")},
+            {u"smallest"_s, u"smallest files first"_s, QT_TRANSLATE_NOOP("AiSettings", "小的在前")}}));
     {
         Entry& e = add(boolean({"Results/FoldersFirst", QT_TRANSLATE_NOOP("AiSettings", "文件夹排在文件前面"), "results", 0,
                                    "全部 and 文件 list the folders found before the files (else after)."},
@@ -416,6 +421,9 @@ std::vector<Entry> buildCatalog()
         {{u"opened"_s, u"what was opened last"_s, QT_TRANSLATE_NOOP("AiSettings", "最近打开")},
             {u"modified"_s, u"the files written last"_s, QT_TRANSLATE_NOOP("AiSettings", "最近修改")},
             {u"none"_s, u"nothing but the favorites"_s, QT_TRANSLATE_NOOP("AiSettings", "只有收藏夹")}}));
+    add(boolean({"Results/DoubleClickToOpen", QT_TRANSLATE_NOOP("AiSettings", "双击打开结果"), "results", 1,
+                    "A click on a result only selects it; a double click (or Enter) opens it. Off: a click opens it."},
+        &Settings::doubleClickToOpen));
     add(boolean({"Results/ShowModified", QT_TRANSLATE_NOOP("AiSettings", "显示修改日期"), "results", 1,
                     "Each result says when the file was last written."},
         &Settings::showModified));

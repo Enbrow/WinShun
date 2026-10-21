@@ -66,8 +66,8 @@ struct NameSearchOptions {
     bool foldersOnly = false;
     RankBy rankBy = RankBy::Match;
     // The best `limit` files and the best `limit` folders, each apart: for a
-    // list that puts one kind before the other (KindOrder). Not in a
-    // column's order (SortOrder): that is one list.
+    // list that puts one kind before the other (KindOrder). Not set for the
+    // panel's column order (SortOrder): that is one list.
     bool kindsApart = false;
     // Besides the names: when written, how large, under which folders.
     EntryFilter filter;

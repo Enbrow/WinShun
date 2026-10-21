@@ -807,6 +807,7 @@ Window {
         dimmed: window.dimRows
         onKeyPressed: (event) => window.handleKey(event)
         onRowClicked: (index, modifiers) => window.rowClicked(index, modifiers)
+        onRowDoubleClicked: (index, modifiers) => window.rowDoubleClicked(index, modifiers)
         onRowMenuRequested: (index, globalPos, modifiers) => window.rowMenuRequested(index, globalPos, modifiers)
         onRowDragRequested: (index) => window.launcher.dragOut(index)
         nameTip: nameTip
@@ -821,10 +822,25 @@ Window {
             selectTo(index, ctrl)
         } else if (ctrl) {
             toggleRow(index)
+        } else if (launcher.doubleClickToOpen) {
+            // Only selected (#44); the double click opens. A row of a picked
+            // set keeps the set, so the double click opens all of it.
+            if (!launcher.results.isSelected(index))
+                launcher.clearSelection()
+            view.currentIndex = index
+            selectionAnchor = index
         } else {
             view.currentIndex = index
             launcher.clickRow(index) // a selected row opens the selection
         }
+    }
+    // A double click opens, where a click only selects; with Ctrl or Shift it
+    // is two selecting clicks and nothing more.
+    function rowDoubleClicked(index, modifiers) {
+        if (!launcher.doubleClickToOpen || (modifiers & (Qt.ControlModifier | Qt.ShiftModifier)))
+            return
+        view.currentIndex = index
+        launcher.clickRow(index)
     }
     // A click on a system switch's own switch: it toggles, whatever the row asks.
     function rowSwitchClicked(index) {
@@ -1150,6 +1166,7 @@ Window {
                         itemY: resultRow.y
                     }
                     onClicked: (index, modifiers) => window.rowClicked(index, modifiers)
+                    onDoubleClicked: (index, modifiers) => window.rowDoubleClicked(index, modifiers)
                     onSwitchClicked: (index) => window.rowSwitchClicked(index)
                     onActionRequested: (index, action) => {
                         boxList.currentIndex = index

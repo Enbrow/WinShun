@@ -113,6 +113,42 @@ private slots:
         none.load();
         QVERIFY(none.folderMenuFavorites && none.folderMenuRecent && none.folderMenuWindows);
     }
+
+    // GitHub #44: the other sorts and the double-click setting. A click opens
+    // by default; every sort name is kept, and a stranger reads as the best match.
+    void sortAndDoubleClick()
+    {
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        ws::Settings::useProfile(profile.path());
+        ws::Settings fresh;
+        fresh.load();
+        QCOMPARE(fresh.sort, u"match"_s);
+        QVERIFY(!fresh.doubleClickToOpen);
+
+        for (const QStringView name : ws::kSortNames) {
+            ws::Settings s;
+            s.load();
+            s.sort = name.toString();
+            s.doubleClickToOpen = true;
+            s.save();
+            ws::Settings back;
+            back.load();
+            QCOMPARE(back.sort, name.toString());
+            QVERIFY(back.doubleClickToOpen);
+        }
+        QCOMPARE(ws::sortIndex(u"newest"), 1);
+        QCOMPARE(ws::sortIndex(u"smallest"), 7);
+        QCOMPARE(ws::sortIndex(u"nonsense"), 0);
+
+        {
+            QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+            ini.setValue(u"Results/Sort"_s, u"alphabetical"_s);
+        }
+        ws::Settings odd;
+        odd.load();
+        QCOMPARE(odd.sort, u"match"_s);
+    }
 };
 
 QTEST_GUILESS_MAIN(SettingsTest)

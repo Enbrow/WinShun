@@ -524,8 +524,7 @@ bool App::start(const StartOptions& options)
             m_settingsEditor->setSettings(m_settings);
     };
     connect(m_launcher.get(), &Launcher::sortChanged, this, [this, remember] {
-        static constexpr QStringView kSorts[] {u"match", u"newest", u"oldest"};
-        remember(&Settings::sort, kSorts[m_launcher->sort()].toString());
+        remember(&Settings::sort, kSortNames[m_launcher->sort()].toString());
     });
     connect(m_launcher.get(), &Launcher::startListChanged, this, [this, remember] {
         static constexpr QStringView kLists[] {u"opened", u"modified", u"none"};
@@ -1247,11 +1246,10 @@ void App::applySettings(bool initial)
     m_launcher->setRecordHistory(m_settings.recordHistory);
     m_launcher->setResultOptions(m_settings.foldersFirst ? KindOrder::FoldersFirst : KindOrder::FilesFirst,
         m_settings.showModified, m_settings.thumbnails, m_settings.numberKeys);
+    m_launcher->setDoubleClickToOpen(m_settings.doubleClickToOpen);
     m_launcher->setPreferredTypes(m_settings.preferredTypes);
     m_launcher->setExcludedTypes(m_settings.excludedTypes);
-    m_launcher->setSort(m_settings.sort == u"newest" ? Launcher::NewestFirst
-            : m_settings.sort == u"oldest"           ? Launcher::OldestFirst
-                                                     : Launcher::BestMatch);
+    m_launcher->setSort(static_cast<Launcher::Sort>(sortIndex(m_settings.sort)));
     m_launcher->setStartList(m_settings.startList == u"modified" ? Launcher::RecentlyModified
             : m_settings.startList == u"none"                     ? Launcher::NoStartList
                                                                  : Launcher::RecentlyOpened);
