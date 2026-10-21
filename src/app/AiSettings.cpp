@@ -261,6 +261,15 @@ std::vector<Entry> buildCatalog()
     add(boolean({"Launcher/FolderMenuDesktop", QT_TRANSLATE_NOOP("AiSettings", "在桌面的空白处双击"), "files_and_dialogs", 2,
                     "The folder menu comes up on a double click on the desktop."},
         &Settings::folderMenuDesktop));
+    add(boolean({"Launcher/FolderMenuFavorites", QT_TRANSLATE_NOOP("AiSettings", "菜单里列出收藏的文件夹"), "files_and_dialogs", 2,
+                    "The folder menu lists the favorite folders. At least one of the three groups stays on."},
+        &Settings::folderMenuFavorites));
+    add(boolean({"Launcher/FolderMenuRecent", QT_TRANSLATE_NOOP("AiSettings", "菜单里列出最近的文件夹"), "files_and_dialogs", 2,
+                    "The folder menu lists recently opened folders. At least one of the three groups stays on."},
+        &Settings::folderMenuRecent));
+    add(boolean({"Launcher/FolderMenuWindows", QT_TRANSLATE_NOOP("AiSettings", "菜单里列出别的窗口里的文件夹"), "files_and_dialogs", 2,
+                    "The folder menu lists the folders open in other file manager windows. At least one of the three groups stays on."},
+        &Settings::folderMenuWindows));
     add(hotkey({"Launcher/FolderMenuHotkey", QT_TRANSLATE_NOOP("AiSettings", "用快捷键弹出文件夹菜单"), "files_and_dialogs", 2,
                    "A shortcut that brings up the folder menu in whatever window is in front, like Ctrl+Alt+D. Empty: none."},
         &Settings::folderMenuHotkey));

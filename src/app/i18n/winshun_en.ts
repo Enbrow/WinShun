@@ -341,6 +341,18 @@
         <translation>Double click on the desktop</translation>
     </message>
     <message>
+        <source>菜单里列出收藏的文件夹</source>
+        <translation>List favorite folders in the menu</translation>
+    </message>
+    <message>
+        <source>菜单里列出最近的文件夹</source>
+        <translation>List recent folders in the menu</translation>
+    </message>
+    <message>
+        <source>菜单里列出别的窗口里的文件夹</source>
+        <translation>List folders open in other windows in the menu</translation>
+    </message>
+    <message>
         <source>用快捷键弹出文件夹菜单</source>
         <translation>Folder menu on a shortcut</translation>
     </message>
