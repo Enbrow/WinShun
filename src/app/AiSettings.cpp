@@ -358,15 +358,15 @@ std::vector<Entry> buildCatalog()
     {
         // GitHub #52. Changing it prunes the index or reads whole disks again.
         Entry& e = add(choice({"Index/Scope", QT_TRANSLATE_NOOP("AiSettings", "索引哪些地方"), "scope", 0,
-                                  "How much of the PC's disks the index holds. 'folders' indexes only Index/Folders, while the disks are walked (no index service, not as administrator: with either, the disks are read whole all the same); 'drives' every fixed disk whole. Changing it drops what is outside or reads the disks again, so every change asks the user."},
+                                  "How much of the PC's disks the index holds. 'folders' indexes only Index/Folders, while the disks are walked (no index service, not as administrator: with either, the disks are read whole all the same; so too while the index service is installed and not disabled but not running for the moment); 'drives' every fixed disk whole. Changing it drops what is outside or reads the disks again, so every change asks the user."},
             &Settings::indexScope,
             {{u"auto"_s, u"only the chosen folders when there is no index service (not installed or disabled) and Win顺 runs without administrator rights, or when Index/Access is walk; else whole disks"_s, QT_TRANSLATE_NOOP("AiSettings", "自动")},
                 {u"drives"_s, u"every fixed disk, whole"_s, QT_TRANSLATE_NOOP("AiSettings", "整个磁盘")},
-                {u"folders"_s, u"only the folders in Index/Folders (whole disks while the index service or administrator mode is in use)"_s, QT_TRANSLATE_NOOP("AiSettings", "只索引选中的文件夹")}}));
+                {u"folders"_s, u"only the folders in Index/Folders (whole disks in administrator mode, and while the index service is in use, or installed and not disabled)"_s, QT_TRANSLATE_NOOP("AiSettings", "只索引选中的文件夹")}}));
         e.access = Access::AlwaysAsk;
     }
     add(list({"Index/Folders", QT_TRANSLATE_NOOP("AiSettings", "索引的文件夹"), "scope", 0,
-                 "The folders indexed when Index/Scope comes to folders (full paths on this PC's own disks like D:\\Work; a drive's root like E:\\ is that whole drive). Network folders go in 网络共享 instead. Putting one in makes its files searchable, so that asks the user every time."},
+                 "The folders indexed when Index/Scope comes to folders (full paths on this PC's own disks like D:\\Work; a drive's root like E:\\ is that whole drive). Network folders go in 网络共享 instead. Never set, it is the account's known folders (desktop, documents, downloads and the like) as they are at each start, kept for good the first time only the chosen folders are indexed. Putting one in makes its files searchable, so that asks the user every time."},
         &Settings::indexFolders, ListKind::LocalFolders, Widens::Grow));
     add(integer({"Index/FolderVerifyHours", QT_TRANSLATE_NOOP("AiSettings", "定时核对"), "scope", 0,
                     "Hours between two walks of each chosen folder (Index/Folders), done once the user has been away from the PC for a while; a folder whose walk took long waits longer. 0: only when Win顺 starts."},
@@ -1258,7 +1258,10 @@ void Entry::setNumber(State& s, double value) const
 
 void Entry::setItems(State& s, const QStringList& value) const
 {
-    s.settings.*std::get<QStringList Settings::*>(field) = value;
+    const auto member = std::get<QStringList Settings::*>(field);
+    if (member == &Settings::indexFolders && s.settings.*member != value)
+        s.settings.indexFoldersChosen = true; // set now, as the file will have it
+    s.settings.*member = value;
 }
 
 void Entry::setShortcuts(State& s, const WebShortcuts& value) const

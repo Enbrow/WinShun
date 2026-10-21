@@ -567,6 +567,10 @@ private slots:
         QVERIFY(!makePlan(scoped, adding(u"Index/Folders"_s, u"c:\\work\\"_s), env).changed()); // so already
         QVERIFY(!makePlan(scoped, adding(u"Index/Folders"_s, u"E:\\"_s), env).changed());
         QVERIFY(problemText(makePlan(scoped, adding(u"Index/Folders"_s, u"\\\\nas\\docs"_s), env)).contains(u"网络共享"));
+        // Changed, the list is the user's from then on, as the file will have it (#52 review).
+        QVERIFY(!scoped.settings.indexFoldersChosen);
+        QVERIFY(makePlan(scoped, adding(u"Index/Folders"_s, u"C:\\Other"_s), env).result.settings.indexFoldersChosen);
+        QVERIFY(!makePlan(scoped, adding(u"Index/Folders"_s, u"E:\\"_s), env).result.settings.indexFoldersChosen);
         QVERIFY(makePlan(scoped, one(u"Index/Scope"_s, u"folders"_s), env).askAlways()); // every change
         QVERIFY(!makePlan(scoped, one(u"Index/FolderVerifyHours"_s, 4), env).askAlways());
         // A switch that shows nothing more is not asked.

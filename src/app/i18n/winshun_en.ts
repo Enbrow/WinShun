@@ -6300,6 +6300,14 @@
         <source>现在：索引整个磁盘</source>
         <translation>Now: the whole disks are indexed</translation>
     </message>
+    <message>
+        <source>现在：索引整个磁盘。装了索引服务、没有停用它时总是索引整个磁盘，它暂时没在运行也一样</source>
+        <translation>Now: the whole disks are indexed. While the index service is installed and not disabled they always are, even when it is not running for the moment</translation>
+    </message>
+    <message>
+        <source>双击 Ctrl 打开搜索。还没有要索引的文件夹，点这里在设置里添加；放在服务器上的文件夹，请加到“网络共享”里。</source>
+        <translation>Press Ctrl twice to search. There are no folders to index yet: click here to add some in the settings. Folders kept on a server go under Network shares.</translation>
+    </message>
 </context>
 <context>
     <name>ws::Backup</name>

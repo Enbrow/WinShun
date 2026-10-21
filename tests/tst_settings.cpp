@@ -1,5 +1,7 @@
 #include "Settings.h"
 
+#include "ServiceVolumeAccess.h"
+
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <QSettings>
@@ -252,6 +254,107 @@ private slots:
         odd.load();
         QCOMPARE(odd.indexScope, u"auto"_s);
         QCOMPARE(odd.folderVerifyHours, 24 * 7);
+    }
+
+    // GitHub #52 review: the known folders are not written into the file
+    // when it is read. A list never set follows them (OneDrive taking the
+    // documents, say) until only the chosen folders are first indexed, which
+    // takes them as they are then, for good; one changed in any way (by the
+    // AI too, which knows no flag) is written. An emptied list stays empty.
+    void indexFoldersUnset()
+    {
+        if (ws::Settings::defaultIndexFolders().isEmpty())
+            QSKIP("no known folders on a local disk here");
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        ws::Settings::useProfile(profile.path());
+        const auto written = [] { return QSettings(ws::Settings::filePath(), QSettings::IniFormat).contains(u"Index/Folders"_s); };
+        ws::Settings fresh;
+        fresh.load();
+        QVERIFY(!fresh.indexFoldersChosen);
+        QCOMPARE(fresh.indexFolders, ws::Settings::defaultIndexFolders());
+        QVERIFY(!written());
+        fresh.save();
+        QVERIFY(!written());
+        ws::Settings same;
+        same.load();
+        QVERIFY(!same.indexFoldersChosen);
+
+        // The first time the chosen folders are in effect: taken, once.
+        QVERIFY(fresh.chooseDefaultIndexFolders());
+        QVERIFY(fresh.indexFoldersChosen);
+        QCOMPARE(fresh.indexFolders, ws::Settings::defaultIndexFolders());
+        QVERIFY(!fresh.chooseDefaultIndexFolders());
+        fresh.save();
+        QVERIFY(written());
+        ws::Settings taken;
+        taken.load();
+        QVERIFY(taken.indexFoldersChosen);
+        QCOMPARE(taken.indexFolders, ws::Settings::defaultIndexFolders());
+        QVERIFY(!taken.chooseDefaultIndexFolders());
+
+        // Emptied: stays so, and is not filled again.
+        taken.indexFolders.clear();
+        taken.save();
+        ws::Settings emptied;
+        emptied.load();
+        QVERIFY(emptied.indexFoldersChosen);
+        QVERIFY(!emptied.chooseDefaultIndexFolders());
+        QVERIFY(emptied.indexFolders.isEmpty());
+
+        // Changed without the flag (an edit that knows nothing of it): written all the same.
+        QTemporaryDir other;
+        QVERIFY(other.isValid());
+        ws::Settings::useProfile(other.path());
+        ws::Settings edited;
+        edited.load();
+        edited.indexFolders.removeLast();
+        ws::Settings takenAsIs = edited; // the chosen folders come into effect after that edit
+        QCOMPARE(takenAsIs.chooseDefaultIndexFolders(), !edited.indexFolders.isEmpty());
+        QCOMPARE(takenAsIs.indexFolders, edited.indexFolders); // not put back to the known ones
+        edited.save();
+        QVERIFY(written());
+        ws::Settings back;
+        back.load();
+        QVERIFY(back.indexFoldersChosen);
+        QCOMPARE(back.indexFolders, edited.indexFolders);
+    }
+
+    // GitHub #52 review: whether only the chosen folders are indexed. Never
+    // with the disks read whole, nor with drives; while the index service is
+    // wanted and only on its way (stopped, starting, not answering), whole
+    // disks for folders and auto alike: else every login that comes before
+    // the service would drop the rest of each disk and read it again.
+    void foldersInEffect()
+    {
+        using State = ws::ntfs::ServiceState;
+        ws::Settings s;
+        const auto in = [&](const char* scope, const char* access, bool walked, bool elevated, bool wanted, State state) {
+            s.indexScope = QString::fromLatin1(scope);
+            s.indexAccess = QString::fromLatin1(access);
+            return s.foldersInEffect(walked, elevated, wanted, state);
+        };
+        // Read whole (through the service, or as administrator), or drives: never.
+        QVERIFY(!in("folders", "auto", false, false, true, State::Running));
+        QVERIFY(!in("folders", "direct", false, true, false, State::Unknown));
+        QVERIFY(!in("drives", "walk", true, false, false, State::Unknown));
+        QVERIFY(!in("drives", "auto", true, false, true, State::NotInstalled));
+        // Walked for good: told to walk, or no service (not installed, disabled).
+        QVERIFY(in("folders", "walk", true, false, false, State::Unknown));
+        QVERIFY(in("auto", "walk", true, false, false, State::Unknown));
+        QVERIFY(in("folders", "auto", true, false, true, State::NotInstalled));
+        QVERIFY(in("folders", "auto", true, false, true, State::Disabled));
+        QVERIFY(in("auto", "auto", true, false, true, State::NotInstalled));
+        QVERIFY(in("auto", "service", true, false, true, State::Disabled));
+        // As administrator, told to use the service that is not there: folders only when told so.
+        QVERIFY(in("folders", "service", true, true, true, State::NotInstalled));
+        QVERIFY(!in("auto", "service", true, true, true, State::NotInstalled));
+        // The service on its way: whole disks, folders or auto alike.
+        for (const State state : {State::Stopped, State::Starting, State::Running, State::Unknown}) {
+            QVERIFY2(!in("folders", "auto", true, false, true, state), ws::ntfs::ServiceVolumeAccess::stateName(state));
+            QVERIFY2(!in("folders", "service", true, true, true, state), ws::ntfs::ServiceVolumeAccess::stateName(state));
+            QVERIFY2(!in("auto", "auto", true, false, true, state), ws::ntfs::ServiceVolumeAccess::stateName(state));
+        }
     }
 
     // As IndexService takes them: full, the letter upper case, "D:" for a

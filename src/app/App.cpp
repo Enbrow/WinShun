@@ -336,6 +336,8 @@ App::App()
     connect(&m_indexOptionsApply, &QTimer::timeout, this, [this] {
         // 索引哪些地方 and the folders are settings too: no telling the user what they chose.
         m_foldersInEffect = foldersInEffect(m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None);
+        if (m_foldersInEffect)
+            takeDefaultIndexFolders();
         m_index->setOptions(indexOptions(m_settings, m_foldersInEffect));
         tellLauncherFolders();
         refreshIndexAccess();
@@ -455,6 +457,8 @@ bool App::start(const StartOptions& options)
         m_serviceWhy = choice.why;
         m_serviceState = choice.state;
         m_foldersInEffect = foldersInEffect(choice.access->kind() == ntfs::VolumeAccess::Kind::None);
+        if (m_foldersInEffect)
+            takeDefaultIndexFolders(); // before the settings window and the backups are there
         indexStart = indexOptions(m_settings, m_foldersInEffect);
         // On its way, maybe; not when it is not installed or switched off.
         if (m_serviceWanted && choice.access->kind() == ntfs::VolumeAccess::Kind::None && !serviceLongAbsent(choice.state))
@@ -673,6 +677,8 @@ bool App::start(const StartOptions& options)
             showUpdate();
         else if (std::exchange(m_clipboardNotified, false))
             showClipboardSettings();
+        else if (std::exchange(m_foldersNotified, false))
+            showSettingsFor(u"Index/Folders"_s);
     };
     callbacks.hotkeyPressed = [this](int id) {
         if (id == kWinVHotkeyId || id == kClipboardHotkeyId)
@@ -798,11 +804,16 @@ bool App::start(const StartOptions& options)
         // to; with no service, the known folders are indexed, not the disks.
         const bool cannotInstall = m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None
             && m_serviceState == ntfs::ServiceState::NotInstalled && !userIsAdministrator();
+        // None of the known folders on this PC's disks (all on a server, say:
+        // GitHub #52 review): nothing is indexed until some are added.
+        const bool noFolders = m_foldersInEffect && m_settings.indexFolderPaths().empty();
         m_messages->showNotification(tr("Win顺已在后台运行"),
-            m_foldersInEffect ? tr("双击 Ctrl 打开搜索。Win顺 先索引你常用的文件夹（桌面、文档、下载等），可以在设置里增减。")
+            noFolders ? tr("双击 Ctrl 打开搜索。还没有要索引的文件夹，点这里在设置里添加；放在服务器上的文件夹，请加到“网络共享”里。")
+                : m_foldersInEffect ? tr("双击 Ctrl 打开搜索。Win顺 先索引你常用的文件夹（桌面、文档、下载等），可以在设置里增减。")
                 : cannotInstall ? tr("双击 Ctrl 打开搜索。Win顺 按文件夹遍历建立索引，首次运行需要一点时间。")
                 : walking ? tr("双击 Ctrl 打开搜索。便携版按文件夹遍历建立索引；要快一些，可以在设置里安装索引服务，或以管理员身份运行。")
                           : tr("双击 Ctrl 打开搜索。首次运行需要一点时间建立文件索引。"));
+        m_foldersNotified = noFolders;
     } else if (clipboardIsNew) {
         m_messages->showNotification(tr("Win顺 现在有剪贴板历史了"),
             m_settings.clipboard ? tr("复制过的文字、图片和文件都能找回来。点这里设置用 Win+V 打开它。")
@@ -3962,28 +3973,35 @@ void App::serviceProbed(std::shared_ptr<ntfs::ServiceVolumeAccess> service, bool
 
 bool App::foldersInEffect(bool walked) const
 {
-    // Read whole by the service or as administrator: the chosen folders
-    // come in there with step 6 of GitHub #52, not yet.
-    if (!walked || m_settings.indexScope == u"drives")
-        return false;
-    if (m_settings.indexScope == u"folders")
-        return true;
-    // auto: walked for good, not just while the service is away for a moment.
-    return m_settings.indexAccess == u"walk"
-        || (!integrity::processElevated() && m_serviceWanted && serviceLongAbsent(m_serviceState));
+    return m_settings.foldersInEffect(walked, integrity::processElevated(), m_serviceWanted, m_serviceState);
 }
 
 void App::applyIndexScope(bool told)
 {
     const bool folders = foldersInEffect(m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None);
-    if (folders != m_foldersInEffect && told)
-        m_messages->showNotification(tr("索引范围"), folders ? tr("索引服务不可用：改为只索引选中的文件夹（可在设置里改）")
-                                                              : tr("索引服务可用了：改为索引整个磁盘"));
-    m_foldersInEffect = folders;
-    m_index->setScope(folders ? std::optional(m_settings.indexFolderPaths()) : std::nullopt);
-    tellLauncherFolders();
+    if (folders != m_foldersInEffect) {
+        if (told)
+            m_messages->showNotification(tr("索引范围"), folders ? tr("索引服务不可用：改为只索引选中的文件夹（可在设置里改）")
+                                                                  : tr("索引服务可用了：改为索引整个磁盘"));
+        m_foldersInEffect = folders;
+        if (folders)
+            takeDefaultIndexFolders();
+        m_index->setScope(folders ? std::optional(m_settings.indexFolderPaths()) : std::nullopt);
+        tellLauncherFolders();
+    }
     refreshIndexAccess();
     refreshFolderStatuses();
+}
+
+void App::takeDefaultIndexFolders()
+{
+    if (!m_settings.chooseDefaultIndexFolders())
+        return;
+    m_settings.save();
+    if (m_settingsEditor)
+        m_settingsEditor->setSettings(m_settings); // its copy must not drop the flag with its next change
+    if (m_backup)
+        m_backup->soon();
 }
 
 void App::tellLauncherFolders()
@@ -4088,13 +4106,17 @@ void App::refreshIndexAccess()
                                        : tr("现在：按文件夹遍历，不读取主文件表");
         break;
     }
-    // 索引哪些地方 (GitHub #52): with the disks read whole, the chosen folders cannot be.
+    // 索引哪些地方 (GitHub #52): with the disks read whole, the chosen folders
+    // cannot be; nor while the index service is on its way (Settings::foldersInEffect).
+    const bool serviceOnItsWay
+        = kind == ntfs::VolumeAccess::Kind::None && m_serviceWanted && !serviceLongAbsent(m_serviceState);
     state.foldersInEffect = m_foldersInEffect;
-    state.foldersPossible = kind == ntfs::VolumeAccess::Kind::None;
+    state.foldersPossible = kind == ntfs::VolumeAccess::Kind::None && !serviceOnItsWay;
     state.scopeStatus = m_foldersInEffect                ? tr("现在：只索引选中的文件夹")
         : kind == ntfs::VolumeAccess::Kind::Service      ? tr("现在：索引整个磁盘。使用索引服务时总是索引整个磁盘")
         : kind == ntfs::VolumeAccess::Kind::Direct       ? tr("现在：索引整个磁盘。管理员直读时总是索引整个磁盘")
-                                                         : tr("现在：索引整个磁盘");
+        : serviceOnItsWay ? tr("现在：索引整个磁盘。装了索引服务、没有停用它时总是索引整个磁盘，它暂时没在运行也一样")
+                          : tr("现在：索引整个磁盘");
     QStringList notes;
     if (m_settings.indexAccess == u"direct" && !state.elevated) {
         notes << (state.administrator ? tr("“管理员直读”要以管理员身份运行；这次是以普通权限启动的，点“以管理员身份重新启动”。")

@@ -309,7 +309,12 @@ private:
     // The way to the volumes changed: the index takes the chosen folders, or
     // whole disks, as foldersInEffect says now; `told`: the user is told
     // when that changes (the service came or went), not for their own settings.
+    // Nothing else when it stays as it was: the service is looked at every
+    // few minutes, and the folders' paths are looked up on the disk.
     void applyIndexScope(bool told);
+    // Only the chosen folders indexed now: a list never set is taken for good
+    // (Settings::chooseDefaultIndexFolders), and saved.
+    void takeDefaultIndexFolders();
     void refreshFolderStatuses(); // the chosen folders' cards in the settings window
     // The launcher's notes about what lies outside the chosen folders (GitHub
     // #52): whether only they are indexed, which, and whether the note was closed.
@@ -477,6 +482,7 @@ private:
     std::unique_ptr<ClipboardWatcher> m_clipWatcher;
     bool m_clipboardPaused = false; // from the tray menu, until Win顺 restarts
     bool m_clipboardNotified = false; // the last tray notification told of the clipboard history
+    bool m_foldersNotified = false; // ... that there are no chosen folders yet (GitHub #52)
     std::optional<bool> m_winVApplied; // the Win+V switch, as last put into the registry
     bool m_winVRegistryFailed = false;
     std::optional<bool> m_winSApplied; // the Win+S switch, likewise

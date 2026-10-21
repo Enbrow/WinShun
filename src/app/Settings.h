@@ -15,6 +15,10 @@
 #include <cmath>
 #include <utility>
 
+namespace ws::ntfs {
+enum class ServiceState; // ServiceVolumeAccess.h
+}
+
 namespace ws {
 
 // A content size limit as kept, 1 KB to 4096 MB: under 1 MB in whole KB
@@ -235,6 +239,14 @@ struct Settings {
     // ones too (IndexService takes the outer one). defaults(): the user's
     // known folders (defaultIndexFolders).
     QStringList indexFolders;
+    // indexFolders was set: it is in the file (as the user or App left it,
+    // an empty list too). Until then it is the account's known folders as
+    // they are when the settings are read, not written into the file: App
+    // takes them for good (chooseDefaultIndexFolders) the first time only
+    // the chosen folders are indexed, so a known folder moved meanwhile (to
+    // OneDrive, say) is taken where it is then (GitHub #52 review). save()
+    // writes a list changed from them in any case.
+    bool indexFoldersChosen = false;
     // Hours between two walks of each of indexFolders (IndexService's
     // folderVerifyEvery, at least 60 times as long as the last one took); 0:
     // only when Win顺 starts.
@@ -389,6 +401,22 @@ struct Settings {
     // places (a share, a mapped drive) are left out: those are 网络共享's.
     std::vector<std::wstring> indexFolderPaths() const;
     static std::wstring indexFolderPath(const QString& folder); // one of them; empty when it is left out
+    // GitHub #52: the first time only the chosen folders are indexed, a list
+    // never set (indexFoldersChosen) is taken for good as it is: the
+    // account's known folders as load() found them, or as changed since.
+    // True when it was (to be saved). Not while it is empty (the known
+    // folders all on a server, say): until then, it follows them.
+    bool chooseDefaultIndexFolders();
+    // Whether only indexFolders are indexed now (App::foldersInEffect).
+    // Never while the disks are read whole (`walked` false: through the index
+    // service, or as administrator), nor with drives. While the index service
+    // is wanted and only on its way (stopped, starting, not answering yet),
+    // whole disks for folders and auto alike: the chosen folders alone would
+    // drop the rest of each disk, to be read again once the service is there
+    // (at every login, when Win顺 comes up first). Else folders; auto only
+    // when the walk is for good: told to walk, or the service not installed
+    // or disabled and Win顺 not running as administrator.
+    bool foldersInEffect(bool walked, bool elevated, bool serviceWanted, ntfs::ServiceState service) const;
     // The folders a new list starts with (GitHub #52): the user's desktop,
     // documents, downloads, pictures, videos and music, and OneDrive's root;
     // none inside another (OneDrive's root holds a desktop it backs up),

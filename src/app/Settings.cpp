@@ -1,5 +1,6 @@
 #include "Settings.h"
 
+#include "ServiceVolumeAccess.h"
 #include "Unc.h"
 #include "Win32Util.h"
 
@@ -905,8 +906,14 @@ void Settings::load()
         if (indexScope != u"drives" && indexScope != u"folders")
             indexScope = d.indexScope;
     }
-    // As written, nested ones too: an empty list stays empty (no defaults put back).
-    indexFolders = readOrDefault(s, u"Index/Folders"_s, d.indexFolders);
+    // As written, nested ones too: an empty list stays empty (no defaults put
+    // back). Never written: the account's known folders, as they are now,
+    // and not written on reading (GitHub #52 review: frozen there, a known
+    // folder moved later was looked for where it was), only once only the
+    // chosen folders are indexed (chooseDefaultIndexFolders) or the user
+    // edits them.
+    indexFoldersChosen = s.contains(u"Index/Folders"_s);
+    indexFolders = indexFoldersChosen ? s.value(u"Index/Folders"_s).value<QStringList>() : d.indexFolders;
     folderVerifyHours = std::clamp(readOrDefault(s, u"Index/FolderVerifyHours"_s, d.folderVerifyHours), 0, 24 * 7);
     folderHintDismissed = readOrDefault(s, u"Index/FolderHintDismissed"_s, d.folderHintDismissed);
 
@@ -1090,7 +1097,11 @@ void Settings::save() const
     s.setValue(u"Index/RescanOnStartup"_s, rescanOnStartup);
     s.setValue(u"Index/Access"_s, indexAccess);
     s.setValue(u"Index/Scope"_s, indexScope);
-    s.setValue(u"Index/Folders"_s, indexFolders);
+    // Not while it is the known folders, never taken (see load).
+    if (indexFoldersChosen || indexFolders != defaultIndexFolders())
+        s.setValue(u"Index/Folders"_s, indexFolders);
+    else
+        s.remove(u"Index/Folders"_s);
     s.setValue(u"Index/FolderVerifyHours"_s, folderVerifyHours);
     s.setValue(u"Index/FolderHintDismissed"_s, folderHintDismissed);
     s.setValue(u"Index/Folder"_s, indexFolder);
@@ -1209,6 +1220,37 @@ std::vector<std::wstring> Settings::indexFolderPaths() const
             paths.push_back(std::move(path));
     }
     return paths;
+}
+
+bool Settings::chooseDefaultIndexFolders()
+{
+    // Never set, the list is the known folders as load() found them, or as
+    // changed since by an edit that knows nothing of the flag: taken as it
+    // is. Empty (the known folders all on a server, say): not yet, the next
+    // start looks for them again.
+    if (indexFoldersChosen || indexFolders.isEmpty())
+        return false;
+    indexFoldersChosen = true;
+    return true;
+}
+
+bool Settings::foldersInEffect(bool walked, bool elevated, bool serviceWanted, ntfs::ServiceState service) const
+{
+    // Read whole by the service or as administrator: the chosen folders
+    // come in there with step 6 of GitHub #52, not yet.
+    if (!walked || indexScope == u"drives")
+        return false;
+    // The index service installed and not switched off is on its way (not
+    // started yet at login, being updated, stopped for a moment): the disks
+    // stay whole meanwhile, or every login before it would cost them their
+    // entries, all read again once it is there (GitHub #52 review).
+    const bool longAbsent = service == ntfs::ServiceState::NotInstalled || service == ntfs::ServiceState::Disabled;
+    if (serviceWanted && !longAbsent)
+        return false;
+    if (indexScope == u"folders")
+        return true;
+    // auto: walked for good, not just while the service is away for a moment.
+    return indexAccess == u"walk" || (!elevated && serviceWanted && longAbsent);
 }
 
 ShareIndexer::Options Settings::shareOptions() const

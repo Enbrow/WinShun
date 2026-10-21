@@ -2129,6 +2129,7 @@ QString SettingsEditor::addFolderTo(Settings& settings, const QString& text, boo
     }
     kept.push_back(folder);
     settings.indexFolders = kept;
+    settings.indexFoldersChosen = true; // set now, as the file will have it (Settings::load)
     added = true;
     return {};
 }
@@ -2138,6 +2139,7 @@ void SettingsEditor::removeFolder(int index)
     if (index < 0 || index >= m_settings.indexFolders.size())
         return;
     m_settings.indexFolders.removeAt(index);
+    m_settings.indexFoldersChosen = true; // set now, as the file will have it (Settings::load)
     commit();
 }
 
@@ -2219,6 +2221,8 @@ bool SettingsEditor::isDefault() const
 {
     Settings defaults = Settings::defaults();
     defaults.backupFolder = m_settings.backupFolder; // kept by restoreDefaults()
+    // The known folders taken for good (Settings::chooseDefaultIndexFolders) are still the defaults.
+    defaults.indexFoldersChosen = m_settings.indexFoldersChosen;
     return m_settings == defaults;
 }
 
