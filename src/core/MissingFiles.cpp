@@ -125,6 +125,7 @@ MissingFiles::MissingFiles(ClipStore* store, Mode mode, Disk disk, QObject* pare
 {
     const std::optional<std::chrono::milliseconds> test = testWait();
     m_interval = test.value_or(kInterval);
+    m_store->setJudged(mode != Mode::Keep);
     QTimer::singleShot(test.value_or(kStartWait), this, [this] {
         m_started = true;
         check();
@@ -136,6 +137,7 @@ void MissingFiles::setMode(Mode mode)
     if (mode == m_mode)
         return;
     m_mode = mode;
+    m_store->setJudged(mode != Mode::Keep);
     if (mode == Mode::Keep) {
         // Everything is listed again at once; a pass under way is let go of.
         m_pending.reset();

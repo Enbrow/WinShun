@@ -272,6 +272,10 @@ bool ClipModel::fileMissing(const Clip& clip) const
 {
     if (clip.kind != ClipKind::Files && clip.kind != ClipKind::Path)
         return false;
+    // Hidden or cleaned out once gone: gone as judged (all its files; a
+    // drive not there is not), so that what is marked gone is what goes.
+    if (m_store->judged() && clip.kind == ClipKind::Files && clip.group == 0)
+        return m_store->hidden(clip);
     const QStringList files = clip.files();
     if (files.isEmpty() || !isLocal(files.constFirst()))
         return false; // a network path could keep the GUI waiting

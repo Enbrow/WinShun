@@ -271,6 +271,10 @@ public:
     void setHidden(QHash<qint64, qint64> used) { m_hidden = std::move(used); }
     bool hidden(const Clip& clip) const;
     int hiddenCount() const; // of the entries in the history now
+    // Whether gone files are judged (hidden or cleaned out): the entries in
+    // no group are then marked gone as judged, not by their first file.
+    void setJudged(bool judged) { m_judged = judged; }
+    bool judged() const { return m_judged; }
 
     // Indexes into clips() of the entries to list: newest first; a group's
     // in their order (and "固定"'s first with pinnedFirst); screenshots by
@@ -295,6 +299,7 @@ private:
     qint64 m_nextId = 1; // ids are never used twice (a removed entry's picture stays for undo)
     QSet<qint64> m_picturesPending;
     QHash<qint64, qint64> m_hidden; // id -> when it was last used, as judged (setHidden)
+    bool m_judged = false;
     Listener m_listener;
     std::unique_ptr<QObject> m_context; // what the writer's news is queued to, on the store's thread
     std::unique_ptr<Writer> m_writer; // last: stopped first
