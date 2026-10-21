@@ -1076,6 +1076,14 @@
         <translation>Unpin</translation>
     </message>
     <message>
+        <source>关闭预览（Alt+P）</source>
+        <translation>Close the preview (Alt+P)</translation>
+    </message>
+    <message>
+        <source>预览（Alt+P）</source>
+        <translation>Preview (Alt+P)</translation>
+    </message>
+    <message>
         <source>钉住：一直显示在最上面，粘贴后也不收起</source>
         <translation>Pin: stays on top, and stays open after pasting</translation>
     </message>

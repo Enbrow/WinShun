@@ -480,6 +480,7 @@ Item {
                 page.frame.addDragArea(header)
                 page.frame.addControl(input)
                 page.frame.addControl(pinButton)
+                page.frame.addControl(eyeButton)
             }
 
             Glyph {
@@ -495,8 +496,8 @@ Item {
                 id: input
                 anchors.left: icon.right
                 anchors.leftMargin: 14
-                anchors.right: pausedTag.visible ? pausedTag.left : pinButton.visible ? pinButton.left : parent.right
-                anchors.rightMargin: pinButton.visible && !pausedTag.visible ? 8 : 16
+                anchors.right: pausedTag.visible ? pausedTag.left : eyeButton.left
+                anchors.rightMargin: pausedTag.visible ? 16 : 8
                 anchors.verticalCenter: parent.verticalCenter
                 focus: true
                 // Typed into without the focus (keysRouted): the caret shows
@@ -552,11 +553,26 @@ Item {
                 onClicked: page.clipboard.pinned = !page.clipboard.pinned
             }
 
+            // The preview bar on or off (GitHub #47: hovering a row previews it,
+            // which some would rather not have in the way of the keys). The same
+            // switch as Alt+P and →, so one state and one memory
+            // (clipboard.previewOpen); it only makes it visible and clickable.
+            RowAction {
+                id: eyeButton
+                anchors.right: pinButton.visible ? pinButton.left : parent.right
+                anchors.rightMargin: pinButton.visible ? 4 : 14
+                anchors.verticalCenter: parent.verticalCenter
+                glyph: page.previewOpen ? "" : "" // View, Hide
+                checked: page.previewOpen
+                tip: page.previewOpen ? qsTr("关闭预览（Alt+P）") : qsTr("预览（Alt+P）")
+                onClicked: page.togglePreview(list.currentIndex)
+            }
+
             Rectangle { // paused from the tray menu
                 id: pausedTag
                 visible: page.clipboard.paused
-                anchors.right: pinButton.visible ? pinButton.left : parent.right
-                anchors.rightMargin: pinButton.visible ? 8 : 16
+                anchors.right: eyeButton.left
+                anchors.rightMargin: 8
                 anchors.verticalCenter: parent.verticalCenter
                 width: pausedText.implicitWidth + 20
                 height: 26
@@ -1063,6 +1079,11 @@ Item {
     HoverTip {
         target: pinButton.tipWanted ? pinButton : null
         text: pinButton.tip
+    }
+
+    HoverTip {
+        target: eyeButton.tipWanted ? eyeButton : null
+        text: eyeButton.tip
     }
 
     // While the menu is open, a click anywhere on the page closes it (a right
