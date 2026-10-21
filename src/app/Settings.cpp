@@ -729,6 +729,11 @@ void Settings::load()
         folderMenu = d.folderMenu;
     folderMenuExplorer = readOrDefault(s, u"Launcher/FolderMenuExplorer"_s, d.folderMenuExplorer);
     folderMenuDesktop = readOrDefault(s, u"Launcher/FolderMenuDesktop"_s, d.folderMenuDesktop);
+    folderMenuFavorites = readOrDefault(s, u"Launcher/FolderMenuFavorites"_s, d.folderMenuFavorites);
+    folderMenuRecent = readOrDefault(s, u"Launcher/FolderMenuRecent"_s, d.folderMenuRecent);
+    folderMenuWindows = readOrDefault(s, u"Launcher/FolderMenuWindows"_s, d.folderMenuWindows);
+    if (!folderMenuFavorites && !folderMenuRecent && !folderMenuWindows) // a menu of nothing: back to all (#51)
+        folderMenuFavorites = folderMenuRecent = folderMenuWindows = true;
     folderMenuHotkey = readOrDefault(s, u"Launcher/FolderMenuHotkey"_s, d.folderMenuHotkey).trimmed();
     folderMenuOpusBefore = readOrDefault(s, u"Launcher/FolderMenuOpusBefore"_s, d.folderMenuOpusBefore);
 
@@ -933,6 +938,9 @@ void Settings::save() const
     s.setValue(u"Launcher/FolderMenu"_s, folderMenu);
     s.setValue(u"Launcher/FolderMenuExplorer"_s, folderMenuExplorer);
     s.setValue(u"Launcher/FolderMenuDesktop"_s, folderMenuDesktop);
+    s.setValue(u"Launcher/FolderMenuFavorites"_s, folderMenuFavorites);
+    s.setValue(u"Launcher/FolderMenuRecent"_s, folderMenuRecent);
+    s.setValue(u"Launcher/FolderMenuWindows"_s, folderMenuWindows);
     s.setValue(u"Launcher/FolderMenuHotkey"_s, folderMenuHotkey);
     s.setValue(u"Launcher/FolderMenuOpusBefore"_s, folderMenuOpusBefore);
     s.setValue(u"Results/FoldersFirst"_s, foldersFirst);

@@ -2693,6 +2693,7 @@ void App::applyFolderMenu()
     }
     if (m_folderMenu) {
         m_folderMenu->setOptions(m_settings.folderMenu == u"auto", m_settings.folderMenuExplorer, m_settings.folderMenuDesktop);
+        m_folderMenu->setGroups(m_settings.folderMenuFavorites, m_settings.folderMenuRecent, m_settings.folderMenuWindows);
         m_folderMenu->setRecordHistory(m_settings.recordHistory);
     }
 }

@@ -95,6 +95,12 @@ struct Settings {
     QString folderMenu = QStringLiteral("auto");
     bool folderMenuExplorer = true; // in File Explorer's folders
     bool folderMenuDesktop = true; // on the desktop
+    // Which groups the menu lists (GitHub #51). All on is what it always
+    // did; at least one stays on (the editor refuses the last one's untick,
+    // load() turns all back on if a hand-edited file has none).
+    bool folderMenuFavorites = true;
+    bool folderMenuRecent = true;
+    bool folderMenuWindows = true; // folders open in other windows
     // A hotkey that brings the menu up in whatever window is in front, for
     // when another program has the double click (GitHub #25); e.g.
     // "Ctrl+Alt+D", empty = none. Works with folderMenu off too.

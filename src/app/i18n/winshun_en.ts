@@ -2892,6 +2892,30 @@
         <translation>double click;blank;folder menu;desktop</translation>
     </message>
     <message>
+        <source>菜单里列出收藏的文件夹</source>
+        <translation>List favorite folders in the menu</translation>
+    </message>
+    <message>
+        <source>双击;文件夹菜单;收藏;收藏夹</source>
+        <translation>double click;folder menu;favorites</translation>
+    </message>
+    <message>
+        <source>菜单里列出最近的文件夹</source>
+        <translation>List recent folders in the menu</translation>
+    </message>
+    <message>
+        <source>双击;文件夹菜单;最近;最近打开</source>
+        <translation>double click;folder menu;recent</translation>
+    </message>
+    <message>
+        <source>菜单里列出别的窗口里的文件夹</source>
+        <translation>List folders open in other windows in the menu</translation>
+    </message>
+    <message>
+        <source>双击;文件夹菜单;其他窗口;别的窗口;已打开</source>
+        <translation>double click;folder menu;other windows;open</translation>
+    </message>
+    <message>
         <source>已在 Opus 的设置里加好</source>
         <translation>Set up in Opus</translation>
     </message>
@@ -6120,6 +6144,10 @@
     <message>
         <source>还没有收藏的文件夹</source>
         <translation>No favorite folders yet</translation>
+    </message>
+    <message>
+        <source>没有可列出的文件夹</source>
+        <translation>No folders to list</translation>
     </message>
     <message>
         <source>在“%1”里搜索</source>

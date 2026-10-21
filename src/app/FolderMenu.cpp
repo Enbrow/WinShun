@@ -183,6 +183,13 @@ void FolderMenu::setOptions(bool yieldToListary, bool explorer, bool desktop)
     m_desktop = desktop;
 }
 
+void FolderMenu::setGroups(bool favorites, bool recent, bool windows)
+{
+    m_listFavorites = favorites;
+    m_listRecent = recent;
+    m_listWindows = windows;
+}
+
 void FolderMenu::doubleClicked(HWND window, POINT pt)
 {
     // On the listener thread: class names only, nothing that waits.
@@ -363,17 +370,21 @@ void FolderMenu::gatherHere(const folderview::Hit& hit, int ask, const QString& 
     clock.start();
     Found found;
     found.folder = folder;
-    for (const filemanager::Folder& f : filemanager::openFolders()) {
-        const QString path = QString::fromStdWString(f.path);
-        if (!samePath(path, found.folder) && !found.windows.contains(path, Qt::CaseInsensitive))
-            found.windows.append(path);
+    // A group switched off is not gathered at all (GitHub #51).
+    if (m_listWindows) {
+        for (const filemanager::Folder& f : filemanager::openFolders()) {
+            const QString path = QString::fromStdWString(f.path);
+            if (!samePath(path, found.folder) && !found.windows.contains(path, Qt::CaseInsensitive))
+                found.windows.append(path);
+        }
     }
     const qint64 windowsMs = clock.elapsed();
-    if (recordHistory && !m_recentKnown) {
+    const bool recent = recordHistory && m_listRecent;
+    if (recent && !m_recentKnown) {
         m_recent = recentfolders::recent(history, kMaxRecent + 1);
         m_recentKnown = true;
     }
-    if (recordHistory)
+    if (recent)
         found.recent = m_recent;
     qInfo().noquote() << u"Folder menu: windows %1, ready %2 ms"_s.arg(windowsMs).arg(clock.elapsed());
     QMetaObject::invokeMethod(this, [this, hit, ask, found = std::move(found)] {
@@ -381,7 +392,7 @@ void FolderMenu::gatherHere(const folderview::Hit& hit, int ask, const QString& 
         if (ask == m_asks)
             show(hit, found);
     }, Qt::QueuedConnection);
-    if (recordHistory) // for the next time, now that this one is up
+    if (recent) // for the next time, now that this one is up
         m_recent = recentfolders::recent(history, kMaxRecent + 1);
 }
 
@@ -413,8 +424,9 @@ void FolderMenu::show(const folderview::Hit& hit, const Found& found)
     QStringList listed;
     if (!m_folder.isEmpty())
         listed.append(m_folder); // where it is already
+    const bool listFavorites = m_listFavorites;
     int favorites = 0;
-    for (const Favorite& f : m_favorites ? m_favorites->items() : FavoriteList()) {
+    for (const Favorite& f : listFavorites && m_favorites ? m_favorites->items() : FavoriteList()) {
         if (f.kind != Favorite::Kind::Folder || favorites >= kMaxFavorites || listed.contains(f.path, Qt::CaseInsensitive))
             continue;
         add(Kind::Folder, f.path, f.name.isEmpty() ? nameOf(f.path) : f.name, f.keyword.isEmpty() ? detailOf(f.path) : f.keyword,
@@ -422,7 +434,7 @@ void FolderMenu::show(const folderview::Hit& hit, const Found& found)
         listed.append(f.path);
         ++favorites;
     }
-    if (favorites == 0) {
+    if (listFavorites && favorites == 0) {
         m_entries.append(QVariantMap {{u"text"_s, tr("还没有收藏的文件夹")}, {u"detail"_s, QString()},
             {u"glyph"_s, u"\uE734"_s}, {u"disabled"_s, true}});
         m_actions.push_back({});
@@ -442,6 +454,11 @@ void FolderMenu::show(const folderview::Hit& hit, const Found& found)
     };
     addList(found.recent, kMaxRecent, u"\uE81C"_s); // History
     addList(found.windows, kMaxWindows, u"\uE8A7"_s); // OpenInNewWindow
+    if (m_entries.isEmpty() && m_folder.isEmpty()) { // only groups with nothing in them: not a blank menu
+        m_entries.append(QVariantMap {{u"text"_s, tr("\u6CA1\u6709\u53EF\u5217\u51FA\u7684\u6587\u4EF6\u5939")}, {u"detail"_s, QString()},
+            {u"glyph"_s, u"\uE81C"_s}, {u"disabled"_s, true}});
+        m_actions.push_back({});
+    }
     if (!m_folder.isEmpty()) {
         separator();
         add(Kind::Search, m_folder, tr("在“%1”里搜索").arg(nameOf(m_folder)), QString(), u"\uE721"_s); // Search

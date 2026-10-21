@@ -83,6 +83,36 @@ private slots:
         QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
         QCOMPARE(ini.value(u"Content/DefaultsVersion"_s).toInt(), 4);
     }
+
+    // The folder menu's groups (GitHub #51): all on by default, kept when
+    // saved, and a file with none on reads back as all on.
+    void folderMenuGroups()
+    {
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        ws::Settings::useProfile(profile.path());
+        ws::Settings fresh;
+        fresh.load();
+        QVERIFY(fresh.folderMenuFavorites && fresh.folderMenuRecent && fresh.folderMenuWindows);
+
+        {
+            QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+            ini.setValue(u"Launcher/FolderMenuFavorites"_s, false);
+            ini.setValue(u"Launcher/FolderMenuRecent"_s, true);
+            ini.setValue(u"Launcher/FolderMenuWindows"_s, false);
+        }
+        ws::Settings some;
+        some.load();
+        QVERIFY(!some.folderMenuFavorites && some.folderMenuRecent && !some.folderMenuWindows);
+
+        {
+            QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+            ini.setValue(u"Launcher/FolderMenuRecent"_s, false);
+        }
+        ws::Settings none;
+        none.load();
+        QVERIFY(none.folderMenuFavorites && none.folderMenuRecent && none.folderMenuWindows);
+    }
 };
 
 QTEST_GUILESS_MAIN(SettingsTest)

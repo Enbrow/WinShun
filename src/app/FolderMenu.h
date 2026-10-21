@@ -73,6 +73,8 @@ public:
     void setRecordHistory(bool on);
     // auto | on (Settings::folderMenu); Explorer and the desktop each on or off.
     void setOptions(bool yieldToListary, bool explorer, bool desktop);
+    // Which groups it lists (GitHub #51); one left out is not even gathered.
+    void setGroups(bool favorites, bool recent, bool windows);
     // Whether something else has the keys now (the clipboard over File
     // Explorer): the menu does not come, the double click only closes that.
     void setBlocked(std::function<bool()> blocked) { m_blocked = std::move(blocked); }
@@ -139,6 +141,9 @@ private:
     std::atomic<bool> m_yieldToListary {true};
     std::atomic<bool> m_explorer {true};
     std::atomic<bool> m_desktop {true};
+    std::atomic<bool> m_listFavorites {true};
+    std::atomic<bool> m_listRecent {true};
+    std::atomic<bool> m_listWindows {true};
     std::atomic<bool> m_open {false};
     std::atomic<int> m_asks {0}; // the latest double click's number: older answers are dropped
     folderview::Hit m_hit; // where the menu is up

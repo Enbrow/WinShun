@@ -898,6 +898,32 @@ void SettingsEditor::setFolderMenuDesktop(bool on)
     commit();
 }
 
+// The menu lists at least one group (GitHub #51): the last one on stays on,
+// and its switch, which only follows `checked`, stays where it is.
+void SettingsEditor::setFolderMenuFavorites(bool on)
+{
+    if (m_settings.folderMenuFavorites == on || (!on && !m_settings.folderMenuRecent && !m_settings.folderMenuWindows))
+        return;
+    m_settings.folderMenuFavorites = on;
+    commit();
+}
+
+void SettingsEditor::setFolderMenuRecent(bool on)
+{
+    if (m_settings.folderMenuRecent == on || (!on && !m_settings.folderMenuFavorites && !m_settings.folderMenuWindows))
+        return;
+    m_settings.folderMenuRecent = on;
+    commit();
+}
+
+void SettingsEditor::setFolderMenuWindows(bool on)
+{
+    if (m_settings.folderMenuWindows == on || (!on && !m_settings.folderMenuFavorites && !m_settings.folderMenuRecent))
+        return;
+    m_settings.folderMenuWindows = on;
+    commit();
+}
+
 void SettingsEditor::setFolderMenuHotkey(const QString& hotkey)
 {
     const QString value = hotkey.trimmed();

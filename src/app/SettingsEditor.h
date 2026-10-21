@@ -66,6 +66,10 @@ class SettingsEditor : public QObject {
     // The folder menu on a double click (Settings::folderMenu: on unless "off").
     Q_PROPERTY(bool folderMenu READ folderMenu WRITE setFolderMenu NOTIFY changed FINAL)
     Q_PROPERTY(bool folderMenuExplorer READ folderMenuExplorer WRITE setFolderMenuExplorer NOTIFY changed FINAL)
+    // The groups it lists (GitHub #51); the last one on cannot be switched off.
+    Q_PROPERTY(bool folderMenuFavorites READ folderMenuFavorites WRITE setFolderMenuFavorites NOTIFY changed FINAL)
+    Q_PROPERTY(bool folderMenuRecent READ folderMenuRecent WRITE setFolderMenuRecent NOTIFY changed FINAL)
+    Q_PROPERTY(bool folderMenuWindows READ folderMenuWindows WRITE setFolderMenuWindows NOTIFY changed FINAL)
     // The folder menu in Directory Opus, which runs a command of its settings
     // on a double click on blank space (refreshOpusFolderMenu): on | stale
     // (another copy's WinShunSearch.exe) | off | taken (a command of the
@@ -299,6 +303,12 @@ public:
     void setFolderMenuExplorer(bool on);
     bool folderMenuDesktop() const { return m_settings.folderMenuDesktop; }
     void setFolderMenuDesktop(bool on);
+    bool folderMenuFavorites() const { return m_settings.folderMenuFavorites; }
+    void setFolderMenuFavorites(bool on);
+    bool folderMenuRecent() const { return m_settings.folderMenuRecent; }
+    void setFolderMenuRecent(bool on);
+    bool folderMenuWindows() const { return m_settings.folderMenuWindows; }
+    void setFolderMenuWindows(bool on);
     QString folderMenuHotkey() const { return m_settings.folderMenuHotkey; }
     void setFolderMenuHotkey(const QString& hotkey);
     QString folderMenuHotkeyError() const { return m_folderMenuHotkeyError; }

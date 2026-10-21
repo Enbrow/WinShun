@@ -1403,6 +1403,53 @@ Window {
                     }
                 }
 
+                // At least one group stays on (GitHub #51): the editor keeps
+                // the last one, and the switch lights up to say so.
+                SettingRow {
+                    shown: window.editor.folderMenu
+                    title: qsTr("菜单里列出收藏的文件夹")
+                    keywords: qsTr("双击;文件夹菜单;收藏;收藏夹").split(";")
+
+                    ToggleSwitch {
+                        checked: window.editor.folderMenuFavorites
+                        onToggled: (on) => {
+                            window.editor.folderMenuFavorites = on
+                            if (checked !== on)
+                                pulse()
+                        }
+                    }
+                }
+
+                SettingRow {
+                    shown: window.editor.folderMenu
+                    title: qsTr("菜单里列出最近的文件夹")
+                    keywords: qsTr("双击;文件夹菜单;最近;最近打开").split(";")
+
+                    ToggleSwitch {
+                        checked: window.editor.folderMenuRecent
+                        onToggled: (on) => {
+                            window.editor.folderMenuRecent = on
+                            if (checked !== on)
+                                pulse()
+                        }
+                    }
+                }
+
+                SettingRow {
+                    shown: window.editor.folderMenu
+                    title: qsTr("菜单里列出别的窗口里的文件夹")
+                    keywords: qsTr("双击;文件夹菜单;其他窗口;别的窗口;已打开").split(";")
+
+                    ToggleSwitch {
+                        checked: window.editor.folderMenuWindows
+                        onToggled: (on) => {
+                            window.editor.folderMenuWindows = on
+                            if (checked !== on)
+                                pulse()
+                        }
+                    }
+                }
+
                 SettingRow {
                     id: opusMenuRow
                     // on | stale | off | taken | manual | busy (SettingsEditor::opusFolderMenu)
