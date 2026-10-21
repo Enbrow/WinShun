@@ -1389,9 +1389,9 @@ void SearchEngine::runNameSearch(const Job& job)
                 ? pathtext::splitRelative(request.text)
                 : pathtext::RelativePath();
             !typed.names.isEmpty()) {
-            std::vector<std::string> names;
+            std::vector<std::string> steps;
             for (const QString& name : typed.names)
-                names.push_back(wtf8::fromUtf16(wtf8::view(name)));
+                steps.push_back(wtf8::fromUtf16(wtf8::view(name)));
             struct Led {
                 SearchResult row;
                 qsizetype opened; // in the history; its size when not there
@@ -1401,7 +1401,7 @@ void SearchEngine::runNameSearch(const Job& job)
             std::vector<Led> led;
             {
                 const auto lock = index->readLock();
-                const std::vector<EntryId> ids = findRelativePath(*index, names, foldersOnly || typed.folder,
+                const std::vector<EntryId> ids = findRelativePath(*index, steps, foldersOnly || typed.folder,
                     kPathsSearched, m_pool, [&] { return isStale(job.id); });
                 for (const EntryId id : ids) {
                     SearchResult row = fromIndex(*index, id);
