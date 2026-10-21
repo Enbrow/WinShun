@@ -647,6 +647,13 @@ qsizetype promoteHistory(
     SearchResults& results, const SearchEngine::Request& request, const NameMatcher& matcher, RecentOnDisk& onDisk)
 {
     const bool foldersOnly = request.scope == Scope::Folders;
+    // A path typed: only what lies in that folder. The folders typed match
+    // names anywhere along an item's way, here as in the index (UnderFolder
+    // keeps the index's to the folder): "D:\x\F1\" would bring up what was
+    // opened in D:\x\F11 (#49: "search here" on F1 showed F11's files).
+    QString within = pathtext::splitTyped(request.text).folder;
+    if (!within.isEmpty() && !within.endsWith(u'\\'))
+        within += u'\\'; // "D:\" has one
     SearchResults promoted;
     qsizetype next = 0;
     while (promoted.size() < kRecentPromoted && next < request.history.size()) {
@@ -656,6 +663,8 @@ qsizetype promoteHistory(
             const QString& path = request.history[next++];
             if (isAppLaunchPath(path) || isPlacePath(path))
                 continue; // apps and places rank by their own rules (searchApps, searchPlaces)
+            if (!within.isEmpty() && !path.startsWith(within, Qt::CaseInsensitive))
+                continue;
             const auto it = std::find_if(results.begin(), results.end(),
                 [&](const SearchResult& r) { return r.path.compare(path, Qt::CaseInsensitive) == 0; });
             if (it != results.end()) {

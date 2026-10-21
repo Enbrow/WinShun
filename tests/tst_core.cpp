@@ -4386,6 +4386,72 @@ private slots:
         QVERIFY2(std::ranges::none_of(bare, [](const QString& p) { return p.contains(u"F11"); }), qPrintable(bare.join(u'|')));
     }
 
+    // GitHub #49 as users meet it: F1 in the index, but what was opened
+    // lately in F11 came up first, the recent items being matched by the
+    // names of their folders ("f1" in "F11") and not by where they lie. On
+    // disk: a recent item is looked up there (one the index lacks too).
+    void typedFolderLeavesOutRecentLookAlikes()
+    {
+        QTemporaryDir dir;
+        const QString top = QDir::toNativeSeparators(dir.path());
+        QVERIFY(QDir(dir.path()).mkpath(u"F1/sub"_s) && QDir(dir.path()).mkpath(u"F11/sub"_s));
+        const auto write = [&](const QString& relative) {
+            QFile file(top + u'\\' + relative);
+            return file.open(QIODevice::WriteOnly) ? QDir::toNativeSeparators(file.fileName()) : QString();
+        };
+        const QString inF1 = write(u"F1\\report.txt"_s);
+        const QString newInF1 = write(u"F1\\sub\\new.txt"_s); // not in the index yet
+        const QString inF11 = write(u"F11\\report.txt"_s);
+        const QString deepInF11 = write(u"F11\\sub\\report-deep.txt"_s);
+        QVERIFY(!inF1.isEmpty() && !newInF1.isEmpty() && !inF11.isEmpty() && !deepInF11.isEmpty());
+
+        QTemporaryDir store;
+        IndexService::Options options;
+        options.content.enabled = false;
+        IndexService service(store.path() + u"/index"_s, options);
+        {
+            const auto index = service.index();
+            const auto lock = index->writeLock();
+            EntryId folder = index->addRoot(top.left(2).toStdString());
+            for (const QString& name : top.mid(3).split(u'\\', Qt::SkipEmptyParts))
+                folder = index->add(folder, name.toStdString(), EntryFlag::Directory);
+            const EntryId f1 = index->add(folder, "F1", EntryFlag::Directory);
+            const EntryId f11 = index->add(folder, "F11", EntryFlag::Directory);
+            index->add(f1, "report.txt", 0);
+            index->add(f1, "sub", EntryFlag::Directory);
+            index->add(f11, "report.txt", 0);
+            index->add(index->add(f11, "sub", EntryFlag::Directory), "report-deep.txt", 0);
+            QVERIFY(index->findPath((top + u"\\F1"_s).toStdWString()) == f1);
+        }
+        SearchEngine engine(&service);
+        QSignalSpy spy(&engine, &SearchEngine::resultsReady);
+        const auto search = [&](const QString& text) {
+            spy.clear();
+            SearchEngine::Request request;
+            request.text = text;
+            request.history = {inF11, deepInF11, newInF1};
+            engine.submit(std::move(request));
+            if (!spy.wait(5000))
+                return SearchResults {};
+            return spy.at(0).at(1).value<SearchResults>();
+        };
+        // As Explorer's menu types it, and with a word after it.
+        for (const QString& text : {top + u"\\F1\\ "_s, top + u"\\F1\\ report"_s}) {
+            const SearchResults rows = search(text);
+            QStringList paths;
+            for (const SearchResult& r : rows)
+                paths.append(r.path);
+            QVERIFY2(paths.contains(inF1), qPrintable(paths.join(u'|')));
+            QVERIFY2(std::ranges::none_of(paths, [](const QString& p) { return p.contains(u"\\F11"_s); }),
+                qPrintable(paths.join(u'|')));
+        }
+        // What was opened in F1 lately still comes with it, from the disk.
+        const SearchResults rows = search(top + u"\\F1\\ "_s);
+        const auto it = std::ranges::find(rows, newInF1, &SearchResult::path);
+        QVERIFY(it != rows.end());
+        QVERIFY(it->recent);
+    }
+
     void newestFiles()
     {
         constexpr FileTime T = 1'700'000'000;
