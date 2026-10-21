@@ -337,6 +337,7 @@ App::App()
         // 索引哪些地方 and the folders are settings too: no telling the user what they chose.
         m_foldersInEffect = foldersInEffect(m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None);
         m_index->setOptions(indexOptions(m_settings, m_foldersInEffect));
+        tellLauncherFolders();
         refreshIndexAccess();
         refreshFolderStatuses();
     });
@@ -522,6 +523,18 @@ bool App::start(const StartOptions& options)
     connect(m_launcher.get(), &Launcher::pinnedChanged, this, &App::launcherPinnedChanged);
     connect(m_launcher.get(), &Launcher::pinRequested, this, &App::pinPicture);
     connect(m_launcher.get(), &Launcher::settingsRequested, this, [this] { showSettings(); });
+    // Only the chosen folders are indexed (GitHub #52): the notes under the results.
+    connect(m_launcher.get(), &Launcher::folderSettingsRequested, this, [this] { showSettingsFor(u"Index/Folders"_s); });
+    connect(m_launcher.get(), &Launcher::folderAddRequested, this, &App::addFolderFromLauncher);
+    connect(m_launcher.get(), &Launcher::folderNoteDismissed, this, [this] {
+        if (m_settings.folderHintDismissed)
+            return;
+        m_settings.folderHintDismissed = true;
+        m_settings.save();
+        if (m_settingsEditor)
+            m_settingsEditor->setSettings(m_settings); // its copy must not bring the note back with its next change
+        m_backup->soon();
+    });
     connect(m_launcher.get(), &Launcher::panelToggleRequested, this, &App::togglePanel);
     connect(m_launcher.get(), &Launcher::openFailed, this, [this](const QString& name) {
         m_messages->showNotification(tr("没有打开“%1”").arg(name),
@@ -690,6 +703,7 @@ bool App::start(const StartOptions& options)
     callbacks.commandReceived = [this](const QString& command) { handleCommand(command); };
     // Explorer's "search here" (WinShunSearch.exe): the folder typed, words to come.
     callbacks.searchHere = [this](const QString& folder) {
+        m_launcher->noteSearchHere(folder); // not indexed (GitHub #52): searched on the disk all the same
         showLauncher(folder.endsWith(u'\\') ? folder + u' ' : folder + u"\\ "_s);
     };
     // Directory Opus's double click on blank space (WinShunSearch.exe, put
@@ -1326,6 +1340,7 @@ void App::applySettings(bool initial)
     m_preview->setTextExtensions(m_settings.contentExtensions);
     m_clipboard->setNumberKeys(m_settings.clipboardNumberKeys);
     m_launcher->setNumberHints(m_settings.numberHints);
+    tellLauncherFolders();
     m_clipboard->setNumberHints(m_settings.numberHints);
     m_clipboard->setRowOptions(m_settings.clipboardClickToPaste, m_settings.clipboardLargePictures);
     m_clipboard->setLayoutOptions(m_settings.clipboardFlipAbove, m_settings.clipboardSearchBoxSide == u"far");
@@ -3966,8 +3981,41 @@ void App::applyIndexScope(bool told)
                                                               : tr("索引服务可用了：改为索引整个磁盘"));
     m_foldersInEffect = folders;
     m_index->setScope(folders ? std::optional(m_settings.indexFolderPaths()) : std::nullopt);
+    tellLauncherFolders();
     refreshIndexAccess();
     refreshFolderStatuses();
+}
+
+void App::tellLauncherFolders()
+{
+    if (!m_launcher)
+        return;
+    QStringList chosen;
+    for (const std::wstring& path : m_settings.indexFolderPaths())
+        chosen.push_back(QString::fromStdWString(path));
+    m_launcher->setChosenFolders(m_foldersInEffect, chosen, m_settings.folderHintDismissed);
+}
+
+void App::addFolderFromLauncher(const QString& path)
+{
+    QString problem;
+    bool added = false;
+    if (m_settingsEditor) { // open: its copy of the settings is the one to change
+        problem = m_settingsEditor->addFolder(path);
+        added = problem.isEmpty();
+    } else {
+        problem = SettingsEditor::addFolderTo(m_settings, path, added);
+        if (added) {
+            m_settings.save();
+            applySettings(false);
+            m_backup->soon();
+        }
+    }
+    if (added) {
+        m_launcher->flash(tr("已加入索引，几秒后就能直接搜到"));
+    } else if (!problem.isEmpty()) {
+        m_messages->showNotification(tr("没能加入索引"), problem);
+    }
 }
 
 void App::refreshFolderStatuses()

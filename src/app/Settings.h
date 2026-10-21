@@ -239,6 +239,9 @@ struct Settings {
     // folderVerifyEvery, at least 60 times as long as the last one took); 0:
     // only when Win顺 starts.
     int folderVerifyHours = 24;
+    // The note under the results that only the chosen folders are indexed
+    // (Launcher) was closed with 不再提示, or its button taken: not shown again.
+    bool folderHintDismissed = false;
     // Where the index files (index.bin, content\) are kept, '/' separated;
     // %VARS% are expanded. Empty: dataDir(), the default.
     QString indexFolder;

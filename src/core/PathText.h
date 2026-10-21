@@ -7,6 +7,8 @@
 #include <QString>
 #include <QStringList>
 
+#include <cstdint>
+
 // Paths in text that other programs show or hand over, or that the user
 // types: what was copied, what a file dialog's controls say, a path being
 // typed into the search bar under file dialogs (and what it names on disk).
@@ -28,6 +30,28 @@ struct TypedPath {
     QString name;
 };
 TypedPath splitTyped(const QString& text);
+
+// GitHub #52, with only some folders indexed (`chosen`, as IndexService has
+// them: "C:\Users\me\Documents", "D:" for a whole drive): whether `path` is
+// one of them or lies inside one. Names compared as Windows does (case aside).
+bool inChosenFolders(const QStringList& chosen, const QString& path);
+// The folder a path typed or pasted names (splitTyped) when it is on a drive
+// by letter and not in `chosen`, with the name typed after it; empty for
+// text that is no such path (a share is not walked here: the network has its
+// own list), or a folder that is indexed.
+TypedPath typedOutside(const QString& text, const QStringList& chosen);
+
+// What the launcher says about the folders chosen when a search ends (#52).
+enum class ScopeNote : std::uint8_t {
+    None,
+    Outside, // the folder typed is not indexed: search it this once, or add it
+    Chosen, // few rows found: only the chosen folders are indexed, there may be more elsewhere
+};
+// `foldersOnly`: only the chosen folders are indexed (never with whole disks);
+// `outside`: the folder typed is not among them; `dismissed`: the user closed
+// the Chosen note for good; `rows` found against `fewRows`; `typed`: the
+// length of what was typed (one letter finds few anywhere).
+ScopeNote scopeNote(bool foldersOnly, bool outside, bool dismissed, int rows, int fewRows, qsizetype typed) noexcept;
 
 // A path typed from some folder along the way, not from a drive:
 // "tools/screenshots/" -> {{"tools", "screenshots"}, true},

@@ -788,6 +788,94 @@ private slots:
         QCOMPARE(filetext::readHead(L"C:\\no\\such\\file.txt", 1024).status, filetext::Status::Missing);
     }
 
+    // GitHub #52: with only some folders indexed, is a folder among them, and
+    // what the launcher says of one that is not.
+    void chosenFolders()
+    {
+        const QStringList chosen {u"C:\\Users\\me\\Documents"_s, u"D:"_s};
+        QVERIFY(pathtext::inChosenFolders(chosen, u"C:\\Users\\me\\Documents"_s));
+        QVERIFY(pathtext::inChosenFolders(chosen, u"c:\\users\\ME\\documents\\Work\\"_s)); // case, a backslash at the end
+        QVERIFY(pathtext::inChosenFolders(chosen, u"D:\\"_s)); // a whole drive: its root, and
+        QVERIFY(pathtext::inChosenFolders(chosen, u"d:\\any\\where"_s)); // all it holds
+        QVERIFY(!pathtext::inChosenFolders(chosen, u"C:\\Users\\me"_s)); // above one: its other contents are not
+        QVERIFY(!pathtext::inChosenFolders(chosen, u"C:\\Users\\me\\Documents2"_s)); // a longer name is another folder
+        QVERIFY(!pathtext::inChosenFolders(chosen, u"E:\\"_s));
+        QVERIFY(!pathtext::inChosenFolders({}, u"C:\\"_s));
+
+        // What is typed: the folder and the name after it, only when it is not indexed.
+        pathtext::TypedPath typed = pathtext::typedOutside(u"C:\\Users\\me\\Downloads\\ report"_s, chosen);
+        QCOMPARE(typed.folder, u"C:\\Users\\me\\Downloads"_s);
+        QCOMPARE(typed.name.trimmed(), u"report"_s);
+        QVERIFY(pathtext::typedOutside(u"C:\\Users\\me\\Documents\\ report"_s, chosen).folder.isEmpty());
+        QVERIFY(pathtext::typedOutside(u"D:\\work\\ report"_s, chosen).folder.isEmpty());
+        QVERIFY(pathtext::typedOutside(u"report"_s, chosen).folder.isEmpty()); // no path
+        QVERIFY(pathtext::typedOutside(u"abc/"_s, chosen).folder.isEmpty()); // a name along the way, not a place
+        QVERIFY(pathtext::typedOutside(u"\\\\nas\\share\\x\\ report"_s, chosen).folder.isEmpty()); // the network has its own list
+        QCOMPARE(pathtext::typedOutside(u"E:\\"_s, chosen).folder, u"E:\\"_s);
+
+        // The note: outside beats the general one; the general one once, and
+        // only for few rows found of something typed.
+        using pathtext::ScopeNote;
+        QCOMPARE(pathtext::scopeNote(false, true, false, 0, 8, 5), ScopeNote::None); // whole disks: never
+        QCOMPARE(pathtext::scopeNote(true, true, true, 20, 8, 5), ScopeNote::Outside);
+        QCOMPARE(pathtext::scopeNote(true, false, false, 0, 8, 5), ScopeNote::Chosen);
+        QCOMPARE(pathtext::scopeNote(true, false, false, 7, 8, 2), ScopeNote::Chosen);
+        QCOMPARE(pathtext::scopeNote(true, false, false, 8, 8, 5), ScopeNote::None); // the window is full
+        QCOMPARE(pathtext::scopeNote(true, false, false, 0, 8, 1), ScopeNote::None); // one letter
+        QCOMPARE(pathtext::scopeNote(true, false, true, 0, 8, 5), ScopeNote::None); // closed for good
+    }
+
+    // GitHub #52: a folder the index does not hold, walked on the disk for
+    // what is typed (the drive walk, for any folder).
+    void walkAFolder()
+    {
+        QTemporaryDir dir;
+        const auto touch = [&](const QString& relative) {
+            const QString path = dir.filePath(relative);
+            QVERIFY(QDir().mkpath(QFileInfo(path).absolutePath()));
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+        };
+        touch(u"a/b/report.txt"_s);
+        touch(u"other.txt"_s);
+        touch(u"deep/er/report-two.txt"_s);
+        touch(u"Report-top.txt"_s);
+
+        SearchEngine engine(nullptr);
+        QSignalSpy rows(&engine, &SearchEngine::driveResults);
+        QSignalSpy progress(&engine, &SearchEngine::driveProgress);
+        const auto walk = [&](const QString& folder, const QString& text, int limit = 100) {
+            rows.clear();
+            progress.clear();
+            SearchEngine::Request request;
+            request.text = text;
+            request.limit = limit;
+            request.walkFolder = folder;
+            const quint64 id = engine.submit(std::move(request));
+            const auto finished = [&] {
+                return !progress.isEmpty() && progress.last().at(2).toBool() && progress.last().at(0).toULongLong() == id;
+            };
+            if (!QTest::qWaitFor(finished, 5000))
+                return QStringList {u"(never finished)"_s};
+            QStringList paths;
+            for (const QList<QVariant>& batch : rows) {
+                for (const SearchResult& r : batch.at(1).value<SearchResults>())
+                    paths.append(QDir::fromNativeSeparators(r.path));
+            }
+            paths.sort();
+            return paths;
+        };
+        const QString top = dir.path(); // '/' separated, as walk() gives paths back
+        QStringList reports {top + u"/Report-top.txt"_s, top + u"/a/b/report.txt"_s, top + u"/deep/er/report-two.txt"_s};
+        reports.sort();
+        QCOMPARE(walk(QDir::toNativeSeparators(dir.path()), u"report"_s), reports);
+        QCOMPARE(walk(QDir::toNativeSeparators(dir.path()) + u'\\', u"report"_s), reports); // a backslash at the end
+        QVERIFY(progress.last().at(1).toInt() >= 8); // it looked at every file and folder
+        QCOMPARE(walk(QDir::toNativeSeparators(dir.filePath(u"a"_s)), u"report"_s), QStringList {top + u"/a/b/report.txt"_s}); // only below the folder
+        QCOMPARE(walk(QDir::toNativeSeparators(dir.path()), u"report"_s, 1).size(), 1); // stops at the limit
+        QCOMPARE(walk(QDir::toNativeSeparators(dir.filePath(u"missing"_s)), u"report"_s), QStringList {}); // not there: nothing, and it ends
+    }
+
     void folderFromAddress()
     {
         using pathtext::folderFromAddress;

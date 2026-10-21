@@ -2090,6 +2090,16 @@ void SettingsEditor::retranslateFolders()
 
 QString SettingsEditor::addFolder(const QString& text)
 {
+    bool added = false;
+    const QString problem = addFolderTo(m_settings, text, added);
+    if (added)
+        commit();
+    return problem;
+}
+
+QString SettingsEditor::addFolderTo(Settings& settings, const QString& text, bool& added)
+{
+    added = false;
     const QString folder = folderText(text);
     if (folder.isEmpty())
         return {};
@@ -2100,24 +2110,26 @@ QString SettingsEditor::addFolder(const QString& text)
         return tr("请选一个完整的文件夹路径");
     if (const QFileInfo info(folder); !info.isDir())
         return info.exists() ? tr("只能添加文件夹") : tr("找不到这个文件夹");
-    const std::vector<std::wstring>& keys = folderKeys();
+    std::vector<std::wstring> keys;
+    for (const QString& chosen : settings.indexFolders)
+        keys.push_back(Settings::indexFolderPath(chosen));
     for (std::size_t i = 0; i < keys.size(); ++i) {
         if (keys[i].empty())
             continue;
         if (win32::equalsIgnoreCase(keys[i], key))
             return tr("已经添加过了");
         if (folderHolds(keys[i], key))
-            return tr("已经包含在 %1 里").arg(displayPath(m_settings.indexFolders[static_cast<qsizetype>(i)]));
+            return tr("已经包含在 %1 里").arg(displayPath(settings.indexFolders[static_cast<qsizetype>(i)]));
     }
     // One that holds folders added takes their place: none twice.
     QStringList kept;
     for (std::size_t i = 0; i < keys.size(); ++i) {
         if (keys[i].empty() || !folderHolds(key, keys[i]))
-            kept.push_back(m_settings.indexFolders[static_cast<qsizetype>(i)]);
+            kept.push_back(settings.indexFolders[static_cast<qsizetype>(i)]);
     }
     kept.push_back(folder);
-    m_settings.indexFolders = kept;
-    commit();
+    settings.indexFolders = kept;
+    added = true;
     return {};
 }
 

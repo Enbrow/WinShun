@@ -77,7 +77,7 @@ struct ContentScope {
 // A removable drive (a USB stick, a memory card) with media in it that the
 // index leaves out (Settings: includeRemovableDrives), as a name search
 // found it (SearchEngine::removableDrives). The launcher offers to walk it
-// for the query (Request::walkDrive).
+// for the query (Request::walkFolder).
 struct RemovableDrive {
     QString root; // "E:"
     QString label; // its volume label; may be empty
@@ -125,12 +125,13 @@ public:
         // The panel: with nothing typed, every file and folder the filters
         // let through (in `order`), not the start list.
         bool browse = false;
-        // Set: not a name search but a walk of this drive ("E:", one the
-        // index leaves out: RemovableDrive), on the disk, for the files and
-        // folders named as `text` says (scope, extensions and rankBy as for
-        // names). The rows come in batches (driveResults), with how far it is
-        // (driveProgress); a new request stops it, as any search.
-        QString walkDrive;
+        // Set: not a name search but a walk of this folder on the disk ("E:",
+        // a drive the index leaves out: RemovableDrive; or any folder it does
+        // not hold: "D:\work", GitHub #52), for the files and folders named as
+        // `text` says (scope, extensions and rankBy as for names). The rows
+        // come in batches (driveResults), with how far it is (driveProgress);
+        // a new request stops it, as any search.
+        QString walkFolder;
         KindOrder kindOrder = KindOrder::FilesFirst; // 全部, 文件
         // Files and folders, and content matches (全部: its apps, places and
         // web shortcuts stay first, by match).
@@ -206,9 +207,9 @@ signals:
     // After a name search's resultsReady, when something was typed and the
     // list is all there is (fewer than Request::limit): the removable drives
     // the index leaves out (none: an empty list). The launcher offers to
-    // walk one (Request::walkDrive).
+    // walk one (Request::walkFolder).
     void removableDrives(quint64 requestId, const ws::RemovableDrives& drives);
-    // A walk (Request::walkDrive): its rows as they are found, best of each
+    // A walk (Request::walkFolder): its rows as they are found, best of each
     // batch first, and how many files and folders it has looked at.
     void driveResults(quint64 requestId, const ws::SearchResults& results);
     void driveProgress(quint64 requestId, int seen, bool finished);

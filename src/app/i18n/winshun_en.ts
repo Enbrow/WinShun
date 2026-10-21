@@ -6253,6 +6253,14 @@
         <translation>The index service is available: the whole disks are indexed now</translation>
     </message>
     <message>
+        <source>已加入索引，几秒后就能直接搜到</source>
+        <translation>Added to the index; it can be searched directly in a few seconds</translation>
+    </message>
+    <message>
+        <source>没能加入索引</source>
+        <translation>Could not add it to the index</translation>
+    </message>
+    <message>
         <source>你在这台电脑上没有管理员权限，装不了索引服务。Win顺 会索引你选的文件夹，并定时核对。</source>
         <translation>You have no administrator rights on this computer, so the index service cannot be installed. WinShun indexes the folders you choose and checks them regularly.</translation>
     </message>
@@ -7263,6 +7271,26 @@
     <message>
         <source>这次也搜它</source>
         <translation>Search it this time</translation>
+    </message>
+    <message>
+        <source>这个文件夹不在索引范围内</source>
+        <translation>This folder is not in the index</translation>
+    </message>
+    <message>
+        <source>加入索引</source>
+        <translation>Add to the index</translation>
+    </message>
+    <message>
+        <source>只索引了你选的文件夹，可能有别的地方没搜到</source>
+        <translation>Only the folders you chose are indexed; more may be elsewhere</translation>
+    </message>
+    <message>
+        <source>设置文件夹…</source>
+        <translation>Folder settings…</translation>
+    </message>
+    <message>
+        <source>不再提示</source>
+        <translation>Don't show again</translation>
     </message>
     <message>
         <source>没有叫“%1”的，按读音找到：</source>

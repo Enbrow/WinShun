@@ -908,6 +908,7 @@ void Settings::load()
     // As written, nested ones too: an empty list stays empty (no defaults put back).
     indexFolders = readOrDefault(s, u"Index/Folders"_s, d.indexFolders);
     folderVerifyHours = std::clamp(readOrDefault(s, u"Index/FolderVerifyHours"_s, d.folderVerifyHours), 0, 24 * 7);
+    folderHintDismissed = readOrDefault(s, u"Index/FolderHintDismissed"_s, d.folderHintDismissed);
 
     contentSearch = readOrDefault(s, u"Content/Enabled"_s, d.contentSearch);
     contentExtensions = readOrDefault(s, u"Content/Extensions"_s, d.contentExtensions);
@@ -1091,6 +1092,7 @@ void Settings::save() const
     s.setValue(u"Index/Scope"_s, indexScope);
     s.setValue(u"Index/Folders"_s, indexFolders);
     s.setValue(u"Index/FolderVerifyHours"_s, folderVerifyHours);
+    s.setValue(u"Index/FolderHintDismissed"_s, folderHintDismissed);
     s.setValue(u"Index/Folder"_s, indexFolder);
     s.setValue(u"Content/Enabled"_s, contentSearch);
     s.setValue(u"Content/Extensions"_s, contentExtensions);

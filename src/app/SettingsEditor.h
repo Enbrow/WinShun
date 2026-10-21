@@ -442,6 +442,11 @@ public:
     // or an empty string once it is. One that holds folders added takes
     // their place; a drive's root is that whole drive.
     Q_INVOKABLE QString addFolder(const QString& text);
+    // The same on `settings` alone, for the launcher's "加入索引" when no
+    // settings window is open: `added` says it went in (else the text is
+    // returned as the reason, or is empty for a path that came to nothing).
+    // The caller saves.
+    static QString addFolderTo(Settings& settings, const QString& text, bool& added);
     Q_INVOKABLE void removeFolder(int index);
     Q_INVOKABLE void verifyFolder(int index); // walked again now
     Q_INVOKABLE bool isNetworkFolder(const QString& text) const; // a share's place (path or file:// URL)

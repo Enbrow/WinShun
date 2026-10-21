@@ -125,6 +125,38 @@ TypedPath splitTyped(const QString& text)
     return typed;
 }
 
+bool inChosenFolders(const QStringList& chosen, const QString& path)
+{
+    QStringView p = QStringView(path);
+    while (p.size() > 2 && p.endsWith(u'\\'))
+        p.chop(1);
+    return std::ranges::any_of(chosen, [&](const QString& folder) {
+        QStringView f = QStringView(folder);
+        while (f.size() > 2 && f.endsWith(u'\\'))
+            f.chop(1);
+        return !f.isEmpty() && p.startsWith(f, Qt::CaseInsensitive)
+            && (p.size() == f.size() || p[f.size()] == u'\\');
+    });
+}
+
+TypedPath typedOutside(const QString& text, const QStringList& chosen)
+{
+    TypedPath typed = splitTyped(text);
+    if (typed.folder.size() < 2 || !isDriveLetter(typed.folder[0]) || typed.folder[1] != u':'
+        || inChosenFolders(chosen, typed.folder))
+        return {};
+    return typed;
+}
+
+ScopeNote scopeNote(bool foldersOnly, bool outside, bool dismissed, int rows, int fewRows, qsizetype typed) noexcept
+{
+    if (!foldersOnly)
+        return ScopeNote::None;
+    if (outside)
+        return ScopeNote::Outside;
+    return !dismissed && rows < fewRows && typed >= 2 ? ScopeNote::Chosen : ScopeNote::None;
+}
+
 RelativePath splitRelative(const QString& text)
 {
     const QString line = text.trimmed();

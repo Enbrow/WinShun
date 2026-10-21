@@ -117,6 +117,10 @@ Window {
         else
             launcher.searchLeftOut(hints[index].kind)
     }
+    function takeHint2(index) { // the second link on the row (a hint's kind2): by mouse
+        if (index >= 0 && index < hints.length && hints[index].kind2)
+            launcher.searchLeftOut(hints[index].kind2)
+    }
     onHintsChanged: {
         Qt.callLater(settleRows) // what the empty state lists
         // Changed under the keyboard (one taken up: it alone, running; done:
@@ -226,6 +230,7 @@ Window {
                 }
                 Row {
                     id: hintLine
+                    z: 1 // over emptyHintArea: the second link has an area of its own
                     anchors.centerIn: parent
 
                     Text {
@@ -242,6 +247,22 @@ Window {
                         text: emptyHint.modelData.action
                         color: Theme.accent
                         font.pixelSize: Theme.uiBody
+                    }
+                    Text {
+                        visible: !!emptyHint.modelData.action2
+                        text: "  "
+                        font.pixelSize: Theme.uiBody
+                    }
+                    Text { // a second link on the row
+                        visible: !!emptyHint.modelData.action2
+                        text: emptyHint.modelData.action2
+                        color: Theme.accent
+                        font.pixelSize: Theme.uiBody
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: window.takeHint2(emptyHint.index)
+                        }
                     }
                 }
                 MouseArea {
@@ -1102,7 +1123,7 @@ Window {
                             }
                             Text {
                                 x: 60 // under the rows' text
-                                width: hintAction.x - 16 - x
+                                width: (hintAction2.visible ? hintAction2.x : hintAction.x) - 16 - x
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: hintRow.modelData.text
                                 color: Theme.subtext
@@ -1111,12 +1132,28 @@ Window {
                             }
                             Text { // the action: accent words on the plain background, as a link; right, as the rows' labels
                                 id: hintAction
-                                anchors.right: parent.right
-                                anchors.rightMargin: 18
+                                anchors.right: hintAction2.visible ? hintAction2.left : parent.right
+                                anchors.rightMargin: hintAction2.visible ? 14 : 18
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: hintRow.modelData.action
                                 color: Theme.accent
                                 font.pixelSize: Theme.uiBody
+                            }
+                            Text { // a second link on the row (a hint's kind2), the mouse's
+                                id: hintAction2
+                                visible: !!hintRow.modelData.action2
+                                z: 1 // over hintArea
+                                anchors.right: parent.right
+                                anchors.rightMargin: 18
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: hintRow.modelData.action2
+                                color: Theme.accent
+                                font.pixelSize: Theme.uiBody
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: window.takeHint2(hintRow.index)
+                                }
                             }
                             MouseArea {
                                 id: hintArea

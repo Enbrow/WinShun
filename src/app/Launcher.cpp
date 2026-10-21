@@ -71,6 +71,23 @@ constexpr QLatin1StringView kLargeHint("large");
 constexpr QLatin1StringView kSystemHint("system");
 constexpr QLatin1StringView kTypesHint("types");
 constexpr QLatin1StringView kDriveHint("drive:"); // + "E:"
+// With only the chosen folders indexed (GitHub #52): a folder not among them
+// walked for the query (+ its path), the same folder added to them (+ its
+// path), the settings' page of them, and the general note closed for good.
+constexpr QLatin1StringView kFolderHint("folder:");
+constexpr QLatin1StringView kAddFolderHint("addfolder:");
+constexpr QLatin1StringView kFoldersHint("folders");
+constexpr QLatin1StringView kFoldersDismissHint("folders-dismiss");
+
+// What a hint that walks the disk walks: a drive's root, or a folder.
+QString walkedPath(const QString& kind)
+{
+    if (kind.startsWith(kDriveHint))
+        return kind.mid(kDriveHint.size());
+    if (kind.startsWith(kFolderHint))
+        return kind.mid(kFolderHint.size());
+    return {};
+}
 
 // Rows asked for at a time: names, content matches, files written lately.
 // Scrolled to the end, a page more (loadMore), up to kMaxPages.
@@ -366,6 +383,64 @@ bool Launcher::hintsSettled() const
     return m_quiet || (!m_pending && !m_contentRunning && !m_walkRunning && !m_contentDebounce.isActive());
 }
 
+void Launcher::setChosenFolders(bool only, const QStringList& folders, bool noteDismissed)
+{
+    const bool changed = only != m_foldersOnly || folders != m_chosenFolders || noteDismissed != m_folderNoteDismissed;
+    m_foldersOnly = only;
+    m_chosenFolders = folders;
+    m_folderNoteDismissed = noteDismissed;
+    m_outsideKnown = false;
+    if (changed && m_window && m_window->isVisible())
+        refreshStatus(); // a folder just added is indexed: its note goes
+}
+
+void Launcher::noteSearchHere(const QString& folder)
+{
+    m_hereFolder = folder;
+    m_hereSeen = false;
+}
+
+QString Launcher::outsideFolder() const
+{
+    if (!m_foldersOnly || m_scope == Content || m_keyword)
+        return {};
+    if (m_outsideKnown && m_outsideQuery == m_query)
+        return m_outside;
+    m_outsideKnown = true;
+    m_outsideQuery = m_query;
+    m_outside.clear();
+    const pathtext::TypedPath typed = pathtext::typedOutside(m_query, m_chosenFolders);
+    // A fixed disk of this PC, and the folder there: a removable drive has its
+    // own hint, a share its own list, and a folder that is not there holds nothing.
+    if (!typed.folder.isEmpty()) {
+        const std::wstring root = typed.folder.left(3).toStdWString(); // "D:\"
+        if (::GetDriveTypeW(root.c_str()) == DRIVE_FIXED && QFileInfo(typed.folder).isDir())
+            m_outside = typed.folder;
+    }
+    return m_outside;
+}
+
+// "Search here" named a folder that is not indexed: what is typed after it is
+// looked for in it all the same, the user having picked that folder. Once the
+// names are listed, and when there is something to look for.
+void Launcher::walkHereSoon()
+{
+    if (m_hereFolder.isEmpty())
+        return;
+    const QString outside = outsideFolder();
+    if (outside.isEmpty() || !pathtext::sameFolder(outside, m_hereFolder)) {
+        if (m_hereSeen || (!m_query.trimmed().isEmpty() && !pathtext::sameFolder(pathtext::splitTyped(m_query).folder, m_hereFolder)))
+            m_hereFolder.clear(); // typed on elsewhere
+        return;
+    }
+    m_hereSeen = true;
+    const QString kind = kFolderHint + outside;
+    if (!m_hintRunning.isEmpty() || m_hintsTaken.contains(kind) || pathtext::splitTyped(m_query).name.trimmed().isEmpty()
+        || !hintsSettled())
+        return;
+    QTimer::singleShot(0, this, [this, kind] { searchLeftOut(kind); }); // not from within the status it follows
+}
+
 // In the order they are offered: the content scan's parts (large files in
 // any scope; system folders and other kinds of text in 内容, where contents
 // are what was asked for: 全部 reads them as a by-product, and under its name
@@ -375,9 +450,11 @@ bool Launcher::hintsSettled() const
 QVariantList Launcher::leftOutHints() const
 {
     QVariantList hints;
-    const auto add = [&](const QString& kind, const QString& text, const QString& action) {
-        hints.append(QVariantMap {
-            {u"kind"_s, kind}, {u"text"_s, text}, {u"action"_s, action}, {u"running"_s, kind == m_hintRunning}});
+    // `action2`: a second link on the row, its own kind (clicked, not Enter).
+    const auto add = [&](const QString& kind, const QString& text, const QString& action, const QString& kind2 = {},
+                         const QString& action2 = {}) {
+        hints.append(QVariantMap {{u"kind"_s, kind}, {u"text"_s, text}, {u"action"_s, action}, {u"kind2"_s, kind2},
+            {u"action2"_s, action2}, {u"running"_s, kind == m_hintRunning}});
     };
     if (!m_hintRunning.isEmpty()) {
         QString text;
@@ -388,7 +465,7 @@ QVariantList Launcher::leftOutHints() const
         else if (m_hintRunning == kTypesHint)
             text = tr("正在搜这些类型的文件…");
         else
-            text = tr("正在搜 %1… 已看 %Ln 项", nullptr, m_walkSeen).arg(m_hintRunning.mid(kDriveHint.size()));
+            text = tr("正在搜 %1… 已看 %Ln 项", nullptr, m_walkSeen).arg(QDir::toNativeSeparators(walkedPath(m_hintRunning)));
         add(m_hintRunning, text, tr("停止"));
         return hints;
     }
@@ -427,6 +504,27 @@ QVariantList Launcher::leftOutHints() const
                 tr("这次也搜它"));
         }
     }
+    // Only the chosen folders are indexed (GitHub #52). The folder typed is
+    // not among them: walked for the words typed after it, or added; once
+    // walked, adding it is what is left to offer. Else, when few rows came,
+    // a word that more may be elsewhere, once (closed for good).
+    if (m_scope != Content && !m_moreNames) {
+        const QString outside = outsideFolder();
+        switch (pathtext::scopeNote(m_foldersOnly, !outside.isEmpty(), m_folderNoteDismissed, static_cast<int>(m_results.count()),
+            kFewRows, m_query.trimmed().size())) {
+        case pathtext::ScopeNote::Outside:
+            if (!m_hintsTaken.contains(kFolderHint + outside))
+                add(kFolderHint + outside, tr("这个文件夹不在索引范围内"), tr("这次也搜它"), kAddFolderHint + outside, tr("加入索引"));
+            else if (!m_hintsTaken.contains(kAddFolderHint + outside))
+                add(kAddFolderHint + outside, tr("这个文件夹不在索引范围内"), tr("加入索引"));
+            break;
+        case pathtext::ScopeNote::Chosen:
+            add(kFoldersHint, tr("只索引了你选的文件夹，可能有别的地方没搜到"), tr("设置文件夹…"), kFoldersDismissHint, tr("不再提示"));
+            break;
+        case pathtext::ScopeNote::None:
+            break;
+        }
+    }
     return hints;
 }
 
@@ -443,7 +541,7 @@ QString Launcher::approximateHeading() const
 // are a content scan (SearchEngine::Request::contentSet) whose matches come
 // in as content matches do: the files over the limit under the largest limit
 // the settings allow, the others under the limits set. A drive is walked
-// (Request::walkDrive); its rows go after the rows there are, as they come.
+// (Request::walkFolder); its rows go after the rows there are, as they come.
 // Not while a search runs, but a quiet refresh (the window opened again) is
 // stopped for it: its rows stay as they were, which is what a quiet refresh
 // keeps anyway, and a scan that finished without finding them again would
@@ -453,8 +551,28 @@ void Launcher::searchLeftOut(const QString& kind)
     if (!m_window || !m_window->isVisible() || !m_hintRunning.isEmpty())
         return;
     const QVariantList offered = leftOutHints();
-    if (std::none_of(offered.cbegin(), offered.cend(), [&](const QVariant& h) { return h.toMap()[u"kind"_s] == kind; }))
+    if (std::none_of(offered.cbegin(), offered.cend(), [&](const QVariant& h) {
+            const QVariantMap hint = h.toMap();
+            return hint[u"kind"_s] == kind || hint[u"kind2"_s] == kind;
+        }))
         return;
+    // Not searches: the settings' page, the note closed, a folder added.
+    if (kind == kFoldersHint || kind == kFoldersDismissHint) {
+        m_folderNoteDismissed = true; // its button was taken either way: said once
+        emit folderNoteDismissed();
+        if (kind == kFoldersHint)
+            emit folderSettingsRequested();
+        refreshStatus();
+        return;
+    }
+    if (kind.startsWith(kAddFolderHint)) {
+        const QString path = kind.mid(kAddFolderHint.size());
+        m_hintsTaken.insert(kind); // the app adds it and says so; the note goes meanwhile
+        m_hintsTaken.insert(kFolderHint + path);
+        emit folderAddRequested(path);
+        refreshStatus();
+        return;
+    }
     if (m_pending || m_contentRunning) {
         m_engine->cancel();
         m_pending = false;
@@ -466,12 +584,13 @@ void Launcher::searchLeftOut(const QString& kind)
     request.rankBy = rankBy();
     request.preferredTypes = m_preferredTypes;
     request.excludedTypes = m_excludedTypes;
-    if (kind.startsWith(kDriveHint)) {
-        request.text = m_query;
+    if (kind.startsWith(kDriveHint) || kind.startsWith(kFolderHint)) {
+        // A folder typed as a path: the words after it are what is looked for.
+        request.text = kind.startsWith(kFolderHint) ? pathtext::splitTyped(m_query).name.trimmed() : m_query;
         request.scope = m_scope == Folders ? ws::Scope::Folders : ws::Scope::Files; // 全部: its files and folders
         request.extensions = fileExtensions();
         request.limit = kPage;
-        request.walkDrive = kind.mid(kDriveHint.size());
+        request.walkFolder = walkedPath(kind);
         m_walkRunning = true;
         m_walkSeen = 0;
     } else {
@@ -540,7 +659,7 @@ void Launcher::finishLeftOut(bool stopped)
     else if (kind == kTypesHint)
         said = hits > 0 ? tr("这些类型的文件里找到 %Ln 条", nullptr, hits) : tr("这些类型的文件里也没有");
     else {
-        const QString root = kind.mid(kDriveHint.size());
+        const QString root = QDir::toNativeSeparators(walkedPath(kind));
         said = hits > 0 ? tr("%1 里找到 %Ln 项", nullptr, hits).arg(root) : tr("%1 里也没有").arg(root);
     }
     flash(said);
@@ -1007,6 +1126,7 @@ void Launcher::handleHidden()
         m_walkRunning = false;
     }
     m_hintRunning.clear(); // whatever was asked is over; the hint is not offered again (m_hintsTaken)
+    m_hereFolder.clear();
     if (m_plugins)
         m_plugins->cancelAll(); // nobody is looking: whatever they were asked is moot
     m_pluginPending.clear();
@@ -1941,6 +2061,7 @@ void Launcher::refreshStatus()
         emit statusChanged(); // busy/searching may have changed
     }
     refreshKeyHints(); // the rows changed with whatever brought us here
+    walkHereSoon();
 }
 
 void Launcher::setCurrentRow(int row)

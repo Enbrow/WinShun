@@ -1080,7 +1080,7 @@ void SearchEngine::workerLoop(std::stop_token stop)
             continue;
         if (job.request.scope == Scope::Content)
             runContentSearch(job);
-        else if (!job.request.walkDrive.isEmpty())
+        else if (!job.request.walkFolder.isEmpty())
             runDriveWalk(job);
         else
             runNameSearch(job);
@@ -1605,8 +1605,9 @@ RemovableDrives SearchEngine::unindexedRemovableDrives()
     return m_removable;
 }
 
-// A removable drive the index leaves out, walked on the disk for the names
-// (Request::walkDrive): each folder read once, in the order they are met,
+// A removable drive the index leaves out, or any folder it does not hold
+// (only the folders chosen are indexed: GitHub #52), walked on the disk for
+// the names (Request::walkFolder): each folder read once, in the order they are met,
 // one at a time (a USB stick serves one request at a time), each file and
 // folder matched as a path from the history is (NameMatcher::matchPath:
 // pinyin, folders, ext: and exclusions as for the index). The rows go out
@@ -1660,11 +1661,17 @@ void SearchEngine::runDriveWalk(const Job& job)
         lastSent = std::chrono::steady_clock::now();
     };
 
-    std::deque<std::wstring> folders {request.walkDrive.toStdWString()}; // "E:"
+    // "E:", "D:\work": no backslash at the end ("E:\" is "E:", the drive).
+    std::wstring start = request.walkFolder.toStdWString();
+    while (!start.empty() && start.back() == L'\\')
+        start.pop_back();
+    const int baseDepth = static_cast<int>(std::count(start.begin(), start.end(), L'\\'));
+    const bool driveRoot = start.size() == 2 && start[1] == L':';
+    std::deque<std::wstring> folders {std::move(start)};
     while (!folders.empty() && !stale() && found < request.limit) {
         const std::wstring folder = std::move(folders.front());
         folders.pop_front();
-        const int depth = static_cast<int>(std::count(folder.begin(), folder.end(), L'\\'));
+        const int depth = static_cast<int>(std::count(folder.begin(), folder.end(), L'\\')) - baseDepth;
         WIN32_FIND_DATAW fd;
         const win32::UniqueFind find(::FindFirstFileExW(win32::longPath(folder + L"\\*").c_str(), FindExInfoBasic, &fd,
             FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH));
@@ -1676,7 +1683,7 @@ void SearchEngine::runDriveWalk(const Job& job)
                 continue;
             const bool isDir = fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
             // Windows' own folders at the root hold nothing of the user's.
-            if (isDir && depth == 0 && (name == L"System Volume Information" || name == L"$RECYCLE.BIN"))
+            if (isDir && driveRoot && depth == 0 && (name == L"System Volume Information" || name == L"$RECYCLE.BIN"))
                 continue;
             ++seen;
             const std::wstring path = folder + L'\\' + std::wstring(name);

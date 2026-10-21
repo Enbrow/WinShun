@@ -311,6 +311,10 @@ private:
     // when that changes (the service came or went), not for their own settings.
     void applyIndexScope(bool told);
     void refreshFolderStatuses(); // the chosen folders' cards in the settings window
+    // The launcher's notes about what lies outside the chosen folders (GitHub
+    // #52): whether only they are indexed, which, and whether the note was closed.
+    void tellLauncherFolders();
+    void addFolderFromLauncher(const QString& path); // its "加入索引": as the settings add one
     void applyTheme();
     void applyAppearance(); // the chosen theme and language
     QString trayTooltip() const;

@@ -308,8 +308,19 @@ public:
     // matches where they rank; a drive's files after the rows, as found).
     // Not offered again for this query; nothing is written to the settings or
     // the index. stopLeftOut() ends the one running (the rows found stay).
+    // A kind may also be a plain action, nothing searched (GitHub #52, only
+    // the chosen folders indexed): "folders" the settings' page of them,
+    // "folders-dismiss" the note closed for good, "addfolder:<path>" a folder
+    // added to them.
     Q_INVOKABLE void searchLeftOut(const QString& kind);
     Q_INVOKABLE void stopLeftOut();
+    // Whether only the chosen folders are indexed (`folders`, as IndexService
+    // has them; `only`: set), for the notes about what lies outside them
+    // (leftOutHints), and whether the user closed the general one for good.
+    void setChosenFolders(bool only, const QStringList& folders, bool noteDismissed);
+    // Explorer's "search here": the folder is typed; one not indexed is
+    // walked at once for what is typed after it, as the user named it.
+    void noteSearchHere(const QString& folder);
     // More results for the query are on the way. Not while quietly
     // refreshing results that were already complete, nor for a hint's
     // one-off search (searchLeftOut): the rows are the query's, and the hint
@@ -594,6 +605,9 @@ signals:
     void panelToggleRequested();
     void pinnedChanged();
     void settingsRequested();
+    void folderSettingsRequested(); // the settings' page of the chosen folders
+    void folderAddRequested(const QString& path); // a folder not indexed, to be (the app adds it as the settings do)
+    void folderNoteDismissed(); // 不再提示
     void filtersChanged();
     void panelSortChanged();
 
@@ -711,6 +725,11 @@ private:
     // as they are, so it counts as done): only then is what it passed over
     // known, and the hints shown.
     bool hintsSettled() const;
+    // The folder typed (a path, then words) when only the chosen folders are
+    // indexed and it is not among them, on a disk of this PC that is there;
+    // else empty. Asked of the disk once per query.
+    QString outsideFolder() const;
+    void walkHereSoon(); // noteSearchHere: its folder walked as soon as the search ends
     void finishLeftOut(bool stopped); // the one running is over: the hint goes, the footer says what came of it
     void refreshStatus();
     void refreshFrequentApps();
@@ -788,6 +807,15 @@ private:
     QSet<QString> m_hintsTaken;
     QSet<QString> m_leftOutFound;
     int m_hintHits = 0; // rows the one running has brought
+    // Only the chosen folders are indexed (setChosenFolders).
+    bool m_foldersOnly = false;
+    QStringList m_chosenFolders;
+    bool m_folderNoteDismissed = false;
+    QString m_hereFolder; // "search here" named it (noteSearchHere)
+    bool m_hereSeen = false; // ... and the query has been that folder since
+    mutable QString m_outsideQuery; // outsideFolder() was last asked for this query ...
+    mutable QString m_outside; // ... and said this
+    mutable bool m_outsideKnown = false;
     bool m_walkRunning = false; // ... it is a walk of a drive (SearchEngine::driveProgress ends it)
     int m_walkSeen = 0; // files and folders it has looked at
     bool m_approximate = false; // the rows were found by reading (approximateHeading)
