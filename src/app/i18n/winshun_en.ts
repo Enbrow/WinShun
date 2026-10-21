@@ -1263,8 +1263,8 @@
         <translation>Copy as soon as it is picked</translation>
     </message>
     <message>
-        <source>松开鼠标或点选窗口后马上复制并关闭，不再调整。关着时：按 Enter 或双击选区复制并关闭，Ctrl+S 保存到“图片 › 屏幕截图”，Esc 或右键先取消选区、再退出</source>
-        <translation>Letting go of the mouse or clicking a window copies and closes at once, with no adjusting. Off: Enter or a double click on the selection copies and closes, Ctrl+S saves to Pictures › Screenshots, Esc or a right click first clears the selection, then exits</translation>
+        <source>松开鼠标或点选窗口后马上复制并关闭，不再调整。关着时：按 Enter 复制并关闭，Ctrl+S 保存到“图片 › 屏幕截图”，Esc 先取消选区、再退出；鼠标按键做什么在下面“框选后的鼠标操作”里设</source>
+        <translation>Letting go of the mouse or clicking a window copies and closes at once, with no adjusting. Off: Enter copies and closes, Ctrl+S saves to Pictures › Screenshots, Esc first clears the selection, then exits; what the mouse buttons do is set under “Mouse buttons after a selection” below</translation>
     </message>
     <message>
         <source>框选后的鼠标操作</source>

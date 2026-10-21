@@ -281,7 +281,7 @@ Rectangle {
                     }
                     Text {
                         width: parent.width
-                        text: qsTr("松开鼠标或点选窗口后马上复制并关闭，不再调整。关着时：按 Enter 或双击选区复制并关闭，Ctrl+S 保存到“图片 › 屏幕截图”，Esc 或右键先取消选区、再退出")
+                        text: qsTr("松开鼠标或点选窗口后马上复制并关闭，不再调整。关着时：按 Enter 复制并关闭，Ctrl+S 保存到“图片 › 屏幕截图”，Esc 先取消选区、再退出；鼠标按键做什么在下面“框选后的鼠标操作”里设")
                         color: Theme.subtext
                         font.pixelSize: Theme.fontCaption
                         wrapMode: Text.Wrap
