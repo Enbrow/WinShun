@@ -42,6 +42,10 @@ struct QueryTerm {
 struct ParsedQuery {
     std::vector<QueryTerm> terms;
     std::vector<std::string> extensions; // folded, without the dot
+    // Set by the search, not typed: files with these extensions never match
+    // (Settings' skipped file types), but in NameMatcher::match(index, ...)
+    // only; a favorite or a path asked for by name stays.
+    std::vector<std::string> excludedExtensions; // folded, without the dot
     EntryFilter filter; // size: and dm: (never folders)
     QStringList highlights; // plain terms to highlight in result names
 
@@ -176,6 +180,8 @@ private:
     std::uint64_t m_folderTerms = 0; // m_positive's that may be in a folder's name instead, one bit each
     std::vector<QueryTerm> m_negative;
     std::vector<std::string> m_extensions;
+    std::vector<std::string> m_excluded; // ParsedQuery::excludedExtensions
+    std::size_t m_excludedLongest = 0; // of those: a longer extension is none of them
 };
 
 } // namespace ws

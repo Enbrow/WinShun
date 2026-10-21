@@ -142,6 +142,23 @@ struct Settings {
     FileTypes namedFileTypes() const; // each with its name, a built-in one's in the language shown
     // "jpg, .PNG *.gif" → {"jpg", "png", "gif"}: lower case, no dots, each once.
     static QStringList fileExtensions(const QString& text);
+    // The extensions of content search's list, as the settings window takes
+    // them: like fileExtensions but "tar.gz" stays whole.
+    static QStringList contentExtensionList(const QString& text);
+    // A program as the exclusion lists keep it: its file name, ".exe" added
+    // ("KeePass", a pasted path); empty for none.
+    static QString programFileName(const QString& text);
+    // A folder name as 跳过的文件夹名称 keeps it: '/' separated, none at the end; empty for none.
+    static QString excludedFolderName(const QString& text);
+    // A shortcut ("Ctrl+Alt+V") as text to compare: modifiers in Windows' order,
+    // lower case, aliases folded ("Control" and "Meta" as ctrl and win); empty
+    // for what is not a modifier or two and one key.
+    static QString normalizedHotkey(const QString& shortcut);
+    // The rule for a shortcut a person (settings window) or AI sets: Ctrl, Alt
+    // or Win held with its key, or a function key (F1 to F24) alone or with
+    // Shift. A bare letter, Enter, Space, PrintScreen or Shift+letter would
+    // take that key from every program.
+    static bool hotkeyAllowed(const QString& shortcut);
 
     // [Appearance]
     QString theme = QStringLiteral("system"); // system | light | dark
@@ -160,6 +177,9 @@ struct Settings {
     // [Index]
     QStringList excludedPaths;
     QStringList excludedNames;
+    // File types (extensions, lower case, no dot) left out of search results.
+    // Not of the index: the files stay in it, so a change needs no rescan.
+    QStringList excludedTypes;
     bool includeRemovableDrives = false;
     bool rescanOnStartup = true;
     // auto | service | direct | walk: where NTFS volumes are read from
@@ -273,6 +293,11 @@ struct Settings {
     // only); PluginActions=: their actions too (plugin_<id>_<command>_run).
     bool mcpPlugins = false;
     bool mcpPluginActions = false;
+    // Settings=: whether AI may change Win顺's settings (change_settings, see
+    // AiSettings): ask (the user allows each change on the screen), auto
+    // (changes at once, the user is told and can undo) or off. Never
+    // changed by an AI: only the user's own click sets it.
+    QString mcpSettings = QStringLiteral("ask");
 
     // [Plugins]: the plugin system's own (the plugin design, §5.5).
     bool pluginDeveloperMode = false; // DeveloperMode=: the log pane, scripts reloaded as they change

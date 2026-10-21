@@ -110,6 +110,10 @@ public:
         // extensions (without the dot, any case), typed or not; with ext:
         // typed too, those of both. Empty: any file or folder.
         QStringList extensions;
+        // Settings' skipped file types (without the dot, any case): files with
+        // these never come up, names or content, unless asked for by that
+        // extension (in `extensions`, or ext: typed).
+        QStringList excludedTypes;
         // The search panel's filters: when written and how large (with
         // size: and dm: typed, the narrower of the two), and the folders to
         // look under (full paths; empty: anywhere). Names only; 内容 takes

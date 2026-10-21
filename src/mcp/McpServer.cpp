@@ -192,7 +192,9 @@ void McpServer::handleRequest(Session& session, const QJsonValue& id, const QStr
         }
         session.protocolVersion = version;
         session.initialized = true;
-        reply({{u"protocolVersion"_s, version}, {u"capabilities"_s, QJsonObject {{u"tools"_s, QJsonObject {{u"listChanged"_s, true}}}}},
+        reply({{u"protocolVersion"_s, version},
+            {u"capabilities"_s,
+                QJsonObject {{u"tools"_s, QJsonObject {{u"listChanged"_s, true}}}, {u"prompts"_s, QJsonObject {{u"listChanged"_s, false}}}}},
             {u"serverInfo"_s,
                 QJsonObject {{u"name"_s, QString::fromLatin1(kServerName)}, {u"title"_s, u"Win顺 · WinShun"_s}, {u"version"_s, m_version},
                     {u"description"_s, u"Search files, folders and text on this PC with Win顺"_s},
@@ -218,12 +220,42 @@ void McpServer::handleRequest(Session& session, const QJsonValue& id, const QStr
     } else if (method == u"resources/templates/list") {
         reply({{u"resourceTemplates"_s, QJsonArray()}});
     } else if (method == u"prompts/list") {
-        reply({{u"prompts"_s, QJsonArray()}});
+        reply({{u"prompts"_s, prompts()}});
+    } else if (method == u"prompts/get") {
+        getPrompt(session, id, params);
     } else if (method == u"logging/setLevel") {
         reply({});
     } else {
         fail(jsonrpc::kMethodNotFound, u"Method not found: "_s + method);
     }
+}
+
+// The prompts: one, "setup", where there are settings tools to set up with.
+QJsonArray McpServer::prompts() const
+{
+    if (m_host->known(u"get_settings"_s) != ToolHost::Known::Yes)
+        return {};
+    return {QJsonObject {{u"name"_s, u"setup"_s}, {u"title"_s, u"配置 Win顺 / Set up Win顺"_s},
+        {u"description"_s, u"Ask a few questions about how you use your computer, then propose and apply settings for Win顺."_s},
+        {u"arguments"_s,
+            QJsonArray {QJsonObject {{u"name"_s, u"focus"_s},
+                {u"description"_s, u"An area to concentrate on, such as the clipboard, search, shortcuts or appearance (optional)"_s},
+                {u"required"_s, false}}}}}};
+}
+
+void McpServer::getPrompt(Session& session, const QJsonValue& id, const QJsonObject& params)
+{
+    const QString name = params.value(u"name"_s).toString();
+    if (name != u"setup" || prompts().isEmpty()) {
+        session.sink(jsonrpc::errorResponse(id, jsonrpc::kInvalidParams, u"Unknown prompt: "_s + name));
+        return;
+    }
+    const QString text = ToolHost::setupPrompt(params.value(u"arguments"_s).toObject().value(u"focus"_s).toString());
+    session.sink(jsonrpc::response(id,
+        QJsonObject {{u"description"_s, u"Set up Win顺 for how you use your computer"_s},
+            {u"messages"_s,
+                QJsonArray {QJsonObject {{u"role"_s, u"user"_s},
+                    {u"content"_s, QJsonObject {{u"type"_s, u"text"_s}, {u"text"_s, text}}}}}}}));
 }
 
 void McpServer::handleNotification(Session& session, const QString& method, const QJsonObject& params)

@@ -60,6 +60,38 @@
         <translation>Every time AI wants a screenshot, a confirmation appears on the screen saying who asks and for which monitor; it is taken only when you click Allow, never when you refuse or leave it for 30 seconds. The picture does not go into the clipboard history</translation>
     </message>
     <message>
+        <source>允许 AI 修改设置</source>
+        <translation>Allow AI to change settings</translation>
+    </message>
+    <message>
+        <source>设置;配置;修改;改设置;帮我设置;setting;config;change;AI</source>
+        <translation>settings;configure;change;set up for me;AI</translation>
+    </message>
+    <message>
+        <source>AI 改完会在屏幕右下角告诉你，几秒内能撤销。涉及安全的几项（开机自启、索引方式、网站搜索）仍会先问你</source>
+        <translation>After each change AI tells you at the bottom right of the screen, and you can undo it for a few seconds. The security-related ones (start with Windows, index access, web shortcuts) still ask you first</translation>
+    </message>
+    <message>
+        <source>AI 看不到也改不了 Win顺 的设置，只能带你打开设置页</source>
+        <translation>AI can neither see nor change WinShun&apos;s settings; it can only open the settings page for you</translation>
+    </message>
+    <message>
+        <source>AI 可以帮你开关功能、调整参数。每次修改前都会弹出确认，写明改什么、为什么；涉及安全的几项总会先问你</source>
+        <translation>AI can switch features on and off and adjust values for you. Every change asks you first, saying what changes and why; the security-related ones always ask</translation>
+    </message>
+    <message>
+        <source>每次先问我</source>
+        <translation>Ask me each time</translation>
+    </message>
+    <message>
+        <source>直接修改</source>
+        <translation>Change directly</translation>
+    </message>
+    <message>
+        <source>不允许</source>
+        <translation>Don&apos;t allow</translation>
+    </message>
+    <message>
         <source>AI 可以使用插件</source>
         <translation>Allow AI to use plugins</translation>
     </message>
@@ -188,6 +220,576 @@
     <message>
         <source>打开</source>
         <translation>Open</translation>
+    </message>
+</context>
+<context>
+    <name>AiSettings</name>
+    <message>
+        <source>双击 Ctrl 打开</source>
+        <translation>Press Ctrl twice to open</translation>
+    </message>
+    <message>
+        <source>用哪个 Ctrl</source>
+        <translation>Which Ctrl</translation>
+    </message>
+    <message>
+        <source>左右都行</source>
+        <translation>Either</translation>
+    </message>
+    <message>
+        <source>左 Ctrl</source>
+        <translation>Left Ctrl</translation>
+    </message>
+    <message>
+        <source>右 Ctrl</source>
+        <translation>Right Ctrl</translation>
+    </message>
+    <message>
+        <source>玩游戏时不响应双击 Ctrl</source>
+        <translation>Ignore Ctrl twice while gaming</translation>
+    </message>
+    <message>
+        <source>任何程序全屏时都不响应双击 Ctrl</source>
+        <translation>Ignore Ctrl twice over any full-screen program</translation>
+    </message>
+    <message>
+        <source>在这些程序里不响应双击 Ctrl</source>
+        <translation>Ignore Ctrl twice in these programs</translation>
+    </message>
+    <message>
+        <source>快捷键</source>
+        <translation>Shortcut</translation>
+    </message>
+    <message>
+        <source>在任务栏使用 Win顺</source>
+        <translation>Use WinShun on the taskbar</translation>
+    </message>
+    <message>
+        <source>搜索框样式</source>
+        <translation>Search box style</translation>
+    </message>
+    <message>
+        <source>搜索框</source>
+        <translation>Search box</translation>
+    </message>
+    <message>
+        <source>图标和标签</source>
+        <translation>Icon and label</translation>
+    </message>
+    <message>
+        <source>仅图标</source>
+        <translation>Icon only</translation>
+    </message>
+    <message>
+        <source>用 Win+S 打开 Win顺</source>
+        <translation>Open WinShun with Win+S</translation>
+    </message>
+    <message>
+        <source>在开始菜单里打字，也用 Win顺 搜索</source>
+        <translation>Typing in the Start menu searches with WinShun</translation>
+    </message>
+    <message>
+        <source>用哪个文件管理器打开文件夹</source>
+        <translation>File manager for opening folders</translation>
+    </message>
+    <message>
+        <source>资源管理器</source>
+        <translation>File Explorer</translation>
+    </message>
+    <message>
+        <source>其他（自定义）</source>
+        <translation>Other (custom)</translation>
+    </message>
+    <message>
+        <source>其他文件管理器的命令</source>
+        <translation>Commands for another file manager</translation>
+    </message>
+    <message>
+        <source>其他文件管理器：显示所在位置的命令</source>
+        <translation>Command for another file manager: show where a file is</translation>
+    </message>
+    <message>
+        <source>资源管理器右键“用 Win顺 搜索此处”</source>
+        <translation>“Search here with WinShun” in Explorer’s right-click menu</translation>
+    </message>
+    <message>
+        <source>在资源管理器里直接打字搜索</source>
+        <translation>Type to search in File Explorer</translation>
+    </message>
+    <message>
+        <source>双击空白处弹出文件夹菜单</source>
+        <translation>Folder menu on a double click</translation>
+    </message>
+    <message>
+        <source>开</source>
+        <translation>On</translation>
+    </message>
+    <message>
+        <source>一直开</source>
+        <translation>Always on</translation>
+    </message>
+    <message>
+        <source>关</source>
+        <translation>Off</translation>
+    </message>
+    <message>
+        <source>在资源管理器的空白处双击</source>
+        <translation>Double click in File Explorer</translation>
+    </message>
+    <message>
+        <source>在桌面的空白处双击</source>
+        <translation>Double click on the desktop</translation>
+    </message>
+    <message>
+        <source>用快捷键弹出文件夹菜单</source>
+        <translation>Folder menu on a shortcut</translation>
+    </message>
+    <message>
+        <source>Ctrl+G 转到文件管理器的文件夹</source>
+        <translation>Ctrl+G goes to the file manager’s folder</translation>
+    </message>
+    <message>
+        <source>对话框旁的搜索框</source>
+        <translation>Search bar by file dialogs</translation>
+    </message>
+    <message>
+        <source>对话框旁搜索框的位置</source>
+        <translation>Where the search bar by file dialogs goes</translation>
+    </message>
+    <message>
+        <source>自动</source>
+        <translation>Auto</translation>
+    </message>
+    <message>
+        <source>下方</source>
+        <translation>Below</translation>
+    </message>
+    <message>
+        <source>左边</source>
+        <translation>Left</translation>
+    </message>
+    <message>
+        <source>右边</source>
+        <translation>Right</translation>
+    </message>
+    <message>
+        <source>搜索框的位置</source>
+        <translation>Where the search bar goes</translation>
+    </message>
+    <message>
+        <source>对话框自动转到文件管理器的文件夹</source>
+        <translation>File dialogs go to the file manager’s folder by themselves</translation>
+    </message>
+    <message>
+        <source>什么时候转</source>
+        <translation>When</translation>
+    </message>
+    <message>
+        <source>打开时</source>
+        <translation>When it opens</translation>
+    </message>
+    <message>
+        <source>切回来时</source>
+        <translation>When you come back</translation>
+    </message>
+    <message>
+        <source>不在这些程序的对话框下显示搜索框</source>
+        <translation>No search bar under these programs’ dialogs</translation>
+    </message>
+    <message>
+        <source>开机时自动启动</source>
+        <translation>Start with Windows</translation>
+    </message>
+    <message>
+        <source>记住打开过的项目</source>
+        <translation>Remember what you open</translation>
+    </message>
+    <message>
+        <source>主题</source>
+        <translation>Theme</translation>
+    </message>
+    <message>
+        <source>跟随系统</source>
+        <translation>System</translation>
+    </message>
+    <message>
+        <source>浅色</source>
+        <translation>Light</translation>
+    </message>
+    <message>
+        <source>深色</source>
+        <translation>Dark</translation>
+    </message>
+    <message>
+        <source>透明效果</source>
+        <translation>Transparency effects</translation>
+    </message>
+    <message>
+        <source>圆角</source>
+        <translation>Rounded</translation>
+    </message>
+    <message>
+        <source>直角</source>
+        <translation>Square</translation>
+    </message>
+    <message>
+        <source>界面大小</source>
+        <translation>Size</translation>
+    </message>
+    <message>
+        <source>紧凑</source>
+        <translation>Compact</translation>
+    </message>
+    <message>
+        <source>标准</source>
+        <translation>Standard</translation>
+    </message>
+    <message>
+        <source>宽松</source>
+        <translation>Roomy</translation>
+    </message>
+    <message>
+        <source>任务栏图标</source>
+        <translation>Taskbar icon</translation>
+    </message>
+    <message>
+        <source>彩色</source>
+        <translation>Colour</translation>
+    </message>
+    <message>
+        <source>单色</source>
+        <translation>Monochrome</translation>
+    </message>
+    <message>
+        <source>语言</source>
+        <translation>Language</translation>
+    </message>
+    <message>
+        <source>不搜索的文件夹</source>
+        <translation>Excluded folders</translation>
+    </message>
+    <message>
+        <source>跳过的文件夹名称</source>
+        <translation>Skipped folder names</translation>
+    </message>
+    <message>
+        <source>跳过的文件类型</source>
+        <translation>Skipped file types</translation>
+    </message>
+    <message>
+        <source>包括 U 盘和移动硬盘</source>
+        <translation>Include USB and external drives</translation>
+    </message>
+    <message>
+        <source>启动时检查文件变化</source>
+        <translation>Check for changes at startup</translation>
+    </message>
+    <message>
+        <source>索引方式</source>
+        <translation>Index access</translation>
+    </message>
+    <message>
+        <source>索引服务</source>
+        <translation>Index service</translation>
+    </message>
+    <message>
+        <source>遍历文件夹</source>
+        <translation>Walk the folders</translation>
+    </message>
+    <message>
+        <source>管理员直读</source>
+        <translation>Direct (administrator)</translation>
+    </message>
+    <message>
+        <source>排序</source>
+        <translation>Sort</translation>
+    </message>
+    <message>
+        <source>最匹配的在前</source>
+        <translation>Best match first</translation>
+    </message>
+    <message>
+        <source>最新的在前</source>
+        <translation>Newest first</translation>
+    </message>
+    <message>
+        <source>最旧的在前</source>
+        <translation>Oldest first</translation>
+    </message>
+    <message>
+        <source>文件夹排在文件前面</source>
+        <translation>Folders before files</translation>
+    </message>
+    <message>
+        <source>文件和文件夹的顺序</source>
+        <translation>Files and folders</translation>
+    </message>
+    <message>
+        <source>优先显示的文件类型</source>
+        <translation>File types shown first</translation>
+    </message>
+    <message>
+        <source>不输入时显示</source>
+        <translation>With nothing typed, show</translation>
+    </message>
+    <message>
+        <source>最近打开</source>
+        <translation>Recently opened</translation>
+    </message>
+    <message>
+        <source>最近修改</source>
+        <translation>Recently modified</translation>
+    </message>
+    <message>
+        <source>只有收藏夹</source>
+        <translation>Favorites only</translation>
+    </message>
+    <message>
+        <source>显示修改日期</source>
+        <translation>Show the date modified</translation>
+    </message>
+    <message>
+        <source>显示图片缩略图</source>
+        <translation>Show thumbnails</translation>
+    </message>
+    <message>
+        <source>预览文件（Alt+P）</source>
+        <translation>Preview files (Alt+P)</translation>
+    </message>
+    <message>
+        <source>内置预览</source>
+        <translation>Built-in preview</translation>
+    </message>
+    <message>
+        <source>每次打开时清空搜索</source>
+        <translation>Clear the search each time it opens</translation>
+    </message>
+    <message>
+        <source>用数字键直接打开</source>
+        <translation>Open with number keys</translation>
+    </message>
+    <message>
+        <source>不用</source>
+        <translation>Off</translation>
+    </message>
+    <message>
+        <source>序号提示</source>
+        <translation>Number key hints</translation>
+    </message>
+    <message>
+        <source>按住修饰键时</source>
+        <translation>While a modifier key is held</translation>
+    </message>
+    <message>
+        <source>一直显示</source>
+        <translation>Always show</translation>
+    </message>
+    <message>
+        <source>不显示</source>
+        <translation>Never</translation>
+    </message>
+    <message>
+        <source>文件内容搜索</source>
+        <translation>File contents</translation>
+    </message>
+    <message>
+        <source>搜索文档</source>
+        <translation>Search documents</translation>
+    </message>
+    <message>
+        <source>搜索这些类型的文本文件</source>
+        <translation>Search these text file types</translation>
+    </message>
+    <message>
+        <source>也搜索系统和程序文件夹</source>
+        <translation>Also search system and program folders</translation>
+    </message>
+    <message>
+        <source>建立内容索引</source>
+        <translation>Build a content index</translation>
+    </message>
+    <message>
+        <source>文本和日志的大小上限</source>
+        <translation>Size limit for text and logs</translation>
+    </message>
+    <message>
+        <source>源代码的大小上限</source>
+        <translation>Size limit for source code</translation>
+    </message>
+    <message>
+        <source>数据和网页的大小上限</source>
+        <translation>Size limit for data and web pages</translation>
+    </message>
+    <message>
+        <source>文档的大小上限</source>
+        <translation>Size limit for documents</translation>
+    </message>
+    <message>
+        <source>网页搜索建议</source>
+        <translation>Web search suggestions</translation>
+    </message>
+    <message>
+        <source>网页搜索关键词</source>
+        <translation>Web search keywords</translation>
+    </message>
+    <message>
+        <source>关键词</source>
+        <translation>Keyword</translation>
+    </message>
+    <message>
+        <source>记录剪贴板历史</source>
+        <translation>Keep a clipboard history</translation>
+    </message>
+    <message>
+        <source>记录图片</source>
+        <translation>Keep pictures</translation>
+    </message>
+    <message>
+        <source>单击粘贴</source>
+        <translation>Click to paste</translation>
+    </message>
+    <message>
+        <source>大图片缩略图</source>
+        <translation>Large picture thumbnails</translation>
+    </message>
+    <message>
+        <source>开在光标上方时翻转</source>
+        <translation>Flip when opening above the text cursor</translation>
+    </message>
+    <message>
+        <source>搜索框位置</source>
+        <translation>Search box position</translation>
+    </message>
+    <message>
+        <source>靠近光标</source>
+        <translation>Near the cursor</translation>
+    </message>
+    <message>
+        <source>远离光标</source>
+        <translation>Away from the cursor</translation>
+    </message>
+    <message>
+        <source>不记录这些程序复制的内容</source>
+        <translation>Don’t keep copies from these programs</translation>
+    </message>
+    <message>
+        <source>用 Win+V 打开，代替 Windows 自带的剪贴板</source>
+        <translation>Open with Win+V, instead of Windows’ clipboard</translation>
+    </message>
+    <message>
+        <source>另设快捷键</source>
+        <translation>Another shortcut</translation>
+    </message>
+    <message>
+        <source>用数字键直接粘贴</source>
+        <translation>Paste with number keys</translation>
+    </message>
+    <message>
+        <source>最多保留</source>
+        <translation>Keep at most</translation>
+    </message>
+    <message>
+        <source>不限</source>
+        <translation>No limit</translation>
+    </message>
+    <message>
+        <source>保留时间</source>
+        <translation>Keep for</translation>
+    </message>
+    <message>
+        <source>屏幕截图</source>
+        <translation>Screen capture</translation>
+    </message>
+    <message>
+        <source>截图快捷键</source>
+        <translation>Screenshot shortcut</translation>
+    </message>
+    <message>
+        <source>PrtScn 键也截图</source>
+        <translation>PrtScn also takes a screenshot</translation>
+    </message>
+    <message>
+        <source>选中后直接复制</source>
+        <translation>Copy right after selecting</translation>
+    </message>
+    <message>
+        <source>截图历史的关键词</source>
+        <translation>Keyword for the screenshot history</translation>
+    </message>
+    <message>
+        <source>自动检查更新</source>
+        <translation>Check for updates automatically</translation>
+    </message>
+    <message>
+        <source>界面绘制方式</source>
+        <translation>Rendering</translation>
+    </message>
+    <message>
+        <source>处理器绘制</source>
+        <translation>CPU</translation>
+    </message>
+    <message>
+        <source>显卡加速</source>
+        <translation>GPU</translation>
+    </message>
+    <message>
+        <source>（无）</source>
+        <translation>(none)</translation>
+    </message>
+    <message numerus="yes">
+        <source>还有 %n 项</source>
+        <translation>
+            <numerusform>%n more</numerusform>
+            <numerusform>%n more</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>主页 %1</source>
+        <translation>Home %1</translation>
+    </message>
+    <message>
+        <source>快捷键与双击 Ctrl</source>
+        <translation>Shortcuts and Ctrl twice</translation>
+    </message>
+    <message>
+        <source>任务栏</source>
+        <translation>Taskbar</translation>
+    </message>
+    <message>
+        <source>文件管理器与对话框</source>
+        <translation>File managers and dialogs</translation>
+    </message>
+    <message>
+        <source>启动与历史</source>
+        <translation>Startup and history</translation>
+    </message>
+    <message>
+        <source>外观</source>
+        <translation>Appearance</translation>
+    </message>
+    <message>
+        <source>搜索范围</source>
+        <translation>Search scope</translation>
+    </message>
+    <message>
+        <source>结果列表</source>
+        <translation>Result list</translation>
+    </message>
+    <message>
+        <source>网页搜索</source>
+        <translation>Web search</translation>
+    </message>
+    <message>
+        <source>剪贴板</source>
+        <translation>Clipboard</translation>
+    </message>
+    <message>
+        <source>高级</source>
+        <translation>Advanced</translation>
+    </message>
+    <message>
+        <source>截图</source>
+        <translation>Screenshot</translation>
     </message>
 </context>
 <context>
@@ -949,8 +1551,8 @@
         <translation>This key can’t be used, try another</translation>
     </message>
     <message>
-        <source>请同时按住 Ctrl、Alt、Shift 或 Win</source>
-        <translation>Hold Ctrl, Alt, Shift or Win as well</translation>
+        <source>请同时按住 Ctrl、Alt 或 Win</source>
+        <translation>Hold Ctrl, Alt or Win as well</translation>
     </message>
     <message>
         <source>请按下组合键…</source>
@@ -1871,6 +2473,101 @@
     </message>
 </context>
 <context>
+    <name>SettingsConfirm</name>
+    <message>
+        <source>AI 请求修改设置</source>
+        <translation>AI asks to change settings</translation>
+    </message>
+    <message>
+        <source>%1 想修改 Win顺 的设置</source>
+        <translation>%1 wants to change WinShun&apos;s settings</translation>
+    </message>
+    <message>
+        <source>AI 的说明</source>
+        <translation>What the AI says</translation>
+    </message>
+    <message numerus="yes">
+        <source>将修改 %Ln 项设置</source>
+        <translation>
+            <numerusform>%Ln setting will change</numerusform>
+            <numerusform>%Ln settings will change</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>“%1”涉及安全，每次都会问你。</source>
+        <translation>Security-related, so it asks you every time: “%1”.</translation>
+    </message>
+    <message>
+        <source>”“</source>
+        <translation>”, “</translation>
+    </message>
+    <message>
+        <source>以后直接修改，不再询问</source>
+        <translation>From now on, change settings without asking</translation>
+    </message>
+    <message>
+        <source>%1 秒后自动拒绝</source>
+        <translation>Refused automatically in %1 s</translation>
+    </message>
+    <message>
+        <source>拒绝</source>
+        <translation>Refuse</translation>
+    </message>
+    <message>
+        <source>允许</source>
+        <translation>Allow</translation>
+    </message>
+</context>
+<context>
+    <name>SettingsNotice</name>
+    <message>
+        <source>重启资源管理器后生效</source>
+        <translation>Takes effect after File Explorer restarts</translation>
+    </message>
+    <message>
+        <source>重启 Win顺 后生效</source>
+        <translation>Takes effect after WinShun restarts</translation>
+    </message>
+    <message>
+        <source>设置已被 AI 修改</source>
+        <translation>Settings changed by AI</translation>
+    </message>
+    <message numerus="yes">
+        <source>已按 %1 的请求修改了 %Ln 项设置</source>
+        <translation>
+            <numerusform>Changed %Ln setting at the request of %1</numerusform>
+            <numerusform>Changed %Ln settings at the request of %1</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <source>：</source>
+        <translation>: </translation>
+    </message>
+    <message numerus="yes">
+        <source>还有 %Ln 项</source>
+        <translation>
+            <numerusform>%Ln more</numerusform>
+            <numerusform>%Ln more</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>重启资源管理器</source>
+        <translation>Restart File Explorer</translation>
+    </message>
+    <message>
+        <source>打开设置</source>
+        <translation>Open settings</translation>
+    </message>
+    <message>
+        <source>撤销</source>
+        <translation>Undo</translation>
+    </message>
+</context>
+<context>
     <name>SettingsSearchBox</name>
     <message>
         <source>查找设置</source>
@@ -2417,6 +3114,22 @@
     <message>
         <source>输入文件夹名称，例如 build</source>
         <translation>Folder name, e.g. build</translation>
+    </message>
+    <message>
+        <source>立即生效，不用重新整理。</source>
+        <translation>Takes effect at once; no rescan.</translation>
+    </message>
+    <message>
+        <source>跳过的文件类型</source>
+        <translation>Skipped file types</translation>
+    </message>
+    <message>
+        <source>这些扩展名的文件不出现在搜索结果里，例如 wbk、bak</source>
+        <translation>Files with these extensions don't appear in results, such as wbk and bak</translation>
+    </message>
+    <message>
+        <source>例如 wbk, bak</source>
+        <translation>e.g. wbk, bak</translation>
     </message>
     <message>
         <source>添加</source>
@@ -3802,8 +4515,8 @@
         <translation>Folders</translation>
     </message>
     <message>
-        <source>文件夹名称</source>
-        <translation>Folder names</translation>
+        <source>名称和类型</source>
+        <translation>Names and types</translation>
     </message>
     <message>
         <source>磁盘</source>
@@ -4457,6 +5170,54 @@
     <message>
         <source>没能建立连接通道，详见 WinShun.log</source>
         <translation>The connection channel could not be set up; see WinShun.log</translation>
+    </message>
+    <message>
+        <source>被其他程序占用，未修改</source>
+        <translation>Used by another program, not changed</translation>
+    </message>
+    <message>
+        <source>Windows 不让 Win顺 用 Win+V，未修改</source>
+        <translation>Windows would not let Win顺 have Win+V, not changed</translation>
+    </message>
+    <message>
+        <source>Windows 不让 Win顺 用 Win+S，未修改</source>
+        <translation>Windows would not let Win顺 have Win+S, not changed</translation>
+    </message>
+    <message>
+        <source>Windows 没有接受，未修改</source>
+        <translation>Windows did not accept it, not changed</translation>
+    </message>
+    <message>
+        <source>AI 请求的修改没有生效</source>
+        <translation>The change the AI asked for did not take effect</translation>
+    </message>
+    <message>
+        <source>这次修改已经不能撤销了</source>
+        <translation>This change can no longer be undone</translation>
+    </message>
+    <message>
+        <source>这些设置之后又被改过，没有撤销</source>
+        <translation>These settings were changed again since, so nothing was undone</translation>
+    </message>
+    <message>
+        <source>已撤销</source>
+        <translation>Undone</translation>
+    </message>
+    <message>
+        <source>；有 %1 项之后又被改过，保持现状</source>
+        <translation>; %1 changed again since and stay as they are</translation>
+    </message>
+    <message>
+        <source>；有 %1 项没能改回去</source>
+        <translation>; %1 could not be put back</translation>
+    </message>
+    <message>
+        <source>设置已被 AI 修改</source>
+        <translation>Settings changed by AI</translation>
+    </message>
+    <message>
+        <source>可以在设置里改回来。</source>
+        <translation>You can change them back in the settings.</translation>
     </message>
     <message>
         <source>输入框</source>
@@ -6580,7 +7341,7 @@
     </message>
     <message>
         <source>不显示隐藏的文件</source>
-        <translation>Don't show hidden files</translation>
+        <translation>Don&apos;t show hidden files</translation>
     </message>
     <message>
         <source>显示文件扩展名</source>
@@ -7199,7 +7960,7 @@
     </message>
     <message>
         <source>声音设备没有回应</source>
-        <translation>the sound device didn't respond</translation>
+        <translation>the sound device didn&apos;t respond</translation>
     </message>
     <message>
         <source>被系统改回去了</source>
@@ -7207,22 +7968,22 @@
     </message>
     <message>
         <source>没能静音：%1</source>
-        <translation>Couldn't mute: %1</translation>
+        <translation>Couldn&apos;t mute: %1</translation>
     </message>
     <message>
         <source>没能取消静音：%1</source>
-        <translation>Couldn't unmute: %1</translation>
+        <translation>Couldn&apos;t unmute: %1</translation>
     </message>
     <message>
         <source>没能调音量：%1</source>
-        <translation>Couldn't change the volume: %1</translation>
+        <translation>Couldn&apos;t change the volume: %1</translation>
     </message>
 </context>
 <context>
     <name>ws::SwitchExplorer</name>
     <message>
         <source>Windows 不让改这项设置</source>
-        <translation>Windows doesn't allow changing this setting</translation>
+        <translation>Windows doesn&apos;t allow changing this setting</translation>
     </message>
     <message>
         <source>被系统改回去了</source>
@@ -7230,19 +7991,19 @@
     </message>
     <message>
         <source>没能打开“显示隐藏的文件”：%1</source>
-        <translation>Couldn't turn on “Show hidden files”: %1</translation>
+        <translation>Couldn&apos;t turn on “Show hidden files”: %1</translation>
     </message>
     <message>
         <source>没能关掉“显示隐藏的文件”：%1</source>
-        <translation>Couldn't turn off “Show hidden files”: %1</translation>
+        <translation>Couldn&apos;t turn off “Show hidden files”: %1</translation>
     </message>
     <message>
         <source>没能打开“显示文件扩展名”：%1</source>
-        <translation>Couldn't turn on “Show file extensions”: %1</translation>
+        <translation>Couldn&apos;t turn on “Show file extensions”: %1</translation>
     </message>
     <message>
         <source>没能关掉“显示文件扩展名”：%1</source>
-        <translation>Couldn't turn off “Show file extensions”: %1</translation>
+        <translation>Couldn&apos;t turn off “Show file extensions”: %1</translation>
     </message>
 </context>
 <context>
@@ -7283,7 +8044,7 @@
     </message>
     <message>
         <source>没能保持唤醒：Windows 没有接受请求</source>
-        <translation>Couldn't keep awake: Windows refused the request</translation>
+        <translation>Couldn&apos;t keep awake: Windows refused the request</translation>
     </message>
 </context>
 <context>
@@ -7294,7 +8055,7 @@
     </message>
     <message>
         <source>系统不让应用控制无线电</source>
-        <translation>Windows doesn't let apps control radios</translation>
+        <translation>Windows doesn&apos;t let apps control radios</translation>
     </message>
     <message>
         <source>这台电脑没有蓝牙</source>
@@ -7318,27 +8079,27 @@
     </message>
     <message>
         <source>没能打开蓝牙：%1</source>
-        <translation>Couldn't turn on Bluetooth: %1</translation>
+        <translation>Couldn&apos;t turn on Bluetooth: %1</translation>
     </message>
     <message>
         <source>没能关闭蓝牙：%1</source>
-        <translation>Couldn't turn off Bluetooth: %1</translation>
+        <translation>Couldn&apos;t turn off Bluetooth: %1</translation>
     </message>
     <message>
         <source>没能打开 WLAN：%1</source>
-        <translation>Couldn't turn on WLAN: %1</translation>
+        <translation>Couldn&apos;t turn on WLAN: %1</translation>
     </message>
     <message>
         <source>没能关闭 WLAN：%1</source>
-        <translation>Couldn't turn off WLAN: %1</translation>
+        <translation>Couldn&apos;t turn off WLAN: %1</translation>
     </message>
     <message>
         <source>Windows 没有回应</source>
-        <translation>Windows didn't respond</translation>
+        <translation>Windows didn&apos;t respond</translation>
     </message>
     <message>
         <source>Windows 不让改</source>
-        <translation>Windows doesn't allow it</translation>
+        <translation>Windows doesn&apos;t allow it</translation>
     </message>
     <message>
         <source>被系统改回去了</source>
@@ -7357,11 +8118,11 @@
     </message>
     <message>
         <source>对比度主题开着时，深浅色不起作用</source>
-        <translation>Dark and light don't apply while a contrast theme is on</translation>
+        <translation>Dark and light don&apos;t apply while a contrast theme is on</translation>
     </message>
     <message>
         <source>Windows 不让改这项设置</source>
-        <translation>Windows doesn't allow changing this setting</translation>
+        <translation>Windows doesn&apos;t allow changing this setting</translation>
     </message>
     <message>
         <source>被系统改回去了</source>
@@ -7369,11 +8130,11 @@
     </message>
     <message>
         <source>没能切到深色：%1</source>
-        <translation>Couldn't switch to dark: %1</translation>
+        <translation>Couldn&apos;t switch to dark: %1</translation>
     </message>
     <message>
         <source>没能切到浅色：%1</source>
-        <translation>Couldn't switch to light: %1</translation>
+        <translation>Couldn&apos;t switch to light: %1</translation>
     </message>
 </context>
 <context>

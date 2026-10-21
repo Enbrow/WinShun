@@ -61,12 +61,8 @@ bool containsIgnoreCase(const QStringList& list, const QString& value)
 // pasted in); false when there is none or it is there already.
 bool addProgram(QStringList& list, const QString& name)
 {
-    QString app = QFileInfo(name.trimmed()).fileName();
-    if (app.isEmpty())
-        return false;
-    if (!app.endsWith(u".exe", Qt::CaseInsensitive))
-        app += u".exe"_s;
-    if (containsIgnoreCase(list, app))
+    const QString app = Settings::programFileName(name);
+    if (app.isEmpty() || containsIgnoreCase(list, app))
         return false;
     list.append(app);
     return true;
@@ -976,12 +972,12 @@ QString SettingsEditor::saveCaptureKeyword(const QString& keyword)
         return tr("请填写关键词");
     if (!isValidWebKeyword(word))
         return tr("关键词里不能有空格或引号");
-    for (const WebShortcut& web : m_settings.webShortcuts) {
-        if (web.keyword.compare(word, Qt::CaseInsensitive) == 0)
-            return tr("关键词“%1”已经给了网页搜索“%2”").arg(web.keyword, web.name);
-    }
-    if (const QString favorite = m_favorites->keywordOwner(word); !favorite.isEmpty())
-        return tr("关键词“%1”已经给了收藏“%2”").arg(word, favorite);
+    const KeywordClaim claim = keywordClaim(word, m_settings.webShortcuts, -1, {},
+        [this](const QString& keyword) { return m_favorites->keywordOwner(keyword); });
+    if (claim.by == KeywordClaim::By::WebShortcut)
+        return tr("关键词“%1”已经给了网页搜索“%2”").arg(word, claim.owner);
+    if (claim.by == KeywordClaim::By::Favorite)
+        return tr("关键词“%1”已经给了收藏“%2”").arg(word, claim.owner);
     if (m_settings.captureKeyword == word)
         return {};
     m_settings.captureKeyword = word;
@@ -1377,14 +1373,15 @@ QString SettingsEditor::saveWebShortcut(int index, const QString& keyword, const
         return tr("请填写关键词");
     if (!isValidWebKeyword(shortcut.keyword))
         return tr("关键词里不能有空格或引号");
-    for (qsizetype i = 0; i < shortcuts.size(); ++i) {
-        if (i != index && shortcuts[i].keyword.compare(shortcut.keyword, Qt::CaseInsensitive) == 0)
-            return tr("关键词“%1”已经给了“%2”").arg(shortcuts[i].keyword, shortcuts[i].name);
-    }
-    if (const QString favorite = m_favorites->keywordOwner(shortcut.keyword); !favorite.isEmpty())
-        return tr("关键词“%1”已经给了收藏“%2”").arg(shortcut.keyword, favorite);
-    if (const QString taken = captureKeywordTaken(shortcut.keyword); !taken.isEmpty())
-        return taken;
+    const KeywordClaim claim = keywordClaim(shortcut.keyword, shortcuts, index,
+        m_settings.captureEnabled ? m_settings.captureKeyword : QString(),
+        [this](const QString& keyword) { return m_favorites->keywordOwner(keyword); });
+    if (claim.by == KeywordClaim::By::WebShortcut)
+        return tr("关键词“%1”已经给了“%2”").arg(shortcut.keyword, claim.owner);
+    if (claim.by == KeywordClaim::By::Favorite)
+        return tr("关键词“%1”已经给了收藏“%2”").arg(shortcut.keyword, claim.owner);
+    if (claim.by == KeywordClaim::By::Capture)
+        return captureKeywordTaken(shortcut.keyword);
     shortcut.url = normalizeWebUrl(url);
     if (shortcut.url.isEmpty())
         return url.trimmed().isEmpty() ? tr("请填写网址") : tr("打不开这个网址：它应当以 https:// 开头");
@@ -1399,11 +1396,8 @@ QString SettingsEditor::saveWebShortcut(int index, const QString& keyword, const
     if (isValidCustomIconName(icon))
         shortcut.icon = icon;
     shortcut.name = name.trimmed();
-    if (shortcut.name.isEmpty()) { // the site's name ("github.com"); for an app's link, the keyword
-        const QString shown = displayWebUrl(shortcut.homeUrl());
-        const QString site = shown.left(shown.indexOf(u'/'));
-        shortcut.name = site.isEmpty() || site.contains(u':') ? shortcut.keyword : site;
-    }
+    if (shortcut.name.isEmpty()) // the site's name ("github.com"); for an app's link, the keyword
+        shortcut.name = defaultWebShortcutName(shortcut);
 
     m_pickedWebIcon.clear(); // saved with it, or let go
     if (index < 0)
@@ -1874,9 +1868,7 @@ void SettingsEditor::removeExcludedPath(int index)
 
 bool SettingsEditor::addExcludedName(const QString& name)
 {
-    QString value = QDir::fromNativeSeparators(name.trimmed());
-    while (value.endsWith(u'/'))
-        value.chop(1);
+    const QString value = Settings::excludedFolderName(name);
     if (value.isEmpty() || containsIgnoreCase(m_settings.excludedNames, value))
         return false;
     m_settings.excludedNames.append(value);
@@ -1892,15 +1884,33 @@ void SettingsEditor::removeExcludedName(int index)
     commit();
 }
 
+bool SettingsEditor::addExcludedTypes(const QString& text)
+{
+    bool added = false;
+    for (const QString& ext : Settings::fileExtensions(text)) {
+        if (m_settings.excludedTypes.contains(ext))
+            continue;
+        m_settings.excludedTypes.append(ext);
+        added = true;
+    }
+    if (added)
+        commit();
+    return added;
+}
+
+void SettingsEditor::removeExcludedType(int index)
+{
+    if (index < 0 || index >= m_settings.excludedTypes.size())
+        return;
+    m_settings.excludedTypes.removeAt(index);
+    commit();
+}
+
 bool SettingsEditor::addContentExtensions(const QString& text)
 {
-    static const QRegularExpression separators(u"[\\s,;，；、]+"_s);
     bool added = false;
-    for (QString ext : text.split(separators, Qt::SkipEmptyParts)) {
-        while (ext.startsWith(u'*') || ext.startsWith(u'.'))
-            ext.remove(0, 1);
-        ext = ext.toLower();
-        if (ext.isEmpty() || containsIgnoreCase(m_settings.contentExtensions, ext))
+    for (const QString& ext : Settings::contentExtensionList(text)) {
+        if (containsIgnoreCase(m_settings.contentExtensions, ext))
             continue;
         m_settings.contentExtensions.append(ext);
         added = true;
@@ -2062,6 +2072,14 @@ void SettingsEditor::setMcpPlugins(bool on)
     if (m_settings.mcpPlugins == on)
         return;
     m_settings.mcpPlugins = on;
+    commit();
+}
+
+void SettingsEditor::setMcpSettings(const QString& mode)
+{
+    if (m_settings.mcpSettings == mode || (mode != u"ask" && mode != u"auto" && mode != u"off"))
+        return;
+    m_settings.mcpSettings = mode;
     commit();
 }
 

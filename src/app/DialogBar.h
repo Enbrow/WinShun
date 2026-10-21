@@ -133,6 +133,7 @@ public:
     QQuickWindow* window() const { return m_window; }
     // Off: what was opened lately is neither offered nor ranks first.
     void setRecordHistory(bool on) { m_recordHistory = on; }
+    void setExcludedTypes(const QStringList& types) { m_excludedTypes = types; } // Settings::excludedTypes
     void setExcludedApps(const QStringList& apps); // program files ("notepad.exe") whose dialogs go without
     void setPlace(const QString& name); // Settings::dialogBarPlace: "auto", "below", "left", "right"
     void setResultOptions(bool showModified, bool thumbnails, const QString& numberKeys); // Settings: "ctrl", "alt", "off"
@@ -253,6 +254,7 @@ private:
     bool m_inFront = false; // m_dialog (or the bar) is in front
     bool m_dragged = false; // m_dialog is being moved or sized by its frame
     bool m_recordHistory = true;
+    QStringList m_excludedTypes;
     QStringList m_excludedApps;
     HWND m_hiddenUnder = nullptr; // HideHere
     std::vector<HWND> m_roomMade; // the dialogs makeRoom() is done with

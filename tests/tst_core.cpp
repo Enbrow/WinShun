@@ -4253,6 +4253,88 @@ private slots:
             search(u"curl"_s, Scope::Files, {}, KindOrder::FilesFirst, RankBy::Newest));
     }
 
+    // Settings' skipped file types: files of them are left out of names (and
+    // the start list), whatever the case; a folder that is named so is not a
+    // file; asked for by extension (ext: typed, a type chosen), they show.
+    void skippedFileTypes()
+    {
+        const QString root = u"F:\\wsskiptest\\"_s;
+        QTemporaryDir dir;
+        IndexService::Options options;
+        options.content.enabled = false;
+        IndexService service(dir.path() + u"/index"_s, options);
+        {
+            const auto index = service.index();
+            const auto lock = index->writeLock();
+            const EntryId f = index->addRoot("F:");
+            const EntryId test = index->add(f, "wsskiptest", EntryFlag::Directory);
+            for (const char* name : {"report.docx", "report.bak", "report.WBK", "report.Bak.txt", "report-old.bak", "report"})
+                index->add(test, name, name == std::string("report-old.bak") ? EntryFlag::Directory : 0);
+            FileTime t = 1'700'000'000;
+            for (std::size_t i = 0; i < index->slotCount(); ++i)
+                index->setModified(static_cast<EntryId>(i), t += 100);
+        }
+        SearchEngine engine(&service);
+        QSignalSpy spy(&engine, &SearchEngine::resultsReady);
+        const auto search = [&](const QString& text, Scope scope, const QStringList& skipped, const QStringList& types = {}) {
+            spy.clear();
+            SearchEngine::Request request;
+            request.text = text;
+            request.scope = scope;
+            request.excludedTypes = skipped;
+            request.extensions = types;
+            engine.submit(std::move(request));
+            QStringList names;
+            if (!spy.wait(5000))
+                return QStringList {u"(no results)"_s};
+            for (const SearchResult& r : spy.at(0).at(1).value<SearchResults>())
+                names.append(r.path.mid(root.size()));
+            names.sort();
+            return names;
+        };
+        const QStringList all {u"report"_s, u"report-old.bak"_s, u"report.Bak.txt"_s, u"report.WBK"_s, u"report.bak"_s, u"report.docx"_s};
+        QCOMPARE(search(u"report"_s, Scope::Files, {}), all);
+        // Not skipped by default; upper case in the setting does not matter.
+        for (const Scope scope : {Scope::All, Scope::Files}) {
+            QCOMPARE(search(u"report"_s, scope, {u"BAK"_s, u"wbk"_s}),
+                (QStringList {u"report"_s, u"report-old.bak"_s, u"report.Bak.txt"_s, u"report.docx"_s})); // the folder stays
+        }
+        // A folder is no file of the type.
+        QVERIFY(search(u"report"_s, Scope::Folders, {u"bak"_s}).contains(u"report-old.bak"_s));
+        // Asked for: ext: typed, or a type chosen with it among.
+        QCOMPARE(search(u"report ext:bak"_s, Scope::Files, {u"bak"_s}), (QStringList {u"report.bak"_s}));
+        QCOMPARE(search(u"report"_s, Scope::Files, {u"bak"_s, u"wbk"_s}, {u"bak"_s, u"docx"_s}),
+            (QStringList {u"report.bak"_s, u"report.docx"_s}));
+        // Another type chosen: a skipped one stays out, though the type names it only as one of its own.
+        QCOMPARE(search(u"report"_s, Scope::Files, {u"bak"_s}, {u"docx"_s}), (QStringList {u"report.docx"_s}));
+        // Nothing typed, the files written last.
+        {
+            spy.clear();
+            SearchEngine::Request request;
+            request.startList = StartList::Modified;
+            request.excludedTypes = {u"bak"_s, u"wbk"_s, u"docx"_s};
+            engine.submit(std::move(request));
+            QVERIFY(spy.wait(5000));
+            QStringList names;
+            for (const SearchResult& r : spy.at(0).at(1).value<SearchResults>())
+                names.append(r.path.mid(root.size()));
+            QVERIFY(!names.contains(u"report.docx"_s) && !names.contains(u"report.bak"_s) && !names.contains(u"report.WBK"_s));
+            QVERIFY(names.contains(u"report.Bak.txt"_s));
+        }
+        // The matcher alone: files only, as the index has them.
+        FileIndex index;
+        const EntryId top = index.addRoot("C:");
+        const EntryId file = index.add(top, "a.BAK", 0);
+        const EntryId folder = index.add(top, "b.bak", EntryFlag::Directory);
+        const EntryId other = index.add(top, "c.txt", 0);
+        ws::ParsedQuery query = ws::parseQuery(u""_s);
+        query.excludedExtensions = {"bak"};
+        const NameMatcher matcher(query);
+        QCOMPARE(matcher.match(index, index.entry(file)), -1);
+        QVERIFY(matcher.match(index, index.entry(folder)) >= 0);
+        QVERIFY(matcher.match(index, index.entry(other)) >= 0);
+    }
+
     void newestFiles()
     {
         constexpr FileTime T = 1'700'000'000;

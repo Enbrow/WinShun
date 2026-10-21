@@ -114,6 +114,19 @@ struct Fixture {
     std::function<void(const ScreenshotRequest&, std::function<void(ScreenshotTaken)>)> asker;
     QString tempFolder; // where screenshot_history copies the pictures
 
+    // The settings tools, with a handful of settings of their own (the app's
+    // catalog is tst_aisettings'): one that asks always, one a plain switch.
+    QMap<QString, QJsonValue> settingValues {{u"Launcher/DoubleCtrl"_s, true}, {u"Results/Sort"_s, u"match"_s},
+        {u"Launcher/Autostart"_s, false}};
+    // As the user would answer the card (App::confirmSettingsChange); unset: never answers.
+    std::function<void(const SettingsAsk&, std::function<void(SettingsAnswer, bool)>)> settingsAsker;
+    int settingsAsks = 0;
+    int settingsCancels = 0;
+    SettingsAsk lastAsk;
+    QList<SettingsApply> settingsApplied;
+    SettingsQuery lastSettingsQuery;
+    QString openedAt; // "key|section"
+
     explicit Fixture(bool withShell = true, bool withClipboard = true)
     {
         root = QDir::toNativeSeparators(dir.path());
@@ -170,6 +183,49 @@ struct Fixture {
                     asker(request, std::move(done));
             };
         }
+        services.getSettings = [this](const SettingsQuery& query) {
+            lastSettingsQuery = query;
+            QJsonArray list;
+            for (auto it = settingValues.cbegin(); it != settingValues.cend(); ++it)
+                list.push_back(QJsonObject {{u"key"_s, it.key()}, {u"value"_s, it.value()}});
+            return ToolResult {{{u"settings"_s, list}, {u"sections"_s, QJsonArray()}}};
+        };
+        services.planSettings = [this](const QJsonArray& changes) {
+            SettingsPlan plan;
+            for (const QJsonValue& v : changes) {
+                const QJsonObject change = v.toObject();
+                const QString key = change.value(u"key"_s).toString();
+                if (!settingValues.contains(key)) {
+                    plan.problems.push_back(u"unknown setting '%1'"_s.arg(key));
+                    continue;
+                }
+                const QJsonValue value = change.value(u"value"_s);
+                if (value.type() != settingValues.value(key).type()) {
+                    plan.problems.push_back(u"%1: wrong type"_s.arg(key));
+                    continue;
+                }
+                plan.items.push_back({key, settingValues.value(key) != value, key == u"Launcher/Autostart", value,
+                    QJsonObject {{u"key"_s, key}, {u"title"_s, key}, {u"old"_s, settingValues.value(key)}, {u"new"_s, value}}});
+            }
+            return plan;
+        };
+        services.confirmSettings = [this](const SettingsAsk& ask, std::function<void(SettingsAnswer, bool)> done) {
+            ++settingsAsks;
+            lastAsk = ask;
+            if (settingsAsker)
+                settingsAsker(ask, std::move(done));
+        };
+        services.cancelSettings = [this] { ++settingsCancels; };
+        services.applySettings = [this](const SettingsApply& apply, std::function<void(ToolResult)> done) {
+            settingsApplied.push_back(apply);
+            for (const QJsonValue& v : apply.changes)
+                settingValues[v.toObject().value(u"key"_s).toString()] = v.toObject().value(u"value"_s);
+            done({{{u"changed"_s, static_cast<int>(apply.changes.size())}}});
+        };
+        services.openSettings = [this](const QString& key, const QString& section) {
+            openedAt = key + u'|' + section;
+            return ToolResult {{{u"opened"_s, true}, {u"where"_s, openedAt}}};
+        };
         tempFolder = dir.path() + u"/mcp-temp"_s;
         services.tempFolder = tempFolder;
         host = std::make_unique<ToolHost>(std::move(services));
@@ -488,8 +544,9 @@ private slots:
     {
         Fixture f;
         QStringList expected {u"search_files"_s, u"search_content"_s, u"recent_files"_s, u"list_folder"_s,
-            u"get_file_info"_s, u"index_status"_s, u"read_file_text"_s};
+            u"get_file_info"_s, u"get_settings"_s, u"open_settings"_s, u"index_status"_s, u"read_file_text"_s};
         QCOMPARE(f.host->toolNames(), expected);
+        QCOMPARE(f.host->known(u"change_settings"_s), ToolHost::Known::Off); // until the user allows it
         QCOMPARE(f.host->known(u"open_item"_s), ToolHost::Known::Off);
         QCOMPARE(f.host->known(u"nothing"_s), ToolHost::Known::No);
         QCOMPARE(f.host->known(u"search_files"_s), ToolHost::Known::Yes);
@@ -506,6 +563,13 @@ private slots:
         QVERIFY(f.host->toolNames().contains(u"clipboard_get"_s));
         f.host->setPolicy(policy); // the same again: no change
         QCOMPARE(changed.count(), 1);
+        QVERIFY(!f.host->toolNames().contains(u"change_settings"_s));
+        policy.settingsMode = SettingsMode::Ask;
+        f.host->setPolicy(policy);
+        QVERIFY(f.host->toolNames().contains(u"change_settings"_s));
+        policy.settingsMode = SettingsMode::Off;
+        f.host->setPolicy(policy);
+        QVERIFY(!f.host->toolNames().contains(u"change_settings"_s));
 
         // Every tool has what MCP wants of it.
         for (const QJsonValue& v : f.host->tools()) {
@@ -518,6 +582,7 @@ private slots:
 
         // Without a shell or a clipboard (wsbench), their tools are not offered even when allowed.
         Fixture bare(false, false);
+        policy.settingsMode = SettingsMode::Auto;
         bare.host->setPolicy(policy);
         QVERIFY(!bare.host->toolNames().contains(u"open_item"_s));
         QVERIFY(!bare.host->toolNames().contains(u"clipboard_history"_s));
@@ -543,13 +608,15 @@ private slots:
         QCOMPARE(result.value(u"protocolVersion"_s).toString(), u"2025-11-25"_s);
         QCOMPARE(result.value(u"serverInfo"_s).toObject().value(u"name"_s).toString(), u"winshun"_s);
         QVERIFY(result.value(u"capabilities"_s).toObject().value(u"tools"_s).toObject().value(u"listChanged"_s).toBool());
+        QVERIFY(result.value(u"capabilities"_s).toObject().contains(u"prompts"_s));
         QVERIFY(result.value(u"instructions"_s).toString().contains(u"pinyin"));
 
         reply = s.exchange(requestLine(12, u"tools/list"_s));
         QVERIFY(reply);
-        QCOMPARE(parseObject(*reply).value(u"result"_s).toObject().value(u"tools"_s).toArray().size(), 7);
+        QCOMPARE(parseObject(*reply).value(u"result"_s).toObject().value(u"tools"_s).toArray().size(), 9);
         reply = s.exchange(requestLine(13, u"prompts/list"_s));
-        QVERIFY(reply && parseObject(*reply).value(u"result"_s).toObject().value(u"prompts"_s).toArray().isEmpty());
+        QVERIFY(reply);
+        QCOMPARE(parseObject(*reply).value(u"result"_s).toObject().value(u"prompts"_s).toArray().size(), 1);
         reply = s.exchange(requestLine(14, u"nothing/here"_s));
         QVERIFY(reply);
         QCOMPARE(parseObject(*reply).value(u"error"_s).toObject().value(u"code"_s).toInt(), jsonrpc::kMethodNotFound);
@@ -1121,6 +1188,349 @@ private slots:
         QCOMPARE(f.host->pendingCalls(), 0);
     }
 
+    static QJsonObject changeArgs(const QJsonArray& changes, const QString& reason = u"Because the user asked"_s)
+    {
+        return {{u"changes"_s, changes}, {u"reason"_s, reason}};
+    }
+    static QJsonArray setting(const QString& key, const QJsonValue& value)
+    {
+        return {QJsonObject {{u"key"_s, key}, {u"value"_s, value}}};
+    }
+
+    // get_settings: the filters reach the app, and the answer says how AI may change settings.
+    void getSettings()
+    {
+        Fixture f;
+        Session s(f.server.get());
+        QVERIFY(s.initialize());
+        auto reply = s.exchange(callLine(2, u"get_settings"_s,
+            {{u"sections"_s, QJsonArray {u"clipboard"_s}}, {u"query"_s, u"剪贴板 history"_s}, {u"keys"_s, QJsonArray {u"Results/Sort"_s}},
+                {u"changed_only"_s, true}, {u"facts"_s, true}}));
+        QVERIFY(reply);
+        Outcome out = outcomeOf(*reply);
+        QVERIFY2(!out.isError, qPrintable(out.text));
+        QCOMPARE(f.lastSettingsQuery.sections, QStringList {u"clipboard"_s});
+        QCOMPARE(f.lastSettingsQuery.words, u"剪贴板 history"_s);
+        QCOMPARE(f.lastSettingsQuery.keys, QStringList {u"Results/Sort"_s});
+        QVERIFY(f.lastSettingsQuery.changedOnly && f.lastSettingsQuery.facts);
+        QCOMPARE(out.structured.value(u"ai"_s).toObject().value(u"settings_mode"_s).toString(), u"off"_s);
+        QVERIFY(!out.structured.value(u"ai"_s).toObject().value(u"change_settings_offered"_s).toBool());
+        QCOMPARE(out.structured.value(u"settings"_s).toArray().size(), 3);
+        reply = s.exchange(callLine(3, u"get_settings"_s, {{u"changed_only"_s, u"yes"_s}}));
+        QVERIFY(reply && outcomeOf(*reply).isError);
+
+        Policy policy = f.host->policy();
+        policy.settingsMode = SettingsMode::Auto;
+        f.host->setPolicy(policy);
+        reply = s.exchange(callLine(4, u"get_settings"_s));
+        out = outcomeOf(*reply);
+        QCOMPARE(out.structured.value(u"ai"_s).toObject().value(u"settings_mode"_s).toString(), u"auto"_s);
+        QVERIFY(out.structured.value(u"ai"_s).toObject().value(u"change_settings_offered"_s).toBool());
+        reply = s.exchange(callLine(5, u"index_status"_s));
+        QCOMPARE(outcomeOf(*reply).structured.value(u"ai"_s).toObject().value(u"settings_mode"_s).toString(), u"auto"_s);
+
+        // The tools say what they take.
+        for (const QJsonValue& v : f.host->tools()) {
+            const QJsonObject tool = v.toObject();
+            if (tool.value(u"name"_s).toString() != u"change_settings")
+                continue;
+            const QJsonObject annotations = tool.value(u"annotations"_s).toObject();
+            QVERIFY(!annotations.value(u"readOnlyHint"_s).toBool());
+            QVERIFY(!annotations.value(u"destructiveHint"_s).toBool());
+            QVERIFY(annotations.value(u"idempotentHint"_s).toBool());
+            QVERIFY(!annotations.value(u"openWorldHint"_s).toBool());
+            const QJsonObject schema = tool.value(u"inputSchema"_s).toObject();
+            QCOMPARE(schema.value(u"required"_s).toArray().size(), 2);
+            QCOMPARE(schema.value(u"properties"_s).toObject().value(u"changes"_s).toObject().value(u"maxItems"_s).toInt(), 20);
+        }
+    }
+
+    void openSettings()
+    {
+        Fixture f;
+        Session s(f.server.get());
+        QVERIFY(s.initialize());
+        auto reply = s.exchange(callLine(2, u"open_settings"_s, {{u"key"_s, u"Results/Sort"_s}}));
+        QVERIFY(reply && !outcomeOf(*reply).isError);
+        QCOMPARE(f.openedAt, u"Results/Sort|"_s);
+        reply = s.exchange(callLine(3, u"open_settings"_s, {{u"section"_s, u"clipboard"_s}}));
+        QVERIFY(reply && !outcomeOf(*reply).isError);
+        QCOMPARE(f.openedAt, u"|clipboard"_s);
+        reply = s.exchange(callLine(4, u"open_settings"_s));
+        QVERIFY(reply && outcomeOf(*reply).isError);
+    }
+
+    // Off: not offered, and the refusal names the switch. Ask: the card decides.
+    void changeSettingsAsk()
+    {
+        Fixture f;
+        Session s(f.server.get());
+        QVERIFY(s.initialize());
+        auto reply = s.exchange(callLine(2, u"change_settings"_s, changeArgs(setting(u"Results/Sort"_s, u"newest"_s))));
+        QVERIFY(reply);
+        Outcome out = outcomeOf(*reply);
+        QVERIFY(out.isError);
+        QVERIFY2(out.text.contains(u"允许 AI 修改设置"), qPrintable(out.text));
+        QVERIFY(out.text.contains(u"AI 助手"));
+        QCOMPARE(f.settingsAsks, 0);
+
+        Policy policy = f.host->policy();
+        policy.settingsMode = SettingsMode::Ask;
+        f.host->setPolicy(policy);
+        const QJsonArray sort = setting(u"Results/Sort"_s, u"newest"_s);
+
+        // Declined, no answer, not shown: errors, nothing applied.
+        const std::pair<SettingsAnswer, const char*> refusals[] {{SettingsAnswer::Refused, "declined"}, {SettingsAnswer::Timeout, "60 seconds"}, {SettingsAnswer::Unavailable, "could not ask"}, {SettingsAnswer::Busy, "settings request is waiting"}};
+        int id = 3;
+        for (const auto& [answer, words] : refusals) {
+            f.settingsAsker = [answer = answer](const SettingsAsk&, std::function<void(SettingsAnswer, bool)> done) { done(answer, true); };
+            reply = s.exchange(callLine(id++, u"change_settings"_s, changeArgs(sort)));
+            QVERIFY(reply);
+            out = outcomeOf(*reply);
+            QVERIFY(out.isError);
+            QVERIFY2(out.text.contains(QLatin1StringView(words)), qPrintable(out.text));
+        }
+        QVERIFY(f.settingsApplied.isEmpty());
+        QCOMPARE(f.settingValues.value(u"Results/Sort"_s), QJsonValue(u"match"_s));
+        QCOMPARE(f.settingsAsks, 4);
+
+        // Allowed (a moment later, as a person would): what the card shows is what changes, with who asks and why.
+        f.settingsAsker = [](const SettingsAsk&, std::function<void(SettingsAnswer, bool)> done) {
+            QTimer::singleShot(30, [done] { done(SettingsAnswer::Allowed, false); });
+        };
+        reply = s.exchange(callLine(id++, u"change_settings"_s, changeArgs(sort, u"Newest first suits you"_s)));
+        QVERIFY(reply);
+        out = outcomeOf(*reply);
+        QVERIFY2(!out.isError, qPrintable(out.text));
+        QCOMPARE(out.structured.value(u"changed"_s).toInt(), 1);
+        QCOMPARE(f.lastAsk.client, u"tst_mcp"_s);
+        QCOMPARE(f.lastAsk.reason, u"Newest first suits you"_s);
+        QCOMPARE(f.lastAsk.items.size(), 1);
+        QVERIFY(!f.lastAsk.askAlways);
+        QCOMPARE(f.settingsApplied.size(), 1);
+        QVERIFY(!f.settingsApplied.first().alwaysAllow);
+        QCOMPARE(f.settingsApplied.first().reason, u"Newest first suits you"_s);
+        QCOMPARE(f.settingValues.value(u"Results/Sort"_s), QJsonValue(u"newest"_s));
+
+        // "From now on" counts when allowed on a card with nothing that asks always.
+        f.settingsAsker = [](const SettingsAsk&, std::function<void(SettingsAnswer, bool)> done) { done(SettingsAnswer::Allowed, true); };
+        reply = s.exchange(callLine(id++, u"change_settings"_s, changeArgs(setting(u"Results/Sort"_s, u"oldest"_s))));
+        QVERIFY(reply && !outcomeOf(*reply).isError);
+        QVERIFY(f.settingsApplied.last().alwaysAllow);
+    }
+
+    // The reason is the model's own words, and must be there; changes come 1 to 20.
+    void changeSettingsArguments()
+    {
+        Fixture f;
+        Policy policy = f.host->policy();
+        policy.settingsMode = SettingsMode::Auto;
+        f.host->setPolicy(policy);
+        Session s(f.server.get());
+        QVERIFY(s.initialize());
+        const QJsonArray sort = setting(u"Results/Sort"_s, u"newest"_s);
+        for (const QJsonObject& args : {QJsonObject {{u"changes"_s, sort}}, QJsonObject {{u"changes"_s, sort}, {u"reason"_s, u"  "_s}},
+                 QJsonObject {{u"changes"_s, QJsonArray()}, {u"reason"_s, u"x"_s}}, QJsonObject {{u"changes"_s, u"Sort"_s}, {u"reason"_s, u"x"_s}},
+                 QJsonObject {{u"reason"_s, u"x"_s}}}) {
+            const auto reply = s.exchange(callLine(2, u"change_settings"_s, args));
+            QVERIFY(reply && outcomeOf(*reply).isError);
+        }
+        QJsonArray many;
+        for (int i = 0; i < 21; ++i)
+            many.push_back(sort.first());
+        auto reply = s.exchange(callLine(3, u"change_settings"_s, changeArgs(many)));
+        QVERIFY(reply && outcomeOf(*reply).isError);
+        QVERIFY(f.settingsApplied.isEmpty());
+
+        reply = s.exchange(callLine(4, u"change_settings"_s, changeArgs(sort, QString(300, u'x'))));
+        QVERIFY(reply && !outcomeOf(*reply).isError);
+        QCOMPARE(f.settingsApplied.last().reason.size(), 200);
+    }
+
+    // AI's own words reach the card as one plain line (no line breaks, no direction
+    // or invisible characters), cut; what the user was shown is what may be applied.
+    void changeSettingsTextAndApproval()
+    {
+        Fixture f;
+        Policy policy = f.host->policy();
+        policy.settingsMode = SettingsMode::Ask;
+        f.host->setPolicy(policy);
+        f.settingsAsker = [](const SettingsAsk&, std::function<void(SettingsAnswer, bool)> done) { done(SettingsAnswer::Allowed, false); };
+        Session s(f.server.get());
+        QVERIFY(s.initialize());
+        const QString messy = u"Tidy up\nthe   list\t\u202Eand\u2028more\u200B\u0007 now"_s;
+        auto reply = s.exchange(callLine(2, u"change_settings"_s, changeArgs(setting(u"Results/Sort"_s, u"newest"_s), messy)));
+        QVERIFY(reply && !outcomeOf(*reply).isError);
+        QCOMPARE(f.lastAsk.reason, u"Tidy up the list and more now"_s);
+        QCOMPARE(f.settingsApplied.last().reason, f.lastAsk.reason);
+        QVERIFY(f.settingsApplied.last().asked);
+        QCOMPARE(f.settingsApplied.last().approved.size(), std::size_t {1});
+        QCOMPARE(f.settingsApplied.last().approved.front().key, u"Results/Sort"_s);
+        QCOMPARE(f.settingsApplied.last().approved.front().value, QJsonValue(u"newest"_s));
+
+        // No card in auto mode: not asked.
+        policy.settingsMode = SettingsMode::Auto;
+        f.host->setPolicy(policy);
+        reply = s.exchange(callLine(3, u"change_settings"_s, changeArgs(setting(u"Results/Sort"_s, u"oldest"_s))));
+        QVERIFY(reply && !outcomeOf(*reply).isError);
+        QVERIFY(!f.settingsApplied.last().asked);
+        QCOMPARE(f.settingsApplied.last().approved.size(), std::size_t {1});
+    }
+
+    void cleanShownTextRules()
+    {
+        QCOMPARE(cleanShownText(QString(300, u'x'), 200).size(), 200);
+        QVERIFY(cleanShownText(QString(300, u'x'), 200).endsWith(QChar(0x2026)));
+        QCOMPARE(cleanShownText(u"  a\r\n\u2029b  "_s, 50), u"a b"_s);
+        QCOMPARE(cleanShownText(u"\u202Eevil\u202C\u200F"_s, 50), u"evil"_s);
+        // Not cut between the halves of one character.
+        const QString faces = QString(10, u'a') + u"\U0001F600\U0001F600\U0001F600"_s;
+        const QString cut = cleanShownText(faces, 12);
+        QVERIFY(cut.endsWith(QChar(0x2026)));
+        for (qsizetype i = 0; i < cut.size(); ++i)
+            QVERIFY(!cut[i].isHighSurrogate() || (i + 1 < cut.size() && cut[i + 1].isLowSurrogate()));
+    }
+
+    // Auto: no card, applied at once; what asks always still asks.
+    void changeSettingsAuto()
+    {
+        Fixture f;
+        Policy policy = f.host->policy();
+        policy.settingsMode = SettingsMode::Auto;
+        f.host->setPolicy(policy);
+        Session s(f.server.get());
+        QVERIFY(s.initialize());
+        auto reply = s.exchange(callLine(2, u"change_settings"_s, changeArgs(setting(u"Results/Sort"_s, u"newest"_s))));
+        QVERIFY(reply);
+        Outcome out = outcomeOf(*reply);
+        QVERIFY2(!out.isError, qPrintable(out.text));
+        QCOMPARE(f.settingsAsks, 0);
+        QCOMPARE(f.settingsApplied.size(), 1);
+        QCOMPARE(f.settingValues.value(u"Results/Sort"_s), QJsonValue(u"newest"_s));
+
+        // Something that asks always: the card, even in auto, without the "from now on" box; refused, nothing changes
+        // (the plain switch in the same call too).
+        f.settingsAsker = [](const SettingsAsk&, std::function<void(SettingsAnswer, bool)> done) { done(SettingsAnswer::Refused, false); };
+        QJsonArray both = setting(u"Launcher/DoubleCtrl"_s, false);
+        both.push_back(QJsonObject {{u"key"_s, u"Launcher/Autostart"_s}, {u"value"_s, true}});
+        reply = s.exchange(callLine(3, u"change_settings"_s, changeArgs(both)));
+        QVERIFY(reply && outcomeOf(*reply).isError);
+        QCOMPARE(f.settingsAsks, 1);
+        QVERIFY(f.lastAsk.askAlways);
+        QCOMPARE(f.lastAsk.items.size(), 2);
+        QCOMPARE(f.settingsApplied.size(), 1);
+        QCOMPARE(f.settingValues.value(u"Launcher/DoubleCtrl"_s), QJsonValue(true));
+
+        // Allowed with the box ticked: it does not count, the batch has one that asks always.
+        f.settingsAsker = [](const SettingsAsk&, std::function<void(SettingsAnswer, bool)> done) { done(SettingsAnswer::Allowed, true); };
+        reply = s.exchange(callLine(4, u"change_settings"_s, changeArgs(both)));
+        QVERIFY(reply && !outcomeOf(*reply).isError);
+        QCOMPARE(f.settingsApplied.size(), 2);
+        QVERIFY(!f.settingsApplied.last().alwaysAllow);
+        QCOMPARE(f.settingValues.value(u"Launcher/Autostart"_s), QJsonValue(true));
+    }
+
+    // All or nothing: one wrong change stops the call with every problem named, and nobody is asked.
+    void changeSettingsIsAtomic()
+    {
+        Fixture f;
+        Policy policy = f.host->policy();
+        policy.settingsMode = SettingsMode::Auto;
+        f.host->setPolicy(policy);
+        Session s(f.server.get());
+        QVERIFY(s.initialize());
+        QJsonArray changes = setting(u"Results/Sort"_s, u"newest"_s);
+        changes.push_back(QJsonObject {{u"key"_s, u"Nope/One"_s}, {u"value"_s, 1}});
+        changes.push_back(QJsonObject {{u"key"_s, u"Launcher/DoubleCtrl"_s}, {u"value"_s, u"maybe"_s}});
+        const auto reply = s.exchange(callLine(2, u"change_settings"_s, changeArgs(changes)));
+        QVERIFY(reply);
+        const Outcome out = outcomeOf(*reply);
+        QVERIFY(out.isError);
+        QVERIFY2(out.text.contains(u"Nope/One") && out.text.contains(u"wrong type"), qPrintable(out.text));
+        QVERIFY(out.text.contains(u"Nothing was changed"));
+        QCOMPARE(f.settingsAsks, 0);
+        QVERIFY(f.settingsApplied.isEmpty());
+        QCOMPARE(f.settingValues.value(u"Results/Sort"_s), QJsonValue(u"match"_s));
+    }
+
+    // Everything set so already: done, without a card.
+    void changeSettingsNoOp()
+    {
+        Fixture f;
+        Policy policy = f.host->policy();
+        policy.settingsMode = SettingsMode::Ask;
+        f.host->setPolicy(policy);
+        Session s(f.server.get());
+        QVERIFY(s.initialize());
+        const auto reply = s.exchange(callLine(2, u"change_settings"_s, changeArgs(setting(u"Results/Sort"_s, u"match"_s))));
+        QVERIFY(reply);
+        const Outcome out = outcomeOf(*reply);
+        QVERIFY2(!out.isError, qPrintable(out.text));
+        QCOMPARE(out.structured.value(u"changed"_s).toInt(), 0);
+        QCOMPARE(out.structured.value(u"unchanged"_s).toArray().size(), 1);
+        QCOMPARE(f.settingsAsks, 0);
+        QVERIFY(f.settingsApplied.isEmpty());
+    }
+
+    // A card waiting: a second request is refused; the client giving the call up takes the card away.
+    void changeSettingsCancelAndBusy()
+    {
+        Fixture f;
+        Policy policy = f.host->policy();
+        policy.settingsMode = SettingsMode::Ask;
+        f.host->setPolicy(policy);
+        std::function<void(SettingsAnswer, bool)> answer;
+        f.settingsAsker = [&](const SettingsAsk&, std::function<void(SettingsAnswer, bool)> done) { answer = std::move(done); };
+        Session s(f.server.get());
+        QVERIFY(s.initialize());
+        QVERIFY(!s.exchange(callLine(2, u"change_settings"_s, changeArgs(setting(u"Results/Sort"_s, u"newest"_s))), 300));
+        QCOMPARE(f.host->pendingCalls(), 1);
+        QCOMPARE(f.settingsAsks, 1);
+
+        const auto busy = s.exchange(callLine(3, u"change_settings"_s, changeArgs(setting(u"Results/Sort"_s, u"oldest"_s))));
+        QVERIFY(busy);
+        const Outcome refused = outcomeOf(*busy);
+        QVERIFY(refused.isError);
+        QVERIFY2(refused.text.contains(u"Another"), qPrintable(refused.text));
+        QCOMPARE(f.settingsAsks, 1);
+
+        f.server->receive(s.id, jsonrpc::notification(u"notifications/cancelled"_s, {{u"requestId"_s, 2}}));
+        QCOMPARE(f.host->pendingCalls(), 0);
+        QCOMPARE(f.settingsCancels, 1);
+        // A late answer goes nowhere.
+        answer(SettingsAnswer::Allowed, false);
+        QTest::qWait(50);
+        QVERIFY(f.settingsApplied.isEmpty());
+        QCOMPARE(f.settingValues.value(u"Results/Sort"_s), QJsonValue(u"match"_s));
+    }
+
+    void prompts()
+    {
+        Fixture f;
+        Session s(f.server.get());
+        QVERIFY(s.initialize());
+        auto reply = s.exchange(requestLine(2, u"prompts/list"_s));
+        QVERIFY(reply);
+        const QJsonArray list = parseObject(*reply).value(u"result"_s).toObject().value(u"prompts"_s).toArray();
+        QCOMPARE(list.size(), 1);
+        QCOMPARE(list.first().toObject().value(u"name"_s).toString(), u"setup"_s);
+        QCOMPARE(list.first().toObject().value(u"arguments"_s).toArray().first().toObject().value(u"name"_s).toString(), u"focus"_s);
+
+        reply = s.exchange(requestLine(3, u"prompts/get"_s, {{u"name"_s, u"setup"_s}, {u"arguments"_s, QJsonObject {{u"focus"_s, u"the clipboard"_s}}}}));
+        QVERIFY(reply);
+        const QJsonObject result = parseObject(*reply).value(u"result"_s).toObject();
+        const QJsonObject message = result.value(u"messages"_s).toArray().first().toObject();
+        QCOMPARE(message.value(u"role"_s).toString(), u"user"_s);
+        const QString text = message.value(u"content"_s).toObject().value(u"text"_s).toString();
+        QVERIFY(text.contains(u"get_settings"));
+        QVERIFY(text.contains(u"change_settings"));
+        QVERIFY(text.contains(u"Answer in my language"));
+        QVERIFY(text.contains(u"the clipboard"));
+        reply = s.exchange(requestLine(4, u"prompts/get"_s, {{u"name"_s, u"nothing"_s}}));
+        QVERIFY(reply);
+        QCOMPARE(parseObject(*reply).value(u"error"_s).toObject().value(u"code"_s).toInt(), jsonrpc::kInvalidParams);
+    }
+
     // Only what the caller could list or read itself: a folder for
     // administrators alone is, to the viewer, not there, nor is anything in it.
     void visibility()
@@ -1299,7 +1709,7 @@ private slots:
 
         reply = relay.exchange(requestLine(2, u"tools/list"_s));
         QVERIFY(reply);
-        QCOMPARE(parseObject(*reply).value(u"result"_s).toObject().value(u"tools"_s).toArray().size(), 7);
+        QCOMPARE(parseObject(*reply).value(u"result"_s).toObject().value(u"tools"_s).toArray().size(), 9);
         // The session has the relay's own token (ImpersonateNamedPipeClient);
         // that what its user cannot list stays out of the results is
         // relayRestricted()'s check.

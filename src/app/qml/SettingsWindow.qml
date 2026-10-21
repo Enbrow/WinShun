@@ -51,7 +51,7 @@ Window {
     readonly property var pageTabs: [
         [qsTr("快捷键", "settings tab"), qsTr("任务栏"), qsTr("对话框"), qsTr("启动与历史")],
         [],
-        [qsTr("文件夹"), qsTr("文件夹名称"), qsTr("磁盘"), qsTr("网络共享")],
+        [qsTr("文件夹"), qsTr("名称和类型"), qsTr("磁盘"), qsTr("网络共享")],
         [qsTr("排序"), qsTr("显示与预览"), qsTr("操作习惯"), qsTr("文件类型")],
         window.editor.contentSearch ? [qsTr("常规"), qsTr("大小上限")] : [], // 大小上限: nothing while off
         [],
@@ -307,6 +307,21 @@ Window {
         const at = String(where).split(",").map(Number)
         if (at.length === 2 && at.every(Number.isInteger) && at[0] >= 0 && at[0] < pageTabs.length)
             showPage(at[0], at[1])
+    }
+    // open_settings (App::openAiSettings): that page and tab, then the row
+    // whose title is given, found with the search box and gone to (its page,
+    // the row in view and flashed). No row by that title: the page it is.
+    function showSetting(page, tab, title) {
+        showPage(page, tab >= 0 ? tab : undefined)
+        if (!title)
+            return
+        searchBox.setText(title)
+        Qt.callLater(() => {
+            if (settingsSearch.current)
+                goTo(settingsSearch.current)
+            else
+                searchBox.clear()
+        })
     }
     function showFavoritesPage(path) { // App::showFavoriteSettings: that favorite's form open
         showPage(favoritesPage)
@@ -1962,6 +1977,55 @@ Window {
                                 text: qsTr("添加")
                                 enabled: nameInput.text.trim().length > 0
                                 onClicked: if (window.editor.addExcludedName(nameInput.text)) nameInput.clear()
+                            }
+                        }
+                    ]
+                }
+            }
+
+            SettingsSection {
+                page: 2
+                tab: 1
+                width: parent.width
+                note: qsTr("立即生效，不用重新整理。")
+
+                SettingRow {
+                    id: excludedTypesRow
+                    title: qsTr("跳过的文件类型")
+                    keywords: qsTr("排除;忽略;扩展名;后缀;格式;exclude").split(";")
+                    values: window.editor.excludedTypes
+                    description: qsTr("这些扩展名的文件不出现在搜索结果里，例如 wbk、bak")
+
+                    body: [
+                        Flow {
+                            width: parent.width
+                            spacing: 6
+
+                            Repeater {
+                                model: window.editor.excludedTypes
+
+                                delegate: Chip {
+                                    required property int index
+                                    required property string modelData
+                                    text: modelData
+                                    marked: excludedTypesRow.valueFound(modelData)
+                                    onRemoveClicked: window.editor.removeExcludedType(index)
+                                }
+                            }
+                        },
+                        Row {
+                            spacing: 8
+
+                            InputBox {
+                                id: typeInput
+                                width: 240
+                                placeholder: qsTr("例如 wbk, bak")
+                                onAccepted: if (window.editor.addExcludedTypes(text)) clear()
+                            }
+                            FlatButton {
+                                text: qsTr("添加")
+                                enabled: typeInput.text.trim().length > 0
+                                onClicked: if (window.editor.addExcludedTypes(typeInput.text)) typeInput.clear()
                             }
                         }
                     ]

@@ -23,7 +23,7 @@ SettingsSection {
         description: !aiSection.editor.mcp ? qsTr("关着时 AI 客户端连不上 Win顺")
                    : aiSection.editor.mcpStatus.length > 0 ? aiSection.editor.mcpStatus
                    : qsTr("AI 客户端启动 WinShunMcp.exe 就能连上")
-        unlocks: [openRow, clipboardRow, screenshotRow, pluginsRow, actionsRow, ...aiSection.lockedElsewhere]
+        unlocks: [openRow, clipboardRow, screenshotRow, settingsRow, pluginsRow, actionsRow, ...aiSection.lockedElsewhere]
 
         ToggleSwitch {
             checked: aiSection.editor.mcp
@@ -70,6 +70,32 @@ SettingsSection {
         ToggleSwitch {
             checked: aiSection.editor.mcpScreenshot
             onToggled: (on) => aiSection.editor.mcpScreenshot = on
+        }
+    }
+
+    SettingRow { // get_settings / change_settings (App::confirmSettingsChange)
+        id: settingsRow
+
+        readonly property var modes: ["ask", "auto", "off"]
+
+        title: qsTr("允许 AI 修改设置")
+        keywords: qsTr("设置;配置;修改;改设置;帮我设置;setting;config;change;AI").split(";")
+        description: {
+            switch (aiSection.editor.mcpSettings) {
+            case "auto":
+                return qsTr("AI 改完会在屏幕右下角告诉你，几秒内能撤销。涉及安全的几项（开机自启、索引方式、网站搜索）仍会先问你")
+            case "off":
+                return qsTr("AI 看不到也改不了 Win顺 的设置，只能带你打开设置页")
+            default:
+                return qsTr("AI 可以帮你开关功能、调整参数。每次修改前都会弹出确认，写明改什么、为什么；涉及安全的几项总会先问你")
+            }
+        }
+        shown: aiSection.editor.mcp
+
+        ScopeTabs {
+            labels: [qsTr("每次先问我"), qsTr("直接修改"), qsTr("不允许")]
+            current: Math.max(0, settingsRow.modes.indexOf(aiSection.editor.mcpSettings))
+            onActivated: (index) => aiSection.editor.mcpSettings = settingsRow.modes[index]
         }
     }
 

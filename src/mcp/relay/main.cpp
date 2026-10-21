@@ -368,7 +368,8 @@ private:
             if (requested == QLatin1StringView(known))
                 version = requested;
         }
-        return {{u"protocolVersion"_s, version}, {u"capabilities"_s, QJsonObject {{u"tools"_s, QJsonObject {{u"listChanged"_s, true}}}}},
+        return {{u"protocolVersion"_s, version}, {u"capabilities"_s,
+                QJsonObject {{u"tools"_s, QJsonObject {{u"listChanged"_s, true}}}, {u"prompts"_s, QJsonObject {{u"listChanged"_s, false}}}}},
             {u"serverInfo"_s,
                 QJsonObject {{u"name"_s, u"winshun"_s}, {u"title"_s, u"Win顺 · WinShun"_s}, {u"version"_s, QStringLiteral(WINSHUN_VERSION)},
                     {u"description"_s, u"Search files, folders and text on this PC with Win顺"_s}}},

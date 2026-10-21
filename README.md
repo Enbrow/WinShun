@@ -183,6 +183,7 @@
   - 默认只读，只看得到 AI 客户端自己有权限看的文件；
   - 可以设不让 AI 看到的文件夹；
   - 每次调用都有记录。
+- **帮你设置**：对 AI 说“帮我把 Win顺 调顺手”，它会问几个问题，再一次改好几项设置。改之前先弹窗问你，改完在右下角告诉你，几秒内能撤销；涉及安全的几项总会先问你。
 
 #### 🎨 外观和设置
 
@@ -339,6 +340,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 - 🤖 **AI assistants (MCP)**
   - **What**: WinShun is an MCP server. Claude Desktop, Claude Code, Cursor and VS Code connect in one click and search file names, file contents and recent changes.
   - **Safety**: read-only by default, limited to what the AI client may see, with folders kept from AI and a call log.
+  - **Setting up**: tell the AI to “set up WinShun for me”; it asks a few questions and changes several settings in one go. A window asks you first, a notice at the bottom right says what changed and offers Undo for a few seconds; security-related settings always ask.
 - 🎨 **Looks and settings**
   - **Looks**: light and dark themes following Windows, Windows 11 Mica, rounded or square corners (square as in Windows 10), sharp icons at any scaling; compact, standard or roomy sizes, and a monochrome tray and taskbar icon if you like.
   - **Settings**: searchable (`Ctrl+F`); changes apply at once.

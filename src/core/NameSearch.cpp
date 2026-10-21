@@ -683,6 +683,12 @@ NewestOutput newestFiles(const FileIndex& index, const NewestOptions& options, W
                         [&](const std::string& x) { return text::equalsFolded(ext, x); }))
                     continue;
             }
+            if (extLength > 0 && !options.excludedExtensions.empty()) {
+                const std::string_view ext = name.substr(name.size() - extLength);
+                if (std::any_of(options.excludedExtensions.begin(), options.excludedExtensions.end(),
+                        [&](const std::string& x) { return text::equalsFolded(ext, x); }))
+                    continue;
+            }
             if (isWorkFile(name, false) || outputs.contains(e.parent))
                 continue;
             top.push({id, 0, modified});

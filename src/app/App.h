@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AiSettings.h"
 #include "Settings.h"
 #include "Win32Util.h"
 #include "platform/ClipboardWatcher.h"
@@ -8,6 +9,9 @@
 #include "platform/TaskbarSearchBox.h"
 
 #include <QDeadlineTimer>
+#include <QHash>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QElapsedTimer>
 #include <QFileSystemWatcher>
 #include <QObject>
@@ -15,9 +19,11 @@
 #include <QRect>
 #include <QTimer>
 #include <QTranslator>
+#include <QVariantMap>
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -76,6 +82,12 @@ struct Policy;
 struct Services;
 struct ScreenshotRequest;
 struct ScreenshotTaken;
+enum class SettingsAnswer : int;
+struct ToolResult;
+struct SettingsQuery;
+struct SettingsPlan;
+struct SettingsApply;
+struct SettingsAsk;
 }
 namespace ntfs {
 class ServiceVolumeAccess;
@@ -139,6 +151,16 @@ public:
     enum class Elevation { Same, Elevated, Unelevated };
     std::optional<QStringList> restartArguments() const { return m_restartArguments; }
     Elevation restartElevation() const { return m_restartElevation; }
+
+    // Called from SettingsNotice.qml, so public: QML leaves out private
+    // Q_INVOKABLE methods (a connect by index, as for the cards' answers,
+    // does not).
+    // The notice's 撤销: puts back what the batch changed, where it is still
+    // what AI set; {ok, text} (text: what to tell the user).
+    Q_INVOKABLE QVariantMap undoSettingsBatch(quint64 batchId);
+    // Its 打开设置: the settings window at that setting (a key).
+    Q_INVOKABLE void showSettingsFor(const QString& key);
+    Q_INVOKABLE void restartExplorer(); // so that Win+V and Win+S change hands now
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -240,7 +262,6 @@ private:
     void mirrorField(const QString& text, int cursor, int selectionStart, int selectionEnd, const QString& composition);
     std::optional<QRectF> boxCaretInField() const; // the box's caret, in the field's coordinates
     void deliverTyping(); // ... has the keyboard: the keys typed there go to it
-    void restartExplorer(); // so that Win+V and Win+S change hands now
     void explorerRestarted(bool back); // `back`: the taskbar is
     void setClipboardPaused(bool paused);
     void showClipboardSettings(); // the settings window on its 剪贴板 page
@@ -320,6 +341,69 @@ private:
     // with the first call, whatever the AI switch says.
     plugin::Tools& pluginTools();
     mcp::Services toolServices() const; // what the tool hosts (the AI's, the plugins') need from the app
+
+    // ---- AI 助手: get_settings, change_settings, open_settings (AiSettings) ----
+    // What the AI's tool host asks of the app; all on the GUI thread. The
+    // host asks the user (confirmSettingsChange) unless the mode is auto
+    // and nothing asks always, then has applyAiSettings make the changes
+    // from a queued invocation of its own and answers with what it says.
+    aisettings::State aiState() const; // the settings, and autostart
+    aisettings::Env aiEnv() const;
+    QJsonObject aiFacts() const; // what Win顺 knows of this PC that bears on the settings
+    mcp::ToolResult describeAiSettings(const mcp::SettingsQuery& query) const;
+    mcp::SettingsPlan planAiSettings(const QJsonArray& changes) const;
+    void applyAiSettings(const mcp::SettingsApply& apply, std::function<void(mcp::ToolResult)> done);
+    mcp::ToolResult openAiSettings(const QString& key, const QString& section);
+
+    // What came of making a state real: what did not take (and was put
+    // back), and what the user still has to know, by the settings' keys.
+    struct AiFailure {
+        QString why; // English, for the model
+        QString shown; // Chinese, for the notice: short
+    };
+    struct AiApplyReport {
+        QHash<QString, AiFailure> failed; // by key
+        QHash<QString, QString> notes; // key -> what else, in English
+        bool explorerRestart = false; // File Explorer has to restart for some of it to show
+    };
+    // Saves `wanted`, hands it to settingsEdited (so that hotkeys are
+    // registered, Win+V taken, and so on) and the autostart task; a shortcut
+    // or a Windows setting that did not take is put back to `rollback`'s
+    // value for it (a pair per key that changes). `alwaysAllow` also
+    // sets [Mcp] Settings to auto.
+    AiApplyReport applyAiState(const aisettings::State& wanted,
+        const std::vector<std::pair<const aisettings::Entry*, QJsonValue>>& rollback, bool alwaysAllow);
+    // The last batch AI changed, for the notice and its 撤销 (undoSettingsBatch).
+    struct SettingsBatch {
+        quint64 id = 0;
+        QString client; // as it named itself; empty: not known
+        QString reason; // its own words
+        QJsonArray items; // what took: aisettings::itemJson of each, with `note` where there is one
+        QJsonArray failed; // what did not and was put back: {key, title, reason} of each
+        bool explorerRestart = false; // File Explorer has to restart for some of it to show
+        bool undone = false;
+
+        // For QML: {id, client, reason, count, explorerRestart, items: [{key, title, old_text, new_text, diff_text, is_list, effect, note…}]}
+        QVariantMap toVariant() const;
+    };
+    // ---- the seams of the screens (the confirmation card, the notice) ----
+    // The card that asks the user to allow what an AI client wants to
+    // change: `ask.client`, `ask.reason` (the AI's words, to be shown as
+    // such), `ask.items` (QJsonArray::toVariantList() is QML's: title,
+    // old_text, new_text, diff_text, is_list, ask_always, effect) and
+    // `ask.askAlways` (no "from now on" box). `done(answer, always)` once, with
+    // mcp::SettingsAnswer (allowed, refused, no answer in 60 s, could not be
+    // shown) and whether the box was ticked; it is not called after
+    // closeSettingsConfirm(). The card is m_settingsAsk, one at a time;
+    // its QML signal answered(int, bool) goes to settingsAnswered.
+    void confirmSettingsChange(const mcp::SettingsAsk& ask, std::function<void(mcp::SettingsAnswer answer, bool always)> done);
+    void closeSettingsConfirm(); // the call was given up (notifications/cancelled): the card goes, no answer
+    Q_INVOKABLE void settingsAnswered(int answer, bool always);
+    // The small notice shown after a change was made, in either mode (batch.toVariant()).
+    void showSettingsChangedNotice(const SettingsBatch& batch);
+    // Hotkeys, Win+V, PrtScn: what the last apply of a setting reported, by
+    // the setting's key, for the answer to change_settings.
+    void noteApplyProblem(const QString& key, const QString& problem);
 
     Settings m_settings;
     std::unique_ptr<History> m_history;
@@ -468,6 +552,20 @@ private:
         QPointer<QQuickWindow> window;
     };
     std::unique_ptr<ScreenshotAsk> m_screenshotAsk;
+    struct SettingsAskSlot { // change_settings waiting for the user's answer: one at a time
+        std::function<void(mcp::SettingsAnswer, bool)> done;
+        std::unique_ptr<WindowFrame> frame;
+        QPointer<QQuickWindow> window;
+    };
+    std::unique_ptr<SettingsAskSlot> m_settingsAsk;
+    std::unique_ptr<WindowFrame> m_noticeFrame; // the notice after an AI changed settings: made once, kept
+    QPointer<QQuickWindow> m_noticeWindow;
+    std::optional<SettingsBatch> m_settingsBatch;
+    quint64 m_settingsBatchIds = 0;
+    QHash<QString, QString> m_applyProblems; // noteApplyProblem
+    bool m_aiApplying = false; // an AI's change is being applied: what goes wrong is in its answer, not in a balloon
+    QString m_winVState; // as applyClipboardHotkeys last found it: off, on, waiting, releasing, failed
+    QString m_winSState; // likewise for Win+S
     // In front when the launcher last opened: where a screenshot of the
     // history (jt, Enter) is pasted.
     HWND m_launcherTarget = nullptr;

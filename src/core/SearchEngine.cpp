@@ -259,21 +259,38 @@ std::vector<std::string> foldedExtensions(const QStringList& extensions)
 
 // Whether the file at `path` (or so named) has one of `types` (folded): any
 // file or folder when there are none, never a folder when there are.
-bool ofType(const QString& path, bool isDir, const std::vector<std::string>& types)
+// A file of one of `hidden` (the skipped types) is none.
+bool ofType(const QString& path, bool isDir, const std::vector<std::string>& types,
+    const std::vector<std::string>& hidden = {})
 {
-    if (types.empty())
+    if (types.empty() && hidden.empty())
         return true;
     const qsizetype dot = path.lastIndexOf(u'.');
     if (isDir || dot < 0 || dot + 1 >= path.size() || dot < path.lastIndexOf(u'\\') || dot < path.lastIndexOf(u'/'))
-        return false;
+        return types.empty();
     const std::string ext = wtf8::fromUtf16(wtf8::view(path.sliced(dot + 1)));
-    return std::any_of(types.begin(), types.end(), [&](const std::string& t) { return text::equalsFolded(ext, t); });
+    const auto is = [&](const std::string& t) { return text::equalsFolded(ext, t); };
+    return (types.empty() || std::any_of(types.begin(), types.end(), is)) && std::none_of(hidden.begin(), hidden.end(), is);
+}
+
+// Request::excludedTypes, folded, less those asked for: by the type chosen
+// (`types`) or ext: typed. Those are shown all the same.
+std::vector<std::string> hiddenTypes(
+    const SearchEngine::Request& request, const ParsedQuery& query, const std::vector<std::string>& types)
+{
+    std::vector<std::string> hidden = foldedExtensions(request.excludedTypes);
+    const auto asked = [&](const std::string& h) {
+        return std::ranges::find(types, h) != types.end() || std::ranges::find(query.extensions, h) != query.extensions.end();
+    };
+    std::erase_if(hidden, asked);
+    return hidden;
 }
 
 // The query with the type chosen: its extensions, or with ext: typed too,
-// those in both (none: an extension no name has, "/").
-ParsedQuery withTypes(ParsedQuery query, const std::vector<std::string>& types)
+// those in both (none: an extension no name has, "/"); and the types skipped.
+ParsedQuery withTypes(ParsedQuery query, const std::vector<std::string>& types, const std::vector<std::string>& hidden)
 {
+    query.excludedExtensions = hidden;
     if (types.empty())
         return query;
     if (query.extensions.empty()) {
@@ -992,6 +1009,7 @@ void SearchEngine::runNameSearch(const Job& job)
     const bool foldersOnly = request.scope == Scope::Folders;
     // 文件 with a type chosen: only its files, whatever is typed or listed.
     const std::vector<std::string> types = foldersOnly ? std::vector<std::string>() : foldedExtensions(request.extensions);
+    const std::vector<std::string> hidden = hiddenTypes(request, query, types); // skipped, and not asked for
     // Narrowed by when, how large or where (the panel's filters, size: and
     // dm: typed): files and folders alone, in the index's own terms. Nothing
     // typed in the panel lists them all the same (browse).
@@ -1005,7 +1023,8 @@ void SearchEngine::runNameSearch(const Job& job)
             .perFolder = kModifiedPerFolder,
             .perTree = kModifiedPerTree,
             .notAfter = trustedUntil(),
-            .extensions = types};
+            .extensions = types,
+            .excludedExtensions = hidden};
         const auto index = m_index->index();
         const auto lock = index->readLock();
         lockWait = Clock::now() - began;
@@ -1042,7 +1061,7 @@ void SearchEngine::runNameSearch(const Job& job)
                         round.emplace_back(fromPlace(*place, true));
                     continue;
                 }
-                if (!ofType(path, false, types))
+                if (!ofType(path, false, types, hidden))
                     continue; // asked of the disk only when it may be listed
                 round.emplace_back(path);
                 paths.push_back(path);
@@ -1061,7 +1080,7 @@ void SearchEngine::runNameSearch(const Job& job)
         }
         total = results.size();
     } else {
-        const NameMatcher matcher(withTypes(query, types));
+        const NameMatcher matcher(withTypes(query, types, hidden));
         const PreferredTypes preferred(foldedExtensions(request.preferredTypes)); // searchNames: by match only
         const auto index = m_index->index();
         const RankBy rankBy = request.rankBy;
@@ -1122,7 +1141,7 @@ void SearchEngine::runNameSearch(const Job& job)
             // The ones named just so first; with nothing more typed than the
             // folder, the folder itself (listTyped puts it first).
             SearchResults rows = pathtext::listTyped(typedPath, foldersOnly, static_cast<int>(request.limit));
-            rows.removeIf([&](const SearchResult& r) { return !ofType(r.path, r.isDir, types); });
+            rows.removeIf([&](const SearchResult& r) { return !ofType(r.path, r.isDir, types, hidden); });
             exactFirst(rows.begin(), rows.end(), matcher,
                 rankBy == RankBy::Match && request.order.key == SortKey::Rank ? PreferredTypes(foldedExtensions(request.preferredTypes)) : PreferredTypes());
             total -= results.removeIf([&](const SearchResult& deeper) {
@@ -1264,7 +1283,7 @@ void SearchEngine::runNameSearch(const Job& job)
                     kPathsSearched, m_pool, [&] { return isStale(job.id); });
                 for (const EntryId id : ids) {
                     SearchResult row = fromIndex(*index, id);
-                    if (!ofType(row.path, row.isDir, types))
+                    if (!ofType(row.path, row.isDir, types, hidden))
                         continue;
                     row.modified = index->modified(id);
                     const qsizetype opened = request.history.indexOf(row.path, 0, Qt::CaseInsensitive);
@@ -1321,7 +1340,7 @@ void SearchEngine::runNameSearch(const Job& job)
                 reading.filter = query.filter; // the bounds stay as typed
             std::unordered_map<EntryId, NameHit> best;
             for (const ParsedQuery& reading : readings) {
-                const NameMatcher spoken(withTypes(reading, types));
+                const NameMatcher spoken(withTypes(reading, types, hidden));
                 const auto lock = index->readLock();
                 const NameSearchOptions options {.limit = static_cast<std::size_t>(request.limit),
                     .foldersOnly = foldersOnly,
@@ -1370,7 +1389,7 @@ void SearchEngine::runNameSearch(const Job& job)
                     }
                 }
                 total = static_cast<qint64>(best.size());
-                arrange(results, request, NameMatcher(withTypes(readings.front(), types)), rankBy, *m_onDisk);
+                arrange(results, request, NameMatcher(withTypes(readings.front(), types, hidden)), rankBy, *m_onDisk);
                 for (SearchResult& r : results)
                     r.approximate = true; // the recent ones arrange() puts first too
             }
@@ -1479,7 +1498,8 @@ void SearchEngine::runDriveWalk(const Job& job)
     const ParsedQuery query = parseQuery(request.text);
     const bool foldersOnly = request.scope == Scope::Folders;
     const std::vector<std::string> types = foldersOnly ? std::vector<std::string>() : foldedExtensions(request.extensions);
-    const NameMatcher matcher(withTypes(query, types));
+    const std::vector<std::string> hidden = hiddenTypes(request, query, types);
+    const NameMatcher matcher(withTypes(query, types, hidden));
     const RankBy rankBy = request.rankBy;
     const auto stale = [&] { return isStale(job.id); };
     std::optional<PreferredTypes> preferred;
@@ -1543,6 +1563,8 @@ void SearchEngine::runDriveWalk(const Job& job)
             if (foldersOnly && !isDir)
                 continue;
             const QString qpath = QString::fromStdWString(path);
+            if (!hidden.empty() && !ofType(qpath, isDir, {}, hidden))
+                continue;
             int score = matcher.matchPath(qpath, isDir);
             if (score < 0)
                 continue;
@@ -1624,6 +1646,7 @@ void SearchEngine::runContentSearch(const Job& job)
         = request.contentDocuments ? request.contentExtensions + documentExtensions() : request.contentExtensions;
     const ContentFilter filter {ExtensionFilter(set == ContentSet::OtherTypes ? otherTypes.extensions() : listed),
         request.contentInLowPriority || set == ContentSet::LowPriority};
+    const ExtensionFilter skipped(request.excludedTypes); // packed once, asked of each candidate
     const auto content = m_index->contentIndex();
     const ContentIndex::SearchGuard searching(content.get()); // the content indexer waits meanwhile
     std::vector<Candidate> candidates;
@@ -1726,6 +1749,9 @@ void SearchEngine::runContentSearch(const Job& job)
                 case ContentVerdict::Read:
                     break;
                 }
+                // A skipped type (Settings): neither read nor counted as passed over.
+                if (!skipped.empty() && skipped.matches(name, extLength))
+                    continue;
                 const auto id = static_cast<EntryId>(first + i);
                 if (bounded && !request.filter.fits(index->modified(id), index->size(id), false))
                     continue; // neither read nor counted as passed over

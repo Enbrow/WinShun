@@ -101,15 +101,15 @@ Rectangle {
             break
         }
         const key = keyName(event.key)
-        const isFunctionKey = event.key >= Qt.Key_F1 && event.key <= Qt.Key_F24
+        const combination = mods.concat([key]).join("+")
         if (key.length === 0) {
             partial = qsTr("这个键不能用，换一个试试")
             partialIsHint = true
-        } else if (mods.length === 0 && !isFunctionKey) {
-            partial = qsTr("请同时按住 Ctrl、Alt、Shift 或 Win")
+        } else if (!HotkeyRule.allowed(combination)) { // the rule AI's shortcuts follow too
+            partial = qsTr("请同时按住 Ctrl、Alt 或 Win")
             partialIsHint = true
         } else {
-            recorded(mods.concat([key]).join("+"))
+            recorded(combination)
             stop()
         }
     }

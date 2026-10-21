@@ -1626,6 +1626,24 @@
 - **原因**：没有细究 `QProcess` 在 Windows 上异步读写的时机（`waitForBytesWritten` 和事件循环驱动的读之间），复现不稳定；另一半是上一条的管道互等，当时还没找到。
 - **做法**：测试直接用 Win32：`CreatePipe` + `CreateProcessW`，一个线程 `ReadFile` 它的 stdout，主线程 `WriteFile` 它的 stdin，中间用 `QTest::qWait` 跑事件循环（服务端在测试线程上，要靠事件循环回答）。AI 客户端启动 MCP 服务器就是这样做的，测的也更真。
 
+### 不抢焦点的通知窗口：`HoverHandler` 不能直接放在 `Window` 里
+
+- **现象**：`SettingsNotice.qml` 想在鼠标停在窗口上时暂停自动收起的计时器，把 `HoverHandler` 直接写在 `Window { }` 下，加载时报它没有父 Item。
+- **原因**：`Window` 不是 Item，指针处理器要挂在 Item 上。
+- **做法**：窗口里放一个 `Item { anchors.fill: parent; HoverHandler { id: hover } }`，计时器的 `running` 绑 `!hover.hovered`。窗口不激活（`WS_EX_NOACTIVATE`）也照常收到悬停和点击，所以按钮可以点而 AI 客户端仍在前台。
+
+### QML 调不到 App 的私有 `Q_INVOKABLE`
+
+- **现象**：AI 改完设置后的通知上点“撤销”，按钮有按下的样子，设置却没变；预览渲染和单元测试都看不出来。
+- **原因**：`undoSettingsBatch` 等写在 `App` 的 `private:` 里。moc 照样登记它，用 `metaObject()->indexOfMethod` 连接（确认卡片的 `answered` 就是这样连的）能调到；但 QML 引擎从对象上找方法时跳过私有方法，`host.undoSettingsBatch(...)` 只在日志里报 TypeError。
+- **做法**：要让 QML 直接调用的 `Q_INVOKABLE` 放在 `public:` 里。新加的 QML → C++ 调用要真点一次，离屏预览不会触发按钮。
+
+### 用 Python 改 `.ts`：Windows 上文本模式把换行写成 CRLF
+
+- **现象**：脚本填完译文后 `git diff --stat` 整个 `winshun_en.ts` 都变了，还有“CRLF will be replaced by LF”的提示。
+- **原因**：`open(p, 'w')` 在 Windows 上把 LF 写成 CRLF，而仓库里的 `.ts` 是 LF。
+- **做法**：用 `open(p, 'wb')` 写字节，或 `open(p, 'w', newline='')`。检查有没有丢条目：用 `xml.etree` 把 HEAD 和现在的 `(context, source, comment)` 各读成一张表比较（`git diff` 里 lupdate 插入新条目会让旧条目看起来像删了又加）。
+
 ## 插件系统（阶段 0：探针）
 
 `tools/plugin-probe.cpp`（`build\release\plugin-probe.exe --parent --out 文件`，提权和不提权各跑一次）实测的，2026-10-11，Windows 11 26200。结论：插件进程不由提权的 Win顺 直接起；由它用资源管理器的令牌起一次不提权的 runner，插件由 runner 用普通 `CreateProcessW` 起。

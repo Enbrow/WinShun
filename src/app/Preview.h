@@ -25,6 +25,10 @@
 //     text; hint modes and local Qt modifier events. --rows-source <folder>
 //     compares a saved ResultRow.qml and IconNumber.qml from before an edit.
 //
+//   WinShun.exe --preview-ai-cards <folder> [--dark] [--scale 1.5]
+//     The screens for AI changing settings (SettingsConfirm.qml, SettingsNotice.qml)
+//     over made-up changes: confirm.png, confirm-always.png, notice.png, notice-undone.png.
+//
 // Nothing of the user's is read or written (a temporary profile), and
 // nothing that reaches the running Win顺 is started: no hotkeys, hooks,
 // clipboard listener, taskbar box, pipe server or tray icon. The

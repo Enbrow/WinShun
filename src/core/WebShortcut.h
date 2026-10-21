@@ -107,9 +107,25 @@ QString knownSuggestUrl(const QString& searchUrl);
 // A keyword one can type: not empty, no spaces or quotes.
 bool isValidWebKeyword(QStringView keyword) noexcept;
 
+// Who has a keyword already, as the settings window and AI both ask before
+// giving it away: another web shortcut (not the one at `except`, the one
+// being edited; -1: none), a favorite, or the screenshot history (pass its
+// keyword only while capture is on).
+struct KeywordClaim {
+    enum class By { Nobody, WebShortcut, Favorite, Capture };
+    By by = By::Nobody;
+    QString owner; // the shortcut's or favorite's name, or the capture keyword
+};
+KeywordClaim keywordClaim(const QString& keyword, const WebShortcuts& shortcuts, qsizetype except,
+    const QString& captureKeyword, const std::function<QString(const QString& keyword)>& favoriteOwner);
+
 // An address as a row shows it: no https:// and www., %-escapes decoded
 // ("github.com/search?q=Win Shun"); another scheme stays.
 QString displayWebUrl(const QString& url);
+
+// The name a shortcut gets when its user gives none: its site ("github.com"),
+// or for an app's link the keyword. `shortcut` has its keyword, url and home.
+QString defaultWebShortcutName(const WebShortcut& shortcut);
 
 // ---- import and export ---------------------------------------------------
 // A file of web shortcuts, to take them to another computer or share them:

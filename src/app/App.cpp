@@ -44,6 +44,7 @@
 #include "platform/ComWorker.h"
 #include "platform/Credentials.h"
 #include "platform/DialogJump.h"
+#include "platform/ExternalPreview.h"
 #include "platform/FileManagers.h"
 #include "platform/Foreground.h"
 #include "platform/IdleTrim.h"
@@ -76,6 +77,8 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QOperatingSystemVersion>
+#include <QScopeGuard>
 #include <QGuiApplication>
 #include <QInputMethod>
 #include <QJsonDocument>
@@ -344,6 +347,17 @@ App::~App()
     if (m_screenshotAsk && m_screenshotAsk->window)
         delete m_screenshotAsk->window.data(); // before the QML engine, and before its frame
     m_screenshotAsk.reset();
+    if (m_settingsAsk && m_settingsAsk->window)
+        delete m_settingsAsk->window.data(); // likewise
+    m_settingsAsk.reset();
+    // The AI's host asks the app (to close that card) while it goes: it goes
+    // before the members the app's own order would take first.
+    m_aiBridge.reset();
+    m_mcpServer.reset();
+    m_mcpHost.reset();
+    m_mcpEngine.reset();
+    delete m_noticeWindow.data();
+    m_noticeFrame.reset();
     closeCaptureOcr(true); // its window, before the QML engine too
     delete m_folderMenuWindow; // before its view-model and the QML engine
     m_folderMenu.reset();
@@ -1234,6 +1248,7 @@ void App::applySettings(bool initial)
     m_launcher->setResultOptions(m_settings.foldersFirst ? KindOrder::FoldersFirst : KindOrder::FilesFirst,
         m_settings.showModified, m_settings.thumbnails, m_settings.numberKeys);
     m_launcher->setPreferredTypes(m_settings.preferredTypes);
+    m_launcher->setExcludedTypes(m_settings.excludedTypes);
     m_launcher->setSort(m_settings.sort == u"newest" ? Launcher::NewestFirst
             : m_settings.sort == u"oldest"           ? Launcher::OldestFirst
                                                      : Launcher::BestMatch);
@@ -1278,9 +1293,10 @@ void App::applyHotkey()
             ? tr("“%1” 已被其他程序或系统占用，请换一个。").arg(hotkey)
             : tr("无法识别“%1”，请重新设置。").arg(hotkey);
     }
+    noteApplyProblem(u"Launcher/Hotkey"_s, hotkeyError);
     if (m_settingsEditor)
         m_settingsEditor->setHotkeyError(hotkeyError); // shown next to the shortcut
-    else if (!hotkeyError.isEmpty())
+    else if (!hotkeyError.isEmpty() && !m_aiApplying)
         m_messages->showNotification(tr("快捷键不可用"), hotkeyError);
 }
 
@@ -1326,9 +1342,10 @@ void App::applyFolderMenuHotkey()
             ? tr("“%1” 已被其他程序或系统占用，请换一个。").arg(hotkey)
             : tr("无法识别“%1”，请重新设置。").arg(hotkey);
     }
+    noteApplyProblem(u"Launcher/FolderMenuHotkey"_s, hotkeyError);
     if (m_settingsEditor)
         m_settingsEditor->setFolderMenuHotkeyError(hotkeyError); // shown next to the shortcut
-    else if (!hotkeyError.isEmpty())
+    else if (!hotkeyError.isEmpty() && !m_aiApplying)
         m_messages->showNotification(tr("快捷键不可用"), hotkeyError);
 }
 
@@ -1397,9 +1414,10 @@ void App::applyCapture()
         if (m_settingsEditor) // its copy must not bring the old value back with its next change
             m_settingsEditor->setSettings(m_settings);
     }
+    noteApplyProblem(u"Capture/PrintScreen"_s, note);
     if (m_settingsEditor)
         m_settingsEditor->setCaptureNote(note);
-    else if (!note.isEmpty())
+    else if (!note.isEmpty() && !m_aiApplying)
         m_messages->showNotification(tr("截图"), note);
     applyCaptureHotkeys();
 }
@@ -1423,9 +1441,10 @@ void App::applyCaptureHotkeys()
             ? tr("“%1” 已被其他程序或系统占用，请换一个。").arg(hotkey)
             : tr("无法识别“%1”，请重新设置。").arg(hotkey);
     }
+    noteApplyProblem(u"Capture/Hotkey"_s, hotkeyError);
     if (m_settingsEditor)
         m_settingsEditor->setCaptureHotkeyError(hotkeyError); // shown next to the shortcut
-    else if (!hotkeyError.isEmpty())
+    else if (!hotkeyError.isEmpty() && !m_aiApplying)
         m_messages->showNotification(tr("快捷键不可用"), hotkeyError);
 }
 
@@ -1618,12 +1637,14 @@ void App::applyClipboardHotkeys()
             ? tr("“%1” 已被其他程序或系统占用，请换一个。").arg(hotkey)
             : tr("无法识别“%1”，请重新设置。").arg(hotkey);
     }
+    m_winVState = state;
+    noteApplyProblem(u"Clipboard/Hotkey"_s, hotkeyError);
     m_clipboardShortcut = winV ? u"Win+V"_s : custom ? hotkey : QString();
     m_clipboard->setState(m_settings.clipboard, m_clipboardPaused, m_clipboardShortcut);
     if (m_settingsEditor) {
         m_settingsEditor->setWinVState(state, winv::canRestartExplorer());
         m_settingsEditor->setClipboardHotkeyError(hotkeyError);
-    } else if (!hotkeyError.isEmpty()) {
+    } else if (!hotkeyError.isEmpty() && !m_aiApplying) {
         m_messages->showNotification(tr("快捷键不可用"), hotkeyError);
     }
 }
@@ -1950,6 +1971,7 @@ void App::applyTaskbarHotkeys()
     // registers its keys once.
     if (winS)
         m_messages->registerHotkey(kScreenClipHotkeyId, u"Win+Shift+S"_s);
+    m_winSState = state;
     if (m_settingsEditor)
         m_settingsEditor->setWinSState(state, winv::canRestartExplorer());
 }
@@ -2695,6 +2717,7 @@ void App::applyDialogs()
     }
     if (m_dialogBar) {
         m_dialogBar->setRecordHistory(m_settings.recordHistory);
+        m_dialogBar->setExcludedTypes(m_settings.excludedTypes);
         m_dialogBar->setExcludedApps(m_settings.dialogBarExcludedApps);
         m_dialogBar->setPlace(m_settings.dialogBarPlace);
         m_dialogBar->setResultOptions(m_settings.showModified, m_settings.thumbnails, m_settings.numberKeys);
@@ -3922,6 +3945,9 @@ mcp::Policy App::mcpPolicy() const
     policy.allowOpen = m_settings.mcpAllowOpen;
     policy.allowClipboard = m_settings.mcpClipboard;
     policy.allowScreenshot = m_settings.mcpScreenshot;
+    policy.settingsMode = m_settings.mcpSettings == u"auto" ? mcp::SettingsMode::Auto
+        : m_settings.mcpSettings == u"off"                  ? mcp::SettingsMode::Off
+                                                            : mcp::SettingsMode::Ask;
     policy.captureEnabled = m_settings.captureEnabled;
     policy.excludedPaths = m_settings.mcpExcludedPaths;
     policy.content = m_settings.contentSearch;
@@ -3929,6 +3955,7 @@ mcp::Policy App::mcpPolicy() const
     policy.contentSizeLimits = m_settings.contentSizeLimits();
     policy.contentDocuments = m_settings.contentDocuments;
     policy.contentInLowPriority = m_settings.contentInLowPriority;
+    policy.excludedTypes = m_settings.excludedTypes;
     policy.kindOrder = m_settings.foldersFirst ? KindOrder::FoldersFirst : KindOrder::FilesFirst;
     return policy;
 }
@@ -4118,6 +4145,7 @@ void App::screenshotAnswered(int how)
 void App::applyMcp()
 {
     if (!m_settings.mcp) {
+        closeSettingsConfirm(); // a card for a call that goes with the host
         m_aiBridge.reset();
         m_mcpServer.reset();
         m_mcpHost.reset();
@@ -4135,6 +4163,17 @@ void App::applyMcp()
         services.takeScreenshot = [this](const mcp::ScreenshotRequest& request, std::function<void(mcp::ScreenshotTaken)> done) {
             confirmScreenshot(request, std::move(done));
         };
+        // Likewise the AI's alone: the settings tools.
+        services.getSettings = [this](const mcp::SettingsQuery& query) { return describeAiSettings(query); };
+        services.planSettings = [this](const QJsonArray& changes) { return planAiSettings(changes); };
+        services.confirmSettings = [this](const mcp::SettingsAsk& ask, std::function<void(mcp::SettingsAnswer, bool)> done) {
+            confirmSettingsChange(ask, std::move(done));
+        };
+        services.cancelSettings = [this] { closeSettingsConfirm(); };
+        services.applySettings = [this](const mcp::SettingsApply& apply, std::function<void(mcp::ToolResult)> done) {
+            applyAiSettings(apply, std::move(done));
+        };
+        services.openSettings = [this](const QString& key, const QString& section) { return openAiSettings(key, section); };
         m_mcpHost = std::make_unique<mcp::ToolHost>(std::move(services));
         m_mcpHost->setPolicy(mcpPolicy());
         m_mcpServer = std::make_unique<mcp::McpServer>(m_mcpHost.get(), QStringLiteral(WINSHUN_VERSION));
@@ -4310,6 +4349,513 @@ void App::writeMcpToolsCache()
     QFile file(Settings::dataDir() + u"\\mcp-tools.json"_s);
     if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
         file.write(QJsonDocument(m_mcpHost->tools()).toJson(QJsonDocument::Compact));
+}
+
+// ---- AI 助手: the settings tools (AiSettings) -----------------------------------------
+
+aisettings::State App::aiState() const
+{
+    return {m_settings, autostart::isEnabled()};
+}
+
+// What only the app can tell the catalog.
+aisettings::Env App::aiEnv() const
+{
+    aisettings::Env env;
+    env.hotkeyValid = [](const QString& hotkey) {
+        UINT modifiers = 0;
+        UINT vk = 0;
+        return MessageWindow::parseHotkey(hotkey, &modifiers, &vk);
+    };
+    env.isAdministrator = [] { return userIsAdministrator(); };
+    env.isElevated = [] { return integrity::processElevated(); };
+    env.fileManagerAvailable = [](const QString& manager) {
+        for (const auto& [kind, name] : filemanager::kSettingNames) {
+            if (manager == QLatin1StringView(name))
+                return filemanager::installed(kind);
+        }
+        return false;
+    };
+    env.keywordOwner = [this](const QString& keyword) -> QString {
+        if (!m_favorites)
+            return {};
+        const qsizetype i = typedFavoriteKeyword(m_favorites->items(), keyword);
+        return i < 0 ? QString() : m_favorites->items()[i].name;
+    };
+    return env;
+}
+
+// Only what is known already (no probing): cheap enough for the GUI thread.
+QJsonObject App::aiFacts() const
+{
+    QJsonObject facts {{u"windows"_s, QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows11 ? u"11"_s : u"10"_s},
+        {u"ui_language"_s, m_language}, {u"windows_clipboard_history_on"_s, Settings::windowsClipboardHistory()},
+        {u"running_as_administrator"_s, integrity::processElevated()}, {u"account_is_administrator"_s, userIsAdministrator()},
+        {u"low_memory"_s, Settings::lowMemory()}, {u"monitors"_s, static_cast<int>(QGuiApplication::screens().size())},
+        {u"taskbar_search_box_supported"_s, taskbar::SearchBox::supported()}};
+    MEMORYSTATUSEX memory {sizeof memory};
+    if (::GlobalMemoryStatusEx(&memory))
+        facts.insert(u"memory_gb"_s, static_cast<int>(std::llround(static_cast<double>(memory.ullTotalPhys) / (1024.0 * 1024.0 * 1024.0))));
+    if (const QScreen* screen = QGuiApplication::primaryScreen())
+        facts.insert(u"primary_monitor_scale_percent"_s, static_cast<int>(std::lround(screen->devicePixelRatio() * 100)));
+    QJsonArray managers;
+    for (const auto& [kind, name] : filemanager::kSettingNames) {
+        if (kind == filemanager::Kind::Custom ? !m_settings.fileManagerOpenCommand.isEmpty() : filemanager::installed(kind))
+            managers.push_back(QString::fromLatin1(name));
+    }
+    facts.insert(u"file_managers"_s, managers);
+    if (const auto previewer = extpreview::running())
+        facts.insert(u"previewer_running"_s, *previewer == extpreview::Engine::QuickLook ? u"QuickLook"_s : u"Seer"_s);
+    return facts;
+}
+
+mcp::ToolResult App::describeAiSettings(const mcp::SettingsQuery& query) const
+{
+    aisettings::Query q;
+    q.sections = query.sections;
+    q.keys = query.keys;
+    q.words = query.words;
+    q.changedOnly = query.changedOnly;
+    QJsonObject out = aisettings::describe(aiState(), q);
+    if (query.facts)
+        out.insert(u"facts"_s, aiFacts());
+    return {out};
+}
+
+mcp::SettingsPlan App::planAiSettings(const QJsonArray& changes) const
+{
+    const aisettings::Plan plan = aisettings::makePlan(aiState(), changes, aiEnv());
+    mcp::SettingsPlan out;
+    out.problems = plan.problems;
+    for (const aisettings::Item& item : plan.items)
+        out.items.push_back({item.entry->key, item.changed, item.askAlways, item.newValue, aisettings::itemJson(item)});
+    return out;
+}
+
+void App::noteApplyProblem(const QString& key, const QString& problem)
+{
+    if (problem.isEmpty())
+        m_applyProblems.remove(key);
+    else
+        m_applyProblems.insert(key, problem);
+}
+
+App::AiApplyReport App::applyAiState(const aisettings::State& wanted,
+    const std::vector<std::pair<const aisettings::Entry*, QJsonValue>>& rollback, bool alwaysAllow)
+{
+    AiApplyReport report;
+    m_applyProblems.clear();
+    m_aiApplying = true; // what goes wrong is told in the answer, not in a balloon
+    const auto finished = qScopeGuard([this] { m_aiApplying = false; });
+
+    // The recipe of every change App makes to the settings itself: save, take
+    // it as the editor would have (settingsEdited), show it in the window.
+    const bool autostartBefore = autostart::isEnabled();
+    Settings next = wanted.settings;
+    if (alwaysAllow)
+        next.mcpSettings = u"auto"_s; // the user ticked "from now on" on the card
+    next.save();
+    settingsEdited(next);
+    if (m_settingsEditor)
+        m_settingsEditor->setSettings(m_settings);
+    if (wanted.autostart != autostartBefore) {
+        if (m_settingsEditor)
+            m_settingsEditor->setAutostart(wanted.autostart); // tells the window too
+        else
+            autostart::setEnabled(wanted.autostart);
+    }
+
+    // What did not take is put back: a shortcut another program holds, a
+    // Windows setting that could not be written.
+    aisettings::State fixed {m_settings, wanted.autostart};
+    bool putBack = false;
+    for (const auto& [entry, before] : rollback) {
+        const QString& key = entry->key;
+        AiFailure failure;
+        if (entry->type == aisettings::Type::Hotkey && !m_applyProblems.value(key).isEmpty()) {
+            failure.why = u"Another program or Windows already uses that shortcut, so the setting stays %1."_s.arg(
+                before.toString().isEmpty() ? u"empty"_s : u'"' + before.toString() + u'"');
+            failure.shown = tr("被其他程序占用，未修改");
+        } else if (key == u"Clipboard/WinV" && m_settings.clipboardWinV && m_winVRegistryFailed) {
+            failure.why = u"Windows would not let Win顺 have Win+V (its registry setting could not be written)."_s;
+            failure.shown = tr("Windows 不让 Win顺 用 Win+V，未修改");
+        } else if (key == u"Taskbar/WinS" && m_settings.taskbarWinS && m_winSRegistryFailed) {
+            failure.why = u"Windows would not let Win顺 have Win+S (its registry setting could not be written)."_s;
+            failure.shown = tr("Windows 不让 Win顺 用 Win+S，未修改");
+        } else if (key == u"Launcher/Autostart" && autostart::isEnabled() != wanted.autostart) {
+            failure.why = u"Windows did not take the change (the task in the Task Scheduler could not be %1), so autostart stays as it was."_s.arg(
+                wanted.autostart ? u"made"_s : u"removed"_s);
+            failure.shown = tr("Windows 没有接受，未修改");
+            fixed.autostart = autostart::isEnabled(); // what it really is
+        }
+        if (!failure.why.isEmpty()) {
+            report.failed.insert(key, failure);
+            if (key != u"Launcher/Autostart") { // that one is no line of the settings file: `fixed` has it already
+                aisettings::restore(*entry, fixed, before);
+                putBack = true;
+            }
+            continue;
+        }
+        if (entry->effect == aisettings::Effect::ExplorerRestart) {
+            const QString& state = key == u"Clipboard/WinV" ? m_winVState : m_winSState;
+            if (state == u"waiting" || state == u"releasing") {
+                report.explorerRestart = true;
+                report.notes.insert(key, u"Takes effect once File Explorer restarts: Win顺 offers a button for it, or the user can sign out and in."_s);
+            }
+        } else if (entry->effect == aisettings::Effect::AppRestart) {
+            report.notes.insert(key, u"Takes effect after Win顺 restarts."_s);
+        } else if (entry->type == aisettings::Type::Hotkey && m_settingsEditor && m_settingsEditor->recordingHotkey()) {
+            report.notes.insert(key, u"The settings window is recording a shortcut just now: this one is registered when that ends."_s);
+        }
+        if (key == u"Capture/PrintScreen" && !m_applyProblems.value(key).isEmpty())
+            report.notes.insert(key, u"Windows would not let Win顺 change what PrtScn does (the Snipping Tool setting)."_s);
+    }
+    if (putBack) {
+        fixed.settings.save();
+        settingsEdited(fixed.settings);
+        if (m_settingsEditor)
+            m_settingsEditor->setSettings(m_settings);
+        // The old shortcut is registered again just now: it may not come back
+        // either (the other program took it in between).
+        for (auto it = report.failed.begin(); it != report.failed.end(); ++it) {
+            if (!m_applyProblems.value(it.key()).isEmpty())
+                it->why += u" The earlier value could not be registered again either, so nothing holds that shortcut until Win顺 restarts or it is set again."_s;
+        }
+    }
+    return report;
+}
+
+// Plans again against the settings as they are now: the card may have waited
+// a minute, and the user may have used the settings window meanwhile. Only
+// what the user was shown (apply.approved) is made: a change that comes to
+// something else now, or to more, is refused whole.
+void App::applyAiSettings(const mcp::SettingsApply& apply, std::function<void(mcp::ToolResult)> done)
+{
+    const QString mode = m_settings.mcpSettings;
+    if (mode == u"off") { // switched off while the card waited
+        done({{}, true, u"The user no longer allows AI to change settings. Nothing was changed."_s});
+        return;
+    }
+    const aisettings::Plan plan = aisettings::makePlan(aiState(), apply.changes, aiEnv());
+    if (!plan.problems.isEmpty()) {
+        done({{}, true, u"Nothing was changed: the settings changed in the meantime and these no longer fit:\n- "_s + plan.problems.join(u"\n- "_s)});
+        return;
+    }
+    std::vector<std::pair<const aisettings::Entry*, QJsonValue>> rollback;
+    std::vector<const aisettings::Item*> made;
+    for (const aisettings::Item& item : plan.items) {
+        if (!item.changed)
+            continue;
+        rollback.emplace_back(item.entry, item.oldValue);
+        made.push_back(&item);
+    }
+    const bool asApproved = made.size() == apply.approved.size()
+        && std::ranges::all_of(made, [&](const aisettings::Item* item) {
+               return std::ranges::any_of(apply.approved, [&](const mcp::ApprovedChange& a) {
+                   return a.key.compare(item->entry->key, Qt::CaseInsensitive) == 0 && a.value == item->newValue;
+               });
+           });
+    if (!asApproved) {
+        done({{}, true, u"The settings changed while this was waiting, so it would no longer do what the user was shown. Nothing was changed; ask again."_s});
+        return;
+    }
+    // Nothing was asked: the mode must still be auto, and nothing may ask always now.
+    if (!apply.asked && (mode != u"auto" || plan.askAlways())) {
+        done({{}, true, u"This change needs the user's approval now (the settings changed meanwhile). Nothing was changed; ask again."_s});
+        return;
+    }
+    // "From now on" counts for a batch with nothing that asks always (the host checked as well).
+    const bool always = apply.alwaysAllow && !plan.askAlways() && mode == u"ask";
+    const AiApplyReport report = applyAiState(plan.result, rollback, always);
+
+    QJsonArray results;
+    QJsonArray batchItems;
+    QJsonArray batchFailed;
+    QStringList failures;
+    QStringList failureNotes;
+    for (const aisettings::Item* item : made) {
+        const QString& key = item->entry->key;
+        const bool failed = report.failed.contains(key);
+        const QString note = failed ? report.failed.value(key).why : report.notes.value(key);
+        QJsonObject result {{u"key"_s, key}, {u"title"_s, item->entry->titleText()}, {u"old"_s, item->oldValue},
+            {u"new"_s, failed ? item->oldValue : item->newValue}, {u"effect"_s, QString::fromLatin1(aisettings::effectName(item->entry->effect))},
+            {u"applied"_s, !failed}};
+        if (!note.isEmpty())
+            result.insert(u"note"_s, note);
+        results.push_back(result);
+        if (failed) {
+            failures.push_back(u"%1: %2"_s.arg(key, note));
+            const QString shown = report.failed.value(key).shown;
+            failureNotes.push_back(u"%1：%2"_s.arg(item->entry->titleText(), shown));
+            batchFailed.push_back(QJsonObject {{u"key"_s, key}, {u"title"_s, item->entry->titleText()}, {u"reason"_s, shown}});
+            continue;
+        }
+        QJsonObject shown = aisettings::itemJson(*item);
+        if (!note.isEmpty())
+            shown.insert(u"note"_s, note);
+        batchItems.push_back(shown);
+    }
+    qInfo().noquote() << "change_settings:" << apply.client << "changed" << batchItems.size() << "setting(s)"
+                      << (failures.isEmpty() ? QString() : u"; not applied: "_s + failures.join(u"; "_s));
+    if (batchItems.isEmpty()) {
+        m_messages->showNotification(tr("AI 请求的修改没有生效"), failureNotes.join(u'\n'));
+        done({{}, true, u"None of the changes took effect:\n- "_s + failures.join(u"\n- "_s)});
+        return;
+    }
+    SettingsBatch batch;
+    batch.id = ++m_settingsBatchIds;
+    batch.client = apply.client;
+    batch.reason = apply.reason;
+    batch.items = batchItems;
+    batch.failed = batchFailed;
+    batch.explorerRestart = report.explorerRestart;
+    m_settingsBatch = std::move(batch);
+    showSettingsChangedNotice(*m_settingsBatch);
+
+    QJsonObject out {{u"changed"_s, static_cast<int>(batchItems.size())}, {u"not_applied"_s, static_cast<int>(batchFailed.size())},
+        {u"settings"_s, results}, {u"explorer_restart_needed"_s, report.explorerRestart},
+        {u"undo_hint"_s, u"To undo, call change_settings again with each setting's old value. The user was told and can also press 撤销 on the notice for a few seconds."_s}};
+    if (!failures.isEmpty())
+        out.insert(u"warning"_s, u"Some changes did not take and stay as they were (see each setting's applied and note)."_s);
+    if (always)
+        out.insert(u"note"_s, u"From now on Win顺 changes settings for AI without asking each time; the user is told after each change and can undo it."_s);
+    done({out});
+}
+
+QVariantMap App::SettingsBatch::toVariant() const
+{
+    return {{u"id"_s, id}, {u"client"_s, client}, {u"reason"_s, reason}, {u"count"_s, static_cast<int>(items.size())},
+        {u"explorerRestart"_s, explorerRestart}, {u"items"_s, items.toVariantList()}, {u"failed"_s, failed.toVariantList()}};
+}
+
+// Puts back what the batch changed, where it still is what AI set (what the
+// user changed since stays), through the same path as the change.
+QVariantMap App::undoSettingsBatch(quint64 batchId)
+{
+    if (!m_settingsBatch || m_settingsBatch->id != batchId || m_settingsBatch->undone)
+        return {{u"ok"_s, false}, {u"text"_s, tr("这次修改已经不能撤销了")}};
+    aisettings::State state = aiState();
+    std::vector<std::pair<const aisettings::Entry*, QJsonValue>> rollback;
+    int kept = 0;
+    for (const QJsonValue& value : m_settingsBatch->items) {
+        const QJsonObject item = value.toObject();
+        const aisettings::Entry* entry = aisettings::find(item.value(u"key"_s).toString());
+        if (!entry)
+            continue;
+        const QJsonValue current = aisettings::valueOf(*entry, state);
+        if (current != item.value(u"new"_s)) {
+            ++kept; // changed again since: not ours to undo
+            continue;
+        }
+        aisettings::restore(*entry, state, item.value(u"old"_s));
+        rollback.emplace_back(entry, current);
+    }
+    if (rollback.empty())
+        return {{u"ok"_s, false}, {u"text"_s, tr("这些设置之后又被改过，没有撤销")}};
+    const AiApplyReport report = applyAiState(state, rollback, false);
+    m_settingsBatch->undone = true;
+    qInfo().noquote() << "change_settings: undone," << rollback.size() - report.failed.size() << "setting(s) back," << kept << "left as they are";
+    QString text = tr("已撤销");
+    if (kept > 0)
+        text += tr("；有 %1 项之后又被改过，保持现状").arg(kept);
+    if (!report.failed.isEmpty())
+        text += tr("；有 %1 项没能改回去").arg(report.failed.size());
+    return {{u"ok"_s, true}, {u"text"_s, text}, {u"explorerRestart"_s, report.explorerRestart}};
+}
+
+// open_settings, and the notice's 打开设置: the window at the setting's page and
+// tab, its row found by its title (SettingsWindow.qml's showSetting).
+mcp::ToolResult App::openAiSettings(const QString& key, const QString& section)
+{
+    int page = 0;
+    int tab = -1;
+    QString rowTitle;
+    QString where;
+    if (!key.isEmpty()) {
+        const aisettings::Entry* entry = aisettings::find(key);
+        if (!entry || !aisettings::visible(*entry))
+            return {{}, true, u"Unknown setting '%1'; keys come from get_settings."_s.arg(key)};
+        const aisettings::Section* of = aisettings::sectionOf(entry->section);
+        page = of ? of->page : 0;
+        tab = entry->tab;
+        rowTitle = entry->rowTitleText();
+        where = of ? u"%1 › %2"_s.arg(of->titleText(), entry->titleText()) : entry->titleText();
+    } else {
+        const aisettings::Section* of = aisettings::sectionOf(section);
+        if (!of) {
+            QStringList ids;
+            for (const aisettings::Section& s : aisettings::sections())
+                ids.push_back(s.id);
+            return {{}, true, u"Unknown section '%1'; one of: %2."_s.arg(section, ids.join(u", "_s))};
+        }
+        page = of->page;
+        where = of->titleText();
+    }
+    showSettings();
+    if (!m_settingsWindow)
+        return {{}, true, u"The settings window could not be opened."_s};
+    QMetaObject::invokeMethod(m_settingsWindow, "showSetting", Q_ARG(QVariant, page), Q_ARG(QVariant, tab), Q_ARG(QVariant, rowTitle));
+    return {{{u"opened"_s, true}, {u"where"_s, where}}};
+}
+
+void App::showSettingsFor(const QString& key)
+{
+    openAiSettings(key, {});
+}
+
+// ---- the screens: the confirmation card and the notice ---------------------------------
+
+// The screen with the mouse, or the main one.
+static QScreen* screenWithMouse()
+{
+    QScreen* screen = QGuiApplication::screenAt(QCursor::pos());
+    return screen ? screen : QGuiApplication::primaryScreen();
+}
+
+// SettingsConfirm.qml, made as ScreenshotConfirm is (frame, backdrop, style),
+// in the middle of the work area of the screen with the mouse, and kept out of
+// every capture. One at a time: a second request is told so at once.
+void App::confirmSettingsChange(const mcp::SettingsAsk& ask, std::function<void(mcp::SettingsAnswer answer, bool always)> done)
+{
+    if (m_settingsAsk) {
+        done(mcp::SettingsAnswer::Busy, false);
+        return;
+    }
+    auto slot = std::make_unique<SettingsAskSlot>();
+    slot->done = std::move(done);
+    slot->frame = std::make_unique<WindowFrame>(false);
+    QQmlComponent component(m_qml.get(), u"WinShun"_s, u"SettingsConfirm"_s);
+    QObject* object = component.createWithInitialProperties({
+        {u"frame"_s, QVariant::fromValue(slot->frame.get())},
+        {u"client"_s, ask.client.trimmed().isEmpty() ? tr("一个 AI 客户端") : ask.client.trimmed()},
+        {u"reason"_s, ask.reason.trimmed()},
+        {u"items"_s, ask.items.toVariantList()},
+        {u"askAlways"_s, ask.askAlways},
+    });
+    auto* window = qobject_cast<QQuickWindow*>(object);
+    if (!window) {
+        qWarning().noquote() << "change_settings: no confirmation window:" << component.errorString();
+        delete object;
+        slot->done(mcp::SettingsAnswer::Unavailable, false);
+        return;
+    }
+    prepareBackdrop(window);
+    window->create();
+    styleWindow(window, SystemTheme::backdropAvailable());
+    win::setDarkFrame(window, isDarkMode());
+    slot->frame->setWindow(window);
+    ::SetWindowDisplayAffinity(reinterpret_cast<HWND>(window->winId()), WDA_EXCLUDEFROMCAPTURE);
+    const int signal = object->metaObject()->indexOfSignal("answered(int,bool)");
+    const int answered = metaObject()->indexOfMethod("settingsAnswered(int,bool)");
+    if (signal >= 0 && answered >= 0)
+        QObject::connect(object, object->metaObject()->method(signal), this, metaObject()->method(answered));
+    QScreen* screen = screenWithMouse();
+    window->setScreen(screen);
+    // In the middle of the work area; again when the wrapped text settles its height.
+    const auto centre = [window, screen = QPointer<QScreen>(screen)] {
+        if (!screen)
+            return;
+        const QRect area = screen->availableGeometry();
+        window->setPosition(area.center() - QPoint(window->width() / 2, window->height() / 2));
+    };
+    centre();
+    connect(window, &QWindow::heightChanged, window, centre);
+    slot->window = window;
+    m_settingsAsk = std::move(slot);
+    window->show();
+    window->raise();
+    win::bringToFront(window);
+    window->requestActivate();
+    qInfo().noquote() << "change_settings: asking the user for" << ask.items.size() << "change(s) for" << ask.client;
+}
+
+void App::closeSettingsConfirm()
+{
+    std::unique_ptr<SettingsAskSlot> ask = std::move(m_settingsAsk);
+    if (!ask)
+        return;
+    if (ask->window) {
+        ask->window->hide();
+        ask->window->deleteLater();
+    }
+    if (ask->frame)
+        ask->frame.release()->deleteLater();
+}
+
+void App::settingsAnswered(int answer, bool always)
+{
+    std::unique_ptr<SettingsAskSlot> ask = std::move(m_settingsAsk);
+    if (!ask)
+        return;
+    // Gone after the signal that told it returned; its frame after it.
+    if (ask->window) {
+        ask->window->hide();
+        ask->window->deleteLater();
+    }
+    if (ask->frame)
+        ask->frame.release()->deleteLater();
+    // The card's own numbers (SettingsConfirm.qml): 1 allowed, 0 refused, anything else no answer in time.
+    const mcp::SettingsAnswer how = answer == 1 ? mcp::SettingsAnswer::Allowed
+        : answer == 0                           ? mcp::SettingsAnswer::Refused
+                                                : mcp::SettingsAnswer::Timeout;
+    qInfo().noquote() << "change_settings:"
+                      << (how == mcp::SettingsAnswer::Allowed ? "allowed" : how == mcp::SettingsAnswer::Refused ? "refused" : "no answer in time");
+    if (ask->done)
+        ask->done(how, always);
+}
+
+// SettingsNotice.qml: the batch said in the corner of the work area (of the
+// screen with the mouse), with 撤销. Made the first time and kept; a newer
+// batch replaces what it shows. It never takes the focus from the AI client
+// that is in front: the window does not accept it (Qt::WindowDoesNotAcceptFocus),
+// no click activates it (WS_EX_NOACTIVATE, WM_MOUSEACTIVATE in WindowFrame),
+// and it is shown without activating (Qt's _q_showWithoutActivating, then a
+// SWP_NOACTIVATE move to the top, as the clipboard window is).
+void App::showSettingsChangedNotice(const SettingsBatch& batch)
+{
+    if (!m_noticeWindow) {
+        m_noticeFrame = std::make_unique<WindowFrame>(false);
+        QQmlComponent component(m_qml.get(), u"WinShun"_s, u"SettingsNotice"_s);
+        QObject* object = component.createWithInitialProperties({
+            {u"frame"_s, QVariant::fromValue(m_noticeFrame.get())},
+            {u"host"_s, QVariant::fromValue<QObject*>(this)},
+        });
+        auto* window = qobject_cast<QQuickWindow*>(object);
+        if (!window) {
+            qWarning().noquote() << "change_settings: no notice window:" << component.errorString();
+            delete object;
+            m_noticeFrame.reset();
+            m_messages->showNotification(tr("设置已被 AI 修改"), tr("可以在设置里改回来。"));
+            return;
+        }
+        prepareBackdrop(window);
+        window->create();
+        styleWindow(window, SystemTheme::backdropAvailable());
+        win::setDarkFrame(window, isDarkMode());
+        m_noticeFrame->setWindow(window);
+        m_noticeFrame->setNoActivate(true);
+        m_noticeWindow = window;
+        // Its corner, kept as it grows (the list, the answer after 撤销).
+        const auto place = [window] {
+            if (!window->screen())
+                return;
+            constexpr int margin = 16; // logical pixels from the work area's edges
+            const QRect area = window->screen()->availableGeometry();
+            window->setPosition(area.x() + area.width() - window->width() - margin, area.y() + area.height() - window->height() - margin);
+        };
+        connect(window, &QWindow::heightChanged, window, place);
+        connect(window, &QWindow::widthChanged, window, place);
+    }
+    QQuickWindow* window = m_noticeWindow;
+    QScreen* screen = screenWithMouse();
+    if (window->isVisible() && window->screen() != screen)
+        window->hide();
+    window->setScreen(screen);
+    QMetaObject::invokeMethod(window, "present", Q_ARG(QVariant, batch.toVariant()));
+    window->setProperty("_q_showWithoutActivating", true);
+    window->show();
+    window->setProperty("_q_showWithoutActivating", QVariant());
+    ::SetWindowPos(reinterpret_cast<HWND>(window->winId()), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
 } // namespace ws

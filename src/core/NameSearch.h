@@ -108,6 +108,8 @@ struct NewestOptions {
     // Files: only those with one of these extensions (folded, without the
     // dot); empty: any.
     std::vector<std::string> extensions;
+    // Files with these extensions (folded, without the dot) are left out.
+    std::vector<std::string> excludedExtensions;
 };
 
 struct NewestOutput {

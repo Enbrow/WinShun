@@ -465,6 +465,7 @@ void Launcher::searchLeftOut(const QString& kind)
     SearchEngine::Request request;
     request.rankBy = rankBy();
     request.preferredTypes = m_preferredTypes;
+    request.excludedTypes = m_excludedTypes;
     if (kind.startsWith(kDriveHint)) {
         request.text = m_query;
         request.scope = m_scope == Folders ? ws::Scope::Folders : ws::Scope::Files; // 全部: its files and folders
@@ -720,6 +721,16 @@ void Launcher::setPreferredTypes(const QStringList& types)
     m_preferredTypes = types;
     // Their order shows only ranked by match, among names (not 内容's rows).
     if (m_window && m_window->isVisible() && m_scope != Content && rankBy() == RankBy::Match)
+        search();
+}
+
+void Launcher::setExcludedTypes(const QStringList& types)
+{
+    if (types == m_excludedTypes)
+        return;
+    m_excludedTypes = types;
+    // Files come or go in whatever is listed now: asked again, in place.
+    if (m_window && m_window->isVisible())
         search();
 }
 
@@ -1079,6 +1090,7 @@ void Launcher::search(bool more)
     request.kindOrder = m_kindOrder;
     request.rankBy = rankBy();
     request.preferredTypes = m_preferredTypes;
+    request.excludedTypes = m_excludedTypes;
     request.startList = m_startList == RecentlyModified ? ws::StartList::Modified : ws::StartList::Opened;
     request.limit = kPage * m_pages;
     if (m_panel) { // its filters and order; nothing typed lists everything
@@ -1288,6 +1300,7 @@ void Launcher::startContentSearch()
     request.text = m_scope == Content ? m_query.trimmed() : contentNeedle();
     request.scope = ws::Scope::Content;
     request.rankBy = rankBy();
+    request.excludedTypes = m_excludedTypes;
     request.maxContentResults = kPage * m_pages;
     request.contentExtensions = m_contentExtensions;
     request.contentSizeLimits = m_contentSizeLimits;

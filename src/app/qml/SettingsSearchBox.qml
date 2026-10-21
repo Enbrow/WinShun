@@ -21,6 +21,7 @@ Rectangle {
     signal escaped() // Esc with nothing typed
 
     function clear() { input.text = "" }
+    function setText(text) { input.text = text } // App::openAiSettings: looks for a row by its title
     function focusAll() {
         input.forceActiveFocus(Qt.ShortcutFocusReason)
         input.selectAll()

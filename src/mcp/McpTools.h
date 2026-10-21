@@ -39,6 +39,15 @@ class SearchEngine;
 
 namespace mcp {
 
+// Whether AI may change Win顺's settings (change_settings): not at all, each
+// change asked of the user on the screen, or at once with the user told
+// afterwards (and able to undo it). The settings' [Mcp] Settings.
+enum class SettingsMode { Off, Ask, Auto };
+inline const char* settingsModeName(SettingsMode mode) noexcept
+{
+    return mode == SettingsMode::Auto ? "auto" : mode == SettingsMode::Ask ? "ask" : "off";
+}
+
 // What the user allows and how searches are set up (from the settings).
 struct Policy {
     bool allowOpen = false; // open_item, show_in_folder
@@ -50,12 +59,14 @@ struct Policy {
     // it is off (and says why).
     bool captureEnabled = false;
     bool allowDocuments = false; // list_documents: for plugins (winshun:content), not AI clients
+    SettingsMode settingsMode = SettingsMode::Off; // change_settings
     QStringList excludedPaths; // folders AI never sees (%VARS% expanded by setPolicy)
     bool content = true; // search_content: off with the launcher's content search
     QStringList contentExtensions; // as the launcher's content search
     ContentSizeLimits contentSizeLimits;
     bool contentDocuments = true;
     bool contentInLowPriority = false;
+    QStringList excludedTypes; // file types left out of searches, as the launcher's (Settings::excludedTypes)
     KindOrder kindOrder = KindOrder::FilesFirst;
 
     bool operator==(const Policy&) const = default;
@@ -106,6 +117,79 @@ struct ScreenshotTaken {
     QString monitor; // which, in words
 };
 
+struct ToolResult {
+    QJsonObject structured; // the result (structuredContent), also serialized as the text
+    bool isError = false;
+    QString errorText; // isError: what went wrong, for the model
+};
+
+// ---- the settings tools (the app answers: src/app/AiSettings) ---------------------------------
+
+// get_settings: what to list.
+struct SettingsQuery {
+    QStringList sections; // ids; empty: all
+    QStringList keys; // empty: all
+    QString words; // all of them in the key, title or description
+    bool changedOnly = false; // only what differs from the defaults
+    bool facts = false; // and what Win顺 knows of this PC that bears on the settings
+};
+
+// One change as the app worked it out.
+struct SettingsPlanItem {
+    QString key;
+    bool changed = false; // false: it is so already
+    bool askAlways = false; // the user is asked even when AI may change settings by itself
+    QJsonValue newValue; // what the setting becomes
+    QJsonObject shown; // for the confirmation card: title, old_text, new_text, removed_text, added_text …
+};
+
+// What the app made of the changes asked for.
+struct SettingsPlan {
+    QStringList problems; // any: nothing is to be applied
+    std::vector<SettingsPlanItem> items; // in the order asked
+};
+
+// How the user answered the card that asks (App::confirmSettingsChange). The
+// values are those of the card's own signal (SettingsConfirm.qml).
+enum class SettingsAnswer : int {
+    Busy = -3, // another card is waiting
+    Unavailable = -2, // it could not be shown
+    Timeout = -1, // no answer in time
+    Refused = 0,
+    Allowed = 1,
+};
+
+// What the user was shown for one setting, and so what is allowed to happen.
+struct ApprovedChange {
+    QString key;
+    QJsonValue value;
+};
+
+// The card that asks the user.
+struct SettingsAsk {
+    QString client; // who asks, as it named itself
+    QString reason; // the AI's own words, one line, at most 200 characters
+    QJsonArray items; // the changes that are to be made (the plan's `shown` of those that changed)
+    bool askAlways = false; // one of them asks even in auto mode: no "from now on" box
+};
+
+// To apply, once the user has agreed (or needs not): the app plans again
+// against the settings as they are by then, so the card may have waited, and
+// applies only what comes to what `approved` says.
+struct SettingsApply {
+    QString client;
+    QString reason;
+    QJsonArray changes; // as asked
+    std::vector<ApprovedChange> approved; // every change that was to be made, as the user was shown it
+    bool asked = false; // the user answered a card; else the mode was auto and nothing asked always
+    bool alwaysAllow = false; // the user ticked "from now on" on a card with nothing that asks always
+};
+
+// Text of AI's (a reason, a client's name) as it may be shown to the user: on
+// one line, without control or invisible formatting characters (line breaks,
+// direction marks), cut to `maxChars`.
+QString cleanShownText(const QString& text, qsizetype maxChars);
+
 // What the host needs from the app. Those left empty take their tools away
 // (wsbench has no shell and no clipboard).
 struct Services {
@@ -127,16 +211,25 @@ struct Services {
     // no answer in time, another request waiting). Only the AI host's:
     // plugins never take screenshots.
     std::function<void(const ScreenshotRequest&, std::function<void(ScreenshotTaken)> done)> takeScreenshot;
+    // The settings tools, the AI's alone (plugins never change settings).
+    // getSettings, planSettings and openSettings answer at once, on the GUI
+    // thread. confirmSettings shows the card; `done` once, with an answer
+    // and whether the user ticked "from now on";
+    // cancelSettings takes the card away without an answer (the client
+    // gave the call up). applySettings makes the changes and says what came
+    // of each; `done` once, on the GUI thread.
+    std::function<ToolResult(const SettingsQuery&)> getSettings;
+    std::function<SettingsPlan(const QJsonArray& changes)> planSettings;
+    std::function<void(const SettingsAsk&, std::function<void(SettingsAnswer answer, bool always)> done)> confirmSettings;
+    std::function<void()> cancelSettings;
+    std::function<void(const SettingsApply&, std::function<void(ToolResult)> done)> applySettings;
+    // Opens the settings window at a setting (its key) or a section (its
+    // id) and brings it to the front.
+    std::function<ToolResult(const QString& key, const QString& section)> openSettings;
     // Where screenshot_history puts its copies of the pictures; empty:
     // %TEMP%\WinShun\mcp.
     QString tempFolder;
     std::function<void(const QString& line)> log; // one line per call
-};
-
-struct ToolResult {
-    QJsonObject structured; // the result (structuredContent), also serialized as the text
-    bool isError = false;
-    QString errorText; // isError: what went wrong, for the model
 };
 
 // A tool from outside the host: a plugin's command (plugin::AiBridge, the
@@ -174,7 +267,7 @@ public:
     QStringList toolNames() const; // likewise, the names
     Known known(const QString& name) const;
     // Known::Off: the tool's own words on why, when it has any (an external
-    // tool's offReason); empty for the switches in the settings.
+    // tool's offReason, change_settings' switch); empty for the others.
     QString offReason(const QString& name) const;
     // The external tools, all of them at once (the earlier ones go; a call
     // under way on one of them finishes). toolsChanged() when what is on
@@ -193,6 +286,9 @@ public:
 
     // For the initialize result: how to search with Win顺.
     static QString instructions();
+    // The prompt "setup" (prompts/get): asks the model to find out how the
+    // user works and propose settings; `focus` narrows it to one area.
+    static QString setupPrompt(const QString& focus);
 
 signals:
     void toolsChanged();
@@ -226,6 +322,10 @@ private:
     void indexStatus(const std::shared_ptr<Call>& call);
     void readFileText(const std::shared_ptr<Call>& call);
     void listDocuments(const std::shared_ptr<Call>& call);
+    void getSettings(const std::shared_ptr<Call>& call);
+    void changeSettings(const std::shared_ptr<Call>& call);
+    void applySettings(const std::shared_ptr<Call>& call, SettingsApply apply);
+    void openSettings(const std::shared_ptr<Call>& call);
 
     const Tool* find(const QString& name) const; // among the host's own and the external ones
 

@@ -10,6 +10,9 @@ Rectangle {
     property string trailingGlyph // after the text (a drop-down's chevron)
     property bool highlighted: false
     property bool flat: false // no background until hovered
+    // false: Tab skips it and Space and Enter do nothing; only a click works
+    // (for a button that a key meant for another window must not press).
+    property bool keyboardActivation: true
     readonly property color foreground: highlighted ? Theme.accentText : Theme.text
 
     signal clicked()
@@ -18,16 +21,16 @@ Rectangle {
     implicitHeight: 36
     radius: Theme.controlRadius
     opacity: enabled ? 1 : 0.45
-    activeFocusOnTab: true
+    activeFocusOnTab: keyboardActivation
     color: highlighted
            ? (area.pressed ? Qt.darker(Theme.accentFill, 1.15) : area.containsMouse ? Qt.lighter(Theme.accentFill, 1.08) : Theme.accentFill)
            : (area.pressed ? Theme.controlPressed : area.containsMouse ? Theme.controlHover : flat ? "transparent" : Theme.control)
     border.width: highlighted || (flat && !area.containsMouse) ? 0 : 1
     border.color: Theme.controlBorder
 
-    Keys.onSpacePressed: button.clicked()
-    Keys.onReturnPressed: button.clicked()
-    Keys.onEnterPressed: button.clicked()
+    Keys.onSpacePressed: if (keyboardActivation) button.clicked()
+    Keys.onReturnPressed: if (keyboardActivation) button.clicked()
+    Keys.onEnterPressed: if (keyboardActivation) button.clicked()
 
     Row {
         id: content

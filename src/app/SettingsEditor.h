@@ -112,6 +112,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString indexServiceMessage READ indexServiceMessage NOTIFY indexAccessStateChanged FINAL)
     Q_PROPERTY(QStringList excludedPaths READ excludedPaths NOTIFY changed FINAL) // expanded, for display
     Q_PROPERTY(QStringList excludedNames READ excludedNames NOTIFY changed FINAL)
+    Q_PROPERTY(QStringList excludedTypes READ excludedTypes NOTIFY changed FINAL)
     Q_PROPERTY(bool contentSearch READ contentSearch WRITE setContentSearch NOTIFY changed FINAL)
     Q_PROPERTY(QStringList contentExtensions READ contentExtensions NOTIFY changed FINAL)
     // Size limits in MB by kind of file (ContentSizeLimits::Kind: text, code, data),
@@ -222,6 +223,8 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool mcpClipboard READ mcpClipboard WRITE setMcpClipboard NOTIFY changed FINAL)
     Q_PROPERTY(bool mcpScreenshot READ mcpScreenshot WRITE setMcpScreenshot NOTIFY changed FINAL) // take_screenshot
     Q_PROPERTY(bool mcpPlugins READ mcpPlugins WRITE setMcpPlugins NOTIFY changed FINAL) // the plugins' commands as tools
+    // change_settings: "ask" (each change asked of the user), "auto" (made at once, the user told) or "off"
+    Q_PROPERTY(QString mcpSettings READ mcpSettings WRITE setMcpSettings NOTIFY changed FINAL)
     Q_PROPERTY(bool mcpPluginActions READ mcpPluginActions WRITE setMcpPluginActions NOTIFY changed FINAL) // and their actions
     Q_PROPERTY(QStringList mcpExcludedPaths READ mcpExcludedPaths NOTIFY changed FINAL) // expanded, for display
     Q_PROPERTY(QString mcpStatus READ mcpStatus NOTIFY mcpStatusChanged FINAL)
@@ -368,6 +371,7 @@ public:
     Q_INVOKABLE void uninstallIndexService() { emit indexServiceInstallRequested(false); }
     QStringList excludedPaths() const;
     QStringList excludedNames() const { return m_settings.excludedNames; }
+    QStringList excludedTypes() const { return m_settings.excludedTypes; }
     bool contentSearch() const { return m_settings.contentSearch; }
     void setContentSearch(bool on);
     QStringList contentExtensions() const { return m_settings.contentExtensions; }
@@ -556,6 +560,8 @@ public:
     Q_INVOKABLE void removeExcludedPath(int index);
     Q_INVOKABLE bool addExcludedName(const QString& name);
     Q_INVOKABLE void removeExcludedName(int index);
+    Q_INVOKABLE bool addExcludedTypes(const QString& text); // "wbk, .bak *.tmp"
+    Q_INVOKABLE void removeExcludedType(int index);
     Q_INVOKABLE void removeDialogBarExcludedApp(int index);
     Q_INVOKABLE bool addContentExtensions(const QString& text); // "md, .log *.csv"
     Q_INVOKABLE void removeContentExtension(int index);
@@ -623,6 +629,8 @@ public:
     bool mcpScreenshot() const { return m_settings.mcpScreenshot; }
     void setMcpScreenshot(bool on);
     bool mcpPlugins() const { return m_settings.mcpPlugins; }
+    QString mcpSettings() const { return m_settings.mcpSettings; }
+    void setMcpSettings(const QString& mode);
     void setMcpPlugins(bool on);
     bool mcpPluginActions() const { return m_settings.mcpPluginActions; }
     void setMcpPluginActions(bool on);

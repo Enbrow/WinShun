@@ -541,6 +541,93 @@ QStringList Settings::fileExtensions(const QString& text)
     return extensions;
 }
 
+QStringList Settings::contentExtensionList(const QString& text)
+{
+    static const QRegularExpression separators(u"[\\s,;，；、]+"_s);
+    QStringList extensions;
+    for (QString ext : text.split(separators, Qt::SkipEmptyParts)) {
+        while (ext.startsWith(u'*') || ext.startsWith(u'.'))
+            ext.remove(0, 1);
+        ext = ext.toLower();
+        if (!ext.isEmpty() && !extensions.contains(ext))
+            extensions.append(ext);
+    }
+    return extensions;
+}
+
+QString Settings::programFileName(const QString& text)
+{
+    QString app = QFileInfo(text.trimmed()).fileName();
+    if (!app.isEmpty() && !app.endsWith(u".exe", Qt::CaseInsensitive))
+        app += u".exe"_s;
+    return app;
+}
+
+QString Settings::excludedFolderName(const QString& text)
+{
+    QString name = QDir::fromNativeSeparators(text.trimmed());
+    while (name.endsWith(u'/'))
+        name.chop(1);
+    return name;
+}
+
+QString Settings::normalizedHotkey(const QString& shortcut)
+{
+    bool win = false;
+    bool ctrl = false;
+    bool alt = false;
+    bool shift = false;
+    QString key;
+    for (const QString& part : shortcut.split(u'+', Qt::SkipEmptyParts)) {
+        const QString name = part.trimmed().toLower();
+        if (name == u"ctrl" || name == u"control")
+            ctrl = true;
+        else if (name == u"alt")
+            alt = true;
+        else if (name == u"shift")
+            shift = true;
+        else if (name == u"win" || name == u"meta")
+            win = true;
+        else if (!key.isEmpty() || name.isEmpty())
+            return {}; // two keys
+        else if (name == u"return")
+            key = u"enter"_s;
+        else if (name == u"print" || name == u"prtsc")
+            key = u"printscreen"_s;
+        else if (name == u"backquote")
+            key = u"`"_s;
+        else
+            key = name;
+    }
+    // The keys MessageWindow::parseHotkey knows.
+    static const QRegularExpression knownKey(u"^([a-z0-9]|f([1-9]|1\\d|2[0-4])|space|tab|enter|printscreen|`)$"_s);
+    if (!knownKey.match(key).hasMatch())
+        return {};
+    QStringList parts;
+    if (win)
+        parts.push_back(u"win"_s);
+    if (ctrl)
+        parts.push_back(u"ctrl"_s);
+    if (alt)
+        parts.push_back(u"alt"_s);
+    if (shift)
+        parts.push_back(u"shift"_s);
+    parts.push_back(key);
+    return parts.join(u'+');
+}
+
+bool Settings::hotkeyAllowed(const QString& shortcut)
+{
+    const QString normal = normalizedHotkey(shortcut);
+    if (normal.isEmpty())
+        return false;
+    const QStringList parts = normal.split(u'+');
+    static const QRegularExpression functionKey(u"^f([1-9]|1\\d|2[0-4])$"_s);
+    if (functionKey.match(parts.last()).hasMatch())
+        return true;
+    return parts.contains(u"ctrl") || parts.contains(u"alt") || parts.contains(u"win");
+}
+
 FileTypes Settings::namedFileTypes() const
 {
     FileTypes types = fileTypes;
@@ -706,6 +793,8 @@ void Settings::load()
 
     excludedPaths = readOrDefault(s, u"Index/ExcludedPaths"_s, d.excludedPaths);
     excludedNames = readOrDefault(s, u"Index/ExcludedNames"_s, d.excludedNames);
+    // As written by hand too: ".WBK; bak" is wbk and bak.
+    excludedTypes = fileExtensions(readOrDefault(s, u"Index/ExcludedTypes"_s, d.excludedTypes).join(u' '));
     includeRemovableDrives = readOrDefault(s, u"Index/IncludeRemovableDrives"_s, d.includeRemovableDrives);
     rescanOnStartup = readOrDefault(s, u"Index/RescanOnStartup"_s, d.rescanOnStartup);
     indexAccess = readOrDefault(s, u"Index/Access"_s, d.indexAccess).trimmed().toLower();
@@ -810,6 +899,9 @@ void Settings::load()
     mcpExcludedPaths = readOrDefault(s, u"Mcp/ExcludedPaths"_s, d.mcpExcludedPaths);
     mcpPlugins = readOrDefault(s, u"Mcp/Plugins"_s, d.mcpPlugins);
     mcpPluginActions = readOrDefault(s, u"Mcp/PluginActions"_s, d.mcpPluginActions);
+    mcpSettings = readOrDefault(s, u"Mcp/Settings"_s, d.mcpSettings).trimmed().toLower();
+    if (mcpSettings != u"auto" && mcpSettings != u"off")
+        mcpSettings = d.mcpSettings;
 
     pluginDeveloperMode = readOrDefault(s, u"Plugins/DeveloperMode"_s, d.pluginDeveloperMode);
     plugins = readPlugins(s);
@@ -866,6 +958,7 @@ void Settings::save() const
     s.setValue(u"Backup/Folder"_s, backupFolder);
     s.setValue(u"Index/ExcludedPaths"_s, excludedPaths);
     s.setValue(u"Index/ExcludedNames"_s, excludedNames);
+    s.setValue(u"Index/ExcludedTypes"_s, excludedTypes);
     s.setValue(u"Index/IncludeRemovableDrives"_s, includeRemovableDrives);
     s.setValue(u"Index/RescanOnStartup"_s, rescanOnStartup);
     s.setValue(u"Index/Access"_s, indexAccess);
@@ -914,6 +1007,7 @@ void Settings::save() const
     s.setValue(u"Mcp/ExcludedPaths"_s, mcpExcludedPaths);
     s.setValue(u"Mcp/Plugins"_s, mcpPlugins);
     s.setValue(u"Mcp/PluginActions"_s, mcpPluginActions);
+    s.setValue(u"Mcp/Settings"_s, mcpSettings);
     s.setValue(u"Plugins/DeveloperMode"_s, pluginDeveloperMode);
     writePlugins(s, plugins);
 }

@@ -33,6 +33,18 @@ add_test(NAME tst_numberhints COMMAND tst_numberhints)
 set_tests_properties(tst_numberhints PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
 
+# The settings AI may read and change (src/app/AiSettings): the catalog's
+# validation, what is never writable, and every writable entry through a
+# save and a load.
+qt_add_executable(tst_aisettings tst_aisettings.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/AiSettings.cpp ${PROJECT_SOURCE_DIR}/src/app/Settings.cpp)
+target_include_directories(tst_aisettings PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_link_libraries(tst_aisettings PRIVATE wscore Qt6::Gui Qt6::Test)
+set_target_properties(tst_aisettings PROPERTIES WIN32_EXECUTABLE FALSE)
+add_test(NAME tst_aisettings COMMAND tst_aisettings)
+set_tests_properties(tst_aisettings PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
 qt_add_executable(tst_settings tst_settings.cpp ${PROJECT_SOURCE_DIR}/src/app/Settings.cpp)
 target_include_directories(tst_settings PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(tst_settings PRIVATE wscore Qt6::Gui Qt6::Test)

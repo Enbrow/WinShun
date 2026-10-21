@@ -46,6 +46,7 @@ endforeach()
 
 qt_add_executable(WinShun WIN32
     main.cpp
+    AiSettings.cpp AiSettings.h
     App.cpp App.h
     ColorText.cpp ColorText.h
     Elide.cpp Elide.h
@@ -185,6 +186,8 @@ set(qml_files
     qml/CaptureCard.qml
     qml/OcrPanel.qml
     qml/ScreenshotConfirm.qml
+    qml/SettingsConfirm.qml
+    qml/SettingsNotice.qml
 )
 set_source_files_properties(qml/Theme.qml qml/Gleaning.qml qml/WarmPalette.qml qml/AuthorClock.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
@@ -236,6 +239,7 @@ qt_add_qml_module(WinShun
         FilePreview.cpp FilePreview.h
         FolderMenu.cpp FolderMenu.h
         GleaningScene.cpp GleaningScene.h
+        HotkeyRule.h
         IconBadge.cpp IconBadge.h
         Launcher.cpp Launcher.h
         Placement.cpp Placement.h

@@ -607,6 +607,7 @@ void DialogBar::search()
     // best matches of all); where to save: folders first.
     request.scope = foldersOnly() ? Scope::Folders : Scope::Files;
     request.kindOrder = m_kind == filedialog::Kind::Save ? KindOrder::FoldersFirst : KindOrder::FilesFirst;
+    request.excludedTypes = m_excludedTypes;
     if (m_recordHistory)
         request.history = m_history->items();
     if (m_favorites)

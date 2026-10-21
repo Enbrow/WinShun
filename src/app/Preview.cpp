@@ -49,6 +49,7 @@ namespace {
 constexpr auto kFlag = u"--preview-plugins";
 constexpr auto kSettingsFlag = u"--preview-settings";
 constexpr auto kResultsFlag = u"--preview-results";
+constexpr auto kAiCardsFlag = u"--preview-ai-cards";
 
 int g_warnings = 0;
 QtMessageHandler g_previous = nullptr;
@@ -819,11 +820,95 @@ int runResults(const QStringList& args)
     return finish(window, saved);
 }
 
+// ---- --preview-ai-cards -----------------------------------------------------------------
+
+// The AI settings screens (SettingsConfirm.qml, SettingsNotice.qml) over
+// made-up changes: the card asking, once with the "from now on" box and once
+// without it (a security setting in the batch, a long explanation, a long list),
+// the notice after a change, and after 撤销.
+int runAiCards(const QStringList& args)
+{
+    const QDir out(valueAfter(args, kAiCardsFlag));
+    QQmlApplicationEngine engine;
+    const auto change = [](const QString& title, const QString& oldText, const QString& newText, bool askAlways = false,
+                            const QString& diff = {}, const QString& effect = u"now"_s) {
+        return QVariantMap{{u"key"_s, u"Preview/"_s + title}, {u"title"_s, title}, {u"old_text"_s, oldText}, {u"new_text"_s, newText},
+            {u"diff_text"_s, diff}, {u"is_list"_s, !diff.isEmpty()}, {u"ask_always"_s, askAlways}, {u"changed"_s, true}, {u"effect"_s, effect}};
+    };
+    const QVariantList few {
+        change(u"启动器热键"_s, u"双击 Ctrl"_s, u"Alt+Space"_s),
+        change(u"搜索结果排序"_s, u"最匹配"_s, u"最近修改"_s),
+        change(u"不索引的文件夹"_s, {}, {}, false, u"+ node_modules, .git / − Downloads"_s),
+    };
+    QVariantList many = few;
+    many << change(u"开机自启"_s, u"关"_s, u"开"_s, true)
+         << change(u"用 Win+V 打开剪贴板历史"_s, u"关"_s, u"开"_s, false, {}, u"explorer_restart"_s)
+         << change(u"剪贴板保留条数"_s, u"1000"_s, u"5000"_s)
+         << change(u"网站搜索"_s, {}, {}, true, u"+ gh（GitHub 搜索）"_s);
+
+    bool saved = true;
+    const auto card = [&](const QString& name, const QString& reason, const QVariantList& items, bool askAlways) {
+        auto* frame = new WindowFrame(false, &engine);
+        QQmlComponent component(&engine, u"WinShun"_s, u"SettingsConfirm"_s);
+        QObject* object = component.createWithInitialProperties({{u"frame"_s, QVariant::fromValue(frame)}, {u"client"_s, u"Claude Desktop"_s},
+            {u"reason"_s, reason}, {u"items"_s, items}, {u"askAlways"_s, askAlways}});
+        auto* window = qobject_cast<QQuickWindow*>(object);
+        if (!window) {
+            say(component.errorString());
+            delete object;
+            saved = false;
+            return;
+        }
+        showOffScreen(window);
+        settle(window);
+        pump(300);
+        saved = saveGrab(window, out.filePath(name)) && saved;
+        window->hide();
+        delete window;
+    };
+    card(u"confirm.png"_s, u"你说想换一个顺手的热键，并且别让下载文件夹出现在搜索里。"_s, few, false);
+    card(u"confirm-always.png"_s,
+        u"用户说这台电脑常处理代码，希望开机就能用，剪贴板也想用 Win+V；顺便把常用的几项都调好：排序、热键、不索引的文件夹，以及网站搜索里加 GitHub。这一句故意写得很长，看看超过三行时会不会被截断，而不是把窗口撑得很高。"_s,
+        many, true);
+
+    const auto notice = [&](const QString& name, bool undone) {
+        auto* frame = new WindowFrame(false, &engine);
+        auto* host = new QObject(&engine);
+        QQmlComponent component(&engine, u"WinShun"_s, u"SettingsNotice"_s);
+        QObject* object = component.createWithInitialProperties({{u"frame"_s, QVariant::fromValue(frame)}, {u"host"_s, QVariant::fromValue(host)}});
+        auto* window = qobject_cast<QQuickWindow*>(object);
+        if (!window) {
+            say(component.errorString());
+            delete object;
+            saved = false;
+            return;
+        }
+        showOffScreen(window);
+        const QVariantMap batch {{u"id"_s, 1}, {u"client"_s, u"Claude Desktop"_s}, {u"count"_s, 6},
+            {u"explorerRestart"_s, true}, {u"items"_s, many.mid(0, 6)}};
+        QMetaObject::invokeMethod(window, "present", Q_ARG(QVariant, batch));
+        if (undone) {
+            window->setProperty("outcome", u"已撤销"_s);
+            window->setProperty("outcomeOk", true);
+        }
+        settle(window);
+        pump(300);
+        saved = saveGrab(window, out.filePath(name)) && saved;
+        window->hide();
+        delete window;
+    };
+    notice(u"notice.png"_s, false);
+    notice(u"notice-undone.png"_s, true);
+    QDir(Settings::dataDir()).removeRecursively();
+    say(u"%1 warning(s)"_s.arg(g_warnings));
+    return saved ? std::min(g_warnings, 100) : 4;
+}
+
 } // namespace
 
 bool wanted(const QStringList& args)
 {
-    return args.contains(kFlag) || args.contains(kSettingsFlag) || args.contains(kResultsFlag);
+    return args.contains(kFlag) || args.contains(kSettingsFlag) || args.contains(kResultsFlag) || args.contains(kAiCardsFlag);
 }
 
 void note(const QString& line)
@@ -834,7 +919,7 @@ void note(const QString& line)
 void prepare(const QStringList& args)
 {
     const bool resultsMode = args.contains(kResultsFlag);
-    const QString folder = valueAfter(args, resultsMode ? kResultsFlag : kSettingsFlag);
+    const QString folder = valueAfter(args, resultsMode ? kResultsFlag : args.contains(kAiCardsFlag) ? kAiCardsFlag : kSettingsFlag);
     if (!folder.isEmpty()) {
         QDir().mkpath(folder);
         g_logPath = QDir(folder).filePath(u"preview.log"_s);
@@ -863,7 +948,8 @@ int run(const QStringList& args)
 {
     const bool settingsMode = args.contains(kSettingsFlag);
     const bool resultsMode = args.contains(kResultsFlag);
-    if (valueAfter(args, resultsMode ? kResultsFlag : settingsMode ? kSettingsFlag : kFlag).isEmpty()) {
+    const bool cardsMode = args.contains(kAiCardsFlag);
+    if (valueAfter(args, resultsMode ? kResultsFlag : cardsMode ? kAiCardsFlag : settingsMode ? kSettingsFlag : kFlag).isEmpty()) {
         std::fprintf(stderr, "usage: WinShun --preview-plugins <file.png> [--dark] [--scale 1.5] [--dialog] [--page ai]\n"
                              "       WinShun --preview-settings <folder> [--dark] [--scale 1.5] [--tree]\n");
         return 2;
@@ -871,7 +957,7 @@ int run(const QStringList& args)
     g_previous = qInstallMessageHandler(countWarnings);
     QGuiApplication::styleHints()->setColorScheme(args.contains(u"--dark"_s) ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
     SystemTheme::setBackdropAvailable(false); // plain colours, as a window without Mica
-    return resultsMode ? runResults(args) : settingsMode ? runSettings(args) : runPlugins(args);
+    return resultsMode ? runResults(args) : cardsMode ? runAiCards(args) : settingsMode ? runSettings(args) : runPlugins(args);
 }
 
 } // namespace ws::preview

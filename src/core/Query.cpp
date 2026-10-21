@@ -678,7 +678,10 @@ std::vector<ParsedQuery> homophoneQueries(const ParsedQuery& query)
 
 NameMatcher::NameMatcher(const ParsedQuery& query)
     : m_extensions(query.extensions)
+    , m_excluded(query.excludedExtensions)
 {
+    for (const std::string& e : m_excluded)
+        m_excludedLongest = std::max(m_excludedLongest, e.size());
     for (const auto& t : query.terms) {
         if (t.negated) {
             m_negative.push_back(t); // exclusions stay literal: no surprises
@@ -897,6 +900,18 @@ std::uint64_t NameMatcher::termsInFolders(const FileIndex& index, EntryId folder
 
 int NameMatcher::match(const FileIndex& index, const Entry& entry, Folders& folders) const
 {
+    // A skipped type: a file only (a folder named "x.bak" stays), and before
+    // the rest, so that the name is not searched for nothing. Not in
+    // nameMayMatch: a name is shared by a file and a folder.
+    if (!m_excluded.empty() && !entry.isDir()) {
+        const std::size_t extLength = index.extLength(entry);
+        if (extLength > 0 && extLength <= m_excludedLongest) {
+            const std::string_view name = index.name(entry);
+            const std::string_view ext = name.substr(name.size() - extLength);
+            if (std::any_of(m_excluded.begin(), m_excluded.end(), [&](const std::string& e) { return text::equalsFolded(ext, e); }))
+                return -1;
+        }
+    }
     return score<true>(
         index.name(entry), entry.isDir(), [&] { return (entry.flags & EntryFlag::Han) != 0; }, index.extLength(entry),
         [&](const std::vector<std::string>& segments, const pinyin::Matcher* folders) {

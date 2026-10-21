@@ -8,6 +8,7 @@
 #include "McpTools.h"
 
 #include <QByteArray>
+#include <QJsonArray>
 #include <QDateTime>
 #include <QJsonValue>
 #include <QObject>
@@ -75,6 +76,8 @@ private:
     void handleRequest(Session& session, const QJsonValue& id, const QString& method, const QJsonObject& params);
     void handleNotification(Session& session, const QString& method, const QJsonObject& params);
     void callTool(Session& session, const QJsonValue& id, const QJsonObject& params);
+    QJsonArray prompts() const;
+    void getPrompt(Session& session, const QJsonValue& id, const QJsonObject& params);
     void endSession(SessionId id);
     void toolsChanged();
     static QJsonObject toolResult(const ToolResult& result);

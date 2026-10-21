@@ -57,6 +57,9 @@ constexpr int kMaxTextChars = 100000;
 constexpr int kDefaultDocuments = 1000;
 constexpr int kMaxDocuments = 5000;
 constexpr int kContentThreads = 8;
+constexpr int kMaxSettingChanges = 20;
+constexpr int kMaxReasonChars = 200;
+constexpr int kMaxClientChars = 60;
 
 // ---- JSON Schema ------------------------------------------------------------
 
@@ -342,7 +345,7 @@ QString stateName(IndexService::State state)
 // ---- the host ---------------------------------------------------------------
 
 struct ToolHost::Tool {
-    enum class Gate { None, Open, Clipboard, Documents, Screenshot };
+    enum class Gate { None, Open, Clipboard, Documents, Screenshot, Settings };
     QString name;
     QString title;
     QString description;
@@ -365,7 +368,8 @@ struct ToolHost::Tool {
             return offered;
         return offered
             && (gate == Gate::None || (gate == Gate::Open && policy.allowOpen) || (gate == Gate::Clipboard && policy.allowClipboard)
-                || (gate == Gate::Documents && policy.allowDocuments) || (gate == Gate::Screenshot && policy.allowScreenshot));
+                || (gate == Gate::Documents && policy.allowDocuments) || (gate == Gate::Screenshot && policy.allowScreenshot)
+                || (gate == Gate::Settings && policy.settingsMode != SettingsMode::Off));
     }
 
     QJsonObject json() const
@@ -387,6 +391,7 @@ struct ToolHost::Call {
     Done done;
     QElapsedTimer timer;
     bool cancelled = false;
+    bool settingsCard = false; // change_settings: the card asking the user is up for this call
     HANDLE token = nullptr; // the caller's, for Visibility; null: the default
     int checks = 0; // access checks made, and their time, for the log
     qint64 checkUs = 0;
@@ -504,6 +509,11 @@ ToolHost::Known ToolHost::known(const QString& name) const
 QString ToolHost::offReason(const QString& name) const
 {
     const Tool* tool = find(name);
+    if (tool && tool->gate == Tool::Gate::Settings) {
+        return u"The tool '%1' is off: the user has not allowed AI to change Win顺's settings. Ask them to turn it on in "
+               "设置 → AI 助手 → 权限 → “允许 AI 修改设置” (every time ask me, or change directly), then call it again. "
+               "If they would rather do it themselves, open_settings shows them where a setting is."_s.arg(name);
+    }
     return tool && tool->external ? tool->offReason : QString();
 }
 
@@ -606,6 +616,8 @@ void ToolHost::cancel(std::uint64_t id)
             m_others.erase(it);
             if (call->tool && call->tool->external && call->tool->cancelExternal)
                 call->tool->cancelExternal(id);
+            if (call->settingsCard && m_services.cancelSettings)
+                m_services.cancelSettings(); // the card goes with the call
             return;
         }
     }
@@ -690,7 +702,38 @@ QString ToolHost::instructions()
            "needed. Tools that open files or read the clipboard history are listed only when the user allowed them "
            "in Win顺's settings. screenshot_history lists the screenshots the user took with Win顺, with the text read "
            "in them and a PNG file to look at; take_screenshot asks the user on the screen every time and waits for "
-           "the answer: call it only when a picture of the screen is really needed."_s;
+           "the answer: call it only when a picture of the screen is really needed.\n"
+           "Settings: get_settings lists Win顺's settings (use its sections, query or keys to look only at what is "
+           "relevant; facts=true adds what Win顺 knows of this PC), open_settings shows the user where a setting is, "
+           "and change_settings (offered only when the user allowed it) changes them. Read get_settings before you "
+           "change anything; change only what the user asked for or agreed to; put every related change in ONE "
+           "change_settings call, with a one-sentence reason the user will read next to your name. The user may be "
+           "asked to allow it, and may undo it afterwards. Some settings are never changed by AI (the AI switches, "
+           "plugins, commands, folders); when the user wants to do it themselves, call open_settings instead."_s;
+}
+
+QString ToolHost::setupPrompt(const QString& focus)
+{
+    QString text = u"Help me set up Win顺 (WinShun), the file search tool on this PC, to suit how I use my computer. "
+                   "Answer in my language.\n"
+                   "1. Call get_settings with facts=true (and, to keep it short, sections or a query for the area "
+                   "I care about) to see the settings, their defaults and what this PC is like.\n"
+                   "2. Ask me 3 to 5 short questions about how I use my computer: what I search for most (file names, "
+                   "text inside files, the clipboard, web pages), which file manager and browser I use, whether I play "
+                   "games, whether the computer is a laptop with little memory, and what annoys me in Win顺 now. "
+                   "Ask them together in one message, in plain words, not in technical terms.\n"
+                   "3. From my answers propose a small set of changes (at most about ten): for each say what it does "
+                   "and why, in plain words. Do not change anything I did not ask for. Do not touch settings you could "
+                   "not explain.\n"
+                   "4. When I agree, apply them all with ONE change_settings call and a one-sentence reason. If it is "
+                   "not offered, tell me to turn on 允许 AI 修改设置 in Win顺's settings (AI 助手 → 权限), or offer "
+                   "open_settings so I can do it myself. I may be asked on the screen to allow the change, and I can "
+                   "undo it afterwards.\n"
+                   "5. Tell me what changed, and anything that needs me to do something (for example a restart of File "
+                   "Explorer)."_s;
+    if (!focus.trimmed().isEmpty())
+        text += u"\nFocus on: "_s + focus.trimmed();
+    return text;
 }
 
 // ---- the engine's answers ----------------------------------------------------
@@ -1000,6 +1043,81 @@ void ToolHost::addTools()
     take.run = [this](const std::shared_ptr<Call>& call) { takeScreenshot(call); };
     m_tools.push_back(std::move(take));
 
+    Tool settings;
+    settings.name = u"get_settings"_s;
+    settings.title = u"Win顺's settings"_s;
+    settings.description = u"The settings of Win顺 that AI may know, each with its key, current value, default, what it does and "
+                           "what values it takes, grouped in sections (shortcuts, taskbar, files_and_dialogs, startup, appearance, "
+                           "scope, results, content, web, clipboard, capture, advanced). Narrow it with sections, keys or query "
+                           "(words in Chinese or English), or changed_only for what differs from the defaults. facts=true adds "
+                           "what Win顺 knows of this PC that bears on the settings. Settings that are not listed are not AI's to "
+                           "know or change."_s;
+    settings.inputSchema = object(
+        {{u"sections"_s, array(typed("string", u"A section id"_s), u"Only these sections"_s)},
+            {u"keys"_s, array(typed("string", u"A setting's key, like Launcher/DoubleCtrl"_s), u"Only these settings"_s)},
+            {u"query"_s, typed("string", u"Words that must all occur in a setting's key, title, description or choices"_s)},
+            {u"changed_only"_s, boolean(u"Only the settings that differ from their defaults"_s, false)},
+            {u"facts"_s, boolean(u"Also say what Win顺 knows of this PC (Windows version, memory, file managers installed, administrator rights …)"_s, false)}});
+    settings.outputSchema = object({{u"settings"_s, array(typed("object", u"key, title, section, type, value, default, choices, min, max, writable, ask_always, effect, about"_s), u"The settings that fit"_s)},
+        {u"sections"_s, array(typed("object", u"id and title"_s), u"The sections they are in"_s)},
+        {u"ai"_s, typed("object", u"settings_mode: off, ask or auto: whether change_settings is offered and how"_s)},
+        {u"facts"_s, typed("object", u"Only with facts=true"_s)}});
+    settings.annotations = annotations(true, true);
+    settings.offered = static_cast<bool>(m_services.getSettings);
+    settings.run = [this](const std::shared_ptr<Call>& call) { getSettings(call); };
+    m_tools.push_back(std::move(settings));
+
+    Tool change;
+    change.name = u"change_settings"_s;
+    change.title = u"Change Win顺's settings"_s;
+    change.description = u"Changes settings of Win顺 for the user, all of them or none: every change is checked first and one "
+                         "that is wrong stops the whole call with every problem listed. Take the keys and the values they accept "
+                         "from get_settings. A change is {key, value} (a list: the whole new list), or {key, add: [...]} or "
+                         "{key, remove: [...]} for a list. Put all related changes in one call, with a one-sentence reason in the "
+                         "user's language: the user reads it, as yours, on a card that asks them to allow the change (always "
+                         "for some settings; for the others unless they said to change directly). Declined or unanswered "
+                         "(60 seconds): an error, nothing changed, do not ask again unless the user wants it. The result says "
+                         "what each setting was and is, whether it took effect, and what the user still has to do (File "
+                         "Explorer or Win顺 restarting). To undo, call again with the old values."_s;
+    {
+        QJsonObject item = object({{u"key"_s, typed("string", u"The setting's key from get_settings"_s)},
+                                      {u"value"_s, QJsonObject {{u"description"_s, u"The new value (a boolean, a string, a number, or for a list the whole new list)"_s}}},
+                                      {u"add"_s, QJsonObject {{u"description"_s, u"A list: the items to add (an array; for web_shortcuts objects {keyword, name?, url, home?})"_s}}},
+                                      {u"remove"_s, QJsonObject {{u"description"_s, u"A list: the items to take out (an array; for web_shortcuts the keywords)"_s}}}},
+            {u"key"_s});
+        QJsonObject changes = array(item, u"The changes to make together"_s);
+        changes.insert(u"minItems"_s, 1);
+        changes.insert(u"maxItems"_s, kMaxSettingChanges);
+        QJsonObject reason = typed("string", u"One sentence for the user: why these changes (shown next to your name)"_s);
+        reason.insert(u"maxLength"_s, kMaxReasonChars);
+        change.inputSchema = object({{u"changes"_s, changes}, {u"reason"_s, reason}}, {u"changes"_s, u"reason"_s});
+    }
+    change.outputSchema = object({{u"changed"_s, typed("integer", u"How many settings changed"_s)},
+        {u"unchanged"_s, array(typed("string", u"A key"_s), u"Settings that were set so already"_s)},
+        {u"settings"_s, array(typed("object", u"key, title, old, new, effect, applied, note"_s), u"What each change came to"_s)},
+        {u"explorer_restart_needed"_s, typed("boolean", u"File Explorer has to restart for some of it to show: the user can do it from the notice"_s)},
+        {u"undo_hint"_s, typed("string", u"How to undo"_s)}});
+    change.annotations = annotations(false, true);
+    change.gate = Tool::Gate::Settings;
+    change.offered = m_services.planSettings && m_services.confirmSettings && m_services.applySettings;
+    change.run = [this](const std::shared_ptr<Call>& call) { changeSettings(call); };
+    m_tools.push_back(std::move(change));
+
+    Tool openSetting;
+    openSetting.name = u"open_settings"_s;
+    openSetting.title = u"Show a setting to the user"_s;
+    openSetting.description = u"Opens Win顺's settings window at a setting (key from get_settings) or a section, scrolled to it, "
+                              "in front of the user. Use it when the user wants to look at or change something themselves, or "
+                              "for what AI may not change."_s;
+    openSetting.inputSchema = object({{u"key"_s, typed("string", u"A setting's key from get_settings"_s)},
+        {u"section"_s, typed("string", u"A section id from get_settings"_s)}});
+    openSetting.outputSchema = object({{u"opened"_s, typed("boolean", u"The window was opened"_s)},
+        {u"where"_s, typed("string", u"The page it was opened at"_s)}});
+    openSetting.annotations = annotations(true, true);
+    openSetting.offered = static_cast<bool>(m_services.openSettings);
+    openSetting.run = [this](const std::shared_ptr<Call>& call) { openSettings(call); };
+    m_tools.push_back(std::move(openSetting));
+
     Tool status;
     status.name = u"index_status"_s;
     status.title = u"Win顺 status"_s;
@@ -1011,7 +1129,7 @@ void ToolHost::addTools()
         {u"version"_s, typed("string", u"Its version"_s)},
         {u"index"_s, typed("object", u"state (loading, building, ready), items, volumes"_s)},
         {u"content_index"_s, typed("object", u"enabled, files, pending, reading"_s)},
-        {u"ai"_s, typed("object", u"open_allowed, clipboard_allowed, screenshot_allowed, capture_enabled, excluded_folders"_s)}, {u"hint"_s, typed("string", u"What to tell the user when Win顺 is not running"_s)}});
+        {u"ai"_s, typed("object", u"open_allowed, clipboard_allowed, screenshot_allowed, capture_enabled, settings_mode (off, ask, auto), excluded_folders"_s)}, {u"hint"_s, typed("string", u"What to tell the user when Win顺 is not running"_s)}});
     status.annotations = annotations(true, true);
     status.run = [this](const std::shared_ptr<Call>& call) { indexStatus(call); };
     m_tools.push_back(std::move(status));
@@ -1079,6 +1197,7 @@ void ToolHost::searchFiles(const std::shared_ptr<Call>& call)
     request.scope = kind == u"folders" ? Scope::Folders : Scope::Files;
     request.kindOrder = m_policy.kindOrder;
     request.rankBy = sort == u"modified" ? RankBy::Newest : sort == u"oldest" ? RankBy::Oldest : RankBy::Match;
+    request.excludedTypes = m_policy.excludedTypes; // unless the query says ext:
     // Files and folders are each kept to the limit (kindsApart); excluded
     // ones are taken out afterwards, so a few more are asked for.
     request.limit = std::min(kMaxFiles, limit + 10);
@@ -1130,6 +1249,7 @@ void ToolHost::searchContent(const std::shared_ptr<Call>& call)
     request.contentSizeLimits = m_policy.contentSizeLimits;
     request.contentDocuments = m_policy.contentDocuments;
     request.contentInLowPriority = system || m_policy.contentInLowPriority;
+    request.excludedTypes = m_policy.excludedTypes;
     request.maxContentResults = limit + 10;
     request.contentThreads = kContentThreads;
     request.contentFolders = std::move(folders);
@@ -1159,6 +1279,16 @@ void ToolHost::recentFiles(const std::shared_ptr<Call>& call)
             ext.remove(0, 1);
         if (!ext.isEmpty())
             wanted.push_back(ext.toLower().toStdString());
+    }
+    // The skipped file types, less those asked for by extension.
+    std::vector<std::string> skipped;
+    for (QString ext : m_policy.excludedTypes) {
+        ext = ext.toLower();
+        while (ext.startsWith(u'.'))
+            ext.remove(0, 1);
+        const std::string folded = ext.toStdString();
+        if (!ext.isEmpty() && std::ranges::find(wanted, folded) == wanted.end())
+            skipped.push_back(folded);
     }
 
     QElapsedTimer timer;
@@ -1246,6 +1376,16 @@ void ToolHost::recentFiles(const std::shared_ptr<Call>& call)
                     std::ranges::transform(ext, ext.begin(), [](char ch) { return static_cast<char>(std::tolower(static_cast<unsigned char>(ch))); });
                     if (std::ranges::find(wanted, ext) == wanted.end())
                         continue;
+                }
+                if (!skipped.empty() && !e.isDir()) { // the user's skipped file types
+                    std::size_t extLength = 0;
+                    const std::string_view name = index->fileName(e, extLength);
+                    if (extLength > 0) {
+                        std::string ext(name.substr(name.size() - extLength));
+                        std::ranges::transform(ext, ext.begin(), [](char ch) { return static_cast<char>(std::tolower(static_cast<unsigned char>(ch))); });
+                        if (std::ranges::find(skipped, ext) != skipped.end())
+                            continue;
+                    }
                 }
                 if (!isUnder(id))
                     continue;
@@ -1734,6 +1874,7 @@ void ToolHost::indexStatus(const std::shared_ptr<Call>& call)
         {u"clipboard_allowed"_s, m_policy.allowClipboard && m_services.clipboard != nullptr},
         {u"screenshot_allowed"_s, m_policy.allowScreenshot && m_services.takeScreenshot != nullptr},
         {u"capture_enabled"_s, m_policy.captureEnabled},
+        {u"settings_mode"_s, QString::fromLatin1(settingsModeName(m_policy.settingsMode))},
         {u"excluded_folders"_s, static_cast<qint64>(m_excluded.size())}};
     QJsonObject out {{u"running"_s, true}, {u"connected"_s, true}, {u"version"_s, m_services.version}, {u"index"_s, index},
         {u"content_index"_s, content}, {u"ai"_s, ai}};
@@ -1745,6 +1886,181 @@ void ToolHost::indexStatus(const std::shared_ptr<Call>& call)
             out.insert(u"user_idle_seconds"_s, static_cast<qint64>((::GetTickCount() - input.dwTime) / 1000));
     }
     finish(call, {out});
+}
+
+// ---- the settings tools ------------------------------------------------------------------
+
+QString cleanShownText(const QString& text, qsizetype maxChars)
+{
+    QString plain;
+    plain.reserve(text.size());
+    for (qsizetype i = 0; i < text.size(); ++i) {
+        char32_t c = text[i].unicode();
+        const bool pair = text[i].isHighSurrogate() && i + 1 < text.size() && text[i + 1].isLowSurrogate();
+        if (pair)
+            c = QChar::surrogateToUcs4(text[i], text[i + 1]);
+        const QChar::Category category = QChar::category(c);
+        if (QChar::isSpace(c)) { // line breaks, tabs, U+2028 and U+2029 too: one space
+            plain.push_back(u' ');
+        } else if (category != QChar::Other_Control && category != QChar::Other_Format && category != QChar::Other_Surrogate) {
+            plain.push_back(text[i]);
+            if (pair)
+                plain.push_back(text[i + 1]);
+        }
+        if (pair)
+            ++i;
+    }
+    plain = plain.simplified();
+    if (plain.size() > maxChars) {
+        qsizetype cut = maxChars - 1;
+        if (cut > 0 && plain[cut - 1].isHighSurrogate())
+            --cut; // not between the halves of one character
+        plain = plain.left(cut) + u"…"_s;
+    }
+    return plain;
+}
+
+void ToolHost::getSettings(const std::shared_ptr<Call>& call)
+{
+    Args args(call->arguments);
+    SettingsQuery query;
+    query.sections = args.strings(u"sections"_s);
+    query.keys = args.strings(u"keys"_s);
+    query.words = args.string(u"query"_s).trimmed();
+    query.changedOnly = args.boolean(u"changed_only"_s, false);
+    query.facts = args.boolean(u"facts"_s, false);
+    if (!args.error().isEmpty())
+        return finish(call, {{}, true, args.error()});
+    ToolResult result = m_services.getSettings(query);
+    if (!result.isError) {
+        result.structured.insert(u"ai"_s, QJsonObject {{u"settings_mode"_s, QString::fromLatin1(settingsModeName(m_policy.settingsMode))},
+                                              {u"change_settings_offered"_s, known(u"change_settings"_s) == Known::Yes}});
+    }
+    finish(call, std::move(result));
+}
+
+// Plans the changes (all of them or none), asks the user unless the mode
+// is auto and nothing asks always, then applies them from a queued
+// invocation, never inside this call. A call is waiting among the others
+// while the card is up: cancelled meanwhile, the card goes and the answer
+// goes nowhere.
+void ToolHost::changeSettings(const std::shared_ptr<Call>& call)
+{
+    Args args(call->arguments);
+    const QString reason = cleanShownText(args.string(u"reason"_s, true), kMaxReasonChars);
+    if (!args.error().isEmpty())
+        return finish(call, {{}, true, args.error()});
+    if (reason.isEmpty())
+        return finish(call, {{}, true, u"reason must say in a sentence why these changes are made: the user reads it."_s});
+    const QJsonValue changes = call->arguments.value(u"changes"_s);
+    if (!changes.isArray() || changes.toArray().isEmpty() || changes.toArray().size() > kMaxSettingChanges)
+        return finish(call, {{}, true, u"changes must be an array of 1 to %1 objects {key, value | add | remove}."_s.arg(kMaxSettingChanges)});
+
+    const SettingsPlan plan = m_services.planSettings(changes.toArray());
+    if (!plan.problems.isEmpty()) {
+        return finish(call, {{}, true,
+            u"Nothing was changed. These problems must be fixed first:\n- "_s + plan.problems.join(u"\n- "_s)});
+    }
+    QJsonArray shown;
+    QJsonArray unchanged;
+    SettingsApply apply;
+    bool askAlways = false;
+    for (const SettingsPlanItem& item : plan.items) {
+        if (item.changed) {
+            shown.push_back(item.shown);
+            apply.approved.push_back({item.key, item.newValue});
+            askAlways = askAlways || item.askAlways;
+        } else {
+            unchanged.push_back(item.key);
+        }
+    }
+    if (shown.isEmpty()) {
+        return finish(call, {{{u"changed"_s, 0}, {u"unchanged"_s, unchanged}, {u"settings"_s, QJsonArray()},
+            {u"explorer_restart_needed"_s, false}, {u"note"_s, u"Every setting was set so already: nothing changed."_s}}});
+    }
+
+    const QString client = cleanShownText(call->client, kMaxClientChars);
+    apply.client = client;
+    apply.reason = reason;
+    apply.changes = changes.toArray();
+    QPointer<ToolHost> self(this);
+    std::weak_ptr<Call> weak = call;
+    if (m_policy.settingsMode == SettingsMode::Auto && !askAlways) {
+        m_others.push_back(call);
+        QMetaObject::invokeMethod(this, [self, weak, apply = std::move(apply)]() mutable {
+            const std::shared_ptr<Call> c = weak.lock();
+            if (self && c && std::ranges::find(self->m_others, c) != self->m_others.end())
+                self->applySettings(c, std::move(apply));
+        }, Qt::QueuedConnection);
+        return;
+    }
+    if (std::ranges::any_of(m_others, [](const std::shared_ptr<Call>& c) { return c->settingsCard; }))
+        return finish(call, {{}, true, u"Another settings change is waiting for the user's answer; try again later."_s});
+    m_others.push_back(call);
+    call->settingsCard = true;
+    m_services.confirmSettings({client, reason, shown, askAlways},
+        [self, weak, apply = std::move(apply), askAlways](SettingsAnswer answer, bool always) mutable {
+            QMetaObject::invokeMethod(qApp, [self, weak, apply = std::move(apply), askAlways, answer, always]() mutable {
+                const std::shared_ptr<Call> c = weak.lock();
+                if (!self || !c || std::ranges::find(self->m_others, c) == self->m_others.end())
+                    return; // cancelled
+                c->settingsCard = false;
+                if (answer == SettingsAnswer::Allowed) {
+                    // Only a card with nothing that asks always has the box.
+                    apply.asked = true;
+                    apply.alwaysAllow = always && !askAlways;
+                    self->applySettings(c, std::move(apply));
+                    return;
+                }
+                std::erase(self->m_others, c);
+                QString why;
+                switch (answer) {
+                case SettingsAnswer::Refused:
+                    why = u"The user declined the change. Nothing was changed; do not ask again unless the user wants it."_s;
+                    break;
+                case SettingsAnswer::Timeout:
+                    why = u"The user did not answer within 60 seconds, so nothing was changed."_s;
+                    break;
+                case SettingsAnswer::Busy:
+                    why = u"Another settings request is waiting for the user's answer; try again once it is answered."_s;
+                    break;
+                case SettingsAnswer::Unavailable:
+                case SettingsAnswer::Allowed:
+                    why = u"Win顺 could not ask the user, so nothing was changed."_s;
+                    break;
+                }
+                self->finish(c, {{}, true, why});
+            }, Qt::QueuedConnection);
+        });
+}
+
+// Runs in a queued invocation: the app applies and answers; the answer comes
+// back through another, so that the reply is sent after the apply returned.
+void ToolHost::applySettings(const std::shared_ptr<Call>& call, SettingsApply apply)
+{
+    QPointer<ToolHost> self(this);
+    std::weak_ptr<Call> weak = call;
+    m_services.applySettings(apply, [self, weak](ToolResult result) {
+        QMetaObject::invokeMethod(qApp, [self, weak, result = std::move(result)]() mutable {
+            const std::shared_ptr<Call> c = weak.lock();
+            if (!self || !c || std::ranges::find(self->m_others, c) == self->m_others.end())
+                return; // cancelled
+            std::erase(self->m_others, c);
+            self->finish(c, std::move(result));
+        }, Qt::QueuedConnection);
+    });
+}
+
+void ToolHost::openSettings(const std::shared_ptr<Call>& call)
+{
+    Args args(call->arguments);
+    const QString key = args.string(u"key"_s).trimmed();
+    const QString section = args.string(u"section"_s).trimmed();
+    if (!args.error().isEmpty())
+        return finish(call, {{}, true, args.error()});
+    if (key.isEmpty() && section.isEmpty())
+        return finish(call, {{}, true, u"Give a key (from get_settings) or a section id."_s});
+    finish(call, m_services.openSettings(key, section));
 }
 
 } // namespace ws::mcp

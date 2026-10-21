@@ -233,6 +233,29 @@ QString displayWebUrl(const QString& url)
     return shown;
 }
 
+QString defaultWebShortcutName(const WebShortcut& shortcut)
+{
+    const QString shown = displayWebUrl(shortcut.homeUrl());
+    const QString site = shown.left(shown.indexOf(u'/'));
+    return site.isEmpty() || site.contains(u':') ? shortcut.keyword : site;
+}
+
+KeywordClaim keywordClaim(const QString& keyword, const WebShortcuts& shortcuts, qsizetype except, const QString& captureKeyword,
+    const std::function<QString(const QString& keyword)>& favoriteOwner)
+{
+    for (qsizetype i = 0; i < shortcuts.size(); ++i) {
+        if (i != except && shortcuts[i].keyword.compare(keyword, Qt::CaseInsensitive) == 0)
+            return {KeywordClaim::By::WebShortcut, shortcuts[i].name};
+    }
+    if (favoriteOwner) {
+        if (const QString favorite = favoriteOwner(keyword); !favorite.isEmpty())
+            return {KeywordClaim::By::Favorite, favorite};
+    }
+    if (!captureKeyword.isEmpty() && captureKeyword.compare(keyword, Qt::CaseInsensitive) == 0)
+        return {KeywordClaim::By::Capture, captureKeyword};
+    return {};
+}
+
 bool isValidCustomIconName(QStringView name) noexcept
 {
     if (name.size() != 20 || !name.endsWith(u".png"))
