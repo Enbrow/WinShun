@@ -2,16 +2,25 @@
 # the geometry the tests check (Geometry), the pictures (Grabber: Windows.
 # Graphics.Capture through C++/WinRT from the Windows SDK, BitBlt; Hdr), the
 # windows on the screen (WindowSnapshot) and the PrtScn takeover
-# (PrintScreen). What the overlays bind to (CaptureSession, CaptureImage)
-# and the controller (Capture) are in this folder too, but built into
-# WinShun's QML module (src/app/CMakeLists.txt), which registers their types.
+# (PrintScreen), and the annotations' core (Annotation*: the document, its
+# commands, the compositor that draws tiles and exports, the project format
+# and the tools' styles; docs/design-capture-roadmap.md, 3). What the
+# overlays bind to (CaptureSession, CaptureImage) and the controller
+# (Capture) are in this folder too, but built into WinShun's QML module
+# (src/app/CMakeLists.txt), which registers their types.
 add_library(wscapture STATIC
     Geometry.cpp Geometry.h
     Hdr.cpp Hdr.h
     PrintScreen.cpp PrintScreen.h
     WindowSnapshot.cpp WindowSnapshot.h
     Grabber.cpp Grabber.h
+    Annotation.cpp Annotation.h
+    AnnotationCommands.cpp AnnotationCommands.h
+    AnnotationRender.cpp AnnotationRender.h
+    AnnotationFormat.cpp AnnotationFormat.h
+    AnnotationStyles.cpp AnnotationStyles.h
 )
 target_include_directories(wscapture PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+# miniz: the projects' zip (AnnotationFormat).
 target_link_libraries(wscapture PUBLIC winshun_options Qt6::Gui
-    PRIVATE windowsapp d3d11 dxgi dwmapi user32 gdi32 advapi32)
+    PRIVATE miniz windowsapp d3d11 dxgi dwmapi user32 gdi32 advapi32)

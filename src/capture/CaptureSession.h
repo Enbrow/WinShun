@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AnnotationModel.h"
 #include "Geometry.h"
 
 #include <QImage>
@@ -7,6 +8,7 @@
 #include <QPoint>
 #include <QRect>
 #include <QSize>
+#include <QTimer>
 #include <QtQml/qqmlregistration.h>
 
 #include <functional>
@@ -43,6 +45,8 @@ class CaptureScreen : public QObject {
     Q_PROPERTY(QString color READ color NOTIFY cursorChanged FINAL) // "#RRGGBB" under the cursor
     Q_PROPERTY(int cursorShape READ cursorShape NOTIFY cursorChanged FINAL)
     Q_PROPERTY(QString flash READ flash NOTIFY flashChanged FINAL) // a word by the magnifier ("已复制 #…")
+    // A word for the user by the selection ("已放弃这次的标注 · Ctrl+Z 恢复"); empty when none.
+    Q_PROPERTY(QString notice READ notice NOTIFY noticeChanged FINAL)
 
 public:
     static constexpr int kLoupeCells = 15; // odd: the cursor's pixel in the middle
@@ -69,6 +73,7 @@ public:
     QString color() const { return m_color; }
     int cursorShape() const { return m_cursorShape; }
     QString flash() const { return m_flash; }
+    QString notice() const { return m_notice; }
 
     // Where the monitor is (physical, virtual desktop), its DPR and its
     // window's logical size, which the scale follows.
@@ -88,12 +93,14 @@ signals:
     void changed();
     void cursorChanged();
     void flashChanged();
+    void noticeChanged();
 
 private:
     friend class CaptureSession;
     void setState(const QRect& hover, const QRect& selection, bool dimmed, bool adjusting);
     void setCursor(bool here, QPoint at, int shape);
     void setFlash(const QString& text);
+    void setNotice(const QString& text);
     QSize toPhysical(qreal width, qreal height) const;
     QPointF toLogical(QPoint p) const;
 
@@ -113,6 +120,7 @@ private:
     QString m_color;
     int m_cursorShape = Qt::CrossCursor;
     QString m_flash;
+    QString m_notice;
 };
 
 // A capture from the frozen screens to the picture taken (or none): what
@@ -123,7 +131,10 @@ private:
 // (Shift: resize). Enter or a double click copies, Ctrl+S saves, F3 pins it
 // to the screen; Esc or a right click drops the selection, or with none ends
 // the capture; C copies the colour under the cursor. A selection stays on
-// one monitor.
+// one monitor. With a selection, the annotation tools (AnnotationModel) draw
+// on the frozen picture: the mouse and keys go to the model first (docs/
+// design-capture-roadmap.md, 3.6), and Esc takes a text, a stroke, then the
+// selection with its annotations off the screen in steps.
 //
 // Input comes in physical pixels of the monitor it is on (the overlays
 // convert; the tests call these directly). No window is needed here.
@@ -136,6 +147,12 @@ class CaptureSession : public QObject {
     Q_PROPERTY(bool active READ active NOTIFY activeChanged FINAL)
     // The OCR models are there: 识别文字 can read; else it says why not.
     Q_PROPERTY(bool ocrAvailable READ ocrAvailable NOTIFY ocrAvailableChanged FINAL)
+    // The annotations of this capture (always there; active() once a selection is).
+    Q_PROPERTY(AnnotationModel* annotation READ annotation CONSTANT FINAL)
+    // H hides the toolbar (the selection may sit under it).
+    Q_PROPERTY(bool toolbarHidden READ toolbarHidden NOTIFY toolbarHiddenChanged FINAL)
+    // The hint about the tool keys has been shown (once per run).
+    Q_PROPERTY(bool toolHintSeen READ toolHintSeen WRITE setToolHintSeen NOTIFY toolHintSeenChanged FINAL)
 
 public:
     // Pin: left on the screen where it was (PinWindow); Ocr: its words read (CaptureOcr).
@@ -168,11 +185,28 @@ public:
     QRect hoverRect() const;
     void setCopyOnSelect(bool on) { m_copyOnSelect = on; } // a drag or a click on a window copies at once
 
-    void pointerMove(int screen, QPoint p);
-    void pointerPress(int screen, QPoint p, Qt::MouseButton button);
+    AnnotationModel* annotation() { return &m_annot; }
+    // The monitor the annotations are on (the selection's, even while it is
+    // put down with Esc), -1 when there are none.
+    int annotationScreen() const { return m_annot.active() ? m_annotScreen : -1; }
+    bool hasAnnotations() const { return m_annot.active() && m_annot.hasItems(); }
+    // What the tools remember (annot::StyleMemory): set before a capture,
+    // read after it (stylesChanged: a tool's style changed meanwhile).
+    void setStyles(const annot::StyleMemory& styles);
+    annot::StyleMemory styles() const;
+    bool stylesChanged() const;
+    bool toolbarHidden() const { return m_toolbarHidden; }
+    bool toolHintSeen() const { return m_toolHintSeen; }
+    void setToolHintSeen(bool seen);
+
+    void pointerMove(int screen, QPoint p, Qt::KeyboardModifiers modifiers = {});
+    void pointerPress(int screen, QPoint p, Qt::MouseButton button, Qt::KeyboardModifiers modifiers = {});
     void pointerRelease(int screen, QPoint p, Qt::MouseButton button);
     void doubleClick(int screen, QPoint p);
     void wheel(int screen, QPoint p, int steps); // steps > 0: out (bigger)
+    // The wheel over a selection with a tool on or an object selected sizes
+    // the tool; otherwise it is wheel()'s. `angleDelta` is Qt's (120 a notch).
+    void wheelAngle(int screen, QPoint p, int angleDelta, qint64 nowMs);
     bool key(int key, Qt::KeyboardModifiers modifiers);
 
     // From QML, in the window's logical units (Qt's mouse positions).
@@ -193,9 +227,13 @@ signals:
     void selectionChanged();
     void activeChanged();
     void ocrAvailableChanged();
+    void toolbarHiddenChanged();
+    void toolHintSeenChanged();
 
 private:
-    enum class Phase { Hover, Pressed, Dragging, Selected, Adjusting };
+    // Annotating: a drawing, moving or reshaping gesture of the model's is
+    // under way. Not Adjusting: the toolbar stays (it steps aside by itself).
+    enum class Phase { Hover, Pressed, Dragging, Selected, Adjusting, Annotating };
     struct Pick {
         int screen = -1;
         QRect rect;
@@ -208,6 +246,11 @@ private:
     void publish(); // the state onto the screens
     void finish(Action action);
     void back(); // Esc, right click
+    void syncAnnotation(); // the model follows the selection
+    void retireAnnotation(); // the model ended, its styles kept
+    void dropParked(); // a new selection: the annotations put down with Esc are gone
+    void showNotice(const QString& text);
+    int cursorShapeAt(int screen, QPoint p) const;
     Pick hovered() const; // what a click would pick now: the hover, else the screen under the cursor
     int reach(int screen) const; // how near a handle a press takes it, physical
     int dragStart(int screen) const; // how far a press moves before it is a drag
@@ -232,6 +275,18 @@ private:
     int m_hoverScreen = -1;
     std::vector<QRect> m_chain;
     std::size_t m_level = 0;
+
+    AnnotationModel m_annot;
+    int m_annotScreen = -1;
+    annot::StyleMemory m_styles; // before the model began, and after it ended
+    bool m_stylesChanged = false;
+    // Esc put the selection and its annotations down (Ctrl+Z picks them up
+    // again, Esc once more ends the capture): the selection as it was.
+    bool m_parked = false;
+    Pick m_parkedSelection;
+    bool m_toolbarHidden = false;
+    bool m_toolHintSeen = false;
+    QTimer m_noticeTimer;
 };
 
 } // namespace ws::capture

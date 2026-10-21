@@ -1,0 +1,1349 @@
+// The overlay's annotations (src/capture/AnnotationModel, AnnotationCanvas;
+// docs/design-capture-roadmap.md, 3.5-3.9): every tool drawn with the mouse
+// as CaptureSession routes it, undo and redo, the keys, numbers, typing,
+// the style panel and its memory, the wheel, the selection's bounds; the
+// regions the model reports covering every pixel that changed; and the
+// canvas's tiles grabbed from an offscreen window on the software scene
+// graph, the same pixels as the compositor's.
+#include "AnnotationCanvas.h"
+#include "AnnotationModel.h"
+
+#include "Annotation.h"
+#include "AnnotationCommands.h"
+#include "AnnotationFormat.h"
+#include "AnnotationRender.h"
+#include "AnnotationStyles.h"
+
+#include <QColor>
+#include <QGuiApplication>
+#include <QJsonDocument>
+#include <QQuickItem>
+#include <QQuickWindow>
+#include <QRegion>
+#include <QSGRendererInterface>
+#include <QSignalSpy>
+#include <QTest>
+#include <QtMath>
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <numbers>
+#include <optional>
+
+using namespace ws::capture;
+using namespace ws::capture::annot;
+using namespace Qt::StringLiterals;
+
+namespace ws::capture::annot {
+
+// QCOMPARE shows a document as its doc.json.
+char* toString(const Document& doc)
+{
+    return qstrdup(QJsonDocument(toJson(doc)).toJson(QJsonDocument::Compact).constData());
+}
+
+} // namespace ws::capture::annot
+
+namespace {
+
+constexpr QRgb kMagenta = 0xffff00ffu;
+
+// splitmix64: the same picture with every compiler and library.
+QImage noiseImage(QSize size, quint64 seed)
+{
+    quint64 state = seed;
+    QImage image(size, QImage::Format_RGB32);
+    for (int y = 0; y < size.height(); ++y) {
+        QRgb* line = reinterpret_cast<QRgb*>(image.scanLine(y));
+        for (int x = 0; x < size.width(); ++x) {
+            quint64 z = (state += 0x9E3779B97F4A7C15ull);
+            z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+            z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+            line[x] = 0xff000000u | QRgb((z ^ (z >> 31)) & 0xffffffu);
+        }
+    }
+    return image;
+}
+
+void blit(QImage& target, QPoint at, const QImage& piece)
+{
+    for (int y = 0; y < piece.height(); ++y)
+        std::memcpy(target.scanLine(at.y() + y) + at.x() * 4, piece.constScanLine(y), std::size_t(piece.width()) * 4);
+}
+
+struct Diff {
+    int count = 0; // -1: the sizes or formats differ
+    QPoint first;
+    QRgb got = 0;
+    QRgb want = 0;
+};
+
+// Pixels of `got` within `area` against `want` (whole pictures of one size).
+Diff compare(const QImage& got, const QImage& want, QRect area = {})
+{
+    Diff d;
+    if (got.size() != want.size() || got.format() != QImage::Format_RGB32 || want.format() != QImage::Format_RGB32) {
+        d.count = -1;
+        return d;
+    }
+    if (area.isNull())
+        area = got.rect();
+    for (int y = area.top(); y <= area.bottom(); ++y) {
+        const QRgb* g = reinterpret_cast<const QRgb*>(got.constScanLine(y));
+        const QRgb* w = reinterpret_cast<const QRgb*>(want.constScanLine(y));
+        for (int x = area.left(); x <= area.right(); ++x) {
+            if (g[x] == w[x])
+                continue;
+            if (d.count == 0) {
+                d.first = QPoint(x, y);
+                d.got = g[x];
+                d.want = w[x];
+            }
+            ++d.count;
+        }
+    }
+    return d;
+}
+
+QByteArray describe(const Diff& d)
+{
+    return u"%1 pixels differ, the first at (%2, %3): #%4, not #%5"_s.arg(d.count)
+        .arg(d.first.x())
+        .arg(d.first.y())
+        .arg(d.got, 8, 16, QChar(u'0'))
+        .arg(d.want, 8, 16, QChar(u'0'))
+        .toUtf8();
+}
+
+int toolIndex(Kind kind)
+{
+    const QList<ToolInfo>& list = tools();
+    for (qsizetype i = 0; i < list.size(); ++i) {
+        if (list[i].kind == kind)
+            return int(i);
+    }
+    return -1;
+}
+
+// As CaptureSession routes a press (3.6): the model's first questions, the
+// selection's own handles (none here), then the rest.
+void press(AnnotationModel& m, QPoint p, Qt::KeyboardModifiers modifiers = {})
+{
+    if (!m.pressFirst(p, modifiers))
+        m.pressSecond(p, modifiers);
+}
+
+void drag(AnnotationModel& m, QPoint from, QPoint to, Qt::KeyboardModifiers modifiers = {}, int steps = 6)
+{
+    press(m, from, modifiers);
+    for (int i = 1; i <= steps; ++i)
+        m.move(from + (to - from) * i / steps, modifiers);
+    m.release(to);
+}
+
+// A drag through `points`, one move each.
+void stroke(AnnotationModel& m, const QList<QPoint>& points)
+{
+    press(m, points.first());
+    for (qsizetype i = 1; i < points.size(); ++i)
+        m.move(points[i], {});
+    m.release(points.last());
+}
+
+void click(AnnotationModel& m, QPoint p)
+{
+    press(m, p);
+    m.release(p);
+}
+
+QList<QPoint> zigzag(QPoint from, int count, QPoint step, QPoint swing)
+{
+    QList<QPoint> points;
+    for (int i = 0; i < count; ++i)
+        points.append(from + step * i + (i % 2 ? swing : QPoint()));
+    return points;
+}
+
+// A pixel on which `id` is the topmost object, as far from its handles as
+// the object allows, so a press there picks it up rather than a handle.
+QPoint pointOn(const AnnotationModel& m, quint32 id)
+{
+    const Document& doc = m.document();
+    const Item* item = findItem(doc, id);
+    if (!item)
+        return QPoint(-1, -1);
+    const QRect r = bounds(doc, *item).toAlignedRect() & QRect(QPoint(0, 0), doc.canvas);
+    const QList<QPointF> marks = handles(*item);
+    QPoint best(-1, -1);
+    qreal farthest = -1;
+    for (int y = r.top(); y <= r.bottom(); ++y) {
+        for (int x = r.left(); x <= r.right(); ++x) {
+            if (hitTest(doc, QPointF(x, y), 4 * doc.dpr) != id)
+                continue;
+            qreal nearest = 1e9;
+            for (const QPointF& h : marks)
+                nearest = std::min(nearest, std::hypot(h.x() - (x + 0.5), h.y() - (y + 0.5)));
+            if (nearest > farthest) {
+                farthest = nearest;
+                best = QPoint(x, y);
+            }
+        }
+    }
+    return best;
+}
+
+quint32 selectedId(const AnnotationModel& m)
+{
+    const QVariantList s = m.selection();
+    return s.isEmpty() ? 0 : s[0].toMap().value(u"id"_s).toUInt();
+}
+
+const Item* lastOf(const AnnotationModel& m, Kind kind)
+{
+    const Item* found = nullptr;
+    for (const Item& item : m.document().items) {
+        if (item.kind == kind)
+            found = &item;
+    }
+    return found;
+}
+
+QList<int> shownNumbers(const AnnotationModel& m)
+{
+    const QHash<quint32, int> n = numbers(m.document());
+    QList<int> out;
+    for (const Item& item : m.document().items) {
+        if (item.kind == Kind::Number)
+            out.append(n.value(item.id));
+    }
+    return out;
+}
+
+QList<Kind> kinds(const AnnotationModel& m)
+{
+    QList<Kind> out;
+    for (const Item& item : m.document().items)
+        out.append(item.kind);
+    return out;
+}
+
+qreal degrees(const Item& line)
+{
+    const QPointF v = line.points[1] - line.points[0];
+    return std::atan2(-v.y(), v.x()) * 180 / std::numbers::pi;
+}
+
+// A capture: a noise picture, its whole area selected unless told.
+struct Rig {
+    explicit Rig(QSize size = QSize(400, 300), qreal dpr = 1.0, QRect selection = {})
+        : base(noiseImage(size, 7))
+    {
+        model.begin(base, dpr, StyleMemory());
+        model.setSelection(selection.isNull() ? QRect(QPoint(0, 0), size) : selection);
+    }
+    QImage base;
+    AnnotationModel model;
+};
+
+// What the canvas does with changed(): a picture brought up to date only
+// where the model says something changed. Checked against the whole picture
+// drawn afresh by another compositor, which also catches a cache the model
+// forgot to drop.
+class Screen {
+public:
+    explicit Screen(AnnotationModel& model)
+        : m_model(model)
+    {
+        m_connection = QObject::connect(&model, &AnnotationModel::changed, [this](const QRectF& dirty) {
+            if (dirty.isEmpty())
+                m_all = true;
+            else
+                m_pending += dirty.toAlignedRect();
+        });
+    }
+    ~Screen() { QObject::disconnect(m_connection); }
+
+    Diff check()
+    {
+        const QRect canvas(QPoint(0, 0), m_model.base().size());
+        const std::optional<quint32> skip = m_model.skipped();
+        if (m_all || m_image.isNull()) {
+            m_model.compositor().render(m_model.document(), m_model.base(), m_model.sampleBounds(), canvas, &m_image,
+                skip);
+        } else {
+            for (const QRect& r : m_pending) {
+                const QRect area = r & canvas;
+                if (area.isEmpty())
+                    continue;
+                QImage piece;
+                m_model.compositor().render(m_model.document(), m_model.base(), m_model.sampleBounds(), area, &piece,
+                    skip);
+                blit(m_image, area.topLeft(), piece);
+            }
+        }
+        m_all = false;
+        m_pending = QRegion();
+        Compositor fresh;
+        QImage whole;
+        fresh.render(m_model.document(), m_model.base(), m_model.sampleBounds(), canvas, &whole, skip);
+        return compare(m_image, whole);
+    }
+
+private:
+    AnnotationModel& m_model;
+    QMetaObject::Connection m_connection;
+    QImage m_image;
+    QRegion m_pending;
+    bool m_all = true;
+};
+
+#define CHECK_SCREEN(screen)                                                                                           \
+    do {                                                                                                               \
+        const Diff diff_ = (screen).check();                                                                           \
+        QVERIFY2(diff_.count == 0, describe(diff_).constData());                                                       \
+    } while (false)
+
+} // namespace
+
+class TestAnnotModel : public QObject {
+    Q_OBJECT
+
+private slots:
+    void drawEveryTool()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        const QPoint a(50, 60);
+        const QPoint b(120, 100);
+        const QList<ToolInfo>& list = tools();
+        for (qsizetype i = 0; i < list.size(); ++i) {
+            const Kind kind = list[i].kind;
+            m.setTool(int(i));
+            QCOMPARE(m.tool(), int(i));
+            QVERIFY(m.panelVisible());
+            QCOMPARE(m.panel().value(u"kind"_s).toInt(), int(kind));
+            const int before = m.itemCount();
+            if (kind == Kind::Text) {
+                click(m, a);
+                const QVariantMap e = m.editing();
+                QCOMPARE(e.value(u"id"_s).toInt(), 0);
+                QCOMPARE(e.value(u"x"_s).toInt(), a.x());
+                QCOMPARE(e.value(u"y"_s).toInt(), a.y());
+                QCOMPARE(e.value(u"clickX"_s).toInt(), -1);
+                QCOMPARE(m.itemCount(), before); // in the document once committed
+                m.commitText(u"标注 Text"_s);
+            } else {
+                drag(m, a, b);
+            }
+            QCOMPARE(m.itemCount(), before + 1);
+            QVERIFY(!m.gestureActive());
+            const Item* item = lastOf(m, kind);
+            QVERIFY(item);
+            QCOMPARE(item->style, StyleMemory().forTool(kind, 1.0));
+            QCOMPARE(selectedId(m), item->id); // what was drawn is selected
+            QCOMPARE(m.tool(), int(i)); // and the tool stays on
+            const QVariantMap selection = m.selection().value(0).toMap();
+            QCOMPARE(selection.value(u"kind"_s).toInt(), int(kind));
+            switch (kind) {
+            case Kind::Rect:
+            case Kind::Ellipse:
+            case Kind::Redact:
+                QCOMPARE(item->points, boxPoints(pixelBox(a, b)));
+                QCOMPARE(itemBox(*item), QRect(QPoint(50, 60), QPoint(120, 100)));
+                QVERIFY(selection.value(u"box"_s).toBool());
+                QCOMPARE(selection.value(u"handles"_s).toList().size(), 8);
+                if (kind == Kind::Redact)
+                    QVERIFY(item->seed != 0);
+                break;
+            case Kind::Arrow:
+            case Kind::Line:
+                QCOMPARE(item->points, (QList<QPointF> {QPointF(50.5, 60.5), QPointF(120.5, 100.5)}));
+                QVERIFY(!selection.value(u"box"_s).toBool());
+                QCOMPARE(selection.value(u"handles"_s).toList().size(), 2);
+                break;
+            case Kind::Pen:
+            case Kind::Marker:
+                QVERIFY(item->points.size() >= 2);
+                QCOMPARE(item->points.first(), QPointF(50.5, 60.5));
+                QCOMPARE(item->points.last(), QPointF(120.5, 100.5));
+                QVERIFY(selection.value(u"handles"_s).toList().isEmpty());
+                break;
+            case Kind::Number:
+                QCOMPARE(item->points, (QList<QPointF> {QPointF(120.5, 100.5)})); // carried by the drag
+                QCOMPARE(item->series, m.document().currentSeries);
+                QVERIFY(!item->pinned);
+                break;
+            case Kind::Text:
+                QCOMPARE(item->points, (QList<QPointF> {QPointF(a)}));
+                QCOMPARE(item->text, u"标注 Text"_s);
+                break;
+            }
+        }
+        QCOMPARE(m.itemCount(), int(list.size()));
+        QCOMPARE(m.document().items.first().kind, Kind::Redact); // the redactions are at the bottom
+        // A pen stroke keeps its path: a zigzag stays a zigzag.
+        m.setTool(toolIndex(Kind::Pen));
+        stroke(m, zigzag(QPoint(200, 150), 9, QPoint(10, 0), QPoint(0, 20)));
+        QVERIFY(lastOf(m, Kind::Pen)->points.size() >= 9);
+    }
+
+    void clicksMakeNothing()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        for (const Kind kind : {Kind::Rect, Kind::Ellipse, Kind::Arrow, Kind::Line, Kind::Redact}) {
+            m.setTool(toolIndex(kind));
+            click(m, QPoint(100, 100));
+            drag(m, QPoint(150, 150), QPoint(151, 150)); // under the drag start
+            QCOMPARE(m.itemCount(), 0);
+            QVERIFY(!m.canUndo());
+        }
+        // A click with the number tool is a number.
+        m.setTool(toolIndex(Kind::Number));
+        click(m, QPoint(100, 100));
+        QCOMPARE(m.itemCount(), 1);
+        QCOMPARE(m.document().items[0].points, (QList<QPointF> {QPointF(100.5, 100.5)}));
+    }
+
+    void undoRedoTenSteps()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        QList<Document> docs {m.document()};
+        const auto step = [&] { docs.append(m.document()); };
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(40, 40), QPoint(120, 90));
+        step(); // 1
+        m.setTool(toolIndex(Kind::Ellipse));
+        drag(m, QPoint(150, 40), QPoint(220, 90));
+        step(); // 2
+        m.setTool(toolIndex(Kind::Arrow));
+        drag(m, QPoint(40, 150), QPoint(140, 200));
+        step(); // 3
+        m.setTool(toolIndex(Kind::Pen));
+        stroke(m, zigzag(QPoint(200, 150), 8, QPoint(12, 6), QPoint(0, 18)));
+        step(); // 4
+        const quint32 rect = lastOf(m, Kind::Rect)->id;
+        const quint32 ellipse = lastOf(m, Kind::Ellipse)->id;
+        const quint32 arrow = lastOf(m, Kind::Arrow)->id;
+        const quint32 pen = lastOf(m, Kind::Pen)->id;
+        m.setTool(-1);
+        const QPoint on = pointOn(m, rect);
+        drag(m, on, on + QPoint(10, 12));
+        QCOMPARE(itemBox(*findItem(m.document(), rect)), QRect(QPoint(50, 52), QPoint(130, 102)));
+        step(); // 5: moved by its edge
+        click(m, pointOn(m, ellipse));
+        QCOMPARE(selectedId(m), ellipse);
+        QVERIFY(m.onHandle(QPoint(221, 91)));
+        drag(m, QPoint(221, 91), QPoint(241, 101)); // the bottom right handle
+        QCOMPARE(itemBox(*findItem(m.document(), ellipse)), QRect(QPoint(150, 40), QPoint(240, 100)));
+        step(); // 6: reshaped
+        click(m, pointOn(m, arrow));
+        QCOMPARE(selectedId(m), arrow);
+        m.setPanel({{u"color"_s, u"#1E88E5"_s}});
+        QCOMPARE(findItem(m.document(), arrow)->style.color, qRgb(0x1E, 0x88, 0xE5));
+        step(); // 7: restyled
+        m.setTool(toolIndex(Kind::Number));
+        click(m, QPoint(330, 60));
+        step(); // 8
+        m.newSeries();
+        step(); // 9
+        m.setTool(-1);
+        click(m, pointOn(m, pen));
+        QCOMPARE(selectedId(m), pen);
+        m.deleteSelection();
+        QVERIFY(!findItem(m.document(), pen));
+        step(); // 10
+        QCOMPARE(docs.size(), 11);
+        for (int i = 9; i >= 0; --i) {
+            QVERIFY(m.canUndo());
+            m.undo();
+            QCOMPARE(m.document(), docs[i]);
+        }
+        QVERIFY(!m.canUndo());
+        QVERIFY(m.selection().isEmpty()); // nothing left to select
+        for (int i = 1; i <= 10; ++i) {
+            QVERIFY(m.canRedo());
+            m.redo();
+            QCOMPARE(m.document(), docs[i]);
+        }
+        QVERIFY(!m.canRedo());
+        QVERIFY(!m.undoLabel().isEmpty());
+    }
+
+    void toolKeysToggle()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        QSignalSpy toolChanged(&m, &AnnotationModel::toolChanged);
+        const QList<ToolInfo>& list = tools();
+        for (qsizetype i = 0; i < list.size(); ++i) {
+            const int letter = list[i].letter.unicode();
+            const int digit = Qt::Key_0 + list[i].digit;
+            QVERIFY(m.key(letter, Qt::NoModifier));
+            QCOMPARE(m.tool(), int(i));
+            QVERIFY(m.key(letter, Qt::NoModifier)); // the key that opened it closes it
+            QCOMPARE(m.tool(), -1);
+            QVERIFY(m.key(digit, Qt::NoModifier));
+            QCOMPARE(m.tool(), int(i));
+            QVERIFY(m.key(letter, Qt::ShiftModifier)); // its letter closes what its digit opened
+            QCOMPARE(m.tool(), -1);
+            QVERIFY(!m.key(letter, Qt::ControlModifier));
+            QVERIFY(!m.key(digit, Qt::ControlModifier)); // Ctrl + digit is PixPin's
+            QVERIFY(!m.key(letter, Qt::AltModifier));
+            QCOMPARE(m.tool(), -1);
+        }
+        QCOMPARE(toolChanged.count(), int(list.size()) * 4);
+        // Another tool's key switches to it.
+        QVERIFY(m.key(Qt::Key_R, {}));
+        QVERIFY(m.key(Qt::Key_E, {}));
+        QCOMPARE(m.tool(), toolIndex(Kind::Ellipse));
+        QVERIFY(!m.key(Qt::Key_X, {}));
+    }
+
+    void numbersCountAndRenumber()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        m.setTool(toolIndex(Kind::Number));
+        click(m, QPoint(50, 50));
+        click(m, QPoint(100, 50));
+        click(m, QPoint(150, 50));
+        QCOMPARE(m.itemCount(), 3);
+        QCOMPARE(shownNumbers(m), (QList<int> {1, 2, 3}));
+        const quint32 first = m.document().items[0].id;
+        const quint32 middle = m.document().items[1].id;
+        const quint32 last = m.document().items[2].id;
+        // The number tool picks a number up rather than putting one on it.
+        click(m, QPoint(100, 50));
+        QCOMPARE(m.itemCount(), 3);
+        QCOMPARE(selectedId(m), middle);
+        m.deleteSelection();
+        QCOMPARE(shownNumbers(m), (QList<int> {1, 2}));
+        m.setStart(5);
+        QCOMPARE(shownNumbers(m), (QList<int> {5, 6}));
+        QCOMPARE(m.panel().value(u"start"_s).toInt(), 5);
+        m.setNumber(int(first), u"10"_s);
+        QCOMPARE(shownNumbers(m), (QList<int> {10, 11}));
+        m.setNumber(int(first), QString()); // counted again
+        QCOMPARE(shownNumbers(m), (QList<int> {5, 6}));
+        m.setNumber(int(last), 20);
+        QCOMPARE(shownNumbers(m), (QList<int> {5, 20}));
+        m.setNumber(int(last), u"abc"_s); // not a number: nothing changes
+        QCOMPARE(shownNumbers(m), (QList<int> {5, 20}));
+        m.newSeries();
+        QCOMPARE(m.panel().value(u"start"_s).toInt(), 1);
+        click(m, QPoint(200, 120));
+        QCOMPARE(shownNumbers(m), (QList<int> {5, 20, 1}));
+        // A double click opens a number's own value.
+        m.setTool(-1);
+        click(m, QPoint(50, 50));
+        press(m, QPoint(50, 50));
+        QVERIFY(m.doubleClick(QPoint(50, 50)));
+        m.release(QPoint(50, 50));
+        const QVariantMap edit = m.numberEdit();
+        QCOMPARE(edit.value(u"id"_s).toUInt(), first);
+        QCOMPARE(edit.value(u"value"_s).toInt(), -1);
+        QCOMPARE(edit.value(u"shown"_s).toInt(), 5);
+        QCOMPARE(m.document().items[0].points[0], QPointF(50.5, 50.5)); // the double click moved nothing
+        m.setNumber(int(first), 7);
+        QVERIFY(m.numberEdit().isEmpty());
+        QCOMPARE(shownNumbers(m), (QList<int> {7, 20, 1}));
+        // Undo and redo renumber by themselves.
+        m.undo();
+        QCOMPARE(shownNumbers(m), (QList<int> {5, 20, 1}));
+        m.redo();
+        QCOMPARE(shownNumbers(m), (QList<int> {7, 20, 1}));
+    }
+
+    void shiftConstraints()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(50, 50), QPoint(130, 80), Qt::ShiftModifier);
+        QCOMPARE(itemBox(*lastOf(m, Kind::Rect)), QRect(50, 50, 81, 81));
+        m.setTool(toolIndex(Kind::Ellipse));
+        drag(m, QPoint(300, 200), QPoint(260, 190), Qt::ShiftModifier); // up and left
+        QCOMPARE(itemBox(*lastOf(m, Kind::Ellipse)), QRect(QPoint(260, 160), QPoint(300, 200)));
+        m.setTool(toolIndex(Kind::Line));
+        drag(m, QPoint(50, 200), QPoint(150, 210), Qt::ShiftModifier); // 5.7 degrees: level
+        const Item level = *lastOf(m, Kind::Line);
+        QCOMPARE(level.points[0], QPointF(50.5, 200.5));
+        QCOMPARE(level.points[1].y(), 200.5);
+        QVERIFY(level.points[1].x() > 140);
+        drag(m, QPoint(50, 280), QPoint(150, 240), Qt::ShiftModifier); // 21.8 degrees: 15
+        QVERIFY(std::abs(degrees(*lastOf(m, Kind::Line)) - 15) < 0.7);
+        m.setTool(toolIndex(Kind::Arrow));
+        drag(m, QPoint(200, 280), QPoint(260, 200), Qt::ShiftModifier); // 53 degrees: 60
+        QVERIFY(std::abs(degrees(*lastOf(m, Kind::Arrow)) - 60) < 0.7);
+        // Shift on a pen: one straight line from the press.
+        m.setTool(toolIndex(Kind::Pen));
+        stroke(m, {QPoint(300, 50), QPoint(320, 70), QPoint(340, 55), QPoint(380, 62)});
+        QVERIFY(lastOf(m, Kind::Pen)->points.size() > 2);
+        drag(m, QPoint(300, 120), QPoint(380, 128), Qt::ShiftModifier);
+        const Item straight = *lastOf(m, Kind::Pen);
+        QCOMPARE(straight.points.size(), 2);
+        QCOMPARE(straight.points[0].y(), straight.points[1].y());
+        // Shift pressed while the mouse holds still shows at once.
+        m.setTool(toolIndex(Kind::Rect));
+        press(m, QPoint(200, 30));
+        m.move(QPoint(260, 50), {});
+        QCOMPARE(itemBox(m.document().items.last()), QRect(QPoint(200, 30), QPoint(260, 50)));
+        QVERIFY(!m.key(Qt::Key_Shift, Qt::ShiftModifier));
+        QCOMPARE(itemBox(m.document().items.last()), QRect(QPoint(200, 30), QPoint(260, 90)));
+        m.release(QPoint(260, 50));
+    }
+
+    void selectionBoundsDrawing()
+    {
+        Rig rig(QSize(400, 300), 1.0, QRect(100, 100, 150, 100));
+        AnnotationModel& m = rig.model;
+        QSignalSpy notices(&m, &AnnotationModel::notice);
+        m.setTool(toolIndex(Kind::Rect));
+        QVERIFY(!m.pressFirst(QPoint(20, 20), {}));
+        QVERIFY(m.pressSecond(QPoint(20, 20), {})); // taken, nothing done
+        QVERIFY(!m.gestureActive());
+        QCOMPARE(notices.count(), 1);
+        m.move(QPoint(150, 150), {});
+        m.release(QPoint(150, 150));
+        QCOMPARE(m.itemCount(), 0);
+        QVERIFY(!m.canUndo());
+        for (qsizetype i = 0; i < tools().size(); ++i) {
+            m.setTool(int(i));
+            drag(m, QPoint(20, 280), QPoint(150, 150));
+            QVERIFY(!m.editingText());
+        }
+        QCOMPARE(m.itemCount(), 0);
+        QCOMPARE(notices.count(), 1 + int(tools().size()));
+        // Inside, the drawing stays inside: the mouse's way out is clamped.
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(200, 150), QPoint(390, 290));
+        QCOMPARE(itemBox(m.document().items.last()), QRect(QPoint(200, 150), QPoint(249, 199)));
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(150, 120), QPoint(390, 140), Qt::ShiftModifier); // the square cut by the selection
+        QCOMPARE(itemBox(m.document().items.last()), QRect(QPoint(150, 120), QPoint(229, 199)));
+        m.setTool(toolIndex(Kind::Line));
+        drag(m, QPoint(120, 150), QPoint(390, 152), Qt::ShiftModifier); // level, shortened to the edge
+        QCOMPARE(lastOf(m, Kind::Line)->points, (QList<QPointF> {QPointF(120.5, 150.5), QPointF(249.5, 150.5)}));
+        m.setTool(toolIndex(Kind::Pen));
+        stroke(m, {QPoint(150, 150), QPoint(200, 50), QPoint(390, 120), QPoint(220, 290)});
+        const QRectF inside = QRectF(m.selectionRect());
+        for (const QPointF& p : lastOf(m, Kind::Pen)->points)
+            QVERIFY(inside.contains(p));
+        // Drawing along the edge, out of the selection, makes nothing wider.
+        m.setTool(toolIndex(Kind::Ellipse));
+        const int count = m.itemCount();
+        drag(m, QPoint(249, 120), QPoint(330, 121));
+        QCOMPARE(m.itemCount(), count);
+    }
+
+    void escapeCancels()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(40, 40), QPoint(100, 100));
+        const Document before = m.document();
+        // A rect being drawn: Esc throws it away.
+        press(m, QPoint(150, 150));
+        m.move(QPoint(200, 190), {});
+        QVERIFY(m.gestureActive());
+        QVERIFY(!m.gestureBounds().isNull());
+        QCOMPARE(m.itemCount(), 2);
+        QVERIFY(m.escape());
+        QVERIFY(!m.gestureActive());
+        QVERIFY(m.gestureBounds().isNull());
+        QCOMPARE(m.document(), before);
+        m.release(QPoint(200, 190));
+        QCOMPARE(m.document(), before);
+        // A move: back where it was.
+        m.setTool(-1);
+        const quint32 id = before.items[0].id;
+        const QPoint on = pointOn(m, id);
+        press(m, on);
+        m.move(on + QPoint(30, 30), {});
+        QVERIFY(m.document() != before);
+        QVERIFY(m.escape());
+        QCOMPARE(m.document(), before);
+        m.release(on + QPoint(30, 30));
+        QCOMPARE(m.document(), before);
+        // A reshape too.
+        QCOMPARE(selectedId(m), id);
+        press(m, QPoint(101, 101));
+        m.move(QPoint(150, 120), {});
+        QVERIFY(m.document() != before);
+        m.cancelGesture();
+        QCOMPARE(m.document(), before);
+        m.release(QPoint(150, 120));
+        // A number the press put down: gone again.
+        m.setTool(toolIndex(Kind::Number));
+        press(m, QPoint(300, 200));
+        QCOMPARE(m.itemCount(), 2);
+        QVERIFY(m.escape());
+        QCOMPARE(m.document(), before);
+        m.release(QPoint(300, 200));
+        // The stack holds the first rect only.
+        m.undo();
+        QCOMPARE(m.itemCount(), 0);
+        QVERIFY(!m.canUndo());
+        QVERIFY(!m.escape()); // nothing under way: the session's Esc
+    }
+
+    void textCommitAndEdit()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        m.setTool(toolIndex(Kind::Text));
+        click(m, QPoint(40, 40));
+        QVERIFY(m.editingText());
+        QVERIFY(m.panelVisible());
+        QCOMPARE(m.panel().value(u"kind"_s).toInt(), int(Kind::Text));
+        m.commitText(QString()); // a new text without words: dropped
+        QVERIFY(!m.editingText());
+        QCOMPARE(m.itemCount(), 0);
+        QVERIFY(!m.canUndo());
+        click(m, QPoint(40, 40));
+        m.setEditingText(u"abc"_s);
+        QCOMPARE(m.editing().value(u"text"_s).toString(), u"abc"_s);
+        // A press outside the box commits it and does nothing else.
+        QVERIFY(m.pressFirst(QPoint(300, 250), {}));
+        m.release(QPoint(300, 250));
+        QVERIFY(!m.editingText());
+        QCOMPARE(m.itemCount(), 1);
+        const Item text = m.document().items[0];
+        QCOMPARE(text.text, u"abc"_s);
+        QCOMPARE(text.points[0], QPointF(40, 40));
+        QCOMPARE(selectedId(m), text.id);
+        // A click on it with the text tool types in it again; the canvas
+        // leaves it out meanwhile.
+        const QPoint on = pointOn(m, text.id);
+        QVERIFY(on.x() >= 0);
+        click(m, on);
+        QVERIFY(m.editingText());
+        QVariantMap e = m.editing();
+        QCOMPARE(e.value(u"id"_s).toUInt(), text.id);
+        QCOMPARE(e.value(u"text"_s).toString(), u"abc"_s);
+        QCOMPARE(e.value(u"clickX"_s).toInt(), on.x() - 40);
+        QCOMPARE(e.value(u"clickY"_s).toInt(), on.y() - 40);
+        QCOMPARE(m.skipped(), std::optional<quint32>(text.id));
+        QVERIFY(m.selection().isEmpty());
+        QVERIFY(!m.key(Qt::Key_Delete, {})); // the box has the keys
+        QVERIFY(!m.key(Qt::Key_Z, Qt::ControlModifier));
+        m.commitText(u"xyz"_s); // retyped
+        QCOMPARE(m.document().items[0].text, u"xyz"_s);
+        QVERIFY(!m.skipped());
+        m.undo();
+        QCOMPARE(m.document().items[0].text, u"abc"_s);
+        // Emptied: deleted, one step.
+        click(m, on);
+        QVERIFY(m.editingText());
+        m.commitText(u"  "_s);
+        QCOMPARE(m.itemCount(), 0);
+        m.undo();
+        QCOMPARE(m.itemCount(), 1);
+        // Unchanged: no step (the deletion can still be redone).
+        click(m, on);
+        QVERIFY(m.editingText());
+        m.commitText(u"abc"_s);
+        QVERIFY(m.canRedo());
+        QCOMPARE(m.document().items[0].text, u"abc"_s);
+        // Esc, the tool and commitPending() commit; lines come as '\n'.
+        click(m, QPoint(200, 150));
+        m.setEditingText(u"Esc"_s);
+        QVERIFY(m.escape());
+        QCOMPARE(m.itemCount(), 2);
+        click(m, QPoint(200, 220));
+        m.setEditingText(u"tool"_s);
+        m.setTool(-1);
+        QCOMPARE(m.itemCount(), 3);
+        m.setTool(toolIndex(Kind::Text));
+        click(m, QPoint(300, 100));
+        m.setEditingText(u"one"_s + QChar(QChar::ParagraphSeparator) + u"two"_s);
+        m.commitPending();
+        QCOMPARE(m.itemCount(), 4);
+        QCOMPARE(lastOf(m, Kind::Text)->text, u"one\ntwo"_s);
+        // The text being typed takes the panel: a new one keeps its style.
+        click(m, QPoint(300, 200));
+        m.setPanel({{u"size"_s, 32}, {u"bold"_s, true}});
+        e = m.editing();
+        QCOMPARE(e.value(u"fontPx"_s).toInt(), 32);
+        QVERIFY(e.value(u"bold"_s).toBool());
+        QCOMPARE(m.styles().tool(Kind::Text).size, 32);
+        m.commitText(u"big"_s);
+        QCOMPARE(lastOf(m, Kind::Text)->style.fontPx, 32);
+        QVERIFY(lastOf(m, Kind::Text)->style.bold);
+        // A double click on a text without a tool opens it.
+        m.setTool(-1);
+        click(m, on);
+        press(m, on);
+        QVERIFY(m.doubleClick(on));
+        m.release(on);
+        QVERIFY(m.editingText());
+        QCOMPARE(m.editing().value(u"id"_s).toUInt(), text.id);
+        QVERIFY(m.doubleClick(on)); // while typing: the box's
+        m.commitPending();
+    }
+
+    void panelAndStyleMemory()
+    {
+        Rig rig(QSize(400, 300), 1.5);
+        AnnotationModel& m = rig.model;
+        QCOMPARE(m.panel().value(u"kind"_s).toInt(), -1);
+        QCOMPARE(m.panel().value(u"colors"_s).toList().size(), palette().size());
+        QVERIFY(!m.panelVisible());
+        m.setTool(toolIndex(Kind::Rect));
+        QVERIFY(m.panelVisible());
+        QVariantMap p = m.panel();
+        QCOMPARE(p.value(u"kind"_s).toInt(), int(Kind::Rect));
+        QCOMPARE(p.value(u"width"_s).toInt(), 4);
+        QCOMPARE(p.value(u"widths"_s).toList().size(), sizePresets(Kind::Rect).size());
+        QCOMPARE(p.value(u"fill"_s).toString(), u"none"_s);
+        QCOMPARE(p.value(u"color"_s).toString(), u"#E53935"_s);
+        QVERIFY(!p.contains(u"size"_s));
+        QVERIFY(!p.value(u"selected"_s).toBool());
+        // The tool's style: remembered in logical px, no step to undo.
+        m.setPanel({{u"width"_s, 7}});
+        QCOMPARE(m.panel().value(u"width"_s).toInt(), 7);
+        QCOMPARE(m.styles().tool(Kind::Rect).width, 7);
+        QVERIFY(m.stylesChanged());
+        QVERIFY(!m.canUndo());
+        drag(m, QPoint(40, 40), QPoint(100, 100));
+        const quint32 first = lastOf(m, Kind::Rect)->id;
+        QCOMPARE(lastOf(m, Kind::Rect)->style.width, 11); // 7 x 1.5, rounded
+        // Selected: the panel shows the object's, and a change goes to both.
+        QVERIFY(m.panel().value(u"selected"_s).toBool());
+        QCOMPARE(m.panel().value(u"width"_s).toInt(), 7);
+        m.setPanel({{u"width"_s, 2}, {u"fill"_s, u"soft"_s}});
+        QCOMPARE(findItem(m.document(), first)->style.width, 3);
+        QCOMPARE(findItem(m.document(), first)->style.fill, Fill::Soft);
+        QCOMPARE(m.styles().tool(Kind::Rect).width, 2);
+        QCOMPARE(m.styles().tool(Kind::Rect).fill, Fill::Soft);
+        QVERIFY(m.canUndo());
+        // Let go of, the tool shows its memory; changed, the memory only.
+        m.setTool(-1);
+        click(m, QPoint(300, 250));
+        QVERIFY(m.selection().isEmpty());
+        m.setTool(toolIndex(Kind::Rect));
+        m.setPanel({{u"width"_s, 5}});
+        QCOMPARE(findItem(m.document(), first)->style.width, 3);
+        // The object, selected again, shows its own style, not the tool's.
+        m.setTool(-1);
+        click(m, pointOn(m, first));
+        QCOMPARE(selectedId(m), first);
+        QCOMPARE(m.panel().value(u"width"_s).toInt(), 2);
+        QCOMPARE(m.styles().tool(Kind::Rect).width, 5);
+        // Fields a kind does not use are not taken.
+        m.setTool(toolIndex(Kind::Arrow));
+        QVERIFY(m.selection().isEmpty()); // another kind's tool lets the rect go
+        m.setPanel({{u"fill"_s, u"solid"_s}, {u"size"_s, 40}});
+        QVERIFY(!m.panel().contains(u"fill"_s));
+        QCOMPARE(m.styles().tool(Kind::Arrow), StyleMemory::defaults(Kind::Arrow));
+        m.setPanel({{u"color"_s, u"#43A047"_s}});
+        QCOMPARE(m.styles().tool(Kind::Arrow).color, qRgb(0x43, 0xA0, 0x47));
+        // The redaction's panel: mode and cell.
+        m.setTool(toolIndex(Kind::Redact));
+        p = m.panel();
+        QCOMPARE(p.value(u"mode"_s).toString(), u"mosaic"_s);
+        QCOMPARE(p.value(u"cell"_s).toInt(), 12);
+        m.setPanel({{u"mode"_s, u"blur"_s}});
+        QCOMPARE(m.styles().tool(Kind::Redact).mode, RedactMode::Blur);
+        // The memory comes back from begin().
+        StyleMemory styles = m.styles();
+        m.end();
+        m.begin(rig.base, 1.0, styles);
+        QVERIFY(!m.stylesChanged());
+        QCOMPARE(m.styles(), styles);
+        QCOMPARE(m.itemCount(), 0);
+        QCOMPARE(m.tool(), -1);
+    }
+
+    void wheelSteps()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        QVERIFY(!m.wheel(120, 0)); // no tool, nothing selected: the session's
+        m.setTool(toolIndex(Kind::Rect));
+        const auto width = [&] { return m.panel().value(u"width"_s).toInt(); };
+        QCOMPARE(width(), 4);
+        QVERIFY(m.wheel(60, 1000));
+        QCOMPARE(width(), 4); // half a notch
+        QVERIFY(m.wheel(60, 1010));
+        QCOMPARE(width(), 5); // a notch: one step
+        QVERIFY(m.wheel(120, 1100));
+        QCOMPARE(width(), 5); // within 200 ms of the last one
+        QVERIFY(m.wheel(120, 1250));
+        QCOMPARE(width(), 6);
+        QVERIFY(m.wheel(-120, 1500));
+        QCOMPARE(width(), 5);
+        QVERIFY(m.wheel(-40, 1800));
+        QVERIFY(m.wheel(80, 1810)); // turned back: counted again from there
+        QCOMPARE(width(), 5);
+        QVERIFY(m.wheel(480, 2500)); // a flick: one step
+        QCOMPARE(width(), 6);
+        // [ and ] step the same ladder.
+        QVERIFY(m.key(Qt::Key_BracketRight, {}));
+        QCOMPARE(width(), 7);
+        QVERIFY(m.key(Qt::Key_BracketRight, {}));
+        QCOMPARE(width(), 8);
+        QVERIFY(m.key(Qt::Key_BracketRight, {}));
+        QCOMPARE(width(), 10);
+        QVERIFY(m.key(Qt::Key_BracketLeft, {}));
+        QCOMPARE(width(), 8);
+        m.setTool(toolIndex(Kind::Number));
+        QVERIFY(m.wheel(120, 3000));
+        QCOMPARE(m.panel().value(u"size"_s).toInt(), 20);
+        m.setTool(toolIndex(Kind::Redact));
+        QVERIFY(m.wheel(-120, 4000));
+        QCOMPARE(m.panel().value(u"cell"_s).toInt(), 10);
+        // The ladder's ends hold.
+        m.setTool(toolIndex(Kind::Line));
+        for (int i = 0; i < 30; ++i)
+            m.key(Qt::Key_BracketRight, {});
+        QCOMPARE(width(), 40);
+        // A selected object: its own size, one undo step for the run.
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(40, 40), QPoint(100, 100));
+        const quint32 id = selectedId(m);
+        m.setTool(-1);
+        QVERIFY(m.wheel(120, 10000));
+        QVERIFY(m.wheel(120, 10300));
+        QCOMPARE(findItem(m.document(), id)->style.width, 12);
+        m.undo();
+        QCOMPARE(findItem(m.document(), id)->style.width, 8);
+        // Mid-drag the wheel is still the model's, and changes nothing.
+        press(m, pointOn(m, id));
+        QVERIFY(m.wheel(120, 20000));
+        m.release(pointOn(m, id));
+        QCOMPARE(findItem(m.document(), id)->style.width, 8);
+    }
+
+    void redactionsStayFirst()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(40, 40), QPoint(100, 100));
+        const quint32 rect = selectedId(m);
+        m.setTool(toolIndex(Kind::Redact));
+        drag(m, QPoint(60, 60), QPoint(160, 120));
+        const quint32 r1 = selectedId(m);
+        QCOMPARE(kinds(m), (QList<Kind> {Kind::Redact, Kind::Rect}));
+        drag(m, QPoint(200, 150), QPoint(260, 200));
+        const quint32 r2 = selectedId(m);
+        QCOMPARE(kinds(m), (QList<Kind> {Kind::Redact, Kind::Redact, Kind::Rect}));
+        QCOMPARE(m.document().items[1].id, r2);
+        // Raised to the top, a redaction stays under the rect.
+        m.setTool(-1);
+        click(m, pointOn(m, r1));
+        QCOMPARE(selectedId(m), r1);
+        QVERIFY(m.panel().value(u"canRaise"_s).toBool());
+        QVERIFY(!m.panel().value(u"canLower"_s).toBool());
+        m.raise(true);
+        QCOMPARE(m.document().items[1].id, r1);
+        QCOMPARE(m.document().items[2].id, rect);
+        QVERIFY(!m.panel().value(u"canRaise"_s).toBool());
+        QVERIFY(m.key(Qt::Key_BracketLeft, Qt::ControlModifier)); // a layer down
+        QCOMPARE(m.document().items[0].id, r1);
+        // Lowered to the bottom, the rect stays over them.
+        click(m, pointOn(m, rect));
+        QCOMPARE(selectedId(m), rect);
+        QVERIFY(!m.panel().value(u"canLower"_s).toBool());
+        QVERIFY(m.key(Qt::Key_BraceLeft, Qt::ControlModifier | Qt::ShiftModifier));
+        m.lower(true);
+        QCOMPARE(m.document().items[2].id, rect);
+        // An arrow over the rect, lowered one layer: under it, over the redactions.
+        m.setTool(toolIndex(Kind::Arrow));
+        drag(m, QPoint(30, 200), QPoint(150, 250));
+        const quint32 arrow = selectedId(m);
+        m.lower(false);
+        QCOMPARE(m.document().items[2].id, arrow);
+        QCOMPARE(m.document().items[3].id, rect);
+        m.undo();
+        QCOMPARE(m.document().items[3].id, arrow);
+    }
+
+    void keysOnTheSelection()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        QVERIFY(!m.key(Qt::Key_Left, {})); // nothing selected: the session moves the selection
+        QVERIFY(!m.key(Qt::Key_Delete, {}));
+        QVERIFY(!m.key(Qt::Key_BracketRight, {}));
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(40, 40), QPoint(100, 100));
+        const quint32 id = selectedId(m);
+        const QRect box = itemBox(*findItem(m.document(), id));
+        QVERIFY(m.key(Qt::Key_Right, {}));
+        QVERIFY(m.key(Qt::Key_Down, Qt::ShiftModifier));
+        QVERIFY(m.key(Qt::Key_Left, Qt::KeypadModifier));
+        QCOMPARE(itemBox(*findItem(m.document(), id)), box.translated(0, 10));
+        QVERIFY(m.key(Qt::Key_Z, Qt::ControlModifier)); // the run was one step
+        QCOMPARE(itemBox(*findItem(m.document(), id)), box);
+        QVERIFY(m.key(Qt::Key_Y, Qt::ControlModifier));
+        QCOMPARE(itemBox(*findItem(m.document(), id)), box.translated(0, 10));
+        QVERIFY(m.key(Qt::Key_Z, Qt::ControlModifier));
+        QVERIFY(m.key(Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier));
+        QCOMPARE(itemBox(*findItem(m.document(), id)), box.translated(0, 10));
+        QVERIFY(m.key(Qt::Key_Delete, {}));
+        QCOMPARE(m.itemCount(), 0);
+        QVERIFY(m.selection().isEmpty());
+        QVERIFY(m.key(Qt::Key_Z, Qt::ControlModifier));
+        QCOMPARE(m.itemCount(), 1);
+        // While the button is held, the keys wait.
+        m.setTool(-1);
+        click(m, pointOn(m, id));
+        const QPoint on = pointOn(m, id);
+        press(m, on);
+        m.move(on + QPoint(20, 0), {});
+        QVERIFY(m.key(Qt::Key_Delete, {}));
+        QVERIFY(m.key(Qt::Key_R, {}));
+        QCOMPARE(m.tool(), -1);
+        QCOMPARE(m.itemCount(), 1);
+        m.release(on + QPoint(20, 0));
+        QCOMPARE(itemBox(*findItem(m.document(), id)), box.translated(20, 10));
+        QVERIFY(!m.key(Qt::Key_Tab, {}));
+    }
+
+    void pointerRules()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        QVERIFY(!m.doubleClick(QPoint(200, 200))); // the bare picture, no tool: the session copies
+        QCOMPARE(m.cursorAt(QPoint(200, 200)), -1);
+        QVERIFY(!m.pressFirst(QPoint(200, 200), {}));
+        QVERIFY(!m.pressSecond(QPoint(200, 200), {})); // the session's press
+        m.setTool(toolIndex(Kind::Rect));
+        QCOMPARE(m.cursorAt(QPoint(200, 200)), int(Qt::CrossCursor));
+        QVERIFY(m.doubleClick(QPoint(200, 200))); // with a tool: never a copy
+        drag(m, QPoint(40, 40), QPoint(100, 100));
+        const quint32 id = selectedId(m);
+        QVERIFY(m.onHandle(QPoint(101, 101)));
+        QCOMPARE(m.cursorAt(QPoint(101, 101)), int(Qt::SizeFDiagCursor));
+        QCOMPARE(m.cursorAt(QPoint(101, 40)), int(Qt::SizeBDiagCursor));
+        QCOMPARE(m.cursorAt(QPoint(70, 101)), int(Qt::SizeVerCursor));
+        QCOMPARE(m.cursorAt(pointOn(m, id)), int(Qt::SizeAllCursor));
+        QVERIFY(!m.onHandle(QPoint(200, 200)));
+        m.setTool(-1);
+        QCOMPARE(m.cursorAt(pointOn(m, id)), int(Qt::SizeAllCursor));
+        QVERIFY(m.doubleClick(pointOn(m, id))); // on an object: no copy
+        // A press on the blank picture lets the object go and is the session's.
+        QVERIFY(!m.pressFirst(QPoint(300, 250), {}));
+        QVERIFY(!m.pressSecond(QPoint(300, 250), {}));
+        QVERIFY(m.selection().isEmpty());
+        QVERIFY(!m.panelVisible());
+        QVERIFY(!m.onHandle(QPoint(101, 101)));
+        // A line's ends: the cursor follows its direction.
+        m.setTool(toolIndex(Kind::Line));
+        drag(m, QPoint(200, 50), QPoint(300, 50));
+        QCOMPARE(m.cursorAt(QPoint(300, 50)), int(Qt::SizeHorCursor));
+        drag(m, QPoint(250, 100), QPoint(330, 180));
+        QCOMPARE(m.cursorAt(QPoint(330, 180)), int(Qt::SizeFDiagCursor));
+        // A handle drag past the opposite side turns the box over.
+        m.setTool(-1);
+        click(m, pointOn(m, id));
+        drag(m, QPoint(101, 101), QPoint(20, 20));
+        QCOMPARE(itemBox(*findItem(m.document(), id)), QRect(QPoint(19, 19), QPoint(40, 40)));
+    }
+
+    void composedAndProject()
+    {
+        Rig rig(QSize(400, 300), 1.0, QRect(50, 40, 200, 150));
+        AnnotationModel& m = rig.model;
+        QVERIFY(m.composed().isNull()); // nothing drawn
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(60, 60), QPoint(120, 120));
+        m.setTool(toolIndex(Kind::Text));
+        click(m, QPoint(150, 100));
+        m.setEditingText(u"pending"_s);
+        const Project project = m.project(); // the text under way counts, uncommitted
+        QVERIFY(m.editingText());
+        QCOMPARE(project.doc.items.size(), 2);
+        QCOMPARE(project.base.size(), QSize(200, 150));
+        QCOMPARE(project.doc.items[1].text, u"pending"_s);
+        const QImage picture = m.composed(); // commits it first
+        QVERIFY(!m.editingText());
+        QCOMPARE(m.itemCount(), 2);
+        QCOMPARE(picture.size(), QSize(200, 150));
+        Compositor other;
+        const Diff d = compare(picture, other.exportImage(m.document(), m.base(), m.sampleBounds()));
+        QVERIFY2(d.count == 0, describe(d).constData());
+        m.end();
+        QVERIFY(!m.active());
+        QVERIFY(m.composed().isNull());
+        QCOMPARE(m.itemCount(), 0);
+        QVERIFY(!m.canUndo());
+        QVERIFY(!m.pressSecond(QPoint(100, 100), {}));
+        QVERIFY(!m.key(Qt::Key_R, {}));
+    }
+
+    void dirtyRegionsCoverChanges()
+    {
+        Rig rig(QSize(500, 360), 1.25, QRect(10, 10, 470, 330));
+        AnnotationModel& m = rig.model;
+        Screen screen(m);
+        CHECK_SCREEN(screen);
+        m.setTool(toolIndex(Kind::Redact));
+        drag(m, QPoint(100, 100), QPoint(200, 160));
+        CHECK_SCREEN(screen);
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(40, 40), QPoint(150, 130));
+        m.setPanel({{u"fill"_s, u"soft"_s}});
+        CHECK_SCREEN(screen);
+        // The selection moves: the redaction takes other colours.
+        m.setSelection(QRect(60, 20, 400, 320));
+        CHECK_SCREEN(screen);
+        // Strokes, checked while they are drawn and after.
+        for (const Kind kind : {Kind::Pen, Kind::Marker}) {
+            m.setTool(toolIndex(kind));
+            const QList<QPoint> points = zigzag(QPoint(320, 300), 14, QPoint(-11, -14), QPoint(18, 0));
+            press(m, points.first());
+            for (qsizetype i = 1; i < points.size(); ++i) {
+                m.move(points[i], {});
+                if (i % 4 == 0)
+                    CHECK_SCREEN(screen);
+            }
+            CHECK_SCREEN(screen);
+            m.release(points.last());
+            CHECK_SCREEN(screen);
+        }
+        // Numbers: deleting the first renumbers the others.
+        m.setTool(toolIndex(Kind::Number));
+        click(m, QPoint(400, 60));
+        click(m, QPoint(440, 60));
+        click(m, QPoint(420, 100));
+        CHECK_SCREEN(screen);
+        m.setTool(-1);
+        click(m, QPoint(400, 60));
+        m.deleteSelection();
+        CHECK_SCREEN(screen);
+        m.undo();
+        CHECK_SCREEN(screen);
+        // A move, a reshape, an arrow drawn and moved, all undone and redone.
+        const quint32 rect = lastOf(m, Kind::Rect)->id;
+        const QPoint on = pointOn(m, rect);
+        drag(m, on, on + QPoint(35, 25));
+        CHECK_SCREEN(screen);
+        const QVariantList marks = m.selection().value(0).toMap().value(u"handles"_s).toList();
+        const QVariantMap corner = marks.value(4).toMap();
+        const QPoint handle(qFloor(corner.value(u"x"_s).toReal()), qFloor(corner.value(u"y"_s).toReal()));
+        drag(m, handle, handle + QPoint(40, 30));
+        CHECK_SCREEN(screen);
+        m.setTool(toolIndex(Kind::Arrow));
+        drag(m, QPoint(250, 200), QPoint(420, 300));
+        CHECK_SCREEN(screen);
+        m.setTool(-1);
+        const quint32 arrow = lastOf(m, Kind::Arrow)->id;
+        drag(m, pointOn(m, arrow), pointOn(m, arrow) + QPoint(-60, -30));
+        CHECK_SCREEN(screen);
+        m.lower(true);
+        CHECK_SCREEN(screen);
+        for (int i = 0; i < 6; ++i) {
+            m.undo();
+            CHECK_SCREEN(screen);
+        }
+        for (int i = 0; i < 6; ++i) {
+            m.redo();
+            CHECK_SCREEN(screen);
+        }
+        // Typing: the old text is left out while its box is open.
+        m.setTool(toolIndex(Kind::Text));
+        click(m, QPoint(200, 250));
+        m.commitText(u"Win顺 截图"_s);
+        CHECK_SCREEN(screen);
+        const quint32 text = lastOf(m, Kind::Text)->id;
+        click(m, pointOn(m, text));
+        QVERIFY(m.editingText());
+        CHECK_SCREEN(screen);
+        m.setPanel({{u"boxed"_s, true}});
+        CHECK_SCREEN(screen);
+        m.commitText(u"Win顺 截图 标注"_s);
+        CHECK_SCREEN(screen);
+        // Styles from the panel and the wheel.
+        click(m, pointOn(m, text));
+        m.commitText(u"Win顺 截图 标注"_s);
+        m.setTool(-1);
+        click(m, pointOn(m, rect));
+        m.setPanel({{u"color"_s, u"#1E88E5"_s}, {u"width"_s, 12}});
+        CHECK_SCREEN(screen);
+        QVERIFY(m.wheel(-120, 0));
+        CHECK_SCREEN(screen);
+        // The capture ends: all of it.
+        m.end();
+        m.begin(rig.base, 1.0, StyleMemory());
+        m.setSelection(QRect(0, 0, 500, 360));
+        CHECK_SCREEN(screen);
+    }
+
+    void canvasTiles()
+    {
+        const QSize size(600, 400); // 3 x 2 tiles, the last column and row cut short
+        Rig rig(size);
+        AnnotationModel& m = rig.model;
+        m.setTool(toolIndex(Kind::Redact));
+        drag(m, QPoint(230, 30), QPoint(300, 120));
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(40, 40), QPoint(270, 200));
+        m.setPanel({{u"fill"_s, u"soft"_s}});
+        m.setTool(toolIndex(Kind::Arrow));
+        drag(m, QPoint(300, 300), QPoint(480, 270));
+        m.setTool(toolIndex(Kind::Pen));
+        stroke(m, zigzag(QPoint(100, 310), 9, QPoint(12, 3), QPoint(0, 40)));
+        m.setTool(toolIndex(Kind::Number));
+        click(m, QPoint(560, 60));
+        m.setTool(toolIndex(Kind::Text));
+        click(m, QPoint(320, 150));
+        m.commitText(u"Win顺 标注"_s);
+        m.setTool(-1);
+
+        QQuickWindow window;
+        window.setColor(QColor::fromRgb(kMagenta));
+        window.resize(size);
+        AnnotationCanvas canvas(window.contentItem());
+        canvas.setSize(QSizeF(size));
+        canvas.setModel(&m);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        const auto grab = [&window] { return window.grabWindow().convertToFormat(QImage::Format_RGB32); };
+        const auto expected = [&m, size] {
+            QImage out;
+            Compositor fresh;
+            fresh.render(m.document(), m.base(), m.sampleBounds(), QRect(QPoint(0, 0), size), &out, m.skipped());
+            return out;
+        };
+        const auto tileRect = [size](int column, int row) {
+            return QRect(column * 256, row * 256, 256, 256) & QRect(QPoint(0, 0), size);
+        };
+        const auto reached = [&m](const QRect& tile) {
+            const QHash<quint32, int> n = numbers(m.document());
+            for (const Item& item : m.document().items) {
+                if (m.skipped() == item.id)
+                    continue;
+                if (bounds(item, m.dpr(), n.value(item.id, 1)).toAlignedRect().intersects(tile))
+                    return true;
+            }
+            return false;
+        };
+
+        QImage got = grab();
+        QCOMPARE(got.size(), size);
+        Diff d = compare(got, expected());
+        QVERIFY2(d.count == 0, describe(d).constData());
+        QCOMPARE(canvas.tilesShown(), 6);
+
+        // A stroke being drawn: the tiles it reaches are drawn again.
+        m.setTool(toolIndex(Kind::Marker));
+        const QList<QPoint> points = zigzag(QPoint(520, 380), 16, QPoint(-16, -14), QPoint(0, 25));
+        press(m, points.first());
+        for (qsizetype i = 1; i < points.size(); ++i) {
+            m.move(points[i], {});
+            if (i % 5 == 0) {
+                d = compare(grab(), expected());
+                QVERIFY2(d.count == 0, describe(d).constData());
+            }
+        }
+        m.release(points.last());
+        d = compare(grab(), expected());
+        QVERIFY2(d.count == 0, describe(d).constData());
+        m.undo();
+        m.setTool(-1);
+
+        // Sparse: only the tiles something reaches; elsewhere what is beneath.
+        canvas.setSparse(true);
+        got = grab();
+        QImage want = expected();
+        int reachedTiles = 0;
+        for (int row = 0; row < 2; ++row) {
+            for (int column = 0; column < 3; ++column) {
+                const QRect tile = tileRect(column, row);
+                if (reached(tile)) {
+                    ++reachedTiles;
+                    d = compare(got, want, tile);
+                    QVERIFY2(d.count == 0, describe(d).constData());
+                } else {
+                    QImage beneath(size, QImage::Format_RGB32);
+                    beneath.fill(kMagenta);
+                    d = compare(got, beneath, tile);
+                    QVERIFY2(d.count == 0, describe(d).constData());
+                }
+            }
+        }
+        QCOMPARE(reachedTiles, 5); // the bottom right tile has nothing
+        QCOMPARE(canvas.tilesShown(), reachedTiles);
+
+        // A text being typed is left out, and its tile with it if nothing else is there.
+        const quint32 text = lastOf(m, Kind::Text)->id;
+        press(m, pointOn(m, text));
+        QVERIFY(m.doubleClick(pointOn(m, text)));
+        m.release(pointOn(m, text));
+        QVERIFY(m.editingText());
+        want = expected();
+        got = grab();
+        for (int row = 0; row < 2; ++row) {
+            for (int column = 0; column < 3; ++column) {
+                const QRect tile = tileRect(column, row);
+                if (reached(tile)) {
+                    d = compare(got, want, tile);
+                    QVERIFY2(d.count == 0, describe(d).constData());
+                }
+            }
+        }
+        m.commitPending();
+
+        // Everything undone: no tile left.
+        while (m.canUndo())
+            m.undo();
+        got = grab();
+        QCOMPARE(canvas.tilesShown(), 0);
+        QImage beneath(size, QImage::Format_RGB32);
+        beneath.fill(kMagenta);
+        d = compare(got, beneath);
+        QVERIFY2(d.count == 0, describe(d).constData());
+        while (m.canRedo())
+            m.redo();
+        canvas.setSparse(false);
+        d = compare(grab(), expected());
+        QVERIFY2(d.count == 0, describe(d).constData());
+
+        // Twice the size: every image pixel a 2 x 2 block.
+        window.resize(size * 2);
+        canvas.setSize(QSizeF(size * 2));
+        canvas.setScaleX(2);
+        canvas.setScaleY(2);
+        got = grab();
+        want = expected();
+        QCOMPARE(got.size(), size * 2);
+        int off = 0;
+        for (int y = 0; y < got.height(); ++y) {
+            for (int x = 0; x < got.width(); ++x) {
+                if ((got.pixel(x, y) | 0xff000000u) != want.pixel(x / 2, y / 2))
+                    ++off;
+            }
+        }
+        QCOMPARE(off, 0);
+
+        // The capture ends: the canvas lets go of its tiles.
+        m.end();
+        got = grab();
+        QCOMPARE(canvas.tilesShown(), 0);
+        QCOMPARE(got.pixel(10, 10) | 0xff000000u, kMagenta);
+    }
+};
+
+int main(int argc, char** argv)
+{
+    // The canvas is grabbed from an offscreen window on the software scene
+    // graph; offscreen reads the fonts with FreeType from a folder, which
+    // on Windows is this one.
+    if (!qEnvironmentVariableIsSet("QT_QPA_PLATFORM"))
+        qputenv("QT_QPA_PLATFORM", "offscreen");
+    if (!qEnvironmentVariableIsSet("QT_QPA_FONTDIR"))
+        qputenv("QT_QPA_FONTDIR", (qEnvironmentVariable("WINDIR", u"C:\\Windows"_s) + u"\\Fonts"_s).toLocal8Bit());
+    QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
+    QGuiApplication app(argc, argv);
+    TestAnnotModel test;
+    return QTest::qExec(&test, argc, argv);
+}
+
+#include "tst_annotmodel.moc"

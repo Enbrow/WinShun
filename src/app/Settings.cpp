@@ -885,6 +885,7 @@ void Settings::load()
     capturePrintScreenBefore = readOrDefault(s, u"Capture/PrintScreenBefore"_s, d.capturePrintScreenBefore).trimmed();
     captureCopyOnSelect = readOrDefault(s, u"Capture/CopyOnSelect"_s, d.captureCopyOnSelect);
     captureKeyword = readOrDefault(s, u"Capture/Keyword"_s, d.captureKeyword).trimmed();
+    captureAnnotateStyles = readOrDefault(s, u"Capture/AnnotateStyles"_s, d.captureAnnotateStyles).trimmed();
 
     // Before the list: writing it (defaults new to the file) rewrites the whole group.
     webSuggestions = readOrDefault(s, u"WebSearch/Suggestions"_s, d.webSuggestions);
@@ -1003,6 +1004,7 @@ void Settings::save() const
     s.setValue(u"Capture/PrintScreenBefore"_s, capturePrintScreenBefore);
     s.setValue(u"Capture/CopyOnSelect"_s, captureCopyOnSelect);
     s.setValue(u"Capture/Keyword"_s, captureKeyword);
+    s.setValue(u"Capture/AnnotateStyles"_s, captureAnnotateStyles);
     writeWebShortcuts(s, webShortcuts, webSuggestions);
     writeFileTypes(s, fileTypes);
     writeShares(s, shares);

@@ -1,6 +1,7 @@
 #include "Capture.h"
 
 #include "CaptureOcr.h"
+#include "platform/Foreground.h"
 #include "platform/KeyRouter.h" // kOwnInput
 #include "platform/WindowEffects.h"
 
@@ -18,6 +19,7 @@
 #include <knownfolders.h>
 #include <shlobj.h>
 
+#include <algorithm>
 #include <cmath>
 
 using namespace Qt::StringLiterals;
@@ -89,6 +91,9 @@ Capture::Capture(QQmlEngine* engine, Callbacks callbacks, QObject* parent)
     , m_callbacks(std::move(callbacks))
 {
     m_session.setOcrAvailable(CaptureOcr::available());
+    m_draftTimer.setSingleShot(true);
+    m_draftTimer.setInterval(kDraftMs);
+    connect(&m_draftTimer, &QTimer::timeout, this, [this] { m_draft.reset(); });
 
     connect(&m_session, &CaptureSession::finished, this, &Capture::finish);
     connect(&m_session, &CaptureSession::colorCopied, this, [this](const QString& color) {
@@ -218,6 +223,9 @@ void Capture::start()
     m_clock.start();
     m_reported = false;
     m_flyoutMs = -1;
+    m_draft.reset(); // a new capture ends the draft's time
+    m_draftTimer.stop();
+    m_session.setStyles(annot::StyleMemory::fromJson(m_callbacks.annotateStyles ? m_callbacks.annotateStyles() : QString()));
     // Read before anything of ours shows: the Start menu, search or a shell
     // flyout in front stays in the picture (wanted), and is closed after.
     const HWND foreground = ::GetForegroundWindow();
@@ -329,6 +337,29 @@ void Capture::show()
 
 void Capture::frameDrawn(QQuickWindow* window)
 {
+    if (m_state == State::Showing && m_session.annotation()->gestureActive()) {
+        if (m_gestureFrameOpen)
+            m_gestureFrames.push_back(m_frameClock.nsecsElapsed());
+        m_frameClock.restart();
+        m_gestureFrameOpen = true;
+    } else {
+        // A gesture just ended: how smooth it was, from the time between its frames.
+        if (m_gestureFrameOpen && m_gestureFrames.size() >= 8) {
+            std::vector<qint64> frames = m_gestureFrames;
+            std::ranges::sort(frames);
+            const auto at = [&frames](double q) { return frames[static_cast<std::size_t>(q * (frames.size() - 1))] / 1e6; };
+            qInfo().noquote() << u"Screen capture: gesture of %1 frames, between them p50 %2 ms, p95 %3 ms, max %4 ms (%5 items)"_s
+                                     .arg(frames.size())
+                                     .arg(at(0.5), 0, 'f', 1)
+                                     .arg(at(0.95), 0, 'f', 1)
+                                     .arg(at(1.0), 0, 'f', 1)
+                                     .arg(m_session.annotation()->itemCount());
+        }
+        if (m_gestureFrameOpen)
+            m_allGestureFrames.insert(m_allGestureFrames.end(), m_gestureFrames.begin(), m_gestureFrames.end());
+        m_gestureFrames.clear();
+        m_gestureFrameOpen = false;
+    }
     const auto overlay = std::ranges::find(m_overlays, window, [](const Overlay& o) { return o.window.data(); });
     if (overlay == m_overlays.end() || !overlay->cloaked)
         return;
@@ -357,6 +388,18 @@ void Capture::frameDrawn(QQuickWindow* window)
                                  .arg(m_snapshot.windows().size())
                                  .arg(m_listMs - m_grabMs)
                                  .arg(m_flyoutMs >= 0 ? u"; waited %1 ms for the Start menu to close"_s.arg(m_flyoutMs) : QString());
+        // show() brought it to the front for the keys. Not in front now,
+        // with no word from bringToFront: something took the foreground
+        // back. Say what, so a real case leaves a trace.
+        const HWND front = ::GetForegroundWindow();
+        const auto isOverlay = [front](const Overlay& o) { return o.window && reinterpret_cast<HWND>(o.window->winId()) == front; };
+        if (m_state == State::Showing && std::ranges::none_of(m_overlays, isOverlay)) {
+            wchar_t name[256] {};
+            if (front)
+                ::GetClassNameW(front, name, static_cast<int>(std::size(name)));
+            qWarning().noquote() << u"Screen capture: overlay up, but %1 (%2) is in front"_s.arg(
+                front ? QString::fromWCharArray(name) : u"no window"_s, front ? foreground::programOf(front) : QString());
+        }
     }
 }
 
@@ -367,8 +410,10 @@ void Capture::finish(CaptureSession::Action action, int screen, const QRect& rec
     m_flyoutWait.stop();
     m_flyout = nullptr;
     QImage picture;
+    QByteArray project;
     QPoint origin; // the picture's top left on the screen, physical
     double dpr = 1.0;
+    AnnotationModel* annotation = m_session.annotation();
     if (action != CaptureSession::Action::Cancel) {
         for (const Overlay& overlay : m_overlays) {
             if (overlay.model->index() == screen) {
@@ -377,7 +422,38 @@ void Capture::finish(CaptureSession::Action action, int screen, const QRect& rec
                 dpr = overlay.model->dpr();
             }
         }
+        // Annotated: the picture is the composition, and the project goes with
+        // it. Not annotated: the plain copy above, as fast as before.
+        if (!picture.isNull() && m_session.hasAnnotations() && m_session.annotationScreen() == screen
+            && annotation->selectionRect() == rect) {
+            const QImage composed = annotation->composed();
+            if (composed.size() == picture.size()) {
+                picture = composed;
+                const annot::Project packed = annotation->project();
+                project = annot::writeProject(packed.doc, packed.base);
+            }
+        }
+    } else if (m_session.hasAnnotations()) {
+        // Ended with annotations on the screen (the hotkey, Esc): kept for a
+        // while, to be found again from the tray menu.
+        const int draftScreen = m_session.annotationScreen();
+        for (const Overlay& overlay : m_overlays) {
+            if (overlay.model->index() == draftScreen) {
+                annotation->commitPending();
+                m_draft = Draft {annotation->project(), overlay.model->rect().topLeft() + annotation->selectionRect().topLeft()};
+                m_draftTimer.start();
+                qInfo().noquote() << u"Screen capture: annotations kept as a draft at %1,%2 (%3x%4)"_s.arg(m_draft->origin.x())
+                                         .arg(m_draft->origin.y())
+                                         .arg(m_draft->project.base.width())
+                                         .arg(m_draft->project.base.height());
+            }
+        }
     }
+    m_allGestureFrames.clear();
+    m_gestureFrames.clear();
+    m_gestureFrameOpen = false;
+    if (m_session.stylesChanged() && m_callbacks.annotateStylesChanged)
+        m_callbacks.annotateStylesChanged(m_session.styles().toJson());
     m_state = State::Closing;
     m_session.end();
     // Cloaked at once (gone from the screen), drawn once more without the
@@ -402,17 +478,22 @@ void Capture::finish(CaptureSession::Action action, int screen, const QRect& rec
         return;
     m_last = picture;
     m_lastOrigin = origin;
+    m_lastProject = project;
     switch (action) {
     case CaptureSession::Action::Copy:
         if (m_callbacks.copy)
-            m_callbacks.copy(picture);
+            m_callbacks.copy(picture, project);
         break;
     case CaptureSession::Action::Save:
         save(picture);
+        if (m_callbacks.record)
+            m_callbacks.record(picture, project);
         break;
     case CaptureSession::Action::Pin:
         if (PinManager* pins = m_callbacks.pins ? m_callbacks.pins() : nullptr)
-            pins->pin(picture, origin);
+            pins->pin(picture, origin, true, project);
+        if (m_callbacks.record)
+            m_callbacks.record(picture, project);
         break;
     case CaptureSession::Action::Ocr:
         if (m_callbacks.ocr)
@@ -428,7 +509,27 @@ void Capture::pinLast()
     if (m_last.isNull())
         return;
     if (PinManager* pins = m_callbacks.pins ? m_callbacks.pins() : nullptr)
-        pins->pin(m_last, m_lastOrigin);
+        pins->pin(m_last, m_lastOrigin, true, m_lastProject);
+}
+
+void Capture::restoreDraft()
+{
+    if (!m_draft)
+        return;
+    const Draft draft = std::move(*m_draft);
+    m_draft.reset();
+    m_draftTimer.stop();
+    annot::Compositor compositor;
+    const QImage picture = compositor.exportImage(draft.project.doc, draft.project.base,
+        QRect(QPoint(0, 0), draft.project.base.size()));
+    if (picture.isNull())
+        return;
+    const QByteArray project = annot::writeProject(draft.project.doc, draft.project.base);
+    if (PinManager* pins = m_callbacks.pins ? m_callbacks.pins() : nullptr)
+        pins->pin(picture, draft.origin, true, project);
+    m_last = picture;
+    m_lastOrigin = draft.origin;
+    m_lastProject = project;
 }
 
 void Capture::findFlyout()

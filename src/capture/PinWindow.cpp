@@ -3,6 +3,7 @@
 #include <QDebug>
 #include <QPainter>
 
+#include <imm.h>
 #include <windowsx.h>
 
 #include <algorithm>
@@ -73,6 +74,12 @@ PinWindow::PinWindow(const QImage& image, QPoint origin, Host host)
     }
     ::SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
     ::SetWindowLongPtrW(m_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&PinWindow::proc));
+    // No input method: a pin takes no text, and with the thread's default
+    // context a letter typed at it opened the IME's candidate window. Qt
+    // does the same for its windows whose focus takes no text
+    // (QWindowsInputContext::setWindowsImeEnabled); the overlay's text
+    // box keeps its own.
+    ::ImmAssociateContextEx(m_hwnd, nullptr, 0);
     m_dpi = std::max<UINT>(96, ::GetDpiForWindow(m_hwnd));
     m_frame = pinFrame(dpr());
     render();

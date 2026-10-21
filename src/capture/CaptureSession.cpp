@@ -1,5 +1,8 @@
 #include "CaptureSession.h"
 
+#include <QDateTime>
+#include <QGuiApplication>
+
 #include <algorithm>
 #include <cmath>
 
@@ -92,6 +95,14 @@ void CaptureScreen::setFlash(const QString& text)
     emit flashChanged();
 }
 
+void CaptureScreen::setNotice(const QString& text)
+{
+    if (text == m_notice)
+        return;
+    m_notice = text;
+    emit noticeChanged();
+}
+
 QSize CaptureScreen::toPhysical(qreal width, qreal height) const
 {
     return QSize(static_cast<int>(std::ceil(width / m_scaleX - 1e-6)), static_cast<int>(std::ceil(height / m_scaleY - 1e-6)));
@@ -125,7 +136,88 @@ QPointF CaptureScreen::placeMagnifier(const QPoint& cursor, qreal width, qreal h
 
 CaptureSession::CaptureSession(QObject* parent)
     : QObject(parent)
+    , m_annot(this)
 {
+    m_noticeTimer.setSingleShot(true);
+    m_noticeTimer.setInterval(2500);
+    connect(&m_noticeTimer, &QTimer::timeout, this, [this] {
+        for (CaptureScreen* s : m_screens)
+            s->setNotice({});
+    });
+    connect(&m_annot, &AnnotationModel::notice, this, &CaptureSession::showNotice);
+}
+
+void CaptureSession::setStyles(const annot::StyleMemory& styles)
+{
+    m_styles = styles;
+    m_stylesChanged = false;
+}
+
+annot::StyleMemory CaptureSession::styles() const
+{
+    return m_annot.active() ? m_annot.styles() : m_styles;
+}
+
+bool CaptureSession::stylesChanged() const
+{
+    return m_stylesChanged || (m_annot.active() && m_annot.stylesChanged());
+}
+
+void CaptureSession::setToolHintSeen(bool seen)
+{
+    if (std::exchange(m_toolHintSeen, seen) != seen)
+        emit toolHintSeenChanged();
+}
+
+// A word by the selection, for a moment: on the monitor the annotations are
+// on, else the one the cursor is on.
+void CaptureSession::showNotice(const QString& text)
+{
+    const int target = m_selection.screen >= 0 ? m_selection.screen : m_parked ? m_parkedSelection.screen : m_cursorScreen;
+    for (CaptureScreen* s : m_screens)
+        s->setNotice(s->index() == target ? text : QString());
+    m_noticeTimer.start();
+}
+
+// The model follows the selection: it begins when a selection is settled,
+// moves with it, and ends when the selection goes without annotations.
+void CaptureSession::syncAnnotation()
+{
+    const bool settled = m_selection.screen >= 0
+        && (m_phase == Phase::Selected || m_phase == Phase::Annotating || m_phase == Phase::Adjusting);
+    if (settled) {
+        CaptureScreen* s = screenAt(m_selection.screen);
+        if (s && (!m_annot.active() || m_annotScreen != m_selection.screen)) {
+            retireAnnotation();
+            m_annot.begin(s->image(), s->dpr(), m_styles);
+            m_annotScreen = m_selection.screen;
+        }
+        if (m_annot.active())
+            m_annot.setSelection(m_selection.rect);
+    } else if (m_annot.active() && !m_parked && !m_annot.hasItems()) {
+        retireAnnotation();
+    }
+}
+
+void CaptureSession::retireAnnotation()
+{
+    if (m_annot.active()) {
+        if (m_annot.stylesChanged()) {
+            m_styles = m_annot.styles();
+            m_stylesChanged = true;
+        }
+        m_annot.end();
+    }
+    m_annotScreen = -1;
+}
+
+void CaptureSession::dropParked()
+{
+    if (!m_parked)
+        return;
+    m_parked = false;
+    m_parkedSelection = {};
+    retireAnnotation();
 }
 
 void CaptureSession::begin(std::vector<CaptureScreen*> screens, Windows windows)
@@ -141,8 +233,16 @@ void CaptureSession::begin(std::vector<CaptureScreen*> screens, Windows windows)
     m_hoverScreen = -1;
     m_chain.clear();
     m_level = 0;
-    for (CaptureScreen* s : m_screens)
+    m_parked = false;
+    m_parkedSelection = {};
+    m_annot.end();
+    m_annotScreen = -1;
+    if (std::exchange(m_toolbarHidden, false))
+        emit toolbarHiddenChanged();
+    for (CaptureScreen* s : m_screens) {
         s->setFlash({});
+        s->setNotice({});
+    }
     const bool was = m_active;
     m_active = true;
     publish();
@@ -169,11 +269,16 @@ void CaptureSession::setOcrAvailable(bool on)
 
 void CaptureSession::end()
 {
+    m_noticeTimer.stop();
     for (CaptureScreen* s : m_screens) {
         s->setState({}, {}, false, false);
         s->setCursor(false, {-1, -1}, Qt::CrossCursor);
         s->setFlash({});
+        s->setNotice({});
     }
+    retireAnnotation();
+    m_parked = false;
+    m_parkedSelection = {};
     m_screens.clear();
     m_windows = {};
     m_flyout = {};
@@ -253,6 +358,23 @@ void CaptureSession::updateHover(int screen, QPoint p)
     m_level = level;
 }
 
+// The cursor over `p` of the selection's monitor, once it is settled: the
+// selected annotation's handles first, then the selection's own, then what
+// the annotations say (the tool's cross, a movable object), else the
+// selection's (Move inside it).
+int CaptureSession::cursorShapeAt(int screen, QPoint p) const
+{
+    const bool annotated = m_annot.active() && m_annotScreen == screen;
+    if (annotated && m_annot.onHandle(p))
+        return m_annot.cursorAt(p);
+    const Handle handle = handleAt(m_selection.rect, p, reach(screen));
+    if (annotated && (handle == Handle::None || handle == Handle::Move)) {
+        if (const int shape = m_annot.cursorAt(p); shape >= 0)
+            return shape;
+    }
+    return cursorFor(handle);
+}
+
 void CaptureSession::updateCursor(int screen, QPoint p)
 {
     m_cursorScreen = screen;
@@ -260,8 +382,8 @@ void CaptureSession::updateCursor(int screen, QPoint p)
     for (CaptureScreen* s : m_screens) {
         const bool here = s->index() == screen;
         int shape = Qt::CrossCursor;
-        if (here && m_phase == Phase::Selected && m_selection.screen == screen)
-            shape = cursorFor(handleAt(m_selection.rect, m_cursorAt, reach(screen)));
+        if (here && (m_phase == Phase::Selected || m_phase == Phase::Annotating) && m_selection.screen == screen)
+            shape = cursorShapeAt(screen, m_cursorAt);
         else if (here && m_phase == Phase::Adjusting)
             shape = cursorFor(m_handle);
         s->setCursor(here, here ? m_cursorAt : QPoint(-1, -1), shape);
@@ -270,6 +392,7 @@ void CaptureSession::updateCursor(int screen, QPoint p)
 
 void CaptureSession::publish()
 {
+    syncAnnotation();
     const bool pressedOverPrevious = m_phase == Phase::Pressed && m_previous.screen >= 0;
     const Pick shown = pressedOverPrevious ? m_previous : m_selection;
     const bool hovering = (m_phase == Phase::Hover || m_phase == Phase::Pressed) && !pressedOverPrevious;
@@ -292,7 +415,7 @@ CaptureSession::Pick CaptureSession::hovered() const
     return {};
 }
 
-void CaptureSession::pointerMove(int screen, QPoint p)
+void CaptureSession::pointerMove(int screen, QPoint p, Qt::KeyboardModifiers modifiers)
 {
     if (!m_active || !screenAt(screen))
         return;
@@ -311,6 +434,7 @@ void CaptureSession::pointerMove(int screen, QPoint p)
         }
         m_phase = Phase::Dragging;
         m_previous = {};
+        dropParked();
         m_selection = {m_pressScreen, spanRect(m_pressAt, clampTo(m_pressScreen, here))};
         emit selectionChanged();
         break;
@@ -325,6 +449,11 @@ void CaptureSession::pointerMove(int screen, QPoint p)
         m_selection.rect = dragHandle(m_startRect, m_handle, here - m_pressAt, screenAt(m_pressScreen)->bounds());
         break;
     }
+    case Phase::Annotating: {
+        const QPoint here = p + screenAt(screen)->rect().topLeft() - screenAt(m_pressScreen)->rect().topLeft();
+        m_annot.move(here, modifiers);
+        break;
+    }
     case Phase::Selected:
         break;
     }
@@ -332,7 +461,7 @@ void CaptureSession::pointerMove(int screen, QPoint p)
     publish();
 }
 
-void CaptureSession::pointerPress(int screen, QPoint p, Qt::MouseButton button)
+void CaptureSession::pointerPress(int screen, QPoint p, Qt::MouseButton button, Qt::KeyboardModifiers modifiers)
 {
     if (!m_active || !screenAt(screen))
         return;
@@ -346,11 +475,39 @@ void CaptureSession::pointerPress(int screen, QPoint p, Qt::MouseButton button)
     m_pressScreen = screen;
     m_pressAt = p;
     if (m_phase == Phase::Selected) {
+        // Who takes a press, in turn (3.6): a text being typed or a handle of
+        // the selected annotation; the selection's own handles; the tools and
+        // the annotations under the press; the selection itself (Move); a new
+        // selection. Whoever asks first and says yes has it.
+        const bool annotated = m_annot.active() && m_annotScreen == screen && m_selection.screen == screen;
+        const auto annotating = [this] {
+            m_phase = m_annot.gestureActive() ? Phase::Annotating : Phase::Selected;
+        };
+        if (annotated && m_annot.pressFirst(p, modifiers)) {
+            annotating();
+            updateCursor(screen, p);
+            publish();
+            return;
+        }
         const Handle handle = m_selection.screen == screen ? handleAt(m_selection.rect, p, reach(screen)) : Handle::None;
-        if (handle != Handle::None) {
+        if (handle != Handle::None && handle != Handle::Move) {
             m_phase = Phase::Adjusting;
             m_handle = handle;
             m_startRect = m_selection.rect;
+        } else if (annotated && m_annot.pressSecond(p, modifiers)) {
+            annotating();
+            updateCursor(screen, p);
+            publish();
+            return;
+        } else if (handle == Handle::Move) {
+            m_phase = Phase::Adjusting;
+            m_handle = handle;
+            m_startRect = m_selection.rect;
+        } else if (m_annot.active() && m_annot.hasItems()) {
+            // Annotations stay on the content they were drawn on: no new
+            // selection over them; the edge moves the selection.
+            showNotice(tr("已有标注：拖边框调整选区，Esc 放弃标注"));
+            return;
         } else {
             // Outside: a drag draws a new selection, a click keeps this one.
             m_phase = Phase::Pressed;
@@ -376,6 +533,7 @@ void CaptureSession::pointerRelease(int screen, QPoint p, Qt::MouseButton button
             m_phase = Phase::Selected;
             break;
         }
+        dropParked();
         m_selection = hovered(); // a click picks the window or control under it
         m_phase = Phase::Selected;
         emit selectionChanged();
@@ -395,6 +553,15 @@ void CaptureSession::pointerRelease(int screen, QPoint p, Qt::MouseButton button
         m_phase = Phase::Selected;
         m_handle = Handle::None;
         break;
+    case Phase::Annotating: {
+        // The press screen's own pixels, beyond its edges too (Qt grabs the mouse there).
+        const CaptureScreen* from = screenAt(screen);
+        const CaptureScreen* pressed = screenAt(m_pressScreen);
+        const QPoint here = from && pressed ? p + from->rect().topLeft() - pressed->rect().topLeft() : p;
+        m_annot.release(here); // a text opens for typing here, when it was only a click
+        m_phase = Phase::Selected;
+        break;
+    }
     case Phase::Hover:
     case Phase::Selected:
         break;
@@ -408,6 +575,26 @@ void CaptureSession::doubleClick(int screen, QPoint p)
 {
     if (!m_active)
         return;
+    // A text or a number under it opens for editing; with a tool on, and on
+    // any annotation, it never copies (3.6).
+    // Qt sends the second press of a double click as a press and then this,
+    // so a gesture the press began (a move, a stroke) is still open: it was
+    // only a click, drop it.
+    if (m_phase == Phase::Annotating && m_annot.active() && m_annotScreen == screen) {
+        m_annot.cancelGesture();
+        m_phase = Phase::Selected;
+        publish();
+    }
+    if (m_annot.active() && m_annotScreen == screen && m_selection.screen == screen
+        && (m_phase == Phase::Selected || m_phase == Phase::Adjusting)
+        && m_annot.doubleClick(clampTo(screen, p))) {
+        if (m_phase == Phase::Adjusting) {
+            m_selection.rect = m_startRect; // the press began a move that did not happen
+            m_phase = Phase::Selected;
+            publish();
+        }
+        return;
+    }
     // The first click picked (or kept) the selection: the second copies it.
     if (m_selection.screen == screen && m_selection.rect.contains(clampTo(screen, p))) {
         if (m_phase == Phase::Adjusting) {
@@ -431,13 +618,33 @@ void CaptureSession::wheel(int screen, QPoint p, int steps)
     publish();
 }
 
+void CaptureSession::wheelAngle(int screen, QPoint p, int angleDelta, qint64 nowMs)
+{
+    if (!m_active || angleDelta == 0)
+        return;
+    if (m_annot.active() && m_annotScreen == screen && m_selection.screen == screen
+        && (m_phase == Phase::Selected || m_phase == Phase::Annotating) && m_annot.wheel(angleDelta, nowMs)) {
+        publish();
+        return;
+    }
+    wheel(screen, p, angleDelta > 0 ? 1 : -1);
+}
+
 bool CaptureSession::key(int key, Qt::KeyboardModifiers modifiers)
 {
     if (!m_active)
         return false;
     const bool ctrl = modifiers & Qt::ControlModifier;
     const bool shift = modifiers & Qt::ShiftModifier;
-    const bool busy = m_phase == Phase::Pressed || m_phase == Phase::Dragging || m_phase == Phase::Adjusting;
+    const bool busy = m_phase == Phase::Pressed || m_phase == Phase::Dragging || m_phase == Phase::Adjusting
+        || m_phase == Phase::Annotating;
+    // The tools, undo, delete and the arrows on a selected annotation come
+    // first; what the model leaves is the selection's and the capture's own.
+    if (m_annot.active() && (m_phase == Phase::Selected || m_phase == Phase::Annotating) && key != Qt::Key_Escape
+        && m_annot.key(key, modifiers)) {
+        publish();
+        return true;
+    }
     switch (key) {
     case Qt::Key_Escape:
         back();
@@ -457,6 +664,27 @@ bool CaptureSession::key(int key, Qt::KeyboardModifiers modifiers)
         if (!busy)
             finish(Action::Pin);
         return true;
+    case Qt::Key_H:
+        if (ctrl || busy || m_selection.screen < 0)
+            return false;
+        m_toolbarHidden = !m_toolbarHidden;
+        emit toolbarHiddenChanged();
+        return true;
+    case Qt::Key_Z:
+        // Ctrl+Z after Esc put the annotations down: pick them up again.
+        if (ctrl && !shift && m_parked && m_phase == Phase::Hover) {
+            m_selection = std::exchange(m_parkedSelection, {});
+            m_parked = false;
+            m_phase = Phase::Selected;
+            for (CaptureScreen* s : m_screens)
+                s->setNotice({});
+            emit selectionChanged();
+            if (m_cursorScreen >= 0)
+                updateCursor(m_cursorScreen, m_cursorAt);
+            publish();
+            return true;
+        }
+        return false;
     case Qt::Key_C:
         if (busy)
             return true;
@@ -495,7 +723,20 @@ bool CaptureSession::key(int key, Qt::KeyboardModifiers modifiers)
 
 void CaptureSession::back()
 {
+    // Esc, in steps (3.6): a text under way is kept and closed, a gesture
+    // under way is dropped; only then the selection and its annotations.
+    if (m_annot.active() && (m_phase == Phase::Selected || m_phase == Phase::Annotating) && m_annot.escape()) {
+        if (m_phase == Phase::Annotating)
+            m_phase = Phase::Selected;
+        if (m_cursorScreen >= 0)
+            updateCursor(m_cursorScreen, m_cursorAt);
+        publish();
+        return;
+    }
     switch (m_phase) {
+    case Phase::Annotating:
+        m_phase = Phase::Selected;
+        break;
     case Phase::Pressed:
     case Phase::Dragging:
     case Phase::Adjusting:
@@ -509,8 +750,19 @@ void CaptureSession::back()
         m_phase = m_selection.screen >= 0 ? Phase::Selected : Phase::Hover;
         break;
     case Phase::Selected:
-        m_selection = {};
-        m_phase = Phase::Hover;
+        if (m_annot.active() && m_annot.hasItems()) {
+            // The selection and its annotations are put down together; Ctrl+Z
+            // brings them back as they were.
+            m_parked = true;
+            m_parkedSelection = m_selection;
+            m_annot.setTool(-1);
+            m_selection = {};
+            m_phase = Phase::Hover;
+            showNotice(tr("已放弃这次的标注 · Ctrl+Z 恢复"));
+        } else {
+            m_selection = {};
+            m_phase = Phase::Hover;
+        }
         if (m_cursorScreen >= 0)
             updateHover(m_cursorScreen, m_cursorAt);
         break;
@@ -526,6 +778,8 @@ void CaptureSession::back()
 
 void CaptureSession::finish(Action action)
 {
+    if (m_annot.active())
+        m_annot.commitPending(); // the words typed so far are part of the picture
     Pick pick;
     if (action != Action::Cancel)
         pick = m_selection.screen >= 0 ? m_selection : hovered();
@@ -537,13 +791,15 @@ void CaptureSession::finish(Action action)
 void CaptureSession::mouseMoved(int screen, qreal x, qreal y)
 {
     if (const CaptureScreen* s = screenAt(screen))
-        pointerMove(screen, QPoint(toPhysical(x, s->dpr()), toPhysical(y, s->dpr())));
+        pointerMove(screen, QPoint(toPhysical(x, s->dpr()), toPhysical(y, s->dpr())), QGuiApplication::keyboardModifiers());
 }
 
 void CaptureSession::mousePressed(int screen, qreal x, qreal y, int button)
 {
-    if (const CaptureScreen* s = screenAt(screen))
-        pointerPress(screen, QPoint(toPhysical(x, s->dpr()), toPhysical(y, s->dpr())), static_cast<Qt::MouseButton>(button));
+    if (const CaptureScreen* s = screenAt(screen)) {
+        pointerPress(screen, QPoint(toPhysical(x, s->dpr()), toPhysical(y, s->dpr())), static_cast<Qt::MouseButton>(button),
+            QGuiApplication::keyboardModifiers());
+    }
 }
 
 void CaptureSession::mouseReleased(int screen, qreal x, qreal y, int button)
@@ -563,7 +819,7 @@ void CaptureSession::wheeled(int screen, qreal x, qreal y, int angleDeltaY)
     const CaptureScreen* s = screenAt(screen);
     if (!s || angleDeltaY == 0)
         return;
-    wheel(screen, QPoint(toPhysical(x, s->dpr()), toPhysical(y, s->dpr())), angleDeltaY > 0 ? 1 : -1);
+    wheelAngle(screen, QPoint(toPhysical(x, s->dpr()), toPhysical(y, s->dpr())), angleDeltaY, QDateTime::currentMSecsSinceEpoch());
 }
 
 bool CaptureSession::keyPressed(int key, int modifiers)

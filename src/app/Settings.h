@@ -282,6 +282,9 @@ struct Settings {
     // screenshot history (the launcher's jt). Plugins' keywords alike give
     // way to it; a web search's or a favorite's alike is refused when set.
     QString captureKeyword = QStringLiteral("jt");
+    // What each annotation tool remembers (width, colour, ...), as JSON in
+    // logical units (annot::StyleMemory); empty until a tool's style changes.
+    QString captureAnnotateStyles;
 
     // [WebSearch]: keywords the user gives web pages ("gh" opens GitHub, "gh
     // WinShun" searches it; see WebShortcut). At first just one, "winshun".

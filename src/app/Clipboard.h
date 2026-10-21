@@ -204,8 +204,14 @@ public:
     // puts text there: with `remember`, as a new history entry on top, whose
     // words are then read like any copied picture's; `screenshot`: one Win顺's
     // capture took (Clip::screenshot, the screenshot history). The PNG is made
-    // off the GUI thread.
-    void copyImage(const QImage& image, bool remember, bool screenshot = false);
+    // off the GUI thread. `project`: the annotated picture's editable form
+    // (opaque bytes, empty: none), kept with the history entry.
+    void copyImage(const QImage& image, bool remember, bool screenshot = false, QByteArray project = {});
+    // A picture (saved, pinned) as a screenshot entry in the history only:
+    // the system clipboard is left alone and nothing is announced. Subject to
+    // the same switch and pause as copyImage's `remember`; the same pixels
+    // again move that entry to the top.
+    void recordImage(const QImage& image, QByteArray project);
     // An entry by its id, from outside the window (the launcher's screenshot
     // history, jt): onto the clipboard and pasted into `target`, the window
     // in front before the launcher, as the window pastes; only copied when
@@ -309,7 +315,10 @@ private:
     std::vector<const Clip*> targets(int row) const; // the row, or the picked ones it is one of
     ClipWrite writeFor(const std::vector<const Clip*>& clips, bool plainText, QString* problem) const;
     void startPaste(ClipWrite write, Into into, std::vector<qint64> touched, QString done);
-    void storeImage(const QByteArray& png, const QByteArray& hash, QSize size, bool remember, bool screenshot); // copyImage's, encoded
+    void encodeImage(const QImage& image, bool remember, bool screenshot, QByteArray project, bool toClipboard);
+    // copyImage's (and recordImage's), encoded
+    void storeImage(const QByteArray& png, const QByteArray& hash, QSize size, bool remember, bool screenshot,
+        const QByteArray& project, bool toClipboard);
     void onWritten(bool ok);
     void returnToField(QString text); // `text` typed into it; none: Esc
     void fillField(); // it has the keyboard again (or waited long enough)

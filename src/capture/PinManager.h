@@ -36,8 +36,9 @@ public:
     ~PinManager() override;
 
     // A pin of `image` with its top left at `origin` (physical, virtual
-    // desktop); `screenshot`: taken with the capture (PinWindow::screenshot).
-    void pin(const QImage& image, QPoint origin, bool screenshot = true);
+    // desktop); `screenshot`: taken with the capture (PinWindow::screenshot);
+    // `project`: its annotations, to edit again (empty: none).
+    void pin(const QImage& image, QPoint origin, bool screenshot = true, QByteArray project = {});
     int count() const { return static_cast<int>(m_pins.size()); }
     bool anyClickThrough() const;
     void clearClickThrough(); // the tray menu: every pin takes the mouse again

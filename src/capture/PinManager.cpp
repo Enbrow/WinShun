@@ -38,7 +38,7 @@ PinManager::~PinManager()
     m_closing.clear();
 }
 
-void PinManager::pin(const QImage& image, QPoint origin, bool screenshot)
+void PinManager::pin(const QImage& image, QPoint origin, bool screenshot, QByteArray project)
 {
     if (image.isNull())
         return;
@@ -56,6 +56,7 @@ void PinManager::pin(const QImage& image, QPoint origin, bool screenshot)
     host.dark = m_callbacks.dark;
     auto pin = std::make_unique<PinWindow>(image, origin, std::move(host));
     pin->setScreenshot(screenshot);
+    pin->setProject(std::move(project));
     if (pin->hwnd())
         m_pins.push_back(std::move(pin));
 }

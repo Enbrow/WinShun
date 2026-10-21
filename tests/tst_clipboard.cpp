@@ -149,6 +149,49 @@ private slots:
         QCOMPARE(texts(store), (QStringList {u"1"_s}));
     }
 
+    // The limits must be set before open(): open() prunes by what is set, and
+    // the defaults (300 entries, 30 days) would drop the history of anyone who
+    // chose "no limit" at every start.
+    void limitsBeforeOpenKeepTheHistory()
+    {
+        QTemporaryDir dir;
+        const qint64 now = kStart + 200 * kDay;
+        {
+            ClipStore store(dir.path());
+            store.setLimits({0, 0}, now);
+            QVERIFY(store.open(now));
+            for (int i = 0; i < 3; ++i) // older than 30 days
+                store.add(text(u"old%1"_s.arg(i)), kStart + i);
+            for (int i = 0; i < 400; ++i)
+                store.add(text(u"n%1"_s.arg(i)), now - 1000 + i);
+            QCOMPARE(store.clips().size(), std::size_t(403));
+            store.flush();
+        }
+        { // no limit at all: not one is lost
+            ClipStore store(dir.path());
+            store.setLimits({0, 0}, now);
+            QVERIFY(store.open(now));
+            QCOMPARE(store.clips().size(), std::size_t(403));
+        }
+        { // no limit on the number, 30 days: only the old three go
+            ClipStore store(dir.path());
+            store.setLimits({0, 30}, now);
+            QVERIFY(store.open(now));
+            QCOMPARE(store.clips().size(), std::size_t(400));
+        }
+        { // the defaults still prune: 300 entries
+            ClipStore store(dir.path());
+            QVERIFY(store.open(now));
+            QCOMPARE(store.clips().size(), std::size_t(300));
+        }
+        { // and the old ones are gone for good
+            ClipStore store(dir.path());
+            store.setLimits({0, 0}, now);
+            QVERIFY(store.open(now));
+            QCOMPARE(store.clips().size(), std::size_t(300));
+        }
+    }
+
     void find()
     {
         QTemporaryDir dir;
@@ -660,6 +703,191 @@ private slots:
         QVERIFY(!store.clip(bad));
         QVERIFY(!store.imagePending(bad));
         QCOMPARE(store.clips().size(), std::size_t(2));
+    }
+
+    // A picture's project (annotation, stage 4a): a file beside the PNG that
+    // lives and dies with the entry; ClipStore keeps its bytes as they are.
+    void projects()
+    {
+        const auto picture = [](const QByteArray& hash, const QByteArray& project) {
+            ClipCapture image;
+            image.kind = ClipKind::Image;
+            image.png = "png";
+            image.hash = hash;
+            image.screenshot = true;
+            image.project = project;
+            return image;
+        };
+        const auto sqlCount = [](const QString& file, const QString& where) {
+            int n = -1;
+            {
+                QSqlDatabase db = QSqlDatabase::addDatabase(u"QSQLITE"_s, u"count"_s);
+                db.setDatabaseName(file);
+                if (db.open()) {
+                    QSqlQuery query(db);
+                    if (query.exec(u"SELECT COUNT(*) FROM clips WHERE "_s + where) && query.next())
+                        n = query.value(0).toInt();
+                }
+            }
+            QSqlDatabase::removeDatabase(u"count"_s);
+            return n;
+        };
+        const QByteArray bytes("PK-project-bytes\0with a zero", 28);
+        QTemporaryDir dir;
+        const QString dbFile = dir.filePath(u"clipboard.db"_s);
+        qint64 a = 0;
+        qint64 plain = 0;
+        {
+            ClipStore store(dir.path());
+            QVERIFY(store.open(kStart));
+            store.setLimits({3, 0}, kStart);
+
+            // Added with a project: the file is there, the flag set, the bytes read back.
+            a = store.add(picture("a", bytes), kStart);
+            QVERIFY(store.clip(a)->project);
+            QCOMPARE(store.project(a), bytes);
+            QVERIFY(QFile::exists(store.projectPath(a)));
+            QVERIFY(store.projectPath(a).endsWith(u"projects\\%1.wsedit"_s.arg(a)));
+            QVERIFY(QFile::exists(store.imagePath(a)));
+            // Without: no flag, no file, nothing to read.
+            plain = store.add(picture("plain", {}), kStart + 1);
+            QVERIFY(!store.clip(plain)->project);
+            QVERIFY(store.project(plain).isEmpty());
+            QVERIFY(!QFile::exists(store.projectPath(plain)));
+            // A text has none either.
+            ClipCapture words = text(u"甲"_s);
+            words.project = bytes;
+            QVERIFY(!store.clip(store.add(words, kStart + 2))->project);
+
+            // The same pixels again: a new project replaces the old one ...
+            QCOMPARE(store.add(picture("a", "second"), kStart + 3), a);
+            QCOMPARE(store.project(a), QByteArray("second"));
+            QCOMPARE(store.clips().front().id, a);
+            // ... none keeps it ...
+            QCOMPARE(store.add(picture("a", {}), kStart + 4), a);
+            QCOMPARE(store.project(a), QByteArray("second"));
+            QVERIFY(store.clip(a)->project);
+            // ... and an entry without one gets one.
+            QCOMPARE(store.add(picture("plain", "late"), kStart + 5), plain);
+            QVERIFY(store.clip(plain)->project);
+            QCOMPARE(store.project(plain), QByteArray("late"));
+            store.flush();
+            QCOMPARE(sqlCount(dbFile, u"project = 1"_s), 2);
+
+            // Removed: the file stays for undo, comes back with the column.
+            std::vector<ClipRecord> removed = store.remove(std::span(&a, 1));
+            QVERIFY(removed.front().clip.project);
+            QVERIFY(!store.clip(a));
+            QVERIFY(QFile::exists(store.projectPath(a)));
+            store.restore(std::move(removed));
+            QVERIFY(store.clip(a)->project);
+            QCOMPARE(store.project(a), QByteArray("second"));
+            store.flush();
+            QCOMPARE(sqlCount(dbFile, u"project = 1"_s), 2);
+
+            // Removed and discarded: gone.
+            removed = store.remove(std::span(&plain, 1));
+            QVERIFY(QFile::exists(store.projectPath(plain)));
+            store.discardImages(std::span(&plain, 1));
+            store.flush();
+            QVERIFY(!QFile::exists(store.projectPath(plain)));
+            QVERIFY(!QFile::exists(store.imagePath(plain)));
+        }
+
+        // Orphans go at open(): a name that is no id, an id nobody has.
+        const QString folder = dir.filePath(u"projects"_s);
+        QVERIFY(QDir().mkpath(folder));
+        const auto touch = [&](const QString& name) {
+            QFile file(QDir(folder).filePath(name));
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write("x");
+        };
+        touch(u"notanumber.wsedit"_s);
+        touch(u"99999.wsedit"_s);
+        touch(u"readme.txt"_s); // not ours: stays
+        qint64 kept = 0;
+        {
+            ClipStore store(dir.path());
+            QVERIFY(store.open(kStart + 10));
+            store.flush();
+            QVERIFY(!QFile::exists(QDir(folder).filePath(u"notanumber.wsedit"_s)));
+            QVERIFY(!QFile::exists(QDir(folder).filePath(u"99999.wsedit"_s)));
+            QVERIFY(QFile::exists(QDir(folder).filePath(u"readme.txt"_s)));
+            kept = a;
+            QVERIFY(QFile::exists(store.projectPath(kept))); // listed, so it stays
+            QVERIFY(store.clip(kept)->project);
+
+            // The file is lost (a crash between the two writes): no project, the
+            // column goes back to 0, also for the next time.
+            QVERIFY(QFile::remove(store.projectPath(kept)));
+            QVERIFY(store.project(kept).isEmpty());
+            store.flush();
+            QCOMPARE(sqlCount(dbFile, u"project = 1"_s), 0);
+        }
+        {
+            ClipStore store(dir.path());
+            QVERIFY(store.open(kStart + 11));
+            QVERIFY(!store.clip(kept)->project);
+            // Dropped by the limits: the project goes with the row.
+            store.setLimits({3, 0}, kStart + 11);
+            const qint64 b = store.add(picture("b", "bee"), kStart + 12);
+            QVERIFY(QFile::exists(store.projectPath(b)) || store.project(b) == QByteArray("bee"));
+            store.setLimits({1, 0}, kStart + 13);
+            store.flush();
+            QCOMPARE(store.clips().size(), std::size_t(1));
+            QVERIFY(QFile::exists(store.projectPath(b)));
+            store.add(picture("c", "sea"), kStart + 14);
+            store.flush();
+            QVERIFY(!store.clip(b));
+            QVERIFY(!QFile::exists(store.projectPath(b))); // pruned
+            // Clearing the history is the same.
+            const qint64 c = store.clips().front().id;
+            QVERIFY(QFile::exists(store.projectPath(c)));
+            QCOMPARE(store.clearHistory(), 1);
+            store.flush();
+            QVERIFY(!QFile::exists(store.projectPath(c)));
+            QVERIFY(!QFile::exists(store.imagePath(c)));
+        }
+    }
+
+    // A history from before projects: the column is added, nothing is lost.
+    void projectColumnAddedToAnOldHistory()
+    {
+        QTemporaryDir dir;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase(u"QSQLITE"_s, u"old2"_s);
+            db.setDatabaseName(dir.filePath(u"clipboard.db"_s));
+            QVERIFY(db.open());
+            QSqlQuery query(db);
+            QVERIFY(query.exec(u"CREATE TABLE clips (id INTEGER PRIMARY KEY AUTOINCREMENT, kind INTEGER NOT NULL, "
+                               u"text TEXT NOT NULL DEFAULT '', length INTEGER NOT NULL DEFAULT 0, html BLOB, rtf BLOB, "
+                               u"hash BLOB NOT NULL, created INTEGER NOT NULL, used INTEGER NOT NULL, "
+                               u"source TEXT NOT NULL DEFAULT '', sourcePath TEXT NOT NULL DEFAULT '', "
+                               u"groupId INTEGER NOT NULL DEFAULT 0, width INTEGER NOT NULL DEFAULT 0, "
+                               u"height INTEGER NOT NULL DEFAULT 0, bytes INTEGER NOT NULL DEFAULT 0, ocr TEXT, "
+                               u"rank INTEGER NOT NULL DEFAULT 0, screenshot INTEGER NOT NULL DEFAULT 0)"_s));
+            QVERIFY(query.exec(u"INSERT INTO clips (id, kind, text, hash, created, used) "
+                               u"VALUES (3, 0, 'old', 'h', %1, %1)"_s.arg(kStart)));
+        }
+        QSqlDatabase::removeDatabase(u"old2"_s);
+        qint64 picture = 0;
+        {
+            ClipStore store(dir.path());
+            QVERIFY(store.open(kStart));
+            QCOMPARE(store.clips().size(), std::size_t(1));
+            QVERIFY(!store.clip(3)->project);
+            ClipCapture image;
+            image.kind = ClipKind::Image;
+            image.png = "png";
+            image.hash = "p";
+            image.project = "proj";
+            picture = store.add(image, kStart + 1);
+            QCOMPARE(store.project(picture), QByteArray("proj"));
+        }
+        ClipStore store(dir.path()); // and the column is there the second time
+        QVERIFY(store.open(kStart + 2));
+        QVERIFY(store.clip(picture)->project);
+        QCOMPARE(store.project(picture), QByteArray("proj"));
     }
 
     void bundles()

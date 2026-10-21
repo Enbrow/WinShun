@@ -829,6 +829,330 @@
     </message>
 </context>
 <context>
+    <name>AnnotateLayer</name>
+    <message>
+        <source>再按一次关掉 · [ ] 改粗细 · H 隐藏工具条</source>
+        <translation>Press the key again to turn it off · [ ] changes the size · H hides the toolbar</translation>
+    </message>
+    <message>
+        <source>按 H 显示工具条</source>
+        <translation>Press H to show the toolbar</translation>
+    </message>
+</context>
+<context>
+    <name>AnnotateStylePanel</name>
+    <message>
+        <source>马赛克</source>
+        <translation>Mosaic</translation>
+    </message>
+    <message>
+        <source>模糊</source>
+        <translation>Blur</translation>
+    </message>
+    <message>
+        <source>纯色</source>
+        <translation>Solid</translation>
+    </message>
+    <message>
+        <source>粗细 %1</source>
+        <translation>Width %1</translation>
+    </message>
+    <message>
+        <source>不填充</source>
+        <translation>No fill</translation>
+    </message>
+    <message>
+        <source>浅色填充</source>
+        <translation>Light fill</translation>
+    </message>
+    <message>
+        <source>实心填充</source>
+        <translation>Solid fill</translation>
+    </message>
+    <message>
+        <source>字号 %1</source>
+        <translation>Font size %1</translation>
+    </message>
+    <message>
+        <source>粗体</source>
+        <translation>Bold</translation>
+    </message>
+    <message>
+        <source>底框</source>
+        <translation>Box</translation>
+    </message>
+    <message>
+        <source>格子 %1</source>
+        <translation>Cell %1</translation>
+    </message>
+    <message>
+        <source>起始</source>
+        <translation>Start</translation>
+    </message>
+    <message>
+        <source>起始值减 1</source>
+        <translation>Start one lower</translation>
+    </message>
+    <message>
+        <source>起始值加 1</source>
+        <translation>Start one higher</translation>
+    </message>
+    <message>
+        <source>另起一组</source>
+        <translation>New group</translation>
+    </message>
+    <message>
+        <source>之后的序号从 1 重新数</source>
+        <translation>The next numbers count from 1 again</translation>
+    </message>
+    <message>
+        <source>上移一层</source>
+        <translation>Up one layer</translation>
+    </message>
+    <message>
+        <source>下移一层</source>
+        <translation>Down one layer</translation>
+    </message>
+    <message>
+        <source>删除</source>
+        <translation>Delete</translation>
+    </message>
+</context>
+<context>
+    <name>AnnotateToolbar</name>
+    <message>
+        <source>复制</source>
+        <translation>Copy</translation>
+    </message>
+    <message>
+        <source>保存</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>贴图</source>
+        <translation>Pin</translation>
+    </message>
+    <message>
+        <source>识别文字</source>
+        <translation>Read text</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>全部按键</source>
+        <translation>All keys</translation>
+    </message>
+    <message>
+        <source>撤销 %1</source>
+        <translation>Undo %1</translation>
+    </message>
+    <message>
+        <source>撤销</source>
+        <translation>Undo</translation>
+    </message>
+    <message>
+        <source>重做 %1</source>
+        <translation>Redo %1</translation>
+    </message>
+    <message>
+        <source>重做</source>
+        <translation>Redo</translation>
+    </message>
+    <message>
+        <source>留在屏幕上，可拖动、缩放</source>
+        <translation>Stays on the screen; drag it, zoom it</translation>
+    </message>
+    <message>
+        <source>识别图里的文字，可复制或拿去搜索</source>
+        <translation>Reads the words in the picture; copy them or search with them</translation>
+    </message>
+    <message>
+        <source>没有安装文字识别模型（Win顺 文件夹里的 ocr 文件夹），无法识别文字</source>
+        <translation>The text recognition models are not installed (the ocr folder in the WinShun folder), so no text can be read</translation>
+    </message>
+    <message>
+        <source>按键</source>
+        <translation>Keys</translation>
+    </message>
+    <message>
+        <source>R E A L P M T N B 或 1–9</source>
+        <translation>R E A L P M T N B or 1–9</translation>
+    </message>
+    <message>
+        <source>选工具：矩形、椭圆、箭头、直线、画笔、荧光笔、文字、序号、打码</source>
+        <translation>Pick a tool: rectangle, ellipse, arrow, line, pen, highlighter, text, number, redact</translation>
+    </message>
+    <message>
+        <source>工具键再按一次</source>
+        <translation>The tool key again</translation>
+    </message>
+    <message>
+        <source>关掉工具</source>
+        <translation>Turns the tool off</translation>
+    </message>
+    <message>
+        <source>删除选中的对象</source>
+        <translation>Deletes the selected object</translation>
+    </message>
+    <message>
+        <source>方向键</source>
+        <translation>Arrow keys</translation>
+    </message>
+    <message>
+        <source>挪动选中的对象，按住 Shift 一次 10 像素；没有选中时微调选区</source>
+        <translation>Move the selected object, 10 pixels at a time with Shift; with none selected they nudge the selection</translation>
+    </message>
+    <message>
+        <source>粗细、字号、格子小一档 / 大一档</source>
+        <translation>Width, font size, cell: one step smaller / larger</translation>
+    </message>
+    <message>
+        <source>下移一层 / 上移一层，加 Shift 到底 / 到顶</source>
+        <translation>Down / up one layer; with Shift to the bottom / top</translation>
+    </message>
+    <message>
+        <source>滚轮</source>
+        <translation>Wheel</translation>
+    </message>
+    <message>
+        <source>有工具或选中对象时改粗细</source>
+        <translation>Changes the size while a tool is on or an object is selected</translation>
+    </message>
+    <message>
+        <source>画的时候按住 Shift</source>
+        <translation>Hold Shift while drawing</translation>
+    </message>
+    <message>
+        <source>正方形、正圆；线吸附 15°；画笔、荧光笔画直线</source>
+        <translation>Squares and circles; lines snap to 15°; the pen and highlighter draw straight</translation>
+    </message>
+    <message>
+        <source>双击</source>
+        <translation>Double click</translation>
+    </message>
+    <message>
+        <source>文字：改文字；序号：改号</source>
+        <translation>Text: edit it; number: change it</translation>
+    </message>
+    <message>
+        <source>写完文字（Enter 换行）</source>
+        <translation>Finish the text (Enter starts a new line)</translation>
+    </message>
+    <message>
+        <source>隐藏 / 显示工具条</source>
+        <translation>Hide / show the toolbar</translation>
+    </message>
+    <message>
+        <source>复制颜色</source>
+        <translation>Copy the colour</translation>
+    </message>
+    <message>
+        <source>Esc、右键</source>
+        <translation>Esc, right click</translation>
+    </message>
+    <message>
+        <source>退一步：写完文字、放弃标注、关闭截图</source>
+        <translation>One step back: finish the text, put the annotations down, close the capture</translation>
+    </message>
+</context>
+<context>
+    <name>Annotation</name>
+    <message>
+        <source>添加</source>
+        <translation>Add</translation>
+    </message>
+    <message>
+        <source>删除</source>
+        <translation>Delete</translation>
+    </message>
+    <message>
+        <source>移动</source>
+        <translation>Move</translation>
+    </message>
+    <message>
+        <source>改形状</source>
+        <translation>Reshape</translation>
+    </message>
+    <message>
+        <source>改样式</source>
+        <translation>Restyle</translation>
+    </message>
+    <message>
+        <source>改文字</source>
+        <translation>Edit text</translation>
+    </message>
+    <message>
+        <source>改序号</source>
+        <translation>Renumber</translation>
+    </message>
+    <message>
+        <source>调层</source>
+        <translation>Reorder</translation>
+    </message>
+    <message>
+        <source>另起一组</source>
+        <translation>New group</translation>
+    </message>
+    <message>
+        <source>改起始值</source>
+        <translation>Change start</translation>
+    </message>
+    <message>
+        <source>裁剪</source>
+        <translation>Crop</translation>
+    </message>
+    <message>
+        <source>标注文件已损坏。</source>
+        <translation>The annotation file is damaged.</translation>
+    </message>
+    <message>
+        <source>这不是 Win顺 的标注文件。</source>
+        <translation>This is not a WinShun annotation file.</translation>
+    </message>
+    <message>
+        <source>这张图是新版 Win顺 存的，升级后才能编辑</source>
+        <translation>This picture was saved by a newer WinShun; update to edit it</translation>
+    </message>
+    <message>
+        <source>矩形</source>
+        <translation>Rectangle</translation>
+    </message>
+    <message>
+        <source>椭圆</source>
+        <translation>Ellipse</translation>
+    </message>
+    <message>
+        <source>箭头</source>
+        <translation>Arrow</translation>
+    </message>
+    <message>
+        <source>直线</source>
+        <translation>Line</translation>
+    </message>
+    <message>
+        <source>画笔</source>
+        <translation>Pen</translation>
+    </message>
+    <message>
+        <source>荧光笔</source>
+        <translation>Highlighter</translation>
+    </message>
+    <message>
+        <source>文字</source>
+        <translation>Text</translation>
+    </message>
+    <message>
+        <source>序号</source>
+        <translation>Number</translation>
+    </message>
+    <message>
+        <source>打码</source>
+        <translation>Redact</translation>
+    </message>
+</context>
+<context>
     <name>CaptureCard</name>
     <message>
         <source>截图</source>
@@ -906,44 +1230,12 @@
         <translation>%1 × %2</translation>
     </message>
     <message>
-        <source>复制</source>
-        <translation>Copy</translation>
-    </message>
-    <message>
-        <source>保存</source>
-        <translation>Save</translation>
-    </message>
-    <message>
-        <source>取消</source>
-        <translation>Cancel</translation>
-    </message>
-    <message>
         <source>位置 %1, %2</source>
         <translation>Position %1, %2</translation>
     </message>
     <message>
         <source>按 C 复制颜色</source>
         <translation>Press C to copy the colour</translation>
-    </message>
-    <message>
-        <source>贴图</source>
-        <translation>Pin</translation>
-    </message>
-    <message>
-        <source>识别文字</source>
-        <translation>Read text</translation>
-    </message>
-    <message>
-        <source>留在屏幕上，可拖动、缩放</source>
-        <translation>Keep it on the screen, to drag and zoom</translation>
-    </message>
-    <message>
-        <source>识别图里的文字，可复制或拿去搜索</source>
-        <translation>Read the text in it, to copy or search for</translation>
-    </message>
-    <message>
-        <source>没有安装文字识别模型（Win顺 文件夹里的 ocr 文件夹），无法识别文字</source>
-        <translation>The text recognition models are not installed (the ocr folder in the WinShun folder): text cannot be read</translation>
     </message>
 </context>
 <context>
@@ -5200,6 +5492,10 @@
         <translation>Cannot read this picture: %1</translation>
     </message>
     <message>
+        <source>找回刚放弃的标注</source>
+        <translation>Get back the annotations just given up</translation>
+    </message>
+    <message>
         <source>没有安装索引服务</source>
         <translation>the index service is not installed</translation>
     </message>
@@ -8336,6 +8632,13 @@
     </message>
 </context>
 <context>
+    <name>ws::capture::AnnotationModel</name>
+    <message>
+        <source>只能在选区里画</source>
+        <translation>Draw inside the selection</translation>
+    </message>
+</context>
+<context>
     <name>ws::capture::Capture</name>
     <message>
         <source>找不到“屏幕截图”文件夹</source>
@@ -8368,8 +8671,16 @@
 <context>
     <name>ws::capture::CaptureSession</name>
     <message>
+        <source>已有标注：拖边框调整选区，Esc 放弃标注</source>
+        <translation>There are annotations: drag the edge to resize the selection, Esc to give them up</translation>
+    </message>
+    <message>
         <source>已复制 %1</source>
         <translation>Copied %1</translation>
+    </message>
+    <message>
+        <source>已放弃这次的标注 · Ctrl+Z 恢复</source>
+        <translation>Annotations given up · Ctrl+Z brings them back</translation>
     </message>
 </context>
 <context>

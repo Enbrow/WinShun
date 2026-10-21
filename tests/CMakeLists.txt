@@ -55,12 +55,40 @@ set_tests_properties(tst_settings PROPERTIES
 
 # The screen capture's geometry, HDR mapping and state machine (src/capture),
 # without windows.
-qt_add_executable(tst_capture tst_capture.cpp ${PROJECT_SOURCE_DIR}/src/capture/CaptureSession.cpp)
+qt_add_executable(tst_capture tst_capture.cpp ${PROJECT_SOURCE_DIR}/src/capture/CaptureSession.cpp
+    ${PROJECT_SOURCE_DIR}/src/capture/AnnotationModel.cpp)
 target_link_libraries(tst_capture PRIVATE wscapture Qt6::Qml Qt6::Test)
 # Qt6::Qml only for QML_ELEMENT's macros: no QML imports to look for.
 set_target_properties(tst_capture PROPERTIES WIN32_EXECUTABLE FALSE QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
 add_test(NAME tst_capture COMMAND tst_capture)
 set_tests_properties(tst_capture PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
+# Annotating a screenshot (src/capture/Annotation*): geometry, crisp strokes,
+# tiles equal to the whole picture, the command stack, numbers, redactions
+# that cannot be undone, the project format with its v1 sample, the overlay
+# turned into a project, the remembered styles and the tool table.
+qt_add_executable(tst_annotate tst_annotate.cpp)
+target_link_libraries(tst_annotate PRIVATE wscapture Qt6::Test)
+target_compile_definitions(tst_annotate PRIVATE WINSHUN_ANNOTATE_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data/annotate")
+set_target_properties(tst_annotate PROPERTIES WIN32_EXECUTABLE FALSE)
+add_test(NAME tst_annotate COMMAND tst_annotate)
+set_tests_properties(tst_annotate PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
+# The overlay's annotations (AnnotationModel, AnnotationCanvas): every tool
+# drawn with the mouse, undo and redo, the keys, numbers, text, the style
+# panel and the wheel; the canvas's tiles grabbed from an offscreen window on
+# the software scene graph, equal to the compositor's pixels.
+qt_add_executable(tst_annotmodel tst_annotmodel.cpp
+    ${PROJECT_SOURCE_DIR}/src/capture/AnnotationModel.cpp
+    ${PROJECT_SOURCE_DIR}/src/capture/AnnotationCanvas.cpp)
+target_link_libraries(tst_annotmodel PRIVATE wscapture Qt6::Qml Qt6::Quick Qt6::Test)
+# Qt6::Qml only for QML_ELEMENT's macros: no QML imports to look for.
+set_target_properties(tst_annotmodel PROPERTIES WIN32_EXECUTABLE FALSE QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+add_test(NAME tst_annotmodel COMMAND tst_annotmodel)
+set_tests_properties(tst_annotmodel PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
 
 qt_add_executable(tst_appearance tst_appearance.cpp

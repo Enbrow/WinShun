@@ -2797,6 +2797,97 @@
   - 再让两个字母不认 Windows 关键词的首字母（places.txt 的照认）：降到 8684，63 个查询变空，还丢了 mm → 更改密码（靠关键词“密码”）、ly → 飞行模式设置（蓝牙）。
 - **做法**：匹配不动。要压这类杂讯，得在排序或合并上想办法，比如应用完全命中时把设置排在后面。
 
+## 截图标注（阶段 4a，2026-10-21）
+
+### 大于 64 像素的字，换了一个字号画过之后轮廓会偏
+- **现象**：同一个字形，先画过一个带小数偏移的小字，再画大字，轮廓整体偏 1/64 像素；瓦片拼起来和整张画差 1 级灰阶（单测“瓦片 == 整张”随种子时过时不过）。
+- **原因**：Qt 的 FreeType 引擎让各字号共用一个 `FT_Face`，小字从字形缓存画出来时，最后一个亚像素偏移留在这个 face 上不复位；大于 64 像素的字走轮廓，加载时带着这个偏移。
+- **做法**：大字的每段字形用字体的新副本（`QRawFont::setPixelSize(px + 1/4096)`，26.6 下尺寸不变），新引擎创建时偏移归零。回归测试 `tilesTextHistory`。
+
+### GDI、DirectWrite 往 ARGB32 / RGB32 的 QImage 上画字有彩边
+- **现象**：软件渲染模式（用 GDI）或 DirectWrite 下，标注文字有 ClearType 的彩色边；`QFont::NoSubpixelAntialias` 不起作用。
+- **原因**：Qt 按目标图像格式挑字形格式，目标是 ARGB32 / RGB32 且系统开着 ClearType 就是彩色抗锯齿。
+- **做法**：文字和序号先画进 RGBA8888 的对象层（灰度抗锯齿），再转成预乘的 ARGB32，瓦片在整像素位置贴上。
+
+### moc 看到原始字符串里的 `"#`，丢掉整个 Q_OBJECT 类
+- **现象**：`R"({"color":"#1E88E5"})"` 这样的原始字符串所在的文件，moc 报 “No relevant classes found”，链接时 LNK2001 metaObject。
+- **做法**：这类 JSON 样例放进 `tests/data/`，或不用原始字符串。
+
+### Qt Quick 的双击：第二下先是按下，再是 doubleClicked
+- **现象**：双击序号想改号，结果截图被复制、关掉了。
+- **原因**：`MouseArea` 的第二下先发 `pressed`（标注手势已经开始），再发 `doubleClicked`；会话在 `Annotating` 阶段不认双击，落到“选区里双击 = 复制”。
+- **做法**：`CaptureSession::doubleClick` 先把进行中的手势取消，再问模型；开着工具或点在任何对象上，双击都不复制。单测 `doubleClickOnAnObjectNeverCopies`。
+
+### 输入法拼音时的 Esc
+- **做法**：遮罩的根按键 Item 不接受输入法，所以工具键直接到会话；只有文字框（`TextEdit`）接受输入法。拼音中按 `Esc` 由输入法自己取消拼音串（到不了我们），文字框留着；再按一次才提交文字。测试里 `Esc` 要按两次，不是一次。
+
+### 贴图窗口收键盘时，输入法的候选窗会冒出来
+- **现象**：输入法在中文状态时对着贴图按字母键，屏幕左上角冒出候选窗（这台电脑是微信输入法：`wetype_candidate` 窗口 “1 啊 2 阿 3 哎…”，外加本进程的组字窗 `CiceroUIWndFrame`）。
+- **原因**：贴图是自己建的原生窗口（`WinShun.Pin`），用的是线程默认的输入上下文。Qt 的窗口由 Qt 按焦点开关输入法（焦点不收文字时 `ImmAssociateContext(hwnd, nullptr)`），原生窗口没人管。贴图没有光标位置，候选窗就落在左上角。
+- **做法**：建好贴图窗口就 `ImmAssociateContextEx(hwnd, nullptr, 0)`（`PinWindow.cpp`）。遮罩是 Qt 窗口，文字工具的输入法不受影响。2026-10-21 验证（测法见下一条）：修前把贴图的上下文切到中文，按 a 出候选窗；修后同样去切，读回什么也没变（贴图没有输入上下文），按 a、b 没有新窗口，一次 `Esc` 就关掉贴图；遮罩的文字框里按 a 照样出候选窗。
+
+### 测试：输入法是英文状态时，候选窗测不出来
+- **现象**：第一次复现上一条，按了 a 什么也没出来，差点得出“没这个问题”。
+- **原因**：用户当时的输入法是英文状态（贴图上下文的打开状态是 0）。输入法关着，哪个窗口都不会出候选窗。
+- **做法**：测试脚本给目标线程的默认 IME 窗口（`ImmGetDefaultIMEWnd`）发 `WM_IME_CONTROL`：先用 `IMC_GETOPENSTATUS`、`IMC_GETCONVERSIONMODE` 记下状态，再 `IMC_SETOPENSTATUS` 设 1、转换模式加上 `IME_CMODE_NATIVE`，读回确认变了再按键。测完趁目标还有焦点放回（有组字时先按一次 `Esc` 结束组字，再放回，再 `Esc` 关窗口）。读回“没变”本身就说明那个窗口没有输入上下文。
+
+### 测试：把贴图当成遮罩，拖走了它
+- **现象**：测试脚本用“前台窗口属于 Win顺 且标题里有 Win”判断遮罩开着，实际前台是上一次留下的贴图（标题“Win顺 贴图”），后面的拖选把贴图拖到屏幕另一头，冻结的屏幕里还带着贴图，下一次“没有标注”的截图和上一张逐像素一样（同像素去重，条目只移到最前）。
+- **做法**：按窗口类（`Qt…`）认遮罩；每次测试前先关掉所有贴图（点一下它再 `Esc`）；`WindowFromPoint` 的守卫只管进程，管不了这种情形，要查类名。
+
+### 测试：QtTest 的输出在 PowerShell 里抓不到
+- **做法**：`tst_xxx.exe -o 文件,txt`，看文件里的 `Totals`。
+
+### 测试：`while ($h = [T]::FindWindowEx(...))` 永远不结束
+- **原因**：`[IntPtr]::Zero` 是个对象，PowerShell 里是真值。
+- **做法**：显式和 `[IntPtr]::Zero` 比，并给循环加次数上限；托盘菜单开着时脚本卡住，菜单会一直开在屏幕上。
+
+### 测试：重启后的前两次热键，遮罩出来了却没拿到前台
+- **现象**：阶段 4a 测试时，刚换了 exe 重启，脚本发的前两次热键，日志里 “overlay up” 了，前台却还是别的程序；第三次起都正常。
+- **原因**：复现不出来，没找到程序上的原因，证据指向当时的测试脚本。2026-10-21 重启 6 次（5 次 `--quit` 后，其中 4 次前一个进程退出时崩了，见下面“每次退出都崩溃”；1 次强杀后），每次重启后最先的 1–4 次热键，共 16 次（人的节奏和一次发完的 6 个事件；前台是测试窗、Edge、VS Code；重启后 6–40 秒），遮罩次次拿到前台：一次发完时按下后 47–73 ms，按人的节奏时从第一个键按下算 223–230 ms（组合键本身要按约 140 ms）；`GetGUIThreadInfo` 的 active 和 focus 都是遮罩，方向键立刻生效，`bringToFront` 一次也没报 “Could not bring the window to the front”。16 次里 12 次跑的是 15:24 的 `build\release` 版本，4 次是 16:10、16:27 的 `build\capture` 版本；最早出问题的 13:36 版本没有再测。当时的脚本在用户自己的 VS Code 在前台时从 PowerShell 一次发出整个热键、发前不看前台，前台不对还会“再按一次”（热键是开关，再按就是取消），多半是脚本自己造成的。
+- **做法**：显示遮罩照启动器、剪贴板的办法（`win::bringToFront` 再 `requestActivate`），不改。加了一条警告：遮罩第一帧画出来时不在前台，日志写 “Screen capture: overlay up, but <类名> (<程序>) is in front”，真遇到时知道是谁拿着前台（修后打开 8 次，一次也没出现）。测试脚本发热键前确认前台是自己的测试窗，按人的节奏发；先试 `RegisterHotKey`，能注册成功说明 Win顺 没占着这个键，就不要发（键会落到前台窗口）。
+
+### 测试：拖动时的帧间隔，量的是输入的节奏
+- **现象**：56 个对象（含 5 个马赛克）时拖一个大矩形，日志 “gesture of … frames” 的 p95 在 17.6–32 ms 之间跳，像掉帧。
+- **原因**：`Capture::frameDrawn` 量的是手势期间两帧之间的时间，而帧是鼠标移动引起的：没有新的移动就没有新帧。旧脚本每步 `Sleep`，受系统计时器精度限制约 15.6 ms 一步、偶尔 31 ms，120 次移动正好 119 帧，量到的就是输入的间隔。2026-10-21 同一时刻对比（240 Hz 屏，D3D11，threaded 渲染循环，每个窗口一条 `QSGRenderThread`，两轮）：
+  - 每步 15.6 ms：我们 p50 15.6–15.7、p95 17.1–17.5 ms；空的 QQuickWindow 15.6、17.6–17.8 ms，一样。
+  - 每步 2 ms（忙等）：我们 p50 4.1–4.2（一次刷新）、p95 7.8–7.9、最大 8.7–9.1 ms；空窗口 4.2、4.5–4.9、28.6–31.2 ms。p95 多出的一次刷新是我们的，离 16.7 ms 还远。
+  - 同一手势的 “Annotation canvas” 一行：每帧画 12–13 块瓦片（最多 24），界面线程上画图 p50 0.7–0.9、p95 1.2、最大 2.2 ms；同步 p95 0.04 ms；马赛克一次也没重算（缓存键没变）。
+- **做法**：量流畅度要用比刷新快的输入，同一时刻跑空窗口基线；看 “Annotation canvas” 一行分清是界面线程（画瓦片）还是别处。还没量的是渲染线程：每块重画的瓦片每帧都建新节点、新纹理再上传，p95 多出的那次刷新可能在这里。
+
+### 每次重画瓦片都先整块复制一遍
+- **现象**：每步 2 ms 拖大矩形，3637 次重画瓦片里 3601 次先把整块图（256×256，256 KB）复制了一遍。
+- **原因**：上一帧用这块图建的纹理（`createTextureFromImage`）还拿着它（QImage 共享）。往里画时 QImage 先分离（深拷贝），而合成器的 `copyBase` 随后把每个像素重写一遍，拷贝白做。
+- **做法**：画之前图还被共享（`!isDetached()`）就先放掉，让合成器新分配一张（`AnnotationCanvas::updatePolish`）。画图时间没有看得出的变化（p50 0.72 → 0.87 ms、p95 1.17 → 1.17 ms，各量一次，在噪声以内），帧间隔也没变：这份拷贝本来就不贵。
+
+### 测试：重启 Win顺 时剪贴板历史按默认的 300 条修剪，调大 MaxItems 挡不住
+- **现象**：测试前把 `[Clipboard] MaxItems` 调到 310，免得测试新增的条目挤掉用户最旧的条目；几次重启后，最旧的 5 条还是没了，图片文件也删了。
+- **原因**：`ClipStore::open` 载入后立刻用默认限制（300 条、30 天）修剪一次，用户的设置要等后面 `App::applyClipboard()` 才 `setLimits`（2ee7c71 起，已发布的版本都这样）。所以每次启动都按 300 条、30 天删，和设置无关：设了“不限”、多于 300 条或多于 30 天的用户，每次启动都会丢掉超出的部分。
+- **做法**：已改（2026-10-21）：`App.cpp` 里 `setLimits` 挪到 `open` 之前（没打开时只记下限制，不修剪），`tst_clipboard` 的 `limitsBeforeOpenKeepTheHistory` 盯着这一点（400 条加 3 条旧的：`{0,0}` 全留，`{0,30}` 只去旧的，默认 300 条）。测试里尽量不重启；备份历史时把 `clipboard\images`、`clipboard\projects` 一起备份。2026-10-21 这次被挤掉的两条从备份库放回，其中一张图片是从 C 盘的卷影副本（`Win32_ShadowCopy`，提权只读）找回的。
+
+### 测试：用户在用电脑时，测试窗抢不到前台
+- **现象**：脚本把自己的测试窗切到前台失败而中止，前台是 Windows 搜索，或另一个程序“未响应”的幽灵窗口（`Ghost`，dwm.exe）。
+- **做法**：开测前用 `GetLastInputInfo` 等到 10 秒没人碰键鼠，每步之间再看一次；前台不是普通窗口就不测。脚本中止时不发任何键，这是对的。
+
+### 测试：PowerShell 的变量名不分大小写
+- **现象**：脚本的参数 `[string]$Steps`，又写了 `$steps = $Steps -split ','`，结果一步都没跑；`"no $Backup: …"` 直接是语法错误。
+- **原因**：`$steps` 和 `$Steps` 是同一个变量，带类型的参数把数组又转回了字符串；`$名字:` 被当成带驱动器名的变量。
+- **做法**：局部变量另起名字；字符串里变量后面紧跟冒号时写 `${名字}`。改完的脚本先用 `[Parser]::ParseFile` 检查一遍。
+
+### 每次退出都崩溃：build\release 里的 main.cpp 没跟着头文件重编
+- **现象**：2026-10-21 14:27–16:20 在 dist 里跑的两个版本（14:03、15:24 两次构建，都出自 `build\release`），7 次退出全部崩溃，`%LOCALAPPDATA%\CrashDumps\WinShun.exe.*.dmp`，0xc0000409、参数 2（栈 cookie 被改写）。`build\capture` 出的版本（13:36、16:10、16:27）退出都正常。
+- **原因**：崩在主线程 `main.cpp` 的 `restart = application.restartArguments();`。这是 `App.h` 里的内联函数，代码编在 main.cpp 里；它去复制 `m_restartArguments` 的地方，放的其实是前一个成员 `m_translator`（读到 QTranslator 的虚表），写地址 2 访问冲突，分派异常时又查出 main 的栈 cookie 被改写。main.cpp.obj 和 App.cpp.obj 对 `App` 的布局差 24 字节：`build\release\.ninja_deps` 里 main.cpp.obj 的头文件列表是空的（10-21 09:05 那次编译记下的），之后 `Settings.h` 改过几次（App 里有 `Settings m_settings`），ninja 也不重编 main.cpp；App.cpp.obj 14:03 重编过。main 给栈上的 `App` 留的地方小了 24 字节，App 自己的代码写过了界；退出时 `App` 的析构（存索引等）也没跑到。09:05 那次编译的 26 个源文件（main、Clipboard、ClipStore、Query、Backup、Migration、PluginSettings、Preview……）头文件列表都是空的；`build\capture` 的 main.cpp.obj 记着 262 个。
+- **做法**：发版（`release.ps1` → `build.ps1` → `build\release`）前清掉重编（`cmake --build --preset release --clean-first`，或删掉 `build\release`），装好后退出一次，`CrashDumps` 里不该有新的 dump。列表为空多半是那次编译时 cl 的 `/showIncludes` 输出和配置时记进 `rules.ninja` 的前缀（`msvc_deps_prefix = 注意: 包含文件:`）对不上，比如那个 shell 设了 `VSLANG=1033`（英文是 “Note: including file:”）或代码页不同；共用的构建目录，编译时的语言环境要和配置时一样（是哪次、什么环境没查到）。查法：读 `.ninja_deps`（v4），看各 `.cpp.obj` 记下的输入是不是 0 个；只含系统头文件的（如 `src/stub/main.cpp`）本来就是 0。
+
+### 缩放和 HDR 下的截图实测（2026-10-21，2560×1600，100/125/150/175% 和 150% + HDR）
+- **结果**：五种情况下，遮罩冻结的图和冻结前的屏幕逐像素 0 差，选区导出的 PNG、F3 贴图都和屏幕上的 0 差，遮罩窗口矩形都是 0,0,2560,1600，选区尺寸都是“拖动距离 + 1”（1200×700 拖出 1201×701），放大镜格子 100/125/150/175% 是 120/150/180/210 像素（整块含边框和文字 122×197、151×245、183×294、213×343），工具条高 42/53/62/73 像素、右对齐在选区下面。HDR（`active_mode=HDR`，日志 “1 by WGC”，没有退到 BitBlt）下纯白（#FFFFFF）区域导出后是 255,255,255，字的最深像素是 0，和 SDR 逐像素相同；Win顺 自己的识别（PaddleOcr）读出 “WinShun HDR OCR test 2026 / Pure white background, black text”，Windows 自带识别把 HDR 读成 “I-IDR”（SDR 下也一样，不是 HDR 的问题）。没测：SDR 白电平不在 80 尼特时（`Hdr.cpp` 按它除）。
+- **改缩放、开 HDR 的做法**：`DisplayConfigSetDeviceInfo`，类型 -4（设缩放）、-3（取）：值是相对“推荐档”的下标，档位 100,125,150,175,200,225,250,300…；HDR 用类型 10（`SET_ADVANCED_COLOR_STATE`）就够，开关后用类型 15（`ADVANCED_COLOR_INFO_2` 的 `activeColorMode`）确认真是 HDR，类型 9 的 `advancedColorEnabled` 在 WCG 下也为真。改缩放后等 `GetDpiForMonitor` 读到新值再多等 3 秒。测完要在外层 `finally` 里改回，因为脚本被杀时里面的不会跑。
+- **现象**：175% 那一轮冻结图、导出图、贴图里多出 4 个紫红色的小块（28×62 像素，每处 867 个像素不同），和屏幕上的位置对不上。
+- **原因**：Windows 的“文本光标指示器”（`CursorVisualClass`，分层窗口）。用户开着它；WGC 的帧里有它，`CopyFromScreen`（不带 `CAPTUREBLT`）抓不到分层窗口，所以逐像素比时出现。位置跟着别的程序（VS Code）的光标走，每次不一样。不是 Win顺 的问题：冻结的图本来就该和用户按热键时看到的一样。
+- **做法**：比对前后各记一次它的窗口矩形，比较时把矩形外扩 70 像素排除（`matrix.ps1` 的 `Ind`、`cmp.py`）。
+- **测试脚本的坑**：用户在用电脑时 VS Code 会抢走前台，发热键前要先 `AttachThreadInput` + `SetForegroundWindow` 把测试窗拉回来再确认前台，拉不回就不发；`FindWindow(null, 标题)` 在 PowerShell 里要传 `[NullString]::Value`，传 `$null` 变成空串找不到。导出的 PNG 比选区小一格会错位，所以先看尺寸，再按“拖动距离 + 1”去屏幕上截同样大小的块。
+- **未解释**：125% 那轮第一次热键到遮罩出来 689 毫秒（其余各次 36–85 毫秒），只有这一次；前一刻刚改了缩放，日志里没有警告。
+
 ## 系统开关（docs/design-system-switches.md，2026-10-19）
 
 ### 只写 Personalize 注册表，窗口和任务栏都不变

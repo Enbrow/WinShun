@@ -64,6 +64,9 @@ struct Clip {
     // from a program: the screenshot history (jt, the 截图 tag, MCP's
     // screenshot_history). Kept when the same pixels are copied again.
     bool screenshot = false;
+    // Image: it has a project (ClipStore::project), the annotated picture's
+    // editable form, in a file of its own beside the PNG.
+    bool project = false;
 
     QStringList files() const; // Files, Path: the paths
     bool truncated() const { return textLength > text.size(); }
@@ -88,6 +91,10 @@ struct ClipCapture {
     QString source;
     QString sourcePath;
     bool screenshot = false; // Image: Win顺's screen capture took it (Clip::screenshot)
+    // Image: the project to keep with it (opaque bytes; empty: none). The
+    // same pixels copied again with one replace the old entry's; without,
+    // the old one stays.
+    QByteArray project;
     // On the clipboard already when the history started: copied at some
     // earlier time, so an entry it matches stays where it is.
     bool initial = false;
@@ -192,7 +199,7 @@ public:
         std::function<void(qint64 id)> pictureSaved; // its file is there now (imagePending())
     };
 
-    // `folder` holds clipboard.db and images\.
+    // `folder` holds clipboard.db, images\ and projects\.
     explicit ClipStore(QString folder);
     ~ClipStore(); // writes what is still queued first
 
@@ -217,8 +224,8 @@ public:
     // id, 0 if it could not be saved.
     qint64 add(const ClipCapture& capture, qint64 now);
     void touch(qint64 id, qint64 now); // pasted from the history: to the top
-    // The pictures of removed entries stay until discardImages(), so that
-    // restore() can put them back.
+    // The pictures (and projects) of removed entries stay until
+    // discardImages(), so that restore() can put them back.
     std::vector<ClipRecord> remove(std::span<const qint64> ids);
     void restore(std::vector<ClipRecord> records);
     void discardImages(std::span<const qint64> ids); // of entries no longer in the history
@@ -237,6 +244,11 @@ public:
 
     ClipPayload payload(qint64 id) const; // with the picture's file there
     QString imagePath(qint64 id) const;
+    // A picture's project: where its file goes, and its bytes (waits for what
+    // was queued before). Empty if the entry has none, or has lost the file:
+    // then it is marked as having none, and the picture alone is what is left.
+    QString projectPath(qint64 id) const;
+    QByteArray project(qint64 id) const;
     QString folder() const { return m_folder; } // the history's files are in it
     // Just copied, its picture still being written: no file at imagePath() yet.
     bool imagePending(qint64 id) const { return m_picturesPending.contains(id); }
@@ -258,9 +270,10 @@ private:
     class Writer;
 
     void prune(qint64 now);
-    void dropRows(const std::vector<qint64>& ids); // and their pictures
+    void dropRows(const std::vector<qint64>& ids); // and their pictures and projects
     void moveToFront(std::size_t index);
     void saved(qint64 id, bool ok); // from the writer
+    bool writeProject(qint64 id, const QByteArray& bytes) const; // on the writer's thread
 
     QString m_folder;
     QString m_connection; // name of this store's database connection

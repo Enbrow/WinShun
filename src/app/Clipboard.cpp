@@ -798,32 +798,47 @@ void Clipboard::copyText(const QString& text, bool remember)
     startPaste(std::move(write), Into::Clipboard, {}, tr("已复制 %1").arg(shown));
 }
 
-void Clipboard::copyImage(const QImage& image, bool remember, bool screenshot)
+void Clipboard::copyImage(const QImage& image, bool remember, bool screenshot, QByteArray project)
+{
+    encodeImage(image, remember, screenshot, std::move(project), true);
+}
+
+void Clipboard::recordImage(const QImage& image, QByteArray project)
+{
+    if (!m_recording || m_paused)
+        return; // nothing to keep: no need to encode it either
+    encodeImage(image, true, true, std::move(project), false);
+}
+
+void Clipboard::encodeImage(const QImage& image, bool remember, bool screenshot, QByteArray project, bool toClipboard)
 {
     if (image.isNull())
         return;
     if (m_imageEncoder.joinable())
         m_imageEncoder.join(); // the one before, done by now
     // A whole screen takes a moment to encode: not on the GUI thread.
-    m_imageEncoder = std::jthread([this, image, remember, screenshot] {
+    m_imageEncoder = std::jthread([this, image, remember, screenshot, project = std::move(project), toClipboard] {
         QByteArray png;
         QBuffer buffer(&png);
         buffer.open(QIODevice::WriteOnly);
         image.save(&buffer, "PNG");
         const QByteArray hash = imagePixelHash(image);
         QMetaObject::invokeMethod(this,
-            [this, png, hash, size = image.size(), remember, screenshot] { storeImage(png, hash, size, remember, screenshot); },
+            [this, png, hash, size = image.size(), remember, screenshot, project, toClipboard] {
+                storeImage(png, hash, size, remember, screenshot, project, toClipboard);
+            },
             Qt::QueuedConnection);
     });
 }
 
-void Clipboard::storeImage(const QByteArray& png, const QByteArray& hash, QSize size, bool remember, bool screenshot)
+void Clipboard::storeImage(const QByteArray& png, const QByteArray& hash, QSize size, bool remember, bool screenshot,
+    const QByteArray& project, bool toClipboard)
 {
     if (png.isEmpty())
         return;
-    if (m_pasting) { // a paste from the window still under way: right after it
-        QTimer::singleShot(50ms, this, [this, png, hash, size, remember, screenshot] {
-            storeImage(png, hash, size, remember, screenshot);
+    if (toClipboard && m_pasting) { // a paste from the window still under way: right after it
+        QTimer::singleShot(50ms, this, [this, png, hash, size, remember, screenshot, project] {
+            storeImage(png, hash, size, remember, screenshot, project, true);
         });
         return;
     }
@@ -839,9 +854,12 @@ void Clipboard::storeImage(const QByteArray& png, const QByteArray& hash, QSize 
         capture.source = screenshot ? tr("Win顺 截图") : tr("Win顺");
         capture.sourcePath = QCoreApplication::applicationFilePath();
         capture.screenshot = screenshot;
+        capture.project = project;
         write.id = m_store->add(capture, now());
         historyChanged();
     }
+    if (!toClipboard)
+        return; // history only: the clipboard and the status line stay as they are
     startPaste(std::move(write), Into::Clipboard, {}, screenshot ? tr("已复制截图") : tr("已复制图片"));
 }
 

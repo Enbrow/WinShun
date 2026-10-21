@@ -161,6 +161,7 @@ enum TrayCommand {
     PinLastCommand, // 截图 › 贴上最近一次截图
     ClickThroughCommand, // 截图 › 取消所有贴图的穿透
     CloseAllPinsCommand, // 截图 › 关闭全部贴图
+    RestoreDraftCommand, // 截图 › 找回刚放弃的标注
     KeepAwakeCommand // 保持唤醒（到 16:42）: only while it is on; ends it
 };
 
@@ -534,6 +535,9 @@ bool App::start(const StartOptions& options)
 
     // Clipboard history (Win+V), in clipboard\ next to the index.
     m_clipStore = std::make_unique<ClipStore>(dataDir + u"\\clipboard"_s);
+    // The user's limits before open(), which prunes: with the defaults it
+    // would drop what a longer limit (or none) keeps, on every start.
+    m_clipStore->setLimits({m_settings.clipboardMaxItems, m_settings.clipboardMaxDays}, QDateTime::currentMSecsSinceEpoch());
     if (!m_clipStore->open(QDateTime::currentMSecsSinceEpoch()))
         qWarning() << "Clipboard history: cannot be kept";
     ClipboardWatcher::Callbacks clipCallbacks;
@@ -1356,8 +1360,22 @@ void App::applyCapture()
     // Off: no window, no hotkey, no graphics device: all of it goes.
     if (m_settings.captureEnabled && !m_capture) {
         capture::Capture::Callbacks callbacks;
-        callbacks.copy = [this](const QImage& image) {
-            m_clipboard->copyImage(image, m_settings.clipboard && m_settings.clipboardImages && !m_clipboardPaused, true);
+        callbacks.copy = [this](const QImage& image, const QByteArray& project) {
+            m_clipboard->copyImage(image, m_settings.clipboard && m_settings.clipboardImages && !m_clipboardPaused, true, project);
+        };
+        // Ctrl+S and F3: in the screenshot history too, the clipboard left alone.
+        callbacks.record = [this](const QImage& image, const QByteArray& project) {
+            if (m_settings.clipboard && m_settings.clipboardImages && !m_clipboardPaused)
+                m_clipboard->recordImage(image, project);
+        };
+        callbacks.annotateStyles = [this] { return m_settings.captureAnnotateStyles; };
+        callbacks.annotateStylesChanged = [this](const QString& json) {
+            if (json == m_settings.captureAnnotateStyles)
+                return;
+            m_settings.captureAnnotateStyles = json;
+            m_settings.save();
+            if (m_settingsEditor) // its copy must not bring the old styles back with its next change
+                m_settingsEditor->setSettings(m_settings);
         };
         callbacks.copyColor = [this](const QString& hex) {
             m_clipboard->copyText(hex, m_settings.clipboard && !m_clipboardPaused);
@@ -3580,6 +3598,7 @@ void App::showTrayMenu()
             captureMenu.children = {
                 {CaptureCommand, key.isEmpty() ? tr("开始截图") : tr("开始截图") + u'\t' + key},
                 {PinLastCommand, tr("贴上最近一次截图"), false, m_capture->hasLast()},
+                {RestoreDraftCommand, tr("找回刚放弃的标注"), false, m_capture->hasDraft()},
                 shell::MenuItem::separator(),
             };
         }
@@ -3629,6 +3648,10 @@ void App::showTrayMenu()
     case PinLastCommand:
         if (m_capture)
             m_capture->pinLast();
+        break;
+    case RestoreDraftCommand:
+        if (m_capture)
+            m_capture->restoreDraft();
         break;
     case ClickThroughCommand:
         if (m_pins)

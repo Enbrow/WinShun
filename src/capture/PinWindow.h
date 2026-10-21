@@ -65,6 +65,10 @@ public:
     // history), or a picture pinned from a file or the clipboard history.
     bool screenshot() const { return m_screenshot; }
     void setScreenshot(bool on) { m_screenshot = on; }
+    // The annotated picture's editable form (opaque bytes, empty: none),
+    // kept for the editing window of stage 4b.
+    const QByteArray& project() const { return m_project; }
+    void setProject(QByteArray project) { m_project = std::move(project); }
 
     void setTopmost(bool on);
     // The mouse goes through it to what is under it (WS_EX_TRANSPARENT);
@@ -94,6 +98,7 @@ private:
     bool m_topmost = true;
     bool m_clickThrough = false;
     bool m_screenshot = true;
+    QByteArray m_project;
     bool m_dragging = false;
     QPoint m_grab; // the cursor less m_origin at the press
     int m_wheel = 0; // wheel delta not yet a whole notch (touchpads)

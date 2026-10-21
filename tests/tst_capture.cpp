@@ -655,6 +655,155 @@ private slots:
         rig.session.key(Qt::Key_Return, Qt::NoModifier); // nothing after the end
         QCOMPARE(finished.count(), 0);
     }
+
+    // ---- annotating (AnnotationModel under the session) -------------------
+
+    // A rectangle drawn with the R key and the mouse, then the tool put away.
+    static void drawRect(Rig& rig, QPoint from, QPoint to)
+    {
+        rig.session.key(Qt::Key_R, Qt::NoModifier);
+        rig.drag(from, to);
+        rig.session.key(Qt::Key_R, Qt::NoModifier); // the same key: tool off
+    }
+
+    void toolKeysAndDrawingGoToTheAnnotations()
+    {
+        Rig rig;
+        rig.begin();
+        rig.drag({100, 100}, {499, 399});
+        AnnotationModel* annot = rig.session.annotation();
+        QVERIFY(annot->active());
+        QCOMPARE(annot->selectionRect(), QRect(100, 100, 400, 300));
+        QVERIFY(rig.session.key(Qt::Key_R, Qt::NoModifier));
+        QCOMPARE(annot->tool(), 0);
+        rig.drag({150, 150}, {300, 250});
+        QCOMPARE(annot->document().items.size(), 1);
+        QVERIFY(rig.session.hasSelection()); // drawing inside never made a new selection
+        QCOMPARE(rig.session.selectionRect(), QRect(100, 100, 400, 300));
+        QVERIFY(rig.session.key(Qt::Key_R, Qt::NoModifier)); // again: off
+        QCOMPARE(annot->tool(), -1);
+        // Ctrl+Z is the annotations' while a selection is up
+        QVERIFY(rig.session.key(Qt::Key_Z, Qt::ControlModifier));
+        QCOMPARE(annot->document().items.size(), 0);
+    }
+
+    void escapePutsSelectionAndAnnotationsDownTogether()
+    {
+        Rig rig;
+        rig.begin();
+        rig.drag({100, 100}, {499, 399});
+        drawRect(rig, {150, 150}, {300, 250});
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.session.key(Qt::Key_Escape, Qt::NoModifier);
+        QVERIFY(!rig.session.hasSelection());
+        QVERIFY(rig.session.hasAnnotations()); // kept, waiting for Ctrl+Z
+        QVERIFY(!rig.screen.notice().isEmpty());
+        QCOMPARE(finished.count(), 0);
+        rig.session.key(Qt::Key_Z, Qt::ControlModifier); // back as they were
+        QVERIFY(rig.session.hasSelection());
+        QCOMPARE(rig.session.selectionRect(), QRect(100, 100, 400, 300));
+        QCOMPARE(rig.session.annotation()->document().items.size(), 1);
+        rig.session.key(Qt::Key_Escape, Qt::NoModifier); // down again
+        rig.session.key(Qt::Key_Escape, Qt::NoModifier); // out
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Cancel);
+        QVERIFY(rig.session.hasAnnotations()); // the capture reads them for its draft
+    }
+
+    void escapeDuringAStrokeOnlyDropsTheStroke()
+    {
+        Rig rig;
+        rig.begin();
+        rig.drag({100, 100}, {499, 399});
+        rig.session.key(Qt::Key_E, Qt::NoModifier);
+        rig.session.pointerMove(0, {150, 150});
+        rig.session.pointerPress(0, {150, 150}, Qt::LeftButton);
+        rig.session.pointerMove(0, {250, 250});
+        QVERIFY(rig.session.annotation()->gestureActive());
+        rig.session.key(Qt::Key_Escape, Qt::NoModifier);
+        QVERIFY(!rig.session.annotation()->gestureActive());
+        rig.session.pointerRelease(0, {250, 250}, Qt::LeftButton);
+        QCOMPARE(rig.session.annotation()->document().items.size(), 0);
+        QVERIFY(rig.session.hasSelection()); // the selection stayed
+    }
+
+    void doubleClickOnAnObjectNeverCopies()
+    {
+        Rig rig;
+        rig.begin();
+        rig.drag({100, 100}, {499, 399});
+        drawRect(rig, {150, 150}, {300, 250});
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        // Qt: press, release, then the second press as a press and a double click
+        rig.session.pointerMove(0, {150, 200});
+        rig.session.pointerPress(0, {150, 200}, Qt::LeftButton); // on the rectangle's left edge
+        rig.session.pointerRelease(0, {150, 200}, Qt::LeftButton);
+        rig.session.pointerPress(0, {150, 200}, Qt::LeftButton);
+        rig.session.doubleClick(0, {150, 200});
+        rig.session.pointerRelease(0, {150, 200}, Qt::LeftButton);
+        QCOMPARE(finished.count(), 0);
+        // on the bare picture it still copies
+        rig.session.pointerMove(0, {400, 350});
+        rig.session.pointerPress(0, {400, 350}, Qt::LeftButton);
+        rig.session.pointerRelease(0, {400, 350}, Qt::LeftButton);
+        rig.session.pointerPress(0, {400, 350}, Qt::LeftButton);
+        rig.session.doubleClick(0, {400, 350});
+        QCOMPARE(finished.count(), 1);
+    }
+
+    void aPressOutsideTheSelectionKeepsItWhileAnnotated()
+    {
+        Rig rig;
+        rig.begin();
+        rig.drag({100, 100}, {499, 399});
+        drawRect(rig, {150, 150}, {300, 250});
+        rig.drag({600, 500}, {800, 700}); // would have drawn a new selection
+        QCOMPARE(rig.session.selectionRect(), QRect(100, 100, 400, 300));
+        QVERIFY(!rig.screen.notice().isEmpty()); // 已有标注：…
+        QCOMPARE(rig.session.annotation()->document().items.size(), 1);
+    }
+
+    void hHidesTheToolbar()
+    {
+        Rig rig;
+        rig.begin();
+        QVERIFY(!rig.session.key(Qt::Key_H, Qt::NoModifier)); // nothing selected: not taken
+        rig.drag({100, 100}, {499, 399});
+        QSignalSpy hidden(&rig.session, &CaptureSession::toolbarHiddenChanged);
+        QVERIFY(rig.session.key(Qt::Key_H, Qt::NoModifier));
+        QVERIFY(rig.session.toolbarHidden());
+        QVERIFY(rig.session.key(Qt::Key_H, Qt::NoModifier));
+        QVERIFY(!rig.session.toolbarHidden());
+        QCOMPARE(hidden.count(), 2);
+    }
+
+    void aNewCaptureStartsClean()
+    {
+        Rig rig;
+        rig.begin();
+        rig.drag({100, 100}, {499, 399});
+        drawRect(rig, {150, 150}, {300, 250});
+        rig.session.end();
+        QVERIFY(!rig.session.annotation()->active());
+        rig.begin();
+        QVERIFY(!rig.session.hasAnnotations());
+        rig.drag({100, 100}, {499, 399});
+        QCOMPARE(rig.session.annotation()->document().items.size(), 0);
+    }
+
+    void annotationsFollowTheStylesGiven()
+    {
+        Rig rig;
+        rig.session.setStyles(ws::capture::annot::StyleMemory::fromJson(
+            u"{\"version\":1,\"rect\":{\"color\":\"#1E88E5\",\"width\":7,\"fill\":\"none\"}}"_s));
+        rig.begin();
+        rig.drag({100, 100}, {499, 399});
+        drawRect(rig, {150, 150}, {300, 250});
+        const auto& item = rig.session.annotation()->document().items.first();
+        QCOMPARE(item.style.color, qRgb(0x1E, 0x88, 0xE5));
+        QCOMPARE(item.style.width, 7);
+        QVERIFY(!rig.session.stylesChanged()); // nothing was changed on the panel
+    }
 };
 
 QTEST_GUILESS_MAIN(TestCapture)

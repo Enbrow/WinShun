@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AnnotationFormat.h"
 #include "CaptureSession.h"
 #include "Grabber.h"
 #include "PinManager.h"
@@ -15,6 +16,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -45,7 +47,16 @@ class Capture : public QObject {
 
 public:
     struct Callbacks {
-        std::function<void(const QImage&)> copy; // Enter, a double click, the toolbar
+        // Enter, a double click, the toolbar. `project`: the annotated
+        // picture's editable form (empty: it has no annotations).
+        std::function<void(const QImage&, const QByteArray& project)> copy;
+        // Ctrl+S and F3 also put the picture in the screenshot history,
+        // leaving the system clipboard alone.
+        std::function<void(const QImage&, const QByteArray& project)> record;
+        // What the annotation tools remember ([Capture] AnnotateStyles, JSON):
+        // read when a capture starts, written when one ends with a change.
+        std::function<QString()> annotateStyles;
+        std::function<void(const QString&)> annotateStylesChanged;
         std::function<void(const QString&)> copyColor; // C: "#RRGGBB"
         std::function<void(const QString& path, const QString& error)> saved; // Ctrl+S
         std::function<void()> ended; // the overlays are gone and the memory let go of
@@ -69,6 +80,12 @@ public:
     // 贴上最近一次截图 (the tray menu).
     bool hasLast() const { return !m_last.isNull(); }
     void pinLast(); // the last capture taken, where it was
+    // 找回刚放弃的标注: a capture ended with annotations on it (hotkey, Esc)
+    // keeps them for kDraftMs or until the next capture; this pins their
+    // picture where the capture was, with the project.
+    bool hasDraft() const { return m_draft.has_value(); }
+    void restoreDraft();
+    static constexpr int kDraftMs = 10 * 60 * 1000;
     // Ctrl+S, 保存 on a pin: into the Screenshots folder (or `path`), off the
     // GUI thread; saved() tells how it went.
     void save(const QImage& image, const QString& path = {});
@@ -113,6 +130,19 @@ private:
     HMONITOR m_flyoutMonitor = nullptr;
     QImage m_last; // the last capture taken (copied, saved, pinned, read), for 贴上最近一次截图
     QPoint m_lastOrigin; // where it was, physical
+    QByteArray m_lastProject;
+    struct Draft {
+        annot::Project project; // the selection's pixels and the annotations over them
+        QPoint origin; // physical, virtual desktop
+    };
+    std::optional<Draft> m_draft;
+    QTimer m_draftTimer;
+    // The time between frames drawn while an annotation gesture is under way,
+    // logged at the end of the capture: how smooth drawing was (nanoseconds).
+    QElapsedTimer m_frameClock;
+    std::vector<qint64> m_gestureFrames;
+    std::vector<qint64> m_allGestureFrames;
+    bool m_gestureFrameOpen = false;
     QTimer m_flyoutWait;
     QTimer m_hideTimeout;
     QTimer m_rebuild;

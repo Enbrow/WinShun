@@ -156,6 +156,26 @@ B 输在两点：一是**速度**（热键要经过宿主转发，插件可能�
 5. **截图历史**：放进剪贴板历史，共用 clipboard.db 和 OCR；Win+V 和 `jt` 两个入口。
 6. **AI**：先做 `screenshot_history`；`take_screenshot` 默认关，每次弹确认。
 
+### 7.2 阶段 4 及以后（2026-10-21，用户：“按你的想法来”）
+
+路线和标注的详细设计在 [design-capture-roadmap.md](design-capture-roadmap.md)。那份文档汇总了 Snow Shot、ShareX、Flameshot、ksnip 和 QuickShot 五个项目的分析，分析报告和参考源码放在仓库外的 `F:\wsref\screenshot`。
+
+阶段顺序：
+- 4a：在遮罩里标注，并存成可再编辑的项目；
+- 4b：编辑窗口；
+- 5：打码加强；
+- 6：长截图；
+- 7：贴图增强和几个小功能；
+- 8：多选区；
+- 9：美化导出。
+
+另外五个决定：
+1. 用 Ctrl+S 保存或用 F3 贴图的截图，也记进截图历史。只记历史，不改系统剪贴板。
+2. 项目里保留原图，包括被打码和被裁掉的部分，只存在本机。从 Win顺 出去的东西都是标注后的成图，包括粘贴、`jt`、OCR、MCP 和保存的文件；设置备份和诊断包也不带原图。
+3. 画了标注后直接退出，不弹确认框。这次的标注作为草稿保留 10 分钟，或者保留到下一次截图为止；托盘菜单里可以“找回刚放弃的标注”。
+4. 工具快捷键用字母和数字：R E A L P M T N B 和 1–9，再按一次就关掉当前工具。不用 Ctrl+数字，也不用 Alt。
+5. 智能打码会预扫：选好区域后在后台识别，在工具条旁提示“发现 N 处”，点一下才打码。设置里可以关掉预扫。
+
 ## 7.1 外部调研（Grok，2026-10-17；已抽查的标“已核实”）
 
 - **HDR**：ShareX 新增了 `ShareX.ScreenCaptureLib/HDRScreenCapture.cs`（已核实存在；GPL，只学思路）。社区分支 Psyda/ShareX-scRGB-Proper-HDR-Fix（GPL，已核实）的做法：抓 RGBA16F，SDR 范围（≤1.0）原样保留，只对高光按 BT.2390 做柔和压缩，再转色域。GEEKiDoS/bitblt-hdr（**MIT**，已核实）修的是 BitBlt 截 HDR 过曝，色调映射可以借，要在注释里署名。
