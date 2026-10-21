@@ -1,5 +1,7 @@
 #include "Shell.h"
 
+#include "AutostartRun.h"
+
 #include "FileManagers.h"
 #include "Integrity.h"
 #include "SystemCatalog.h"
@@ -728,7 +730,9 @@ namespace {
 // programs that need elevation), and the taskbar button and the MCP relay
 // start Win顺 by running it. Older versions, still called QuickFind, used a
 // Run-key value and later a logon task of that name; migrateFromQuickFind()
-// moves either over.
+// moves either over. Where Task Scheduler will not take the task (another
+// account's has the name, a policy forbids tasks: GitHub #52), the Run key
+// holds a "WinShun" value instead (AutostartRun.h); both are read, both removed.
 constexpr auto kRunKey = "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 constexpr wchar_t kTaskName[] = L"WinShun";
 constexpr wchar_t kOldTaskName[] = L"QuickFind";
@@ -771,6 +775,32 @@ void removeRunKey()
     run.remove(QStringView(kOldRunValue).toString());
 }
 
+QString runValueName()
+{
+    return QString::fromWCharArray(kRunValueName);
+}
+
+// The program the Run value "WinShun" starts; nothing without one.
+std::optional<std::wstring> runValuePath()
+{
+    const QSettings run(QString::fromLatin1(kRunKey), QSettings::NativeFormat);
+    const QString command = run.value(runValueName()).toString();
+    if (command.isEmpty())
+        return std::nullopt;
+    const std::wstring program = runCommandProgram(command.toStdWString());
+    return program.empty() ? std::nullopt : std::optional(program);
+}
+
+void writeRunValue(bool on)
+{
+    QSettings run(QString::fromLatin1(kRunKey), QSettings::NativeFormat);
+    if (on)
+        run.setValue(runValueName(), QString::fromStdWString(runCommand(exePath())));
+    else
+        run.remove(runValueName());
+    run.sync();
+}
+
 // The autostart task as registered: the program it starts, and whether it
 // starts it elevated. Nothing without an enabled task (or one that cannot
 // be read: another user's, registered by the installer of old).
@@ -808,6 +838,13 @@ std::optional<std::wstring> taskPath()
     return task ? std::optional(task->path) : std::nullopt;
 }
 
+// What starts at logon: the task's program, else the Run value's.
+std::optional<std::wstring> startupPath()
+{
+    const std::optional<std::wstring> task = taskPath();
+    return task ? task : runValuePath();
+}
+
 bool startsThisCopy(const std::optional<std::wstring>& path)
 {
     return path && ::_wcsicmp(path->c_str(), exePath().c_str()) == 0; // a copy elsewhere (another build) does not count
@@ -828,7 +865,7 @@ std::atomic<int> g_changes {0};
 bool queryEnabled()
 {
     const int changes = g_changes;
-    const bool enabled = startsThisCopy(taskPath());
+    const bool enabled = startsThisCopy(startupPath());
     int unknown = -1;
     if (g_changes == changes)
         g_enabled = enabled;
@@ -852,12 +889,12 @@ void refresh()
 
 bool isSetUp()
 {
-    return taskPath().has_value();
+    return startupPath().has_value();
 }
 
 void adoptIfOrphaned()
 {
-    const std::optional<std::wstring> path = taskPath();
+    const std::optional<std::wstring> path = startupPath();
     if (path && !startsThisCopy(path) && ::GetFileAttributesW(path->c_str()) == INVALID_FILE_ATTRIBUTES)
         setEnabled(true);
     else
@@ -884,17 +921,18 @@ std::optional<bool> taskElevated()
 
 namespace {
 
-void writeTask(bool enabled)
+// False when the task could not be registered (enabled) or removed.
+bool writeTask(bool enabled)
 {
     const ComScope com;
     removeRunKey();
     ComPtr<ITaskService> service;
     const ComPtr<ITaskFolder> folder = taskFolder(service);
     if (!folder)
-        return;
+        return false;
     if (!enabled) {
         folder->DeleteTask(Bstr(kTaskName), 0);
-        return;
+        return true;
     }
 
     const std::wstring user = currentUser();
@@ -919,7 +957,7 @@ void writeTask(bool enabled)
         || FAILED(definition->get_Actions(&actions)) || FAILED(actions->Create(TASK_ACTION_EXEC, &action))
         || FAILED(action.As(&exec)) || FAILED(exec->put_Path(Bstr(exePath().c_str())))
         || FAILED(exec->put_Arguments(Bstr(L"--background"))))
-        return;
+        return false;
     ComPtr<IRegistrationInfo> info;
     if (SUCCEEDED(definition->get_RegistrationInfo(&info)))
         info->put_Description(Bstr(L"Win顺：登录后在后台启动"));
@@ -945,6 +983,7 @@ void writeTask(bool enabled)
     if (FAILED(hr))
         qWarning("WinShun: cannot register the autostart task (%s, 0x%08lx)", highest ? "elevated" : "normal rights",
             static_cast<unsigned long>(hr));
+    return SUCCEEDED(hr);
 }
 
 } // namespace
@@ -952,7 +991,16 @@ void writeTask(bool enabled)
 void setEnabled(bool enabled)
 {
     ++g_changes;
-    writeTask(enabled);
+    // Off: both go. On: the task, and the Run value only when the task cannot be had.
+    if (!enabled) {
+        writeTask(false);
+        writeRunValue(false);
+    } else if (writeTask(true)) {
+        writeRunValue(false);
+    } else {
+        qWarning("WinShun: autostart through the Run key instead");
+        writeRunValue(true);
+    }
     queryEnabled(); // what the task says now, written or not
 }
 

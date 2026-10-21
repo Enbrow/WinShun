@@ -2995,3 +2995,17 @@
 - **现象**：搜 vscode 按 Enter，什么都不出来：没有新窗口，开着的 VS Code 也不到前面，日志里也没有失败。记事本这类原生程序照常打开。从资源管理器启动同一个 `shell:AppsFolder\Microsoft.VisualStudioCode` 却没问题。
 - **原因**：Win顺 是从 VS Code 里启动的（终端，或扩展里跑的工具重启了它），继承了扩展宿主的 `ELECTRON_RUN_AS_NODE=1`。Win顺 用 `ShellExecuteEx` 启动应用，环境变量原样传下去；Electron 应用（VS Code、Cherry Studio……）看到它就当普通 Node.js 运行，不开窗口直接退出。看起来很像前台权限问题，其实不是：测试窗口一直留在前台也一样打不开，去掉这个变量后马上就好。
 - **做法**：`main()` 里 `qunsetenv("ELECTRON_RUN_AS_NODE")`，和 `QT_QPA_PLATFORM` 一样不传给启动的程序。测试脚本自己也是从 VS Code 里跑的，排查“某个应用打不开”时，先看看 `env | grep ELECTRON`。
+
+## 普通用户模式（GitHub #52，2026-10-21）
+
+### 本机装着服务，测不到“没装 / 停用 / 装不了”
+
+- **现象**：开发机上服务一直装着、在跑，`installed()` 永远为真，“没有安装索引服务”“装不了”的文案和启动时不等服务的路径都碰不到；真去 `sc delete` 又会弄坏本机的环境。
+- **做法**：环境变量 `WINSHUN_SERVICE=none|disabled|stopped` 让 `ServiceVolumeAccess::state()` 假装 SCM 的回答（写法同 `WINSHUN_SPINNING`），`installed()` 跟着变；这三种状态下界面不去连管道，和真的没服务一样。`classify()` 是纯函数（`tst_core` 的 `serviceStateFromScm`）。要连管道一起假装，另设 `WINSHUN_PIPE=<不存在的名字>`。
+- **注意**：SCM 拒绝查询（ACCESS_DENIED）时是 `Unknown`，按老办法由管道探测决定；“启动类型停用但还在跑”算 `Running`，由管道决定。
+
+### 登录任务注册不上：改写 HKCU Run
+
+- **现象**：任务名 `WinShun` 在全机是唯一的，另一个账户已经注册过，或策略禁止任务计划，`RegisterTaskDefinition` 失败，该用户就没有开机自启。
+- **做法**：失败时写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 的 `WinShun` = `"<exe>" --background`（`AutostartRun.h`）。“开机启动”读取时任务和 Run 值都认，关闭时两个都删，任务注册成功时顺手删掉 Run 值，不会开机起两份。安装器卸载时也删指向本副本的 Run 值。限制：Run 值起不来需要提权的启动（管理员直读模式），那个模式本来就只有管理员账户用。
+- **MCP 中继**：`schtasks /Run /TN WinShun` 失败时，直接启动中继旁边（找不到再用 Run 值指的）`WinShun.exe --background`；`WinShunSearch.exe`（stub）本来就有这个回退。

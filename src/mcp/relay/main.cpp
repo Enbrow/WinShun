@@ -136,9 +136,8 @@ QJsonObject statusTool()
             QJsonObject {{u"readOnlyHint"_s, true}, {u"destructiveHint"_s, false}, {u"idempotentHint"_s, true}, {u"openWorldHint"_s, false}}}};
 }
 
-// Runs Win顺's autostart task, which starts it elevated without a UAC prompt
-// (the taskbar button does the same). False when there is no such task.
-bool startWinShun()
+// Runs Win顺's autostart task. False when there is no such task, or it fails.
+bool runAutostartTask()
 {
     wchar_t system[MAX_PATH] {};
     if (!::GetSystemDirectoryW(system, MAX_PATH))
@@ -155,6 +154,51 @@ bool startWinShun()
     ::CloseHandle(process.hThread);
     ::CloseHandle(process.hProcess);
     return code == 0;
+}
+
+// The WinShun.exe to start without the task: the one beside this program
+// (they are installed together), else the one the Run key's value starts
+// (the autostart of an account that could not have the task, GitHub #52).
+std::wstring winShunExe()
+{
+    wchar_t self[MAX_PATH * 2] {};
+    const DWORD length = ::GetModuleFileNameW(nullptr, self, static_cast<DWORD>(std::size(self)));
+    if (length > 0 && length < std::size(self)) {
+        std::wstring beside(self, length);
+        beside.resize(beside.find_last_of(L'\\') + 1);
+        beside += L"WinShun.exe";
+        if (::GetFileAttributesW(beside.c_str()) != INVALID_FILE_ATTRIBUTES)
+            return beside;
+    }
+    wchar_t command[MAX_PATH * 2 + 32] {};
+    DWORD bytes = sizeof command - sizeof(wchar_t);
+    if (::RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", L"WinShun", RRF_RT_REG_SZ,
+            nullptr, command, &bytes)
+        != ERROR_SUCCESS)
+        return {};
+    std::wstring exe(command);
+    if (!exe.empty() && exe.front() == L'"') {
+        const std::size_t close = exe.find(L'"', 1);
+        exe = exe.substr(1, close == std::wstring::npos ? std::wstring::npos : close - 1);
+    } else {
+        exe = exe.substr(0, exe.find(L' '));
+    }
+    return ::GetFileAttributesW(exe.c_str()) != INVALID_FILE_ATTRIBUTES ? exe : std::wstring();
+}
+
+// Starts Win顺 when it is not running: through its autostart task, which
+// starts it elevated without a UAC prompt (the taskbar button does the same);
+// when there is none that can be run (an account whose task name was taken, a
+// policy), the program itself with --background, as the stub does.
+bool startWinShun()
+{
+    if (runAutostartTask())
+        return true;
+    const std::wstring exe = winShunExe();
+    if (exe.empty())
+        return false;
+    std::wstring folder = exe.substr(0, exe.find_last_of(L'\\'));
+    return reinterpret_cast<INT_PTR>(::ShellExecuteW(nullptr, nullptr, exe.c_str(), L"--background", folder.c_str(), SW_SHOWNORMAL)) > 32;
 }
 
 class Relay {
@@ -467,12 +511,12 @@ private:
                 // hand the running copy a "show", and the launcher would pop up.
                 m_triedStart = true;
                 if (startWinShun()) {
-                    logLine("started Win顺 through its autostart task; waiting for it");
+                    logLine("started Win顺 (autostart task or program); waiting for it");
                     const ULONGLONG until = ::GetTickCount64() + kStartWaitMs;
                     while (!ensureConnected() && ::GetTickCount64() < until)
                         ::Sleep(300);
                 } else {
-                    logLine("Win顺 is not running and its autostart task could not be run");
+                    logLine("Win顺 is not running and could not be started");
                 }
             }
             if (connected() && forward(line, id, method))
