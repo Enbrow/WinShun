@@ -225,7 +225,7 @@ Item {
         // Last chip: "更多", or the name of the sort chosen from its menu (#44).
         labels: footer.atStart ? [qsTr("最近打开"), qsTr("最近修改")]
                                  : [qsTr("最匹配"), qsTr("最新"), qsTr("最早"),
-                                    footer.moreSorts ? footer.sortLabels[footer.launcher.sort - 3] : qsTr("更多")]
+                                    footer.moreSorts ? footer.sortChipLabels[footer.launcher.sort - 3] : qsTr("更多")]
         current: footer.atStart ? footer.launcher.startList : footer.moreSorts ? 3 : footer.launcher.sort
         tip: footer.atStart ? qsTr("不输入时列出最近打开的，或最近修改的文件")
                               : qsTr("最匹配的在前，或按修改时间：最新的在前、最早的在前；“更多”里还能按名称、所在文件夹、类型、大小排")
@@ -242,6 +242,9 @@ Item {
 
     // The sorts the chips have no room for (Launcher.Sort from ByName on).
     readonly property var sortLabels: [qsTr("名称"), qsTr("所在文件夹"), qsTr("类型"), qsTr("大的在前"), qsTr("小的在前")]
+    // On the chip the short word, so a long name does not push the key hints
+    // out of the bar (#44); the menu has the full ones.
+    readonly property var sortChipLabels: [qsTr("名称"), qsTr("文件夹"), qsTr("类型"), qsTr("大在前"), qsTr("小在前")]
     readonly property bool moreSorts: launcher.sort >= Launcher.ByName
 
     DropMenu {
@@ -363,7 +366,8 @@ Item {
     }
 
     HoverTip {
-        target: clearHistory.tipWanted ? clearHistory : order.tipWanted && order.visible ? order : null
+        // Not while the sort menu is open: the tip would cover its last row (#44).
+        target: clearHistory.tipWanted ? clearHistory : order.tipWanted && order.visible && !sortMenu.open ? order : null
         text: clearHistory.tipWanted ? clearHistory.tip : order.tip
         shortcut: clearHistory.tipWanted ? "" : "Ctrl+S"
     }

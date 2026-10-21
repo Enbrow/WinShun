@@ -1425,6 +1425,18 @@
         <translation>Smallest first</translation>
     </message>
     <message>
+        <source>文件夹</source>
+        <translation>Folder</translation>
+    </message>
+    <message>
+        <source>大在前</source>
+        <translation>Largest</translation>
+    </message>
+    <message>
+        <source>小在前</source>
+        <translation>Smallest</translation>
+    </message>
+    <message>
         <source>清除最近使用记录</source>
         <translation>Clear recent items</translation>
     </message>
