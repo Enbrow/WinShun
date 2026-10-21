@@ -10,6 +10,7 @@
 #include <winioctl.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cwchar>
@@ -28,9 +29,10 @@ namespace {
 
 const QString kSnapshot = u"index.bin"_s;
 const QString kContent = u"content"_s;
+const QString kScope = u"scope.json"_s;
 
 struct File {
-    QString name; // in the folder: "index.bin", "content/12.grams", "content/13.texts"
+    QString name; // in the folder: "index.bin", "scope.json", "content/12.grams", "content/13.texts"
     std::uint64_t bytes = 0;
 };
 
@@ -39,6 +41,8 @@ std::vector<File> filesIn(const QString& folder)
     std::vector<File> files;
     if (const QFileInfo snapshot(snapshotPath(folder)); snapshot.isFile())
         files.push_back({kSnapshot, static_cast<std::uint64_t>(snapshot.size())});
+    if (const QFileInfo scope(scopePath(folder)); scope.isFile())
+        files.push_back({kScope, static_cast<std::uint64_t>(scope.size())});
     for (const QFileInfo& f :
         QDir(contentPath(folder)).entryInfoList({u"*.grams"_s, u"*.texts"_s}, QDir::Files | QDir::Hidden))
         files.push_back({kContent + u'/' + f.fileName(), static_cast<std::uint64_t>(f.size())});
@@ -195,6 +199,11 @@ QString contentPath(const QString& folder)
     return QDir(folder).filePath(kContent);
 }
 
+QString scopePath(const QString& folder)
+{
+    return QDir(folder).filePath(kScope);
+}
+
 bool hasIndex(const QString& folder)
 {
     return QFileInfo(snapshotPath(folder)).isFile();
@@ -220,9 +229,11 @@ bool onlyIndexFiles(const QString& folder)
         if (entry.isDir())
             return entry.fileName().compare(kContent, Qt::CaseInsensitive) == 0
                 && std::ranges::all_of(QDir(entry.filePath()).entryInfoList(all), isSegment);
-        // index.bin.XXXXXX: one being saved when Win顺 stopped (QSaveFile)
-        return entry.fileName().startsWith(kSnapshot, Qt::CaseInsensitive)
-            && (entry.fileName().size() == kSnapshot.size() || entry.fileName()[kSnapshot.size()] == u'.');
+        // index.bin.XXXXXX (scope.json.XXXXXX): one being saved when Win顺 stopped (QSaveFile)
+        return std::ranges::any_of(std::array {kSnapshot, kScope}, [&](const QString& name) {
+            return entry.fileName().startsWith(name, Qt::CaseInsensitive)
+                && (entry.fileName().size() == name.size() || entry.fileName()[name.size()] == u'.');
+        });
     });
 }
 

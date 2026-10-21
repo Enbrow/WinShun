@@ -9,13 +9,16 @@
 #include <vector>
 
 // The folder the index service keeps its files in (设置 → 高级 → 索引位置):
-// the snapshot, index.bin, and the content index's segments, content\*.grams,
-// and documents' texts, content\*.texts.
+// the snapshot, index.bin, the scope it was saved with, scope.json (GitHub
+// #52: which disks hold chosen folders only, and how each folder stood),
+// and the content index's segments, content\*.grams, and documents' texts,
+// content\*.texts.
 // Nothing else in the folder is ever touched. Paths take either separator.
 namespace ws::indexfolder {
 
 QString snapshotPath(const QString& folder); // folder/index.bin
 QString contentPath(const QString& folder); // folder/content
+QString scopePath(const QString& folder); // folder/scope.json
 
 bool hasIndex(const QString& folder); // a snapshot is there
 std::uint64_t size(const QString& folder); // bytes of the index files in it

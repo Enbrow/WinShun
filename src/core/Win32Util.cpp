@@ -1,6 +1,29 @@
 #include "Win32Util.h"
 
+#include <shellapi.h>
+
 namespace ws::win32 {
+
+namespace {
+
+constexpr DWORD kAwayAfterMs = 2 * 60 * 1000;
+
+} // namespace
+
+bool userAway()
+{
+    // For testing (wsbench --service --content while typing): WINSHUN_USER=present or away.
+    wchar_t forced[16] {};
+    if (::GetEnvironmentVariableW(L"WINSHUN_USER", forced, 16) > 0)
+        return std::wstring_view(forced) == L"away";
+    LASTINPUTINFO input {sizeof input, 0};
+    SYSTEM_POWER_STATUS power {};
+    QUERY_USER_NOTIFICATION_STATE state {};
+    return ::GetLastInputInfo(&input) && ::GetTickCount() - input.dwTime >= kAwayAfterMs
+        && ::GetSystemPowerStatus(&power) && power.ACLineStatus == 1
+        && SUCCEEDED(::SHQueryUserNotificationState(&state))
+        && (state == QUNS_NOT_PRESENT || state == QUNS_ACCEPTS_NOTIFICATIONS || state == QUNS_QUIET_TIME);
+}
 
 std::wstring longPath(std::wstring_view path)
 {

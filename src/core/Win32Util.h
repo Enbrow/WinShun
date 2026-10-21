@@ -105,6 +105,13 @@ std::wstring longPath(std::wstring_view path);
 // Expands %VAR% references, e.g. "%WINDIR%\WinSxS".
 std::wstring expandEnvironment(std::wstring_view text);
 
+// Nobody has used the keyboard or mouse for two minutes, nothing runs full
+// screen (a film, a game, slides) and the computer is on mains power: work
+// that can wait may go faster now (the content index's reads, GitHub #52's
+// verifications of the chosen folders). WINSHUN_USER=away or present
+// pretends, for testing.
+bool userAway();
+
 // A FILETIME as one count of 100-nanosecond intervals since 1601.
 inline std::int64_t ticks(const FILETIME& time) noexcept
 {

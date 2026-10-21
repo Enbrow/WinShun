@@ -15,11 +15,14 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <future>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <stop_token>
+#include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <vector>
@@ -45,9 +48,38 @@ namespace ws {
 //      runs (moveTo)
 //   8. network shares the user added: each a root of the index of its own,
 //      kept current by the ShareIndexer
+//   9. with no way to the journals, only the folders the user chose, when
+//      asked to (GitHub #52, Options::folders): the disks they are on keep
+//      the folders above them (their names only) and the chosen ones, walked
+//      at startup, when the watcher lost events and every few hours
 //
 // The first run has no snapshot: the (empty) index is searchable at once and
 // fills up while the volumes are read. There is only ever one index in memory.
+
+// GitHub #52: whether a chosen folder is walked again now. Due `every` after
+// its last walk (seconds since 1970) and no sooner than 60 times as long as
+// that took, then once the user is away (win32::userAway), or two hours later
+// whatever they do. `every` 0: never (only at startup); never walked: now.
+enum class VerifyNow { No, IfAway, Yes };
+VerifyNow folderVerifyDue(
+    std::int64_t lastVerified, std::chrono::milliseconds took, std::chrono::hours every, std::int64_t now) noexcept;
+
+// GitHub #52: of a batch of changes a watcher saw, those to apply while only
+// the chosen folders are indexed (`chosenOn` gives a volume's, "C:"; none for
+// one indexed whole, whose changes all stay): what happens in a chosen
+// folder, and above one what takes it away. Half a rename that leaves (or
+// enters) one is a removal (or an addition) by itself, never paired with half
+// of another. `owed` gets the chosen folders something happened to or above,
+// or whose watcher lost events (to be walked again in a moment); `wholeLost`
+// says a volume indexed whole lost events.
+struct ScopedChanges {
+    std::vector<FsChange> apply;
+    std::vector<std::wstring> owed;
+    bool wholeLost = false;
+};
+ScopedChanges changesInScope(
+    std::vector<FsChange> changes, const std::function<const std::vector<std::wstring>&(std::wstring_view)>& chosenOn);
+
 class IndexService : public QObject {
     Q_OBJECT
 
@@ -76,6 +108,39 @@ public:
         // journal position (a whole MFT read once the service is there,
         // instead of catching up). 0: not at all.
         int accessWaitMs = 0;
+        // GitHub #52: only these folders ("C:\Users\me\Documents": the drive
+        // letter upper case, no backslash at the end, none inside another)
+        // and the folders above them (names only), nothing else of the disks
+        // they are on; the other disks are left out, removable ones taken
+        // whole when includeRemovable says so. A drive's root ("D:") takes
+        // that drive whole. Unset: whole disks, as before. Only while there is
+        // no way to the journals (NoVolumeAccess), when every volume is walked.
+        std::optional<std::vector<std::wstring>> folders;
+        // Each chosen folder is walked again this often (folderVerifyDue).
+        // 0: only at startup, as rescanOnStartup says.
+        std::chrono::hours folderVerifyEvery {24};
+    };
+
+    // GitHub #52: a chosen folder (Options::folders) as it stands.
+    struct FolderStatus {
+        enum class State : std::uint8_t {
+            Waiting, // not walked yet
+            Verifying, // being walked, or about to be
+            Ready,
+            NotFound, // its disk is there, the folder is not: its entries are gone
+            Unreadable, // there, but this account cannot list it: what the index has of it stays
+            Excluded, // in a folder left out of searches: not indexed
+            Offline, // its disk is not there
+            WholeDrive, // a drive's root: the drive is indexed whole
+        };
+        std::wstring path;
+        State state = State::Waiting;
+        std::size_t items = 0; // in it, at its last walk
+        std::size_t failed = 0; // folders in it that could not be read then
+        std::int64_t lastVerified = 0; // seconds since 1970 (UTC); 0: never
+        std::chrono::milliseconds took {0}; // the last walk
+        bool watching = true; // its changes come in as they happen; false: only with the next walk
+        bool operator==(const FolderStatus&) const = default;
     };
 
     // `folder` holds the index files (indexfolder), or will.
@@ -87,7 +152,20 @@ public:
     // New rules are applied to the index in place: newly excluded folders are
     // dropped, folders no longer excluded are walked. Only a folder name that
     // is no longer excluded (it could be anywhere) takes reading every volume.
+    // Other folders chosen (Options::folders) are applied as setScope does.
     void setOptions(Options options);
+    // GitHub #52: these folders from now on (Options::folders), in place: what
+    // is no longer chosen goes, new ones are walked; from whole disks, all
+    // but the chosen folders goes; back to whole disks, those disks are
+    // walked whole. GUI thread.
+    void setScope(std::optional<std::vector<std::wstring>> folders);
+    // Only the chosen folders are indexed now: some are set, and there is no
+    // way to the journals.
+    bool foldersOnly() const;
+    std::vector<FolderStatus> folderStatuses() const; // in the order of Options::folders
+    // Walks a chosen folder again now, not waiting for the user to be away
+    // (after the walk under way, if any). GUI thread.
+    void verifyFolder(const std::wstring& path);
     // Another way to the volumes from now on (the index service connected,
     // or went away for good; the mode was changed): NTFS volumes are
     // planned again (Pass::Volumes). A volume followed through its journal
@@ -149,6 +227,7 @@ signals:
     // a Win32 error code; ERROR_CANCELLED when it was shut down meanwhile.
     void moveFinished(int error);
     void sharesChanged(); // shares().statuses() differ
+    void foldersChanged(); // folderStatuses() differ
 
 private:
     // What a worker run reads again: everything (Full), the walked volumes
@@ -159,12 +238,58 @@ private:
     enum class RuleChange { Applied, NeedsFullRead, Stopped };
     struct Followed; // an NTFS volume followed through its change journal
 
+    // GitHub #52: Options::folders, by volume; replaced whole when they change.
+    class Scope {
+    public:
+        explicit Scope(std::optional<std::vector<std::wstring>> folders = {});
+        bool set() const noexcept { return m_set; } // Options::folders has a value (maybe none)
+        // The chosen folders on the volume `root` ("C:"); none when it is
+        // chosen whole (its root), or nothing on it is.
+        const std::vector<std::wstring>& on(std::wstring_view root) const;
+        bool whole(std::wstring_view root) const; // its root is chosen
+        bool touches(std::wstring_view root) const; // something on it is chosen
+        bool onRemovable() const; // a removable drive is touched
+        const std::vector<std::wstring>& all() const noexcept { return m_all; }
+
+    private:
+        struct Volume {
+            std::wstring root;
+            bool whole = false;
+            std::vector<std::wstring> folders;
+        };
+        bool m_set = false;
+        std::vector<std::wstring> m_all;
+        std::vector<Volume> m_volumes;
+    };
+
     std::shared_ptr<const Crawler> crawler() const { return m_crawler.load(); }
+    std::shared_ptr<const Scope> scope() const { return m_scope.load(); }
+    // Only the chosen folders now (foldersOnly()), as `scope` has them.
+    bool foldersOnly(const Scope& scope) const;
     void launch(Pass pass);
     void stopWorker();
     void run(std::stop_token stop, Pass pass);
+    void ranOut(); // run() is done: folders owed a walk meanwhile get a pass of their own
     RuleChange applyRuleChanges(const CrawlRules& before, const Crawler& crawler, std::stop_token stop);
-    bool syncWithDisk(std::stop_token stop, const std::vector<std::size_t>& which);
+    // `which`: volumes read whole (walked, or from the MFT; a volume walked
+    // for its chosen folders: all of them). `folders`: chosen folders walked
+    // as well, and then those owed a walk meanwhile (m_verifyOwed).
+    bool syncWithDisk(std::stop_token stop, const std::vector<std::size_t>& which, std::vector<std::wstring> folders = {});
+    // GitHub #52: the entries of the volumes (roots, "C:") walked for their
+    // chosen folders, brought in line with them: what is neither in one nor
+    // on the way to one goes, the folders on the way and the chosen ones
+    // come in. Returns the chosen folders to walk: those that came in, and
+    // those whose last walk did not finish (or found them unreadable).
+    std::vector<std::wstring> prepareScope(
+        const Scope& scope, const std::vector<std::wstring>& roots, const Crawler& crawler);
+    bool walkFolders(std::stop_token stop, FileIndex& index, const Crawler& crawler, std::vector<std::wstring> folders,
+        bool firstBuild);
+    void setFolderStates(const std::vector<std::pair<std::wstring, FolderStatus::State>>& states,
+        std::optional<std::int64_t> checked = {});
+    void resetFolderStatuses(); // one for each chosen folder, keeping what is known of them
+    void walkOwedFolders(); // GUI thread: m_verifyOwed now, or after the walk under way
+    void resyncFoldersSoon(); // GUI thread: a watcher lost events of chosen folders (m_overflowed)
+    void noteFoldersChanged();
     // Waits (until the deadline Options::accessWaitMs set, or the stop) for
     // an access that reads the journals, when there is none and a volume
     // would lose its journal position without one (see Options).
@@ -211,6 +336,7 @@ private:
     std::condition_variable_any m_accessCv;
     std::atomic<bool> m_accessAwaited {false}; // the worker is in awaitAccess(): told, not relaunched
     std::atomic<std::shared_ptr<const Crawler>> m_crawler; // replaced whole when the rules change
+    std::atomic<std::shared_ptr<const Scope>> m_scope; // ... when the chosen folders do
     std::atomic<std::shared_ptr<FileIndex>> m_index;
     std::atomic<State> m_state {State::Idle};
     std::atomic<bool> m_refreshing {false};
@@ -232,6 +358,11 @@ private:
     std::vector<std::wstring> m_suspended; // being ejected or locked: not touched at all
     std::vector<std::wstring> m_rewalk; // walked volumes owed a walk: never finished, or unwatched for a while
     std::optional<CrawlRules> m_rulesBefore; // the rules the index still reflects, when they changed
+    // GitHub #52: volumes whose entries are their chosen folders' only (walked
+    // whole again once they are not chosen any more); kept in scope.json.
+    std::vector<std::wstring> m_scopedVolumes;
+    std::vector<std::wstring> m_verifyOwed; // chosen folders owed a walk as soon as can be
+    std::vector<std::wstring> m_overflowed; // ... whose watcher lost events: walked a moment later (resyncFoldersSoon)
 
     mutable std::mutex m_readingMutex;
     std::vector<Reading> m_reading; // readingVolumes()
@@ -259,6 +390,10 @@ private:
     std::atomic<std::uint64_t> m_garbageAfterSave {0}; // ContentIndex::obsoleteBytes() after the last save
     QTimer m_resyncTimer;
     QTimer m_volumesTimer;
+    QTimer m_folderResyncTimer; // resyncFoldersSoon
+    std::atomic<bool> m_running {false}; // a worker pass is under way (from launch() to ranOut())
+    mutable std::mutex m_foldersMutex;
+    std::vector<FolderStatus> m_folderStatus; // folderStatuses(); guarded by m_foldersMutex
     bool m_stopped = false;
 };
 

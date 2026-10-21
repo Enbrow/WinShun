@@ -34,7 +34,6 @@ constexpr std::size_t kMergeAfter = 1024; // files read (by passes or searches) 
 constexpr int kHardDiskReads = 2; // files read from one hard disk at once: more would make its heads jump about
 // ... while someone uses the computer: one, at very low I/O priority (HardDisk::quiet)
 constexpr int kHardDiskReadsQuiet = 1;
-constexpr DWORD kAwayAfterMs = 2 * 60 * 1000;
 constexpr auto kAfterSearchBox = std::chrono::seconds(5); // closed, before files are read again: searching again
 constexpr std::size_t kChunkBytes = ContentScanner::kChunkBytes;
 // The bulk way (ContentIndexer.h): from this many text files to read for the
@@ -187,25 +186,6 @@ bool batterySaverOn()
 {
     SYSTEM_POWER_STATUS status {};
     return ::GetSystemPowerStatus(&status) && status.SystemStatusFlag == 1;
-}
-
-// Nobody has used the keyboard or mouse for a while, nothing runs full screen
-// (a film, a game, slides) and the computer is on mains power: files may be
-// read faster. Most of what a read costs is the antivirus scanning the file,
-// in its own process, which the indexer's background priority does not reach.
-bool userAway()
-{
-    // For testing (wsbench --service --content while typing): WINSHUN_USER=present or away.
-    wchar_t forced[16] {};
-    if (::GetEnvironmentVariableW(L"WINSHUN_USER", forced, 16) > 0)
-        return std::wstring_view(forced) == L"away";
-    LASTINPUTINFO input {sizeof input, 0};
-    SYSTEM_POWER_STATUS power {};
-    QUERY_USER_NOTIFICATION_STATE state {};
-    return ::GetLastInputInfo(&input) && ::GetTickCount() - input.dwTime >= kAwayAfterMs
-        && ::GetSystemPowerStatus(&power) && power.ACLineStatus == 1
-        && SUCCEEDED(::SHQueryUserNotificationState(&state))
-        && (state == QUNS_NOT_PRESENT || state == QUNS_ACCEPTS_NOTIFICATIONS || state == QUNS_QUIET_TIME);
 }
 
 // A file's size and stamp (ContentIndex::stampOf), from its attributes.
@@ -836,7 +816,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
     // uses the computer (the antivirus scans documents too), all of them
     // once those are done or nobody does: documents read beside the other
     // files leave none to read at the end (wsbench --service --content).
-    bool away = userAway(); // nobody at the computer (the coordinator's, from here on)
+    bool away = win32::userAway(); // nobody at the computer (the coordinator's, from here on)
     std::atomic<bool> awayNow {away}; // the same, for the readers
     // A hard disk is all the user's while they are at the computer: one file
     // at a time, at very low I/O priority (readFile, HardDisk::quiet), so
@@ -1453,7 +1433,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
                 letGo = true;
             } else {
                 if (++ticks % 8 == 0) { // whether someone is at the computer, every 2 s
-                    away = userAway();
+                    away = win32::userAway();
                     awayNow = away;
                     const int now = readers(away);
                     letGo = now > allowed.exchange(now);
@@ -1539,7 +1519,7 @@ bool ContentIndexer::pass(const Options& options, std::stop_token stop)
 // files over, which a merge started before them cannot take in.
 void ContentIndexer::tidy(std::size_t added)
 {
-    const int threads = readers(userAway()); // as many as read files
+    const int threads = readers(win32::userAway()); // as many as read files
     if (m_content->needsMerge())
         m_content->mergeDue(threads);
     if (m_content->needsTextCompaction())

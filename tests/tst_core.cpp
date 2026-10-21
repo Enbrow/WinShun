@@ -17,6 +17,7 @@
 #include "FileIndex.h"
 #include "FileText.h"
 #include "History.h"
+#include "IndexFolder.h"
 #include "IndexService.h"
 #include "NameSearch.h"
 #include "Ntfs.h"
@@ -590,6 +591,98 @@ PlaceList switchPlaces()
     for (PlaceInfo& p : places)
         p.prepare();
     return places;
+}
+
+// ---- GitHub #52: an index of the chosen folders, walked for real ----------
+
+// Whether `path` is in the index (with its read lock, as the app looks).
+bool indexedIn(const IndexService& service, const QString& path)
+{
+    const std::shared_ptr<FileIndex> index = service.index();
+    const auto lock = index->readLock();
+    return index->findPath(QDir::toNativeSeparators(path).toStdWString()) != kNoEntry;
+}
+
+// T\docs\a.txt, T\docs\sub\b.txt, T\pics\p.png, T\other\o.txt
+bool makeScopeTree(const QString& t)
+{
+    QDir base(t);
+    if (!base.mkpath(u"docs/sub"_s) || !base.mkpath(u"pics"_s) || !base.mkpath(u"other"_s))
+        return false;
+    for (const QString& file : {u"docs/a.txt"_s, u"docs/sub/b.txt"_s, u"pics/p.png"_s, u"other/o.txt"_s}) {
+        QFile f(base.filePath(file));
+        if (!f.open(QIODevice::WriteOnly))
+            return false;
+    }
+    return true;
+}
+
+// Rules that leave out every other volume and, on `branch`'s, every folder
+// but the ones on the way to it: its disk walked whole in a moment.
+CrawlRules branchRules(const QString& branch)
+{
+    CrawlRules rules;
+    const QString native = QDir::toNativeSeparators(branch);
+    const std::wstring root = native.left(2).toStdWString();
+    for (const VolumeInfo& v : listLocalVolumes(true)) {
+        if (!win32::equalsIgnoreCase(v.root, root))
+            rules.excludedPaths.push_back(v.root); // "E:": the whole drive
+    }
+    QString ancestor = native.left(2);
+    for (const QString& next : native.mid(3).split(u'\\', Qt::SkipEmptyParts)) {
+        const QFileInfoList siblings
+            = QDir(ancestor + u'\\').entryInfoList(QDir::Dirs | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
+        for (const QFileInfo& sub : siblings) {
+            if (sub.fileName().compare(next, Qt::CaseInsensitive) != 0)
+                rules.excludedPaths.push_back(QDir::toNativeSeparators(sub.absoluteFilePath()).toStdWString());
+        }
+        ancestor += u'\\' + next;
+    }
+    return rules;
+}
+
+// Every volume walked and watched (no way to the journals), at once.
+IndexService::Options walkedOptions(std::optional<std::vector<std::wstring>> folders, CrawlRules rules = {})
+{
+    IndexService::Options options;
+    options.rules = std::move(rules);
+    options.content.enabled = false;
+    options.volumeAccess = std::make_shared<ntfs::NoVolumeAccess>();
+    options.rescanOnStartup = false;
+    options.folders = std::move(folders);
+    return options;
+}
+
+// The index service, there but not answering (it is being updated, say).
+class ServiceDown final : public ntfs::VolumeAccess {
+public:
+    Kind kind() const noexcept override { return Kind::Service; }
+    std::unique_ptr<ntfs::RecordSource> openMft(std::wstring_view, std::uint32_t, bool) override { return nullptr; }
+    std::optional<ntfs::JournalInfo> queryJournal(std::wstring_view, std::uint32_t) override { return std::nullopt; }
+    std::unique_ptr<ntfs::JournalSource> openJournal(std::wstring_view, std::uint32_t, std::uint64_t) override
+    {
+        return nullptr;
+    }
+    void closeVolume(std::wstring_view) override { }
+    std::unique_ptr<ntfs::BulkSource> openBulkRead(std::wstring_view, std::uint32_t, bool) override { return nullptr; }
+};
+
+using FolderState = IndexService::FolderStatus::State;
+
+// The chosen folders' states, in their order.
+std::vector<FolderState> folderStates(const IndexService& service)
+{
+    std::vector<FolderState> states;
+    for (const IndexService::FolderStatus& s : service.folderStatuses())
+        states.push_back(s.state);
+    return states;
+}
+
+bool allReady(const IndexService& service)
+{
+    const std::vector<FolderState> states = folderStates(service);
+    return service.state() == IndexService::State::Ready
+        && std::all_of(states.begin(), states.end(), [](FolderState s) { return s == FolderState::Ready; });
 }
 
 } // namespace
@@ -2126,6 +2219,455 @@ private slots:
         watcher.setRoots({});
         QVERIFY(watcher.roots().empty());
         QVERIFY(openExclusively());
+    }
+
+    // GitHub #52 (design 7.2): a chosen folder is watched through its volume's
+    // root, which must not keep a folder in it from being renamed (or moved
+    // to the Recycle Bin). Watching the folder itself (the fallback when the
+    // root cannot be opened) may keep the folders above it from that: what
+    // Windows does then is told, not asserted.
+    void watchedFoldersRename()
+    {
+        QTemporaryDir dir;
+        QVERIFY(QDir(dir.path()).mkpath(u"a/b"_s));
+        const std::wstring root = QDir::toNativeSeparators(dir.path()).toStdWString();
+        const std::wstring a = root + L"\\a";
+        const std::wstring renamed = root + L"\\a2";
+        ChangeWatcher watcher([](std::vector<FsChange>&&) {});
+
+        watcher.setRoots({root});
+        QCOMPARE(watcher.roots().size(), std::size_t {1});
+        QVERIFY2(::MoveFileW(a.c_str(), renamed.c_str()), qPrintable(u"error %1"_s.arg(::GetLastError())));
+        QVERIFY(::MoveFileW(renamed.c_str(), a.c_str()));
+
+        watcher.setRoots({a + L"\\b"});
+        QCOMPARE(watcher.roots().size(), std::size_t {1});
+        const bool moved = ::MoveFileW(a.c_str(), renamed.c_str());
+        const DWORD error = moved ? 0 : ::GetLastError();
+        qInfo("GitHub #52, design 7.2: renaming T\\a while T\\a\\b is watched: %s (error %lu)",
+            moved ? "renamed" : "refused", error);
+        watcher.setRoots({});
+        if (moved)
+            QVERIFY(::MoveFileW(renamed.c_str(), a.c_str()));
+    }
+
+    // ---- GitHub #52: only the chosen folders ---------------------------------
+
+    // With no way to the journals and folders chosen, only they are indexed,
+    // with the folders on the way to them by name; nothing else of their
+    // disk, and no other disk.
+    void chosenFoldersOnly()
+    {
+        QTemporaryDir tree;
+        QTemporaryDir store;
+        QVERIFY(makeScopeTree(tree.path()));
+        const QString t = QDir::toNativeSeparators(tree.path());
+        const std::wstring docs = (t + u"\\docs"_s).toStdWString();
+        const std::wstring pics = (t + u"\\pics"_s).toStdWString();
+        // As someone might write it: a small drive letter, a backslash at the end.
+        const std::wstring picsTyped = (t.left(1).toLower() + t.mid(1) + u"\\PICS\\"_s).toStdWString();
+        IndexService service(store.path(), walkedOptions(std::vector {docs, picsTyped}));
+        QVERIFY(service.foldersOnly());
+        service.start();
+        QTRY_VERIFY_WITH_TIMEOUT(allReady(service), 30'000);
+        QVERIFY(indexedIn(service, t + u"\\docs\\a.txt"_s));
+        QVERIFY(indexedIn(service, t + u"\\docs\\sub\\b.txt"_s));
+        QVERIFY(indexedIn(service, t + u"\\pics\\p.png"_s));
+        QVERIFY(!indexedIn(service, t + u"\\other"_s));
+        QCOMPARE(service.volumeRoots(), std::vector<std::wstring> {t.left(2).toStdWString()});
+        {
+            const auto index = service.index();
+            const auto lock = index->readLock();
+            QCOMPARE(index->roots().size(), std::size_t {1});
+            // The root holds the first folder on the way, nothing else.
+            std::size_t children = 0;
+            for (EntryId c = index->entry(index->roots().front()).firstChild; c != kNoEntry; c = index->entry(c).nextSibling)
+                ++children;
+            QCOMPARE(children, std::size_t {1});
+            // Spelled as on the disk, not as it was written.
+            const EntryId p = index->findPath(pics);
+            QVERIFY(p != kNoEntry);
+            QCOMPARE(index->name(p), std::string_view("pics"));
+        }
+        const std::vector<IndexService::FolderStatus> statuses = service.folderStatuses();
+        QCOMPARE(statuses.size(), std::size_t {2});
+        QCOMPARE(statuses[0].path, docs);
+        QCOMPARE(statuses[0].items, std::size_t {3}); // a.txt, sub, sub\b.txt
+        QCOMPARE(statuses[0].failed, std::size_t {0});
+        QVERIFY(statuses[0].lastVerified > 0);
+        QVERIFY(statuses[0].watching); // through the volume's root
+        QCOMPARE(statuses[1].items, std::size_t {1});
+        service.shutdown();
+        QVERIFY(QFileInfo::exists(indexfolder::scopePath(store.path())));
+    }
+
+    // Folders added are walked; those taken away go, with the folders on the
+    // way that only they needed; one that takes in another stands for both;
+    // with none chosen, nothing of the disk is left.
+    void chosenFoldersChange()
+    {
+        QTemporaryDir tree;
+        QTemporaryDir store;
+        QVERIFY(makeScopeTree(tree.path()));
+        const QString t = QDir::toNativeSeparators(tree.path());
+        const std::wstring docs = (t + u"\\docs"_s).toStdWString();
+        const std::wstring other = (t + u"\\other"_s).toStdWString();
+        IndexService service(store.path(), walkedOptions(std::vector {docs}));
+        service.start();
+        QTRY_VERIFY_WITH_TIMEOUT(allReady(service), 30'000);
+        QVERIFY(!indexedIn(service, t + u"\\other"_s));
+
+        service.setScope(std::vector {docs, other});
+        QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, t + u"\\other\\o.txt"_s) && allReady(service), 30'000);
+        QCOMPARE(folderStates(service).size(), std::size_t {2});
+        QVERIFY(indexedIn(service, t + u"\\docs\\sub\\b.txt"_s));
+        QVERIFY(!indexedIn(service, t + u"\\pics"_s));
+
+        service.setScope(std::vector {other});
+        QTRY_VERIFY_WITH_TIMEOUT(!indexedIn(service, t + u"\\docs"_s), 30'000);
+        QVERIFY(indexedIn(service, t + u"\\other\\o.txt"_s));
+        QCOMPARE(folderStates(service), std::vector {FolderState::Ready}); // its walk stands
+
+        // The folder they are in: there by name only so far, walked now.
+        service.setScope(std::vector {other, t.toStdWString()});
+        QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, t + u"\\pics\\p.png"_s) && allReady(service), 30'000);
+        QVERIFY(indexedIn(service, t + u"\\docs\\sub\\b.txt"_s));
+        QVERIFY(indexedIn(service, t + u"\\other\\o.txt"_s));
+        const std::vector<IndexService::FolderStatus> statuses = service.folderStatuses();
+        QCOMPARE(statuses.size(), std::size_t {1});
+        QCOMPARE(statuses.front().path, t.toStdWString());
+        QCOMPARE(statuses.front().items, std::size_t {8});
+
+        // None (the list emptied): nothing of the disk.
+        service.setScope(std::vector<std::wstring> {});
+        QTRY_VERIFY_WITH_TIMEOUT(!indexedIn(service, t), 30'000);
+        QVERIFY(service.folderStatuses().empty());
+        QVERIFY(service.foldersOnly());
+        QVERIFY(service.volumeRoots().empty());
+        service.shutdown();
+    }
+
+    // Whole disks to chosen folders and back, in place: what is not chosen
+    // goes (the chosen folders' entries stay, as current as they were), and
+    // back to whole disks, the disk is walked whole again. With a way to the
+    // journals (the index service, even one not answering for the moment),
+    // disks are whole whatever folders are set: as before GitHub #52.
+    void wholeDisksAndFolders()
+    {
+        QTemporaryDir tree;
+        QTemporaryDir store;
+        QVERIFY(makeScopeTree(tree.path()));
+        const QString t = QDir::toNativeSeparators(tree.path());
+        const std::wstring docs = (t + u"\\docs"_s).toStdWString();
+        const CrawlRules rules = branchRules(t);
+        IndexService service(store.path(), walkedOptions(std::nullopt, rules));
+        QVERIFY(!service.foldersOnly());
+        service.start();
+        QTRY_COMPARE_WITH_TIMEOUT(service.state(), IndexService::State::Ready, 60'000);
+        QVERIFY(indexedIn(service, t + u"\\other\\o.txt"_s));
+        QVERIFY(indexedIn(service, t + u"\\docs\\sub\\b.txt"_s));
+        QVERIFY(service.folderStatuses().empty());
+
+        service.setScope(std::vector {docs});
+        QTRY_VERIFY_WITH_TIMEOUT(!indexedIn(service, t + u"\\other"_s) && allReady(service), 30'000);
+        QVERIFY(indexedIn(service, t + u"\\docs\\sub\\b.txt"_s));
+        std::vector<IndexService::FolderStatus> statuses = service.folderStatuses();
+        QCOMPARE(statuses.size(), std::size_t {1});
+        QCOMPARE(statuses.front().items, std::size_t {3}); // counted: the index had them current
+        QVERIFY(statuses.front().lastVerified > 0);
+
+        // Made outside docs meanwhile: only the walk of the whole disk finds it.
+        QFile made(t + u"\\other\\made.txt"_s);
+        QVERIFY(made.open(QIODevice::WriteOnly));
+        made.close();
+        QTest::qWait(500);
+        QVERIFY(!indexedIn(service, t + u"\\other\\made.txt"_s));
+        service.setScope(std::nullopt);
+        QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, t + u"\\other\\made.txt"_s), 60'000);
+        QVERIFY(indexedIn(service, t + u"\\pics\\p.png"_s));
+        QVERIFY(service.folderStatuses().empty());
+        // A drive's root chosen: that drive whole.
+        const std::wstring drive = t.left(2).toStdWString();
+        service.setScope(std::vector {drive, docs});
+        QTRY_COMPARE_WITH_TIMEOUT(folderStates(service), std::vector {FolderState::WholeDrive}, 30'000);
+        QTest::qWait(500);
+        QVERIFY(indexedIn(service, t + u"\\pics\\p.png"_s));
+        service.shutdown();
+
+        // Folders set, and the index service there but not answering: whole disks.
+        QTemporaryDir store2;
+        IndexService::Options options = walkedOptions(std::vector {docs}, rules);
+        options.volumeAccess = std::make_shared<ServiceDown>();
+        IndexService served(store2.path(), options);
+        QVERIFY(!served.foldersOnly());
+        served.start();
+        QTRY_COMPARE_WITH_TIMEOUT(served.state(), IndexService::State::Ready, 60'000);
+        QVERIFY(indexedIn(served, t + u"\\other\\o.txt"_s));
+        QVERIFY(indexedIn(served, t + u"\\pics\\p.png"_s));
+        served.shutdown();
+    }
+
+    // scope.json goes with the snapshot: written after it, with its size and
+    // time. One that does not (a Win顺 from before GitHub #52 saved over it)
+    // tells nothing: every chosen folder is walked, and whatever else the
+    // snapshot holds goes.
+    void scopeFileNotMatching()
+    {
+        QTemporaryDir tree;
+        QTemporaryDir store;
+        QVERIFY(makeScopeTree(tree.path()));
+        const QString t = QDir::toNativeSeparators(tree.path());
+        const std::wstring docs = (t + u"\\docs"_s).toStdWString();
+        const IndexService::Options options = walkedOptions(std::vector {docs});
+        {
+            IndexService first(store.path(), options);
+            first.start();
+            QTRY_VERIFY_WITH_TIMEOUT(allReady(first), 30'000);
+            first.shutdown();
+        }
+        QVERIFY(QFileInfo::exists(indexfolder::scopePath(store.path())));
+        // Made while Win顺 is not running: only a walk of docs finds it.
+        QFile later(t + u"\\docs\\later.txt"_s);
+        QVERIFY(later.open(QIODevice::WriteOnly));
+        later.close();
+        {
+            // It goes with the snapshot: docs as it was, not walked (no rescan at startup).
+            IndexService second(store.path(), options);
+            second.start();
+            QTRY_VERIFY_WITH_TIMEOUT(allReady(second), 30'000);
+            QTest::qWait(1000);
+            QVERIFY(!indexedIn(second, t + u"\\docs\\later.txt"_s));
+            QVERIFY(second.folderStatuses().front().lastVerified > 0);
+            second.shutdown();
+        }
+        // The snapshot saved again by another, with more in it.
+        const QString path = indexfolder::snapshotPath(store.path());
+        std::optional<snapshot::Contents> contents = snapshot::load(path);
+        QVERIFY(contents && contents->rules);
+        {
+            const auto lock = contents->index->writeLock();
+            const EntryId folder = contents->index->findPath(t.toStdWString());
+            const EntryId inDocs = contents->index->findPath(docs);
+            QVERIFY(folder != kNoEntry && inDocs != kNoEntry);
+            contents->index->add(folder, "not-chosen", EntryFlag::Directory);
+            contents->index->add(inDocs, "not-on-disk.txt", 0);
+        }
+        {
+            const auto lock = contents->index->readLock();
+            QVERIFY(snapshot::save(*contents->index, contents->volumes, contents->journals, *contents->rules, path));
+        }
+        IndexService third(store.path(), options);
+        third.start();
+        QTRY_VERIFY_WITH_TIMEOUT(indexedIn(third, t + u"\\docs\\later.txt"_s), 30'000);
+        QTRY_VERIFY_WITH_TIMEOUT(!indexedIn(third, t + u"\\docs\\not-on-disk.txt"_s) && allReady(third), 30'000);
+        QVERIFY(!indexedIn(third, t + u"\\not-chosen"_s));
+        third.shutdown();
+    }
+
+    // The volume's root is watched; what happens outside the chosen folders
+    // is dropped, and what happens in them comes in at once. Half a rename
+    // that leaves or enters one is a removal or an addition by itself.
+    void changesOutsideChosenFolders()
+    {
+        QTemporaryDir tree;
+        QTemporaryDir store;
+        QVERIFY(makeScopeTree(tree.path()));
+        const QString t = QDir::toNativeSeparators(tree.path());
+        IndexService service(store.path(), walkedOptions(std::vector {(t + u"\\docs"_s).toStdWString()}));
+        service.start();
+        QTRY_VERIFY_WITH_TIMEOUT(allReady(service), 30'000);
+        QDir base(tree.path());
+        const auto touch = [&](const QString& rel) {
+            QFile f(base.filePath(rel));
+            QVERIFY(f.open(QIODevice::WriteOnly));
+        };
+        touch(u"other/outside.txt"_s);
+        QVERIFY(base.mkpath(u"made"_s));
+        touch(u"docs/inside.txt"_s); // after them: once it is in, they were seen too
+        QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, t + u"\\docs\\inside.txt"_s), 10'000);
+        QVERIFY(!indexedIn(service, t + u"\\other"_s));
+        QVERIFY(!indexedIn(service, t + u"\\made"_s));
+
+        // Moved in, with what is in it; moved out again.
+        QVERIFY(base.rename(u"other"_s, u"docs/moved"_s));
+        QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, t + u"\\docs\\moved\\o.txt"_s), 10'000);
+        QVERIFY(indexedIn(service, t + u"\\docs\\moved\\outside.txt"_s));
+        QVERIFY(base.rename(u"docs/moved"_s, u"elsewhere"_s));
+        QTRY_VERIFY_WITH_TIMEOUT(!indexedIn(service, t + u"\\docs\\moved"_s), 10'000);
+        QVERIFY(!indexedIn(service, t + u"\\elsewhere"_s));
+        // One moved out and another in at once: neither stands for the other.
+        QVERIFY(base.mkpath(u"docs/leaving/inner"_s));
+        QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, t + u"\\docs\\leaving\\inner"_s), 10'000);
+        QVERIFY(base.rename(u"docs/leaving"_s, u"gone"_s));
+        QVERIFY(base.rename(u"elsewhere"_s, u"docs/arrived"_s));
+        QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, t + u"\\docs\\arrived\\o.txt"_s), 10'000);
+        QTRY_VERIFY_WITH_TIMEOUT(!indexedIn(service, t + u"\\docs\\leaving"_s), 10'000);
+        QVERIFY(!indexedIn(service, t + u"\\docs\\arrived\\inner"_s));
+        service.shutdown();
+    }
+
+    // The same, one batch at a time (the watcher gives them so): what is
+    // applied, and which chosen folders are walked again because of it.
+    void scopedChangeBatches()
+    {
+        using Kind = FsChange::Kind;
+        const std::vector<std::wstring> chosen {L"C:\\Users\\me\\Documents", L"C:\\Work"};
+        const std::vector<std::wstring> none;
+        const auto chosenOn = [&](std::wstring_view root) -> const std::vector<std::wstring>& {
+            return root == L"C:" ? chosen : none;
+        };
+        using Change = std::pair<Kind, std::wstring>;
+        const auto applied = [](const ScopedChanges& s) {
+            std::vector<Change> out;
+            for (const FsChange& c : s.apply)
+                out.emplace_back(c.kind, c.path);
+            return out;
+        };
+
+        // In a chosen folder: kept; elsewhere on its disk: dropped; on a disk indexed whole: kept.
+        ScopedChanges s = changesInScope({{Kind::Added, L"C:\\Users\\me\\Documents\\a.txt"},
+                                             {Kind::Added, L"C:\\Users\\me\\Desktop\\b.txt"},
+                                             {Kind::Removed, L"C:\\Windows\\Temp\\x.tmp"},
+                                             {Kind::Added, L"C:\\Work2\\c.txt"}, {Kind::Added, L"D:\\d.txt"}},
+            chosenOn);
+        QCOMPARE(applied(s),
+            (std::vector<Change> {{Kind::Added, L"C:\\Users\\me\\Documents\\a.txt"}, {Kind::Added, L"D:\\d.txt"}}));
+        QVERIFY(s.owed.empty());
+        QVERIFY(!s.wholeLost);
+
+        // At or above a chosen folder: what takes it away is applied, and it is walked again.
+        s = changesInScope({{Kind::Removed, L"C:\\Users\\me"}, {Kind::Added, L"C:\\Users\\me"},
+                               {Kind::RenamedFrom, L"C:\\Work"}, {Kind::RenamedTo, L"C:\\Work.old"}},
+            chosenOn);
+        QCOMPARE(applied(s), (std::vector<Change> {{Kind::Removed, L"C:\\Users\\me"}, {Kind::Removed, L"C:\\Work"}}));
+        QCOMPARE(s.owed, chosen);
+
+        // Renames: in a chosen folder, a move; out of one and into it in the
+        // same batch, a removal and an addition (paired, the one left would
+        // be moved to where the other came in).
+        s = changesInScope({{Kind::RenamedFrom, L"C:\\Work\\a"}, {Kind::RenamedTo, L"C:\\Work\\b"},
+                               {Kind::RenamedFrom, L"C:\\Work\\leaving"}, {Kind::RenamedTo, L"C:\\Elsewhere\\gone"},
+                               {Kind::RenamedFrom, L"C:\\Elsewhere\\x"}, {Kind::RenamedTo, L"C:\\Work\\arrived"}},
+            chosenOn);
+        QCOMPARE(applied(s),
+            (std::vector<Change> {{Kind::RenamedFrom, L"C:\\Work\\a"}, {Kind::RenamedTo, L"C:\\Work\\b"},
+                {Kind::Removed, L"C:\\Work\\leaving"}, {Kind::Added, L"C:\\Work\\arrived"}}));
+        QVERIFY(s.owed.empty());
+
+        // Events lost on the volume's root: its chosen folders are walked
+        // again; on a folder watched by itself, that one; on a disk indexed
+        // whole, that disk.
+        s = changesInScope({{Kind::Overflow, L"C:"}}, chosenOn);
+        QVERIFY(s.apply.empty());
+        QCOMPARE(s.owed, chosen);
+        QVERIFY(!s.wholeLost);
+        s = changesInScope({{Kind::Overflow, L"C:\\Work"}}, chosenOn);
+        QCOMPARE(s.owed, std::vector<std::wstring> {L"C:\\Work"});
+        s = changesInScope({{Kind::Overflow, L"D:"}}, chosenOn);
+        QVERIFY(s.owed.empty());
+        QVERIFY(s.wholeLost);
+    }
+
+    // A chosen folder deleted: its entries go, and it is "not found"; made
+    // again, it is walked. On a disk being ejected (suspended), nothing is
+    // looked at and the entries stay.
+    void chosenFolderGone()
+    {
+        QTemporaryDir tree;
+        QTemporaryDir store;
+        QVERIFY(makeScopeTree(tree.path()));
+        const QString t = QDir::toNativeSeparators(tree.path());
+        const std::wstring docs = (t + u"\\docs"_s).toStdWString();
+        const std::wstring pics = (t + u"\\pics"_s).toStdWString();
+        const std::wstring drive = t.left(2).toStdWString();
+        IndexService service(store.path(), walkedOptions(std::vector {docs, pics}));
+        service.start();
+        QTRY_VERIFY_WITH_TIMEOUT(allReady(service), 30'000);
+
+        service.suspendVolume(drive);
+        QVERIFY(!service.folderStatuses().front().watching);
+        QVERIFY(QDir(t + u"\\pics"_s).removeRecursively());
+        service.verifyFolder(pics); // not while the disk is away
+        QTest::qWait(2500); // the pass of the other volumes, which leaves this one be
+        QVERIFY(indexedIn(service, t + u"\\pics\\p.png"_s));
+        QCOMPARE(folderStates(service), (std::vector {FolderState::Ready, FolderState::Ready}));
+        service.resumeVolume(drive); // back: walked
+        QTRY_COMPARE_WITH_TIMEOUT(folderStates(service), (std::vector {FolderState::Ready, FolderState::NotFound}), 30'000);
+        QVERIFY(!indexedIn(service, t + u"\\pics"_s));
+        QVERIFY(indexedIn(service, t + u"\\docs\\a.txt"_s));
+        QTRY_VERIFY_WITH_TIMEOUT(service.folderStatuses().front().watching, 10'000);
+
+        // Deleted while watched: the entries go at once, the state a moment later.
+        QVERIFY(QDir(t + u"\\docs"_s).removeRecursively());
+        QTRY_VERIFY_WITH_TIMEOUT(!indexedIn(service, t + u"\\docs"_s), 10'000);
+        QTRY_COMPARE_WITH_TIMEOUT(folderStates(service), (std::vector {FolderState::NotFound, FolderState::NotFound}), 30'000);
+        // Asked to be walked, still not there: still not found.
+        service.verifyFolder(docs);
+        QTRY_COMPARE_WITH_TIMEOUT(folderStates(service), (std::vector {FolderState::NotFound, FolderState::NotFound}), 30'000);
+
+        // Made again: walked (the change above them asks for it).
+        QVERIFY(makeScopeTree(tree.path()));
+        QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, t + u"\\docs\\sub\\b.txt"_s) && indexedIn(service, t + u"\\pics\\p.png"_s), 30'000);
+        QTRY_VERIFY_WITH_TIMEOUT(allReady(service), 30'000);
+        QVERIFY(!indexedIn(service, t + u"\\other"_s));
+        service.shutdown();
+    }
+
+    // When a chosen folder is walked again: no sooner than the interval after
+    // its last walk, nor than 60 times as long as that took; then once the
+    // user is away, or two hours later anyway.
+    void folderVerifySchedule()
+    {
+        using namespace std::chrono_literals;
+        const std::int64_t walked = 1'800'000'000;
+        const auto at = [&](std::chrono::hours h, std::chrono::minutes m = {}) {
+            return walked + std::chrono::duration_cast<std::chrono::seconds>(h + m).count();
+        };
+        QCOMPARE(folderVerifyDue(walked, 2s, 24h, at(1h)), VerifyNow::No);
+        QCOMPARE(folderVerifyDue(walked, 2s, 24h, at(23h, 59min)), VerifyNow::No);
+        QCOMPARE(folderVerifyDue(walked, 2s, 24h, at(24h)), VerifyNow::IfAway);
+        QCOMPARE(folderVerifyDue(walked, 2s, 24h, at(25h, 59min)), VerifyNow::IfAway);
+        QCOMPARE(folderVerifyDue(walked, 2s, 24h, at(26h)), VerifyNow::Yes);
+        // Walked for 30 minutes: not again for 30 hours.
+        QCOMPARE(folderVerifyDue(walked, 30min, 24h, at(29h)), VerifyNow::No);
+        QCOMPARE(folderVerifyDue(walked, 30min, 24h, at(30h)), VerifyNow::IfAway);
+        QCOMPARE(folderVerifyDue(walked, 30min, 1h, at(31h)), VerifyNow::IfAway);
+        QCOMPARE(folderVerifyDue(walked, 30min, 1h, at(32h)), VerifyNow::Yes);
+        // Every hour, a quick one.
+        QCOMPARE(folderVerifyDue(walked, 1s, 1h, at(0h, 59min)), VerifyNow::No);
+        QCOMPARE(folderVerifyDue(walked, 1s, 1h, at(1h)), VerifyNow::IfAway);
+        // Never walked: now. Only at startup (0): never.
+        QCOMPARE(folderVerifyDue(0, 0ms, 24h, walked), VerifyNow::Yes);
+        QCOMPARE(folderVerifyDue(walked, 2s, 0h, at(100h)), VerifyNow::No);
+        QCOMPARE(folderVerifyDue(0, 0ms, 0h, walked), VerifyNow::No);
+        // The clock put back (the last walk "in the future"): from now on, when away.
+        QCOMPARE(folderVerifyDue(walked, 2s, 24h, walked - 7200), VerifyNow::IfAway);
+        QCOMPARE(folderVerifyDue(walked, 2s, 24h, walked - 60), VerifyNow::No);
+    }
+
+    // scope.json is an index file: counted, moved and deleted with the others,
+    // and no reason to refuse a folder as the index's.
+    void scopeFileIsAnIndexFile()
+    {
+        QTemporaryDir dir;
+        const auto write = [&](const QString& name, int bytes) {
+            QFile f(QDir(dir.path()).filePath(name));
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            QCOMPARE(f.write(QByteArray(bytes, 'x')), qint64 {bytes});
+        };
+        write(u"index.bin"_s, 100);
+        write(u"scope.json"_s, 10);
+        write(u"scope.json.a1B2c3"_s, 5); // one being saved when Win顺 stopped
+        QCOMPARE(indexfolder::scopePath(dir.path()), QDir(dir.path()).filePath(u"scope.json"_s));
+        QVERIFY(indexfolder::onlyIndexFiles(dir.path()));
+        QCOMPARE(indexfolder::size(dir.path()), std::uint64_t {110});
+        QTemporaryDir to;
+        QVERIFY(!indexfolder::copy(dir.path(), to.path()));
+        QCOMPARE(QFileInfo(indexfolder::scopePath(to.path())).size(), qint64 {10});
+        indexfolder::remove(dir.path());
+        QVERIFY(!QFileInfo::exists(indexfolder::scopePath(dir.path())));
+        write(u"notes.txt"_s, 1);
+        QVERIFY(!indexfolder::onlyIndexFiles(dir.path()));
     }
 
     void removeExcludedRules()
