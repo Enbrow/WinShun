@@ -168,6 +168,8 @@ SearchResults listTyped(const TypedPath& typed, bool foldersOnly, int max)
         row.path = prefix + row.name;
         row.isDir = entry.isDir();
         row.modified = static_cast<std::uint32_t>(std::max<qint64>(0, entry.lastModified(QTimeZone::UTC).toSecsSinceEpoch()));
+        if (!row.isDir)
+            row.size = entry.size(); // for the sorts by size (#44)
         const int score = all ? 0 : matcher.matchName(wtf8::fromUtf16(wtf8::view(row.name)));
         if (score >= 0)
             found.push_back({std::move(row), score});

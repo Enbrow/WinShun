@@ -766,6 +766,90 @@ void arrange(SearchResults& results, const SearchEngine::Request& request, const
         results.resize(request.limit);
 }
 
+// Whether the list is in an order the user chose: by time, or the launcher's
+// sorts (#44). Else it is ranked, best match first.
+bool sortedByChoice(const SearchEngine::Request& request)
+{
+    return request.rankBy != RankBy::Match || request.order.key != SortKey::Rank;
+}
+
+// SearchResults in the order the engine puts index hits in (RankBy, SortOrder),
+// for rows that do not come from the index: a typed folder's contents, listed
+// from disk (#44). The kinds apart as asked (arrange) unless the list is one
+// (the panel, `browse`). A tie compares equal: a stable sort keeps what came.
+class ResultOrder {
+public:
+    explicit ResultOrder(const SearchEngine::Request& request)
+        : m_key(request.order.key == SortKey::Rank ? SortKey::Modified : request.order.key)
+        , m_descending(request.order.key == SortKey::Rank ? request.rankBy == RankBy::Newest : request.order.descending)
+        , m_apart(!request.browse)
+        , m_foldersFirst(request.kindOrder == KindOrder::FoldersFirst)
+    {
+    }
+
+    bool operator()(const SearchResult& a, const SearchResult& b) const
+    {
+        if (m_apart && a.isDir != b.isDir)
+            return a.isDir == m_foldersFirst;
+        switch (m_key) {
+        case SortKey::Modified: // a time not known last either way
+            if (a.modified != b.modified && (a.modified == 0 || b.modified == 0))
+                return b.modified == 0;
+            return a.modified != b.modified && (m_descending ? a.modified > b.modified : a.modified < b.modified);
+        case SortKey::Size: // a size not known, and every folder, last either way
+            if (a.size != b.size && (a.size < 0 || b.size < 0))
+                return b.size < 0;
+            return a.size != b.size && (m_descending ? a.size > b.size : a.size < b.size);
+        case SortKey::Name:
+            return directed(compareNames(a.name, b.name));
+        case SortKey::Path: {
+            const int c = compareNames(folderOf(a), folderOf(b));
+            return directed(c != 0 ? c : compareNames(a.name, b.name));
+        }
+        case SortKey::Type: {
+            const int c = compareNames(extensionOf(a), extensionOf(b));
+            return directed(c != 0 ? c : compareNames(a.name, b.name));
+        }
+        case SortKey::Rank:
+            break;
+        }
+        return false;
+    }
+
+private:
+    bool directed(int c) const { return m_descending ? c > 0 : c < 0; }
+
+    // As the index compares names: bytes of the WTF-8, ASCII case aside.
+    static int compareNames(const QString& a, const QString& b)
+    {
+        return compareNames(wtf8::fromUtf16(wtf8::view(a)), wtf8::fromUtf16(wtf8::view(b)));
+    }
+    static int compareNames(const std::string& a, const std::string& b)
+    {
+        const std::size_t n = std::min(a.size(), b.size());
+        for (std::size_t i = 0; i < n; ++i) {
+            const unsigned char x = text::fold(a[i]);
+            const unsigned char y = text::fold(b[i]);
+            if (x != y)
+                return x < y ? -1 : 1;
+        }
+        return a.size() == b.size() ? 0 : a.size() < b.size() ? -1 : 1;
+    }
+    static QString folderOf(const SearchResult& r) { return r.path.left(std::max<qsizetype>(0, r.path.size() - r.name.size())); }
+    static QString extensionOf(const SearchResult& r)
+    {
+        if (r.isDir)
+            return {};
+        const std::string name = wtf8::fromUtf16(wtf8::view(r.name));
+        return QString::fromUtf8(name.substr(name.size() - extensionLength(name, false)));
+    }
+
+    SortKey m_key;
+    bool m_descending;
+    bool m_apart;
+    bool m_foldersFirst;
+};
+
 constexpr qsizetype kFavoritesPromoted = 5; // of those that match, the first put first
 
 void markFavorite(SearchResult& r, const Favorite& f)
@@ -1157,19 +1241,40 @@ void SearchEngine::runNameSearch(const Job& job)
         if (!typedPath.folder.isEmpty() && listable && !filtered) {
             // The ones named just so first; with nothing more typed than the
             // folder, the folder itself (listTyped puts it first).
-            SearchResults rows = pathtext::listTyped(typedPath, foldersOnly, static_cast<int>(request.limit));
+            // In an order the user chose (time, or the launcher's sorts #44) the
+            // folder's contents are sorted with the other matches, so every one
+            // is listed, not the first `limit` of listTyped's own order.
+            const bool byChoice = sortedByChoice(request);
+            SearchResults rows
+                = pathtext::listTyped(typedPath, foldersOnly, byChoice ? std::numeric_limits<int>::max() : static_cast<int>(request.limit));
             rows.removeIf([&](const SearchResult& r) { return !ofType(r.path, r.isDir, types, hidden); });
-            exactFirst(rows.begin(), rows.end(), matcher,
-                rankBy == RankBy::Match && request.order.key == SortKey::Rank ? PreferredTypes(foldedExtensions(request.preferredTypes)) : PreferredTypes());
+            if (!byChoice)
+                exactFirst(rows.begin(), rows.end(), matcher, PreferredTypes(foldedExtensions(request.preferredTypes)));
             total -= results.removeIf([&](const SearchResult& deeper) {
                 return std::any_of(rows.cbegin(), rows.cend(),
                     [&](const SearchResult& r) { return r.path.compare(deeper.path, Qt::CaseInsensitive) == 0; });
             });
             total += rows.size();
-            rows.append(std::move(results));
-            if (rows.size() > request.limit)
-                rows.resize(request.limit);
-            results = std::move(rows);
+            if (byChoice) {
+                // The folder itself (nothing typed after it) stays on top as
+                // the current place; the rest, rows and matches, in the order.
+                const bool self = typedPath.name.trimmed().isEmpty() && !rows.isEmpty()
+                    && rows.front().path.compare(typedPath.folder, Qt::CaseInsensitive) == 0;
+                SearchResults merged = std::move(results); // the index's first: a tie keeps them ahead
+                for (auto it = rows.begin() + (self ? 1 : 0); it != rows.end(); ++it)
+                    merged.push_back(std::move(*it));
+                std::stable_sort(merged.begin(), merged.end(), ResultOrder(request));
+                if (self)
+                    merged.prepend(std::move(rows.front()));
+                results = std::move(merged);
+                if (results.size() > request.limit)
+                    results.resize(request.limit);
+            } else {
+                rows.append(std::move(results));
+                if (rows.size() > request.limit)
+                    rows.resize(request.limit);
+                results = std::move(rows);
+            }
         }
         // On a share that cannot be reached now: shown all the same, dimmed.
         for (SearchResult& r : results) {

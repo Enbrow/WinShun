@@ -4515,6 +4515,98 @@ private slots:
         QVERIFY2(std::ranges::none_of(bare, [](const QString& p) { return p.contains(u"F11"); }), qPrintable(bare.join(u'|')));
     }
 
+    // GitHub #44: the folder typed lists what is in it from disk, and those
+    // rows went above everything whatever order was chosen. Now, other than
+    // best match, they are sorted with the rest, "folders first" or not.
+    void typedFolderRowsFollowTheSort()
+    {
+        QTemporaryDir dir;
+        const QString top = QDir::toNativeSeparators(dir.path());
+        const QDateTime base = QDateTime::fromSecsSinceEpoch(1'792'584'000, QTimeZone::UTC);
+        const auto make = [&](const QString& name, bool isDir, int minutes, int bytes) {
+            const QString path = top + u'\\' + name;
+            if (isDir) {
+                if (!QDir().mkpath(path))
+                    return QString();
+                return path; // a folder's time is set below, once its files are in
+            }
+            QFile file(path);
+            if (!file.open(QIODevice::WriteOnly))
+                return QString();
+            file.write(QByteArray(bytes, 'x'));
+            file.setFileTime(base.addSecs(minutes * 60), QFileDevice::FileModificationTime);
+            return path;
+        };
+        QVERIFY(!make(u"zqdir-old"_s, true, 0, 0).isEmpty());
+        QVERIFY(!make(u"zqdir-new"_s, true, 0, 0).isEmpty());
+        QVERIFY(!make(u"zqfile-mid.txt"_s, false, 20, 300).isEmpty());
+        QVERIFY(!make(u"zqfile-top.bin"_s, false, 40, 100).isEmpty());
+        QVERIFY(!make(u"zqfile-low.md"_s, false, 5, 200).isEmpty());
+        // Folder times through the Win32 call the files use.
+        const auto setDirTime = [&](const QString& path, int minutes) {
+            const HANDLE h = CreateFileW(reinterpret_cast<LPCWSTR>(path.utf16()), FILE_WRITE_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+            if (h == INVALID_HANDLE_VALUE)
+                return false;
+            ULARGE_INTEGER t;
+            t.QuadPart = (static_cast<quint64>(base.addSecs(minutes * 60).toSecsSinceEpoch()) + 11644473600ULL) * 10'000'000ULL;
+            const FILETIME ft {t.LowPart, t.HighPart};
+            const bool ok = SetFileTime(h, nullptr, nullptr, &ft);
+            CloseHandle(h);
+            return ok;
+        };
+        QVERIFY(setDirTime(top + u"\\zqdir-old"_s, 10));
+        QVERIFY(setDirTime(top + u"\\zqdir-new"_s, 30));
+
+        QTemporaryDir store;
+        IndexService::Options options;
+        options.content.enabled = false;
+        IndexService service(store.path() + u"/index"_s, options);
+        {
+            const auto index = service.index();
+            const auto lock = index->writeLock();
+            EntryId folder = index->addRoot(top.left(2).toStdString());
+            for (const QString& name : top.mid(3).split(u'\\', Qt::SkipEmptyParts))
+                folder = index->add(folder, name.toStdString(), EntryFlag::Directory);
+        }
+        SearchEngine engine(&service);
+        QSignalSpy spy(&engine, &SearchEngine::resultsReady);
+        const auto search = [&](RankBy rankBy, SortOrder order, KindOrder kinds, int limit = 100) {
+            spy.clear();
+            SearchEngine::Request request;
+            request.text = top + u"\\ zq"_s;
+            request.rankBy = rankBy;
+            request.order = order;
+            request.kindOrder = kinds;
+            request.limit = limit;
+            engine.submit(std::move(request));
+            QStringList names;
+            if (!spy.wait(5000))
+                return QStringList {u"(no results)"_s};
+            for (const SearchResult& r : spy.at(0).at(1).value<SearchResults>())
+                names.append(r.name);
+            return names;
+        };
+        using L = QStringList;
+        // Newest first: by time, the two kinds apart as asked.
+        QCOMPARE(search(RankBy::Newest, {}, KindOrder::FilesFirst),
+            (L {u"zqfile-top.bin"_s, u"zqfile-mid.txt"_s, u"zqfile-low.md"_s, u"zqdir-new"_s, u"zqdir-old"_s}));
+        QCOMPARE(search(RankBy::Newest, {}, KindOrder::FoldersFirst),
+            (L {u"zqdir-new"_s, u"zqdir-old"_s, u"zqfile-top.bin"_s, u"zqfile-mid.txt"_s, u"zqfile-low.md"_s}));
+        QCOMPARE(search(RankBy::Oldest, {}, KindOrder::FoldersFirst),
+            (L {u"zqdir-old"_s, u"zqdir-new"_s, u"zqfile-low.md"_s, u"zqfile-mid.txt"_s, u"zqfile-top.bin"_s}));
+        // The launcher's own sorts (#44): name, type, size.
+        QCOMPARE(search(RankBy::Match, {SortKey::Name, true}, KindOrder::FoldersFirst),
+            (L {u"zqdir-old"_s, u"zqdir-new"_s, u"zqfile-top.bin"_s, u"zqfile-mid.txt"_s, u"zqfile-low.md"_s}));
+        QCOMPARE(search(RankBy::Match, {SortKey::Type, false}, KindOrder::FilesFirst).mid(0, 3),
+            (L {u"zqfile-top.bin"_s, u"zqfile-low.md"_s, u"zqfile-mid.txt"_s}));
+        QCOMPARE(search(RankBy::Match, {SortKey::Size, true}, KindOrder::FilesFirst).mid(0, 3),
+            (L {u"zqfile-mid.txt"_s, u"zqfile-low.md"_s, u"zqfile-top.bin"_s}));
+        // A longer list only adds to the end of a shorter one (the next page).
+        QCOMPARE(search(RankBy::Newest, {}, KindOrder::FilesFirst, 3),
+            (L {u"zqfile-top.bin"_s, u"zqfile-mid.txt"_s, u"zqfile-low.md"_s}));
+    }
+
     // GitHub #49 as users meet it: F1 in the index, but what was opened
     // lately in F11 came up first, the recent items being matched by the
     // names of their folders ("f1" in "F11") and not by where they lie. On
