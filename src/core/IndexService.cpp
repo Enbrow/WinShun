@@ -50,6 +50,10 @@ constexpr auto kPrewarmAfterStart = 90s; // once logging on has settled
 // GitHub #52: a chosen folder whose watcher lost events (or a folder above it
 // came back) is walked again this much later, all such at once.
 constexpr auto kFolderResync = 3s;
+// ... when their watcher keeps losing events, 30 s, then 5 minutes, until
+// 10 minutes go by without (LostEventsBackoff).
+constexpr std::chrono::milliseconds kLostSteps[] {kFolderResync, 30s, 5min};
+constexpr auto kLostCalm = 10min;
 constexpr int kVerifyShare = 60; // a folder walked again no sooner than 60 times as long as its walk took
 constexpr auto kVerifyWaitForAway = 2h; // ... and once the user is away, or this much later anyway
 
@@ -382,6 +386,39 @@ VerifyNow folderVerifyDue(
     return now >= due + std::chrono::seconds(kVerifyWaitForAway).count() ? VerifyNow::Yes : VerifyNow::IfAway;
 }
 
+std::vector<std::wstring> foldersDue(const std::vector<IndexService::FolderStatus>& statuses, std::chrono::hours every,
+    std::int64_t now, const std::function<bool()>& away)
+{
+    using State = IndexService::FolderStatus::State;
+    std::vector<std::wstring> due;
+    std::optional<bool> isAway;
+    for (const IndexService::FolderStatus& s : statuses) {
+        if (s.state != State::Ready && s.state != State::NotFound && s.state != State::Unreadable)
+            continue;
+        const VerifyNow verify = folderVerifyDue(s.lastVerified, s.took, every, now);
+        if (verify == VerifyNow::No)
+            continue;
+        if (verify == VerifyNow::IfAway) {
+            if (!isAway)
+                isAway = away && away();
+            if (!*isAway)
+                continue;
+        }
+        due.push_back(s.path);
+    }
+    return due;
+}
+
+std::chrono::milliseconds LostEventsBackoff::next(std::chrono::steady_clock::time_point now) noexcept
+{
+    if (!m_last || now - *m_last >= kLostCalm)
+        m_streak = 0;
+    m_last = now;
+    const std::size_t step = std::min(static_cast<std::size_t>(m_streak), std::size(kLostSteps) - 1);
+    m_streak = static_cast<int>(step) + 1;
+    return kLostSteps[step];
+}
+
 ScopedChanges changesInScope(
     std::vector<FsChange> changes, const std::function<const std::vector<std::wstring>&(std::wstring_view)>& chosenOn)
 {
@@ -399,8 +436,10 @@ ScopedChanges changesInScope(
             if (chosen.empty())
                 out.wholeLost = true;
             for (const std::wstring& f : chosen) {
-                if (c.path.size() == 2 || win32::equalsIgnoreCase(c.path, f))
+                if (c.path.size() == 2 || win32::equalsIgnoreCase(c.path, f)) {
                     owe(f); // the volume's root, or the folder watched itself
+                    out.lost = true;
+                }
             }
             return true;
         }
@@ -567,9 +606,13 @@ IndexService::IndexService(QString folder, Options options, QObject* parent)
             launch(Pass::Volumes);
     });
 
-    // GitHub #52: chosen folders whose watcher lost events, walked again all at once.
+    // GitHub #52: whether chosen folders are due to be walked again.
+    m_verifyTimer.setInterval(m_options.folderVerifyCheckMs);
+    connect(&m_verifyTimer, &QTimer::timeout, this, &IndexService::verifyDueFolders);
+
+    // GitHub #52: chosen folders whose watcher lost events, walked again all
+    // at once (resyncFoldersSoon says when).
     m_folderResyncTimer.setSingleShot(true);
-    m_folderResyncTimer.setInterval(kFolderResync);
     connect(&m_folderResyncTimer, &QTimer::timeout, this, [this] {
         {
             std::lock_guard lock(m_journalMutex);
@@ -602,6 +645,7 @@ void IndexService::start()
     launch(Pass::Startup);
     m_shares->start();
     m_saveTimer.start();
+    m_verifyTimer.start();
     m_prewarmer = std::jthread([this](std::stop_token stop) { prewarmLoop(stop); });
     prewarmSoon(kPrewarmAfterStart);
 }
@@ -686,15 +730,43 @@ void IndexService::verifyFolder(const std::wstring& path)
     {
         // Not on a disk that is not here, or is being ejected: it is walked when that is back.
         std::lock_guard lock(m_journalMutex);
-        const std::wstring_view root = volumeOf(path);
-        if (contains(m_suspended, root)
-            || std::none_of(m_volumes.begin(), m_volumes.end(), [&](const VolumeInfo& v) { return win32::equalsIgnoreCase(v.root, root); }))
+        if (!diskHere(path))
             return;
         if (!contains(m_verifyOwed, path))
             m_verifyOwed.push_back(path);
     }
     setFolderStates({{path, FolderStatus::State::Verifying}});
     walkOwedFolders();
+}
+
+bool IndexService::diskHere(std::wstring_view path) const
+{
+    const std::wstring_view root = volumeOf(path);
+    return !contains(m_suspended, root) && std::any_of(m_volumes.begin(), m_volumes.end(), [&](const VolumeInfo& v) {
+        return win32::equalsIgnoreCase(v.root, root);
+    });
+}
+
+void IndexService::verifyDueFolders()
+{
+    // Not while a pass is under way (it may be walking them), nor before the index is built.
+    if (m_stopped || m_running.load() || state() != State::Ready || !foldersOnly())
+        return;
+    const std::vector<std::wstring> due = foldersDue(
+        folderStatuses(), m_options.folderVerifyEvery, secondsNow(), [] { return win32::userAway(); });
+    bool owed = false;
+    {
+        std::lock_guard lock(m_journalMutex);
+        for (const std::wstring& f : due) {
+            if (!diskHere(f))
+                continue;
+            owed = true;
+            if (!contains(m_verifyOwed, f))
+                m_verifyOwed.push_back(f);
+        }
+    }
+    if (owed)
+        walkOwedFolders(); // all in one pass, at low priority (not a first build)
 }
 
 void IndexService::walkOwedFolders()
@@ -705,10 +777,13 @@ void IndexService::walkOwedFolders()
         launch(Pass::Volumes);
 }
 
-void IndexService::resyncFoldersSoon()
+void IndexService::resyncFoldersSoon(bool lost)
 {
-    if (!m_stopped && !m_folderResyncTimer.isActive())
-        m_folderResyncTimer.start();
+    // One walk takes all those owed by then: a timer on its way stays as it is.
+    if (m_stopped || m_folderResyncTimer.isActive())
+        return;
+    m_folderResyncTimer.start(
+        lost ? m_lostBackoff.next(std::chrono::steady_clock::now()) : std::chrono::milliseconds(kFolderResync));
 }
 
 void IndexService::resetFolderStatuses()
@@ -871,6 +946,7 @@ void IndexService::shutdown()
     m_resyncTimer.stop();
     m_volumesTimer.stop();
     m_folderResyncTimer.stop();
+    m_verifyTimer.stop();
     m_shutdown.request_stop();
     if (m_mover.joinable()) {
         m_mover.request_stop(); // a move cut short leaves the files where they were
@@ -1575,7 +1651,7 @@ bool IndexService::walkFolders(
                         if (!contains(m_overflowed, path))
                             m_overflowed.push_back(path);
                     }
-                    QMetaObject::invokeMethod(this, [this] { resyncFoldersSoon(); }, Qt::QueuedConnection);
+                    QMetaObject::invokeMethod(this, [this] { resyncFoldersSoon(false); }, Qt::QueuedConnection);
                     setFolderStates({{path, State::Waiting}});
                     continue;
                 }
@@ -1944,17 +2020,46 @@ void IndexService::ensureWatcher()
                 roots.push_back(m_volumes[i].root);
         }
     }
+    // GitHub #52: a volume walked for its chosen folders whose root cannot be
+    // watched (this account may not list it, as some D:\ are set up): the
+    // folders themselves in its place.
+    std::vector<ChangeWatcher::Fallback> instead;
+    if (const auto scope = this->scope(); foldersOnly(*scope)) {
+        for (const std::wstring& root : roots) {
+            if (const std::vector<std::wstring>& chosen = scope->on(root); !chosen.empty())
+                instead.push_back({root, chosen});
+        }
+    }
     if (!m_watcher) {
         if (roots.empty())
             return;
         m_watcher = std::make_unique<ChangeWatcher>(
             [this](std::vector<FsChange>&& changes) { onChanges(std::move(changes)); });
     }
-    // Only the volumes that change: the others stay watched without a gap.
-    if (m_watcher->roots() != roots)
-        m_watcher->setRoots(std::move(roots));
+    // Only when something changes, or is not watched (a root that may open
+    // now, a folder made since): the rest stay watched without a gap.
+    const std::vector<std::wstring> current = m_watcher->roots();
+    const auto covered = [&] {
+        for (const std::wstring& root : roots) {
+            if (contains(current, root))
+                continue;
+            const auto fallback = std::find_if(
+                instead.begin(), instead.end(), [&](const ChangeWatcher::Fallback& f) { return f.root == root; });
+            if (fallback == instead.end()
+                || !std::all_of(fallback->folders.begin(), fallback->folders.end(),
+                    [&](const std::wstring& d) { return contains(current, d); }))
+                return false;
+        }
+        return true;
+    };
+    if (roots != m_watchRoots || instead != m_watchInstead || !covered()) {
+        m_watchRoots = roots;
+        m_watchInstead = instead;
+        m_watcher->setRoots(std::move(roots), std::move(instead));
+    }
 
-    // GitHub #52: which chosen folders are watched (through their volume's root).
+    // GitHub #52: which chosen folders are watched (through their volume's
+    // root, or by themselves).
     const std::vector<std::wstring> watched = m_watcher->roots();
     bool changed = false;
     {
@@ -1976,6 +2081,7 @@ void IndexService::onChanges(std::vector<FsChange>&& changes)
     const auto scope = this->scope();
     bool overflow = false; // of a volume walked whole
     std::vector<std::wstring> owed; // GitHub #52: chosen folders to walk again in a moment
+    bool lost = false; // ... some because their watcher lost events
     if (!foldersOnly(*scope)) {
         overflow = std::any_of(changes.begin(), changes.end(), [](const FsChange& c) { return c.kind == Kind::Overflow; });
     } else {
@@ -1983,6 +2089,7 @@ void IndexService::onChanges(std::vector<FsChange>&& changes)
             [&](std::wstring_view root) -> const std::vector<std::wstring>& { return scope->on(root); });
         changes = std::move(scoped.apply);
         owed = std::move(scoped.owed);
+        lost = scoped.lost;
         overflow = scoped.wholeLost;
     }
     std::erase_if(changes, [&](const FsChange& c) { return c.kind == Kind::Overflow || crawler->isExcludedPath(c.path); });
@@ -1993,7 +2100,7 @@ void IndexService::onChanges(std::vector<FsChange>&& changes)
             if (!contains(m_overflowed, f))
                 m_overflowed.push_back(f);
         }
-        QMetaObject::invokeMethod(this, [this] { resyncFoldersSoon(); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, [this, lost] { resyncFoldersSoon(lost); }, Qt::QueuedConnection);
     }
     if (overflow) {
         // Events were lost: only a sync can tell what changed.

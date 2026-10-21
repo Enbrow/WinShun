@@ -49,6 +49,9 @@
 
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -2251,6 +2254,102 @@ private slots:
             QVERIFY(::MoveFileW(renamed.c_str(), a.c_str()));
     }
 
+    // At most 62 watched (one wait's limit), the first in the list; more
+    // used to end the watcher's thread, and every watch with it.
+    void changeWatcherCap()
+    {
+        QTemporaryDir dir;
+        std::vector<std::wstring> folders;
+        for (int i = 0; i < 70; ++i) {
+            const QString name = u"f%1"_s.arg(i, 2, 10, QChar(u'0'));
+            QVERIFY(QDir(dir.path()).mkdir(name));
+            folders.push_back(QDir::toNativeSeparators(dir.filePath(name)).toStdWString());
+        }
+        std::mutex mutex;
+        std::condition_variable changed;
+        std::vector<FsChange> seen;
+        ChangeWatcher watcher([&](std::vector<FsChange>&& changes) {
+            std::lock_guard lock(mutex);
+            seen.insert(seen.end(), changes.begin(), changes.end());
+            changed.notify_all();
+        });
+        watcher.setRoots(folders);
+        const std::vector<std::wstring> watched = watcher.roots();
+        QCOMPARE(watched.size(), ChangeWatcher::kMaxWatches);
+        QVERIFY(std::equal(watched.begin(), watched.end(), folders.begin()));
+        // Still watching: the first one, and the last one there was room for.
+        for (const std::wstring& f : {folders.front(), folders[ChangeWatcher::kMaxWatches - 1]}) {
+            QFile file(QString::fromStdWString(f + L"\\new.txt"));
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.close();
+            std::unique_lock lock(mutex);
+            QVERIFY(changed.wait_for(lock, std::chrono::seconds(5), [&] {
+                return std::any_of(seen.begin(), seen.end(), [&](const FsChange& c) { return c.path == f + L"\\new.txt"; });
+            }));
+        }
+        watcher.setRoots({});
+        QVERIFY(watcher.roots().empty());
+    }
+
+    // GitHub #52: a root that cannot be opened has the folders named for it
+    // watched in its place, and only then: once it opens, they are let go
+    // (each holds its folder open, which keeps the folders above it from
+    // being renamed).
+    void changeWatcherFallback()
+    {
+        QTemporaryDir dir;
+        QVERIFY(QDir(dir.path()).mkpath(u"a"_s) && QDir(dir.path()).mkpath(u"b"_s));
+        const std::wstring t = QDir::toNativeSeparators(dir.path()).toStdWString();
+        const std::wstring missing = t + L"\\missing"; // as a root this account may not list
+        const std::wstring a = t + L"\\a";
+        const std::wstring b = t + L"\\b";
+        std::mutex mutex;
+        std::condition_variable changed;
+        std::vector<FsChange> seen;
+        ChangeWatcher watcher([&](std::vector<FsChange>&& changes) {
+            std::lock_guard lock(mutex);
+            seen.insert(seen.end(), changes.begin(), changes.end());
+            changed.notify_all();
+        });
+        watcher.setRoots({missing}, {{missing, {a, b}}});
+        QCOMPARE(watcher.roots(), (std::vector {a, b}));
+        QFile file(QString::fromStdWString(a + L"\\x.txt"));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.close();
+        {
+            std::unique_lock lock(mutex);
+            QVERIFY(changed.wait_for(lock, std::chrono::seconds(5), [&] {
+                return std::any_of(seen.begin(), seen.end(), [&](const FsChange& c) {
+                    return c.kind == FsChange::Kind::Added && c.path == a + L"\\x.txt";
+                });
+            }));
+        }
+        // The same again: nothing changes.
+        watcher.setRoots({missing}, {{missing, {a, b}}});
+        QCOMPARE(watcher.roots(), (std::vector {a, b}));
+        // The root opens now: it alone.
+        QVERIFY(QDir(dir.path()).mkdir(u"missing"_s));
+        watcher.setRoots({missing}, {{missing, {a, b}}});
+        QCOMPARE(watcher.roots(), std::vector {missing});
+        // Folders named for a root not asked for are not watched.
+        watcher.setRoots({}, {{missing, {a}}});
+        QVERIFY(watcher.roots().empty());
+    }
+
+    // GitHub #52: 1 MB between two reads for a local volume's root, 64 KB
+    // for anything else (over the network ReadDirectoryChangesW takes no more).
+    void changeWatcherBuffers()
+    {
+        const std::wstring system = qEnvironmentVariable("SystemDrive", u"C:"_s).toStdWString();
+        QCOMPARE(ChangeWatcher::bufferBytes(system), std::size_t {1024 * 1024});
+        QCOMPARE(ChangeWatcher::bufferBytes(system + L"\\Windows"), std::size_t {64 * 1024});
+        QCOMPARE(ChangeWatcher::bufferBytes(L"\\\\server\\share"), std::size_t {64 * 1024});
+        ChangeWatcher watcher([](std::vector<FsChange>&&) {});
+        watcher.setRoots({system}); // and the system takes it
+        QCOMPARE(watcher.roots(), std::vector {system});
+        watcher.setRoots({});
+    }
+
     // ---- GitHub #52: only the chosen folders ---------------------------------
 
     // With no way to the journals and folders chosen, only they are indexed,
@@ -2541,6 +2640,7 @@ private slots:
             chosenOn);
         QCOMPARE(applied(s), (std::vector<Change> {{Kind::Removed, L"C:\\Users\\me"}, {Kind::Removed, L"C:\\Work"}}));
         QCOMPARE(s.owed, chosen);
+        QVERIFY(!s.lost); // nothing was lost: walked at once, never put off (LostEventsBackoff)
 
         // Renames: in a chosen folder, a move; out of one and into it in the
         // same batch, a removal and an addition (paired, the one left would
@@ -2560,11 +2660,14 @@ private slots:
         s = changesInScope({{Kind::Overflow, L"C:"}}, chosenOn);
         QVERIFY(s.apply.empty());
         QCOMPARE(s.owed, chosen);
+        QVERIFY(s.lost);
         QVERIFY(!s.wholeLost);
         s = changesInScope({{Kind::Overflow, L"C:\\Work"}}, chosenOn);
         QCOMPARE(s.owed, std::vector<std::wstring> {L"C:\\Work"});
+        QVERIFY(s.lost);
         s = changesInScope({{Kind::Overflow, L"D:"}}, chosenOn);
         QVERIFY(s.owed.empty());
+        QVERIFY(!s.lost);
         QVERIFY(s.wholeLost);
     }
 
@@ -2643,6 +2746,126 @@ private slots:
         // The clock put back (the last walk "in the future"): from now on, when away.
         QCOMPARE(folderVerifyDue(walked, 2s, 24h, walked - 7200), VerifyNow::IfAway);
         QCOMPARE(folderVerifyDue(walked, 2s, 24h, walked - 60), VerifyNow::No);
+    }
+
+    // Which chosen folders the regular check walks again: those walked
+    // before and due; whether the user is away is asked once, and only when
+    // it matters.
+    void foldersDueNow()
+    {
+        using namespace std::chrono_literals;
+        using State = IndexService::FolderStatus::State;
+        const std::int64_t now = 1'800'000'000;
+        const std::int64_t old = now - 30 * 3600; // due, and two hours past it
+        const auto status = [](const wchar_t* path, State state, std::int64_t verified) {
+            IndexService::FolderStatus s;
+            s.path = path;
+            s.state = state;
+            s.lastVerified = verified;
+            s.took = 1s;
+            return s;
+        };
+        const std::vector<IndexService::FolderStatus> statuses {
+            status(L"C:\\old", State::Ready, old),
+            status(L"C:\\due", State::Ready, now - 25 * 3600), // due an hour ago: once the user is away
+            status(L"C:\\new", State::Ready, now - 3600),
+            status(L"C:\\gone", State::NotFound, old),
+            status(L"C:\\locked", State::Unreadable, old),
+            status(L"C:\\waiting", State::Waiting, 0), // owed a walk already
+            status(L"C:\\walking", State::Verifying, old),
+            status(L"C:\\left-out", State::Excluded, old),
+            status(L"E:\\stick", State::Offline, old),
+            status(L"D:", State::WholeDrive, old),
+        };
+        int asked = 0;
+        const auto present = [&] {
+            ++asked;
+            return false;
+        };
+        const auto away = [&] {
+            ++asked;
+            return true;
+        };
+        QCOMPARE(foldersDue(statuses, 24h, now, present), (std::vector<std::wstring> {L"C:\\old", L"C:\\gone", L"C:\\locked"}));
+        QCOMPARE(asked, 1);
+        QCOMPARE(foldersDue(statuses, 24h, now, away),
+            (std::vector<std::wstring> {L"C:\\old", L"C:\\due", L"C:\\gone", L"C:\\locked"}));
+        QVERIFY(foldersDue(statuses, 0h, now, away).empty()); // only at startup
+        asked = 0;
+        QVERIFY(foldersDue({statuses[2]}, 24h, now, away).empty());
+        QCOMPARE(asked, 0);
+    }
+
+    // Lost events of chosen folders: walked again 3 s later; when that keeps
+    // happening, 30 s, then 5 minutes; 3 s again after 10 calm minutes.
+    void lostEventsBackoff()
+    {
+        using namespace std::chrono_literals;
+        LostEventsBackoff backoff;
+        const auto t = std::chrono::steady_clock::time_point {} + 1h;
+        QVERIFY(backoff.next(t) == 3s);
+        QVERIFY(backoff.next(t + 10s) == 30s);
+        QVERIFY(backoff.next(t + 50s) == 5min);
+        QVERIFY(backoff.next(t + 6min) == 5min);
+        QVERIFY(backoff.next(t + 16min) == 3s); // ten minutes after the last time
+        QVERIFY(backoff.next(t + 17min) == 30s);
+    }
+
+    // A chosen folder whose regular check is due is walked again by itself:
+    // what changed while Win顺 was not running comes in then, not at startup
+    // (no startup rescan here), and not when only startup checks are wanted.
+    void scheduledFolderCheck()
+    {
+        QTemporaryDir tree;
+        QTemporaryDir store;
+        QVERIFY(makeScopeTree(tree.path()));
+        const QString t = QDir::toNativeSeparators(tree.path());
+        const std::wstring docs = (t + u"\\docs"_s).toStdWString();
+        {
+            IndexService service(store.path(), walkedOptions(std::vector {docs}));
+            service.start();
+            QTRY_VERIFY_WITH_TIMEOUT(allReady(service), 30'000);
+            service.shutdown();
+        }
+        // Its last walk 30 hours ago, as scope.json has it; a file came since.
+        QFile scopeFile(indexfolder::scopePath(store.path()));
+        QVERIFY(scopeFile.open(QIODevice::ReadOnly));
+        QJsonObject root = QJsonDocument::fromJson(scopeFile.readAll()).object();
+        scopeFile.close();
+        QJsonArray folders = root.value(u"folders"_s).toArray();
+        QCOMPARE(folders.size(), 1);
+        QJsonObject folder = folders[0].toObject();
+        const qint64 walked = folder.value(u"verified"_s).toInteger();
+        QVERIFY(walked > 0);
+        folder[u"verified"_s] = walked - 30 * 3600;
+        folders[0] = folder;
+        root[u"folders"_s] = folders;
+        QVERIFY(scopeFile.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QVERIFY(scopeFile.write(QJsonDocument(root).toJson()) > 0);
+        scopeFile.close();
+        QFile later(t + u"\\docs\\later.txt"_s);
+        QVERIFY(later.open(QIODevice::WriteOnly));
+        later.close();
+
+        IndexService::Options options = walkedOptions(std::vector {docs});
+        options.folderVerifyCheckMs = 200;
+        {
+            options.folderVerifyEvery = std::chrono::hours(0); // only at startup: not now
+            IndexService service(store.path(), options);
+            service.start();
+            QTRY_VERIFY_WITH_TIMEOUT(allReady(service), 30'000);
+            QTest::qWait(1500);
+            QVERIFY(!indexedIn(service, t + u"\\docs\\later.txt"_s));
+            QVERIFY(service.folderStatuses().front().lastVerified < walked);
+            service.shutdown();
+        }
+        options.folderVerifyEvery = std::chrono::hours(24);
+        IndexService service(store.path(), options);
+        service.start();
+        QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, t + u"\\docs\\later.txt"_s), 30'000);
+        QTRY_VERIFY_WITH_TIMEOUT(allReady(service) && service.folderStatuses().front().lastVerified >= walked, 10'000);
+        QVERIFY(!indexedIn(service, t + u"\\other"_s));
+        service.shutdown();
     }
 
     // scope.json is an index file: counted, moved and deleted with the others,

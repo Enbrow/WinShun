@@ -11,7 +11,8 @@ namespace ws {
 
 namespace {
 
-constexpr DWORD kBufferBytes = 64 * 1024;
+constexpr std::size_t kBufferBytes = 64 * 1024;
+constexpr std::size_t kVolumeBufferBytes = 1024 * 1024; // GitHub #52: lost events cost a walk
 constexpr DWORD kNotifyFilter = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME;
 
 struct Watch {
@@ -20,6 +21,7 @@ struct Watch {
     win32::UniqueHandle event;
     OVERLAPPED overlapped {};
     std::unique_ptr<DWORD[]> buffer; // DWORD-aligned, as the API requires
+    DWORD bytes = 0;
     bool pending = false;
 
     bool arm()
@@ -28,7 +30,7 @@ struct Watch {
         overlapped = OVERLAPPED {};
         overlapped.hEvent = event.get();
         pending = ::ReadDirectoryChangesW(
-            dir.get(), buffer.get(), kBufferBytes, TRUE, kNotifyFilter, nullptr, &overlapped, nullptr);
+            dir.get(), buffer.get(), bytes, TRUE, kNotifyFilter, nullptr, &overlapped, nullptr);
         return pending;
     }
 
@@ -89,8 +91,17 @@ std::unique_ptr<Watch> openWatch(const std::wstring& root)
     if (!w->dir.valid())
         return nullptr;
     w->event.reset(::CreateEventW(nullptr, TRUE, FALSE, nullptr));
-    w->buffer = std::make_unique<DWORD[]>(kBufferBytes / sizeof(DWORD));
-    return w->arm() ? std::move(w) : nullptr;
+    for (std::size_t bytes = ChangeWatcher::bufferBytes(root);; bytes = kBufferBytes) {
+        w->bytes = static_cast<DWORD>(bytes);
+        w->buffer = std::make_unique_for_overwrite<DWORD[]>(bytes / sizeof(DWORD));
+        if (w->arm())
+            return w;
+        // Never less than before: a drive letter that leads to the network
+        // after all (subst of a share, say) takes no more than 64 KB
+        // (ERROR_INVALID_PARAMETER), and memory to lock may run short.
+        if (bytes == kBufferBytes)
+            return nullptr;
+    }
 }
 
 } // namespace
@@ -111,10 +122,18 @@ ChangeWatcher::~ChangeWatcher()
         ::CloseHandle(m_wake);
 }
 
-void ChangeWatcher::setRoots(std::vector<std::wstring> roots)
+std::size_t ChangeWatcher::bufferBytes(const std::wstring& root)
+{
+    // GetDriveTypeW reads the drive letters this process sees: no disk is touched.
+    const bool volume = root.size() == 2 && root[1] == L':' && ::GetDriveTypeW((root + L'\\').c_str()) != DRIVE_REMOTE;
+    return volume ? kVolumeBufferBytes : kBufferBytes;
+}
+
+void ChangeWatcher::setRoots(std::vector<std::wstring> roots, std::vector<Fallback> instead)
 {
     std::unique_lock lock(m_mutex);
     m_wanted = std::move(roots);
+    m_instead = std::move(instead);
     const std::uint64_t ticket = ++m_requested;
     ::SetEvent(m_wake);
     m_applied.wait(lock, [&] { return m_done >= ticket; });
@@ -142,28 +161,69 @@ void ChangeWatcher::run(std::stop_token stop)
         }
         m_applied.notify_all();
     };
-    // Brings the watches in line with m_wanted.
+    // Brings the watches in line with m_wanted (and m_instead).
     const auto apply = [&] {
         std::vector<std::wstring> wanted;
+        std::vector<Fallback> instead;
         std::uint64_t ticket = 0;
         {
             std::lock_guard lock(m_mutex);
             wanted = m_wanted;
+            instead = m_instead;
             ticket = m_requested;
         }
+        // What is not asked for any more goes first, before anything is
+        // opened (which may take a while on a share): a volume being ejected
+        // is let go of at once.
+        const auto asked = [&](const std::wstring& path) {
+            const auto wantedRoot = [&](const std::wstring& r) { return std::find(wanted.begin(), wanted.end(), r) != wanted.end(); };
+            return wantedRoot(path) || std::any_of(instead.begin(), instead.end(), [&](const Fallback& f) {
+                return wantedRoot(f.root) && std::find(f.folders.begin(), f.folders.end(), path) != f.folders.end();
+            });
+        };
         std::erase_if(watches, [&](const std::unique_ptr<Watch>& w) {
-            if (std::find(wanted.begin(), wanted.end(), w->root) != wanted.end())
+            if (asked(w->root))
                 return false;
             w->cancel(); // then the handle closes: the volume can go
             return true;
         });
+        // In the order wanted, those watched already kept as they are.
+        std::vector<std::unique_ptr<Watch>> next;
+        const auto take = [&](const std::wstring& path) {
+            if (std::any_of(next.begin(), next.end(), [&](const auto& w) { return w->root == path; }))
+                return true; // named twice
+            if (next.size() >= kMaxWatches)
+                return false;
+            for (auto& w : watches) {
+                if (w && w->root == path) {
+                    next.push_back(std::move(w));
+                    return true;
+                }
+            }
+            if (auto w = openWatch(path)) {
+                next.push_back(std::move(w));
+                return true;
+            }
+            return false;
+        };
+        std::vector<std::wstring> failed;
         for (const auto& root : wanted) {
-            const bool watched = std::any_of(watches.begin(), watches.end(), [&](const auto& w) { return w->root == root; });
-            if (!watched) {
-                if (auto w = openWatch(root))
-                    watches.push_back(std::move(w));
+            if (!take(root))
+                failed.push_back(root);
+        }
+        for (const auto& root : failed) {
+            for (const Fallback& f : instead) {
+                if (f.root != root)
+                    continue;
+                for (const std::wstring& folder : f.folders)
+                    take(folder);
             }
         }
+        for (auto& w : watches) {
+            if (w)
+                w->cancel(); // folders no longer in a root's place, or past kMaxWatches
+        }
+        watches = std::move(next);
         publish(ticket);
     };
 

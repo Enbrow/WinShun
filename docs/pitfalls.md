@@ -3009,3 +3009,29 @@
 - **现象**：任务名 `WinShun` 在全机是唯一的，另一个账户已经注册过，或策略禁止任务计划，`RegisterTaskDefinition` 失败，该用户就没有开机自启。
 - **做法**：失败时写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 的 `WinShun` = `"<exe>" --background`（`AutostartRun.h`）。“开机启动”读取时任务和 Run 值都认，关闭时两个都删，任务注册成功时顺手删掉 Run 值，不会开机起两份。安装器卸载时也删指向本副本的 Run 值。限制：Run 值起不来需要提权的启动（管理员直读模式），那个模式本来就只有管理员账户用。
 - **MCP 中继**：`schtasks /Run /TN WinShun` 失败时，直接启动中继旁边（找不到再用 Run 值指的）`WinShun.exe --background`；`WinShunSearch.exe`（stub）本来就有这个回退。
+
+### 盯着一个文件夹，它的上级就改不了名
+
+- **现象**：只监视 `T\a\b`（为 ReadDirectoryChangesW 打开它的目录句柄，带 `FILE_SHARE_DELETE`）时，`T\a` 改名或移动失败，ERROR_ACCESS_DENIED（5）；资源管理器里是“文件夹正在使用”，删到回收站也一样。监视 `T` 或卷根则不挡下面任何文件夹改名（设计 7.2，2026-10-21 实测）。
+- **原因**：下面有打开的句柄时，NTFS 不许给目录改名（那些句柄的路径会变）；`FILE_SHARE_DELETE` 只放行改这个文件夹自己。
+- **做法**：选中的文件夹照旧经卷根监视（每卷一个句柄，范围外的事件在 `changesInScope` 里丢掉）。只有卷根打不开（这个账户不能列它的内容）时，才逐个监视选中的文件夹（`ChangeWatcher::Fallback`，在监视线程里决定：根打得开就不开文件夹）；代价是 Win顺 运行时它们的上级改不了名。`tst_core` 的 `watchedFoldersRename` 每次都把结果打出来。
+
+### 监视超过 62 个，监视线程悄悄退出
+
+- **现象**：`ChangeWatcher` 用一次 `WaitForMultipleObjects` 等所有监视的事件，再加它自己的两个。句柄超过 64 个时返回 `WAIT_FAILED`，循环 `break`，线程结束：所有监视都没了，也没有日志。卷根最多 26 个碰不到；逐个文件夹监视、网络共享很多时会碰到。
+- **做法**：`ChangeWatcher::kMaxWatches` = 62，按请求的顺序开：先是各个根，再是代替打不开的根的文件夹，超出的不开，`roots()` 里也没有。`IndexService` 据此把没监视的选中文件夹标成“没有实时更新”（只靠定时核对），`ShareIndexer` 把共享标成没在监视。`tst_core` 的 `changeWatcherCap`。要去掉上限，可以改用 IOCP。
+
+### ReadDirectoryChangesW 的缓冲区：网络上不能超过 64 KB
+
+- **现象**：缓冲区大于 64 KB 时，监视网络共享（或其实指向网络的盘符，比如 subst 了一个共享）的 `ReadDirectoryChangesW` 直接失败，ERROR_INVALID_PARAMETER（文档说是底层文件共享协议的包大小限制）。本地卷根一直用 64 KB，又容易溢出：解压一个包、编译一次就丢事件，而只索引选中文件夹时，溢出一次就要把卷上的选中文件夹重走一遍。
+- **做法**：缓冲区按根分（`ChangeWatcher::bufferBytes`）：本地卷根（`X:`，且 `GetDriveTypeW` 不是 `DRIVE_REMOTE`：只读本进程的盘符表，不碰盘）1 MB；共享、文件夹、插件目录 64 KB。1 MB 失败时（ERROR_INVALID_PARAMETER，或别的原因，比如能锁定的内存不够）退回 64 KB 再试一次，不会比以前差。连续溢出时，选中文件夹的重走按 3 秒 → 30 秒 → 5 分钟退避，10 分钟没再溢出就回到 3 秒（`LostEventsBackoff`）；只有丢了事件才退避，上级文件夹删了又建回来这类变化照旧 3 秒后重走。整盘遍历的卷照旧 3 秒。
+
+### 测试里按子串找设置名：`Index/Folder` 撞上 `Index/Folders`
+
+- **现象**：`tst_aisettings` 的 `neverWritable` 检查“`Index/Folder` 不在 AI 能改的清单里”。加了 `Index/Folders` 以后它失败：清单文字里有 `Index/Folders`，子串 `Index/Folder` 自然也在。
+- **做法**：按带引号的整个键找（`"Index/Folder"`）。新加的键是旧键加个后缀时，先看看测试里有没有按子串找的。
+
+### 索引文件夹里加文件，要登记进 IndexFolder
+
+- **现象**：`IndexFolder.h` 写明，索引文件夹里别的文件一概不碰。不登记的附属文件，换索引位置时被丢在原处，删除索引时被留下，判断目标文件夹是不是索引文件夹时也会出错。
+- **做法**：`scope.json`（选中文件夹的范围和上次核对）登记进 `IndexFolder.cpp` 的文件清单（`hasIndex`、`size`、`onlyIndexFiles`、`copy`、`remove`），`tst_core` 的 `scopeFileIsAnIndexFile` 守着。以后再加附属文件，照此办理。它只在快照写成功之后写，并记下 `index.bin` 的大小和时间，对不上就当作不知道（多核对一次），所以老版本重写了快照也不会读错。

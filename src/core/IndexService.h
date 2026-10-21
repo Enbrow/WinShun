@@ -64,17 +64,31 @@ enum class VerifyNow { No, IfAway, Yes };
 VerifyNow folderVerifyDue(
     std::int64_t lastVerified, std::chrono::milliseconds took, std::chrono::hours every, std::int64_t now) noexcept;
 
+// GitHub #52: how long after a watcher lost events of chosen folders they
+// are walked again: 3 s; 30 s when it happens again within 10 minutes of the
+// last time, 5 minutes from the third time on; 3 s again after 10 minutes
+// without (a disk that keeps losing them is not walked over and over).
+class LostEventsBackoff {
+public:
+    std::chrono::milliseconds next(std::chrono::steady_clock::time_point now) noexcept;
+
+private:
+    int m_streak = 0;
+    std::optional<std::chrono::steady_clock::time_point> m_last;
+};
+
 // GitHub #52: of a batch of changes a watcher saw, those to apply while only
 // the chosen folders are indexed (`chosenOn` gives a volume's, "C:"; none for
 // one indexed whole, whose changes all stay): what happens in a chosen
 // folder, and above one what takes it away. Half a rename that leaves (or
 // enters) one is a removal (or an addition) by itself, never paired with half
 // of another. `owed` gets the chosen folders something happened to or above,
-// or whose watcher lost events (to be walked again in a moment); `wholeLost`
-// says a volume indexed whole lost events.
+// or whose watcher lost events (to be walked again in a moment; `lost` then);
+// `wholeLost` says a volume indexed whole lost events.
 struct ScopedChanges {
     std::vector<FsChange> apply;
     std::vector<std::wstring> owed;
+    bool lost = false;
     bool wholeLost = false;
 };
 ScopedChanges changesInScope(
@@ -119,6 +133,7 @@ public:
         // Each chosen folder is walked again this often (folderVerifyDue).
         // 0: only at startup, as rescanOnStartup says.
         std::chrono::hours folderVerifyEvery {24};
+        int folderVerifyCheckMs = 60'000; // how often what is due is looked at (tests: sooner)
     };
 
     // GitHub #52: a chosen folder (Options::folders) as it stands.
@@ -288,7 +303,13 @@ private:
         std::optional<std::int64_t> checked = {});
     void resetFolderStatuses(); // one for each chosen folder, keeping what is known of them
     void walkOwedFolders(); // GUI thread: m_verifyOwed now, or after the walk under way
-    void resyncFoldersSoon(); // GUI thread: a watcher lost events of chosen folders (m_overflowed)
+    // GUI thread: chosen folders owed a walk in a moment (m_overflowed);
+    // `lost`: their watcher lost events, which backs off (LostEventsBackoff).
+    void resyncFoldersSoon(bool lost);
+    void verifyDueFolders(); // GUI thread, every Options::folderVerifyCheckMs: those foldersDue() says
+    // m_journalMutex held: the chosen folder's disk is here and not being
+    // ejected (one that comes back is walked anyway).
+    bool diskHere(std::wstring_view path) const;
     void noteFoldersChanged();
     // Waits (until the deadline Options::accessWaitMs set, or the stop) for
     // an access that reads the journals, when there is none and a volume
@@ -378,6 +399,9 @@ private:
     std::atomic<bool> m_moving {false};
     std::stop_source m_shutdown;
     std::unique_ptr<ChangeWatcher> m_watcher; // worker thread, or GUI thread while no worker runs
+    // What m_watcher was last asked to watch (ensureWatcher), like it.
+    std::vector<std::wstring> m_watchRoots;
+    std::vector<ChangeWatcher::Fallback> m_watchInstead;
     std::jthread m_worker;
     std::jthread m_mover; // moveTo
     std::mutex m_prewarmMutex;
@@ -391,10 +415,20 @@ private:
     QTimer m_resyncTimer;
     QTimer m_volumesTimer;
     QTimer m_folderResyncTimer; // resyncFoldersSoon
+    LostEventsBackoff m_lostBackoff; // GUI thread
+    QTimer m_verifyTimer; // verifyDueFolders
     std::atomic<bool> m_running {false}; // a worker pass is under way (from launch() to ranOut())
     mutable std::mutex m_foldersMutex;
     std::vector<FolderStatus> m_folderStatus; // folderStatuses(); guarded by m_foldersMutex
     bool m_stopped = false;
 };
+
+// GitHub #52: the chosen folders to walk again now, as they stand
+// (folderVerifyDue; `away` is asked only when it matters). Those walked
+// before: ready, not found, or unreadable; not those waiting for a walk or
+// in one, left out of searches, on a disk not there, or taken whole (the
+// disk is walked as before: at startup, and when its watcher lost events).
+std::vector<std::wstring> foldersDue(const std::vector<IndexService::FolderStatus>& statuses, std::chrono::hours every,
+    std::int64_t now, const std::function<bool()>& away);
 
 } // namespace ws
