@@ -1,5 +1,6 @@
 #include "AppCatalog.h"
 #include "AppLogo.h"
+#include "AutostartRun.h"
 #include "ChangeWatcher.h"
 #include "ContentIndex.h"
 #include "ContentIndexer.h"
@@ -27,6 +28,7 @@
 #include "Release.h"
 #include "SearchEngine.h"
 #include "SearchTyping.h"
+#include "ServiceVolumeAccess.h"
 #include "SettingsMatch.h"
 #include "ShareIndexer.h"
 #include "ShareLister.h"
@@ -8382,6 +8384,75 @@ private slots:
         missing.setListShown(false);
         QTRY_VERIFY(!missing.checking());
         QCOMPARE(store.clips().size(), std::size_t {3});
+    }
+
+    // GitHub #52: what the SCM says about the index service, told apart.
+    void serviceStateFromScm()
+    {
+        using ntfs::ServiceState;
+        using S = ntfs::ServiceVolumeAccess;
+        constexpr unsigned long unknownType = 0xFFFFFFFF;
+        QCOMPARE(S::classify(ERROR_SERVICE_DOES_NOT_EXIST, unknownType, 0), ServiceState::NotInstalled);
+        QCOMPARE(S::classify(ERROR_ACCESS_DENIED, unknownType, 0), ServiceState::Unknown); // the old way, by the pipe
+        QCOMPARE(S::classify(0, unknownType, 0), ServiceState::Unknown); // status not readable
+        QCOMPARE(S::classify(0, SERVICE_AUTO_START, SERVICE_STOPPED), ServiceState::Stopped);
+        QCOMPARE(S::classify(0, SERVICE_DISABLED, SERVICE_STOPPED), ServiceState::Disabled);
+        QCOMPARE(S::classify(0, unknownType, SERVICE_STOPPED), ServiceState::Stopped); // config unreadable: not "disabled"
+        QCOMPARE(S::classify(0, SERVICE_AUTO_START, SERVICE_STOP_PENDING), ServiceState::Stopped);
+        QCOMPARE(S::classify(0, SERVICE_AUTO_START, SERVICE_START_PENDING), ServiceState::Starting);
+        QCOMPARE(S::classify(0, SERVICE_AUTO_START, SERVICE_RUNNING), ServiceState::Running);
+        QCOMPARE(S::classify(0, SERVICE_DISABLED, SERVICE_RUNNING), ServiceState::Running); // still answering: the pipe decides
+        QCOMPARE(S::classify(0, SERVICE_AUTO_START, SERVICE_PAUSED), ServiceState::Running);
+        QCOMPARE(QString::fromLatin1(S::stateName(ServiceState::NotInstalled)), u"not_installed"_s);
+        QCOMPARE(QString::fromLatin1(S::stateName(ServiceState::Unknown)), u"unknown"_s);
+    }
+
+    // WINSHUN_SERVICE=none|disabled|stopped pretends, installed() follows.
+    void serviceStateSwitch()
+    {
+        using ntfs::ServiceState;
+        using S = ntfs::ServiceVolumeAccess;
+        QVERIFY(S::forcedState(L"none") == std::optional(ServiceState::NotInstalled));
+        QVERIFY(S::forcedState(L"disabled") == std::optional(ServiceState::Disabled));
+        QVERIFY(S::forcedState(L"stopped") == std::optional(ServiceState::Stopped));
+        QVERIFY(!S::forcedState(L"running"));
+        QVERIFY(!S::forcedState(L""));
+
+        wchar_t before[64] {};
+        const bool had = ::GetEnvironmentVariableW(L"WINSHUN_SERVICE", before, 64) > 0;
+        const auto restore = qScopeGuard([&] { ::SetEnvironmentVariableW(L"WINSHUN_SERVICE", had ? before : nullptr); });
+        ::SetEnvironmentVariableW(L"WINSHUN_SERVICE", L"none");
+        QCOMPARE(S::state(), ServiceState::NotInstalled);
+        QVERIFY(!S::installed());
+        ::SetEnvironmentVariableW(L"WINSHUN_SERVICE", L"disabled");
+        QCOMPARE(S::state(), ServiceState::Disabled);
+        QVERIFY(S::installed());
+        ::SetEnvironmentVariableW(L"WINSHUN_SERVICE", L"stopped");
+        QCOMPARE(S::state(), ServiceState::Stopped);
+        QVERIFY(S::installed());
+        // Anything else is ignored: the real SCM answers (one of the six).
+        ::SetEnvironmentVariableW(L"WINSHUN_SERVICE", L"nonsense");
+        const ServiceState real = S::state();
+        QVERIFY(real >= ServiceState::Unknown && real <= ServiceState::Running);
+    }
+
+    // GitHub #52: the Run-key value that stands in for the logon task.
+    void autostartRunValue()
+    {
+        const std::wstring exe = LR"(C:\Program Files\WinShun\WinShun.exe)";
+        const std::wstring command = autostart::runCommand(exe);
+        QCOMPARE(QString::fromStdWString(command), uR"("C:\Program Files\WinShun\WinShun.exe" --background)"_s);
+        QCOMPARE(autostart::runCommandProgram(command), exe);
+        QVERIFY(autostart::runCommandStarts(command, exe));
+        QVERIFY(autostart::runCommandStarts(command, LR"(c:\program files\winshun\winshun.exe)")); // paths ignore case
+        QVERIFY(!autostart::runCommandStarts(command, LR"(C:\Other\WinShun.exe)"));
+        QVERIFY(!autostart::runCommandStarts(command, LR"(C:\Program Files\WinShun\WinShun.exe.bak)"));
+        QCOMPARE(autostart::runCommandProgram(LR"(C:\x\WinShun.exe --background)"), std::wstring(LR"(C:\x\WinShun.exe)")); // unquoted
+        QCOMPARE(autostart::runCommandProgram(LR"(C:\x\WinShun.exe)"), std::wstring(LR"(C:\x\WinShun.exe)"));
+        QCOMPARE(autostart::runCommandProgram(LR"(  "D:\a b\w.exe" -x)"), std::wstring(LR"(D:\a b\w.exe)"));
+        QVERIFY(autostart::runCommandProgram(L"").empty());
+        QVERIFY(autostart::runCommandProgram(L"   ").empty());
+        QVERIFY(!autostart::runCommandStarts(L"", exe));
     }
 };
 

@@ -12,6 +12,18 @@
 
 namespace ws::ntfs {
 
+// What the Service Control Manager says about the index service (GitHub #52):
+// told apart so that the words say why it is not in use, and so that a
+// computer that never had it does not wait for it.
+enum class ServiceState {
+    Unknown, // the SCM would not say (access denied ...): treated as before, by the pipe
+    NotInstalled,
+    Disabled, // registered, start type "disabled", not running
+    Stopped,
+    Starting,
+    Running, // the pipe still has to answer
+};
+
 // The volumes through the index service (WinShunService.exe, src/service),
 // over its pipe: for a Win顺 that runs with the user's normal rights. Each
 // MFT read, journal query, journal followed and CloseVolume is a connection
@@ -31,6 +43,18 @@ public:
     // Whether the service is registered on this computer (by the installer,
     // or `WinShunService.exe --install`), running or not: for the settings.
     static bool installed();
+    // The SCM's word on the service: connecting and asking its status and
+    // configuration is open to every user. WINSHUN_SERVICE=none|disabled|stopped
+    // pretends (for testing on a computer that has the service).
+    static ServiceState state();
+    // state() from what the SCM answered: the error of opening the service
+    // (0 when it opened), its start type (0xFFFFFFFF when unknown) and its
+    // current state (SERVICE_STOPPED ... ; 0 when unknown).
+    static ServiceState classify(unsigned long openError, unsigned long startType, unsigned long currentState) noexcept;
+    // The value of WINSHUN_SERVICE; nothing for any other.
+    static std::optional<ServiceState> forcedState(std::wstring_view value) noexcept;
+    // Short English name (diagnostics): not_installed, disabled, stopped ...
+    static const char* stateName(ServiceState state) noexcept;
 
     // Connects and shakes hands once: whether the service is there and
     // speaks our protocol. serviceVersion() and lastError() say more.

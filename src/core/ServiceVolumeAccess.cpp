@@ -11,6 +11,7 @@
 #include <iterator>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace ws::ntfs {
 
@@ -542,15 +543,93 @@ std::wstring ServiceVolumeAccess::defaultPipeName()
 
 bool ServiceVolumeAccess::installed()
 {
-    // Connecting and asking a service's status is open to every user.
+    const ServiceState now = state();
+    return now != ServiceState::NotInstalled && now != ServiceState::Unknown;
+}
+
+ServiceState ServiceVolumeAccess::classify(
+    unsigned long openError, unsigned long startType, unsigned long currentState) noexcept
+{
+    if (openError == ERROR_SERVICE_DOES_NOT_EXIST)
+        return ServiceState::NotInstalled;
+    if (openError != 0 || currentState == 0)
+        return ServiceState::Unknown;
+    switch (currentState) {
+    case SERVICE_STOPPED:
+        return startType == SERVICE_DISABLED ? ServiceState::Disabled : ServiceState::Stopped;
+    case SERVICE_STOP_PENDING:
+        return ServiceState::Stopped;
+    case SERVICE_START_PENDING:
+        return ServiceState::Starting;
+    default:
+        return ServiceState::Running; // also disabled while it still runs: the pipe decides
+    }
+}
+
+std::optional<ServiceState> ServiceVolumeAccess::forcedState(std::wstring_view value) noexcept
+{
+    if (value == L"none")
+        return ServiceState::NotInstalled;
+    if (value == L"disabled")
+        return ServiceState::Disabled;
+    if (value == L"stopped")
+        return ServiceState::Stopped;
+    return std::nullopt;
+}
+
+const char* ServiceVolumeAccess::stateName(ServiceState state) noexcept
+{
+    switch (state) {
+    case ServiceState::NotInstalled:
+        return "not_installed";
+    case ServiceState::Disabled:
+        return "disabled";
+    case ServiceState::Stopped:
+        return "stopped";
+    case ServiceState::Starting:
+        return "starting";
+    case ServiceState::Running:
+        return "running";
+    case ServiceState::Unknown:
+        break;
+    }
+    return "unknown";
+}
+
+ServiceState ServiceVolumeAccess::state()
+{
+    // For testing on a computer that has the service: WINSHUN_SERVICE=none, disabled or stopped.
+    wchar_t forced[16] {};
+    const DWORD length = ::GetEnvironmentVariableW(L"WINSHUN_SERVICE", forced, static_cast<DWORD>(std::size(forced)));
+    if (length > 0 && length < std::size(forced)) {
+        if (const auto fake = forcedState(std::wstring_view(forced, length)))
+            return *fake;
+    }
     const SC_HANDLE manager = ::OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
     if (!manager)
-        return false;
-    const SC_HANDLE service = ::OpenServiceW(manager, kServiceName, SERVICE_QUERY_STATUS);
-    if (service)
-        ::CloseServiceHandle(service);
+        return ServiceState::Unknown;
+    const SC_HANDLE service = ::OpenServiceW(manager, kServiceName, SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG);
+    if (!service) {
+        const DWORD error = ::GetLastError();
+        ::CloseServiceHandle(manager);
+        return classify(error, 0xFFFFFFFF, 0);
+    }
+    SERVICE_STATUS_PROCESS status {};
+    DWORD bytes = 0;
+    const bool haveStatus = ::QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO, reinterpret_cast<LPBYTE>(&status),
+        sizeof status, &bytes);
+    DWORD startType = 0xFFFFFFFF;
+    DWORD needed = 0;
+    ::QueryServiceConfigW(service, nullptr, 0, &needed);
+    if (needed > 0 && ::GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+        std::vector<std::byte> buffer(needed);
+        auto* config = reinterpret_cast<QUERY_SERVICE_CONFIGW*>(buffer.data());
+        if (::QueryServiceConfigW(service, config, needed, &needed))
+            startType = config->dwStartType;
+    }
+    ::CloseServiceHandle(service);
     ::CloseServiceHandle(manager);
-    return service != nullptr;
+    return classify(0, startType, haveStatus ? status.dwCurrentState : 0);
 }
 
 bool ServiceVolumeAccess::probe()

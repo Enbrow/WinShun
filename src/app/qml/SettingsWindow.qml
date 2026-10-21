@@ -2184,22 +2184,28 @@ Window {
 
                     // A portable copy has no installer to register the service:
                     // done from here, as administrator (UAC asks once).
+                    // An account that cannot install it (not an administrator's,
+                    // GitHub #52) gets the reason instead of the buttons.
                     shown: window.editor.isPortable
                     title: qsTr("便携版的索引服务")
-                    keywords: qsTr("便携;安装服务;卸载服务;索引服务;portable;service").split(";")
-                    description: window.editor.indexServiceInstalled
+                    keywords: qsTr("便携;安装服务;卸载服务;索引服务;没有管理员权限;装不了;portable;service").split(";")
+                    description: !window.editor.indexServiceInstallable
+                                 ? (window.editor.indexServiceInstalled
+                                    ? qsTr("已安装 Windows 服务“Win顺 索引服务”，它替普通权限的 Win顺 读取主文件表。这个账户不是管理员，不能卸载它")
+                                    : qsTr("你在这台电脑上没有管理员权限，装不了索引服务。Win顺 按文件夹遍历整个磁盘。"))
+                                 : window.editor.indexServiceInstalled
                                  ? qsTr("已安装 Windows 服务“Win顺 索引服务”，它替普通权限的 Win顺 读取主文件表")
                                  : qsTr("安装一个 Windows 服务，替普通权限的 Win顺 读取主文件表，建索引快得多；需要管理员权限一次")
                     bodyShown: window.editor.indexServiceMessage.length > 0
 
                     FlatButton {
-                        visible: !window.editor.indexServiceInstalled
+                        visible: window.editor.indexServiceInstallable && !window.editor.indexServiceInstalled
                         text: qsTr("安装索引服务…")
                         enabled: !window.editor.indexServiceBusy
                         onClicked: window.editor.installIndexService()
                     }
                     FlatButton {
-                        visible: window.editor.indexServiceInstalled
+                        visible: window.editor.indexServiceInstallable && window.editor.indexServiceInstalled
                         text: qsTr("卸载索引服务")
                         enabled: !window.editor.indexServiceBusy
                         onClicked: window.editor.uninstallIndexService()

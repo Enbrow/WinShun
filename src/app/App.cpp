@@ -202,7 +202,25 @@ struct AccessChoice {
     std::shared_ptr<ntfs::VolumeAccess> access;
     bool wantsService = false;
     QString why; // the service wanted and not used: why (English, from the pipe client)
+    ntfs::ServiceState state = ntfs::ServiceState::Unknown; // the SCM's word, when the service is wanted
 };
+
+// Not installed, disabled or stopped: nothing listens on the pipe, so it is
+// not asked (WINSHUN_SERVICE pretends one of these on a computer that has it).
+bool serviceAbsent(ntfs::ServiceState state)
+{
+    return state == ntfs::ServiceState::NotInstalled || state == ntfs::ServiceState::Disabled
+        || state == ntfs::ServiceState::Stopped;
+}
+
+// Never there (or switched off by someone): no waiting for it at start, and
+// looked for again only now and then.
+bool serviceLongAbsent(ntfs::ServiceState state)
+{
+    return state == ntfs::ServiceState::NotInstalled || state == ntfs::ServiceState::Disabled;
+}
+
+const QString kServiceNotRunning = QStringLiteral("the index service is not running");
 
 AccessChoice chooseVolumeAccess(const QString& mode)
 {
@@ -219,7 +237,13 @@ AccessChoice chooseVolumeAccess(const QString& mode)
     // auto and service; direct too while not running as administrator (the
     // settings offer the restart), rather than nothing.
     choice.wantsService = true;
+    choice.state = ntfs::ServiceVolumeAccess::state();
     auto service = std::make_shared<ntfs::ServiceVolumeAccess>();
+    if (serviceAbsent(choice.state)) {
+        choice.why = kServiceNotRunning;
+        choice.access = std::make_shared<ntfs::NoVolumeAccess>();
+        return choice;
+    }
     if (service->probe()) {
         choice.access = std::move(service);
         return choice;
@@ -417,8 +441,10 @@ bool App::start(const StartOptions& options)
         AccessChoice choice = chooseVolumeAccess(m_settings.indexAccess);
         m_serviceWanted = choice.wantsService;
         m_serviceWhy = choice.why;
-        if (m_serviceWanted && choice.access->kind() == ntfs::VolumeAccess::Kind::None)
-            indexStart.accessWaitMs = static_cast<int>(std::chrono::milliseconds(kServiceWait).count()); // on its way, maybe
+        m_serviceState = choice.state;
+        // On its way, maybe; not when it is not installed or switched off.
+        if (m_serviceWanted && choice.access->kind() == ntfs::VolumeAccess::Kind::None && !serviceLongAbsent(choice.state))
+            indexStart.accessWaitMs = static_cast<int>(std::chrono::milliseconds(kServiceWait).count());
         indexStart.volumeAccess = std::move(choice.access);
     }
     m_index = std::make_unique<IndexService>(startIndexFolder(), std::move(indexStart));
@@ -740,9 +766,13 @@ bool App::start(const StartOptions& options)
         // settings offer the index service and running as administrator.
         const bool walking = !Settings::portableFolder().isEmpty()
             && m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None;
+        // An account that cannot install the service (GitHub #52) is not told to.
+        const bool cannotInstall = m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None
+            && m_serviceState == ntfs::ServiceState::NotInstalled && !userIsAdministrator();
         m_messages->showNotification(tr("Win顺已在后台运行"),
-            walking ? tr("双击 Ctrl 打开搜索。便携版按文件夹遍历建立索引；要快一些，可以在设置里安装索引服务，或以管理员身份运行。")
-                    : tr("双击 Ctrl 打开搜索。首次运行需要一点时间建立文件索引。"));
+            cannotInstall ? tr("双击 Ctrl 打开搜索。Win顺 按文件夹遍历建立索引，首次运行需要一点时间。")
+                : walking ? tr("双击 Ctrl 打开搜索。便携版按文件夹遍历建立索引；要快一些，可以在设置里安装索引服务，或以管理员身份运行。")
+                          : tr("双击 Ctrl 打开搜索。首次运行需要一点时间建立文件索引。"));
     } else if (clipboardIsNew) {
         m_messages->showNotification(tr("Win顺 现在有剪贴板历史了"),
             m_settings.clipboard ? tr("复制过的文字、图片和文件都能找回来。点这里设置用 Win+V 打开它。")
@@ -2185,6 +2215,8 @@ void App::showSettings()
                 {u"include_system_folders"_s, m_settings.contentInLowPriority}};
             if (const auto service = std::dynamic_pointer_cast<ntfs::ServiceVolumeAccess>(m_index->volumeAccess()))
                 context[u"index_service_version"_s] = QString::fromStdWString(service->serviceVersion());
+            context[u"index_service_state"_s] = QString::fromLatin1(ntfs::ServiceVolumeAccess::stateName(ntfs::ServiceVolumeAccess::state()));
+            context[u"index_service_installable"_s] = userIsAdministrator();
             auto* index = m_index.get(); // export thread joins before this object is destroyed
             const auto access = m_index->volumeAccessKind();
             context[u"index_access"_s] = access == ntfs::VolumeAccess::Kind::Direct ? u"direct"_s
@@ -3601,7 +3633,14 @@ void App::showTrayMenu()
     // The index service not reached (GitHub #21): said here, the reason in the settings.
     if (m_serviceWanted && m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None) {
         const auto at = std::ranges::find_if(items, [](const shell::MenuItem& i) { return i.id == IndexInfo; });
-        items.insert(at + 1, {AccessInfo, tr("索引服务未连接，正在遍历文件夹"), false, false});
+        QString text = tr("索引服务未连接，正在遍历文件夹");
+        if (m_serviceState == ntfs::ServiceState::NotInstalled)
+            text = tr("没有索引服务，正在遍历文件夹");
+        else if (m_serviceState == ntfs::ServiceState::Disabled)
+            text = tr("索引服务已停用，正在遍历文件夹");
+        else if (m_serviceState == ntfs::ServiceState::Starting)
+            text = tr("正在等索引服务启动…");
+        items.insert(at + 1, {AccessInfo, text, false, false});
     }
     // Under the clipboard's, with the key that does it too. With the capture
     // off, while pictures pinned from a file or the clipboard are up: what is
@@ -3785,6 +3824,7 @@ void App::applyIndexAccess()
     AccessChoice choice = chooseVolumeAccess(m_settings.indexAccess);
     m_serviceWanted = choice.wantsService;
     m_serviceWhy = choice.why;
+    m_serviceState = choice.state;
     const bool none = choice.access->kind() == ntfs::VolumeAccess::Kind::None;
     m_index->setVolumeAccess(std::move(choice.access));
     m_serviceRetry.stop();
@@ -3800,7 +3840,8 @@ void App::applyIndexAccess()
 void App::startServiceRetry()
 {
     m_serviceRetrySince.start();
-    m_serviceRetry.start(kServiceRetry);
+    // Not installed or switched off: no hurry, it is looked for every few minutes.
+    m_serviceRetry.start(serviceLongAbsent(m_serviceState) ? kServiceRecheck : kServiceRetry);
 }
 
 void App::probeService()
@@ -3813,16 +3854,18 @@ void App::probeService()
     // (2 s at most) when every one is taken.
     m_serviceProbe = std::jthread([this] {
         auto service = std::make_shared<ntfs::ServiceVolumeAccess>();
-        const bool reached = service->probe();
+        const ntfs::ServiceState state = ntfs::ServiceVolumeAccess::state(); // looked at each time: it may be installed or started meanwhile
+        const bool reached = !serviceAbsent(state) && service->probe();
         QMetaObject::invokeMethod(
-            this, [this, service = std::move(service), reached] { serviceProbed(service, reached); },
+            this, [this, service = std::move(service), reached, state] { serviceProbed(service, reached, state); },
             Qt::QueuedConnection);
     });
 }
 
-void App::serviceProbed(std::shared_ptr<ntfs::ServiceVolumeAccess> service, bool reached)
+void App::serviceProbed(std::shared_ptr<ntfs::ServiceVolumeAccess> service, bool reached, ntfs::ServiceState state)
 {
     m_serviceProbing = false;
+    m_serviceState = state;
     if (!m_serviceWanted || !m_index)
         return;
     if (reached) {
@@ -3836,10 +3879,10 @@ void App::serviceProbed(std::shared_ptr<ntfs::ServiceVolumeAccess> service, bool
         }
         m_serviceWhy.clear();
     } else {
-        m_serviceWhy = QString::fromStdWString(service->lastError());
+        m_serviceWhy = serviceAbsent(state) ? kServiceNotRunning : QString::fromStdWString(service->lastError());
     }
     const bool none = m_index->volumeAccessKind() == ntfs::VolumeAccess::Kind::None;
-    const bool soon = none && m_serviceRetrySince.isValid()
+    const bool soon = none && !serviceLongAbsent(state) && m_serviceRetrySince.isValid()
         && m_serviceRetrySince.elapsed() < std::chrono::milliseconds(kServiceWait).count();
     m_serviceRetry.start(soon ? kServiceRetry : kServiceRecheck);
     refreshIndexAccess();
@@ -3847,14 +3890,26 @@ void App::serviceProbed(std::shared_ptr<ntfs::ServiceVolumeAccess> service, bool
 
 QString App::serviceProblem() const
 {
-    if (m_serviceWhy.contains(u"not running")) {
-        return ntfs::ServiceVolumeAccess::installed()
-            ? tr("索引服务没有运行（Windows 服务“WinShun”已停止或被禁用）")
-            : tr("没有安装索引服务");
+    switch (m_serviceState) {
+    case ntfs::ServiceState::NotInstalled:
+        // An account that cannot install it is not told to (GitHub #52).
+        return userIsAdministrator() ? tr("没有安装索引服务，现在按文件夹遍历整个磁盘。装上服务可以更快。")
+                                     : tr("你在这台电脑上没有管理员权限，装不了索引服务。现在按文件夹遍历整个磁盘。");
+    case ntfs::ServiceState::Disabled:
+        return tr("索引服务被停用了，现在按文件夹遍历整个磁盘。");
+    case ntfs::ServiceState::Stopped:
+        return tr("索引服务没有运行，现在按文件夹遍历整个磁盘。");
+    case ntfs::ServiceState::Starting:
+        return tr("正在等索引服务启动…");
+    case ntfs::ServiceState::Unknown:
+    case ntfs::ServiceState::Running:
+        break;
     }
-    if (m_serviceWhy.contains(u"another version"))
+    if (m_serviceWhy.contains(u"another version") || m_serviceWhy.contains(u"run the installer again"))
         return tr("索引服务的版本和 Win顺 不配，请重新运行安装程序");
-    return m_serviceWhy;
+    if (m_serviceWhy.contains(u"not running"))
+        return tr("索引服务没有运行，现在按文件夹遍历整个磁盘。");
+    return tr("索引服务在运行，但连不上（%1），现在按文件夹遍历。").arg(m_serviceWhy);
 }
 
 void App::refreshIndexAccess()
@@ -3867,6 +3922,8 @@ void App::refreshIndexAccess()
     state.administrator = userIsAdministrator();
     state.portable = !Settings::portableFolder().isEmpty();
     state.serviceInstalled = ntfs::ServiceVolumeAccess::installed();
+    state.serviceState = QString::fromLatin1(ntfs::ServiceVolumeAccess::stateName(m_serviceState));
+    state.serviceInstallable = state.administrator;
     state.serviceBusy = m_serviceBusy;
     state.serviceMessage = m_serviceMessage;
     switch (kind) {
@@ -3884,7 +3941,7 @@ void App::refreshIndexAccess()
     }
     case ntfs::VolumeAccess::Kind::None:
         state.effective = u"walk"_s;
-        state.status = m_serviceWanted ? tr("现在：按文件夹遍历，因为%1").arg(serviceProblem())
+        state.status = m_serviceWanted ? tr("现在：%1").arg(serviceProblem())
                                        : tr("现在：按文件夹遍历，不读取主文件表");
         break;
     }

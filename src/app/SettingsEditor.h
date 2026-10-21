@@ -119,6 +119,8 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool isPortable READ isPortable NOTIFY indexAccessStateChanged FINAL)
     Q_PROPERTY(bool indexServiceInstalled READ indexServiceInstalled NOTIFY indexAccessStateChanged FINAL)
     Q_PROPERTY(bool indexServiceBusy READ indexServiceBusy NOTIFY indexAccessStateChanged FINAL)
+    Q_PROPERTY(QString indexServiceState READ indexServiceState NOTIFY indexAccessStateChanged FINAL)
+    Q_PROPERTY(bool indexServiceInstallable READ indexServiceInstallable NOTIFY indexAccessStateChanged FINAL)
     Q_PROPERTY(QString indexServiceMessage READ indexServiceMessage NOTIFY indexAccessStateChanged FINAL)
     Q_PROPERTY(QStringList excludedPaths READ excludedPaths NOTIFY changed FINAL) // expanded, for display
     Q_PROPERTY(QStringList excludedNames READ excludedNames NOTIFY changed FINAL)
@@ -381,6 +383,8 @@ public:
         bool administrator = false; // the account is an administrator's (direct means something)
         bool portable = false; // a portable copy: the service is installed from here
         bool serviceInstalled = false;
+        QString serviceState; // the SCM's word: not_installed | disabled | stopped | starting | running | unknown
+        bool serviceInstallable = false; // the account can install it (an administrator's); else it is not offered (GitHub #52)
         bool serviceBusy = false; // --install / --uninstall running
         QString serviceMessage; // how the last install or uninstall went
         bool operator==(const IndexAccessState&) const = default;
@@ -394,6 +398,8 @@ public:
     bool isPortable() const { return m_indexAccessState.portable; }
     bool indexServiceInstalled() const { return m_indexAccessState.serviceInstalled; }
     bool indexServiceBusy() const { return m_indexAccessState.serviceBusy; }
+    QString indexServiceState() const { return m_indexAccessState.serviceState; }
+    bool indexServiceInstallable() const { return m_indexAccessState.serviceInstallable; }
     QString indexServiceMessage() const { return m_indexAccessState.serviceMessage; }
     // The app restarts Win顺 as administrator (UAC asks once), installs or
     // uninstalls the index service (WinShunService.exe, elevated, UAC once).

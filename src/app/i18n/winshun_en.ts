@@ -4319,12 +4319,20 @@
         <translation>Index service for the portable copy</translation>
     </message>
     <message>
-        <source>便携;安装服务;卸载服务;索引服务;portable;service</source>
-        <translation>portable;install service;uninstall service;index service</translation>
+        <source>便携;安装服务;卸载服务;索引服务;没有管理员权限;装不了;portable;service</source>
+        <translation>portable;install service;uninstall service;index service;no administrator rights;cannot install</translation>
     </message>
     <message>
         <source>已安装 Windows 服务“Win顺 索引服务”，它替普通权限的 Win顺 读取主文件表</source>
         <translation>The Windows service &quot;WinShun Index Service&quot; is installed: it reads the master file tables for a WinShun running with normal rights</translation>
+    </message>
+    <message>
+        <source>已安装 Windows 服务“Win顺 索引服务”，它替普通权限的 Win顺 读取主文件表。这个账户不是管理员，不能卸载它</source>
+        <translation>The Windows service &quot;WinShun Index Service&quot; is installed: it reads the master file tables for a WinShun running with normal rights. This account is not an administrator and cannot uninstall it</translation>
+    </message>
+    <message>
+        <source>你在这台电脑上没有管理员权限，装不了索引服务。Win顺 按文件夹遍历整个磁盘。</source>
+        <translation>You have no administrator rights on this computer, so the index service cannot be installed. WinShun walks the whole disk folder by folder.</translation>
     </message>
     <message>
         <source>安装一个 Windows 服务，替普通权限的 Win顺 读取主文件表，建索引快得多；需要管理员权限一次</source>
@@ -5579,6 +5587,10 @@
         <translation>Press Ctrl twice to search. A portable copy builds its index by walking the folders; for a faster one, install the index service from the settings, or run as administrator.</translation>
     </message>
     <message>
+        <source>双击 Ctrl 打开搜索。Win顺 按文件夹遍历建立索引，首次运行需要一点时间。</source>
+        <translation>Press Ctrl twice to search. WinShun builds its index by walking the folders, which takes a little while the first time.</translation>
+    </message>
+    <message>
         <source>用 Win顺 搜索此处</source>
         <translation>Search here with WinShun</translation>
     </message>
@@ -5656,12 +5668,20 @@
         <translation>Index service not connected; walking the folders</translation>
     </message>
     <message>
+        <source>没有索引服务，正在遍历文件夹</source>
+        <translation>No index service; walking the folders</translation>
+    </message>
+    <message>
+        <source>索引服务已停用，正在遍历文件夹</source>
+        <translation>Index service disabled; walking the folders</translation>
+    </message>
+    <message>
         <source>升级前开机自启是以管理员身份运行的，所以记成了“管理员直读”；改选别的方式，开机自启就改用普通权限。</source>
         <translation>Before the update WinShun started at login as administrator, so the mode was set to Direct (administrator); choose another and the login start switches to normal rights.</translation>
     </message>
     <message>
-        <source>索引服务没有运行（Windows 服务“WinShun”已停止或被禁用）</source>
-        <translation>the index service is not running (the Windows service &quot;WinShun&quot; is stopped or disabled)</translation>
+        <source>没有安装索引服务，现在按文件夹遍历整个磁盘。装上服务可以更快。</source>
+        <translation>The index service is not installed, so the whole disk is walked folder by folder. Installing the service makes it faster.</translation>
     </message>
     <message>
         <source>已恢复默认宽度</source>
@@ -5730,6 +5750,8 @@
     <message>
         <source>没有安装索引服务</source>
         <translation>the index service is not installed</translation>
+        <source>你在这台电脑上没有管理员权限，装不了索引服务。现在按文件夹遍历整个磁盘。</source>
+        <translation>You have no administrator rights on this computer, so the index service cannot be installed. The whole disk is walked folder by folder.</translation>
     </message>
     <message>
         <source>索引服务的版本和 Win顺 不配，请重新运行安装程序</source>
@@ -5748,8 +5770,24 @@
         <translation>Now: reading the disks&apos; master file tables and change journals through the index service (service version %1)</translation>
     </message>
     <message>
-        <source>现在：按文件夹遍历，因为%1</source>
-        <translation>Now: walking the folders, because %1</translation>
+        <source>现在：%1</source>
+        <translation>Now: %1</translation>
+    </message>
+    <message>
+        <source>索引服务被停用了，现在按文件夹遍历整个磁盘。</source>
+        <translation>The index service is disabled, so the whole disk is walked folder by folder.</translation>
+    </message>
+    <message>
+        <source>索引服务没有运行，现在按文件夹遍历整个磁盘。</source>
+        <translation>The index service is not running, so the whole disk is walked folder by folder.</translation>
+    </message>
+    <message>
+        <source>正在等索引服务启动…</source>
+        <translation>Waiting for the index service to start…</translation>
+    </message>
+    <message>
+        <source>索引服务在运行，但连不上（%1），现在按文件夹遍历。</source>
+        <translation>The index service is running but cannot be reached (%1), so the folders are walked.</translation>
     </message>
     <message>
         <source>现在：按文件夹遍历，不读取主文件表</source>

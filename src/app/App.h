@@ -92,6 +92,7 @@ struct SettingsAsk;
 }
 namespace ntfs {
 class ServiceVolumeAccess;
+enum class ServiceState;
 }
 namespace plugin {
 class AiBridge;
@@ -297,9 +298,9 @@ private:
     void applyIndexAccess(); // the setting changed: restart with other rights, or switch in place
     void startServiceRetry(); // every 2 s for 30 s after start, then every 5 min
     void probeService(); // on a thread of its own; serviceProbed() on the GUI thread
-    void serviceProbed(std::shared_ptr<ntfs::ServiceVolumeAccess> service, bool reached);
+    void serviceProbed(std::shared_ptr<ntfs::ServiceVolumeAccess> service, bool reached, ntfs::ServiceState state);
     void refreshIndexAccess(); // shown in the settings window
-    QString serviceProblem() const; // why the index service is not in use, for the user
+    QString serviceProblem() const; // why the index service is not in use and what happens instead, a sentence for the user
     void installIndexService(bool install); // WinShunService.exe --install / --uninstall, elevated (a portable copy)
     void applyTheme();
     void applyAppearance(); // the chosen theme and language
@@ -414,6 +415,7 @@ private:
     // while not in use; the probe's thread goes before the index does.
     bool m_serviceWanted = false;
     QString m_serviceWhy; // why the last look found it unusable (English, from the pipe client)
+    ntfs::ServiceState m_serviceState {}; // what the SCM said at the last look (Unknown at first)
     QTimer m_serviceRetry;
     QElapsedTimer m_serviceRetrySince; // the 30 s of frequent tries after start
     std::atomic<bool> m_serviceProbing {false};

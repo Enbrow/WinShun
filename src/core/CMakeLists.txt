@@ -4,6 +4,7 @@
 qt_add_library(wscore STATIC
     AppCatalog.cpp AppCatalog.h
     AppLogo.cpp AppLogo.h
+    AutostartRun.h
     ChangeWatcher.cpp ChangeWatcher.h
     ClipStore.cpp ClipStore.h
     ContentIndex.cpp ContentIndex.h
