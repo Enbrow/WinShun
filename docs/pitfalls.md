@@ -3035,3 +3035,53 @@
 
 - **现象**：`IndexFolder.h` 写明，索引文件夹里别的文件一概不碰。不登记的附属文件，换索引位置时被丢在原处，删除索引时被留下，判断目标文件夹是不是索引文件夹时也会出错。
 - **做法**：`scope.json`（选中文件夹的范围和上次核对）登记进 `IndexFolder.cpp` 的文件清单（`hasIndex`、`size`、`onlyIndexFiles`、`copy`、`remove`），`tst_core` 的 `scopeFileIsAnIndexFile` 守着。以后再加附属文件，照此办理。它只在快照写成功之后写，并记下 `index.bin` 的大小和时间，对不上就当作不知道（多核对一次），所以老版本重写了快照也不会读错。
+- **整盘时也要看它**（代码审查）：整盘时对不上的 scope.json 说明快照可能是文件夹模式存的（遍历的盘只剩选中的文件夹）。`readScopeFile` 分出“没有”和“有但对不上 / 读不了”（`stale`）：后者整盘时把遍历的盘照“启动时核对”再走一遍（`staleScopeFileWholeDisks`）。“没有”照旧信快照：老版本和整盘用户都没有它；第一次写就失败的那种补不回来。
+
+### 登录时服务还没起来，范围先把别的盘删了（代码审查）
+
+- **现象**：Scope=folders、服务装着。登录时 Win顺 比服务先起来，这一轮按“只索引选中的文件夹”选卷：没有选中文件夹的盘在等服务（`awaitAccess`）之前就从快照里删掉了；服务一到又是整盘，全部重读 MFT。每次登录一遍。
+- **原因**：“只索引选中的文件夹”看的是此刻能不能读日志，服务只是还没到，范围就生效了；选卷、删条目又都在等服务之前。
+- **做法**：两层。App 那层（`Settings::foldersInEffect`）：服务装着、没被停用（不是 NotInstalled / Disabled）时一律整盘，暂时没运行也一样；设置里第三项灰掉，下面一行说明原因。IndexService 那层：先列出所有盘、快照条目全留着，等完服务再按实际读法算 `foldersOnly`、剪卷、删条目（`chosenFoldersAwaitService`；`tst_settings` 的 `foldersInEffect`）。两层缺一不可：只改 App，等服务超时后的那一轮仍会按旧的读法剪；只改 IndexService，App 每次服务没起来时还是发范围下来。
+
+### 只忽略 ASCII 大小写的查找：选中文件夹写法不同，每 3 秒重走（代码审查）
+
+- **现象**：选的是 `доки`，盘上是 `ДОКИ`。`prepareScope` 按盘上的写法建条目（`onDisk` 取 `cFileName`），`walkFolders` 却用 `findPath(写法)` 找，找不到，以为“刚出现”，3 秒后再排，永远不就绪。8.3 短名（`LONGFO~1`）同样。
+- **原因**：`FileIndex::findPath` / `findChild` 只忽略 ASCII 大小写（NTFS 的大写表是 Unicode 的）。
+- **做法**：`findFolder`：先 `findPath`，找不到再逐级把孩子的名字解码后用 `win32::equalsIgnoreCase`（`CompareStringOrdinal`）比。仍找不到、而这一轮刚由 `prepareScope` 放进索引的（`m_placed`），标“读不了”并记一行日志，不再重排；不是这一轮放的（真是刚出现的）才照旧 3 秒后再走。`chosenFolderSpelledOtherwise`。
+
+### 只改大小写的改名，Windows 先单独报一个删除（代码审查，实测）
+
+- **现象**：选中文件夹的上级 `up` 改成 `UP`：ReadDirectoryChangesW 先单独送来一批 `FILE_ACTION_REMOVED …\up`，下一批才是 `RENAMED_OLD_NAME up` / `RENAMED_NEW_NAME UP`。按“上级只看删除”，第一批就把通路和选中文件夹的条目全删了，改名来时已无从挪起，只能等 3 秒后整个重走（`aboveRenamedInCase` 第一次就是这样失败的）。
+- **原因**：开着 8.3 名字的卷上，小写名另有一个大写的短名；改成大写后短名和长名合一，那个短名链接被删掉，报成一个删除（推测，现象是实测的）。
+- **做法**：上级文件夹说删掉了（不是这一批里配对的改名）时先看盘上（`changesInScope` 的 `stillThere`，`presenceOf`）：还在就不删也不重走；真不在照旧删、重走。两半都在上级的改名整个挪（`moveOnly`：挪不成什么也不加，不会把整个用户文件夹当新文件夹走一遍），只改大小写的不重走；从上级挪进选中文件夹的当作删除＋新增。别以为改名一定是同一批里的一对 OLD/NEW。
+
+### 默认文件夹在第一次读设置时就写死了（代码审查）
+
+- **现象**：第一次读设置就把桌面、文档、下载……写进 `Index/Folders`。以后 OneDrive 接管了“文档”，Win顺 还去找原来的位置；整盘用户也平白多了一份清单。
+- **原因**：`readOrDefault` 缺键时把默认值写回文件。
+- **做法**：没有这一项时按当时的已知文件夹算、读时不写（`indexFoldersChosen` 为假，`save` 也不写）；第一次真的只索引选中的文件夹时（`App::takeDefaultIndexFolders` → `Settings::chooseDefaultIndexFolders`）原样定下来；设置窗口、AI 改过的立刻算“设过了”（不然内存里的标记和文件不一致，`reloadSettings` 会把自己的保存当成外部改动）；清空了保持空；一个都没有（全在服务器上）时不定，下次启动再算；“恢复默认”回到没设过。`indexFoldersUnset`。
+
+### 一轮结束时先看欠账、后清 m_running：最后一刻的“立即核对”丢了（代码审查）
+
+- **现象**：一轮快结束时点“立即核对”：`verifyFolder` 把文件夹记进 `m_verifyOwed`，看到 `m_running` 还是真，就不起新的一轮；`ranOut` 却是先看欠账（那时还空）、再清 `m_running`。那次核对就丢了，直到下次别的事起一轮。
+- **做法**：先清 `m_running`，再看欠账（`passOver`）：要么这一轮看见，要么请求方看到没在跑、自己起一轮。`passOverOrder`。
+
+### “不在”被 scope.json 盖掉；整盘排除的盘显示“不在”（代码审查）
+
+- **现象**：启动时先标了“盘不在”，随后从 scope.json 恢复上次的状态，盘不在的文件夹显示成“就绪”。“不搜索的文件夹”里有 `X:` 时，选卷就去掉了 X 盘，上面的选中文件夹显示“盘不在”，其实是被排除了。
+- **做法**：“不在”“整盘收”在恢复 scope.json 之后、等完服务之后才标；盘不在时先问 `isExcludedPath`，是排除就标“已排除”。`offlineOverScopeFile`、`chosenFolderOnExcludedDrive`。
+
+### 1 MB 的监视缓冲挂得上、读却总失败（代码审查）
+
+- **现象**：1 MB 的卷根缓冲只在挂上时失败才退回 64 KB；挂上了、每次完成却失败（能锁定的内存不够之类）时，每次都当作丢了事件 → 重走选中文件夹 → 再失败。
+- **做法**：`ChangeWatcher::bufferAfter`：大缓冲的读失败就换 64 KB（`ERROR_NOTIFY_ENUM_DIR` 除外：那是“事件太多”，缓冲没问题）；完成后重新挂失败也先退到 64 KB 再挂一次。`changeWatcherShrinks`。
+
+### 每 5 分钟的服务探测都去盘上查选中文件夹的路径（代码审查）
+
+- **现象**：`probeService` 之后每次都走 `applyIndexScope`，里面 `indexFolderPaths()` 对每个选中文件夹调 `GetLongPathNameW`（碰盘，机械硬盘会被唤醒），哪怕范围根本没变。
+- **做法**：`applyIndexScope` 只在“只索引选中的文件夹”真的翻转时才重算路径、下发范围、更新启动器的提示；平时只刷新设置里的状态。文件夹清单改了走 `m_indexOptionsApply`（`setOptions`），不靠这里。
+
+### prepareScope 看盘时不理停止（代码审查）
+
+- **现象**：`prepareScope` 在加锁前逐个看选中文件夹和它们的上级（`presenceOf`、`FindFirstFileExW`），盘慢或在休眠时要一会儿；这期间弹出 U 盘、改设置要等它看完（`stopWorker` 会 join）。
+- **做法**：每个选中文件夹看之前查一次 `stop_token`，停了就什么都不做直接返回（还没动索引）；`run` 随即返回，已经放进来、该走的文件夹记进 `m_verifyOwed`，下一轮接着走。
