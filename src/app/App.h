@@ -40,6 +40,7 @@ class QWinEventNotifier;
 namespace ws {
 
 class AppCatalog;
+class ClipImportJob;
 class ClipStore;
 class Clipboard;
 class ComWorker;
@@ -479,6 +480,7 @@ private:
     std::unique_ptr<Launcher> m_launcher;
     std::unique_ptr<ClipStore> m_clipStore; // the clipboard history
     std::unique_ptr<Clipboard> m_clipboard; // its window's view-model
+    std::unique_ptr<ClipImportJob> m_clipImport; // an import of Ditto's, a text or a CSV file, while one runs
     std::unique_ptr<MissingFiles> m_missingFiles; // its entries of files that are gone (GitHub #54)
     std::unique_ptr<FilePreview> m_preview; // Alt+P on a result
     std::unique_ptr<WindowFrame> m_previewFrame;

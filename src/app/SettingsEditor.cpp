@@ -1,5 +1,6 @@
 #include "SettingsEditor.h"
 
+#include "ClipImport.h"
 #include "FavoritesSettings.h"
 #include "FileIconProvider.h"
 #include "IndexFolder.h"
@@ -1295,6 +1296,95 @@ void SettingsEditor::setClipboardCount(int count)
         return;
     m_clipboardCount = count;
     emit clipboardCountChanged();
+}
+
+QString SettingsEditor::pickClipboardImportFile()
+{
+    if (m_clipboardImporting)
+        return {};
+    const HWND owner = m_window ? reinterpret_cast<HWND>(m_window->winId()) : nullptr;
+    const QString path = shell::pickFile(owner, tr("导入剪贴板历史"),
+        {{tr("支持的文件"), u"*.db;*.txt;*.csv"_s}, {tr("Ditto 数据库"), u"*.db"_s}, {tr("文本"), u"*.txt"_s},
+            {tr("表格"), u"*.csv"_s}, {tr("所有文件"), u"*.*"_s}});
+    return QDir::toNativeSeparators(path);
+}
+
+bool SettingsEditor::clipboardImportAsksSplit(const QString& path) const
+{
+    return clipimport::sourceOf(path) == clipimport::Source::Text;
+}
+
+QString SettingsEditor::dittoDatabase() const
+{
+    const QString appData = qEnvironmentVariable("APPDATA");
+    if (appData.isEmpty())
+        return {};
+    const QString path = appData + u"/Ditto/Ditto.db"_s;
+    return QFileInfo::exists(path) ? QDir::toNativeSeparators(path) : QString();
+}
+
+void SettingsEditor::importClipboard(const QString& path, int split)
+{
+    if (m_clipboardImporting || path.isEmpty())
+        return;
+    m_clipboardImporting = true;
+    m_clipboardImportMessage = tr("正在读取…");
+    emit clipboardImportChanged();
+    emit clipboardImportRequested(path, split);
+}
+
+void SettingsEditor::setClipboardImportProgress(int done, int total)
+{
+    if (!m_clipboardImporting)
+        return;
+    m_clipboardImportMessage = tr("正在导入… %1 / %2").arg(done).arg(total);
+    emit clipboardImportChanged();
+}
+
+void SettingsEditor::setClipboardImportDone(const clipimport::Report& report, const QString& group)
+{
+    using clipimport::Error;
+    m_clipboardImporting = false;
+    if (report.error != Error::None) {
+        QString why;
+        switch (report.error) {
+        case Error::Missing:
+            why = tr("找不到这个文件");
+            break;
+        case Error::TooLarge:
+            why = tr("文件太大了（超过 1 GB）");
+            break;
+        case Error::NotDitto:
+            why = tr("这不是 Ditto 的数据库，或者数据库有密码、已损坏");
+            break;
+        case Error::CannotCopy:
+            why = tr("复制不了 Ditto 的数据库（磁盘空间不够，或被占用）");
+            break;
+        case Error::NoHistory:
+            why = tr("剪贴板历史没有打开");
+            break;
+        case Error::Busy:
+            why = tr("上一个导入还没做完");
+            break;
+        default:
+            why = tr("读不了这个文件");
+            break;
+        }
+        m_clipboardImportMessage = tr("导入失败：%1").arg(why);
+    } else {
+        QStringList parts;
+        parts.append(report.cancelled ? tr("已取消，已导入 %n 条", "", report.added) : tr("已导入 %n 条", "", report.added));
+        if (report.duplicates > 0)
+            parts.append(tr("跳过 %n 条重复", "", report.duplicates));
+        if (report.skipped > 0)
+            parts.append(tr("%n 条用不了（空的、太大或格式不支持）", "", report.skipped));
+        if (report.failed > 0)
+            parts.append(tr("%n 条没存上", "", report.failed));
+        m_clipboardImportMessage = parts.join(tr("，"));
+        if (report.added > 0 && !group.isEmpty())
+            m_clipboardImportMessage += tr("。放在分组“%1”里，不会被自动删除").arg(group);
+    }
+    emit clipboardImportChanged();
 }
 
 bool SettingsEditor::addClipboardExcludedApp(const QString& name)

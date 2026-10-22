@@ -4,6 +4,7 @@
 
 #include <QString>
 
+#include <cstdint>
 #include <functional>
 #include <vector>
 
@@ -38,13 +39,24 @@ struct Hooks {
     std::function<void(int done, int total)> progress;
 };
 
+enum class Error : std::uint8_t {
+    None,
+    Missing, // no such file
+    Unreadable, // cannot be opened or read
+    TooLarge, // a text or CSV file over 1 GB
+    NotDitto, // a database, but not Ditto's (or protected, or damaged)
+    CannotCopy, // Ditto's database could not be copied to read (space, or locked)
+    NoHistory, // the clipboard history is not open
+    Busy, // another import is running
+};
+
 struct Report {
     int added = 0;
     int duplicates = 0;
     int skipped = 0; // empty, too large, or in a format that cannot be used
     int failed = 0; // could not be saved
     bool cancelled = false;
-    QString error; // plain words; empty if the file could be read
+    Error error = Error::None;
 };
 
 // Reads the file and hands its entries to hooks.sink. Any thread; nothing of

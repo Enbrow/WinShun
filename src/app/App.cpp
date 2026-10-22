@@ -8,6 +8,7 @@
 #include "CaptureOcr.h"
 #include "Geometry.h" // capture::placeBeside
 #include "Grabber.h"
+#include "ClipImportJob.h"
 #include "ClipStore.h"
 #include "Clipboard.h"
 #include "DialogBar.h"
@@ -2396,6 +2397,33 @@ void App::showSettings()
             m_clipStore->clearHistory();
             m_clipboard->historyChanged();
             editor->setClipboardCount(static_cast<int>(m_clipStore->clips().size()));
+        });
+        connect(editor, &SettingsEditor::clipboardImportRequested, this, [this, editor](const QString& path, int split) {
+            clipimport::Report none;
+            if (m_clipImport) {
+                none.error = clipimport::Error::Busy;
+                editor->setClipboardImportDone(none, {});
+                return;
+            }
+            if (!m_clipStore || !m_clipStore->isOpen()) {
+                none.error = clipimport::Error::NoHistory;
+                editor->setClipboardImportDone(none, {});
+                return;
+            }
+            m_clipImport = std::make_unique<ClipImportJob>(m_clipStore.get());
+            ClipImportJob* job = m_clipImport.get();
+            connect(job, &ClipImportJob::progress, editor, &SettingsEditor::setClipboardImportProgress);
+            connect(editor, &SettingsEditor::clipboardImportCancelled, job, &ClipImportJob::cancel);
+            // The history is told even when the settings window was closed meanwhile.
+            connect(job, &ClipImportJob::finished, this, [this, guard = QPointer<SettingsEditor>(editor)](const clipimport::Report& report, const QString& group) {
+                m_clipboard->historyChanged();
+                if (guard) {
+                    guard->setClipboardCount(static_cast<int>(m_clipStore->clips().size()));
+                    guard->setClipboardImportDone(report, group);
+                }
+                m_clipImport.release()->deleteLater();
+            });
+            job->start(path, split == 0 ? clipimport::Split::Lines : split == 2 ? clipimport::Split::Whole : clipimport::Split::Paragraphs);
         });
         connect(editor, &SettingsEditor::restartRequested, this, [this] { restart({u"--settings"_s}); });
         connect(editor, &SettingsEditor::historyClearRequested, this, [this, editor] {

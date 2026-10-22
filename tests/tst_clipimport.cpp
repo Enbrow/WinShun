@@ -2,6 +2,7 @@
 // store's batch import under them.
 #include "ClipImage.h"
 #include "ClipImport.h"
+#include "ClipImportJob.h"
 #include "ClipStore.h"
 
 #include <QBuffer>
@@ -10,6 +11,7 @@
 #include <QImage>
 #include <QSqlDatabase>
 #include <QSqlError>
+#include <QSignalSpy>
 #include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QTest>
@@ -241,7 +243,7 @@ private slots:
         QVERIFY(store.open(kStart));
         store.setLimits({1, 1}, kStart + 1000 * kDay); // everything but groups would go
         const Report report = runImport(store, file);
-        QVERIFY2(report.error.isEmpty(), qPrintable(report.error));
+        QCOMPARE(int(report.error), int(Error::None));
         QCOMPARE(report.added, 9);
         QCOMPARE(report.duplicates, 1);
         QCOMPARE(report.skipped, 1);
@@ -323,7 +325,7 @@ private slots:
         ClipStore store(data.path());
         QVERIFY(store.open(kStart));
         const Report report = runImport(store, file);
-        QVERIFY2(report.error.isEmpty(), qPrintable(report.error));
+        QCOMPARE(int(report.error), int(Error::None));
         QCOMPARE(report.added, 2);
         QCOMPARE(textsIn(store, groupNamed(store, u"Ditto 导入"_s)), (QStringList {u"beta"_s, u"alpha 真实库"_s}));
     }
@@ -344,13 +346,13 @@ private slots:
         }
         QSqlDatabase::removeDatabase(u"other"_s);
         Report report = runImport(store, other);
-        QVERIFY(!report.error.isEmpty());
+        QCOMPARE(int(report.error), int(Error::NotDitto));
         QCOMPARE(report.added, 0);
         // Not a database at all, named like one.
         report = runImport(store, write(dir, u"fake.db"_s, "just words"));
         QCOMPARE(report.added, 1); // read as text
-        QVERIFY(report.error.isEmpty());
-        QVERIFY(!runImport(store, dir.filePath(u"missing.txt"_s)).error.isEmpty());
+        QCOMPARE(int(report.error), int(Error::None));
+        QCOMPARE(int(runImport(store, dir.filePath(u"missing.txt"_s)).error), int(Error::Missing));
     }
 
     void decoding()
@@ -465,6 +467,47 @@ private slots:
         const QString onlyTime = write(dir, u"d.csv"_s, "Date,words\n2026-03-04,hi there\n");
         QCOMPARE(runImport(store, onlyTime).added, 1);
         QCOMPARE(textsIn(store, groupNamed(store, u"d 导入"_s)), (QStringList {u"hi there"_s}));
+    }
+
+    // The way the app does it: read on a thread of its own, each batch into the
+    // store on this one.
+    void jobOnAThread()
+    {
+        QTemporaryDir dir;
+        QTemporaryDir data;
+        ClipStore store(data.path());
+        QVERIFY(store.open(kStart));
+        QByteArray lines;
+        for (int i = 0; i < 700; ++i)
+            lines += "entry " + QByteArray::number(i) + "\n";
+        const QString path = write(dir, u"job.txt"_s, lines);
+        ClipImportJob job(&store);
+        QSignalSpy finished(&job, &ClipImportJob::finished);
+        job.start(path, Split::Lines);
+        QCOMPARE(job.group(), u"job 导入"_s);
+        QVERIFY(finished.wait(20000));
+        const auto report = finished.first().first().value<clipimport::Report>();
+        QCOMPARE(report.added, 700);
+        QCOMPARE(int(report.error), int(Error::None));
+        QCOMPARE(store.groupSize(groupNamed(store, u"job 导入"_s)), 700);
+    }
+
+    // Gone while reading: no hang, nothing left running.
+    void jobDestroyedEarly()
+    {
+        QTemporaryDir dir;
+        QTemporaryDir data;
+        ClipStore store(data.path());
+        QVERIFY(store.open(kStart));
+        QByteArray lines;
+        for (int i = 0; i < 5000; ++i)
+            lines += "entry " + QByteArray::number(i) + "\n";
+        const QString path = write(dir, u"early.txt"_s, lines);
+        {
+            ClipImportJob job(&store);
+            job.start(path, Split::Lines);
+        } // the batches it asked for are dropped with it
+        QVERIFY(store.clips().size() <= 5000);
     }
 
     void progressAndCancel()

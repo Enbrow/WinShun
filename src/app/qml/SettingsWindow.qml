@@ -3709,6 +3709,80 @@ Window {
                     }
                 }
 
+                QtObject {
+                    id: clipImport
+
+                    // A text file picked, waiting for how to cut it into entries.
+                    property string path
+                    property int split: 1 // 0 a line each, 1 paragraphs, 2 the whole file
+                    property string ditto: ""
+
+                    function pick() {
+                        const picked = window.editor.pickClipboardImportFile()
+                        if (picked.length === 0)
+                            return
+                        if (window.editor.clipboardImportAsksSplit(picked)) {
+                            path = picked
+                        } else {
+                            path = ""
+                            window.editor.importClipboard(picked, 1)
+                        }
+                    }
+                    function start() {
+                        const picked = path
+                        path = ""
+                        window.editor.importClipboard(picked, split)
+                    }
+
+                    Component.onCompleted: ditto = window.editor.dittoDatabase()
+                }
+
+                SettingRow {
+                    title: qsTr("导入剪贴板历史")
+                    keywords: qsTr("Ditto;导入;迁移;文本;表格;txt;csv;import").split(";")
+                    description: window.editor.clipboardImportMessage.length > 0
+                                 ? window.editor.clipboardImportMessage
+                                 : qsTr("从 Ditto、文本文件（.txt）或表格文件（.csv）导入，放进一个新分组里，不会被自动删除")
+
+                    FlatButton {
+                        visible: clipImport.ditto.length > 0
+                        enabled: !window.editor.clipboardImporting
+                        text: qsTr("从 Ditto 导入")
+                        glyph: "\uE8B5" // Import
+                        onClicked: {
+                            clipImport.path = ""
+                            window.editor.importClipboard(clipImport.ditto, 1)
+                        }
+                    }
+                    FlatButton {
+                        text: window.editor.clipboardImporting ? qsTr("取消") : qsTr("导入…")
+                        glyph: window.editor.clipboardImporting ? "\uE711" : "\uE8B5" // Cancel, Import
+                        onClicked: window.editor.clipboardImporting ? window.editor.cancelClipboardImport() : clipImport.pick()
+                    }
+                }
+
+                SettingRow {
+                    shown: clipImport.path.length > 0 && !window.editor.clipboardImporting
+                    title: qsTr("拆分方式")
+                    description: clipImport.path.split(/[\\/]/).pop()
+
+                    ScopeTabs {
+                        labels: [qsTr("每行一条"), qsTr("空行分段"), qsTr("整个文件一条")]
+                        current: clipImport.split
+                        onActivated: (index) => clipImport.split = index
+                    }
+                    FlatButton {
+                        text: qsTr("取消")
+                        flat: true
+                        onClicked: clipImport.path = ""
+                    }
+                    FlatButton {
+                        text: qsTr("开始导入")
+                        highlighted: true
+                        onClicked: clipImport.start()
+                    }
+                }
+
                 SettingRow {
                     title: qsTr("清除剪贴板历史")
                     keywords: qsTr("删除;清空").split(";")

@@ -173,11 +173,11 @@ Report importPlainText(const QString& path, const Options& options, const Hooks&
     Report report;
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
-        report.error = u"读不了这个文件"_s;
+        report.error = Error::Unreadable;
         return report;
     }
     if (file.size() > kMaxFile) {
-        report.error = u"这个文件太大了（超过 1 GB）"_s;
+        report.error = Error::TooLarge;
         return report;
     }
     const QString text = decodeText(file.readAll());
@@ -313,7 +313,7 @@ Report importDitto(const QString& path, const Hooks& hooks)
     static std::atomic<int> counter {0};
     QTemporaryDir temp;
     if (!temp.isValid()) {
-        report.error = u"没有地方放临时文件"_s;
+        report.error = Error::CannotCopy;
         return report;
     }
     // Ditto may be running: read a copy (with the log of a WAL database).
@@ -322,7 +322,7 @@ Report importDitto(const QString& path, const Hooks& hooks)
         if (!QFile::exists(path + suffix))
             continue;
         if (!QFile::copy(path + suffix, copy + suffix)) {
-            report.error = u"复制不了 Ditto 的数据库，磁盘空间可能不够，或被占用"_s;
+            report.error = Error::CannotCopy;
             return report;
         }
     }
@@ -331,7 +331,7 @@ Report importDitto(const QString& path, const Hooks& hooks)
         QSqlDatabase db = QSqlDatabase::addDatabase(u"QSQLITE"_s, connection);
         db.setDatabaseName(copy);
         if (!db.open()) {
-            report.error = u"打不开这个数据库"_s;
+            report.error = Error::NotDitto;
         } else {
             const auto scalar = [&db](const QString& sql) -> QVariant {
                 QSqlQuery q(db);
@@ -354,7 +354,7 @@ Report importDitto(const QString& path, const Hooks& hooks)
                 }
             }
             if (!tables.contains(u"Main"_s) || !tables.contains(u"Data"_s) || !columns.contains(u"lid"_s)) {
-                report.error = u"这不是 Ditto 的数据库，或者数据库有密码、已损坏"_s;
+                report.error = Error::NotDitto;
             } else {
                 const auto col = [&columns](const char* name, const char* fallback) {
                     return columns.contains(QString::fromLatin1(name).toLower()) ? QString::fromLatin1(name)
@@ -382,7 +382,7 @@ Report importDitto(const QString& path, const Hooks& hooks)
                                               .arg(col("lDate", "0"), col("lParentID", "-1"), col("lastPasteDate", "0"),
                                                   col("bIsGroup", "0"), order));
                 if (!ok) {
-                    report.error = u"读不了 Ditto 的数据库"_s;
+                    report.error = Error::NotDitto;
                 } else {
                     QSqlQuery formats(db);
                     formats.prepare(u"SELECT lID, strClipBoardFormat, length(ooData) FROM Data WHERE lParentID = ?"_s);
@@ -656,7 +656,7 @@ Report importFile(const QString& path, const Options& options, const Hooks& hook
 {
     if (!QFileInfo::exists(path)) {
         Report report;
-        report.error = u"找不到这个文件"_s;
+        report.error = Error::Missing;
         return report;
     }
     switch (sourceOf(path)) {

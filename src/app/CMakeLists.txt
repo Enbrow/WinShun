@@ -237,6 +237,7 @@ qt_add_qml_module(WinShun
         BoxSide.h
         ClipImage.cpp ClipImage.h
         ClipImport.cpp ClipImport.h
+        ClipImportJob.cpp ClipImportJob.h
         ClipModel.cpp ClipModel.h
         Clipboard.cpp Clipboard.h
         ColorSwatch.cpp ColorSwatch.h

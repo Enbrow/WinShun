@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ClipImport.h"
 #include "IndexService.h"
 #include "Settings.h"
 #include "Unc.h"
@@ -191,6 +192,8 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString clipboardSearchBoxSide READ clipboardSearchBoxSide WRITE setClipboardSearchBoxSide NOTIFY changed FINAL) // near | far
     Q_PROPERTY(QStringList clipboardExcludedApps READ clipboardExcludedApps NOTIFY changed FINAL)
     Q_PROPERTY(int clipboardCount READ clipboardCount NOTIFY clipboardCountChanged FINAL)
+    Q_PROPERTY(bool clipboardImporting READ clipboardImporting NOTIFY clipboardImportChanged FINAL)
+    Q_PROPERTY(QString clipboardImportMessage READ clipboardImportMessage NOTIFY clipboardImportChanged FINAL)
     Q_PROPERTY(QString clipboardNumberKeys READ clipboardNumberKeys WRITE setClipboardNumberKeys NOTIFY changed FINAL)
     Q_PROPERTY(QString clipboardNumberKeysNote READ clipboardNumberKeysNote NOTIFY numberKeysNoteChanged FINAL)
     // Optional Windows search shortcuts (taskbar::)
@@ -689,6 +692,20 @@ public:
     Q_INVOKABLE QString webIconUrl(const QString& homeUrl, bool dark) const;
     int siteIconsArrived() const { return m_siteIconsArrived; }
     Q_INVOKABLE void clearClipboard() { emit clipboardClearRequested(); } // what is in no group
+    // Importing clipboard history from Ditto, a text file or a CSV file
+    // (ClipImport): the file is picked here ("" if none), the app does the
+    // import on a thread of its own and reports back. `split`: 0 a line each,
+    // 1 paragraphs, 2 the whole file (text files only).
+    Q_INVOKABLE QString pickClipboardImportFile();
+    Q_INVOKABLE bool clipboardImportAsksSplit(const QString& path) const; // a plain text file
+    Q_INVOKABLE QString dittoDatabase() const; // Ditto's own database, "" if there is none
+    Q_INVOKABLE void importClipboard(const QString& path, int split);
+    Q_INVOKABLE void cancelClipboardImport() { emit clipboardImportCancelled(); }
+    bool clipboardImporting() const { return m_clipboardImporting; }
+    QString clipboardImportMessage() const { return m_clipboardImportMessage; }
+    // Set by the app: running (with how far it is), and how it ended.
+    void setClipboardImportProgress(int done, int total);
+    void setClipboardImportDone(const clipimport::Report& report, const QString& group);
     Q_INVOKABLE void restartExplorer() { emit explorerRestartRequested(); }
     Q_INVOKABLE void restoreDefaults();
     Q_INVOKABLE void clearHistory() { emit historyClearRequested(); }
@@ -768,6 +785,9 @@ signals:
     void opusFolderMenuChanged();
     void opusRestarted(); // setOpusFolderMenu started Opus again: it came to the front
     void clipboardClearRequested();
+    void clipboardImportChanged();
+    void clipboardImportRequested(const QString& path, int split);
+    void clipboardImportCancelled();
     void explorerRestartRequested(); // Win+V changes hands when Explorer starts again
     void edited(const ws::Settings& settings);
     void restartRequested();
@@ -831,6 +851,8 @@ private:
     bool m_classicTaskbar = false;
     QString m_clipboardHotkeyError;
     int m_clipboardCount = 0;
+    bool m_clipboardImporting = false;
+    QString m_clipboardImportMessage;
     QPointer<QWindow> m_window;
     QString m_pickedWebIcon; // chosen in a form not saved yet: kept from pruning
     QString m_diagnosticsStatus;

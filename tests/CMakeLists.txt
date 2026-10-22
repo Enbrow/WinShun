@@ -275,7 +275,8 @@ add_test(NAME tst_mcp COMMAND tst_mcp)
 add_test(NAME tst_plugin COMMAND tst_plugin)
 # Importing clipboard history (Ditto, text, CSV): the reader with a real store.
 qt_add_executable(tst_clipimport tst_clipimport.cpp ${PROJECT_SOURCE_DIR}/src/app/ClipImport.cpp
-    ${PROJECT_SOURCE_DIR}/src/app/ClipImage.cpp)
+    ${PROJECT_SOURCE_DIR}/src/app/ClipImage.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/ClipImportJob.cpp)
 target_include_directories(tst_clipimport PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(tst_clipimport PRIVATE wscore Qt6::Gui Qt6::Test)
 add_test(NAME tst_clipimport COMMAND tst_clipimport)
