@@ -435,6 +435,12 @@ Architecture, design notes and benchmarks (in Chinese) are in [docs/architecture
 
 WinShun is proud to be part of the [LINUX DO community](https://linux.do).
 
+## 感谢收录 · Thanks
+
+感谢 [果核剥壳](https://www.ghxi.com/winshun.html) 收录 Win顺。
+
+Thanks to [果核剥壳 (ghxi.com)](https://www.ghxi.com/winshun.html) for listing WinShun.
+
 ## 许可证 · License
 
 Win顺 以 [MIT 许可证](LICENSE) 发布。Copyright © 2026 LingCore.
