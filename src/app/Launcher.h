@@ -512,6 +512,9 @@ public:
     // window of the file manager (App: the Explorer tab the launcher was
     // opened from by typing, GitHub #39). Remembered as opened either way.
     void setFolderOpener(std::function<bool(const QString& folder)> opener) { m_folderOpener = std::move(opener); }
+    // The same for Ctrl+Enter on one file or folder (not a drive): true when
+    // its folder was shown in that tab with the item selected (GitHub #60).
+    void setRevealer(std::function<bool(const QString& path)> revealer) { m_revealer = std::move(revealer); }
     // Which row Alt+P is for: the one under the pointer when the mouse moved
     // there after the keyboard last moved (keyboardMoved, the arrows), else
     // the keyboard's. pointerIfMoved: the pointer (global, logical) in the
@@ -752,6 +755,7 @@ private:
     ResultModel m_results;
     QPointer<QWindow> m_window;
     std::function<bool(const QString& folder)> m_folderOpener; // setFolderOpener
+    std::function<bool(const QString& path)> m_revealer; // setRevealer
 
     QString m_query;
     Scope m_scope = All;

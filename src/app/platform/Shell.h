@@ -32,6 +32,7 @@ void revealInExplorer(const QString& path);
 // (Settings::fileManager): Explorer at first. Explorer takes over when the
 // one chosen does not start.
 void setFileManager(filemanager::Kind kind);
+filemanager::Kind fileManager(); // the one set
 // Starts `program` with the user's normal rights (the desktop shell's while
 // Win顺 is elevated, its own otherwise), never elevated, for a program to
 // wait for (see filemanager); the others start through open() and run().

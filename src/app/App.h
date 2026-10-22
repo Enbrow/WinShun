@@ -274,7 +274,12 @@ private:
     // typing in an Explorer tab, that tab goes there and its window comes
     // back to the front, so typing goes on in the new folder (GitHub #39).
     // False otherwise, or with the tab gone: a new window, as from anywhere.
-    bool openInTypingTab(const QString& folder);
+    // `select`: an item in it to select there (Ctrl+Enter, revealInTypingTab).
+    bool openInTypingTab(const QString& folder, const QString& select = {});
+    // Ctrl+Enter on a file or folder (Launcher::setRevealer): its folder in
+    // that tab, the item selected (GitHub #60). False with another file
+    // manager set, for a drive, or as openInTypingTab: the usual way.
+    bool revealInTypingTab(const QString& path);
     // Win顺's own search box on the taskbar ([Taskbar] SearchBox, taskbar::SearchBox).
     void applySearchBox();
     void setSearchBoxShown(taskbar::SearchBox::Hidden why); // it is on the taskbar (None), or why not

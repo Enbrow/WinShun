@@ -466,6 +466,11 @@ void setFileManager(filemanager::Kind kind)
     g_fileManager = kind;
 }
 
+filemanager::Kind fileManager()
+{
+    return g_fileManager.load();
+}
+
 win32::UniqueHandle startUnelevated(const std::wstring& program, const std::wstring& args, const std::wstring& cwd)
 {
     if (program.find(L'"') != std::wstring::npos)

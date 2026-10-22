@@ -536,6 +536,7 @@ bool App::start(const StartOptions& options)
     // ... and a folder opened goes to that tab, which comes back to the
     // front the same way (GitHub #39).
     m_launcher->setFolderOpener([this](const QString& folder) { return openInTypingTab(folder); });
+    m_launcher->setRevealer([this](const QString& path) { return revealInTypingTab(path); });
     connect(m_launcher.get(), &Launcher::pinnedChanged, this, &App::launcherPinnedChanged);
     connect(m_launcher.get(), &Launcher::pinRequested, this, &App::pinPicture);
     connect(m_launcher.get(), &Launcher::settingsRequested, this, [this] { showSettings(); });
@@ -2318,7 +2319,17 @@ void App::explorerFolderKnown(HWND root, HWND tab, const QString& folder)
         deliverTyping();
 }
 
-bool App::openInTypingTab(const QString& folder)
+bool App::revealInTypingTab(const QString& path)
+{
+    // Explorer only (the file manager chosen shows items itself), and not a
+    // drive: nothing above it to select it in.
+    const QFileInfo info(path);
+    if (shell::fileManager() != filemanager::Kind::Explorer || info.isRoot())
+        return false;
+    return openInTypingTab(QDir::toNativeSeparators(info.absolutePath()), QDir::toNativeSeparators(path));
+}
+
+bool App::openInTypingTab(const QString& folder, const QString& select)
 {
     const TypingOrigin from = std::exchange(m_typingExplorer, {});
     if (!from.tab)
@@ -2335,15 +2346,18 @@ bool App::openInTypingTab(const QString& folder)
     ::SetForegroundWindow(root);
     if (!m_typingWorker)
         m_typingWorker = std::make_unique<ComWorker>();
-    m_typingWorker->post([tab = from.tab, path = QDir::toNativeSeparators(folder)] {
+    m_typingWorker->post([tab = from.tab, path = QDir::toNativeSeparators(folder), select] {
         QElapsedTimer clock;
         clock.start();
-        if (filemanager::goToKeepingFocus(tab, path.toStdWString())) {
+        if (filemanager::goToKeepingFocus(tab, path.toStdWString(), select.toStdWString())) {
             qInfo().noquote() << u"Explorer typing: the tab went to \"%1\", %2 ms"_s.arg(path).arg(clock.elapsed());
             return;
         }
         qWarning() << "Explorer typing: the tab is not among the shell's windows; a new window instead";
-        shell::open(path);
+        if (select.isEmpty())
+            shell::open(path);
+        else
+            shell::reveal(select);
     });
     return true;
 }

@@ -2929,7 +2929,8 @@ void Launcher::perform(const SearchResult& result, Action action)
         break;
     case Reveal:
         remember(r.path, m_shownText);
-        shell::reveal(r.path);
+        if (!m_revealer || !m_revealer(r.path))
+            shell::reveal(r.path);
         emit dismissRequested();
         break;
     case CopyPath:
@@ -3367,7 +3368,8 @@ void Launcher::performMany(const SearchResults& items, Action action)
             flash(tr("选中的项目没有可以打开的位置"));
             return;
         }
-        shell::reveal(paths);
+        if (paths.size() != 1 || shown != 1 || !m_revealer || !m_revealer(paths.first()))
+            shell::reveal(paths);
         emit dismissRequested();
         break;
     }

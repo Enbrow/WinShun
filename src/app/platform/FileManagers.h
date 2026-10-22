@@ -85,8 +85,10 @@ bool goTo(HWND tab, const std::wstring& folder);
 // waits until it is in front with that focus again (half a second at most),
 // then, once there, until the tab shows the folder (two seconds at most), so
 // that the folder asked for next is the new one; the new folder's files get
-// the keyboard. Waits on Explorer: not on the GUI thread.
-bool goToKeepingFocus(HWND tab, const std::wstring& folder);
+// the keyboard. Waits on Explorer: not on the GUI thread. `select`: an item
+// of the folder to select there (Ctrl+Enter, GitHub #60), once the view has
+// it; the folder shown already is not navigated to again.
+bool goToKeepingFocus(HWND tab, const std::wstring& folder, const std::wstring& select = {});
 
 // The program that takes the commands: TOTALCMD64.EXE (TOTALCMD.EXE),
 // dopusrt.exe, XYplorer.exe, pulse.exe, the custom open command's; empty

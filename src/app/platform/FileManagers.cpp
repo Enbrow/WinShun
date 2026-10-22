@@ -836,7 +836,7 @@ bool goTo(HWND tab, const std::wstring& folder)
     return findTab(tab, web, browser) && navigate(web.Get(), folder);
 }
 
-bool goToKeepingFocus(HWND tab, const std::wstring& folder)
+bool goToKeepingFocus(HWND tab, const std::wstring& folder, const std::wstring& select)
 {
     const HWND root = ::GetAncestor(tab, GA_ROOT);
     const auto inFront = [root] { return ::GetForegroundWindow() == root && filesFocused(root); };
@@ -846,11 +846,32 @@ bool goToKeepingFocus(HWND tab, const std::wstring& folder)
     waitFor(inFront, std::chrono::milliseconds(500));
     ComPtr<IWebBrowser2> web;
     ComPtr<IShellBrowser> browser;
-    if (!findTab(tab, web, browser) || !navigate(web.Get(), folder))
+    if (!findTab(tab, web, browser))
         return false;
     const QString wanted = QString::fromStdWString(folder);
-    waitFor([&] { return pathtext::sameFolder(QString::fromStdWString(folderPath(browser.Get())), wanted); },
-        std::chrono::milliseconds(2000));
+    const auto showsWanted = [&] { return pathtext::sameFolder(QString::fromStdWString(folderPath(browser.Get())), wanted); };
+    // Already there (an item to select in the folder shown): no navigation,
+    // which would make a new view that loses the selection.
+    if (select.empty() || !showsWanted()) {
+        if (!navigate(web.Get(), folder))
+            return false;
+        waitFor(showsWanted, std::chrono::milliseconds(2000));
+    }
+    if (!select.empty()) {
+        // The view lists the folder after it is shown: asked again until it
+        // has the item (two seconds at most). Not found: the folder is open
+        // all the same, true.
+        PIDLIST_ABSOLUTE pidl = ::ILCreateFromPathW(select.c_str());
+        if (pidl) {
+            constexpr UINT flags = SVSI_SELECT | SVSI_DESELECTOTHERS | SVSI_ENSUREVISIBLE | SVSI_FOCUSED;
+            waitFor([&] {
+                ComPtr<IShellView> view;
+                return showsWanted() && SUCCEEDED(browser->QueryActiveShellView(&view)) && view
+                    && SUCCEEDED(view->SelectItem(::ILFindLastID(pidl), flags));
+            }, std::chrono::milliseconds(2000));
+            ::ILFree(pidl);
+        }
+    }
     // The new view takes the focus as it comes; should it not have it (the
     // window was not in front with its files focused), it is given to it.
     if (::GetForegroundWindow() == root && !waitFor(inFront, std::chrono::milliseconds(300))) {
