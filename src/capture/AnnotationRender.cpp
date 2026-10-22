@@ -208,6 +208,7 @@ struct Recipe {
     Item item;
     qreal dpr = 1;
     int number = 0;
+    NumberFormat format = NumberFormat::Arabic;
     QList<Op> ops;
     QRect extent; // every pixel the ops may touch
     qint64 bytes = 0;
@@ -326,12 +327,14 @@ void addText(Recipe& recipe, const TextLayers& layers, const QString& text, int 
     recipe.ops.append(op);
 }
 
-std::shared_ptr<const Recipe> buildRecipe(const Item& item, qreal dpr, int number, const TextLayers& layers)
+std::shared_ptr<const Recipe> buildRecipe(const Item& item, qreal dpr, int number, NumberFormat format,
+    const TextLayers& layers)
 {
     auto recipe = std::make_shared<Recipe>();
     recipe->item = item;
     recipe->dpr = dpr;
     recipe->number = number;
+    recipe->format = format;
     const QColor color = QColor::fromRgb(item.style.color);
     const int w = std::max(1, item.style.width);
     switch (item.kind) {
@@ -447,13 +450,27 @@ std::shared_ptr<const Recipe> buildRecipe(const Item& item, qreal dpr, int numbe
     case Kind::Number: {
         if (item.points.isEmpty())
             break;
-        const NumberGeometry g = numberGeometry(item, number, dpr);
+        const NumberGeometry g = numberGeometry(item, number, dpr, format);
         const QPoint anchor = pixelAt(item.points[0]);
         const QRectF disc = g.disc.translated(-QPointF(anchor));
         const qreal radius = disc.height() / 2;
         QPainterPath shape;
         shape.addRoundedRect(disc, radius, radius);
-        addFill(*recipe, shape, anchor, color);
+        QRgb digits = inkOn(item.style.color);
+        if (g.ring > 0) {
+            // A ring in the colour, the digits in the colour inside it; a
+            // white one would vanish on a white page: the words' dark then.
+            digits = numberWordsColor(item);
+            const QColor tint = QColor::fromRgb(digits);
+            const qreal inner = std::max(0.0, radius - g.ring);
+            QPainterPath ring;
+            ring.setFillRule(Qt::OddEvenFill);
+            ring.addRoundedRect(disc, radius, radius);
+            ring.addRoundedRect(disc.adjusted(g.ring, g.ring, -g.ring, -g.ring), inner, inner);
+            addFill(*recipe, ring, anchor, tint);
+        } else {
+            addFill(*recipe, shape, anchor, color);
+        }
         if (g.outline > 0) {
             const qreal o = g.outline;
             const qreal inner = std::max(0.0, radius - o);
@@ -463,7 +480,9 @@ std::shared_ptr<const Recipe> buildRecipe(const Item& item, qreal dpr, int numbe
             ring.addRoundedRect(disc.adjusted(o, o, -o, -o), inner, inner);
             addFill(*recipe, ring, anchor, QColor::fromRgba(numberOutlineColor()));
         }
-        addText(*recipe, layers, g.label, std::max(1, item.style.fontPx), true, g.origin, inkOn(item.style.color));
+        addText(*recipe, layers, g.label, std::max(1, item.style.fontPx), true, g.origin, digits);
+        if (!g.wordsBox.isEmpty())
+            addText(*recipe, layers, item.text, std::max(1, item.style.fontPx), false, g.wordsOrigin, numberWordsColor(item));
         break;
     }
     case Kind::Redact: {
@@ -859,15 +878,15 @@ struct Compositor::Private {
             drop(key);
     }
 
-    std::shared_ptr<const Recipe> recipe(const Item& item, qreal dpr, int number)
+    std::shared_ptr<const Recipe> recipe(const Item& item, qreal dpr, int number, NumberFormat format)
     {
         const quint64 key = cacheKey(Slot::Recipe, item.id);
         if (const Entry* entry = touch(key)) {
             const Recipe& r = *entry->recipe;
-            if (r.dpr == dpr && r.number == number && r.item == item)
+            if (r.dpr == dpr && r.number == number && r.format == format && r.item == item)
                 return entry->recipe;
         }
-        std::shared_ptr<const Recipe> made = buildRecipe(item, dpr, number,
+        std::shared_ptr<const Recipe> made = buildRecipe(item, dpr, number, format,
             [this](const QString& text, int pixelSize, bool bold, QRgb color) {
                 return textLayer(text, pixelSize, bold, color);
             });
@@ -952,7 +971,7 @@ Compositor::Compositor(qint64 cacheBytes_)
 Compositor::~Compositor() = default;
 
 void Compositor::render(const Document& doc, const QImage& base, const QRect& sampleBounds, const QRect& area, QImage* target,
-    std::optional<quint32> skip)
+    std::optional<quint32> skip, std::optional<quint32> unworded)
 {
     if (!target || area.isEmpty())
         return;
@@ -966,16 +985,24 @@ void Compositor::render(const Document& doc, const QImage& base, const QRect& sa
     const QTransform toTarget = QTransform::fromTranslate(-area.x(), -area.y());
     std::optional<QHash<quint32, int>> shown;
     std::optional<QList<QRect>> boxes;
-    for (const Item& item : doc.items) {
-        if (skip && item.id == *skip)
+    for (const Item& listed : doc.items) {
+        if (skip && listed.id == *skip)
             continue;
         int number = 0;
-        if (item.kind == Kind::Number) {
+        if (listed.kind == Kind::Number) {
             if (!shown)
                 shown = numbers(doc);
-            number = shown->value(item.id, 1);
+            number = shown->value(listed.id, 1);
         }
-        const std::shared_ptr<const Recipe> recipe = d->recipe(item, doc.dpr, number);
+        // A number whose words are being typed is drawn without them.
+        Item bare;
+        const bool without = unworded && listed.id == *unworded && !listed.text.isEmpty();
+        if (without) {
+            bare = listed;
+            bare.text.clear();
+        }
+        const Item& item = without ? bare : listed;
+        const std::shared_ptr<const Recipe> recipe = d->recipe(item, doc.dpr, number, formatOf(doc, item.series));
         if (!recipe->extent.intersects(area))
             continue;
         for (const Op& op : recipe->ops) {

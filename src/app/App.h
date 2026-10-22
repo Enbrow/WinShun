@@ -178,6 +178,13 @@ private:
     // the first time, beside `where` (physical), reading `image`.
     void showCaptureOcr(const QImage& image, double dpr, const QRect& where);
     void closeCaptureOcr(bool destroy = false); // `destroy`: the capture was turned off
+    // 识别文字并复制 / 搜索 / 网页搜索: read `image` on a reader of its own, no
+    // window (the OCR window is up only when the models are missing, to say so),
+    // then go on with the words. The reader goes when it has answered.
+    enum class OcrThen { Copy, Search, Web };
+    void captureOcrThen(const QImage& image, double dpr, const QRect& where, OcrThen then);
+    void quickOcrDone();
+    void openWebSearch(const QString& query); // the default web search (defaultWebSearchUrl)
     // The pictures pinned on the screen: made when first wanted (a capture's
     // 贴图, or 贴到屏幕 with the capture off too); closed with the capture.
     capture::PinManager& pins();
@@ -487,6 +494,8 @@ private:
     std::unique_ptr<capture::CaptureOcr> m_captureOcr; // the OCR window's view-model, made with it
     std::unique_ptr<WindowFrame> m_ocrFrame;
     QPointer<QQuickWindow> m_ocrWindow;
+    std::unique_ptr<capture::CaptureOcr> m_quickOcr; // while a read for ocrcopy / ocrsearch / ocrweb runs
+    OcrThen m_quickOcrThen = OcrThen::Copy;
     // Destroyed before the two above: its thread calls back into the app, and
     // the page waits on its writes.
     std::unique_ptr<ClipboardWatcher> m_clipWatcher;

@@ -5,6 +5,7 @@
 #include <QImage>
 #include <QObject>
 #include <QRect>
+#include <QTimer>
 
 #include <functional>
 #include <memory>
@@ -47,13 +48,19 @@ public:
     bool anyClickThrough() const;
     void clearClickThrough(); // the tray menu: every pin takes the mouse again
     void closeAll();
+    // True while the Ctrl watcher runs (some pin is click-through), else no timer at all.
+    bool watching() const { return m_watch.isActive(); }
 
 private:
+    void setWatching(); // starts or stops the watcher to match anyClickThrough()
+    void watch(); // one tick: Ctrl and the cursor against every click-through pin
     void showMenu(PinWindow* pin, POINT at);
     void closed(PinWindow* pin);
 
     Callbacks m_callbacks;
     std::vector<std::unique_ptr<PinWindow>> m_pins;
+    QTimer m_watch; // a click-through pin under the cursor with Ctrl held takes the mouse (#59)
+    const PinWindow* m_menuPin = nullptr; // the pin whose menu is up
     std::vector<std::unique_ptr<PinWindow>> m_closing; // windows gone, deleted once their procedure returned
 };
 

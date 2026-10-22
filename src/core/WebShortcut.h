@@ -63,6 +63,12 @@ constexpr int kWebDefaultsVersion = 2;
 // not taken, nor their site (a user's own "bd" for 百度 keeps 百度 once).
 WebShortcuts withNewDefaults(WebShortcuts shortcuts, const WebShortcuts& defaults);
 
+// The address a web search for `words` opens when no keyword was typed (the
+// OCR's 网页搜索): the first shortcut of the list that searches, so the one at
+// the top is the default and the list's order is the user's to change; Bing's
+// when the list has none. Empty when `words` has none.
+QString defaultWebSearchUrl(const WebShortcuts& shortcuts, const QString& words);
+
 // "winshun-web:<keyword>": stands for a shortcut's row (SearchResult::path).
 QString webPath(const QString& keyword, const QString& words = {});
 bool isWebPath(QStringView path) noexcept;

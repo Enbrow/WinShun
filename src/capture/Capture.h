@@ -63,6 +63,9 @@ public:
         // 识别文字: the picture, the scale of the monitor it was on, where it
         // is on the screen (physical; the OCR window goes beside it).
         std::function<void(const QImage&, double dpr, const QRect& where)> ocr;
+        // 识别文字并复制 / 搜索 / 网页搜索 (the mouse buttons' choices): read, then go
+        // on at once with `then` (OcrCopy, OcrSearch or OcrWeb) without the window.
+        std::function<void(const QImage&, double dpr, const QRect& where, CaptureSession::Action then)> ocrThen;
         // The pins (the app's: they outlive the capture's pictures, and a
         // file can be pinned with the capture off). Made when first asked for.
         std::function<PinManager*()> pins;
@@ -73,6 +76,7 @@ public:
 
     void setCopyOnSelect(bool on) { m_session.setCopyOnSelect(on); }
     void setMouseActions(const CaptureSession::MouseActions& actions) { m_session.setMouseActions(actions); }
+    void setHiddenButtons(const QStringList& ids) { m_session.setHiddenButtons(ids); }
     // The hotkey, PrtScn, the tray menu: a capture, or the end of the one
     // under way (what a key opened, the same key closes).
     void trigger();

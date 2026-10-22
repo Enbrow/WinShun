@@ -911,6 +911,18 @@
         <source>只在启动时</source>
         <translation>Only at startup</translation>
     </message>
+    <message>
+        <source>识别文字并复制</source>
+        <translation>Read text and copy</translation>
+    </message>
+    <message>
+        <source>识别文字并搜索</source>
+        <translation>Read text and search</translation>
+    </message>
+    <message>
+        <source>识别文字并网页搜索</source>
+        <translation>Read text and search the web</translation>
+    </message>
 </context>
 <context>
     <name>AnnotateLayer</name>
@@ -921,6 +933,13 @@
     <message>
         <source>按 H 显示工具条</source>
         <translation>Press H to show the toolbar</translation>
+    </message>
+</context>
+<context>
+    <name>AnnotateObjects</name>
+    <message>
+        <source>输入文字，Esc 跳过</source>
+        <translation>Type words, Esc to skip</translation>
     </message>
 </context>
 <context>
@@ -1008,6 +1027,26 @@
     <message>
         <source>恢复默认样式</source>
         <translation>Restore the default style</translation>
+    </message>
+    <message>
+        <source>序号写成 1 2 3</source>
+        <translation>Numbers as 1 2 3</translation>
+    </message>
+    <message>
+        <source>序号写成 A B C</source>
+        <translation>Numbers as A B C</translation>
+    </message>
+    <message>
+        <source>序号写成 a b c</source>
+        <translation>Numbers as a b c</translation>
+    </message>
+    <message>
+        <source>序号写成 Ⅰ Ⅱ Ⅲ（罗马数字）</source>
+        <translation>Numbers as Ⅰ Ⅱ Ⅲ (Roman numerals)</translation>
+    </message>
+    <message>
+        <source>序号写成 ① ② ③（圈里的数字）</source>
+        <translation>Numbers as ① ② ③ (digits in a ring)</translation>
     </message>
 </context>
 <context>
@@ -1125,12 +1164,12 @@
         <translation>Double click</translation>
     </message>
     <message>
-        <source>文字：改文字；序号：改号</source>
-        <translation>Text: edit it; number: change it</translation>
+        <source>文字：改文字；序号：改号，序号旁的字：改字</source>
+        <translation>Text: edit it; number: change it; the words by a number: edit them</translation>
     </message>
     <message>
-        <source>写完文字（Enter 换行）</source>
-        <translation>Finish the text (Enter starts a new line)</translation>
+        <source>写完文字（Enter 换行；序号旁的字 Enter 就写完）</source>
+        <translation>Finish the text (Enter breaks the line; for the words by a number, Enter finishes them)</translation>
     </message>
     <message>
         <source>隐藏 / 显示工具条</source>
@@ -1303,6 +1342,10 @@
         <source>放弃修改</source>
         <translation>Give up changes</translation>
     </message>
+    <message>
+        <source>改序号格式</source>
+        <translation>Change number format</translation>
+    </message>
 </context>
 <context>
     <name>CaptureCard</name>
@@ -1425,6 +1468,46 @@
     <message>
         <source>后退（重新框选）</source>
         <translation>Step back (select again)</translation>
+    </message>
+    <message>
+        <source>识别文字并复制</source>
+        <translation>Read text and copy</translation>
+    </message>
+    <message>
+        <source>识别文字并搜索</source>
+        <translation>Read text and search</translation>
+    </message>
+    <message>
+        <source>识别文字并网页搜索</source>
+        <translation>Read text and search the web</translation>
+    </message>
+    <message>
+        <source>“识别文字并复制”读出图里的字放进剪贴板，“识别文字并搜索”把字送进 Win顺 的搜索框，“识别文字并网页搜索”用网页搜索列表里排第一的网站搜</source>
+        <translation>“Read text and copy” puts the words found in the picture on the clipboard, “Read text and search” sends them to Win顺’s search box, “Read text and search the web” searches them on the first site of the web search list</translation>
+    </message>
+    <message>
+        <source>撤销</source>
+        <translation>Undo</translation>
+    </message>
+    <message>
+        <source>重做</source>
+        <translation>Redo</translation>
+    </message>
+    <message>
+        <source>复制</source>
+        <translation>Copy</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>工具条上的按钮</source>
+        <translation>Toolbar buttons</translation>
+    </message>
+    <message>
+        <source>点一下显示或隐藏，亮着的就是显示的。隐藏的按钮，快捷键照样能用：撤销 Ctrl+Z、重做 Ctrl+Y、复制 Enter、保存 Ctrl+S、贴图 F3、取消 Esc；识别文字没有快捷键，只能点工具条上的按钮，或设给上面的鼠标键。标注工具一直显示</source>
+        <translation>Click to show or hide a button; a lit one is shown. A hidden button’s key still works: Undo Ctrl+Z, Redo Ctrl+Y, Copy Enter, Save Ctrl+S, Pin F3, Cancel Esc. Read text has no key: use its toolbar button, or give it to a mouse button above. The annotation tools always show</translation>
     </message>
 </context>
 <context>
@@ -2383,6 +2466,10 @@
     <message>
         <source>关闭</source>
         <translation>Close</translation>
+    </message>
+    <message>
+        <source>网页搜索</source>
+        <translation>Search the web</translation>
     </message>
 </context>
 <context>
@@ -6297,8 +6384,8 @@
         <translation>Pin the last screenshot</translation>
     </message>
     <message>
-        <source>取消所有贴图的穿透</source>
-        <translation>Make all pins clickable again</translation>
+        <source>取消所有贴图的穿透（单个：按住 Ctrl 点它）</source>
+        <translation>Make all pins clickable again (one: hold Ctrl over it)</translation>
     </message>
     <message>
         <source>关闭全部贴图</source>
@@ -6403,6 +6490,18 @@
     <message>
         <source>双击 Ctrl 打开搜索。还没有要索引的文件夹，点这里在设置里添加；放在服务器上的文件夹，请加到“网络共享”里。</source>
         <translation>Press Ctrl twice to search. There are no folders to index yet: click here to add some in the settings. Folders kept on a server go under Network shares.</translation>
+    </message>
+    <message>
+        <source>已复制识别的文字</source>
+        <translation>Copied the text that was read</translation>
+    </message>
+    <message>
+        <source>识别文字</source>
+        <translation>Read text</translation>
+    </message>
+    <message>
+        <source>图片里没有找到文字。</source>
+        <translation>No text was found in the picture.</translation>
     </message>
 </context>
 <context>
@@ -9586,8 +9685,8 @@
         <translation>Always on top</translation>
     </message>
     <message>
-        <source>鼠标穿透</source>
-        <translation>Click through</translation>
+        <source>鼠标穿透（按住 Ctrl 可操作）</source>
+        <translation>Click through (hold Ctrl to use it)</translation>
     </message>
     <message>
         <source>关闭</source>

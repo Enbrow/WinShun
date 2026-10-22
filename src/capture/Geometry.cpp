@@ -342,6 +342,11 @@ double nextOpacity(double opacity, int steps)
     return std::clamp(tenths, 1L, 10L) / 10.0;
 }
 
+bool pinLetsMouseThrough(bool clickThrough, bool ctrlDown, bool cursorOver, bool busy)
+{
+    return clickThrough && !busy && !(ctrlDown && cursorOver);
+}
+
 PinFrame pinFrame(double dpr)
 {
     if (dpr <= 0)
@@ -366,6 +371,11 @@ double ocrUpscale(QSize image, double dpr, int maxWidth)
         return 1.0;
     const double scale = std::min(2.0, static_cast<double>(maxWidth) / image.width());
     return scale >= 1.25 ? scale : 1.0;
+}
+
+QString ocrOneLine(const QString& text, int most)
+{
+    return text.simplified().left(most); // simplified(): trimmed, each run of whitespace one space
 }
 
 QPoint placeBeside(const QRect& anchor, QSize box, const QRect& area, int gap)

@@ -151,12 +151,17 @@ class CaptureSession : public QObject {
     Q_PROPERTY(AnnotationModel* annotation READ annotation CONSTANT FINAL)
     // H hides the toolbar (the selection may sit under it).
     Q_PROPERTY(bool toolbarHidden READ toolbarHidden NOTIFY toolbarHiddenChanged FINAL)
+    // The action buttons left off the toolbar (settings; ids as Settings::captureToolbarButtonIds):
+    // their keys still work.
+    Q_PROPERTY(QStringList hiddenButtons READ hiddenButtons NOTIFY hiddenButtonsChanged FINAL)
     // The hint about the tool keys has been shown (once per run).
     Q_PROPERTY(bool toolHintSeen READ toolHintSeen WRITE setToolHintSeen NOTIFY toolHintSeenChanged FINAL)
 
 public:
-    // Pin: left on the screen where it was (PinWindow); Ocr: its words read (CaptureOcr).
-    enum class Action { Copy, Save, Cancel, Pin, Ocr };
+    // Pin: left on the screen where it was (PinWindow); Ocr: its words read (CaptureOcr);
+    // OcrCopy, OcrSearch and OcrWeb read them and go on at once: to the clipboard,
+    // the launcher's search box, the default web search (the mouse buttons' choices).
+    enum class Action { Copy, Save, Cancel, Pin, Ocr, OcrCopy, OcrSearch, OcrWeb };
     Q_ENUM(Action)
 
     // The windows at the freeze: top-level ones from the top of the Z order
@@ -178,6 +183,8 @@ public:
     void end();
     bool ocrAvailable() const { return m_ocrAvailable; }
     void setOcrAvailable(bool on);
+    QStringList hiddenButtons() const { return m_hiddenButtons; }
+    void setHiddenButtons(const QStringList& ids);
     bool active() const { return m_active; }
     bool hasSelection() const { return m_selection.screen >= 0; }
     int selectionScreen() const { return m_selection.screen; }
@@ -186,8 +193,8 @@ public:
     void setCopyOnSelect(bool on) { m_copyOnSelect = on; } // a drag or a click on a window copies at once
 
     // What the mouse buttons do once a selection is there (issue #46), as
-    // Settings keeps them: none | copy | save | pin | ocr | cancel, the right
-    // button also back. Only with no annotation tool on and no stroke or text
+    // Settings keeps them: none | copy | save | pin | ocr | ocrcopy | ocrsearch |
+    // ocrweb | cancel, the right button also back. Only with no annotation tool on and no stroke or text
     // under way; then the right button steps back like Esc, the rest do nothing.
     struct MouseActions {
         QString doubleLeft = QStringLiteral("copy");
@@ -240,6 +247,7 @@ signals:
     void selectionChanged();
     void activeChanged();
     void ocrAvailableChanged();
+    void hiddenButtonsChanged();
     void toolbarHiddenChanged();
     void toolHintSeenChanged();
 
@@ -259,7 +267,7 @@ private:
     void publish(); // the state onto the screens
     void finish(Action action);
     void back(); // Esc, right click
-    enum class MouseAct { None, Copy, Save, Pin, Ocr, Cancel, Back };
+    enum class MouseAct { None, Copy, Save, Pin, Ocr, Cancel, Back, OcrCopy, OcrSearch, OcrWeb };
     static MouseAct parseMouseAct(const QString& name, MouseAct fallback);
     bool annotationBusy() const; // a tool on, a gesture or a text under way
     void mouseButton(Qt::MouseButton button, int screen, QPoint p); // right, middle, X1, X2
@@ -278,6 +286,7 @@ private:
     QRect m_flyout; // over all of m_windows.tops
     bool m_active = false;
     bool m_ocrAvailable = false;
+    QStringList m_hiddenButtons;
     bool m_copyOnSelect = false;
     MouseAct m_actDoubleLeft = MouseAct::Copy;
     MouseAct m_actRight = MouseAct::Back;

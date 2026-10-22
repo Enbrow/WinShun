@@ -24,6 +24,9 @@ Rectangle {
         { value: "save", text: qsTr("保存") },
         { value: "pin", text: qsTr("贴图") },
         { value: "ocr", text: qsTr("识别文字") },
+        { value: "ocrcopy", text: qsTr("识别文字并复制") },
+        { value: "ocrsearch", text: qsTr("识别文字并搜索") },
+        { value: "ocrweb", text: qsTr("识别文字并网页搜索") },
         { value: "cancel", text: qsTr("取消截图") }
     ]
     readonly property var rightChoices: [mouseChoices[0], { value: "back", text: qsTr("后退（重新框选）") }].concat(mouseChoices.slice(1))
@@ -35,6 +38,24 @@ Rectangle {
     readonly property int pickWidth: Math.ceil(Math.max(...rightChoices.map(c => pickMetrics.advanceWidth(c.text)))) + 6 + 10 + 24
 
     FontMetrics { id: pickMetrics; font.pixelSize: Theme.fontBody }
+
+    // The toolbar's buttons left off (Settings::captureToolbarHidden) and the ids it knows, in its order.
+    readonly property var hiddenButtons: editor.captureToolbarHidden.split(",")
+    readonly property var toolbarButtons: [
+        { id: "undo", text: qsTr("撤销") },
+        { id: "redo", text: qsTr("重做") },
+        { id: "copy", text: qsTr("复制") },
+        { id: "save", text: qsTr("保存") },
+        { id: "pin", text: qsTr("贴图") },
+        { id: "ocr", text: qsTr("识别文字") },
+        { id: "cancel", text: qsTr("取消") }
+    ]
+    function setButtonShown(id, shown) {
+        const left = hiddenButtons.filter(h => h.length > 0 && h !== id)
+        if (!shown)
+            left.push(id)
+        editor.captureToolbarHidden = left.join(",")
+    }
 
     implicitHeight: body.implicitHeight + 24
     radius: Theme.controlRadius
@@ -318,6 +339,13 @@ Rectangle {
                     font.pixelSize: Theme.fontCaption
                     wrapMode: Text.Wrap
                 }
+                Text {
+                    width: parent.width
+                    text: qsTr("“识别文字并复制”读出图里的字放进剪贴板，“识别文字并搜索”把字送进 Win顺 的搜索框，“识别文字并网页搜索”用网页搜索列表里排第一的网站搜")
+                    color: Theme.subtext
+                    font.pixelSize: Theme.fontCaption
+                    wrapMode: Text.Wrap
+                }
                 Repeater {
                     model: [
                         { title: qsTr("双击左键"), prop: "captureMouseDoubleLeft", withBack: false },
@@ -364,6 +392,44 @@ Rectangle {
                                 }))
                                 onActivated: (i) => card.editor[mouseRow.modelData.prop] = mouseRow.choices[i].value
                             }
+                        }
+                    }
+                }
+            }
+
+            Column { // which action buttons the toolbar shows (#57)
+                width: parent.width
+                spacing: 8
+
+                Text {
+                    width: parent.width
+                    text: qsTr("工具条上的按钮")
+                    color: Theme.text
+                    font.pixelSize: Theme.fontBody
+                }
+                Text {
+                    width: parent.width
+                    text: qsTr("点一下显示或隐藏，亮着的就是显示的。隐藏的按钮，快捷键照样能用：撤销 Ctrl+Z、重做 Ctrl+Y、复制 Enter、保存 Ctrl+S、贴图 F3、取消 Esc；识别文字没有快捷键，只能点工具条上的按钮，或设给上面的鼠标键。标注工具一直显示")
+                    color: Theme.subtext
+                    font.pixelSize: Theme.fontCaption
+                    wrapMode: Text.Wrap
+                }
+                Flow {
+                    width: parent.width
+                    spacing: 8
+
+                    Repeater {
+                        model: card.toolbarButtons
+
+                        delegate: FlatButton {
+                            id: toolbarChoice
+
+                            required property var modelData
+                            readonly property bool shown: card.hiddenButtons.indexOf(modelData.id) < 0
+
+                            highlighted: shown
+                            text: modelData.text
+                            onClicked: card.setButtonShown(modelData.id, !shown)
                         }
                     }
                 }

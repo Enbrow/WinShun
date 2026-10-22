@@ -31,6 +31,12 @@ PinManager::PinManager(Callbacks callbacks, QObject* parent)
     : QObject(parent)
     , m_callbacks(std::move(callbacks))
 {
+    // Polled, not hooked: a keyboard hook would sit in front of every key in
+    // the system (and the double-Ctrl launcher is KeyListener's); this reads
+    // Ctrl without touching it, and runs only while a pin is click-through.
+    m_watch.setInterval(40);
+    m_watch.setTimerType(Qt::CoarseTimer);
+    connect(&m_watch, &QTimer::timeout, this, &PinManager::watch);
 }
 
 PinManager::~PinManager()
@@ -76,6 +82,33 @@ void PinManager::clearClickThrough()
 {
     for (const auto& p : m_pins)
         p->setClickThrough(false);
+    setWatching();
+}
+
+void PinManager::setWatching()
+{
+    if (anyClickThrough()) {
+        if (!m_watch.isActive()) {
+            m_watch.start();
+            qInfo() << "Screen capture: pin watcher on (a click-through pin)";
+        }
+    } else if (m_watch.isActive()) {
+        m_watch.stop();
+        qInfo() << "Screen capture: pin watcher off (no click-through pin)";
+    }
+}
+
+void PinManager::watch()
+{
+    const bool ctrl = (::GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    // The pins' pixels are physical whatever the thread's awareness.
+    const DPI_AWARENESS_CONTEXT previous = ::SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    POINT cursor {};
+    ::GetCursorPos(&cursor);
+    if (previous)
+        ::SetThreadDpiAwarenessContext(previous);
+    for (const auto& p : m_pins)
+        p->updateReachable(ctrl, QPoint(cursor.x, cursor.y), p.get() == m_menuPin);
 }
 
 void PinManager::closeAll()
@@ -96,6 +129,7 @@ void PinManager::closed(PinWindow* pin)
         return;
     m_closing.push_back(std::move(*found));
     m_pins.erase(found);
+    setWatching();
     QMetaObject::invokeMethod(this, [this] {
         m_closing.clear();
         if (m_callbacks.closed)
@@ -115,13 +149,15 @@ void PinManager::showMenu(PinWindow* pin, POINT at)
         {OcrCommand, ocr, false, m_callbacks.ocrAvailable},
         shell::MenuItem::separator(),
         {TopmostCommand, tr("置顶"), pin->topmost()},
-        {ClickThroughCommand, tr("鼠标穿透"), pin->clickThrough()},
+        {ClickThroughCommand, tr("鼠标穿透（按住 Ctrl 可操作）"), pin->clickThrough()},
         shell::MenuItem::separator(),
         {CloseCommand, tr("关闭") + u"\tEsc"_s},
         {CloseAllCommand, tr("关闭全部贴图")},
     };
     const HWND hwnd = pin->hwnd();
+    m_menuPin = pin; // the pin keeps the mouse while its menu is up
     const int chosen = shell::popupMenu(hwnd, items, at);
+    m_menuPin = nullptr;
     // The pin may have gone while the menu was up (the tray closed them all).
     if (std::ranges::find(m_pins, pin, &std::unique_ptr<PinWindow>::get) == m_pins.end())
         return;
@@ -154,6 +190,7 @@ void PinManager::showMenu(PinWindow* pin, POINT at)
         break;
     case ClickThroughCommand:
         pin->setClickThrough(!pin->clickThrough());
+        setWatching();
         break;
     case CloseCommand:
         pin->close();

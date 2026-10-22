@@ -354,6 +354,10 @@ private slots:
                 m.commitText(u"标注 Text"_s);
             } else {
                 drag(m, a, b);
+                if (kind == Kind::Number) {
+                    QVERIFY(m.editingText()); // its words are typed next
+                    m.commitPending();
+                }
             }
             QCOMPARE(m.itemCount(), before + 1);
             QVERIFY(!m.gestureActive());
@@ -519,6 +523,248 @@ private slots:
         QVERIFY(m.key(Qt::Key_E, {}));
         QCOMPARE(m.tool(), toolIndex(Kind::Ellipse));
         QVERIFY(!m.key(Qt::Key_X, {}));
+    }
+
+    // #57: typing goes on straight into a label to the right of a number put down,
+    // and the number with its label is one undo step.
+    void numberTakesWordsRightAway()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        m.setTool(toolIndex(Kind::Number));
+        click(m, QPoint(50, 50));
+        QVERIFY(m.editingText());
+        const QVariantMap e = m.editing();
+        QVERIFY(e.value(u"number"_s).toBool());
+        QVERIFY(e.value(u"x"_s).toInt() > 50 + 10); // to the right of the disc
+        QVERIFY(!e.value(u"bold"_s).toBool());
+        QVERIFY(!e.value(u"boxed"_s).toBool());
+        QCOMPARE(e.value(u"clickX"_s).toInt(), -1); // the caret at the end
+        QCOMPARE(m.itemCount(), 1);
+        QVERIFY(!m.canUndo()); // not a step of its own: it joins the words'
+        QVERIFY(m.skipped() == std::nullopt); // the disc stays drawn
+        QCOMPARE(m.unworded(), std::optional<quint32>(m.document().items[0].id));
+        m.setEditingText(u"第一步 登录"_s);
+        QVERIFY(m.escape()); // the Esc ladder of the text: the first Esc ends the words
+        QVERIFY(!m.editingText());
+        QCOMPARE(m.document().items[0].text, u"第一步 登录"_s);
+        QVERIFY(m.canUndo());
+        QCOMPARE(m.undoLabel(), u"添加"_s);
+        m.undo(); // number and words together
+        QCOMPARE(m.itemCount(), 0);
+        QVERIFY(!m.canUndo());
+        m.redo();
+        QCOMPARE(m.itemCount(), 1);
+        QCOMPARE(m.document().items[0].text, u"第一步 登录"_s);
+        QVERIFY(!m.escape()); // the second Esc is the session's: nothing left to end here
+        // The words are in the project: a round trip keeps them.
+        const annot::Project project = m.project();
+        QCOMPARE(project.doc.items[0].text, u"第一步 登录"_s);
+    }
+
+    void numberWithoutWordsHasNone()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        m.setTool(toolIndex(Kind::Number));
+        click(m, QPoint(50, 50));
+        QVERIFY(m.editingText());
+        m.setEditingText(u"   "_s); // blanks are none
+        m.commitPending();
+        QVERIFY(m.document().items[0].text.isEmpty());
+        QCOMPARE(m.itemCount(), 1);
+        QCOMPARE(m.undoLabel(), u"添加"_s);
+        m.undo();
+        QCOMPARE(m.itemCount(), 0);
+        QVERIFY(!m.canUndo());
+    }
+
+    // The next click is the next number: it ends the words and goes on, one click a number.
+    void numbersKeepGoingWithoutExtraClicks()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        m.setTool(toolIndex(Kind::Number));
+        click(m, QPoint(50, 50));
+        m.setEditingText(u"A"_s);
+        click(m, QPoint(150, 50)); // ends A's words and puts the second down
+        QCOMPARE(m.itemCount(), 2);
+        QVERIFY(m.editingText());
+        QCOMPARE(m.document().items[0].text, u"A"_s);
+        click(m, QPoint(250, 50));
+        QCOMPARE(m.itemCount(), 3);
+        m.commitPending();
+        QCOMPARE(shownNumbers(m), (QList<int> {1, 2, 3}));
+        for (int i = 3; i > 0; --i) { // a step each
+            QVERIFY(m.canUndo());
+            m.undo();
+            QCOMPARE(m.itemCount(), i - 1);
+        }
+        QVERIFY(!m.canUndo());
+        // Typing in the box takes its own presses: inside it nothing is put down.
+        m.setTool(-1);
+        m.setTool(toolIndex(Kind::Number));
+        click(m, QPoint(50, 150));
+        const QVariantMap e = m.editing();
+        const QPoint inside(e.value(u"x"_s).toInt() + 3, e.value(u"y"_s).toInt() + 3);
+        press(m, inside);
+        m.release(inside);
+        QCOMPARE(m.itemCount(), 1);
+        QVERIFY(m.editingText());
+    }
+
+    void numberWordsAreEditedAgain()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        m.setTool(toolIndex(Kind::Number));
+        click(m, QPoint(50, 50));
+        m.setEditingText(u"旧"_s);
+        m.commitPending();
+        // A click on the number just done with (it is selected) opens its words, the caret at the end.
+        click(m, QPoint(50, 50));
+        QVERIFY(m.editingText());
+        QCOMPARE(m.editing().value(u"text"_s).toString(), u"旧"_s);
+        m.setEditingText(u"新"_s);
+        m.commitPending();
+        QCOMPARE(m.document().items[0].text, u"新"_s);
+        QCOMPARE(m.undoLabel(), u"改文字"_s);
+        m.undo();
+        QCOMPARE(m.document().items[0].text, u"旧"_s);
+        m.redo();
+        QCOMPARE(m.document().items[0].text, u"新"_s);
+        // Emptied, the words are gone and the number stays.
+        click(m, QPoint(50, 50));
+        m.setEditingText({});
+        m.commitPending();
+        QVERIFY(m.document().items[0].text.isEmpty());
+        QCOMPARE(m.itemCount(), 1);
+        // Without a tool, a double click on the words edits them; on the disc it renumbers.
+        click(m, QPoint(50, 50));
+        m.setEditingText(u"再"_s);
+        m.commitPending();
+        m.setTool(-1);
+        const annot::NumberGeometry g = annot::numberGeometry(m.document().items[0], 1, 1.0);
+        QVERIFY(m.doubleClick(g.wordsBox.center()));
+        QVERIFY(m.editingText());
+        m.commitPending();
+        QVERIFY(m.doubleClick(QPoint(50, 50)));
+        QVERIFY(!m.editingText());
+        QVERIFY(m.editingNumber());
+    }
+
+    // A click on a number the number tool has not selected only selects it, so that the keys act on it;
+    // the second click, or one on its words, opens the words.
+    void clickSelectsANumberBeforeItOpensItsWords()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        m.setTool(toolIndex(Kind::Number));
+        click(m, QPoint(50, 50));
+        m.setEditingText(u"x"_s);
+        click(m, QPoint(250, 50)); // ends the words of the first and puts the second down
+        m.commitPending();
+        const quint32 first = m.document().items[0].id;
+        const quint32 second = m.document().items[1].id;
+        QCOMPARE(selectedId(m), second);
+        click(m, QPoint(50, 50)); // the first is not the selected one: selected, not opened
+        QVERIFY(!m.editingText());
+        QCOMPARE(selectedId(m), first);
+        click(m, QPoint(50, 50)); // the same again: its words
+        QVERIFY(m.editingText());
+        m.commitPending();
+        // A click on the words themselves opens them at once.
+        click(m, QPoint(250, 50));
+        QCOMPARE(selectedId(m), second);
+        const annot::NumberGeometry g = annot::numberGeometry(m.document().items[0], 1, 1.0);
+        click(m, g.wordsBox.center());
+        QVERIFY(m.editingText());
+        QCOMPARE(m.editing().value(u"id"_s).toUInt(), first);
+    }
+
+    // The panel changes the number just put down before its words are done: undo takes the steps back in order.
+    void restylingANumberWhileItsWordsAreTypedUndoesInOrder()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        m.setTool(toolIndex(Kind::Number));
+        click(m, QPoint(50, 50));
+        m.setEditingText(u"words"_s);
+        m.setPanel(QVariantMap {{u"color"_s, u"#1E88E5"_s}});
+        m.commitPending();
+        const QRgb blue = qRgb(0x1E, 0x88, 0xE5);
+        QCOMPARE(m.document().items[0].style.color, blue);
+        QCOMPARE(m.document().items[0].text, u"words"_s);
+        int steps = 0;
+        while (m.canUndo() && steps < 10) {
+            m.undo();
+            ++steps;
+        }
+        QCOMPARE(m.itemCount(), 0);
+        QVERIFY(steps >= 2 && steps <= 3);
+        for (int i = 0; i < steps; ++i)
+            m.redo();
+        QCOMPARE(m.itemCount(), 1);
+        QCOMPARE(m.document().items[0].style.color, blue);
+        QCOMPARE(m.document().items[0].text, u"words"_s);
+    }
+
+    void numberFormatIsRememberedAndPerSeries()
+    {
+        Rig rig;
+        AnnotationModel& m = rig.model;
+        m.setTool(toolIndex(Kind::Number));
+        QCOMPARE(m.panel().value(u"format"_s).toString(), u"arabic"_s);
+        click(m, QPoint(50, 50));
+        m.commitPending();
+        click(m, QPoint(100, 50));
+        m.commitPending();
+        m.setPanel(QVariantMap {{u"format"_s, u"roman"_s}});
+        QCOMPARE(m.panel().value(u"format"_s).toString(), u"roman"_s);
+        QCOMPARE(annot::formatOf(m.document(), 1), annot::NumberFormat::Roman);
+        QCOMPARE(m.styles().numberFormat(), annot::NumberFormat::Roman);
+        QVERIFY(m.stylesChanged());
+        QCOMPARE(m.undoLabel(), u"改序号格式"_s);
+        m.undo(); // the document's change goes back; the tool keeps its choice
+        QCOMPARE(annot::formatOf(m.document(), 1), annot::NumberFormat::Arabic);
+        QCOMPARE(m.styles().numberFormat(), annot::NumberFormat::Roman);
+        m.redo();
+        // A new group writes as the one before; a format changed on one group leaves the other alone.
+        // The number just put down was selected: "另起一组" lets go of it, so the panel is for the new group
+        // (live test 2026-10-22: the next format button changed the old group).
+        QCOMPARE(selectedId(m), m.document().items.last().id);
+        m.newSeries();
+        QCOMPARE(selectedId(m), 0u);
+        QCOMPARE(m.panel().value(u"format"_s).toString(), u"roman"_s);
+        m.setPanel(QVariantMap {{u"format"_s, u"upper"_s}});
+        QCOMPARE(annot::formatOf(m.document(), 1), annot::NumberFormat::Roman);
+        QCOMPARE(annot::formatOf(m.document(), 2), annot::NumberFormat::UpperLetters);
+        // While the words are typed, the panel still takes it.
+        click(m, QPoint(150, 50));
+        QVERIFY(m.editingText());
+        m.setPanel(QVariantMap {{u"format"_s, u"circled"_s}});
+        QCOMPARE(annot::formatOf(m.document(), 2), annot::NumberFormat::Circled);
+        m.setPanel(QVariantMap {{u"format"_s, u"nonsense"_s}}); // unknown: nothing changes
+        QCOMPARE(annot::formatOf(m.document(), 2), annot::NumberFormat::Circled);
+        m.commitPending();
+        // A selected number's group is the one that changes.
+        m.setTool(-1);
+        click(m, QPoint(350, 250)); // nothing under it: nothing selected
+        QCOMPARE(selectedId(m), 0u);
+        m.setPanel(QVariantMap {{u"format"_s, u"lower"_s}}); // no tool, nothing selected: no panel for it
+        QCOMPARE(annot::formatOf(m.document(), 2), annot::NumberFormat::Circled);
+        const quint32 first = m.document().items[0].id;
+        click(m, pointOn(m, first));
+        QCOMPARE(selectedId(m), first);
+        m.setPanel(QVariantMap {{u"format"_s, u"lower"_s}});
+        QCOMPARE(annot::formatOf(m.document(), 1), annot::NumberFormat::LowerLetters);
+        QCOMPARE(annot::formatOf(m.document(), 2), annot::NumberFormat::Circled);
+        // The next capture starts with the last format chosen.
+        AnnotationModel next;
+        next.begin(rig.base, 1.0, m.styles());
+        QCOMPARE(annot::formatOf(next.document(), 1), annot::NumberFormat::LowerLetters);
+        // ... and it survives the styles' JSON.
+        QCOMPARE(StyleMemory::fromJson(m.styles().toJson()).numberFormat(), annot::NumberFormat::LowerLetters);
     }
 
     void numbersCountAndRenumber()

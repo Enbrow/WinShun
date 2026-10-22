@@ -1074,6 +1074,8 @@ void App::showCaptureOcr(const QImage& image, double dpr, const QRect& where)
             connect(m_captureOcr.get(), &capture::CaptureOcr::searchRequested, this, [this](const QString& query) {
                 showLauncher(query);
             });
+            connect(m_captureOcr.get(), &capture::CaptureOcr::webSearchRequested, this,
+                [this](const QString& query) { openWebSearch(query); });
             connect(m_captureOcr.get(), &capture::CaptureOcr::closeRequested, this, [this] { closeCaptureOcr(); });
         }
         m_ocrFrame = std::make_unique<WindowFrame>(false);
@@ -1121,6 +1123,64 @@ void App::showCaptureOcr(const QImage& image, double dpr, const QRect& where)
     m_ocrWindow->requestActivate();
 }
 
+// The mouse buttons' 识别文字并复制 / 搜索 / 网页搜索: the words read on a
+// reader of its own, so the OCR window (and what it shows) is left alone,
+// then copied, put in the search box or searched on the web. Without the
+// models the window opens instead, which says so.
+void App::captureOcrThen(const QImage& image, double dpr, const QRect& where, OcrThen then)
+{
+    if (!capture::CaptureOcr::available()) {
+        showCaptureOcr(image, dpr, where);
+        return;
+    }
+    if (!m_quickOcr) {
+        m_quickOcr = std::make_unique<capture::CaptureOcr>();
+        connect(m_quickOcr.get(), &capture::CaptureOcr::changed, this, [this] { quickOcrDone(); });
+    }
+    m_quickOcrThen = then;
+    m_quickOcr->read(image, dpr);
+}
+
+void App::quickOcrDone()
+{
+    if (!m_quickOcr || m_quickOcr->busy())
+        return;
+    const QString text = m_quickOcr->text();
+    const QString message = m_quickOcr->message();
+    const OcrThen then = m_quickOcrThen;
+    m_quickOcr.release()->deleteLater(); // its thread and reader go with it
+    m_idleTrim->poke();
+    if (text.trimmed().isEmpty()) {
+        m_messages->showNotification(tr("识别文字"), message.isEmpty() ? tr("图片里没有找到文字。") : message);
+        return;
+    }
+    switch (then) {
+    case OcrThen::Copy:
+        m_clipboard->copyText(text, m_settings.clipboard && !m_clipboardPaused);
+        m_messages->showNotification(tr("识别文字"), tr("已复制识别的文字")); // not the words: a toast stays in the Action Center
+        break;
+    case OcrThen::Search:
+        showLauncher(capture::CaptureOcr::oneLine(text));
+        break;
+    case OcrThen::Web:
+        openWebSearch(capture::CaptureOcr::oneLine(text));
+        break;
+    }
+}
+
+// The first search of the web shortcuts is the default (defaultWebSearchUrl).
+// WINSHUN_WEB_DRYRUN (tests): said in the log (WINSHUN_LOG_INFO), not opened.
+void App::openWebSearch(const QString& query)
+{
+    const QString url = defaultWebSearchUrl(m_settings.webShortcuts, query);
+    if (url.isEmpty())
+        return;
+    static const bool dryRun = qEnvironmentVariableIsSet("WINSHUN_WEB_DRYRUN");
+    qInfo().noquote() << (dryRun ? u"Web: would open %1 (the words read from a picture)"_s : u"Web: open %1 (the words read from a picture)"_s).arg(url);
+    if (!dryRun)
+        shell::openUrl(url);
+}
+
 void App::closeCaptureOcr(bool destroy)
 {
     if (m_ocrWindow) {
@@ -1131,6 +1191,7 @@ void App::closeCaptureOcr(bool destroy)
     }
     if (destroy) {
         m_ocrFrame.reset();
+        m_quickOcr.reset();
         m_captureOcr.reset(); // its thread, and the reader if still loaded
     }
 }
@@ -1493,6 +1554,11 @@ void App::applyCapture()
         // The pictures and textures are let go of: the pages go back to Windows.
         callbacks.ended = [this] { m_idleTrim->poke(); };
         callbacks.ocr = [this](const QImage& image, double dpr, const QRect& where) { showCaptureOcr(image, dpr, where); };
+        callbacks.ocrThen = [this](const QImage& image, double dpr, const QRect& where, capture::CaptureSession::Action then) {
+            using Action = capture::CaptureSession::Action;
+            captureOcrThen(image, dpr, where,
+                then == Action::OcrCopy ? OcrThen::Copy : then == Action::OcrSearch ? OcrThen::Search : OcrThen::Web);
+        };
         callbacks.pins = [this] { return &pins(); };
         m_capture = std::make_unique<capture::Capture>(m_qml.get(), std::move(callbacks));
     } else if (!m_settings.captureEnabled && m_capture) {
@@ -1508,6 +1574,7 @@ void App::applyCapture()
         m_capture->setCopyOnSelect(m_settings.captureCopyOnSelect);
         m_capture->setMouseActions({m_settings.captureMouseDoubleLeft, m_settings.captureMouseRight,
             m_settings.captureMouseMiddle, m_settings.captureMouseBack, m_settings.captureMouseForward});
+        m_capture->setHiddenButtons(m_settings.captureToolbarHidden.split(u',', Qt::SkipEmptyParts));
     }
     applyScreenshots();
 
@@ -3941,7 +4008,7 @@ void App::showTrayMenu()
                 shell::MenuItem::separator(),
             };
         }
-        captureMenu.children.push_back({ClickThroughCommand, tr("取消所有贴图的穿透"), false, m_pins && m_pins->anyClickThrough()});
+        captureMenu.children.push_back({ClickThroughCommand, tr("取消所有贴图的穿透（单个：按住 Ctrl 点它）"), false, m_pins && m_pins->anyClickThrough()});
         captureMenu.children.push_back({CloseAllPinsCommand, tr("关闭全部贴图"), false, pinCount > 0});
         items.insert(at + 1, std::move(captureMenu));
     }

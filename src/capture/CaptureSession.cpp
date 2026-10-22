@@ -1,6 +1,7 @@
 #include "CaptureSession.h"
 
 #include <QDateTime>
+#include <QDebug>
 #include <QGuiApplication>
 
 #include <algorithm>
@@ -266,6 +267,15 @@ void CaptureSession::setOcrAvailable(bool on)
 {
     if (std::exchange(m_ocrAvailable, on) != on)
         emit ocrAvailableChanged();
+}
+
+void CaptureSession::setHiddenButtons(const QStringList& ids)
+{
+    if (m_hiddenButtons == ids)
+        return;
+    m_hiddenButtons = ids;
+    qInfo() << "Screen capture: toolbar buttons left off:" << ids;
+    emit hiddenButtonsChanged();
 }
 
 void CaptureSession::end()
@@ -640,7 +650,8 @@ CaptureSession::MouseAct CaptureSession::parseMouseAct(const QString& name, Mous
 {
     static const std::pair<const char16_t*, MouseAct> names[] {{u"none", MouseAct::None}, {u"copy", MouseAct::Copy},
         {u"save", MouseAct::Save}, {u"pin", MouseAct::Pin}, {u"ocr", MouseAct::Ocr}, {u"cancel", MouseAct::Cancel},
-        {u"back", MouseAct::Back}};
+        {u"back", MouseAct::Back}, {u"ocrcopy", MouseAct::OcrCopy}, {u"ocrsearch", MouseAct::OcrSearch},
+        {u"ocrweb", MouseAct::OcrWeb}};
     for (const auto& [text, act] : names) {
         if (name == QStringView(text))
             return act;
@@ -693,6 +704,15 @@ void CaptureSession::perform(MouseAct act)
         break;
     case MouseAct::Ocr:
         finish(Action::Ocr);
+        break;
+    case MouseAct::OcrCopy:
+        finish(Action::OcrCopy);
+        break;
+    case MouseAct::OcrSearch:
+        finish(Action::OcrSearch);
+        break;
+    case MouseAct::OcrWeb:
+        finish(Action::OcrWeb);
         break;
     case MouseAct::Cancel:
         finish(Action::Cancel);
@@ -929,7 +949,7 @@ bool CaptureSession::keyPressed(int key, int modifiers)
 
 void CaptureSession::act(int action)
 {
-    if (m_active && action >= static_cast<int>(Action::Copy) && action <= static_cast<int>(Action::Ocr))
+    if (m_active && action >= static_cast<int>(Action::Copy) && action <= static_cast<int>(Action::OcrWeb))
         finish(static_cast<Action>(action));
 }
 

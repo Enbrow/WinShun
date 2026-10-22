@@ -2982,6 +2982,53 @@
 - **现象**：Windows 剪贴板历史满 25 条，WinShun 每复制一次就挤掉最旧的一条。
 - **做法**：测试前把最旧的 10 条存下来（WinRT `Clipboard.GetHistoryItemsAsync`），测完删掉测试产生的、再按原顺序补回；对 `ExcludeClipboardContentFromMonitorProcessing` / `CanIncludeInClipboardHistory=0` 的数据不会进历史，测试用的复制尽量带上这两个标记。
 
+### 序号写法、序号旁的字、识别文字动作、工具条按钮、穿透贴图（GitHub #57 #59，2026-10-22）
+
+#### 穿透的贴图按住 Ctrl 能操作：Ctrl+滚轮是调透明度，不是缩放
+- **现象**：穿透的贴图靠按住 Ctrl 才够得着，可贴图自己的 Ctrl+滚轮是调透明度；按住 Ctrl 时滚轮缩放不了。
+- **做法**：不改（Ctrl 是够得着它的唯一条件）。要缩放先在右键菜单里取消穿透。使用说明里写明。
+- **实现要点**：不装键盘钩子（它会看到系统里每一个键，和 `KeyListener` 的双击 Ctrl 抢），而是只在有穿透的贴图时开一个 40 ms 的 `QTimer`，读 `GetAsyncKeyState(VK_CONTROL)`；没有穿透的贴图时没有定时器。切换 `WS_EX_TRANSPARENT` 要 `SetWindowLongPtr` 加 `SWP_FRAMECHANGED`（`applyClickThrough`）。拖动中和右键菜单开着时不能收回能操作的状态，否则松开 Ctrl 的瞬间拖动和菜单（菜单开着时本进程的消息循环仍在跑定时器）就断了。实测留给真实输入。
+
+#### 放下序号后马上输入文字：单元测试里的 Number 工具点击不再只是放下一个序号
+- **现象**：`tst_annotmodel` 里用序号工具点一下，随后 `selectedId` 是 0、`canUndo` 为假。
+- **原因**：放下序号（`finishGesture`）后立刻进入“序号旁的字”的输入（`m_editing->words`），选中被清掉，`AddItems` 还没进撤销栈（它留在 `Private::placing`，写完字才推进去，这样放加打字是一步撤销）。
+- **做法**：测试里点完序号要 `commitPending()` 再查选中和撤销；用户这一侧，下一次点击先写完字再放下一个序号（`pressFirst` 返回 false，不吃掉这次按下），所以连续点几下仍是一下一个序号。输入框里按下仍归输入框。
+
+#### 放序号的同时改它的样式：撤销栈里先后顺序错了
+- **现象**：序号旁的字还在输入时，从面板改颜色，撤销要按两次，第二次什么也看不见；重做回来的序号是改色之前的颜色。
+- **原因**：放下的序号（`Private::placing`）还没进撤销栈，面板的 `Restyle` 经 `push()` 先进去了。
+- **做法**：`AnnotationModel::push()` 开头先把 `placing` 推进栈（此后字写完是单独的一步 `Retext`）。单测 `restylingANumberWhileItsWordsAreTypedUndoesInOrder`。
+
+#### 编辑窗口：序号工具的样式面板比默认窗口还宽
+- **现象**（2026-10-22 实测，150%）：从贴图进编辑窗口按 N，面板（颜色、字号、起始、五个写法按钮、层级按钮，约 917 逻辑 px）压在右下角的“1201 × 761”和缩放百分比上，最右的按钮被窗口边切掉；窗口默认只有 908 逻辑 px 宽。
+- **做法**：`EditWindow.qml` 的 `minimumWidth` 在面板显示时再加上面板和右边状态行（`status`）的宽度，窗口会长到放得下。面板宽度随选中的对象变（选中后多出层级按钮），所以最小宽度也跟着变。
+
+#### ini 里手写的“undo,pin”读出来是空的
+- **现象**（2026-10-22 实测）：手工在 `[Capture]` 里写 `ToolbarHidden=undo,pin`，工具条上什么也没藏。
+- **原因**：QSettings 读 INI 时，没有引号、含逗号的值会被当成字符串列表，`value().value<QString>()` 得到空串；程序自己写的值带引号，读得回来。
+- **做法**：这一项读到列表就用逗号接回去（`Settings::load`）。以后 ini 里用逗号分隔的字符串项都要这样读，并用手写的无引号形式测一遍。
+
+#### 前台是管理员窗口时，按住 Ctrl 够不着穿透的贴图
+- **现象**（2026-10-22 实测）：测试窗口是提权的（从提权脚本里启动的子进程），它在前台时按住 Ctrl，贴图一直不“可操作”；改成普通权限的测试窗口就好了。
+- **原因**：UIPI：前台窗口完整性级别比 Win顺 高时，`GetAsyncKeyState` 在 Win顺 里读不到按键。用户平时前台是普通权限的程序，不受影响；前台是管理员窗口（任务管理器之类）时这个办法用不了，先点一下别的窗口。
+- **测试**：从提权的测试脚本启动测试窗口要先降权（在普通权限的 shell 里启动它，提权脚本只按标题找窗口）。
+
+#### 测试：让 Win顺 自己的复制不进 Windows 剪贴板历史
+- **做法**：环境变量 `WINSHUN_TEST_NO_CLIP_HISTORY` 设了以后，`ClipboardWatcher` 写系统剪贴板时加 `ExcludeClipboardContentFromMonitorProcessing` 和 `CanIncludeInClipboardHistory=0`（Windows 的历史满 25 条时每复制一次就挤掉最旧的一条）。只给测试用，正常运行不设。同一次测试里 `WINSHUN_WEB_DRYRUN` 让网页搜索只写日志。
+- **备份**：历史库 `clipboard.db` 满 300 条时，每多一条会按上限删最旧的行和它的图片文件；备份要连 `clipboard\images` 一起备份（这次只备份了库，被删的一张图是从卷影副本找回来的）。
+
+#### 另起一组后选序号写法，改到了上一组
+- **现象**（2026-10-22 实测）：放几个序号，点“另起一组”，再点“A”按钮：新一组还是 1 2 3，上一组变成了 A B。
+- **原因**：写法按“选中的序号所在的组”改，刚放的最后一个序号还选着，它在旧组里。
+- **做法**：`newSeries()` 先放掉选中（`m_picked.clear()`），面板就对着新的一组。
+
+#### 序号工具下点一下序号：先选中，不是马上打开它的字
+- **现象**：第一版点一下序号就进了字的输入框，选中的轮廓没了，Delete、方向键、`[` `]` 都落进输入框。
+- **做法**：点一下只选中；已经是唯一选中的那个序号再点一下，或者点在它的字上，才打开字（`Private::reopenWords`）。单测 `clickSelectsANumberBeforeItOpensItsWords`。
+
+#### 识别文字并复制 / 搜索 / 网页搜索：没有单独的“默认搜索引擎”
+- **做法**：Win顺 没有“默认网页搜索”这个设置。`defaultWebSearchUrl` 取网页搜索列表里第一个带 `%s` 的网站（默认百度，用户调整顺序就换了），列表里没有再用必应。这三个动作用单独的 `CaptureOcr`，不碰 OCR 窗口里的字。`WINSHUN_WEB_DRYRUN` 时只写日志不打开网页，测试用。
+
 ## 系统开关（docs/design-system-switches.md，2026-10-19）
 
 ### 只写 Personalize 注册表，窗口和任务栏都不变

@@ -195,7 +195,9 @@ void PinWindow::paintBorder()
     const bool dark = m_host.dark && m_host.dark();
     // Theme.windowEdge whether active or not: Win顺's edges are one grey,
     // never the accent (docs/colors.md); the shadow tells the pin apart.
-    const QColor color = dark ? QColor(0x6A, 0x6A, 0x6A) : QColor(0xB4, 0xB4, 0xB4);
+    // Firmer while a click-through pin is held reachable by Ctrl (#59).
+    const QColor color = m_reachable ? (dark ? QColor(0xA8, 0xA8, 0xA8) : QColor(0x70, 0x70, 0x70))
+                                     : (dark ? QColor(0x6A, 0x6A, 0x6A) : QColor(0xB4, 0xB4, 0xB4));
     const int s = m_frame.shadow;
     QPainter painter(&canvas);
     painter.setCompositionMode(QPainter::CompositionMode_Source);
@@ -253,12 +255,40 @@ void PinWindow::setTopmost(bool on)
 void PinWindow::setClickThrough(bool on)
 {
     m_clickThrough = on;
+    const bool was = m_reachable;
+    if (!on)
+        m_reachable = false;
+    applyClickThrough();
+    if (was != m_reachable)
+        paintBorder(); // the cue goes with it
+}
+
+void PinWindow::applyClickThrough()
+{
     if (!m_hwnd)
         return;
+    const bool through = m_clickThrough && !m_reachable;
     LONG_PTR style = ::GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE);
-    style = on ? style | WS_EX_TRANSPARENT : style & ~LONG_PTR(WS_EX_TRANSPARENT);
-    ::SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE, style);
+    const LONG_PTR wanted = through ? style | WS_EX_TRANSPARENT : style & ~LONG_PTR(WS_EX_TRANSPARENT);
+    if (wanted == style)
+        return;
+    ::SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE, wanted);
     ::SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
+
+bool PinWindow::updateReachable(bool ctrlDown, QPoint cursor, bool menuUp)
+{
+    if (!m_hwnd || !m_clickThrough)
+        return false;
+    const bool over = pictureRect().contains(cursor);
+    const bool reachable = !pinLetsMouseThrough(true, ctrlDown, over, m_dragging || menuUp);
+    if (reachable == m_reachable)
+        return false;
+    m_reachable = reachable;
+    qInfo() << "Screen capture: click-through pin" << (reachable ? "reachable (Ctrl)" : "click-through again");
+    applyClickThrough();
+    paintBorder(); // the cue: a firmer grey while it takes the mouse
+    return true;
 }
 
 void PinWindow::close()

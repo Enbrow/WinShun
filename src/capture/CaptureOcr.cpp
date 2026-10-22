@@ -72,14 +72,23 @@ void CaptureOcr::read(const QImage& image, double dpr)
     m_wake.notify_all();
 }
 
+QString CaptureOcr::oneLine(const QString& text)
+{
+    return ocrOneLine(text, kMaxQuery); // lines as words: the search box is one line
+}
+
 void CaptureOcr::search(const QString& text)
 {
-    // Lines as words: the search box is one line.
-    QString query = text;
-    query.replace(QRegularExpression(u"\\s+"_s), u" "_s);
-    query = query.trimmed().left(kMaxQuery);
+    const QString query = oneLine(text);
     if (!query.isEmpty())
         emit searchRequested(query);
+}
+
+void CaptureOcr::webSearch(const QString& text)
+{
+    const QString query = oneLine(text);
+    if (!query.isEmpty())
+        emit webSearchRequested(query);
 }
 
 void CaptureOcr::done(int round, const QString& text, const QString& error)

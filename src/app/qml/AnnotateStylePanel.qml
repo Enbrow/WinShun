@@ -381,6 +381,23 @@ Rectangle {
             }
         }
 
+        Separator { visible: panel.showNumber }
+        Row { // how this group writes its numbers
+            visible: panel.showNumber
+            Repeater {
+                model: [["arabic", "1", qsTr("序号写成 1 2 3")], ["upper", "A", qsTr("序号写成 A B C")],
+                    ["lower", "a", qsTr("序号写成 a b c")], ["roman", "I", qsTr("序号写成 Ⅰ Ⅱ Ⅲ（罗马数字）")],
+                    ["circled", "①", qsTr("序号写成 ① ② ③（圈里的数字）")]]
+                delegate: WordButton {
+                    required property var modelData
+                    words: modelData[1]
+                    checked: panel.p.format === modelData[0]
+                    tip: modelData[2]
+                    onClicked: panel.change({format: modelData[0]})
+                }
+            }
+        }
+
         Separator { visible: panel.showObject }
         Row { // the selected object: a layer up, a layer down, away
             visible: panel.showObject

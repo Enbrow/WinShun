@@ -142,7 +142,7 @@ bool nearEllipse(QPointF p, const QRectF& box, int width, qreal tolerance, bool 
     return ia <= 0 || ib <= 0 || !inside(ia, ib);
 }
 
-bool hits(const Item& item, QPointF q, qreal tolerance, qreal dpr, int number)
+bool hits(const Item& item, QPointF q, qreal tolerance, qreal dpr, int number, NumberFormat format)
 {
     const int w = std::max(1, item.style.width);
     switch (item.kind) {
@@ -170,8 +170,10 @@ bool hits(const Item& item, QPointF q, qreal tolerance, qreal dpr, int number)
             return false;
         return QRectF(textGeometry(item).box).contains(q);
     }
-    case Kind::Number:
-        return numberGeometry(item, number, dpr).disc.contains(q);
+    case Kind::Number: {
+        const NumberGeometry g = numberGeometry(item, number, dpr, format);
+        return g.disc.contains(q) || (!g.wordsBox.isEmpty() && QRectF(g.wordsBox).contains(q));
+    }
     }
     return false;
 }
@@ -285,6 +287,65 @@ std::optional<RedactShape> redactShapeFromName(QStringView name)
     if (name == u"brush")
         return RedactShape::Brush;
     return std::nullopt;
+}
+
+QString numberFormatName(NumberFormat format)
+{
+    switch (format) {
+    case NumberFormat::Arabic:
+        return u"arabic"_s;
+    case NumberFormat::UpperLetters:
+        return u"upper"_s;
+    case NumberFormat::LowerLetters:
+        return u"lower"_s;
+    case NumberFormat::Roman:
+        return u"roman"_s;
+    case NumberFormat::Circled:
+        return u"circled"_s;
+    }
+    return u"arabic"_s;
+}
+
+std::optional<NumberFormat> numberFormatFromName(QStringView name)
+{
+    for (int i = 0; i < kNumberFormatCount; ++i) {
+        const NumberFormat f = NumberFormat(i);
+        if (name == numberFormatName(f))
+            return f;
+    }
+    return std::nullopt;
+}
+
+QString formatNumber(int number, NumberFormat format)
+{
+    if (number < 1 || format == NumberFormat::Arabic || format == NumberFormat::Circled)
+        return QString::number(number);
+    if (format == NumberFormat::Roman) {
+        if (number > 3999)
+            return QString::number(number);
+        static constexpr struct {
+            int value;
+            const char* text;
+        } steps[] = {{1000, "M"}, {900, "CM"}, {500, "D"}, {400, "CD"}, {100, "C"}, {90, "XC"}, {50, "L"}, {40, "XL"},
+            {10, "X"}, {9, "IX"}, {5, "V"}, {4, "IV"}, {1, "I"}};
+        QString out;
+        for (const auto& step : steps) {
+            while (number >= step.value) {
+                out += QLatin1StringView(step.text);
+                number -= step.value;
+            }
+        }
+        return out;
+    }
+    // Letters count like a spreadsheet's columns: Z, then AA, AB ...
+    const QChar first = format == NumberFormat::UpperLetters ? u'A' : u'a';
+    QString out;
+    while (number > 0) {
+        --number;
+        out.prepend(QChar(first.unicode() + number % 26));
+        number /= 26;
+    }
+    return out;
 }
 
 std::optional<QRgb> parseColor(QStringView text)
@@ -625,7 +686,12 @@ TextGeometry textGeometry(const Item& item)
     return g;
 }
 
-NumberGeometry numberGeometry(const Item& item, int number, qreal dpr)
+QRgb numberWordsColor(const Item& item)
+{
+    return brightness(item.style.color) >= kWhitish ? qRgb(0x21, 0x21, 0x21) : item.style.color | 0xff000000u;
+}
+
+NumberGeometry numberGeometry(const Item& item, int number, qreal dpr, NumberFormat format)
 {
     NumberGeometry g;
     if (item.points.isEmpty())
@@ -635,7 +701,7 @@ NumberGeometry numberGeometry(const Item& item, int number, qreal dpr)
     int d = qRound(1.5 * f);
     if (d % 2 == 0)
         ++d;
-    g.label = QString::number(number);
+    g.label = formatNumber(number, format);
     const TextMetrics m = textMetrics(g.label, f, true);
     int width = d;
     if (g.label.size() > 1) {
@@ -650,12 +716,21 @@ NumberGeometry numberGeometry(const Item& item, int number, qreal dpr)
     const int baseline = qFloor(c.y() + m.capHeight / 2 + 0.5);
     g.origin = QPoint(x, baseline - m.ascent);
     g.ink = m.ink.translated(QPointF(g.origin));
-    if (brightness(item.style.color) >= kWhitish)
+    if (format == NumberFormat::Circled)
+        g.ring = std::max(2.0, std::round(f / 9.0)); // a hollow disc: no dark outline needed, the digits carry the colour
+    else if (brightness(item.style.color) >= kWhitish)
         g.outline = std::max(1, qRound(dpr));
+    // The words: their first baseline on the digits'.
+    const TextMetrics words = textMetrics(item.text, f, false);
+    g.wordsOrigin = QPoint(qCeil(g.disc.right()) + std::max(3, qRound(0.35 * f)), baseline - words.ascent);
+    if (!item.text.trimmed().isEmpty()) {
+        g.wordsBox = QRect(g.wordsOrigin, words.size);
+        g.wordsInk = words.ink.translated(QPointF(g.wordsOrigin));
+    }
     return g;
 }
 
-QRectF bounds(const Item& item, qreal dpr, int number)
+QRectF bounds(const Item& item, qreal dpr, int number, NumberFormat format)
 {
     const int w = std::max(1, item.style.width);
     switch (item.kind) {
@@ -693,10 +768,15 @@ QRectF bounds(const Item& item, qreal dpr, int number)
     case Kind::Number: {
         if (item.points.isEmpty())
             return {};
-        const NumberGeometry g = numberGeometry(item, number, dpr);
+        const NumberGeometry g = numberGeometry(item, number, dpr, format);
         QRectF r = g.disc;
         if (!g.ink.isEmpty())
             r |= g.ink.adjusted(-2, -2, 2, 2);
+        if (!g.wordsBox.isEmpty()) {
+            r |= QRectF(g.wordsBox);
+            if (!g.wordsInk.isEmpty())
+                r |= g.wordsInk.adjusted(-2, -2, 2, 2);
+        }
         return r.adjusted(-1, -1, 1, 1);
     }
     }
@@ -706,7 +786,7 @@ QRectF bounds(const Item& item, qreal dpr, int number)
 QRectF bounds(const Document& doc, const Item& item)
 {
     const int number = item.kind == Kind::Number ? numbers(doc).value(item.id, 1) : 1;
-    return bounds(item, doc.dpr, number);
+    return bounds(item, doc.dpr, number, formatOf(doc, item.series));
 }
 
 std::optional<quint32> hitTest(const Document& doc, QPointF p, qreal tolerance)
@@ -721,7 +801,7 @@ std::optional<quint32> hitTest(const Document& doc, QPointF p, qreal tolerance)
                 shown = numbers(doc);
             number = shown->value(item.id, 1);
         }
-        if (hits(item, q, tolerance, doc.dpr, number))
+        if (hits(item, q, tolerance, doc.dpr, number, formatOf(doc, item.series)))
             return item.id;
     }
     return std::nullopt;
@@ -805,6 +885,15 @@ Item reshaped(const Item& item, int handle, QPointF to, bool constrain)
         return out;
     }
     return out;
+}
+
+NumberFormat formatOf(const Document& doc, quint32 series)
+{
+    for (const Series& s : doc.series) {
+        if (s.id == series)
+            return s.format;
+    }
+    return NumberFormat::Arabic;
 }
 
 QHash<quint32, int> numbers(const Document& doc)

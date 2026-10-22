@@ -586,6 +586,9 @@ std::vector<Entry> buildCatalog()
                 {u"save"_s, u"save the picture to a file and close"_s, QT_TRANSLATE_NOOP("AiSettings", "保存")},
                 {u"pin"_s, u"pin the picture on the screen"_s, QT_TRANSLATE_NOOP("AiSettings", "贴图")},
                 {u"ocr"_s, u"read the words in the picture"_s, QT_TRANSLATE_NOOP("AiSettings", "识别文字")},
+                {u"ocrcopy"_s, u"read the words and copy them, then close"_s, QT_TRANSLATE_NOOP("AiSettings", "识别文字并复制")},
+                {u"ocrsearch"_s, u"read the words and search them in the launcher"_s, QT_TRANSLATE_NOOP("AiSettings", "识别文字并搜索")},
+                {u"ocrweb"_s, u"read the words and search them on the web"_s, QT_TRANSLATE_NOOP("AiSettings", "识别文字并网页搜索")},
                 {u"cancel"_s, u"end the capture"_s, QT_TRANSLATE_NOOP("AiSettings", "取消截图")}};
             if (withBack)
                 list.insert(list.begin() + 1, {u"back"_s, u"put the selection down to choose again (Esc's step)"_s,

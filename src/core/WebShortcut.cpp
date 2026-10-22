@@ -95,6 +95,18 @@ WebShortcuts defaultWebShortcuts()
     return shortcuts;
 }
 
+QString defaultWebSearchUrl(const WebShortcuts& shortcuts, const QString& words)
+{
+    const QString trimmed = words.trimmed();
+    if (trimmed.isEmpty())
+        return {};
+    for (const WebShortcut& s : shortcuts) {
+        if (s.searches())
+            return s.searchUrl(trimmed);
+    }
+    return u"https://www.bing.com/search?q="_s + QString::fromLatin1(QUrl::toPercentEncoding(trimmed));
+}
+
 WebShortcuts withNewDefaults(WebShortcuts shortcuts, const WebShortcuts& defaults)
 {
     const WebShortcuts before = shortcuts;

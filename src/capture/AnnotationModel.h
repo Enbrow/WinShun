@@ -130,6 +130,8 @@ public:
     annot::Compositor& compositor() { return *m_compositor; }
     // The text being edited is not drawn by the canvas (the TextEdit shows it).
     std::optional<quint32> skipped() const;
+    // The Number whose words are being typed: drawn without them (the text box shows them).
+    std::optional<quint32> unworded() const;
     // The styles as they are now (the tools' remembered ones, including this
     // capture's changes); `stylesChanged()` tells whether any changed.
     const annot::StyleMemory& styles() const { return m_styles; }
@@ -165,6 +167,8 @@ public:
     //   mode        "mosaic" | "blur" | "solid" (Redact)
     //   cell, cells     mosaic cell and presets (Redact)
     //   start       the current series' first number (Number)
+    //   format      how the series writes its numbers: annot::numberFormatName
+    //               (Number; the selected number's series, else the current one)
     //   selected    an object is selected (the panel shows its style, and
     //               a change goes to it as well as to the tool's memory)
     //   canRaise, canLower   the selected object can move up / down a layer
@@ -181,6 +185,8 @@ public:
     // baseline) and ascent (top to the first baseline), image px, as the
     // compositor lays the text out, clickX, clickY (where the press landed
     // inside it, relative to x, y; -1 when it began with a new text)}.
+    // The words of a Number are the same map (number: true, x, y the words'
+    // top left to the right of the disc, not bold, never boxed).
     QVariantMap editing() const;
     QVariantMap numberEdit() const;
     bool gestureActive() const { return m_gesture != Gesture::None; }
@@ -312,6 +318,7 @@ private:
         QString text; // the words as typed so far
         QPoint click {-1, -1};
         annot::Style style; // a new text's (an old one keeps its own in the document)
+        bool words = false; // the words of the Number `id` (in the document), not a Text
     };
     // The gesture's command and where it began, the wheel's sum, the clock
     // the undo merges go by, what the change signals were last sent for.
@@ -351,6 +358,12 @@ private:
     annot::Item strokeTo(const annot::Item& stroke, QPoint p, bool constrain) const;
     void beginNewText(QPoint p);
     void beginEdit(const annot::Item& item, QPoint p);
+    // The words of a Number: after it was put down (click -1,-1: the caret at the end) or on a click.
+    void beginWordsEdit(const annot::Item& item, QPoint click);
+    // `p` is on the Number's words (not its disc).
+    bool onWords(const annot::Item& item, QPoint p) const;
+    annot::NumberGeometry geometryOf(const annot::Item& item) const;
+    void commitWords(const QString& text);
     void stepSize(int direction);
     void nudge(QPoint delta);
     void reorder(int direction, bool toEnd);

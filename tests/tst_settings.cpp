@@ -164,6 +164,68 @@ private slots:
         QCOMPARE(odd.captureMouseMiddle, u"none"_s);
     }
 
+    // The OCR choices of the mouse buttons and the toolbar's buttons left off (#57).
+    void captureOcrActionsAndToolbarButtons()
+    {
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        ws::Settings::useProfile(profile.path());
+        ws::Settings fresh;
+        fresh.load();
+        QVERIFY(fresh.captureToolbarHidden.isEmpty()); // all shown
+        QCOMPARE(ws::Settings::captureToolbarButtonIds(),
+            (QStringList {u"undo"_s, u"redo"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"cancel"_s}));
+
+        ws::Settings s;
+        s.load();
+        s.captureMouseDoubleLeft = u"ocrcopy"_s;
+        s.captureMouseMiddle = u"ocrsearch"_s;
+        s.captureMouseBack = u"ocrweb"_s;
+        s.captureToolbarHidden = u"pin,redo"_s;
+        s.save();
+        {
+            QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+            // Written once, in a stable form.
+            QCOMPARE(ini.value(u"Capture/ToolbarHidden"_s).toString(), u"pin,redo"_s);
+        }
+        ws::Settings back;
+        back.load();
+        QCOMPARE(back.captureMouseDoubleLeft, u"ocrcopy"_s);
+        QCOMPARE(back.captureMouseMiddle, u"ocrsearch"_s);
+        QCOMPARE(back.captureMouseBack, u"ocrweb"_s);
+        QCOMPARE(back.captureToolbarHidden, u"redo,pin"_s); // the toolbar's order
+
+        // Unknown ids, repeats, case and blanks are cleaned on the way in.
+        QCOMPARE(ws::Settings::normalizedToolbarHidden(u" Cancel, OCR ,nonsense,cancel,,undo "_s), u"undo,ocr,cancel"_s);
+        QCOMPARE(ws::Settings::normalizedToolbarHidden(u"nothing"_s), QString());
+        {
+            QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+            ini.setValue(u"Capture/ToolbarHidden"_s, u"copy,save,bogus,copy"_s);
+            ini.setValue(u"Capture/MouseRight"_s, u"ocrweb"_s);
+        }
+        ws::Settings odd;
+        odd.load();
+        QCOMPARE(odd.captureToolbarHidden, u"copy,save"_s);
+        // Written by hand with no quotes, "ocr,undo" is a list to QSettings: still read (found in the live test).
+        {
+            QFile file(ws::Settings::filePath());
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            QByteArray text = file.readAll();
+            file.close();
+            const qsizetype at = text.indexOf("ToolbarHidden=");
+            QVERIFY(at >= 0);
+            const qsizetype end = text.indexOf('\n', at);
+            text.replace(at, end - at, "ToolbarHidden=ocr,undo");
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            file.write(text);
+            file.close();
+        }
+        ws::Settings typed;
+        typed.load();
+        QCOMPARE(typed.captureToolbarHidden, u"undo,ocr"_s);
+        QCOMPARE(odd.captureMouseRight, u"ocrweb"_s);
+    }
+
     void sortAndDoubleClick()
     {
         QTemporaryDir profile;

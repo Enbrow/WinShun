@@ -78,9 +78,17 @@ public:
     void setShown(bool shown);
 
     void setTopmost(bool on);
-    // The mouse goes through it to what is under it (WS_EX_TRANSPARENT);
-    // only the tray menu brings it back then.
+    // The mouse goes through it to what is under it (WS_EX_TRANSPARENT).
+    // Back by turning it off in its menu, the tray's 取消所有贴图的穿透, or
+    // by holding Ctrl with the cursor over it (updateReachable).
     void setClickThrough(bool on);
+    // The owner's watcher calls this while any pin is click-through: a pin
+    // set to click through takes the mouse while `ctrlDown` with `cursor`
+    // (physical) over its picture, and lets it go again after (not while it
+    // is dragged or `menuUp`). Returns true when that changed.
+    bool updateReachable(bool ctrlDown, QPoint cursor, bool menuUp);
+    bool reachable() const { return m_reachable; }
+    bool dragging() const { return m_dragging; }
     void close(); // the window destroyed, its pixels let go of at once
 
 private:
@@ -91,6 +99,7 @@ private:
     void present(); // the DIB onto the screen, at the opacity
     void setZoom(double zoom, QPoint cursor);
     void releasePixels();
+    void applyClickThrough(); // WS_EX_TRANSPARENT = click-through and not reachable
     QRect windowRect() const;
 
     HWND m_hwnd = nullptr;
@@ -104,6 +113,7 @@ private:
     PinFrame m_frame;
     bool m_topmost = true;
     bool m_clickThrough = false;
+    bool m_reachable = false; // click-through, but Ctrl is held over it
     bool m_screenshot = true;
     QByteArray m_project;
     bool m_dragging = false;

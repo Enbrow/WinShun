@@ -7,7 +7,8 @@ import WinShun
 // picture, one window used again each time. The text can be selected and
 // edited before it goes anywhere: 复制全部 puts it on the clipboard (into
 // the history), 用它搜索 takes the selection, else all of it, as one line
-// into the launcher's search box. Esc or 关闭 closes it.
+// into the launcher's search box, 网页搜索 into the default web search.
+// Esc or 关闭 closes it.
 Window {
     id: window
 
@@ -172,6 +173,11 @@ Window {
             text: qsTr("用它搜索")
             enabled: !window.ocr.busy && words.text.trim().length > 0
             onClicked: window.ocr.search(words.selectedText.length > 0 ? words.selectedText : words.text)
+        }
+        FlatButton {
+            text: qsTr("网页搜索")
+            enabled: !window.ocr.busy && words.text.trim().length > 0
+            onClicked: window.ocr.webSearch(words.selectedText.length > 0 ? words.selectedText : words.text)
         }
         FlatButton {
             highlighted: true

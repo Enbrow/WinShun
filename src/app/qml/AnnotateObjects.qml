@@ -177,7 +177,12 @@ Item {
 
             Keys.onPressed: (event) => {
                 const ctrl = (event.modifiers & Qt.ControlModifier) !== 0
-                if (ctrl && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+                const shift = (event.modifiers & Qt.ShiftModifier) !== 0
+                const enter = event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                // A number's words are one line: Enter ends them (Shift+Enter breaks the line).
+                if (enter && !ctrl && edit.inputMethodComposing)
+                    return // the input method's: it takes the pinyin
+                if ((ctrl && enter) || (enter && !shift && textBox.ed.number === true)) {
                     over.annot.commitText(edit.text)
                     event.accepted = true
                 } else if (event.key === Qt.Key_Escape) {
@@ -193,6 +198,18 @@ Item {
                     event.accepted = true
                 }
             }
+        }
+
+        Text { // an empty number's words: what Esc does (tool keys type into the box, so Esc first)
+            visible: textBox.active && textBox.ed.number === true && edit.length === 0 && edit.preeditText.length === 0
+            x: edit.x + 4 // clear of the caret
+            y: edit.y
+            text: qsTr("输入文字，Esc 跳过")
+            color: Theme.subtext
+            font.family: edit.font.family
+            font.pointSize: edit.font.pointSize
+            font.hintingPreference: Font.PreferVerticalHinting
+            renderType: Text.NativeRendering
         }
 
         FontMetrics {

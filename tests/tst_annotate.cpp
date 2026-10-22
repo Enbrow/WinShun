@@ -1661,6 +1661,202 @@ private slots:
         QCOMPARE(inkOn(kWhite), kDark);
     }
 
+    // --- number formats and the words after a number (#57) ------------------------
+
+    void numberFormatsWrite()
+    {
+        const auto in = [](int n, NumberFormat f) { return formatNumber(n, f); };
+        for (const NumberFormat f : {NumberFormat::Arabic, NumberFormat::Circled}) {
+            QCOMPARE(in(1, f), u"1"_s);
+            QCOMPARE(in(25, f), u"25"_s); // past 20 too: digits in the ring
+        }
+        // Letters count like columns of a spreadsheet: after Z comes AA.
+        QCOMPARE(in(1, NumberFormat::UpperLetters), u"A"_s);
+        QCOMPARE(in(26, NumberFormat::UpperLetters), u"Z"_s);
+        QCOMPARE(in(27, NumberFormat::UpperLetters), u"AA"_s);
+        QCOMPARE(in(52, NumberFormat::UpperLetters), u"AZ"_s);
+        QCOMPARE(in(53, NumberFormat::UpperLetters), u"BA"_s);
+        QCOMPARE(in(702, NumberFormat::UpperLetters), u"ZZ"_s);
+        QCOMPARE(in(703, NumberFormat::UpperLetters), u"AAA"_s);
+        QCOMPARE(in(3, NumberFormat::LowerLetters), u"c"_s);
+        QCOMPARE(in(28, NumberFormat::LowerLetters), u"ab"_s);
+        // Roman numerals, to 3999.
+        QCOMPARE(in(1, NumberFormat::Roman), u"I"_s);
+        QCOMPARE(in(4, NumberFormat::Roman), u"IV"_s);
+        QCOMPARE(in(9, NumberFormat::Roman), u"IX"_s);
+        QCOMPARE(in(18, NumberFormat::Roman), u"XVIII"_s);
+        QCOMPARE(in(40, NumberFormat::Roman), u"XL"_s);
+        QCOMPARE(in(1994, NumberFormat::Roman), u"MCMXCIV"_s);
+        QCOMPARE(in(3999, NumberFormat::Roman), u"MMMCMXCIX"_s);
+        QCOMPARE(in(4000, NumberFormat::Roman), u"4000"_s);
+        // What a format cannot write shows as digits.
+        for (const NumberFormat f : {NumberFormat::UpperLetters, NumberFormat::LowerLetters, NumberFormat::Roman}) {
+            QCOMPARE(in(0, f), u"0"_s);
+            QCOMPARE(in(-3, f), u"-3"_s);
+        }
+        // The names in doc.json and in the remembered styles.
+        for (int i = 0; i < kNumberFormatCount; ++i) {
+            const NumberFormat f = NumberFormat(i);
+            QCOMPARE(numberFormatFromName(numberFormatName(f)), std::optional<NumberFormat>(f));
+        }
+        QVERIFY(!numberFormatFromName(u"hex"));
+    }
+
+    void numberFormatsFollowTheSeries()
+    {
+        Document doc = emptyDoc(QSize(600, 200));
+        QList<quint32> n;
+        for (int i = 0; i < 3; ++i)
+            n.append(addItem(doc, numberItem(QPointF(60.5 + 60 * i, 60.5))));
+        CommandStack stack;
+        QCOMPARE(formatOf(doc, 1), NumberFormat::Arabic);
+        stack.push(SetSeries::setFormat(doc, 1, NumberFormat::Roman), doc, 1000);
+        QCOMPARE(formatOf(doc, 1), NumberFormat::Roman);
+        QCOMPARE(stack.undoLabel(), u"改序号格式"_s);
+        QCOMPARE(doc.series.first().start, 1); // the start stays
+        // The start changed afterwards keeps the format; a new series starts as the current one writes.
+        stack.push(SetSeries::setStart(doc, 1, 4), doc, 2000);
+        QCOMPARE(formatOf(doc, 1), NumberFormat::Roman);
+        stack.push(SetSeries::newSeries(doc), doc, 3000);
+        QCOMPARE(doc.currentSeries, 2u);
+        QCOMPARE(formatOf(doc, 2), NumberFormat::Roman);
+        QCOMPARE(formatOf(doc, 99), NumberFormat::Arabic); // a series the document does not have
+        // A format change redraws the numbers and widens the capsule: "XVIII" is wider than "8".
+        Document wide = emptyDoc(QSize(600, 200));
+        Item item = numberItem(QPointF(100.5, 100.5), 1);
+        const quint32 id = addItem(wide, item);
+        const qreal plain = bounds(wide, *findItem(wide, id)).width();
+        CommandStack s2;
+        const Change change = s2.push(SetSeries::setFormat(wide, 1, NumberFormat::Roman), wide, 1);
+        QVERIFY(change.numbers);
+        QVERIFY(change.dirty.contains(bounds(wide, *findItem(wide, id))));
+        QVERIFY(plain > 0);
+        wide.series[0].start = 18;
+        const NumberGeometry g = numberGeometry(*findItem(wide, id), 18, 1.0, NumberFormat::Roman);
+        QCOMPARE(g.label, u"XVIII"_s);
+        QVERIFY(g.disc.width() > g.disc.height());
+        QVERIFY(g.disc.contains(g.ink)); // the badge fits the wider label
+        QVERIFY(bounds(*findItem(wide, id), 1.0, 18, NumberFormat::Roman).contains(g.disc));
+        // A ring (Circled) is hollow and still holds its digits.
+        const NumberGeometry ring = numberGeometry(*findItem(wide, id), 7, 1.0, NumberFormat::Circled);
+        QVERIFY(ring.ring > 0);
+        QCOMPARE(numberGeometry(*findItem(wide, id), 7, 1.0).ring, 0.0);
+    }
+
+    void numberWordsStandBesideTheNumber()
+    {
+        Document doc = emptyDoc(QSize(600, 200));
+        Item item = numberItem(QPointF(100.5, 100.5), 0, kBlue, 27);
+        const quint32 plain = addItem(doc, item);
+        item.points = {QPointF(100.5, 160.5)};
+        item.text = u"登录 Login"_s;
+        const quint32 worded = addItem(doc, item);
+        const NumberGeometry none = numberGeometry(*findItem(doc, plain), 1, 1.0);
+        QVERIFY(none.wordsBox.isEmpty());
+        const NumberGeometry g = numberGeometry(*findItem(doc, worded), 2, 1.0);
+        QVERIFY(!g.wordsBox.isEmpty());
+        QVERIFY(g.wordsBox.left() > g.disc.right()); // to the right, not over the disc
+        QCOMPARE(g.wordsOrigin, g.wordsBox.topLeft());
+        // The words' first baseline is the digits': the same top plus the same ascent.
+        QCOMPARE(g.wordsBox.top() + textMetrics(u"x"_s, 27, false).ascent, g.origin.y() + textMetrics(u"2"_s, 27, true).ascent);
+        // Blank words are none.
+        Item blank = *findItem(doc, worded);
+        blank.text = u"  \n "_s;
+        QVERIFY(numberGeometry(blank, 2, 1.0).wordsBox.isEmpty());
+        // Bounds, selection and hits include the words, and only the worded one.
+        const QRectF with = bounds(doc, *findItem(doc, worded));
+        QVERIFY(with.contains(QRectF(g.wordsBox)));
+        QVERIFY(with.right() > g.disc.right() + 20);
+        QCOMPARE(hitTest(doc, QPointF(g.wordsBox.center()), 2), std::optional<quint32>(worded));
+        QCOMPARE(hitTest(doc, QPointF(g.disc.center()), 2), std::optional<quint32>(worded));
+        QCOMPARE(hitTest(doc, QPointF(g.wordsBox.center()) + QPointF(0, -60), 2), std::nullopt);
+        QCOMPARE(hitTest(doc, QPointF(none.disc.center().x() + 90, none.disc.center().y()), 2), std::nullopt);
+        // White on white is unreadable: the words turn #212121; otherwise they are the colour.
+        QCOMPARE(numberWordsColor(*findItem(doc, worded)), kBlue | 0xff000000u);
+        Item white = *findItem(doc, worded);
+        white.style.color = kWhite;
+        QCOMPARE(numberWordsColor(white), kDark);
+    }
+
+    // The screen's tiles and the export are one set of pixels, with every format and words.
+    void numberFormatsAndWordsDrawTheSameInTiles()
+    {
+        Document doc = emptyDoc(QSize(640, 300));
+        const NumberFormat formats[] {NumberFormat::Arabic, NumberFormat::UpperLetters, NumberFormat::LowerLetters,
+            NumberFormat::Roman, NumberFormat::Circled};
+        for (int i = 0; i < 5; ++i) {
+            doc.series.append(Series{quint32(10 + i), 15 + 3 * i, formats[i]});
+            Item item = numberItem(QPointF(40.5, 30.5 + 55 * i), quint32(10 + i), i == 4 ? kWhite : kGreen, 27);
+            if (i != 1)
+                item.text = i == 3 ? u"第三步 three"_s : u"Click here"_s;
+            addItem(doc, item);
+        }
+        const QImage base = noiseImage(doc.canvas, 5);
+        const QRect all(QPoint(0, 0), doc.canvas);
+        Compositor whole;
+        const QImage want = renderArea(whole, doc, base, all, all);
+        for (const QRect& area : {QRect(0, 0, 256, 256), QRect(100, 20, 300, 160), QRect(37, 41, 211, 133), QRect(384, 0, 256, 256)}) {
+            Compositor cold;
+            const Diff d = compare(renderArea(cold, doc, base, all, area), want.copy(area));
+            QVERIFY2(d.count == 0, qPrintable(describe(d)));
+        }
+        // Drawn without the words being typed: the number is whole, the words are not there.
+        Compositor bare;
+        QImage without;
+        bare.render(doc, base, all, all, &without, std::nullopt, doc.items.last().id);
+        QVERIFY(compare(without, want).count > 0);
+        Document stripped = doc;
+        stripped.items.last().text.clear();
+        Compositor reference;
+        QCOMPARE(compare(without, renderArea(reference, stripped, base, all, all)).count, 0);
+        // The ring is hollow: the pixel in its middle is the picture's own.
+        const Item& ringItem = *findItem(doc, doc.items.last().id);
+        const NumberGeometry g = numberGeometry(ringItem, 27, 1.0, NumberFormat::Circled);
+        QVERIFY(g.ring > 0);
+        const QPoint inside = QPoint(int(g.disc.left()) + int(g.ring) + 3, int(g.disc.center().y()));
+        QCOMPARE(want.pixel(inside), base.pixel(inside));
+    }
+
+    void formatNumberFormatsAndWordsRoundTrip()
+    {
+        Document doc = emptyDoc(QSize(300, 200), 1.5);
+        doc.series = {Series{1, 1, NumberFormat::Arabic}, Series{2, 3, NumberFormat::Roman}, Series{3, 1, NumberFormat::Circled}};
+        Item a = numberItem(QPointF(30.5, 30.5), 1);
+        a.text = u"第一步 \"quoted\" 😀"_s;
+        addItem(doc, a);
+        addItem(doc, numberItem(QPointF(30.5, 90.5), 2));
+        const QJsonObject json = toJson(doc);
+        const QJsonArray series = json.value(u"series"_s).toArray();
+        // Written only when it is not 1 2 3: a file that never used a format reads as before.
+        QVERIFY(!series[0].toObject().contains(u"format"_s));
+        QCOMPARE(series[1].toObject().value(u"format"_s).toString(), u"roman"_s);
+        QCOMPARE(series[2].toObject().value(u"format"_s).toString(), u"circled"_s);
+        QString error;
+        const std::optional<Document> back = fromJson(QJsonDocument::fromJson(QJsonDocument(json).toJson()).object(), &error);
+        QVERIFY2(back, qPrintable(error));
+        QCOMPARE(*back, doc);
+        QCOMPARE(back->items.first().text, a.text);
+        QCOMPARE(formatOf(*back, 2), NumberFormat::Roman);
+        // A format it does not know reads as digits; a file without the key as before.
+        QVERIFY(fromJson(QJsonDocument::fromJson(jsonText("{'format':'winshun-annotation','version':1,'canvas':[10,10],"
+                                                          "'series':[{'id':1,'start':2,'format':'klingon'},{'id':2,'start':1}]}")).object(),
+            &error)->series == (QList<Series>{Series{1, 2}, Series{2, 1}}));
+        // The sample from before the formats opens as it was, in digits, and writes back without the key.
+        QFile file(QStringLiteral(WINSHUN_ANNOTATE_DATA) + u"/doc-v1.json"_s);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const std::optional<Document> old = fromJson(QJsonDocument::fromJson(file.readAll()).object(), &error);
+        QVERIFY2(old, qPrintable(error));
+        for (const Series& s : old->series)
+            QCOMPARE(s.format, NumberFormat::Arabic);
+        for (const QJsonValue& s : toJson(*old).value(u"series"_s).toArray())
+            QVERIFY(!s.toObject().contains(u"format"_s));
+        // A project cut to a selection keeps the formats and the words (projectFromOverlay).
+        Document overlay = doc;
+        const Project cut = projectFromOverlay(overlay, QImage(300, 200, QImage::Format_RGB32), QRect(0, 0, 300, 200));
+        QCOMPARE(formatOf(cut.doc, 2), NumberFormat::Roman);
+        QCOMPARE(cut.doc.items.first().text, a.text);
+    }
+
     // --- redactions -------------------------------------------------------------
 
     void redactionReadsNothingUnder_data()

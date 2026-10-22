@@ -27,7 +27,10 @@ Window {
     title: qsTr("编辑图片") // shown as "编辑图片 - Win顺"
     width: 1000
     height: 700
-    minimumWidth: Math.ceil(bar.implicitWidth + 2 * margin)
+    // The toolbar's width; and while the style panel shows, its width and the size and zoom beside it
+    // (the number tool's panel is wider than a default window: live test 2026-10-22).
+    minimumWidth: Math.ceil(Math.max(bar.implicitWidth + 2 * margin,
+                                     panel.visible ? panel.implicitWidth + status.implicitWidth + 3 * margin : 0))
     minimumHeight: 360
 
     onActiveChanged: if (active && editor.open) keys.forceActiveFocus()
@@ -323,6 +326,7 @@ Window {
         }
 
         Row {
+            id: status
             anchors.right: parent.right
             anchors.rightMargin: window.margin
             anchors.verticalCenter: parent.verticalCenter

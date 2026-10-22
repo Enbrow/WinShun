@@ -499,6 +499,12 @@ void Capture::finish(CaptureSession::Action action, int screen, const QRect& rec
         if (m_callbacks.ocr)
             m_callbacks.ocr(picture, dpr, QRect(origin, picture.size()));
         break;
+    case CaptureSession::Action::OcrCopy:
+    case CaptureSession::Action::OcrSearch:
+    case CaptureSession::Action::OcrWeb:
+        if (m_callbacks.ocrThen)
+            m_callbacks.ocrThen(picture, dpr, QRect(origin, picture.size()), action);
+        break;
     case CaptureSession::Action::Cancel:
         break;
     }

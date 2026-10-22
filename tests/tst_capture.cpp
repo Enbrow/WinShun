@@ -272,6 +272,20 @@ private slots:
         QCOMPARE(nextOpacity(0.55, 1), 0.7); // 0.55 rounds to 0.6 first
     }
 
+    void clickThroughPinTakesTheMouseWithCtrlOver()
+    {
+        // A pin that is not click-through never lets the mouse through.
+        QVERIFY(!pinLetsMouseThrough(false, false, false, false));
+        QVERIFY(!pinLetsMouseThrough(false, true, true, false));
+        // Click-through: through, except with Ctrl held and the cursor over it.
+        QVERIFY(pinLetsMouseThrough(true, false, false, false));
+        QVERIFY(pinLetsMouseThrough(true, false, true, false)); // over it, no Ctrl
+        QVERIFY(pinLetsMouseThrough(true, true, false, false)); // Ctrl, cursor elsewhere
+        QVERIFY(!pinLetsMouseThrough(true, true, true, false)); // both: reachable
+        // Dragged or its menu up: it keeps the mouse, Ctrl or not.
+        QVERIFY(!pinLetsMouseThrough(true, false, false, true));
+    }
+
     void pinFrameFollowsTheDpiThePictureDoesNot()
     {
         const QRect picture(100, 200, 400, 300);
@@ -838,7 +852,9 @@ private slots:
             const char* name;
             A action;
         } rows[] {{Qt::MiddleButton, "copy", A::Copy}, {Qt::BackButton, "save", A::Save},
-            {Qt::ForwardButton, "pin", A::Pin}, {Qt::RightButton, "ocr", A::Ocr}, {Qt::MiddleButton, "cancel", A::Cancel}};
+            {Qt::ForwardButton, "pin", A::Pin}, {Qt::RightButton, "ocr", A::Ocr}, {Qt::MiddleButton, "cancel", A::Cancel},
+            {Qt::MiddleButton, "ocrcopy", A::OcrCopy}, {Qt::BackButton, "ocrsearch", A::OcrSearch},
+            {Qt::ForwardButton, "ocrweb", A::OcrWeb}};
         for (const auto& r : rows)
             QTest::newRow(r.name) << int(r.button) << QString::fromLatin1(r.name) << int(r.action);
     }
@@ -869,6 +885,35 @@ private slots:
         QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action(action));
         if (CaptureSession::Action(action) != CaptureSession::Action::Cancel) // a cancel takes nothing
             QCOMPARE(finished[0][2].toRect(), QRect(100, 100, 200, 200));
+    }
+
+    // 识别文字并搜索 / 网页搜索 and the OCR window's 网页搜索 hand the words over as one line.
+    void ocrWordsBecomeOneLine()
+    {
+        QCOMPARE(ocrOneLine(u"  第一行\n  第二行\t\tthird \r\n"_s), u"第一行 第二行 third"_s);
+        QVERIFY(ocrOneLine(u" \n\t "_s).isEmpty());
+        QCOMPARE(ocrOneLine(QString(1000, u'x')).size(), 256);
+        QCOMPARE(ocrOneLine(u"x"_s, 3), u"x"_s);
+        QCOMPARE(ocrOneLine(u"abcdef"_s, 3), u"abc"_s);
+    }
+
+    void hiddenToolbarButtonsAreTheSessionsToTell()
+    {
+        Rig rig;
+        QSignalSpy changed(&rig.session, &CaptureSession::hiddenButtonsChanged);
+        QVERIFY(rig.session.hiddenButtons().isEmpty());
+        rig.session.setHiddenButtons({u"pin"_s, u"ocr"_s});
+        QCOMPARE(rig.session.hiddenButtons(), (QStringList {u"pin"_s, u"ocr"_s}));
+        QCOMPARE(changed.count(), 1);
+        rig.session.setHiddenButtons({u"pin"_s, u"ocr"_s}); // the same: no signal
+        QCOMPARE(changed.count(), 1);
+        // The keys of a hidden button still work.
+        rig.begin();
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.drag({100, 100}, {299, 299});
+        rig.session.key(Qt::Key_F3, Qt::NoModifier);
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Pin);
     }
 
     void unsetButtonsOrBadNamesDoNothing()

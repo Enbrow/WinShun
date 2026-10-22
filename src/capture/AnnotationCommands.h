@@ -176,7 +176,7 @@ public:
     int to = -1;
 };
 
-// A series made (before empty), changed (its start) or removed (after
+// A series made (before empty), changed (its start or format) or removed (after
 // empty), and the current series before and after (0: left as it is).
 class SetSeries final : public Command {
 public:
@@ -186,6 +186,8 @@ public:
     static std::unique_ptr<SetSeries> newSeries(const Document& doc);
     // "起始值": where series `id` starts counting.
     static std::unique_ptr<SetSeries> setStart(const Document& doc, quint32 id, int start);
+    // "序号格式": how series `id` writes its numbers (1 2 3, A B C ...).
+    static std::unique_ptr<SetSeries> setFormat(const Document& doc, quint32 id, NumberFormat format);
     Change apply(Document& doc) override;
     Change revert(Document& doc) override;
     quint32 id = 0;

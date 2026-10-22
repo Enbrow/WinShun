@@ -189,6 +189,10 @@ struct Settings {
     // lower case, aliases folded ("Control" and "Meta" as ctrl and win); empty
     // for what is not a modifier or two and one key.
     static QString normalizedHotkey(const QString& shortcut);
+    // The ids of the capture toolbar's action buttons, in its order.
+    static QStringList captureToolbarButtonIds();
+    // `text` (comma separated ids) cut to the known ones: each once, in the toolbar's order.
+    static QString normalizedToolbarHidden(const QString& text);
     // The rule for a shortcut a person (settings window) or AI sets: Ctrl, Alt
     // or Win held with its key, or a function key (F1 to F24) alone or with
     // Shift. A bare letter, Enter, Space, PrintScreen or Shift+letter would
@@ -316,12 +320,18 @@ struct Settings {
     bool captureCopyOnSelect = false; // letting go of a drag or a click on a window copies at once
     // What a mouse button does once a selection is there (and no annotation
     // tool, stroke or text is under way): none | copy | save | pin | ocr |
-    // cancel, the right button also back (Esc's step back). Issue #46.
+    // ocrcopy | ocrsearch | ocrweb | cancel, the right button also back (Esc's
+    // step back). Issue #46; the ocr... ones (#57) read the picture and go on
+    // at once: to the clipboard, the search box, the web search.
     QString captureMouseDoubleLeft = QStringLiteral("copy");
     QString captureMouseRight = QStringLiteral("back");
     QString captureMouseMiddle = QStringLiteral("none");
     QString captureMouseBack = QStringLiteral("none"); // the side button toward the user (X1)
     QString captureMouseForward = QStringLiteral("none"); // X2
+    // The capture toolbar's action buttons left off it (#57), comma separated:
+    // undo, redo, copy, save, pin, ocr, cancel (captureToolbarButtonIds); empty
+    // shows them all. Their keys work all the same.
+    QString captureToolbarHidden;
     // Keyword=: typed first in the search box with a space after it, the
     // screenshot history (the launcher's jt). Plugins' keywords alike give
     // way to it; a web search's or a favorite's alike is refused when set.

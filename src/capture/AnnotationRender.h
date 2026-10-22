@@ -45,9 +45,9 @@ public:
     // base does not cover are black. sampleBounds is S of 3.10: what
     // redactions take their colours from (the selection in the overlay, the
     // whole base in the editor). `skip` is an item not drawn (the text being
-    // edited).
+    // edited); `unworded` is a Number drawn without its words (those being typed).
     void render(const Document& doc, const QImage& base, const QRect& sampleBounds, const QRect& area, QImage* target,
-        std::optional<quint32> skip = {});
+        std::optional<quint32> skip = {}, std::optional<quint32> unworded = {});
     // The document's crop (within the canvas; all of it when the crop is
     // empty) drawn as an opaque Format_RGB32 picture.
     QImage exportImage(const Document& doc, const QImage& base, const QRect& sampleBounds);

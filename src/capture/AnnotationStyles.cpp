@@ -41,6 +41,7 @@ struct Fields {
     bool boxed = false;
     bool mode = false;
     bool cell = false;
+    bool format = false; // Number: how a series writes its numbers
 };
 
 Fields fieldsOf(Kind kind)
@@ -65,6 +66,7 @@ Fields fieldsOf(Kind kind)
         break;
     case Kind::Number:
         f.size = true;
+        f.format = true;
         break;
     case Kind::Redact:
         f.mode = true;
@@ -159,6 +161,16 @@ void StyleMemory::reset(Kind kind)
     m_tools[std::size_t(kind)] = defaults(kind);
 }
 
+NumberFormat StyleMemory::numberFormat() const
+{
+    return m_tools[std::size_t(Kind::Number)].format;
+}
+
+void StyleMemory::setNumberFormat(NumberFormat format)
+{
+    m_tools[std::size_t(Kind::Number)].format = format;
+}
+
 const StyleMemory::Tool& StyleMemory::tool(Kind kind) const
 {
     return m_tools[std::size_t(kind)];
@@ -204,6 +216,10 @@ StyleMemory StyleMemory::fromJson(const QString& json)
         }
         if (f.cell)
             readSize(o.value(u"cell"_s), t.cell);
+        if (f.format) {
+            if (const auto format = numberFormatFromName(o.value(u"format"_s).toString()))
+                t.format = *format;
+        }
     }
     return memory;
 }
@@ -235,6 +251,8 @@ QString StyleMemory::toJson() const
             o[u"mode"_s] = redactModeName(t.mode);
         if (f.cell)
             o[u"cell"_s] = t.cell;
+        if (f.format)
+            o[u"format"_s] = numberFormatName(t.format);
         root[kindName(kind)] = o;
     }
     return QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact));

@@ -699,6 +699,24 @@ QString Settings::normalizedHotkey(const QString& shortcut)
     return parts.join(u'+');
 }
 
+QStringList Settings::captureToolbarButtonIds()
+{
+    return {u"undo"_s, u"redo"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"cancel"_s};
+}
+
+QString Settings::normalizedToolbarHidden(const QString& text)
+{
+    QStringList asked;
+    for (const QString& part : text.split(u',', Qt::SkipEmptyParts))
+        asked.append(part.trimmed().toLower());
+    QStringList kept;
+    for (const QString& id : captureToolbarButtonIds()) {
+        if (asked.contains(id))
+            kept.append(id);
+    }
+    return kept.join(u',');
+}
+
 bool Settings::hotkeyAllowed(const QString& shortcut)
 {
     const QString normal = normalizedHotkey(shortcut);
@@ -997,7 +1015,8 @@ void Settings::load()
     captureCopyOnSelect = readOrDefault(s, u"Capture/CopyOnSelect"_s, d.captureCopyOnSelect);
     const auto mouseAction = [&](const QString& key, const QString& fallback, bool allowBack) {
         const QString v = readOrDefault(s, key, fallback).trimmed().toLower();
-        static const QStringList known {u"none"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"cancel"_s};
+        static const QStringList known {u"none"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"ocrcopy"_s, u"ocrsearch"_s,
+            u"ocrweb"_s, u"cancel"_s};
         return known.contains(v) || (allowBack && v == u"back") ? v : fallback;
     };
     captureMouseDoubleLeft = mouseAction(u"Capture/MouseDoubleLeft"_s, d.captureMouseDoubleLeft, false);
@@ -1005,6 +1024,11 @@ void Settings::load()
     captureMouseMiddle = mouseAction(u"Capture/MouseMiddle"_s, d.captureMouseMiddle, false);
     captureMouseBack = mouseAction(u"Capture/MouseBack"_s, d.captureMouseBack, false);
     captureMouseForward = mouseAction(u"Capture/MouseForward"_s, d.captureMouseForward, false);
+    // A hand-written "undo,pin" with no quotes reads back as a list (QSettings splits at commas); ours are quoted.
+    const QVariant hiddenRaw = s.value(u"Capture/ToolbarHidden"_s);
+    captureToolbarHidden = normalizedToolbarHidden(hiddenRaw.metaType().id() == QMetaType::QStringList
+            ? hiddenRaw.toStringList().join(u',')
+            : (hiddenRaw.isValid() ? hiddenRaw.toString() : d.captureToolbarHidden));
     captureKeyword = readOrDefault(s, u"Capture/Keyword"_s, d.captureKeyword).trimmed();
     captureAnnotateStyles = readOrDefault(s, u"Capture/AnnotateStyles"_s, d.captureAnnotateStyles).trimmed();
 
@@ -1139,6 +1163,7 @@ void Settings::save() const
     s.setValue(u"Capture/MouseMiddle"_s, captureMouseMiddle);
     s.setValue(u"Capture/MouseBack"_s, captureMouseBack);
     s.setValue(u"Capture/MouseForward"_s, captureMouseForward);
+    s.setValue(u"Capture/ToolbarHidden"_s, captureToolbarHidden);
     s.setValue(u"Capture/Keyword"_s, captureKeyword);
     s.setValue(u"Capture/AnnotateStyles"_s, captureAnnotateStyles);
     writeWebShortcuts(s, webShortcuts, webSuggestions);

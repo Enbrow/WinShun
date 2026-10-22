@@ -111,6 +111,14 @@ Style styleFrom(const QJsonObject& o)
     return s;
 }
 
+QJsonObject seriesJson(const Series& s)
+{
+    QJsonObject o{{u"id"_s, qint64(s.id)}, {u"start"_s, s.start}};
+    if (s.format != NumberFormat::Arabic)
+        o[u"format"_s] = numberFormatName(s.format);
+    return o;
+}
+
 QJsonObject itemJson(const Item& item)
 {
     QJsonObject o;
@@ -213,7 +221,11 @@ std::optional<Document> parse(const QJsonObject& json, QString* error)
         const auto start = wholeFrom(o.value(u"start"_s), std::numeric_limits<int>::min(), std::numeric_limits<int>::max());
         if (!id || std::any_of(doc.series.cbegin(), doc.series.cend(), [&](const Series& s) { return s.id == quint32(*id); }))
             continue;
-        doc.series.append(Series{quint32(*id), int(start.value_or(1))});
+        // Optional, and written only when not 1 2 3: a project from before
+        // the formats opens as it was, and one saved with them opens (with
+        // digits) in a version that does not know the key.
+        doc.series.append(Series{quint32(*id), int(start.value_or(1)),
+            numberFormatFromName(o.value(u"format"_s).toString()).value_or(NumberFormat::Arabic)});
     }
     if (doc.series.isEmpty())
         doc.series.append(Series{});
@@ -310,7 +322,7 @@ QJsonObject toJson(const Document& doc)
     o[u"dpr"_s] = doc.dpr;
     QJsonArray series;
     for (const Series& s : doc.series)
-        series.append(QJsonObject{{u"id"_s, qint64(s.id)}, {u"start"_s, s.start}});
+        series.append(seriesJson(s));
     o[u"series"_s] = series;
     o[u"currentSeries"_s] = qint64(doc.currentSeries);
     o[u"nextId"_s] = qint64(doc.nextId);
@@ -428,7 +440,7 @@ Project projectFromOverlay(const Document& doc, const QImage& screen, const QRec
     const QHash<quint32, int> shown = numbers(doc);
     const QRectF inside(taken);
     for (const Item& item : doc.items) {
-        if (bounds(item, doc.dpr, shown.value(item.id, 1)).intersects(inside))
+        if (bounds(item, doc.dpr, shown.value(item.id, 1), formatOf(doc, item.series)).intersects(inside))
             out.items.append(translated(item, -taken.topLeft()));
     }
     keepNumbers(out, shown);

@@ -1022,10 +1022,20 @@ void SettingsEditor::setCaptureCopyOnSelect(bool on)
 
 void SettingsEditor::setCaptureMouse(QString& field, const QString& action, bool allowBack)
 {
-    static const QStringList known {u"none"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"cancel"_s};
+    static const QStringList known {u"none"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"ocrcopy"_s, u"ocrsearch"_s,
+        u"ocrweb"_s, u"cancel"_s};
     if (field == action || !(known.contains(action) || (allowBack && action == u"back")))
         return;
     field = action;
+    commit();
+}
+
+void SettingsEditor::setCaptureToolbarHidden(const QString& ids)
+{
+    const QString normal = Settings::normalizedToolbarHidden(ids);
+    if (m_settings.captureToolbarHidden == normal)
+        return;
+    m_settings.captureToolbarHidden = normal;
     commit();
 }
 

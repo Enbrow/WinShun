@@ -17,6 +17,11 @@ Rectangle {
     required property AnnotationModel annot
     property bool editor: false
     property bool ocrAvailable: session ? session.ocrAvailable : false
+    // The action buttons the settings leave off (CaptureSession.hiddenButtons; the
+    // editing window shows them all): their keys work all the same.
+    readonly property var hidden: session ? session.hiddenButtons : []
+    readonly property bool historyShown: shows("undo") || shows("redo")
+    readonly property bool actionsShown: shows("copy") || shows("save") || (pinnable && shows("pin")) || shows("ocr") || shows("cancel")
     // What the first button says (the editing window: 完成 on a pin) and
     // whether there is a 贴图 button (not when the picture is a pin already).
     property string copyText: qsTr("复制")
@@ -38,8 +43,8 @@ Rectangle {
         "[  ]", qsTr("粗细、字号、格子小一档 / 大一档"),
         "Ctrl+[  Ctrl+]", qsTr("下移一层 / 上移一层，加 Shift 到底 / 到顶"),
         qsTr("画的时候按住 Shift"), qsTr("正方形、正圆；线吸附 15°；画笔、荧光笔画直线"),
-        qsTr("双击"), qsTr("文字：改文字；序号：改号"),
-        "Ctrl+Enter、Esc", qsTr("写完文字（Enter 换行）"),
+        qsTr("双击"), qsTr("文字：改文字；序号：改号，序号旁的字：改字"),
+        "Ctrl+Enter、Esc", qsTr("写完文字（Enter 换行；序号旁的字 Enter 就写完）"),
         "Ctrl+C、Enter", qsTr("复制"),
         "Ctrl+S", qsTr("保存"),
         "F3", qsTr("贴图")
@@ -110,6 +115,7 @@ Rectangle {
     property int tipTool: -1
     property bool keysOpen: false
 
+    function shows(id) { return hidden.indexOf(id) < 0 }
     // Logical to whole device pixels.
     function snap(v) { return Math.round(v * dpr) / dpr }
     // Esc while the key list is open closes it (CaptureOverlay asks first).
@@ -156,10 +162,11 @@ Rectangle {
             delegate: ToolButton {}
         }
 
-        Separator {}
+        Separator { visible: bar.historyShown || bar.actionsShown }
 
         FlatButton {
             id: undoButton
+            visible: bar.shows("undo")
             flat: true
             keyboardActivation: false
             border.width: 0 // no hover border, like the tool buttons beside it
@@ -171,6 +178,7 @@ Rectangle {
         }
         FlatButton {
             id: redoButton
+            visible: bar.shows("redo")
             flat: true
             keyboardActivation: false
             border.width: 0 // no hover border, like the tool buttons beside it
@@ -181,9 +189,10 @@ Rectangle {
             HoverHandler { onHoveredChanged: bar.hover(redoButton, hovered, -1) }
         }
 
-        Separator {}
+        Separator { visible: bar.historyShown && bar.actionsShown }
 
         FlatButton {
+            visible: bar.shows("copy")
             flat: true
             keyboardActivation: false
             border.width: 0 // no hover border, like the tool buttons beside it
@@ -193,6 +202,7 @@ Rectangle {
             onClicked: bar.act(CaptureSession.Copy)
         }
         FlatButton {
+            visible: bar.shows("save")
             flat: true
             keyboardActivation: false
             border.width: 0 // no hover border, like the tool buttons beside it
@@ -203,7 +213,7 @@ Rectangle {
         }
         FlatButton {
             id: pinButton
-            visible: bar.pinnable
+            visible: bar.pinnable && bar.shows("pin")
             flat: true
             keyboardActivation: false
             border.width: 0 // no hover border, like the tool buttons beside it
@@ -215,6 +225,7 @@ Rectangle {
         }
         FlatButton {
             id: ocrButton
+            visible: bar.shows("ocr")
             flat: true
             keyboardActivation: false
             border.width: 0 // no hover border, like the tool buttons beside it
@@ -227,6 +238,7 @@ Rectangle {
             HoverHandler { onHoveredChanged: bar.hover(ocrButton, hovered, -1) }
         }
         FlatButton {
+            visible: bar.shows("cancel")
             flat: true
             keyboardActivation: false
             border.width: 0 // no hover border, like the tool buttons beside it

@@ -297,6 +297,11 @@ struct AnnotationModel::Private {
     annot::Item before; // Draw: the item as the press made it; Reshape: the item before
     int handle = -1; // Reshape: of the item (BoxHandle, LineHandle); Crop: a Handle of Geometry.h
     QPoint own; // Reshape: the pixel the handle stands for (handlePixel)
+    // A Number just put down: in the document, not yet a step of the stack
+    // while its words are typed, so that putting it down and typing them
+    // are one undo step (commitWords()).
+    std::unique_ptr<annot::AddItems> placing;
+    bool reopenWords = false; // Move: the number pressed was the only one selected already
     QList<quint32> moveIds; // Move: what moves together
     QRect cropStart; // Crop: the crop as the press found it
     QList<quint32> marqueeBase; // Marquee: the selected ones before it (Shift keeps them)
@@ -351,6 +356,7 @@ void AnnotationModel::begin(const QImage& base, qreal dpr, const annot::StyleMem
     m_document.dpr = dpr > 0 ? dpr : 1.0;
     m_styles = styles;
     m_stylesChanged = false;
+    m_document.series.first().format = m_styles.numberFormat(); // the first group writes numbers as last time
     emit changed(QRectF()); // a new picture: all of it
     sync();
 }
@@ -417,6 +423,7 @@ void AnnotationModel::end()
 void AnnotationModel::reset()
 {
     d->command.reset();
+    d->placing.reset();
     d->applied = false;
     d->dragging = false;
     d->wheelSum = 0;
@@ -465,7 +472,14 @@ QRect AnnotationModel::sampleBounds() const
 
 std::optional<quint32> AnnotationModel::skipped() const
 {
-    if (m_editing && m_editing->id != 0)
+    if (m_editing && m_editing->id != 0 && !m_editing->words)
+        return m_editing->id;
+    return std::nullopt;
+}
+
+std::optional<quint32> AnnotationModel::unworded() const
+{
+    if (m_editing && m_editing->words)
         return m_editing->id;
     return std::nullopt;
 }
@@ -638,6 +652,10 @@ QVariantMap AnnotationModel::panel() const
                 start = s.start;
         }
         m[u"start"_s] = start;
+        quint32 series = m_document.currentSeries;
+        if (const annot::Item* item = find(target->id()))
+            series = item->series;
+        m[u"format"_s] = annot::numberFormatName(annot::formatOf(m_document, series));
     }
     m[u"selected"_s] = !target->ids.isEmpty();
     const bool layered = target->ids.size() == 1 && !m_editing;
@@ -673,6 +691,20 @@ QVariantMap AnnotationModel::editing() const
 {
     if (!m_editing)
         return {};
+    if (m_editing->words) {
+        const annot::Item* item = find(m_editing->id);
+        if (!item)
+            return {};
+        const int f = std::max(1, item->style.fontPx);
+        const annot::TextMetrics metrics = annot::textMetrics(QString(), f, false);
+        const QPoint at = geometryOf(*item).wordsOrigin;
+        const QString color = colorHex(annot::numberWordsColor(*item));
+        return QVariantMap {{u"id"_s, int(m_editing->id)}, {u"x"_s, at.x()}, {u"y"_s, at.y()}, {u"fontPx"_s, f},
+            {u"bold"_s, false}, {u"boxed"_s, false}, {u"color"_s, color}, {u"fill"_s, color},
+            {u"text"_s, m_editing->text}, {u"pad"_s, 0}, {u"radius"_s, 0}, {u"pitch"_s, metrics.pitch},
+            {u"ascent"_s, metrics.ascent}, {u"clickX"_s, m_editing->click.x()}, {u"clickY"_s, m_editing->click.y()},
+            {u"number"_s, true}};
+    }
     const annot::Style style = editingStyle();
     const int f = std::max(1, style.fontPx);
     // Ascent and pitch are the font's, whatever the words.
@@ -865,6 +897,11 @@ std::optional<AnnotationModel::Target> AnnotationModel::styleTarget() const
         return std::nullopt;
     Target target;
     if (m_editing) {
+        if (m_editing->words && find(m_editing->id)) {
+            target.kind = Kind::Number;
+            target.ids = {m_editing->id};
+            return target;
+        }
         target.kind = Kind::Text;
         if (m_editing->id != 0 && find(m_editing->id))
             target.ids = {m_editing->id};
@@ -914,6 +951,16 @@ QRect AnnotationModel::editingBox() const
 {
     if (!m_editing)
         return {};
+    if (m_editing->words) {
+        const annot::Item* item = find(m_editing->id);
+        if (!item)
+            return {};
+        const int f = std::max(1, item->style.fontPx);
+        QRect box(geometryOf(*item).wordsOrigin, annot::textMetrics(m_editing->text, f, false).size);
+        box.setWidth(std::max(box.width(), std::max(1, f / 2)));
+        box.setHeight(std::max(box.height(), 1));
+        return box;
+    }
     annot::Item probe;
     probe.kind = Kind::Text;
     probe.points = {QPointF(m_editing->at)};
@@ -934,6 +981,12 @@ std::unique_ptr<annot::Command> AnnotationModel::textCommand(const annot::Docume
 {
     if (!m_editing)
         return nullptr;
+    if (m_editing->words) { // a Number's words: empty is none, not a removed item
+        const annot::Item* number = annot::findItem(doc, m_editing->id);
+        if (!number || text.trimmed() == number->text)
+            return nullptr;
+        return std::make_unique<annot::Retext>(doc, number->id, text.trimmed());
+    }
     const bool words = !text.trimmed().isEmpty();
     if (m_editing->id == 0) {
         if (!words)
@@ -959,6 +1012,10 @@ std::unique_ptr<annot::Command> AnnotationModel::textCommand(const annot::Docume
 
 void AnnotationModel::push(std::unique_ptr<annot::Command> command)
 {
+    // A number just put down, its words not finished: it is a step before whatever comes now
+    // (a restyle from the panel), so that undo takes them back in order.
+    if (d->placing)
+        m_stack.pushApplied(std::move(d->placing), now());
     touched(m_stack.push(std::move(command), m_document, now()));
 }
 
@@ -1066,10 +1123,13 @@ bool AnnotationModel::pressFirst(QPoint p, Qt::KeyboardModifiers modifiers)
         // The text box takes the presses inside it; one that reaches here
         // only commits the text, and does nothing else (3.6, step 1). One on
         // the box's padding counts as inside.
+        const bool words = m_editing->words;
         if (!editingBox().contains(p))
             commitPending();
         sync();
-        return true;
+        // A Number's words end with the press, which goes on to put the next
+        // number down (or whatever it was for): one click a number.
+        return !(words && !m_editing);
     }
     if (m_picking) {
         // The eyedropper: the pixel as drawn, annotations included.
@@ -1106,10 +1166,12 @@ bool AnnotationModel::pressSecond(QPoint p, Qt::KeyboardModifiers modifiers)
         sync();
         return true;
     }
+    d->reopenWords = false;
     if (const std::optional<Kind> kind = toolKind()) {
         // 3.6, step 4: the selected objects move, a text is edited, a number
         // picked up; anything else inside the selection is drawn on.
         if (onSelected(p)) {
+            d->reopenWords = m_picked.size() == 1;
             startMove(m_picked, p, modifiers);
             sync();
             return true;
@@ -1119,6 +1181,7 @@ bool AnnotationModel::pressSecond(QPoint p, Qt::KeyboardModifiers modifiers)
         // (at the release, finishGesture()).
         const annot::Item* under = find(itemAt(p));
         if (under && under->kind == *kind && (*kind == Kind::Text || *kind == Kind::Number)) {
+            d->reopenWords = m_picked == QList<quint32> {under->id};
             m_picked = {under->id};
             startMove(m_picked, p, modifiers);
             sync();
@@ -1474,6 +1537,16 @@ void AnnotationModel::finishGesture()
             }
         }
         const quint32 id = item.id;
+        if (item.kind == Kind::Number) {
+            // Typing goes on into its words; the step joins the stack when
+            // they end, so the number and its words are one undo step.
+            if (d->placing)
+                m_stack.pushApplied(std::move(d->placing), now());
+            d->placing.reset(static_cast<annot::AddItems*>(command.release()));
+            m_picked = {id};
+            beginWordsEdit(*find(id), QPoint(-1, -1));
+            break;
+        }
         m_stack.pushApplied(std::move(command), now());
         m_picked = {id}; // the tool stays; what it drew can be adjusted at once (3.6)
         break;
@@ -1488,6 +1561,12 @@ void AnnotationModel::finishGesture()
         if (toolKind() == Kind::Text) {
             if (const annot::Item* item = find(d->before.id); item && item->kind == Kind::Text)
                 beginEdit(*item, d->pressAt);
+        } else if (toolKind() == Kind::Number) {
+            // A click on a number selects it (keys act on it); a click on its words, or
+            // a second click on it, opens its words.
+            if (const annot::Item* item = find(d->before.id);
+                item && item->kind == Kind::Number && (d->reopenWords || onWords(*item, d->pressAt)))
+                beginWordsEdit(*item, onWords(*item, d->pressAt) ? d->pressAt : QPoint(-1, -1));
         }
         break;
     }
@@ -1584,6 +1663,8 @@ bool AnnotationModel::doubleClick(QPoint p)
             return true;
         if (item->kind == Kind::Text) {
             beginEdit(*item, p);
+        } else if (onWords(*item, p)) {
+            beginWordsEdit(*item, p);
         } else {
             m_picked = {item->id};
             m_numberEdit = item->id;
@@ -1841,6 +1922,36 @@ void AnnotationModel::beginEdit(const annot::Item& item, QPoint p)
     emit changed(annot::bounds(m_document, item)); // the canvas leaves it out now
 }
 
+annot::NumberGeometry AnnotationModel::geometryOf(const annot::Item& item) const
+{
+    const int number = annot::numbers(m_document).value(item.id, 1);
+    return annot::numberGeometry(item, number, dpr(), annot::formatOf(m_document, item.series));
+}
+
+bool AnnotationModel::onWords(const annot::Item& item, QPoint p) const
+{
+    if (item.kind != Kind::Number)
+        return false;
+    const annot::NumberGeometry g = geometryOf(item);
+    const QPointF q = annot::pixelCentre(QPointF(p));
+    return !g.wordsBox.isEmpty() && QRectF(g.wordsBox).contains(q) && !g.disc.contains(q);
+}
+
+void AnnotationModel::beginWordsEdit(const annot::Item& item, QPoint click)
+{
+    Editing editing;
+    editing.id = item.id;
+    editing.words = true;
+    editing.at = geometryOf(item).wordsOrigin;
+    editing.text = item.text;
+    editing.click = click.x() < 0 ? QPoint(-1, -1) : click - editing.at;
+    editing.style = item.style;
+    m_editing = editing;
+    m_picked.clear();
+    m_numberEdit.reset();
+    emit changed(annot::bounds(m_document, item)); // the canvas leaves its words out now
+}
+
 void AnnotationModel::setEditingText(const QString& text)
 {
     if (!m_editing)
@@ -1856,6 +1967,10 @@ void AnnotationModel::commitText(const QString& typed)
     if (!m_editing)
         return;
     const QString text = plainText(typed);
+    if (m_editing->words) {
+        commitWords(text);
+        return;
+    }
     const quint32 old = m_editing->id;
     QRectF area;
     if (const annot::Item* item = find(old ? std::optional<quint32>(old) : std::nullopt))
@@ -1878,11 +1993,61 @@ void AnnotationModel::commitText(const QString& typed)
     sync();
 }
 
+// The end of a Number's words: no words, or the words unchanged, change
+// nothing; the number just put down joins the stack with its words, one step.
+void AnnotationModel::commitWords(const QString& typed)
+{
+    const quint32 id = m_editing->id;
+    const QString words = typed.trimmed();
+    const annot::Item* item = find(id);
+    QRectF area;
+    if (item)
+        area = annot::bounds(m_document, *item); // drawn again: it was left without its words
+    m_editing.reset();
+    std::unique_ptr<annot::AddItems> placing;
+    if (d->placing && !d->placing->items.isEmpty() && d->placing->items[0].id == id)
+        placing = std::move(d->placing);
+    if (item && words != item->text) {
+        if (placing) {
+            annot::Retext retext(m_document, id, words);
+            annot::Change change = retext.apply(m_document);
+            change.dirty |= area;
+            placing->items[0].text = words; // done again, it comes back with them
+            touched(change);
+        } else {
+            push(std::make_unique<annot::Retext>(m_document, id, words));
+        }
+    } else if (!area.isEmpty()) {
+        emit changed(area);
+    }
+    if (placing)
+        m_stack.pushApplied(std::move(placing), now());
+    m_picked.clear();
+    if (find(id))
+        m_picked = {id};
+    sync();
+}
+
 void AnnotationModel::setPanel(const QVariantMap& change)
 {
     const std::optional<Target> target = styleTarget();
     if (!target || change.isEmpty())
         return;
+    // How the series writes its numbers: the document's, and the tool's
+    // memory, which the next capture starts with.
+    if (change.contains(u"format"_s) && target->kind == Kind::Number && !target->mixed) {
+        if (const std::optional<annot::NumberFormat> format = annot::numberFormatFromName(change.value(u"format"_s).toString())) {
+            quint32 series = m_document.currentSeries;
+            if (const annot::Item* item = find(target->id()))
+                series = item->series;
+            if (annot::formatOf(m_document, series) != *format)
+                push(annot::SetSeries::setFormat(m_document, series, *format));
+            if (m_styles.numberFormat() != *format) {
+                m_styles.setNumberFormat(*format);
+                m_stylesChanged = true;
+            }
+        }
+    }
     // The objects (or the text being typed), in image px.
     QList<Kind> kinds;
     if (!target->ids.isEmpty()) {
@@ -2148,6 +2313,7 @@ void AnnotationModel::newSeries()
     if (!active())
         return;
     commitPending();
+    m_picked.clear(); // the panel is for the new group now, not for the number just put down in the old one
     push(annot::SetSeries::newSeries(m_document));
     sync();
 }

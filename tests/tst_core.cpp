@@ -1393,6 +1393,17 @@ private slots:
             }
         }
         QCOMPARE(suggesting, (QStringList {u"baidu"_s, u"biying"_s, u"bilibili"_s, u"taobao"_s}));
+        // The OCR's 网页搜索: the first of the list that searches.
+        QCOMPARE(defaultWebSearchUrl(shortcuts, u" 天气 预报 "_s), u"https://www.baidu.com/s?wd=%E5%A4%A9%E6%B0%94%20%E9%A2%84%E6%8A%A5"_s);
+        QVERIFY(defaultWebSearchUrl(shortcuts, u"  "_s).isEmpty());
+        {
+            WebShortcuts own = shortcuts;
+            std::rotate(own.begin(), own.begin() + 1, own.end()); // 必应 on top
+            QCOMPARE(defaultWebSearchUrl(own, u"a&b"_s), u"https://www.bing.com/search?q=a%26b"_s);
+            WebShortcuts pages {{u"page"_s, u"A page"_s, u"https://example.com/"_s, {}}, own[1]};
+            QCOMPARE(defaultWebSearchUrl(pages, u"x"_s), pages[1].searchUrl(u"x"_s)); // a page does not search: the next one does
+            QCOMPARE(defaultWebSearchUrl({}, u"x y"_s), u"https://www.bing.com/search?q=x%20y"_s); // none: Bing's
+        }
         const auto typed = typedKeyword(shortcuts, u"baidu 天气 预报"_s);
         QVERIFY(typed);
         QCOMPARE(shortcuts[typed->index].searchUrl(typed->words), u"https://www.baidu.com/s?wd=%E5%A4%A9%E6%B0%94%20%E9%A2%84%E6%8A%A5"_s);

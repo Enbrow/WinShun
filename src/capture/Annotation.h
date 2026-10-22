@@ -32,7 +32,8 @@ class QFont;
 //   Pen, Marker            a polyline of pixel centres
 //   Text                   the top left of the text itself (whole numbers);
 //                          its coloured box (Style::boxed) reaches further out
-//   Number                 the centre of its disc, a pixel centre
+//   Number                 the centre of its disc, a pixel centre; its
+//                          label (Item::text, may be empty) stands to the right
 namespace ws::capture::annot {
 
 enum class Kind : quint8 { Rect, Ellipse, Arrow, Line, Pen, Marker, Text, Number, Redact };
@@ -44,6 +45,13 @@ enum class RedactMode : quint8 { Mosaic, Blur, Solid, Smooth };
 enum class RedactShape : quint8 { Box, Brush };
 
 constexpr int kKindCount = 9;
+
+// How a series writes its numbers (#57): 1 2 3, A B C (after Z comes AA),
+// a b c, I II III (to 3999), and the same digits inside a ring (a hollow
+// disc, the colour on the digits) in place of the filled disc. A number the
+// format cannot write (zero, a negative, past 3999 in Roman) shows as digits.
+enum class NumberFormat : quint8 { Arabic, UpperLetters, LowerLetters, Roman, Circled };
+constexpr int kNumberFormatCount = 5;
 
 struct Style {
     QRgb color = qRgb(0xE5, 0x39, 0x35);
@@ -64,7 +72,7 @@ struct Item {
     quint32 seq = 0; // creation order; numbers count along it
     QList<QPointF> points; // image px, see above
     Style style;
-    QString text; // Text
+    QString text; // Text; a Number's label (empty: none)
     quint32 series = 0; // Number: its group
     std::optional<int> pinned; // Number: a number set by hand; the next ones count on from it
     quint64 seed = 0; // Redact: the noise's seed, drawn at random when made and saved with it
@@ -74,6 +82,7 @@ struct Item {
 struct Series {
     quint32 id = 1;
     int start = 1;
+    NumberFormat format = NumberFormat::Arabic;
     bool operator==(const Series&) const = default;
 };
 
@@ -104,6 +113,10 @@ QString redactModeName(RedactMode mode);
 std::optional<RedactMode> redactModeFromName(QStringView name);
 QString redactShapeName(RedactShape shape);
 std::optional<RedactShape> redactShapeFromName(QStringView name);
+QString numberFormatName(NumberFormat format);
+std::optional<NumberFormat> numberFormatFromName(QStringView name);
+// What `number` shows in `format`; see NumberFormat.
+QString formatNumber(int number, NumberFormat format);
 // "#RRGGBB" (as colorHex() in Geometry.h writes it) as an opaque colour.
 std::optional<QRgb> parseColor(QStringView text);
 
@@ -207,12 +220,20 @@ TextGeometry textGeometry(const Item& item);
 // capsule for two digits and more.
 struct NumberGeometry {
     QRectF disc;
-    QString label;
+    QString label; // what the number shows ("III", "c")
     QPoint origin; // the label's top left, whole pixels
     QRectF ink; // where the label's glyphs may reach
     int outline = 0; // the dark ring on a white disc (1 logical px), 0 for none
+    qreal ring = 0; // Circled: the ring's width, the disc not filled; 0 for the filled disc
+    // The item's own words (Item::text) to the right of the disc, their
+    // first baseline on the number's; empty when there are none.
+    QPoint wordsOrigin; // top left, whole pixels, also for no words
+    QRect wordsBox;
+    QRectF wordsInk;
 };
-NumberGeometry numberGeometry(const Item& item, int number, qreal dpr);
+NumberGeometry numberGeometry(const Item& item, int number, qreal dpr, NumberFormat format = NumberFormat::Arabic);
+// The words of a Number: its colour, #212121 where that cannot be read (white).
+QRgb numberWordsColor(const Item& item);
 // The ring a white disc gets so that it shows on a white page: #212121 at 30 %.
 QRgb numberOutlineColor();
 
@@ -220,7 +241,7 @@ QRgb numberOutlineColor();
 // included). Export, dirty regions and hit testing go by it. `dpr` is the
 // document's (the arrow head), `number` what a Number shows (two digits make
 // a capsule).
-QRectF bounds(const Item& item, qreal dpr, int number = 1);
+QRectF bounds(const Item& item, qreal dpr, int number = 1, NumberFormat format = NumberFormat::Arabic);
 // The same, the scale and the number taken from the document.
 QRectF bounds(const Document& doc, const Item& item);
 // The topmost item at `p` (the pixel under it). Lines count within half
@@ -252,4 +273,6 @@ Item reshaped(const Item& item, int handle, QPointF to, bool constrain);
 // Derived on every call, never stored, so deleting, undoing and redoing
 // renumber by themselves.
 QHash<quint32, int> numbers(const Document& doc);
+// The format of series `series` (digits for one the document does not know).
+NumberFormat formatOf(const Document& doc, quint32 series);
 }

@@ -56,6 +56,7 @@ public:
         bool boxed = false;
         RedactMode mode = RedactMode::Mosaic;
         int cell = 12;
+        NumberFormat format = NumberFormat::Arabic; // Number: the last format chosen
         bool operator==(const Tool&) const = default;
     };
 
@@ -69,6 +70,9 @@ public:
     // The fields its kind uses, from an item's style.
     void remember(Kind kind, const Style& style, qreal dpr);
     static Tool defaults(Kind kind);
+    // The number tool's last format: a new capture's first series starts with it.
+    NumberFormat numberFormat() const;
+    void setNumberFormat(NumberFormat format);
     // The tool's style back to the defaults.
     void reset(Kind kind);
     const Tool& tool(Kind kind) const;

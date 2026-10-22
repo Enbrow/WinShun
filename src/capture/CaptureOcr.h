@@ -51,12 +51,17 @@ public:
     Q_INVOKABLE void copyAll(const QString& text) { emit copyRequested(text); }
     // The text (the selection, else all of it) as one line, for the search box.
     Q_INVOKABLE void search(const QString& text);
+    // The same one line, for the default web search.
+    Q_INVOKABLE void webSearch(const QString& text);
+    // Lines as words, trimmed, cut at what a search box takes; empty when no words.
+    static QString oneLine(const QString& text);
     Q_INVOKABLE void close() { emit closeRequested(); }
 
 signals:
     void changed();
     void copyRequested(const QString& text);
     void searchRequested(const QString& query);
+    void webSearchRequested(const QString& query);
     void closeRequested();
 
 private:

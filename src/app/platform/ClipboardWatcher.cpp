@@ -542,6 +542,13 @@ bool ClipboardWatcher::writeNow(const ClipWrite& data)
         dibV5 += pixels;
         add(CF_DIBV5, dibV5.constData(), static_cast<std::size_t>(dibV5.size()));
     }
+    // WINSHUN_TEST_NO_CLIP_HISTORY (live tests): Windows' own history (25 items,
+    // the oldest pushed out by every copy) and our watcher leave this copy alone.
+    if (qEnvironmentVariableIsSet("WINSHUN_TEST_NO_CLIP_HISTORY")) {
+        const DWORD zero = 0;
+        add(::RegisterClipboardFormatW(L"ExcludeClipboardContentFromMonitorProcessing"), &zero, sizeof zero);
+        add(::RegisterClipboardFormatW(L"CanIncludeInClipboardHistory"), &zero, sizeof zero);
+    }
     // Ours: its entry moves up instead of being added again (none for a
     // joined paste, which is not recorded).
     const qint64 id = data.id;

@@ -117,6 +117,11 @@ struct PinFrame {
     int margin() const { return border + shadow; }
 };
 PinFrame pinFrame(double dpr);
+// Whether a pin lets the mouse through (WS_EX_TRANSPARENT) right now. A pin
+// set to 鼠标穿透 takes the mouse back while Ctrl is held with the cursor over
+// it (#59: the tray was the only way back), and keeps it while it is being
+// dragged or its menu is up (`busy`), whatever Ctrl does meanwhile.
+bool pinLetsMouseThrough(bool clickThrough, bool ctrlDown, bool cursorOver, bool busy);
 // The pin's window for a picture shown at `picture` (physical, virtual desktop).
 QRect pinWindowRect(const QRect& picture, const PinFrame& frame);
 
@@ -128,6 +133,10 @@ QRect pinWindowRect(const QRect& picture, const PinFrame& frame);
 // 150%). Up to 2x, no wider than `maxWidth` (PaddleOcr shrinks wider ones
 // back); 1 when that gains under a quarter.
 double ocrUpscale(QSize image, double dpr, int maxWidth = 2000);
+// The words read as one line for a search box or a web search: runs of
+// whitespace (the line breaks) become one space, trimmed, cut at `most`
+// characters; empty when there are no words.
+QString ocrOneLine(const QString& text, int most = 256);
 
 // A window of `box` beside `anchor`: right of it, else left, else under,
 // else over, else inside the area's middle; always in `area`.

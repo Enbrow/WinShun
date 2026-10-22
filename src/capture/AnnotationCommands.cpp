@@ -19,7 +19,7 @@ QRectF numberArea(const Document& doc, const QHash<quint32, int>& shown)
     QRectF area;
     for (const Item& item : doc.items) {
         if (item.kind == Kind::Number)
-            area |= bounds(item, doc.dpr, shown.value(item.id, 1));
+            area |= bounds(item, doc.dpr, shown.value(item.id, 1), formatOf(doc, item.series));
     }
     return area;
 }
@@ -66,7 +66,7 @@ public:
             shown = annot::numbers(doc);
         for (quint32 id : std::as_const(m_ids)) {
             if (const Item* item = findItem(doc, id)) {
-                const QRectF b = bounds(*item, doc.dpr, shown.value(id, 1));
+                const QRectF b = bounds(*item, doc.dpr, shown.value(id, 1), formatOf(doc, item->series));
                 m_dirty |= b;
                 addAreas(m_parts, *item, b);
             }
@@ -86,7 +86,7 @@ public:
         QList<QRectF> parts = m_parts;
         for (quint32 id : m_ids) {
             if (const Item* item = findItem(doc, id)) {
-                const QRectF b = bounds(*item, doc.dpr, shown.value(id, 1));
+                const QRectF b = bounds(*item, doc.dpr, shown.value(id, 1), formatOf(doc, item->series));
                 change.dirty |= b;
                 addAreas(parts, *item, b);
             }
@@ -469,7 +469,8 @@ std::unique_ptr<SetSeries> SetSeries::newSeries(const Document& doc)
     for (const Series& s : doc.series)
         id = std::max(id, s.id);
     ++id;
-    auto command = std::make_unique<SetSeries>(id, std::nullopt, Series{id, 1}, doc.currentSeries, id);
+    // The new group writes its numbers as the one before did.
+    auto command = std::make_unique<SetSeries>(id, std::nullopt, Series{id, 1, formatOf(doc, doc.currentSeries)}, doc.currentSeries, id);
     command->label = QCoreApplication::translate("Annotation", "另起一组");
     return command;
 }
@@ -481,8 +482,24 @@ std::unique_ptr<SetSeries> SetSeries::setStart(const Document& doc, quint32 id, 
         if (s.id == id)
             before = s;
     }
-    auto command = std::make_unique<SetSeries>(id, before, Series{id, start}, 0, 0);
+    Series after = before.value_or(Series{id});
+    after.start = start;
+    auto command = std::make_unique<SetSeries>(id, before, after, 0, 0);
     command->label = QCoreApplication::translate("Annotation", "改起始值");
+    return command;
+}
+
+std::unique_ptr<SetSeries> SetSeries::setFormat(const Document& doc, quint32 id, NumberFormat format)
+{
+    std::optional<Series> before;
+    for (const Series& s : doc.series) {
+        if (s.id == id)
+            before = s;
+    }
+    Series after = before.value_or(Series{id});
+    after.format = format;
+    auto command = std::make_unique<SetSeries>(id, before, after, 0, 0);
+    command->label = QCoreApplication::translate("Annotation", "改序号格式");
     return command;
 }
 

@@ -215,6 +215,7 @@ void AnnotationCanvas::updatePolish()
     }
     const annot::Document& doc = model->document();
     const std::optional<quint32> skip = model->skipped();
+    const std::optional<quint32> unworded = model->unworded();
     // Sparse: where the objects reach, measured once for all the tiles. The
     // text being typed is not drawn, so it does not count.
     std::vector<QRect> reach;
@@ -225,7 +226,7 @@ void AnnotationCanvas::updatePolish()
             if (skip && item.id == *skip)
                 continue;
             const int number = item.kind == annot::Kind::Number ? numbers.value(item.id, 1) : 1;
-            const QRectF r = annot::bounds(item, doc.dpr, number);
+            const QRectF r = annot::bounds(item, doc.dpr, number, annot::formatOf(doc, item.series));
             if (!r.isEmpty())
                 reach.push_back(r.toAlignedRect());
         }
@@ -287,7 +288,7 @@ void AnnotationCanvas::updatePolish()
         // just the allocation (dragging a big rectangle: 99% of the tiles).
         if (!tile.image.isDetached())
             tile.image = QImage();
-        model->compositor().render(doc, model->base(), sample, area, &tile.image, skip);
+        model->compositor().render(doc, model->base(), sample, area, &tile.image, skip, unworded);
         ++drawn;
         tile.shown = true;
         tile.upload = true;

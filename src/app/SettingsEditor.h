@@ -101,6 +101,8 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString captureMouseMiddle READ captureMouseMiddle WRITE setCaptureMouseMiddle NOTIFY changed FINAL)
     Q_PROPERTY(QString captureMouseBack READ captureMouseBack WRITE setCaptureMouseBack NOTIFY changed FINAL)
     Q_PROPERTY(QString captureMouseForward READ captureMouseForward WRITE setCaptureMouseForward NOTIFY changed FINAL)
+    // The capture toolbar's buttons left off it: comma separated ids (Settings::captureToolbarButtonIds).
+    Q_PROPERTY(QString captureToolbarHidden READ captureToolbarHidden WRITE setCaptureToolbarHidden NOTIFY changed FINAL)
     Q_PROPERTY(QString captureNote READ captureNote NOTIFY hotkeyErrorChanged FINAL)
     // The screenshot history's keyword (jt): set through saveCaptureKeyword.
     Q_PROPERTY(QString captureKeyword READ captureKeyword NOTIFY changed FINAL)
@@ -366,6 +368,8 @@ public:
     void setCaptureMouseBack(const QString& action) { setCaptureMouse(m_settings.captureMouseBack, action, false); }
     QString captureMouseForward() const { return m_settings.captureMouseForward; }
     void setCaptureMouseForward(const QString& action) { setCaptureMouse(m_settings.captureMouseForward, action, false); }
+    QString captureToolbarHidden() const { return m_settings.captureToolbarHidden; }
+    void setCaptureToolbarHidden(const QString& ids);
     QString captureNote() const { return m_captureNote; }
     void setCaptureNote(const QString& note);
     QString captureKeyword() const { return m_settings.captureKeyword; }
