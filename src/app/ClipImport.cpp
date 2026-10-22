@@ -3,6 +3,7 @@
 #include "ClipImage.h"
 
 #include <QBuffer>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -120,6 +121,7 @@ public:
         m_report.added += result.added;
         m_report.duplicates += result.duplicates;
         m_report.failed += result.failed;
+        m_report.ownGroupUsed = m_report.ownGroupUsed || result.ownGroupUsed;
     }
 
 private:
@@ -263,7 +265,7 @@ QString dittoGroupPath(const QHash<qint64, DittoGroup>& groups, qint64 id)
     QStringList names;
     for (int depth = 0; depth < 16 && groups.contains(id); ++depth) {
         const DittoGroup& g = groups[id];
-        names.prepend(g.name.isEmpty() ? u"未命名"_s : g.name);
+        names.prepend(g.name.isEmpty() ? QCoreApplication::translate("ClipImport", "未命名") : g.name);
         id = g.parent;
     }
     return names.join(u'/');
@@ -534,8 +536,8 @@ Source sourceOf(const QString& path)
 QString groupName(const QString& path)
 {
     if (sourceOf(path) == Source::Ditto)
-        return u"Ditto 导入"_s;
-    return u"%1 导入"_s.arg(QFileInfo(path).completeBaseName());
+        return QCoreApplication::translate("ClipImport", "Ditto 导入");
+    return QCoreApplication::translate("ClipImport", "%1 导入").arg(QFileInfo(path).completeBaseName());
 }
 
 QString decodeText(const QByteArray& bytes)

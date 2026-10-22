@@ -279,6 +279,7 @@ qt_add_executable(tst_clipimport tst_clipimport.cpp ${PROJECT_SOURCE_DIR}/src/ap
     ${PROJECT_SOURCE_DIR}/src/app/ClipImportJob.cpp)
 target_include_directories(tst_clipimport PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(tst_clipimport PRIVATE wscore Qt6::Gui Qt6::Test)
+target_compile_definitions(tst_clipimport PRIVATE WINSHUN_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data")
 add_test(NAME tst_clipimport COMMAND tst_clipimport)
 set_tests_properties(tst_clipimport PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")

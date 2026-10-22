@@ -30,6 +30,7 @@ public:
 
 signals:
     void progress(int done, int total);
+    void batchAdded(); // a batch is in the store: the lists built from it are out of date
     void finished(const ws::clipimport::Report& report, const QString& group);
 
 private:

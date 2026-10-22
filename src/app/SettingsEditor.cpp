@@ -1381,8 +1381,10 @@ void SettingsEditor::setClipboardImportDone(const clipimport::Report& report, co
         if (report.failed > 0)
             parts.append(tr("%n 条没存上", "", report.failed));
         m_clipboardImportMessage = parts.join(tr("，"));
-        if (report.added > 0 && !group.isEmpty())
-            m_clipboardImportMessage += tr("。放在分组“%1”里，不会被自动删除").arg(group);
+        if (report.added > 0)
+            m_clipboardImportMessage += report.ownGroupUsed && !group.isEmpty()
+                ? tr("。放在分组“%1”里，不会被自动删除").arg(group)
+                : tr("。放在分组里，不会被自动删除");
     }
     emit clipboardImportChanged();
 }

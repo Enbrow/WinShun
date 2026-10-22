@@ -31,7 +31,7 @@ struct Options {
 };
 
 // Where the entries go, a batch at a time: the history's importClips() on its
-// own thread. `cancelled` is asked between entries; `progress` tells how many
+// own thread, returning once the batch is on disk. `cancelled` is asked between entries; `progress` tells how many
 // of the source's entries were looked at.
 struct Hooks {
     std::function<ClipImportResult(std::vector<ClipImportItem>&&)> sink;
@@ -55,6 +55,7 @@ struct Report {
     int duplicates = 0;
     int skipped = 0; // empty, too large, or in a format that cannot be used
     int failed = 0; // could not be saved
+    bool ownGroupUsed = false; // entries went into the group named after the file
     bool cancelled = false;
     Error error = Error::None;
 };

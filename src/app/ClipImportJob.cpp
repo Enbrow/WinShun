@@ -33,14 +33,25 @@ void ClipImportJob::start(const QString& path, clipimport::Split split)
         // reading goes on when it is in.
         hooks.sink = [this, &stop](std::vector<ClipImportItem>&& items) {
             auto done = std::make_shared<std::promise<ClipImportResult>>();
+            auto written = std::make_shared<std::promise<void>>();
             std::future<ClipImportResult> result = done->get_future();
+            std::future<void> onDisk = written->get_future();
             QMetaObject::invokeMethod(
                 this,
-                [this, done, items = std::move(items)]() mutable { done->set_value(m_store->importClips(std::move(items), m_group)); },
+                [this, done, written, items = std::move(items)]() mutable {
+                    done->set_value(m_store->importClips(std::move(items), m_group, [written] { written->set_value(); }));
+                    emit batchAdded();
+                },
                 Qt::QueuedConnection);
+            // Not on to the next batch before this one is on disk: the writer's
+            // queue would otherwise hold the whole database.
             while (result.wait_for(50ms) != std::future_status::ready) {
                 if (stop.stop_requested())
                     return ClipImportResult {}; // going away: the batch is dropped with the object
+            }
+            while (onDisk.wait_for(50ms) != std::future_status::ready) {
+                if (stop.stop_requested())
+                    break;
             }
             return result.get();
         };

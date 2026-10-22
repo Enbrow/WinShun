@@ -380,6 +380,7 @@ App::App()
 
 App::~App()
 {
+    m_clipImport.reset(); // its thread joined before the history it fills goes
     siteicons::shutdown(); // an icon arriving now would be told to no one
     m_keyRouter.reset(); // no keys taken from here on
     m_drainingRouter.reset();
@@ -2413,6 +2414,12 @@ void App::showSettings()
             m_clipImport = std::make_unique<ClipImportJob>(m_clipStore.get());
             ClipImportJob* job = m_clipImport.get();
             connect(job, &ClipImportJob::progress, editor, &SettingsEditor::setClipboardImportProgress);
+            // The window's rows are places in the store's list: told as soon as it changes.
+            connect(job, &ClipImportJob::batchAdded, this, [this, guard = QPointer<SettingsEditor>(editor)] {
+                m_clipboard->historyChanged();
+                if (guard)
+                    guard->setClipboardCount(static_cast<int>(m_clipStore->clips().size()));
+            });
             connect(editor, &SettingsEditor::clipboardImportCancelled, job, &ClipImportJob::cancel);
             // The history is told even when the settings window was closed meanwhile.
             connect(job, &ClipImportJob::finished, this, [this, guard = QPointer<SettingsEditor>(editor)](const clipimport::Report& report, const QString& group) {

@@ -1002,11 +1002,14 @@ QString ClipStore::uniqueGroupName(const QString& base) const
     return name;
 }
 
-ClipImportResult ClipStore::importClips(std::vector<ClipImportItem> items, const QString& ownGroup)
+ClipImportResult ClipStore::importClips(std::vector<ClipImportItem> items, const QString& ownGroup,
+    std::function<void()> written)
 {
     ClipImportResult result;
     if (!m_open) {
         result.failed = static_cast<int>(items.size());
+        if (written)
+            written();
         return result;
     }
     struct Prepared {
@@ -1050,6 +1053,7 @@ ClipImportResult ClipStore::importClips(std::vector<ClipImportItem> items, const
             nextRank.insert(groupId, next);
         }
         known.insert(hash);
+        result.ownGroupUsed = result.ownGroupUsed || item.group.isEmpty();
         Prepared p;
         Clip& clip = p.clip;
         clip.id = m_nextId++;
@@ -1075,8 +1079,11 @@ ClipImportResult ClipStore::importClips(std::vector<ClipImportItem> items, const
     }
     items.clear();
     result.added = static_cast<int>(fresh.size());
-    if (fresh.empty())
+    if (fresh.empty()) {
+        if (written)
+            written();
         return result;
+    }
 
     // In memory at once, among the others by when they were used.
     const auto newer = [](const Clip& a, const Clip& b) { return a.used != b.used ? a.used > b.used : a.id > b.id; };
@@ -1092,7 +1099,7 @@ ClipImportResult ClipStore::importClips(std::vector<ClipImportItem> items, const
     m_clips.insert(m_clips.end(), std::make_move_iterator(added.begin()), std::make_move_iterator(added.end()));
     std::inplace_merge(m_clips.begin(), m_clips.begin() + middle, m_clips.end(), newer);
 
-    m_writer->post([this, context = m_context.get(), fresh = std::move(fresh)](QSqlDatabase& db) {
+    m_writer->post([this, context = m_context.get(), fresh = std::move(fresh), written = std::move(written)](QSqlDatabase& db) {
         std::vector<std::pair<qint64, bool>> pictures; // id, saved
         db.transaction();
         QSqlQuery query(db);
@@ -1138,6 +1145,8 @@ ClipImportResult ClipStore::importClips(std::vector<ClipImportItem> items, const
                     saved(id, ok);
             }, Qt::QueuedConnection);
         }
+        if (written)
+            written();
     });
     return result;
 }

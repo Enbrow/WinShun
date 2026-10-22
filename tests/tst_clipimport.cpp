@@ -53,26 +53,19 @@ QByteArray dropFiles(const QStringList& files)
     return drop;
 }
 
-// Ditto's tables as its own code creates them (src/DatabaseUtilities.cpp).
+// A database made by Ditto itself (3.25.113.0, run once on an empty clipboard:
+// data/ditto-empty.db, with its tables, indexes and triggers), the rows put in
+// the way its code does (src/Clip.cpp AddToMainTable and the Data table).
 class DittoDb {
 public:
     explicit DittoDb(const QString& file)
         : m_name(u"ditto-fixture-"_s + file)
     {
+        QVERIFY2(QFile::copy(QStringLiteral(WINSHUN_TEST_DATA "/ditto-empty.db"), file), "cannot copy the fixture");
+        QFile::setPermissions(file, QFile::ReadOwner | QFile::WriteOwner);
         QSqlDatabase db = QSqlDatabase::addDatabase(u"QSQLITE"_s, m_name);
         db.setDatabaseName(file);
-        QVERIFY2(db.open(), "cannot create the fixture");
-        for (const QString& sql : {
-                 u"CREATE TABLE Main(lID INTEGER PRIMARY KEY AUTOINCREMENT, lDate INTEGER, mText TEXT, lShortCut INTEGER, "
-                 u"lDontAutoDelete INTEGER, CRC INTEGER, bIsGroup INTEGER, lParentID INTEGER, QuickPasteText TEXT, "
-                 u"clipOrder REAL, clipGroupOrder REAL, globalShortCut INTEGER, lastPasteDate INTEGER, "
-                 u"stickyClipOrder REAL, stickyClipGroupOrder REAL, MoveToGroupShortCut INTEGER, "
-                 u"GlobalMoveToGroupShortCut INTEGER)"_s,
-                 u"CREATE TABLE Data(lID INTEGER PRIMARY KEY AUTOINCREMENT, lParentID INTEGER, strClipBoardFormat TEXT, "
-                 u"ooData BLOB)"_s}) {
-            QSqlQuery query(db);
-            QVERIFY2(query.exec(sql), qPrintable(query.lastError().text()));
-        }
+        QVERIFY2(db.open(), "cannot open the fixture");
     }
     ~DittoDb()
     {
@@ -110,6 +103,14 @@ public:
             data.exec();
         }
         return id;
+    }
+
+    // Ditto open and writing: a transaction not committed yet, with a row of its own.
+    void holdOpen()
+    {
+        QSqlQuery query(QSqlDatabase::database(m_name));
+        QVERIFY(query.exec(u"BEGIN IMMEDIATE"_s));
+        QVERIFY(query.exec(u"INSERT INTO Main (lDate, mText, bIsGroup, lParentID) VALUES (1, 'not yet', 0, -1)"_s));
     }
 
     static constexpr double kNotSticky = -2147483647;
@@ -247,6 +248,7 @@ private slots:
         QCOMPARE(report.added, 9);
         QCOMPARE(report.duplicates, 1);
         QCOMPARE(report.skipped, 1);
+        QVERIFY(report.ownGroupUsed);
         QCOMPARE(groupName(file), u"Ditto 导入"_s);
 
         const qint64 own = groupNamed(store, u"Ditto 导入"_s);
@@ -315,7 +317,50 @@ private slots:
         QCOMPARE(reopened.clips().size(), std::size_t(9));
     }
 
-    // A database Ditto itself made (set WINSHUN_TEST_DITTO_DB; with rows added by a script).
+    // Ditto running: its database has a transaction open, and the file is read
+    // all the same; what is not committed is not in the history.
+    void dittoRunning()
+    {
+        QTemporaryDir dir;
+        QTemporaryDir data;
+        const QString file = dir.filePath(u"Ditto.db"_s);
+        {
+            DittoDb ditto(file);
+            ditto.clip(u"已经存好的"_s, 1'700'000'100, -1, 10, DittoDb::kNotSticky,
+                {{u"CF_UNICODETEXT"_s, utf16(u"已经存好的"_s)}});
+            ditto.holdOpen();
+            ClipStore store(data.path());
+            QVERIFY(store.open(kStart));
+            const Report report = runImport(store, file);
+            QCOMPARE(int(report.error), int(Error::None));
+            QCOMPARE(report.added, 1);
+            QCOMPARE(textsIn(store, groupNamed(store, u"Ditto 导入"_s)), (QStringList {u"已经存好的"_s}));
+            QVERIFY(QFileInfo::exists(file)); // the source itself is left as it was
+        }
+    }
+
+    // Only entries in groups: none in the import's own.
+    void dittoOnlyGroups()
+    {
+        QTemporaryDir dir;
+        QTemporaryDir data;
+        const QString file = dir.filePath(u"Ditto.db"_s);
+        {
+            DittoDb ditto(file);
+            const qint64 work = ditto.clip(u"工作"_s, 1'700'000'100, -1, 0, DittoDb::kNotSticky, {}, true);
+            ditto.clip(u"仅在组里"_s, 1'700'000'200, work, 1, DittoDb::kNotSticky,
+                {{u"CF_UNICODETEXT"_s, utf16(u"仅在组里"_s)}});
+        }
+        ClipStore store(data.path());
+        QVERIFY(store.open(kStart));
+        const Report report = runImport(store, file);
+        QCOMPARE(report.added, 1);
+        QVERIFY(!report.ownGroupUsed);
+        QCOMPARE(groupNamed(store, u"Ditto 导入"_s), qint64(0)); // none made for nothing
+        QVERIFY(groupNamed(store, u"工作"_s) != 0);
+    }
+
+    // Another database Ditto made, to look at by hand (set WINSHUN_TEST_DITTO_DB).
     void realDittoDb()
     {
         const QString file = qEnvironmentVariable("WINSHUN_TEST_DITTO_DB");

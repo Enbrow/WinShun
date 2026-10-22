@@ -1447,6 +1447,21 @@
     </message>
 </context>
 <context>
+    <name>ClipImport</name>
+    <message>
+        <source>未命名</source>
+        <translation>Unnamed</translation>
+    </message>
+    <message>
+        <source>Ditto 导入</source>
+        <translation>Ditto import</translation>
+    </message>
+    <message>
+        <source>%1 导入</source>
+        <translation>%1 import</translation>
+    </message>
+</context>
+<context>
     <name>ClipPreview</name>
     <message>
         <source>没有可预览的内容</source>
@@ -8851,7 +8866,7 @@
     </message>
     <message>
         <source>复制不了 Ditto 的数据库（磁盘空间不够，或被占用）</source>
-        <translation>Cannot copy Ditto's database (not enough disk space, or it is locked)</translation>
+        <translation>Cannot copy Ditto&apos;s database (not enough disk space, or it is locked)</translation>
     </message>
     <message>
         <source>剪贴板历史没有打开</source>
@@ -8902,7 +8917,11 @@
     </message>
     <message>
         <source>。放在分组“%1”里，不会被自动删除</source>
-        <translation>. They are in the group "%1" and are never deleted automatically</translation>
+        <translation>. They are in the group &quot;%1&quot; and are never deleted automatically</translation>
+    </message>
+    <message>
+        <source>。放在分组里，不会被自动删除</source>
+        <translation>. They are in a group and are never deleted automatically</translation>
     </message>
     <message>
         <source>还没有网页搜索可以导出</source>

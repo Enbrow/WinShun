@@ -3170,26 +3170,26 @@
 
 ## 剪贴板导入（Ditto、txt、csv，GitHub #56）
 
-### 导入不能一条条调 `ClipStore::add`
+### 读正在运行的 Ditto 的数据库：被占着，最近的写还在 -wal 里
 
-- **现象**：想到的最短写法是对每一条调 `add`。
-- **原因**：`add` 是“刚复制了一次”：同内容的条目会被顶到最前、`used` 改成现在，新条目算现在复制的，还要按条数和天数限制清理。导入几万条历史时，旧记录一进来就被 `prune` 删掉，时间也全成了今天。
-- **做法**：`ClipStore::importClips` 一次一批：内存里按 `used` 插到该在的位置，一个事务写盘（图片写 `images\<id>.png`），已有的哈希跳过（批内、批间都算重复），全部放进分组（名字重复时 `uniqueGroupName` 加序号），限制只清不在分组里的条目，所以导入的不会被悄悄删。哈希用和捕获同一套（`clipHash`、`kindOfText`、`imagePixelHash`）。`imagePixelHash` 和 `imageFromDib` 因此从 `ClipboardWatcher.cpp` 搬到了 `ClipImage.cpp`。
+- **现象**：Ditto 开着时直接打开它的 `Ditto.db`，可能被锁住，或者读不到刚存的几条。
+- **原因**：Ditto 一直开着库，近期的写在 `Ditto.db-wal` 里，没写回主文件。
+- **做法**：把 `Ditto.db`（还有 `-wal`、`-shm`，有就复制）复制到临时文件夹，用自己的连接名打开那份副本（`QSqlDatabase` 的连接不能跨线程，也不碰 `ClipStore` 的）。副本是读写打开的，不是只读：只读打开带 WAL 的库要建 `-shm`，临时文件夹里读写反而稳；原文件不动。别人事务里还没提交的行读不到，`dittoRunning` 用例。
 
-### Ditto 的数据库：从源码（sabrogden/Ditto，`DatabaseUtilities.cpp`、`Clip.cpp`、`Misc.cpp`）和它自己建出来的库对过
+### Ditto 的字段不是看名字就能猜的
 
-- 表 `Main`（`lID`、`lDate` Unix **秒**、`mText`、`lDontAutoDelete`、`bIsGroup`、`lParentID`、`clipOrder`、`clipGroupOrder`、`lastPasteDate` 秒、`stickyClipOrder`、`stickyClipGroupOrder` 等）和 `Data`（`lParentID` 指向 `Main.lID`、`strClipBoardFormat`、`ooData` 原样的字节）。组是 `bIsGroup=1` 的一行，`mText` 是组名，组里的条目 `lParentID` 是组的 `lID`，不在组里是 `-1`；组可以嵌套（组的 `lParentID` 指向上级组），导入时拍平成“父/子”。
-- “置顶”（sticky）不是 0：没置顶的 `stickyClipOrder` 和 `stickyClipGroupOrder` 都是 `-2147483647`，排序时降序，置顶的在前。组里的顺序用 `clipGroupOrder` / `stickyClipGroupOrder`，不在组里用 `clipOrder` / `stickyClipOrder`。老版本的库可能缺这些列，读之前先 `PRAGMA table_info(Main)`。
-- 格式名：`CF_UNICODETEXT`（UTF-16，带结尾的 NUL）、`CF_TEXT`（ANSI，按系统代码页）、`CF_HDROP`（`DROPFILES`：第一个 DWORD 是名单起点，偏移 16 的 BOOL 是宽字符，名字之间是 NUL，最后多一个）、`CF_DIB` / `CF_DIBV5`、`PNG`、`HTML Format`、`Rich Text Format`（后两个是注册的名字，和 WinShun 存的一样，去掉结尾的 NUL 就能用）。同一条里同一种格式有几行时取 `Data.lID` 最大的（Ditto 自己按 `lID desc` 读）。
-- Ditto 开着时库被占着，还可能有 `-wal`：复制 `Ditto.db`（和 `-wal`、`-shm`）到临时文件夹再打开，用自己的连接名（`QSqlDatabase` 的连接不能跨线程，也不碰 `ClipStore` 的）。导入在自己的线程里跑，每批 200 条或 32 MB 交给 GUI 线程的 `importClips`（`ClipImportJob`）。
-- 没有也不需要的做法：往用户的 Windows 剪贴板里复制东西来给 Ditto 造测试数据（Win+V 只留 25 条，会把用户的挤掉）；测试用 Ditto 自己的 `CREATE TABLE` 在临时文件夹里造库（`tst_clipimport`），另可用 `WINSHUN_TEST_DITTO_DB` 指向真 Ditto 建出来的库。
+- **现象**：按“日期是毫秒”“置顶就是不为 0”“不在组里 `lParentID` 是 0”去读，日期差 1000 倍，没置顶的全成了置顶，组里的条目顺序错。
+- **原因**：（从 Ditto 源码 `DatabaseUtilities.cpp`、`Clip.cpp`、`Misc.cpp` 看，再用 Ditto 3.25.113.0 自己建出来的库对过）`lDate`、`lastPasteDate` 是 Unix **秒**；没置顶的 `stickyClipOrder`、`stickyClipGroupOrder` 是 `-2147483647`，置顶的比它大，降序排；组是 `bIsGroup=1` 的一行（`mText` 是组名），组里条目的 `lParentID` 是组的 `lID`，不在组里是 `-1`，组可以嵌套；组里的顺序用 `clipGroupOrder`，不在组里用 `clipOrder`。`Data` 里一条一种格式：`CF_UNICODETEXT`（UTF-16，带结尾的 NUL）、`CF_TEXT`（系统代码页）、`CF_HDROP`（`DROPFILES`：第一个 DWORD 是名单起点，偏移 16 的 BOOL 是宽字符，名字间 NUL，最后多一个）、`CF_DIB`、`CF_DIBV5`、`PNG`、`HTML Format`、`Rich Text Format`，同一种格式有几行时 Ditto 取 `Data.lID` 最大的。老版本的库可能缺列。
+- **做法**：读之前 `PRAGMA table_info(Main)`，缺的列当没有；按上面的单位和哨兵值读（`ClipImport.cpp` 的 `importDitto`）；Ditto 的组拍平成“父/子”，置顶的只在组里排前面，不放进 WinShun 的“固定”。
 
-### 段落拆分的正则不能吃掉下一段开头的缩进
+### 按空行分段时，正则吃掉了下一段开头的缩进
 
-- **现象**：按空行分段时，`  三` 这样带缩进的段落首行丢了空格。
+- **现象**：`  三` 这样带缩进的段落，首行的空格丢了。
 - **原因**：分隔符写成“换行，加空白，再换行，加空白”，最后那个“空白”把下一段开头的缩进也吞了。
 - **做法**：分隔符是“换行，再一行或几行只有空白的行，每行以换行结束”：`\r?\n(?:[ \t]*\r?\n)+`。`splitting` 用例。
 
-### 不是 UTF-8 的 txt / csv 按 GBK 读
+### 中文版 Excel 存的 CSV 按 UTF-8 读全是乱码
 
-- 先看 BOM（UTF-8、UTF-16 LE/BE），没有 BOM 就严格按 UTF-8 解，出错（`QStringDecoder::hasError`）再用 `MultiByteToWideChar(936)`。中文版 Excel 存的“CSV”是 GBK，不是 UTF-8，直接按 UTF-8 读全是乱码。
+- **现象**：导入 Excel 另存的 `.csv`，中文全成了问号或方块。
+- **原因**：中文版 Excel 的“CSV”是 GBK，不是 UTF-8，也没有 BOM。
+- **做法**：`decodeText` 先看 BOM（UTF-8、UTF-16 LE/BE），没有就严格按 UTF-8 解，出错（`QStringDecoder::hasError`）再用 `MultiByteToWideChar(936)`。`decoding` 用例。

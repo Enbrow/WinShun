@@ -124,6 +124,7 @@ struct ClipImportResult {
     int added = 0;
     int duplicates = 0; // the history had it already, or an earlier one of the batch did
     int failed = 0; // could not be saved
+    bool ownGroupUsed = false; // some went into the import's own group, not one they named
 };
 
 // The rest of an entry, read when it is pasted.
@@ -272,7 +273,11 @@ public:
     // the limits leave alone, after the entries a group has. An entry the
     // history has already is skipped. Pictures are written beside the
     // others like copied ones.
-    ClipImportResult importClips(std::vector<ClipImportItem> items, const QString& ownGroup);
+    // `written` is called on the writer's thread once the batch is on disk
+    // (at once if there is nothing to write): a reader that waits for it
+    // never gets more than a batch ahead of the disk.
+    ClipImportResult importClips(std::vector<ClipImportItem> items, const QString& ownGroup,
+        std::function<void()> written = {});
     void renameGroup(qint64 id, const QString& name);
     // A group and its entries; not the built-in one. Their pictures stay
     // until discardImages(), as for remove().
