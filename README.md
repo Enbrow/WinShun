@@ -56,6 +56,7 @@
   <img src="docs/images/dialog.jpg" width="49%" alt="打开、另存为对话框旁的搜索框，Ctrl+G 转到资源管理器的文件夹 / search bar for Open and Save dialogs">
   <img src="docs/images/clipboard.jpg" width="49%" alt="剪贴板历史，代替 Win+V，拼音搜索、图片预览 / clipboard history replacing Win+V">
   <img src="docs/images/clipocr.jpg" width="49%" alt="剪贴板 OCR：搜图片里的文字 / clipboard OCR: search words in copied pictures">
+  <img src="docs/images/edit.jpg" width="49%" alt="截图标完还能再改：方框、箭头、文字，从剪贴板历史打开接着编辑 / edit a screenshot again: boxes, arrows and text, reopened from the clipboard history">
   <img src="docs/images/taskbar.jpg" width="49%" alt="Win顺 任务栏搜索框 / WinShun’s search box on the taskbar">
   <img src="docs/images/ai.jpg" width="49%" alt="AI 助手 MCP：Claude、Cursor、VS Code 一键连接 / MCP server for Claude, Cursor and VS Code">
   <img src="docs/images/settings.jpg" width="49%" alt="设置可搜索：kjj 找到快捷键 / searchable settings">
@@ -79,10 +80,10 @@
 
 #### 🔍 文件搜索
 
-- **双击 Ctrl** 打开，再按一次或 `Esc` 关闭；三百多万个文件里搜一次只要几毫秒。
+- **双击 Ctrl** 打开（也可以改成双击 Alt），再按一次或 `Esc` 关闭；三百多万个文件里搜一次只要几毫秒。
 - **拼音和首字母**：`ndbg` → 年度报告，`baog` → 报告；多音字按常用读音。打错了同音字（年度报高）找不到时，自动按读音再找一遍。
-- **搜整台电脑**：所有本地磁盘，U 盘可选（没收录的 U 盘插着时，列表末尾会提示你顺手搜一下它）；**NAS、内网共享文件夹（SMB）** 也能加进来一起搜，服务器关机时收录过的照样能搜到。
-- **排序懂你**：自己的文件在前，系统目录、`node_modules` 在后，名字完全一样的最前。每行显示修改日期，`Ctrl+S` 在最匹配、最新、最早之间切换。不输入时列出最近打开或最近修改的文件，也可以不列；还可以设成每次打开时清空搜索。
+- **搜整台电脑**：所有本地磁盘，U 盘可选（没收录的 U 盘插着时，列表末尾会提示你顺手搜一下它）；**NAS、内网共享文件夹（SMB）** 也能加进来一起搜，服务器关机时收录过的照样能搜到。没有管理员权限的电脑也能用：只索引你选的文件夹（见下面“管理员权限”）。
+- **排序懂你**：自己的文件在前，系统目录、`node_modules` 在后，名字完全一样的最前。每行显示修改日期，`Ctrl+S` 在最匹配、最新、最早之间切换；底栏的“更多”里还能按名称、所在文件夹、类型、大小排。不输入时列出最近打开或最近修改的文件，也可以不列；还可以设成每次打开时清空搜索。结果怕点错的话，设置里可以改成双击才打开。
 - **程序优先**：搜 `curl`，`curl.exe` 排在文件夹 `curl` 和 `curl.h` 前面；优先哪些类型可以自己改（默认 exe、bat、cmd、ps1、msi，像 Listary 的“优先显示的文件类型”）。
 - **数字键直达**：`Ctrl+1`～`Ctrl+9` 打开第几行（也可改成 `Alt`）；按住 `Ctrl` 时图标上显示序号，也可以设成一直显示或不显示。
 - **按类型找**：选中 **文件** 后，下面一排是文件夹、文档、图片、视频、压缩包等类型，`Ctrl+Tab` 依次切换；点 `+` 或在设置里自己加类型。
@@ -115,6 +116,7 @@
 - **怎么找**：可以写多个词、用引号找整个短语，结果按相关度排。
 - **只搜某个文件夹**：词后面加文件夹名和斜杠，`年度报告 abc/` 只在叫 abc 的文件夹里找（`/abc` 放在最后也行，`工作/abc/` 只要“工作”里的那个）；同名的文件夹都搜，搜索框下面列出它们，`Ctrl+Tab` 挑其中一个。也可以点下面的收藏文件夹，或在结果的文件夹上右键“在此文件夹中搜内容”。
 - **编码和速度**：自动识别 UTF-8、UTF-16、GBK 编码；内容索引可选，默认关着，在 **内容** 范围搜索框下面那一行右端点一下就打开；打开后几十万个文件也很快。第一次建内容索引时，索引服务直接从磁盘读文本文件，杀毒软件不用一个个检查，快得多。超过大小上限的、系统目录里的、类型没列出的文件默认不搜，搜完会告诉你各有几个，点一下就临时把它们也搜了。
+- **没有索引服务也能搜**：只是慢一些，直接去读文件。
 - **安全**：文档由一个权限受限的独立进程读取。
 
 #### 🚀 应用和系统设置
@@ -149,12 +151,12 @@
 
 #### 🗂️ 资源管理器里：双击空白处、右键搜索此处
 
-- **双击空白处**：在资源管理器或桌面的空白处双击，弹出收藏的、最近的、别的窗口里开着的文件夹，选一个就在这个窗口里转过去（桌面上开新窗口），和 Listary 一样；还能在当前文件夹里搜、把它加进收藏。
+- **双击空白处**：在资源管理器或桌面的空白处双击，弹出收藏的、最近的、别的窗口里开着的文件夹，选一个就在这个窗口里转过去（桌面上开新窗口），和 Listary 一样；还能在当前文件夹里搜、把它加进收藏。这三类里要列哪几类，可以在设置里选。
 - 菜单不抢焦点，方向键、回车、Esc、首字母都能用；点别处或再双击就关。Listary 在运行时让给它。
 - **Directory Opus 里也能双击**：Win顺 可以替你在 Opus 的设置里加好这条命令（Opus 会重启一下），关掉或卸载时换回原来的。
 - **用快捷键弹出**：双击被别的程序占了，或者想在 Total Commander、XYplorer、Pulse 里用，就在设置里给文件夹菜单设一个快捷键，在任何窗口里按：资源管理器、桌面、Directory Opus、Total Commander、XYplorer、“打开”“另存为”对话框里选中的文件夹在那个窗口里打开（Pulse 里交给 Pulse，按它的“从其他程序打开的文件夹”设置开新标签或新窗口），别的窗口里用文件管理器打开；再按一次关闭。
 - **右键“用 Win顺 搜索此处”**：文件夹、文件夹的空白处和磁盘的右键菜单里都有（Windows 11 在“显示更多选项”里），搜索框带着这个文件夹打开，接着打字就在里面找。设置里可以关。
-- **直接打字搜索**：在资源管理器的文件列表里随意打字，Win顺 就带着打的字、在这个窗口的文件夹里搜，和 Listary 一样；中文输入法照常组拼音，`Esc` 回到资源管理器。设置里打开（它代替了资源管理器自己的按首字母跳到文件，所以默认关）。
+- **直接打字搜索**：在资源管理器的文件列表里随意打字，Win顺 就带着打的字、在这个窗口的文件夹里搜，和 Listary 一样；中文输入法照常组拼音，`Esc` 回到资源管理器。选中的文件夹在同一个标签页里打开，接着打字就再往里一层；资源管理器的 `Shift` 右键菜单也不会被抢走按键。设置里打开（它代替了资源管理器自己的按首字母跳到文件，所以默认关）。
 
 #### 📋 剪贴板历史（代替 Win+V）
 
@@ -162,15 +164,16 @@
 - **怎么打开**：`Win+V` 或自设的快捷键；开在输入光标旁，不抢焦点。
 - **怎么粘贴**：双击或 `Enter` 粘贴（也可以设成像 Windows 自带的那样单击就粘贴），`Shift+Enter` 粘贴为纯文本，`Alt+1`～`9` 直接粘贴第几条（按住 `Alt` 时序号显示在图标上）。
 - **能搜**：拼音搜索，`@wx` 只看微信里复制的；**图片里的字也能搜**（PaddleOCR 文字识别，在本机，不联网，截图里的数字和小字也认得准）。
-- **预览**：全文、大图、颜色值的 HEX / RGB / HSL；图片缩略图可以调大，不打开预览也看得清。
+- **预览**：全文、大图、颜色值的 HEX / RGB / HSL；点一条旁边的眼睛按钮（或 `Alt+P`）开关预览，预览开着时鼠标停在哪一行就预览哪一行；预览窗口更宽，中间的竖线可以拖着调，下次还记得；图片缩略图可以调大，不打开预览也看得清。
 - **拖出图片**：按住一张图片拖到文件夹里，就存成 PNG 文件。
-- **整理**：固定、分组、多选按顺序合并粘贴，钉住后可以一条接一条地往表格里填；固定的可以排在最前，顺序可以拖动或用 `Ctrl+↑`/`↓` 自己排。
+- **整理**：固定、分组、多选按顺序合并粘贴，钉住后可以一条接一条地往表格里填；固定的可以排在最前，顺序可以拖动或用 `Ctrl+↑`/`↓` 自己排。`Ctrl+A` 选中列出来的全部，行菜单里的“删除全部”一次清掉，按 `Ctrl+Z` 能恢复。
+- **复制过的文件被删了**：那一条会标“已不存在”；可以设成自动隐藏或自动清理（固定的和分组里的不动，拔掉的 U 盘不算）。
 - **隐私**：密码管理器复制的密码不记录，历史只存在本机。
-- **截图**（默认关，在设置 › 插件里打开）：快捷键或 `PrtScn` 截图，点选窗口、按钮或拖出一块；`Enter` 复制，截图进剪贴板历史，图里的字也能搜；`F3` 贴在屏幕上，还能识别文字。搜索框里打 `jt` 加空格，按图里的字找截过的图。
+- **截图**（默认关，在设置 › 插件里打开）：快捷键或 `PrtScn` 截图，点选窗口、按钮或拖出一块；框好后可以直接在图上标注：矩形、椭圆、箭头、画笔、荧光笔、文字、序号和打码（马赛克、模糊、纯色，打码的地方还原不出来）。`Enter` 复制，截图进剪贴板历史，图里的字也能搜；标过的图以后还能再打开接着改，从剪贴板历史、搜索框或贴图上都能进，可多选、取色、裁剪。`F3` 贴在屏幕上，还能识别文字。搜索框里打 `jt` 加空格，按图里的字找截过的图。框选之后双击左键、右键、中键、鼠标侧键各做什么（复制、保存、贴图、识别文字、取消、后退），可以在设置里自己定。
 
 #### 🔎 任务栏搜索框
 
-- 在 Windows 11 任务栏上放 Win顺 自己的搜索框（Windows 10 是固定一个按钮），结果从任务栏上方滑出。
+- 在 Windows 11 任务栏上放 Win顺 自己的搜索框（Windows 10 是固定一个按钮），结果在任务栏上方淡入淡出。
 - 位置固定，不跟着图标挪：图标居中时在任务栏最左边，图标靠左时在托盘图标左边；任务栏挤了就自动变窄。也可以改成在任务栏上固定一个 Win顺 图标。
 - 样式和 Windows 搜索一样三选一：整个搜索框、图标和“搜索”、仅图标（像任务栏上的一个按钮）。
 - 搜索框可以单独使用，也可以与 Windows 搜索并存；是否隐藏 Windows 搜索、接管 `Win+S` 或开始菜单打字，都按需选择。
@@ -195,13 +198,13 @@
 
 | 按键 | 作用 |
 |---|---|
-| 双击 `Ctrl` | 打开 / 关闭搜索框（可另设组合键，如 `Alt+Space`） |
+| 双击 `Ctrl` | 打开 / 关闭搜索框（可改成双击 `Alt`，或另设组合键，如 `Alt+Space`） |
 | `Enter` / `Ctrl+Enter` / `Ctrl+Shift+Enter` | 打开 / 打开所在文件夹 / 以管理员身份运行 |
 | `Ctrl+C` / `Ctrl+Shift+C` | 复制文件 / 复制路径 |
 | `Ctrl+1`～`Ctrl+9` | 打开第几行（按住 `Ctrl` 时图标上显示序号） |
 | `Tab` / `Shift+Tab` | 切换范围：全部 / 文件 / 内容（往后 / 往前） |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | 在 **文件** 里切换类型，在 **内容** 里切换文件夹 |
-| `Ctrl+S` | 最匹配 → 最新在前 → 最早在前 |
+| `Ctrl+S` | 最匹配 → 最新在前 → 最早在前（名称、类型、大小在底栏的“更多”里） |
 | `Ctrl+E` / `Ctrl+T` | 展开为搜索面板 / 钉住搜索框（点别处不收起） |
 | `Alt+P` / `Shift+右键` | 预览当前行 / Windows 自己的右键菜单 |
 | `Ctrl+G`（对话框里） | 转到文件管理器正在显示的文件夹 |
@@ -210,7 +213,7 @@
 
 ### 下载安装
 
-1. 到 [Releases 页面](https://github.com/LingCore/WinShun/releases/latest) 下载 `WinShun-版本号-x64-setup.exe`，双击安装。Windows 提示“已保护你的电脑”时，点 **更多信息 → 仍要运行**（还没有代码签名证书）。
+1. 到 [Releases 页面](https://github.com/LingCore/WinShun/releases/latest) 下载 `WinShun-版本号-x64-setup.exe`，双击安装。Windows 提示“已保护你的电脑”时，点 **更多信息 → 仍要运行**（还没有代码签名证书）。安装时可以选“为所有用户安装”（要管理员同意，带索引服务，最快）或“只为我安装”（不要管理员权限，不装索引服务，只索引你选的文件夹）。
 2. 装完托盘里出现 Win顺 的图标，索引几秒就建好。连按两下 Ctrl 开始搜索。
 3. 升级时运行新的安装程序，设置和索引都保留。卸载在 Windows 的“设置 → 应用”里。
 
@@ -222,7 +225,8 @@
 
 - **平时不用**：Win顺 以普通权限运行。安装版带一个很小的“Win顺 索引服务”，由它读 NTFS 主文件表（MFT）和 USN 变更日志，所以照样几秒建好索引、实时跟上改动。安装时要管理员同意一次，之后登录和打开都不弹 UAC。
 - **能看到哪些文件**：和 Everything 一样，索引里有整块盘的文件名，包括这台电脑上其他用户的；没有权限的文件照样打不开。
-- **便携版**：默认一个个文件夹走一遍来建索引，第一次慢一些，之后实时跟上改动。在设置 → 索引方式里可以装上索引服务，或以管理员身份重新启动。
+- **便携版**：默认一个个文件夹走一遍来建索引，第一次慢一些，之后实时跟上改动。在设置 → 索引方式里可以装上索引服务，或以管理员身份重新启动。便携版装索引服务时，会把服务程序复制一份放进 `%ProgramFiles%\WinShun Service`，只有管理员能改，普通程序没法把它换掉；以前装过的，设置里会提醒并有“修复”按钮。
+- **没有管理员权限（“只为我安装”）**：安装时选“只为我安装”，不装索引服务，也不用管理员同意。这时 Win顺 只索引你选的文件夹（设置 › 搜索范围 › 文件夹 里改，默认是桌面、文档、下载、图片这些常用位置），可以从资源管理器把文件夹直接拖进去；改动实时跟上，每天再整个核对一遍（也可以改成每小时、每 4 小时或只在启动时）。输入的文件夹不在索引范围里时，搜索框会提示，点“这次也搜它”只搜这一次，点“加入索引”就长期收录。内容搜索照样能用，只是慢一些。
 - **管理员直读**：管理员账户可以在设置 → 索引方式里选“管理员直读”，像旧版一样整个程序以管理员身份运行、直接读盘。
 - **以管理员身份运行的程序**：Windows 不让普通权限的程序往它们里面打字。往这样的窗口里粘贴时，Win顺 只复制，提示你按 `Ctrl+V`；对话框旁的搜索框也不出现在这些程序上。
 - **打开的东西是普通权限**：从 Win顺 打开的文件和应用都以普通权限运行，只有 `Ctrl+Shift+Enter` 才以管理员身份运行。
@@ -233,7 +237,7 @@
 Win顺 自己建索引，不用装 Everything。文件名、拼音、应用和文件内容在一个框里搜，针对中文做了优化。对话框里有和 Listary 一样的 `Ctrl+G` 和搜索框，但不嵌进资源管理器窗口。
 
 **双击 Ctrl 和别的软件冲突？**
-Listary、PowerToys 的“查找鼠标”默认也用双击 Ctrl，关掉其中一边就行，或者让 Win顺 只认左 Ctrl 或右 Ctrl（设置 › 打开 Win顺 › 用哪个 Ctrl）。也可以在 Win顺 里改用别的组合键。游戏全屏、藏起鼠标时，Win顺 默认不响应双击 Ctrl。
+Listary、PowerToys 的“查找鼠标”默认也用双击 Ctrl，关掉其中一边就行，或者让 Win顺 改用双击 Alt、只认左边或右边的键（设置 › 打开 Win顺 › 双击哪个键、用哪一边）。也可以在 Win顺 里改用别的组合键。游戏全屏、藏起鼠标时，Win顺 默认不响应双击 Ctrl。
 
 **AutoHotkey 改的键在 Win顺 里不起作用？**
 选了“管理员直读”时，Win顺 以管理员身份运行，Windows 不让普通权限的程序拦截发给它的按键。换回别的索引方式，或用 AutoHotkey 的 UI Access 模式、以管理员身份运行脚本。
@@ -284,10 +288,10 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 ### Features
 
 - 🔍 **File search**
-  - **Speed**: press Ctrl twice; a search over three million files takes milliseconds.
+  - **Speed**: press Ctrl twice (or Alt twice, if you prefer); a search over three million files takes milliseconds.
   - **Pinyin**: `ndbg` finds 年度报告; a mistyped homophone (年度报高) is retried by sound.
-  - **Where**: all local drives, USB drives if you like (an unindexed one that is plugged in is offered at the end of the list), and **NAS / SMB network shares**, still searchable while their server is off.
-  - **Order**: your own files first, the date modified on each row, `Ctrl+S` for best match / newest / oldest. Recent files are listed when the box is empty, or nothing if you like; the search can also start empty each time it opens.
+  - **Where**: all local drives, USB drives if you like (an unindexed one that is plugged in is offered at the end of the list), and **NAS / SMB network shares**, still searchable while their server is off. On a PC without administrator rights it indexes only the folders you choose (see Administrator rights below).
+  - **Order**: your own files first, the date modified on each row, `Ctrl+S` for best match / newest / oldest, and More in the footer sorts by name, folder, type or size. Click a result once to select and twice to open, if you would rather not open one by mistake (a setting). Recent files are listed when the box is empty, or nothing if you like; the search can also start empty each time it opens.
   - **Programs first**: `curl` lists `curl.exe` before the folder `curl` and `curl.h`; which file types go first is yours to change (exe, bat, cmd, ps1 and msi to begin with, like Listary's preferred file types).
   - **Shortcuts**: `Ctrl+1`…`Ctrl+9` opens a row; hold `Ctrl` to see the numbers on the icons (or show them always, or never).
   - **Search panel**: too many hits? The small button at the box's corner or `Ctrl+E` grows the same window into a panel, as Listary has it: filters down the left (scope, kind, date modified, size, folder), the rows in columns on the right (name, path, size, date modified) with sortable headers; with nothing typed it browses the whole index by those filters (milliseconds over three million files). `size:>10mb` and `dm:7d` work in the box too. Press it again to collapse.
@@ -304,6 +308,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **What**: the **Content** scope searches inside txt, md, logs, source code and **Word, Excel, PowerPoint, PDF and WPS** files, showing the page, slide or sheet and row.
   - **In one folder**: add a folder's name and a slash, `annual report abc/`, to search only in folders named abc (`/abc` last works too; `work/abc/` takes the one in work); folders of the same name are all searched and listed under the box, `Ctrl+Tab` picks one. Or pick a favorite folder there, or right-click a folder in the results → Search contents in this folder.
   - **How**: ranked by relevance, with a content index for speed; UTF-8, UTF-16 and GBK are detected. The first content index reads text files straight from the disk through the index service, so antivirus does not check them one by one and it is done much sooner. Files over the size limit, in system folders or of unlisted text types are skipped; the list says how many of each, and one click searches them too.
+  - **Without the index service**: it works too, only slower, as the files are read as you search.
   - **Safety**: documents are read by a separate process with restricted rights.
 - 🚀 **Apps and settings**
   - **Apps**: everything in the Start menu (Store apps included), by name, pinyin, initials (`vsc`) or program file (`winword`).
@@ -321,21 +326,22 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Suggestions**: open folders, a path you just copied, favorites and recent folders.
   - **Going there by itself**: optional, as the dialog opens, or only when you come back to it from the file manager.
 - 🗂️ **In File Explorer: a double click, a right-click**
-  - **Folder menu**: double-click the blank space of a File Explorer folder or of the desktop: favorite, recent and open folders; pick one and the same window goes there (the desktop opens a new one), like Listary. Also: search this folder, add it to the favorites.
+  - **Folder menu**: double-click the blank space of a File Explorer folder or of the desktop: favorite, recent and open folders; pick one and the same window goes there (the desktop opens a new one), like Listary. Also: search this folder, add it to the favorites. Which of the three groups it lists is a setting.
   - It never takes the focus: arrows, Enter, Esc and first letters work; a click elsewhere or another double click closes it. It stays out of the way while Listary runs.
   - **In Directory Opus too**: WinShun can add its command to Opus's settings for you (Opus restarts once), and puts the old one back when turned off or uninstalled.
   - **By a shortcut**: when another program has the double click, or for Total Commander, XYplorer and Pulse, give the folder menu a shortcut in the settings and press it in any window: in File Explorer, on the desktop, in Directory Opus, Total Commander, XYplorer and Open / Save dialogs the folder picked opens in that window (in Pulse, where its “Folders opened from other apps” setting puts it: a new tab or a new window); anywhere else, in your file manager. Press it again to close the menu.
   - **“Search here with WinShun”** on the right-click menu of folders, a folder's blank space and drives (under “Show more options” on Windows 11): the search window opens with that folder typed. It can be turned off.
-  - **Type to search**: type anywhere in a File Explorer file list and WinShun searches that window's folder for what you typed, like Listary; a Chinese input method composes as usual, and `Esc` goes back to File Explorer. Turn it on in the settings (it replaces Explorer's own jump to a file by its first letters, so it is off by default).
+  - **Type to search**: type anywhere in a File Explorer file list and WinShun searches that window's folder for what you typed, like Listary; a Chinese input method composes as usual, and `Esc` goes back to File Explorer. A folder you pick opens in the same tab, so typing again goes one level deeper, and the keys of Explorer's `Shift`+right-click menu stay with the menu. Turn it on in the settings (it replaces Explorer's own jump to a file by its first letters, so it is off by default).
 - 📋 **Clipboard history (replaces Win+V)**
   - **What**: text, pictures and files, opened with `Win+V` or your own shortcut, by the text cursor, without taking the focus.
   - **Search**: pinyin, `@app` filters, and **words in copied pictures** (PaddleOCR text recognition, on your PC and offline, good with numbers and small print in screenshots).
-  - **Preview**: full text, pictures, HEX / RGB / HSL color values.
+  - **Preview**: full text, pictures, HEX / RGB / HSL color values. The eye button (or `Alt+P`) opens and closes it; while it is open, the row under the mouse is shown. It is wider now, and the line beside it can be dragged, the width remembered.
   - **Drag pictures out**: hold a picture and drop it on a folder to save it as a PNG file.
   - **Paste**: double-click or `Enter`, or one click as in Windows' own history (an option); larger picture thumbnails as another.
-  - **Organize**: pins, groups, multi-paste in order, and `Alt+1`…`Alt+9`; pinned items can come first, and the order is yours to drag or move with `Ctrl+↑`/`↓`.
+  - **Organize**: pins, groups, multi-paste in order, and `Alt+1`…`Alt+9`; pinned items can come first, and the order is yours to drag or move with `Ctrl+↑`/`↓`. `Ctrl+A` picks every listed entry, Delete all in the row menu clears them at once, and `Ctrl+Z` brings them back.
+  - **Copied files that are gone**: their entry says “no longer there”, and can be hidden or cleaned out automatically (pinned and grouped entries stay; a pulled-out USB drive does not count).
   - **Privacy**: passwords from password managers are not kept, and the history stays on your PC.
-  - **Screenshots** (off by default; turn it on in Settings › Plugins): a shortcut or `PrtScn`, then click a window or a control, or drag an area; `Enter` copies it, into the clipboard history too, where the words in it can be searched; `F3` pins it on the screen, and its text can be read out. `jt` and a space in the search box list past screenshots by the text in them.
+  - **Screenshots** (off by default; turn it on in Settings › Plugins): a shortcut or `PrtScn`, then click a window or a control, or drag an area. Mark it up right there: rectangle, ellipse, arrow, pen, highlighter, text, numbers and redaction (mosaic, blur or solid; what is under it cannot be worked back out). `Enter` copies it, into the clipboard history too, where the words in it can be searched; a marked-up picture can be opened and changed again later, from the clipboard history, the search box or a pin, with multi-select, a color picker and cropping. `F3` pins it on the screen, and its text can be read out. `jt` and a space in the search box list past screenshots by the text in them. What a double left click, the right, middle and side buttons do after you have chosen an area (copy, save, pin, read text, cancel, step back) is yours to set.
 - 🔎 **Taskbar search box**: WinShun's own search box on the Windows 11 taskbar, or a pinned WinShun icon instead (the only way on Windows 10). The box has a fixed place the icons never push around: the taskbar's left end with centred icons, left of the tray icons with left-aligned ones; a whole box, its icon and label, or its icon alone, as Windows' own search, narrower by itself when the taskbar fills up. It works on its own or alongside Windows search; hiding Windows search, taking over `Win+S`, and searching as you type in the Start menu are all optional.
 - 🤖 **AI assistants (MCP)**
   - **What**: WinShun is an MCP server. Claude Desktop, Claude Code, Cursor and VS Code connect in one click and search file names, file contents and recent changes.
@@ -350,13 +356,13 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 
 | Key | Action |
 |---|---|
-| Ctrl twice | Open / close the search bar (another shortcut, such as `Alt+Space`, can be set) |
+| Ctrl twice | Open / close the search bar (Alt twice instead, or another shortcut such as `Alt+Space`, can be set) |
 | `Enter` / `Ctrl+Enter` / `Ctrl+Shift+Enter` | Open / show in folder / run as administrator |
 | `Ctrl+C` / `Ctrl+Shift+C` | Copy the file / copy its path |
 | `Ctrl+1`…`Ctrl+9` | Open the nth row (hold `Ctrl` to see the numbers) |
 | `Tab` / `Shift+Tab` | Switch scope: All / Files / Content (forward / back) |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | In **Files**, step through the kinds; in **Content**, through the folders |
-| `Ctrl+S` | Best match → newest first → oldest first |
+| `Ctrl+S` | Best match → newest first → oldest first (name, type and size are under More in the footer) |
 | `Ctrl+E` / `Ctrl+T` | Expand to the search panel / pin the search box (stays up through clicks elsewhere) |
 | `Alt+P` / `Shift`+right-click | Preview the row / Windows' own context menu |
 | `Ctrl+G` (in a file dialog) | Go to the folder shown in your file manager |
@@ -365,7 +371,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 
 ### Download and install
 
-1. Download `WinShun-<version>-x64-setup.exe` from the [Releases page](https://github.com/LingCore/WinShun/releases/latest) and run it. If Windows says “Windows protected your PC”, click **More info → Run anyway**: the app is not code-signed yet.
+1. Download `WinShun-<version>-x64-setup.exe` from the [Releases page](https://github.com/LingCore/WinShun/releases/latest) and run it. If Windows says “Windows protected your PC”, click **More info → Run anyway**: the app is not code-signed yet. Setup offers “for all users” (an administrator approves it; comes with the index service, the fastest) or “for me only” (no administrator needed, no index service; only the folders you choose are indexed).
 2. When the WinShun icon appears in the notification area, it is running; the first index takes a few seconds. Press Ctrl twice and type.
 3. To upgrade, run a newer installer: your settings and index are kept. Uninstall from Windows Settings → Apps.
 
@@ -377,7 +383,8 @@ Requires Windows 10 or 11, 64-bit.
 
 - **Not needed day to day**: WinShun runs with your normal rights. The installed version comes with a small “WinShun Index Service” that reads the NTFS master file table (MFT) and change journal (USN) for it, so millions of files are still indexed in seconds and changes followed live. An administrator approves the install once; after that there is no UAC prompt at login or when you open it.
 - **Which files you see**: as with Everything, the index holds the file names of whole drives, other users' on this PC included; files you have no rights to still won't open.
-- **Portable version**: by default it walks the folders one by one, so the first index is slower; changes are followed live after that. Settings → Index access can install the index service or restart it as administrator.
+- **Portable version**: by default it walks the folders one by one, so the first index is slower; changes are followed live after that. Settings → Index access can install the index service or restart it as administrator. When a portable copy installs the service, it puts a copy of the service program in `%ProgramFiles%\WinShun Service`, where only administrators can change it, so no ordinary program can swap it; an older registration gets a warning and a Repair button in the settings.
+- **Without administrator rights (“for me only”)**: pick “for me only” in Setup: no index service, and no administrator needed. WinShun then indexes only the folders you choose (Settings › Search scope › Folders; the desktop, documents, downloads, pictures and the like to begin with), and you can drag folders in from File Explorer. Changes are followed live, and everything is checked again once a day (hourly, every 4 hours or only at start are options). When the folder you type is not indexed, the search box says so: “Search it this time” looks there once, “Add to the index” keeps it. Content search still works, only slower.
 - **Direct as administrator**: on an administrator account, Settings → Index access → “Direct (administrator)” runs the whole app as administrator and reads the drives itself, as earlier versions did.
 - **Programs running as administrator**: Windows doesn't let normal-rights programs type into them. Pasting into such a window only copies, and WinShun tells you to press `Ctrl+V`; the search bar beside file dialogs doesn't appear on them either.
 - **What you open is not elevated**: files and apps you open from WinShun run with your normal rights; only `Ctrl+Shift+Enter` runs one as administrator.
@@ -388,7 +395,7 @@ Requires Windows 10 or 11, 64-bit.
 WinShun builds its own index, so Everything is not needed. File names, pinyin, apps and file contents are searched from one box, tuned for Chinese. File dialogs get Listary's `Ctrl+G` and a search bar, but WinShun does not embed itself in Explorer windows.
 
 **Ctrl twice clashes with another program?**
-Listary and PowerToys' Find My Mouse use it too: turn it off on one side, let WinShun count only the left or the right Ctrl (Settings › Open WinShun › Which Ctrl), or give WinShun another shortcut. Full-screen games and games that hide the mouse are ignored by default.
+Listary and PowerToys' Find My Mouse use it too: turn it off on one side, let WinShun use Alt twice instead, or count only the left or the right key (Settings › Open WinShun › Key to press twice / Which side), or give WinShun another shortcut. Full-screen games and games that hide the mouse are ignored by default.
 
 **AutoHotkey remaps don't work in WinShun?**
 With “Direct (administrator)” chosen, WinShun runs as administrator, and Windows keeps normal-rights programs from intercepting keys sent to it. Pick another index access, or run the script with UI Access or as administrator.

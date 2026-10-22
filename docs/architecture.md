@@ -140,6 +140,8 @@ Hotkey=                  ; 截图的快捷键，没有默认值（PixPin、Snipa
 PrintScreen=false        ; PrtScn 也截图：把 HKCU\Control Panel\Keyboard\PrintScreenKeyForSnippingEnabled 设成 0 并广播，再注册 PrtScn
 PrintScreenBefore=       ; 接管前那个值（absent 或数字），关掉时写回去；空 = 没有接管。程序自己写，别手改
 CopyOnSelect=false       ; 选好就复制：松开拖动或点选窗口就复制并关闭，不再调整
+MouseDoubleLeft=copy     ; 选好区域之后各个鼠标键做什么（GitHub #46）：none | copy | save | pin | ocr | cancel；MouseRight 还多一个 back（默认，退回重新框选）
+MouseRight=back          ; MouseMiddle、MouseBack（侧键后退）、MouseForward（侧键前进）默认 none；正在标注时右键只撤回当前一笔，不走这里
 Keyword=jt               ; 截图历史的关键词：搜索框里打它加空格，列出 Win顺 截过的图；插件的同名关键词让给它，网页搜索和收藏的同名关键词设置时就拒绝
 ```
 
