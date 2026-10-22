@@ -5,7 +5,8 @@
 # (PrintScreen), and the annotations' core (Annotation*: the document, its
 # commands, the compositor that draws tiles and exports, the project format
 # and the tools' styles; docs/design-capture-roadmap.md, 3) and the editing
-# window's zoom and tile arithmetic (EditView). What the
+# window's zoom and tile arithmetic (EditView), and the smart redaction's
+# rules (SmartRedact). What the
 # overlays bind to (CaptureSession, CaptureImage) and the controller
 # (Capture) are in this folder too, but built into WinShun's QML module
 # (src/app/CMakeLists.txt), which registers their types.
@@ -21,6 +22,7 @@ add_library(wscapture STATIC
     AnnotationRender.cpp AnnotationRender.h
     AnnotationFormat.cpp AnnotationFormat.h
     AnnotationStyles.cpp AnnotationStyles.h
+    SmartRedact.cpp SmartRedact.h
 )
 target_include_directories(wscapture PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # miniz: the projects' zip (AnnotationFormat).

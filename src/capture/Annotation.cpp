@@ -151,6 +151,8 @@ bool hits(const Item& item, QPointF q, qreal tolerance, qreal dpr, int number, N
     case Kind::Ellipse:
         return nearEllipse(q, QRectF(itemBox(item)), w, tolerance, item.style.fill != Fill::None);
     case Kind::Redact:
+        if (item.style.shape == RedactShape::Brush)
+            return distanceToPolyline(q, item.points) <= w / 2.0 + tolerance;
         return QRectF(itemBox(item)).contains(q);
     case Kind::Arrow: {
         const ArrowShape shape = arrowShape(item, dpr);
@@ -193,6 +195,16 @@ bool isLine(Kind kind)
 bool isStroke(Kind kind)
 {
     return kind == Kind::Pen || kind == Kind::Marker;
+}
+
+bool isBrush(const Item& item)
+{
+    return item.kind == Kind::Redact && item.style.shape == RedactShape::Brush;
+}
+
+bool isStrokeItem(const Item& item)
+{
+    return isStroke(item.kind) || isBrush(item);
 }
 
 QString kindName(Kind kind)
@@ -407,11 +419,13 @@ QRect pixelBox(QPoint a, QPoint b)
 
 QRect itemBox(const Item& item)
 {
-    if (item.kind == Kind::Redact && item.style.shape == RedactShape::Brush && !item.points.isEmpty()) {
+    if (isBrush(item)) {
         QRect box;
         for (const QPointF& p : item.points)
             box |= QRect(pixelAt(p), QSize(1, 1));
-        return box;
+        // Every pixel the stroke covers is within the radius of a point.
+        const int m = (std::max(1, item.style.width) + 1) / 2;
+        return box.isNull() ? box : box.adjusted(-m, -m, m, m);
     }
     if (item.points.size() < 2)
         return {};
@@ -422,6 +436,50 @@ QRect itemBox(const Item& item)
     const int y0 = qRound(std::min(a.y(), b.y()));
     const int y1 = qRound(std::max(a.y(), b.y()));
     return QRect(x0, y0, x1 - x0, y1 - y0);
+}
+
+QImage brushCoverage(const Item& item)
+{
+    if (!isBrush(item))
+        return {};
+    const QRect box = itemBox(item);
+    QImage mask(box.size(), QImage::Format_Grayscale8);
+    if (mask.isNull())
+        return mask;
+    mask.fill(0);
+    const qreal r = std::max(1, item.style.width) / 2.0;
+    const qreal r2 = r * r;
+    const int m = (std::max(1, item.style.width) + 1) / 2;
+    // Each segment sets the pixels whose centre is within r of it, going
+    // through its own bounding box only; whole numbers and halves make the
+    // test the same on every computer.
+    const auto mark = [&](QPointF a, QPointF b) {
+        const QRect part = QRect(pixelAt(a), pixelAt(b)).normalized().adjusted(-m, -m, m, m) & box;
+        for (int y = part.top(); y <= part.bottom(); ++y) {
+            uchar* line = mask.scanLine(y - box.top());
+            for (int x = part.left(); x <= part.right(); ++x) {
+                const QPointF c(x + 0.5, y + 0.5);
+                const qreal d = distanceToSegment(c, a, b);
+                if (d * d <= r2)
+                    line[x - box.left()] = 255;
+            }
+        }
+    };
+    if (item.points.size() == 1)
+        mark(item.points[0], item.points[0]);
+    for (qsizetype i = 0; i + 1 < item.points.size(); ++i)
+        mark(item.points[i], item.points[i + 1]);
+    return mask;
+}
+
+QList<Item> redactionItems(const Document& doc)
+{
+    QList<Item> items;
+    for (const Item& item : doc.items) {
+        if (item.kind == Kind::Redact)
+            items.append(item);
+    }
+    return items;
 }
 
 QList<QRect> redactionBoxes(const Document& doc)
@@ -809,7 +867,7 @@ std::optional<quint32> hitTest(const Document& doc, QPointF p, qreal tolerance)
 
 QList<QPointF> handles(const Item& item)
 {
-    if (isBox(item.kind) && !(item.kind == Kind::Redact && item.style.shape == RedactShape::Brush)) {
+    if (isBox(item.kind) && !isBrush(item)) {
         const QRect box = itemBox(item);
         const qreal x0 = box.x();
         const qreal y0 = box.y();
@@ -828,7 +886,7 @@ Item reshaped(const Item& item, int handle, QPointF to, bool constrain)
 {
     Item out = item;
     const QPoint pixel = pixelAt(to);
-    if (isBox(item.kind) && !(item.kind == Kind::Redact && item.style.shape == RedactShape::Brush)) {
+    if (isBox(item.kind) && !isBrush(item)) {
         if (handle < int(BoxHandle::TopLeft) || handle > int(BoxHandle::Left))
             return out;
         const QRect box = itemBox(item);
@@ -873,7 +931,7 @@ Item reshaped(const Item& item, int handle, QPointF to, bool constrain)
         out.points[handle] = p;
         return out;
     }
-    if (isStroke(item.kind) && handle == int(LineHandle::End)) {
+    if (isStrokeItem(item) && handle == int(LineHandle::End)) {
         const QPointF p = pixelCentre(to);
         if (out.points.isEmpty()) {
             out.points = {p};

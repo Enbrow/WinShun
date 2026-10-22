@@ -76,6 +76,15 @@ add_test(NAME tst_annotate COMMAND tst_annotate)
 set_tests_properties(tst_annotate PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
 
+# Smart redaction's rules (src/capture/SmartRedact): numbers with their check
+# digits, keys, placeholders, names, boxes from the characters' places.
+qt_add_executable(tst_smartredact tst_smartredact.cpp)
+target_link_libraries(tst_smartredact PRIVATE wscapture Qt6::Test)
+set_target_properties(tst_smartredact PROPERTIES WIN32_EXECUTABLE FALSE)
+add_test(NAME tst_smartredact COMMAND tst_smartredact)
+set_tests_properties(tst_smartredact PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
 # The editing window's controller (src/capture/CaptureEditor): the zoom and
 # where the picture lies, the mouse as image pixels, the ways out, Esc, the
 # crop, the window emptying on close; and a pin's new picture (PinWindow).
@@ -193,7 +202,7 @@ target_link_libraries(tst_siteicon PRIVATE Qt6::Gui Qt6::Svg Qt6::Test)
 # The words in pictures: PP-OCRv6 through ONNX Runtime, the real models.
 qt_add_executable(tst_ocr tst_ocr.cpp ${PROJECT_SOURCE_DIR}/src/app/platform/PaddleOcr.cpp)
 target_include_directories(tst_ocr PRIVATE ${PROJECT_SOURCE_DIR}/src/app/platform)
-target_link_libraries(tst_ocr PRIVATE winshun_options Qt6::Gui Qt6::Test onnxruntime_headers)
+target_link_libraries(tst_ocr PRIVATE winshun_options wscapture Qt6::Gui Qt6::Test onnxruntime_headers)
 
 # What a drop target gets when results are dragged out of Win顺.
 qt_add_executable(tst_dragout tst_dragout.cpp ${PROJECT_SOURCE_DIR}/src/app/platform/DragOut.cpp)

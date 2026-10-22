@@ -110,6 +110,8 @@ public:
         // F3: a pin of its own, its picture at `origin` (physical).
         std::function<void(const QImage&, const QByteArray& project, QPoint origin)> pin;
         std::function<void(const QImage&, double dpr, const QRect& where)> ocr;
+        // 智能打码: how the text is read and what is hidden (SmartRedact.h).
+        SmartHooks smart;
         // What the tools remember ([Capture] AnnotateStyles, JSON).
         std::function<QString()> styles;
         std::function<void(const QString&)> stylesChanged;

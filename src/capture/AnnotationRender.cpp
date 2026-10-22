@@ -528,14 +528,31 @@ void copyBase(const QImage& base, const QRect& area, QImage& target)
     painter.drawImage(inside.topLeft() - area.topLeft(), base, inside);
 }
 
-QImage maskOf(const QList<QRect>& boxes, const QRect& sampleBounds)
+QImage maskOf(const QList<Item>& redactions, const QRect& sampleBounds)
 {
     QImage mask(sampleBounds.size(), QImage::Format_Grayscale8);
     if (mask.isNull())
         return mask;
     mask.fill(0);
-    for (const QRect& box : boxes) {
+    for (const Item& item : redactions) {
+        const QRect box = itemBox(item);
         const QRect r = box & sampleBounds;
+        if (r.isEmpty())
+            continue;
+        if (isBrush(item)) {
+            // Only the stroke's own pixels: a diagonal stroke leaves the
+            // corners of its box readable.
+            const QImage stroke = brushCoverage(item);
+            for (int y = r.top(); y <= r.bottom(); ++y) {
+                const uchar* from = stroke.constScanLine(y - box.top());
+                uchar* to = mask.scanLine(y - sampleBounds.top());
+                for (int x = r.left(); x <= r.right(); ++x) {
+                    if (from[x - box.left()])
+                        to[x - sampleBounds.left()] = 255;
+                }
+            }
+            continue;
+        }
         for (int y = r.top(); y <= r.bottom(); ++y)
             std::memset(mask.scanLine(y - sampleBounds.top()) + (r.left() - sampleBounds.left()), 255, std::size_t(r.width()));
     }
@@ -574,8 +591,12 @@ using Rgb = std::array<double, 3>;
 // so each row and column is scanned once.
 class Sampler {
 public:
-    Sampler(const QImage& base, const QRect& sampleBounds, const QImage& covered, const QRect& box)
-        : m_base(base)
+    // `exact`: the area is not the box (a brush stroke): its box holds pixels
+    // that may be read, found by scanning out from each point.
+    Sampler(const QImage& base, const QRect& sampleBounds, const QImage& covered, const QRect& box, bool exact = false, int reach = 64)
+        : m_exact(exact)
+        , m_reach(reach)
+        , m_base(base)
         , m_sample(sampleBounds & base.rect())
         , m_covered(covered)
         , m_origin(sampleBounds.topLeft())
@@ -601,6 +622,24 @@ public:
             sum[2] += w * qBlue(c);
             weights += w;
         };
+        if (m_exact) {
+            // Not past m_reach (about the stroke's width): along a long stroke the nearest pixel to read may be a screen away.
+            const int left = scanRow(y, x - 1, -1, m_reach);
+            const int right = scanRow(y, x + 1, 1, m_reach);
+            const int up = scanColumn(x, y - 1, -1, m_reach);
+            const int down = scanColumn(x, y + 1, 1, m_reach);
+            if (left != kNone)
+                add(left, y, x - left);
+            if (right != kNone)
+                add(right, y, right - x);
+            if (up != kNone)
+                add(x, up, y - up);
+            if (down != kNone)
+                add(x, down, down - y);
+            if (weights == 0)
+                return mean();
+            return {sum[0] / weights, sum[1] / weights, sum[2] / weights};
+        }
         const std::size_t row = std::size_t(y - m_box.top());
         const std::size_t column = std::size_t(x - m_box.left());
         if (m_left[row] == kUnknown)
@@ -630,7 +669,7 @@ private:
 
     bool readable(int x, int y) const
     {
-        if (!m_sample.contains(x, y) || m_box.contains(x, y))
+        if (!m_sample.contains(x, y) || (!m_exact && m_box.contains(x, y)))
             return false;
         const int mx = x - m_origin.x();
         const int my = y - m_origin.y();
@@ -644,22 +683,22 @@ private:
         return reinterpret_cast<const QRgb*>(m_base.constScanLine(y))[x];
     }
 
-    int scanRow(int y, int from, int step) const
+    int scanRow(int y, int from, int step, int reach = std::numeric_limits<int>::max()) const
     {
         if (y < m_sample.top() || y > m_sample.bottom())
             return kNone;
-        for (int x = from; x >= m_sample.left() && x <= m_sample.right(); x += step) {
+        for (int x = from, n = 0; x >= m_sample.left() && x <= m_sample.right() && n < reach; x += step, ++n) {
             if (readable(x, y))
                 return x;
         }
         return kNone;
     }
 
-    int scanColumn(int x, int from, int step) const
+    int scanColumn(int x, int from, int step, int reach = std::numeric_limits<int>::max()) const
     {
         if (x < m_sample.left() || x > m_sample.right())
             return kNone;
-        for (int y = from; y >= m_sample.top() && y <= m_sample.bottom(); y += step) {
+        for (int y = from, n = 0; y >= m_sample.top() && y <= m_sample.bottom() && n < reach; y += step, ++n) {
             if (readable(x, y))
                 return y;
         }
@@ -692,6 +731,8 @@ private:
         return *m_mean;
     }
 
+    bool m_exact;
+    int m_reach; // a brush's scans go this far, px
     const QImage& m_base;
     QRect m_sample;
     const QImage& m_covered;
@@ -704,7 +745,25 @@ private:
     std::optional<Rgb> m_mean;
 };
 
-void mosaic(QImage& patch, Sampler& sampler, const QRect& box, int cell, quint64 seed)
+// Whether any pixel of `part` (image px) is in the stroke `stroke` (a brush's
+// coverage, over `box`); true for no stroke.
+bool inStroke(const QImage* stroke, const QRect& box, const QRect& part)
+{
+    if (!stroke)
+        return true;
+    for (int y = part.top(); y <= part.bottom(); ++y) {
+        const uchar* line = stroke->constScanLine(y - box.top()) + (part.left() - box.left());
+        for (int x = 0; x < part.width(); ++x) {
+            if (line[x])
+                return true;
+        }
+    }
+    return false;
+}
+
+// The pixels of a brush's box that its stroke does not cover are never drawn,
+// so they are not worked out either (`stroke`, null for a box).
+void mosaic(QImage& patch, Sampler& sampler, const QRect& box, int cell, quint64 seed, const QImage* stroke = nullptr)
 {
     int j = 0;
     for (int top = box.top(); top <= box.bottom(); top += cell, ++j) {
@@ -713,6 +772,8 @@ void mosaic(QImage& patch, Sampler& sampler, const QRect& box, int cell, quint64
         int i = 0;
         for (int left = box.left(); left <= box.right(); left += cell, ++i) {
             const int right = std::min(left + cell - 1, box.right());
+            if (!inStroke(stroke, box, QRect(QPoint(left, top), QPoint(right, bottom))))
+                continue;
             const int cx = left + (right - left + 1) / 2;
             const Rgb c = sampler.fill(cx, cy);
             const int n = noise(seed, i, j, 16);
@@ -721,6 +782,22 @@ void mosaic(QImage& patch, Sampler& sampler, const QRect& box, int cell, quint64
                 QRgb* line = reinterpret_cast<QRgb*>(patch.scanLine(y - box.top()));
                 std::fill(line + (left - box.left()), line + (right - box.left()) + 1, color);
             }
+        }
+    }
+}
+
+// Every pixel from the nearest readable ones around it, no noise: the area
+// looks as if it was rubbed out.
+void smooth(QImage& patch, Sampler& sampler, const QRect& box, const QImage* stroke = nullptr)
+{
+    for (int y = box.top(); y <= box.bottom(); ++y) {
+        QRgb* line = reinterpret_cast<QRgb*>(patch.scanLine(y - box.top()));
+        const uchar* covered = stroke ? stroke->constScanLine(y - box.top()) : nullptr;
+        for (int x = box.left(); x <= box.right(); ++x) {
+            if (covered && !covered[x - box.left()])
+                continue;
+            const Rgb c = sampler.fill(x, y);
+            line[x - box.left()] = qRgb(channel(c[0], 0), channel(c[1], 0), channel(c[2], 0));
         }
     }
 }
@@ -752,7 +829,7 @@ void segments(const std::vector<int>& grid, int first, int last, std::vector<int
     }
 }
 
-void blur(QImage& patch, Sampler& sampler, const QRect& box, int cell, quint64 seed)
+void blur(QImage& patch, Sampler& sampler, const QRect& box, int cell, quint64 seed, const QImage* stroke = nullptr)
 {
     const int step = std::max(4, cell / 2);
     const std::vector<int> xs = gridLine(box.left(), box.right(), step);
@@ -775,8 +852,11 @@ void blur(QImage& patch, Sampler& sampler, const QRect& box, int cell, quint64 s
         const std::size_t y1 = std::min(y0 + 1, ys.size() - 1);
         const double ty = rowT[ry];
         QRgb* line = reinterpret_cast<QRgb*>(patch.scanLine(int(ry)));
+        const uchar* covered = stroke ? stroke->constScanLine(int(ry)) : nullptr;
         for (int x = box.left(); x <= box.right(); ++x) {
             const std::size_t rx = std::size_t(x - box.left());
+            if (covered && !covered[rx])
+                continue;
             const std::size_t x0 = std::size_t(columnIndex[rx]);
             const std::size_t x1 = std::min(x0 + 1, xs.size() - 1);
             const double tx = columnT[rx];
@@ -807,13 +887,13 @@ struct PatchEntry {
     Item item;
     QRect sample;
     qint64 baseKey = 0;
-    QList<QRect> boxes;
+    QList<Item> redactions;
     QImage image;
 };
 
 struct MaskEntry {
     QRect sample;
-    QList<QRect> boxes;
+    QList<Item> redactions;
     QImage image;
 };
 
@@ -915,17 +995,17 @@ struct Compositor::Private {
         return made;
     }
 
-    std::shared_ptr<const MaskEntry> mask(const QRect& sample, const QList<QRect>& boxes)
+    std::shared_ptr<const MaskEntry> mask(const QRect& sample, const QList<Item>& redactions)
     {
         const quint64 key = cacheKey(Slot::Mask, 0);
         if (const Entry* entry = touch(key)) {
-            if (entry->mask->sample == sample && entry->mask->boxes == boxes)
+            if (entry->mask->sample == sample && entry->mask->redactions == redactions)
                 return entry->mask;
         }
         auto made = std::make_shared<MaskEntry>();
         made->sample = sample;
-        made->boxes = boxes;
-        made->image = maskOf(boxes, sample);
+        made->redactions = redactions;
+        made->image = maskOf(redactions, sample);
         Entry entry;
         entry.bytes = qint64(sizeof(MaskEntry)) + made->image.sizeInBytes();
         entry.mask = made;
@@ -933,20 +1013,20 @@ struct Compositor::Private {
         return made;
     }
 
-    std::shared_ptr<const PatchEntry> patch(const Item& item, const QImage& base, const QRect& sample, const QList<QRect>& boxes)
+    std::shared_ptr<const PatchEntry> patch(const Item& item, const QImage& base, const QRect& sample, const QList<Item>& redactions)
     {
         const quint64 key = cacheKey(Slot::Patch, item.id);
         if (const Entry* entry = touch(key)) {
             const PatchEntry& p = *entry->patch;
-            if (p.baseKey == base.cacheKey() && p.sample == sample && p.boxes == boxes && p.item == item)
+            if (p.baseKey == base.cacheKey() && p.sample == sample && p.redactions == redactions && p.item == item)
                 return entry->patch;
         }
-        const std::shared_ptr<const MaskEntry> covered = mask(sample, boxes);
+        const std::shared_ptr<const MaskEntry> covered = mask(sample, redactions);
         auto made = std::make_shared<PatchEntry>();
         made->item = item;
         made->sample = sample;
         made->baseKey = base.cacheKey();
-        made->boxes = boxes;
+        made->redactions = redactions;
         made->image = redactionPatch(base, sample, covered->image, item);
         ++patchesMade;
         Entry entry;
@@ -971,7 +1051,7 @@ Compositor::Compositor(qint64 cacheBytes_)
 Compositor::~Compositor() = default;
 
 void Compositor::render(const Document& doc, const QImage& base, const QRect& sampleBounds, const QRect& area, QImage* target,
-    std::optional<quint32> skip, std::optional<quint32> unworded)
+    std::optional<quint32> skip, std::optional<quint32> unworded, std::optional<quint32> draft)
 {
     if (!target || area.isEmpty())
         return;
@@ -984,7 +1064,7 @@ void Compositor::render(const Document& doc, const QImage& base, const QRect& sa
     QPainter painter(target);
     const QTransform toTarget = QTransform::fromTranslate(-area.x(), -area.y());
     std::optional<QHash<quint32, int>> shown;
-    std::optional<QList<QRect>> boxes;
+    std::optional<QList<Item>> redactions;
     for (const Item& listed : doc.items) {
         if (skip && listed.id == *skip)
             continue;
@@ -1001,7 +1081,15 @@ void Compositor::render(const Document& doc, const QImage& base, const QRect& sa
             bare = listed;
             bare.text.clear();
         }
-        const Item& item = without ? bare : listed;
+        // A brush stroke still being drawn is shown as a mosaic whatever its mode: the real one is worked out
+        // for the whole stroke once, when the mouse is let go (the redactions' cache then makes it again).
+        if (draft && listed.id == *draft && isBrush(listed) && listed.style.redact != RedactMode::Solid
+            && listed.style.redact != RedactMode::Mosaic) {
+            bare = listed;
+            bare.style.redact = RedactMode::Mosaic;
+        }
+        const bool drafted = bare.id == listed.id && bare.style.redact != listed.style.redact;
+        const Item& item = (without || drafted) ? bare : listed;
         const std::shared_ptr<const Recipe> recipe = d->recipe(item, doc.dpr, number, formatOf(doc, item.series));
         if (!recipe->extent.intersects(area))
             continue;
@@ -1037,9 +1125,9 @@ void Compositor::render(const Document& doc, const QImage& base, const QRect& sa
                 painter.drawImage(op.origin, op.layer);
                 break;
             case Op::Patch: {
-                if (!boxes)
-                    boxes = redactionBoxes(doc);
-                const std::shared_ptr<const PatchEntry> patch = d->patch(item, base, sampleBounds, *boxes);
+                if (!redactions)
+                    redactions = redactionItems(doc);
+                const std::shared_ptr<const PatchEntry> patch = d->patch(item, base, sampleBounds, *redactions);
                 if (patch->image.isNull())
                     break;
                 painter.setTransform(toTarget);
@@ -1094,7 +1182,7 @@ qint64 Compositor::patchesMade() const
 
 QImage coverageMask(const Document& doc, const QRect& sampleBounds)
 {
-    return maskOf(redactionBoxes(doc), sampleBounds);
+    return maskOf(redactionItems(doc), sampleBounds);
 }
 
 QImage redactionPatch(const QImage& base, const QRect& sampleBounds, const QImage& covered, const Item& item)
@@ -1102,27 +1190,45 @@ QImage redactionPatch(const QImage& base, const QRect& sampleBounds, const QImag
     const QRect box = itemBox(item);
     if (box.isEmpty())
         return {};
+    const bool brush = isBrush(item);
+    const QImage stroke = brush ? brushCoverage(item) : QImage(); // once for the patch
     QImage patch(box.size(), QImage::Format_RGB32);
     if (patch.isNull())
         return patch;
     patch.setOffset(box.topLeft());
     if (item.style.redact == RedactMode::Solid) {
         patch.fill(item.style.color | 0xff000000u);
-        return patch;
+    } else {
+        const QImage::Format format = base.format();
+        const bool direct = format == QImage::Format_RGB32 || format == QImage::Format_ARGB32
+            || format == QImage::Format_ARGB32_Premultiplied;
+        const QImage pixels = direct ? base : base.convertToFormat(QImage::Format_RGB32);
+        const bool byteMask = covered.format() == QImage::Format_Grayscale8 || covered.format() == QImage::Format_Alpha8;
+        const QImage mask = byteMask || covered.isNull() ? covered : covered.convertToFormat(QImage::Format_Grayscale8);
+        // A pixel of a stroke has readable ground within about its width; scanning further only finds the stroke's own length.
+        Sampler sampler(pixels, sampleBounds, mask, box, brush, std::clamp(item.style.width, 16, 64));
+        const int cell = std::max(1, item.style.cell);
+        const QImage* only = brush ? &stroke : nullptr;
+        if (item.style.redact == RedactMode::Blur)
+            blur(patch, sampler, box, cell, item.seed, only);
+        else if (item.style.redact == RedactMode::Smooth)
+            smooth(patch, sampler, box, only);
+        else
+            mosaic(patch, sampler, box, cell, item.seed, only);
     }
-    const QImage::Format format = base.format();
-    const bool direct = format == QImage::Format_RGB32 || format == QImage::Format_ARGB32
-        || format == QImage::Format_ARGB32_Premultiplied;
-    const QImage pixels = direct ? base : base.convertToFormat(QImage::Format_RGB32);
-    const bool byteMask = covered.format() == QImage::Format_Grayscale8 || covered.format() == QImage::Format_Alpha8;
-    const QImage mask = byteMask || covered.isNull() ? covered : covered.convertToFormat(QImage::Format_Grayscale8);
-    Sampler sampler(pixels, sampleBounds, mask, box);
-    const int cell = std::max(1, item.style.cell);
-    if (item.style.redact == RedactMode::Blur)
-        blur(patch, sampler, box, cell, item.seed);
-    else
-        mosaic(patch, sampler, box, cell, item.seed);
-    return patch;
+    if (!brush)
+        return patch;
+    // Only the stroke's pixels are drawn; the rest of its box is clear.
+    QImage out(box.size(), QImage::Format_ARGB32_Premultiplied);
+    out.setOffset(box.topLeft());
+    for (int y = 0; y < box.height(); ++y) {
+        const QRgb* from = reinterpret_cast<const QRgb*>(patch.constScanLine(y));
+        const uchar* in = stroke.constScanLine(y);
+        QRgb* to = reinterpret_cast<QRgb*>(out.scanLine(y));
+        for (int x = 0; x < box.width(); ++x)
+            to[x] = in[x] ? (from[x] | 0xff000000u) : 0u;
+    }
+    return out;
 }
 
 }

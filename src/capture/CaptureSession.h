@@ -182,6 +182,7 @@ public:
     void setFlyout(const QRect& rect);
     void end();
     bool ocrAvailable() const { return m_ocrAvailable; }
+    void setSmartHooks(SmartHooks hooks) { m_annot.setSmartHooks(std::move(hooks)); }
     void setOcrAvailable(bool on);
     QStringList hiddenButtons() const { return m_hiddenButtons; }
     void setHiddenButtons(const QStringList& ids);

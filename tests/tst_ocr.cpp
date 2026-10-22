@@ -1,12 +1,17 @@
 // The words in pictures (PaddleOcr): the models and onnxruntime.dll the
 // build put next to this test, on text drawn as a screenshot shows it.
 
+#include "Geometry.h"
 #include "PaddleOcr.h"
+#include "SmartRedact.h"
 
 #include <QCoreApplication>
 #include <QFont>
+#include <QFontMetricsF>
 #include <QPainter>
 #include <QTest>
+
+#include <cmath>
 
 using namespace Qt::StringLiterals;
 
@@ -70,6 +75,130 @@ private slots:
         const QString words = read(drawn(lines, 14, Qt::black, Qt::white));
         for (int i : {0, 59, 60, 61, 119})
             QVERIFY2(words.count(u"第%1行"_s.arg(i)) == 1, qPrintable(u"line %1"_s.arg(i)));
+    }
+
+    // ---- smart redaction: where the characters are (docs/design-capture-roadmap.md, 2.3, item 2) ----
+
+    // The columns with any ink in `image`: first and last.
+    static QPair<int, int> inkColumns(const QImage& image, QColor paper)
+    {
+        int first = -1, last = -1;
+        for (int x = 0; x < image.width(); ++x) {
+            bool ink = false;
+            for (int y = 0; y < image.height() && !ink; ++y)
+                ink = QColor(image.pixel(x, y)) != paper;
+            if (ink) {
+                if (first < 0)
+                    first = x;
+                last = x;
+            }
+        }
+        return {first, last};
+    }
+
+    static QImage drawnAt(const QString& text, const QString& family, int logicalPx, double dpr, QPoint origin, QSize size)
+    {
+        QFont font(family);
+        font.setPixelSize(int(std::lround(logicalPx * dpr)));
+        QImage image(size, QImage::Format_RGB32);
+        image.fill(Qt::white);
+        QPainter painter(&image);
+        painter.setFont(font);
+        painter.setPen(Qt::black);
+        painter.drawText(origin, text);
+        return image;
+    }
+
+    void boxesFollowTheDigits_data()
+    {
+        QTest::addColumn<QString>("family");
+        QTest::addColumn<int>("px");
+        QTest::addColumn<double>("dpr");
+        for (const QString family : {u"Microsoft YaHei"_s, u"Consolas"_s}) {
+            for (int px : {12, 16, 20, 24}) {
+                for (double dpr : {1.0, 1.5})
+                    QTest::addRow("%s %d px %d%%", qPrintable(family), px, int(dpr * 100)) << family << px << dpr;
+            }
+        }
+    }
+
+    // "电话 13812345678 转 8": the box of the number covers its digits within
+    // 2 px at each end and does not reach 电话.
+    void boxesFollowTheDigits()
+    {
+        QFETCH(QString, family);
+        QFETCH(int, px);
+        QFETCH(double, dpr);
+        const QString text = u"电话 13812345678 转 8"_s;
+        const int pad = int(std::lround(px * dpr));
+        const QPoint origin(pad * 2, pad * 2);
+        const QSize size(pad * 2 * 2 + pad * 14, pad * 4);
+        const QImage image = drawnAt(text, family, px, dpr, origin, size);
+        // The truth: the ink of the digits drawn alone at the same place,
+        // and of the two characters before them.
+        QFont font(family);
+        font.setPixelSize(int(std::lround(px * dpr)));
+        const QFontMetricsF fm(font);
+        const QString before = u"电话 "_s;
+        const QPoint digitsAt(origin.x() + int(std::lround(fm.horizontalAdvance(before))), origin.y());
+        const QPair<int, int> digits = inkColumns(drawnAt(u"13812345678"_s, family, px, dpr, digitsAt, size), Qt::white);
+        const QPair<int, int> word = inkColumns(drawnAt(u"电话"_s, family, px, dpr, origin, size), Qt::white);
+        QVERIFY(digits.first > word.second);
+
+        // As CaptureOcr reads: larger first below 150 %, positions divided back.
+        const double scale = ws::capture::ocrUpscale(image.size(), dpr);
+        QImage look = image;
+        if (scale > 1.0)
+            look = image.scaled(int(std::lround(image.width() * scale)), int(std::lround(image.height() * scale)), Qt::IgnoreAspectRatio,
+                Qt::SmoothTransformation);
+        QString error;
+        const std::unique_ptr<ws::PaddleOcr> ocr = ws::PaddleOcr::load(QCoreApplication::applicationDirPath(), 2, &error);
+        QVERIFY2(ocr, qPrintable(error));
+        QList<ws::OcrPiece> pieces;
+        QVERIFY2(ocr->readPieces(look, &pieces, &error), qPrintable(error));
+        // The line with the number (the reader may cut "转 8" off as a line of its own).
+        const ws::OcrPiece* piece = nullptr;
+        for (const ws::OcrPiece& p : std::as_const(pieces)) {
+            if (p.text.contains(u"13812345678"_s))
+                piece = &p;
+        }
+        QVERIFY(piece);
+        ws::capture::RedactLine line;
+        line.text = piece->text;
+        for (const QPointF& p : piece->quad)
+            line.quad.append(p / scale);
+        line.chars = piece->chars;
+        QCOMPARE(line.chars.size(), line.text.size());
+        const int from = int(line.text.indexOf(u"13812345678"_s));
+        const QImage gray = image.convertToFormat(QImage::Format_Grayscale8);
+        const QRect rough = ws::capture::matchBox(line, from, from + 11);
+        const QRect box = ws::capture::matchBox(line, from, from + 11, gray);
+        QString runs; // the ink round the number's right end, for a failure to be understood
+        {
+            bool inRun = false;
+            for (int x = digits.second - 10; x < std::min(image.width(), digits.second + 4 * px); ++x) {
+                bool ink = false;
+                for (int y = 0; y < gray.height() && !ink; ++y)
+                    ink = qGray(gray.pixel(x, y)) < 128;
+                if (ink != inRun) {
+                    runs += (ink ? u" ["_s : u"-"_s) + QString::number(ink ? x : x - 1) + (ink ? u""_s : u"]"_s);
+                    inRun = ink;
+                }
+            }
+        }
+        const QString report = u"box %1..%2 (reader alone %6..%7), digits %3..%4, word ends %5, ink%8, chars %9 after the number %10, quad %11..%12"_s
+                                   .arg(box.left()).arg(box.right()).arg(digits.first).arg(digits.second).arg(word.second)
+                                   .arg(rough.left()).arg(rough.right()).arg(runs)
+                                   .arg(line.chars.size()).arg(line.text.mid(from + 11))
+                                   .arg(line.quad[0].x()).arg(line.quad[1].x());
+        QVERIFY2(std::abs(box.left() - digits.first) <= 2, qPrintable(report));
+        QVERIFY2(std::abs(box.right() - digits.second) <= 2, qPrintable(report));
+        QVERIFY2(box.left() > word.second, qPrintable(report));
+        // And findSensitive finds that one number and nothing else.
+        const QList<ws::capture::RedactHit> hits = ws::capture::findSensitive({line}, ws::capture::RedactRules(), {}, gray);
+        QCOMPARE(hits.size(), 1);
+        QVERIFY2(hits[0].box.left() <= digits.first && hits[0].box.right() >= digits.second, qPrintable(report));
+        QVERIFY2(hits[0].box.left() > word.second, qPrintable(report));
     }
 
     void nothing() { QCOMPARE(read(drawn({}, 14, Qt::black, Qt::white)), QString()); }

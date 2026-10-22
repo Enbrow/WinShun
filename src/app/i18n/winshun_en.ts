@@ -943,6 +943,13 @@
     </message>
 </context>
 <context>
+    <name>AnnotateSmartHint</name>
+    <message>
+        <source>发现 %1 处 · 点此打码</source>
+        <translation>%1 found · click to redact</translation>
+    </message>
+</context>
+<context>
     <name>AnnotateStylePanel</name>
     <message>
         <source>马赛克</source>
@@ -1047,6 +1054,50 @@
     <message>
         <source>序号写成 ① ② ③（圈里的数字）</source>
         <translation>Numbers as ① ② ③ (digits in a ring)</translation>
+    </message>
+    <message>
+        <source>抹平</source>
+        <translation>Smooth</translation>
+    </message>
+    <message>
+        <source>用四周的底色盖住，像擦掉了一样</source>
+        <translation>Covered with the ground colour around it, as if rubbed out</translation>
+    </message>
+    <message>
+        <source>框</source>
+        <translation>Box</translation>
+    </message>
+    <message>
+        <source>拖出一个框来打码</source>
+        <translation>Drag out a box to redact</translation>
+    </message>
+    <message>
+        <source>涂抹</source>
+        <translation>Brush</translation>
+    </message>
+    <message>
+        <source>沿着鼠标走过的地方打码</source>
+        <translation>Redact where the mouse goes</translation>
+    </message>
+    <message>
+        <source>笔宽 %1</source>
+        <translation>Brush width %1</translation>
+    </message>
+    <message>
+        <source>识别中…</source>
+        <translation>Reading…</translation>
+    </message>
+    <message>
+        <source>智能打码 %1</source>
+        <translation>Smart redact %1</translation>
+    </message>
+    <message>
+        <source>智能打码</source>
+        <translation>Smart redact</translation>
+    </message>
+    <message>
+        <source>找出图里的手机号、证件号、银行卡、邮箱、密钥和本机用户名，一次全部打码</source>
+        <translation>Finds the phone numbers, ID numbers, bank cards, e-mail addresses, keys and this computer's user name in the picture and redacts them all at once</translation>
     </message>
 </context>
 <context>
@@ -1243,6 +1294,10 @@
         <source>写完文字；有改动时放弃全部（Ctrl+Z 恢复）；没有改动时关闭</source>
         <translation>Finish the text; with changes, give them all up (Ctrl+Z brings them back); with none, close</translation>
     </message>
+    <message>
+        <source>智能打码：自动找出手机号、证件号、卡号、邮箱、密钥，一次全部打码</source>
+        <translation>Smart redact: finds phone numbers, ID and card numbers, e-mail addresses and keys, and redacts them all at once</translation>
+    </message>
 </context>
 <context>
     <name>Annotation</name>
@@ -1345,6 +1400,10 @@
     <message>
         <source>改序号格式</source>
         <translation>Change number format</translation>
+    </message>
+    <message>
+        <source>智能打码</source>
+        <translation>Smart redaction</translation>
     </message>
 </context>
 <context>
@@ -1508,6 +1567,42 @@
     <message>
         <source>点一下显示或隐藏，亮着的就是显示的。隐藏的按钮，快捷键照样能用：撤销 Ctrl+Z、重做 Ctrl+Y、复制 Enter、保存 Ctrl+S、贴图 F3、取消 Esc；识别文字没有快捷键，只能点工具条上的按钮，或设给上面的鼠标键。标注工具一直显示</source>
         <translation>Click to show or hide a button; a lit one is shown. A hidden button’s key still works: Undo Ctrl+Z, Redo Ctrl+Y, Copy Enter, Save Ctrl+S, Pin F3, Cancel Esc. Read text has no key: use its toolbar button, or give it to a mouse button above. The annotation tools always show</translation>
+    </message>
+    <message>
+        <source>智能打码</source>
+        <translation>Smart redaction</translation>
+    </message>
+    <message>
+        <source>在打码工具里点“智能打码”（或按 Shift+B），自动找出图里的手机号、身份证号、银行卡号、邮箱、密钥和密码、本机用户名，一次全部盖住，Ctrl+Z 一次撤销。识别在本机完成，图和文字都不会发出去；自动找的可能有漏，发出去前再看一眼</source>
+        <translation>In the redact tool click "Smart redact" (or press Shift+B) to find the phone numbers, ID numbers, bank card numbers, e-mail addresses, keys, passwords and this computer's user name in the picture and cover them all at once; Ctrl+Z undoes it in one go. Reading happens on this computer: neither the picture nor its text is sent anywhere. What is found automatically can miss some, so take a look before you send it</translation>
+    </message>
+    <message>
+        <source>框选后自动识别</source>
+        <translation>Look for it as soon as a selection is made</translation>
+    </message>
+    <message>
+        <source>选好区域停一会儿，就在后台找要打码的内容，找到了在工具条边上提示“发现 N 处”。关掉后，点“智能打码”时才识别</source>
+        <translation>Once the selection has held still for a moment, the picture is searched in the background and the toolbar says "N found". Turned off, it is read only when you click "Smart redact"</translation>
+    </message>
+    <message>
+        <source>也打码 IP 和 MAC 地址</source>
+        <translation>Also redact IP and MAC addresses</translation>
+    </message>
+    <message>
+        <source>把所有文字都打码</source>
+        <translation>Redact all text</translation>
+    </message>
+    <message>
+        <source>点“智能打码”就盖住图里每一行字</source>
+        <translation>"Smart redact" then covers every line of text in the picture</translation>
+    </message>
+    <message>
+        <source>我自己的词</source>
+        <translation>My own words</translation>
+    </message>
+    <message>
+        <source>图里出现这些词就打码，用逗号隔开，比如项目代号、客户名</source>
+        <translation>These words are redacted wherever they appear in the picture; separate them with commas, such as project code names or client names</translation>
     </message>
 </context>
 <context>
@@ -9588,6 +9683,22 @@
     <message>
         <source>复制</source>
         <translation>Copy</translation>
+    </message>
+    <message>
+        <source>没找到要打码的内容</source>
+        <translation>Nothing to redact was found</translation>
+    </message>
+    <message>
+        <source>正在识别文字…</source>
+        <translation>Reading the text…</translation>
+    </message>
+    <message>
+        <source>已打码 %1 处 · Ctrl+Z 撤销</source>
+        <translation>Redacted %1 places · Ctrl+Z to undo</translation>
+    </message>
+    <message>
+        <source> · 自动找的可能有漏，发出去前再看一眼</source>
+        <translation> · What is found automatically can miss some: take a look before you send it</translation>
     </message>
 </context>
 <context>

@@ -397,6 +397,110 @@ Rectangle {
                 }
             }
 
+            Column { // smart redaction (4.1)
+                width: parent.width
+                spacing: 8
+
+                Text {
+                    width: parent.width
+                    text: qsTr("智能打码")
+                    color: Theme.text
+                    font.pixelSize: Theme.fontBody
+                }
+                Text {
+                    width: parent.width
+                    text: qsTr("在打码工具里点“智能打码”（或按 Shift+B），自动找出图里的手机号、身份证号、银行卡号、邮箱、密钥和密码、本机用户名，一次全部盖住，Ctrl+Z 一次撤销。识别在本机完成，图和文字都不会发出去；自动找的可能有漏，发出去前再看一眼")
+                    color: Theme.subtext
+                    font.pixelSize: Theme.fontCaption
+                    wrapMode: Text.Wrap
+                }
+                Repeater {
+                    model: [
+                        { key: "captureSmartPrescan", title: qsTr("框选后自动识别"),
+                          words: qsTr("选好区域停一会儿，就在后台找要打码的内容，找到了在工具条边上提示“发现 N 处”。关掉后，点“智能打码”时才识别") },
+                        { key: "captureSmartIpMac", title: qsTr("也打码 IP 和 MAC 地址"), words: "" },
+                        { key: "captureSmartAllText", title: qsTr("把所有文字都打码"), words: qsTr("点“智能打码”就盖住图里每一行字") }
+                    ]
+                    delegate: Item {
+                        id: smartOption
+
+                        required property var modelData
+
+                        width: parent.width
+                        height: Math.max(smartTexts.implicitHeight, smartToggle.implicitHeight)
+
+                        Column {
+                            id: smartTexts
+                            anchors.left: parent.left
+                            anchors.right: smartToggle.left
+                            anchors.rightMargin: 12
+                            spacing: 4
+
+                            Text {
+                                width: parent.width
+                                text: smartOption.modelData.title
+                                color: Theme.text
+                                font.pixelSize: Theme.fontBody
+                            }
+                            Text {
+                                visible: smartOption.modelData.words.length > 0
+                                width: parent.width
+                                text: smartOption.modelData.words
+                                color: Theme.subtext
+                                font.pixelSize: Theme.fontCaption
+                                wrapMode: Text.Wrap
+                            }
+                        }
+                        ToggleSwitch {
+                            id: smartToggle
+                            anchors.right: parent.right
+                            checked: card.editor[smartOption.modelData.key]
+                            onToggled: (on) => card.editor[smartOption.modelData.key] = on
+                        }
+                    }
+                }
+                Item { // the user's own words
+                    width: parent.width
+                    height: Math.max(wordsTexts.implicitHeight, wordsBox.implicitHeight)
+
+                    Column {
+                        id: wordsTexts
+                        anchors.left: parent.left
+                        anchors.right: wordsBox.left
+                        anchors.rightMargin: 12
+                        spacing: 4
+
+                        Text {
+                            width: parent.width
+                            text: qsTr("我自己的词")
+                            color: Theme.text
+                            font.pixelSize: Theme.fontBody
+                        }
+                        Text {
+                            width: parent.width
+                            text: qsTr("图里出现这些词就打码，用逗号隔开，比如项目代号、客户名")
+                            color: Theme.subtext
+                            font.pixelSize: Theme.fontCaption
+                            wrapMode: Text.Wrap
+                        }
+                    }
+                    InputBox {
+                        id: wordsBox
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 220
+                        text: card.editor.captureSmartWords
+                        maximumLength: 400
+                        function commit() {
+                            card.editor.captureSmartWords = text
+                            text = Qt.binding(() => card.editor.captureSmartWords)
+                        }
+                        onAccepted: commit()
+                        onEditingFinished: commit()
+                    }
+                }
+            }
+
             Column { // which action buttons the toolbar shows (#57)
                 width: parent.width
                 spacing: 8

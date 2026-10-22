@@ -86,6 +86,7 @@ CaptureEditor::~CaptureEditor() = default;
 void CaptureEditor::setHooks(Hooks hooks)
 {
     m_hooks = std::move(hooks);
+    m_model.setSmartHooks(m_hooks.smart);
 }
 
 void CaptureEditor::attach(QQuickWindow* window)

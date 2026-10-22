@@ -442,7 +442,10 @@ struct PaddleOcr::Impl {
     Ort::MemoryInfo memory = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
 
     std::vector<Quad> detect(const QImage& strip);
-    void recognize(const std::vector<QImage>& lines, std::vector<std::pair<QString, float>>* read);
+    // `places`, when given, gets for each line the (index in the text, middle
+    // along the line as a fraction of its width) of every character.
+    void recognize(const std::vector<QImage>& lines, std::vector<std::pair<QString, float>>* read,
+        std::vector<QList<QPair<int, float>>>* places = nullptr);
 };
 
 PaddleOcr::PaddleOcr()
@@ -527,9 +530,12 @@ std::vector<Quad> PaddleOcr::Impl::detect(const QImage& strip)
     return boxesFrom(out[0].GetTensorData<float>(), w, h, strip.width(), strip.height());
 }
 
-void PaddleOcr::Impl::recognize(const std::vector<QImage>& lines, std::vector<std::pair<QString, float>>* read)
+void PaddleOcr::Impl::recognize(const std::vector<QImage>& lines, std::vector<std::pair<QString, float>>* read,
+    std::vector<QList<QPair<int, float>>>* places)
 {
     read->assign(lines.size(), {});
+    if (places)
+        places->assign(lines.size(), {});
     std::vector<std::size_t> order(lines.size());
     std::iota(order.begin(), order.end(), 0);
     const auto ratio = [&](std::size_t i) { return static_cast<double>(lines[i].width()) / lines[i].height(); };
@@ -542,10 +548,12 @@ void PaddleOcr::Impl::recognize(const std::vector<QImage>& lines, std::vector<st
         const int width = static_cast<int>(kLineHeight * widest);
         // Each line 48 px high, left-aligned; the rest 0 (mid grey).
         std::vector<float> planes(count * 3 * kLineHeight * static_cast<std::size_t>(width), 0.f);
+        std::vector<int> used(count); // each line's width in the batch's, the rest being padding
         for (std::size_t i = 0; i < count; ++i) {
             const QImage& line = lines[order[first + i]];
             const int w = std::min(width, static_cast<int>(std::ceil(kLineHeight * ratio(order[first + i]))));
-            toPlanes(scaledRgb(line, std::max(1, w), kLineHeight), planes.data() + i * 3 * kLineHeight * width, width);
+            used[i] = std::max(1, w);
+            toPlanes(scaledRgb(line, used[i], kLineHeight), planes.data() + i * 3 * kLineHeight * width, width);
         }
         const std::array<int64_t, 4> shape {static_cast<int64_t>(count), 3, kLineHeight, width};
         const Ort::Value in = Ort::Value::CreateTensor<float>(memory, planes.data(), planes.size(), shape.data(), shape.size());
@@ -566,17 +574,39 @@ void PaddleOcr::Impl::recognize(const std::vector<QImage>& lines, std::vector<st
             double sum = 0;
             int kept = 0;
             std::size_t before = 0;
+            // A character is a run of steps with the same class; its middle
+            // step is where it stands. The padded width is spread over all
+            // the steps, the line itself being at the left.
+            QList<QPair<int, float>> where;
+            std::size_t runStart = 0;
+            const auto close = [&](std::size_t end) {
+                if (!places || where.isEmpty() || where.last().second >= 0)
+                    return;
+                const double middle = (runStart + end) / 2.0 + 0.5;
+                where.last().second = static_cast<float>(
+                    std::clamp(middle * (static_cast<double>(width) / static_cast<double>(steps)) / used[i], 0.0, 1.0));
+            };
             for (std::size_t s = 0; s < steps; ++s) {
                 const float* step = scores + (i * steps + s) * classes;
                 const std::size_t best = static_cast<std::size_t>(std::max_element(step, step + classes) - step);
-                if (best != 0 && best != before) {
-                    text += characters[static_cast<qsizetype>(best)];
-                    sum += step[best];
-                    ++kept;
+                if (best != before) {
+                    if (before != 0)
+                        close(s - 1);
+                    if (best != 0) {
+                        where.append({static_cast<int>(text.size()), -1.f}); // the place is set when the run ends
+                        runStart = s;
+                        text += characters[static_cast<qsizetype>(best)];
+                        sum += step[best];
+                        ++kept;
+                    }
                 }
                 before = best;
             }
+            if (before != 0)
+                close(steps - 1);
             (*read)[order[first + i]] = {text, kept ? static_cast<float>(sum / kept) : 0.f};
+            if (places)
+                (*places)[order[first + i]] = where;
         }
     }
 }
@@ -584,6 +614,26 @@ void PaddleOcr::Impl::recognize(const std::vector<QImage>& lines, std::vector<st
 bool PaddleOcr::read(const QImage& image, QStringList* lines, QString* error)
 {
     lines->clear();
+    QList<OcrPiece> found;
+    if (!find(image, &found, false, error))
+        return false;
+    std::vector<Piece> pieces;
+    for (const OcrPiece& p : std::as_const(found)) {
+        const QRectF box = p.quad.boundingRect();
+        pieces.push_back({box.left(), box.top(), box.right(), box.bottom(), p.text});
+    }
+    *lines = linesOf(std::move(pieces));
+    return true;
+}
+
+bool PaddleOcr::readPieces(const QImage& image, QList<OcrPiece>* pieces, QString* error)
+{
+    pieces->clear();
+    return find(image, pieces, true, error);
+}
+
+bool PaddleOcr::find(const QImage& image, QList<OcrPiece>* found, bool chars, QString* error)
+{
     if (image.isNull())
         return true;
     // See-through parts white: black text there would be read as black on black.
@@ -642,28 +692,45 @@ bool PaddleOcr::read(const QImage& image, QStringList* lines, QString* error)
             top += strip - kOverlap;
         }
         std::vector<QImage> cuts;
-        std::vector<Piece> pieces;
+        std::vector<Quad> quads;
+        std::vector<bool> upright; // false: standing up, turned to be read (no places along it)
         for (const Quad& quad : boxes) {
             QImage line = cut(picture, quad);
             if (line.isNull())
                 continue;
+            const int w = static_cast<int>(std::max(distance(quad[0], quad[1]), distance(quad[2], quad[3])));
+            const int h = static_cast<int>(std::max(distance(quad[0], quad[3]), distance(quad[1], quad[2])));
+            upright.push_back(h < 1.5 * w);
             cuts.push_back(std::move(line));
-            double l = quad[0].x(), t = quad[0].y(), r = l, b = t;
-            for (const QPointF& p : quad)
-                l = std::min(l, p.x()), r = std::max(r, p.x()), t = std::min(t, p.y()), b = std::max(b, p.y());
-            pieces.push_back({l, t, r, b, {}});
+            quads.push_back(quad);
         }
         std::vector<std::pair<QString, float>> read;
-        d->recognize(cuts, &read);
-        std::vector<Piece> found;
-        for (std::size_t i = 0; i < pieces.size(); ++i) {
-            const QString text = read[i].first.trimmed();
-            if (!text.isEmpty() && read[i].second >= kTextThreshold) {
-                found.push_back(pieces[i]);
-                found.back().text = text;
+        std::vector<QList<QPair<int, float>>> places;
+        d->recognize(cuts, &read, chars ? &places : nullptr);
+        // Back to the picture that came in, if it was made smaller.
+        const double back = static_cast<double>(image.width()) / picture.width();
+        for (std::size_t i = 0; i < quads.size(); ++i) {
+            const QString raw = read[i].first;
+            const QString text = raw.trimmed();
+            if (text.isEmpty() || read[i].second < kTextThreshold)
+                continue;
+            OcrPiece piece;
+            for (const QPointF& p : quads[i])
+                piece.quad.append(p * back);
+            piece.text = text;
+            piece.score = read[i].second;
+            if (chars && upright[i]) {
+                int lead = 0; // the blanks trimmed off the front
+                while (lead < raw.size() && raw[lead].isSpace())
+                    ++lead;
+                for (const QPair<int, float>& c : std::as_const(places[i])) {
+                    const int at = c.first - lead;
+                    if (at >= 0 && at < text.size())
+                        piece.chars.append({at, c.second});
+                }
             }
+            found->append(std::move(piece));
         }
-        *lines = linesOf(std::move(found));
     } catch (const std::exception& e) {
         if (error)
             *error = QString::fromUtf8(e.what());

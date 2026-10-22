@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <numbers>
 #include <optional>
 
@@ -238,6 +239,44 @@ qreal degrees(const Item& line)
 }
 
 // A capture: a noise picture, its whole area selected unless told.
+// A reader that only records what it was asked, and answers when told to.
+struct FakeReader {
+    int scans = 0;
+    int cancels = 0;
+    QImage last;
+    std::function<void(QList<RedactLine>)> answer;
+    bool prescan = true;
+    SmartHooks hooks()
+    {
+        SmartHooks h;
+        h.scan = [this](const QImage& image, double, std::function<void(QList<RedactLine>)> done) {
+            ++scans;
+            last = image;
+            answer = std::move(done);
+        };
+        h.cancel = [this] { ++cancels; };
+        h.rules = [] { return RedactRules(); };
+        h.prescan = [this] { return prescan; };
+        return h;
+    }
+};
+
+// Three phone numbers on three lines, in the scanned picture's own pixels.
+QList<RedactLine> phoneLines()
+{
+    QList<RedactLine> lines;
+    for (int i = 0; i < 3; ++i) {
+        RedactLine line;
+        line.text = u"13812345678"_s;
+        const int top = 20 + 40 * i;
+        line.quad = QPolygonF({QPointF(10, top), QPointF(120, top), QPointF(120, top + 20), QPointF(10, top + 20)});
+        for (int k = 0; k < 11; ++k)
+            line.chars.append({k, float((k + 0.5) / 11)});
+        lines.append(line);
+    }
+    return lines;
+}
+
 struct Rig {
     explicit Rig(QSize size = QSize(400, 300), qreal dpr = 1.0, QRect selection = {})
         : base(noiseImage(size, 7))
@@ -363,7 +402,10 @@ private slots:
             QVERIFY(!m.gestureActive());
             const Item* item = lastOf(m, kind);
             QVERIFY(item);
-            QCOMPARE(item->style, StyleMemory().forTool(kind, 1.0));
+            Style expected = StyleMemory().forTool(kind, 1.0);
+            if (kind == Kind::Redact)
+                expected.width = Style {}.width; // the tool's width is the brush's; a box has Style's
+            QCOMPARE(item->style, expected);
             QCOMPARE(selectedId(m), item->id); // what was drawn is selected
             QCOMPARE(m.tool(), int(i)); // and the tool stays on
             const QVariantMap selection = m.selection().value(0).toMap();
@@ -495,6 +537,147 @@ private slots:
         QVERIFY(!m.undoLabel().isEmpty());
     }
 
+    // ---- smart redaction (4.1): the pre-scan and the one-click redaction ----
+
+    void smartScansOnceTheSelectionHoldsStill()
+    {
+        FakeReader reader;
+        AnnotationModel m;
+        m.setSmartHooks(reader.hooks());
+        m.begin(noiseImage(QSize(400, 300), 3), 1.0, StyleMemory());
+        m.setSelection(QRect(10, 10, 100, 100));
+        m.setSelection(QRect(10, 10, 200, 150)); // still moving
+        QCOMPARE(reader.scans, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(reader.scans, 1, 1500);
+        QCOMPARE(reader.last.size(), QSize(200, 150)); // the settled selection, nothing else
+        QCOMPARE(m.smartFound(), -1); // nothing yet
+        // The selection moves while it is read: that answer is for nothing.
+        m.setSelection(QRect(20, 20, 160, 120));
+        QVERIFY(reader.cancels >= 1);
+        reader.answer(phoneLines());
+        QCOMPARE(m.smartFound(), -1);
+        QTRY_COMPARE_WITH_TIMEOUT(reader.scans, 2, 1500);
+        QCOMPARE(reader.last.size(), QSize(160, 120));
+        reader.answer(phoneLines());
+        QCOMPARE(m.smartFound(), 3);
+    }
+
+    void smartRedactIsOneUndoStep()
+    {
+        FakeReader reader;
+        AnnotationModel m;
+        m.setSmartHooks(reader.hooks());
+        m.begin(noiseImage(QSize(400, 300), 3), 1.0, StyleMemory());
+        const QRect selection(30, 40, 200, 160);
+        m.setSelection(selection);
+        QTRY_COMPARE_WITH_TIMEOUT(reader.scans, 1, 1500);
+        reader.answer(phoneLines());
+        QCOMPARE(m.smartFound(), 3);
+        QSignalSpy notices(&m, &AnnotationModel::notice);
+        m.smartRedact();
+        QCOMPARE(m.itemCount(), 3);
+        QCOMPARE(notices.count(), 1);
+        QVERIFY2(notices.first().first().toString().contains(u"3"_s), qPrintable(notices.first().first().toString()));
+        // In the tool's style, inside the selection, over the numbers (moved by the selection's corner).
+        for (const Item& item : m.document().items) {
+            QCOMPARE(item.kind, Kind::Redact);
+            QCOMPARE(item.style.shape, RedactShape::Box);
+            QVERIFY(selection.contains(itemBox(item)));
+            QVERIFY(item.style.cell >= int(0.3 * itemBox(item).height()));
+        }
+        const QRect first = itemBox(m.document().items[0]);
+        QVERIFY(first.left() <= selection.left() + 10 && first.right() >= selection.left() + 120 - 4);
+        QVERIFY(first.top() <= selection.top() + 20 && first.bottom() >= selection.top() + 20 + 19);
+        // What was hidden is not offered again, and a second click finds nothing new.
+        QCOMPARE(m.smartFound(), -1);
+        notices.clear();
+        m.smartRedact();
+        QCOMPARE(m.itemCount(), 3);
+        QCOMPARE(notices.count(), 1);
+        // One Ctrl+Z takes all three, and the offer is back; Ctrl+Y puts them back.
+        m.undo();
+        QCOMPARE(m.itemCount(), 0);
+        QCOMPARE(m.smartFound(), 3);
+        m.redo();
+        QCOMPARE(m.itemCount(), 3);
+        QCOMPARE(m.smartFound(), -1);
+        QVERIFY(!m.canRedo());
+        m.undo();
+        QVERIFY(!m.canUndo());
+    }
+
+    void smartRedactReadsFirstWhenTheScanIsOff()
+    {
+        FakeReader reader;
+        reader.prescan = false;
+        AnnotationModel m;
+        m.setSmartHooks(reader.hooks());
+        m.begin(noiseImage(QSize(400, 300), 3), 1.0, StyleMemory());
+        m.setSelection(QRect(30, 40, 200, 160));
+        QTest::qWait(500);
+        QCOMPARE(reader.scans, 0); // nothing on its own
+        QVERIFY(m.key(Qt::Key_B, Qt::ShiftModifier)); // Shift+B, not the tool
+        QCOMPARE(m.tool(), -1);
+        QCOMPARE(reader.scans, 1);
+        QVERIFY(m.smartBusy());
+        QCOMPARE(m.itemCount(), 0);
+        reader.answer(phoneLines());
+        QCOMPARE(m.itemCount(), 3); // hidden as soon as it is read
+        QVERIFY(!m.smartBusy());
+        m.undo();
+        QCOMPARE(m.itemCount(), 0);
+    }
+
+    void smartNothingFound()
+    {
+        FakeReader reader;
+        AnnotationModel m;
+        m.setSmartHooks(reader.hooks());
+        m.begin(noiseImage(QSize(400, 300), 3), 1.0, StyleMemory());
+        m.setSelection(QRect(30, 40, 200, 160));
+        QTRY_COMPARE_WITH_TIMEOUT(reader.scans, 1, 1500);
+        reader.answer({});
+        QCOMPARE(m.smartFound(), -1);
+        QSignalSpy notices(&m, &AnnotationModel::notice);
+        m.smartRedact();
+        QCOMPARE(m.itemCount(), 0);
+        QCOMPARE(notices.count(), 1);
+        QVERIFY(!m.canUndo());
+    }
+
+    // The tool's remembered style is used (not a brush), and the editing window scans the crop.
+    void smartRedactUsesTheToolsStyleAndTheEditorsCrop()
+    {
+        FakeReader reader;
+        AnnotationModel m;
+        m.setSmartHooks(reader.hooks());
+        Project project;
+        project.base = noiseImage(QSize(400, 300), 9);
+        project.doc.canvas = project.base.size();
+        project.doc.crop = QRect(50, 60, 220, 180);
+        project.doc.dpr = 1.0;
+        StyleMemory styles;
+        Style s = styles.forTool(Kind::Redact, 1.0);
+        s.redact = RedactMode::Solid;
+        s.shape = RedactShape::Brush;
+        s.color = 0xff112233u;
+        styles.remember(Kind::Redact, s, 1.0);
+        m.begin(project, 1.0, styles);
+        QTRY_COMPARE_WITH_TIMEOUT(reader.scans, 1, 1500);
+        QCOMPARE(reader.last.size(), QSize(220, 180));
+        reader.answer(phoneLines());
+        m.smartRedact();
+        QCOMPARE(m.itemCount(), 3);
+        const Item& item = m.document().items[0];
+        QCOMPARE(item.style.redact, RedactMode::Solid);
+        QCOMPARE(item.style.color, 0xff112233u);
+        QCOMPARE(item.style.shape, RedactShape::Box); // a brush has no place on a line
+        QVERIFY(QRect(50, 60, 220, 180).contains(itemBox(item)));
+        // Cropping again reads again.
+        m.undo();
+        QCOMPARE(m.itemCount(), 0);
+    }
+
     void toolKeysToggle()
     {
         Rig rig;
@@ -510,7 +693,14 @@ private slots:
             QCOMPARE(m.tool(), -1);
             QVERIFY(m.key(digit, Qt::NoModifier));
             QCOMPARE(m.tool(), int(i));
-            QVERIFY(m.key(letter, Qt::ShiftModifier)); // its letter closes what its digit opened
+            if (list[i].kind == Kind::Redact) {
+                // Shift+B is 智能打码, not the tool: the tool stays on.
+                QVERIFY(m.key(letter, Qt::ShiftModifier));
+                QCOMPARE(m.tool(), int(i));
+                QVERIFY(m.key(letter, Qt::NoModifier));
+            } else {
+                QVERIFY(m.key(letter, Qt::ShiftModifier)); // its letter closes what its digit opened
+            }
             QCOMPARE(m.tool(), -1);
             QVERIFY(!m.key(letter, Qt::ControlModifier));
             QVERIFY(!m.key(digit, Qt::ControlModifier)); // Ctrl + digit is PixPin's

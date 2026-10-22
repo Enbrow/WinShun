@@ -193,6 +193,9 @@ struct Settings {
     static QStringList captureToolbarButtonIds();
     // `text` (comma separated ids) cut to the known ones: each once, in the toolbar's order.
     static QString normalizedToolbarHidden(const QString& text);
+    // The user's words to hide, from one line or several, separated by commas,
+    // semicolons or line breaks (Chinese ones too); trimmed, none empty or twice.
+    static QStringList normalizedSmartWords(const QString& text);
     // The rule for a shortcut a person (settings window) or AI sets: Ctrl, Alt
     // or Win held with its key, or a function key (F1 to F24) alone or with
     // Shift. A bare letter, Enter, Space, PrintScreen or Shift+letter would
@@ -339,6 +342,14 @@ struct Settings {
     // What each annotation tool remembers (width, colour, ...), as JSON in
     // logical units (annot::StyleMemory); empty until a tool's style changes.
     QString captureAnnotateStyles;
+    // Smart redaction (docs/design-capture-roadmap.md, 4.1): look for what to
+    // hide as soon as a selection has held still (SmartPrescan), also hide IP
+    // and MAC addresses, hide every word, and the user's own words to hide
+    // (comma separated, whole words).
+    bool captureSmartPrescan = true;
+    bool captureSmartIpMac = false;
+    bool captureSmartAllText = false;
+    QString captureSmartWords;
 
     // [WebSearch]: keywords the user gives web pages ("gh" opens GitHub, "gh
     // WinShun" searches it; see WebShortcut). At first just one, "winshun".

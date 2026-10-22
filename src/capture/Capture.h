@@ -66,6 +66,9 @@ public:
         // 识别文字并复制 / 搜索 / 网页搜索 (the mouse buttons' choices): read, then go
         // on at once with `then` (OcrCopy, OcrSearch or OcrWeb) without the window.
         std::function<void(const QImage&, double dpr, const QRect& where, CaptureSession::Action then)> ocrThen;
+        // How the annotation reads the selection's text and what it hides
+        // (SmartRedact.h): 智能打码 and its pre-scan.
+        SmartHooks smart;
         // The pins (the app's: they outlive the capture's pictures, and a
         // file can be pinned with the capture off). Made when first asked for.
         std::function<PinManager*()> pins;

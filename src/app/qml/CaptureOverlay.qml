@@ -244,6 +244,14 @@ Window {
             opensDown: toolbar.side === "below"
         }
 
+        AnnotateSmartHint { // 智能打码's offer, in the style panel's place while no tool is on
+            annot: overlay.annotation
+            dpr: overlay.dpr
+            visible: !toolbar.panelShown && found > 0
+            x: Math.round(Math.max(4 - toolbar.x, Math.min(0, overlay.width - 4 - toolbar.x - width)) * overlay.dpr) / overlay.dpr
+            y: panel.y + Math.round((toolbar.panelHeight - height) / 2 * overlay.dpr) / overlay.dpr
+        }
+
         AnnotateStylePanel {
             id: panel
             visible: toolbar.panelShown

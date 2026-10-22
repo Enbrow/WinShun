@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QGlyphRun>
+#include <QImage>
 #include <QHash>
 #include <QList>
 #include <QPainterPath>
@@ -39,9 +40,9 @@ namespace ws::capture::annot {
 enum class Kind : quint8 { Rect, Ellipse, Arrow, Line, Pen, Marker, Text, Number, Redact };
 // Soft is the stroke's colour at 20 % opacity.
 enum class Fill : quint8 { None, Soft, Solid };
-// Smooth arrives in stage 5; until then it is drawn as Mosaic.
+// Smooth fills the area from the background around it, with no noise.
 enum class RedactMode : quint8 { Mosaic, Blur, Solid, Smooth };
-// Brush arrives in stage 5; until then it is drawn as the box around its points.
+// Brush: the pixels along a stroke (Style::width wide) instead of a box.
 enum class RedactShape : quint8 { Box, Brush };
 
 constexpr int kKindCount = 9;
@@ -103,6 +104,10 @@ struct Document {
 bool isBox(Kind kind);
 bool isLine(Kind kind);
 bool isStroke(Kind kind);
+// A Redact item drawn as a brush stroke.
+bool isBrush(const Item& item);
+// Pen, Marker and a brush redaction: items that keep a polyline of points.
+bool isStrokeItem(const Item& item);
 
 // The names in doc.json and in the remembered styles.
 QString kindName(Kind kind);
@@ -143,6 +148,12 @@ QRect itemBox(const Item& item);
 // The boxes of all redactions, bottom to top. Their union is what no
 // redaction reads from (3.10).
 QList<QRect> redactionBoxes(const Document& doc);
+// The pixels of a Brush redaction: Format_Grayscale8 of itemBox()'s size,
+// 255 where a pixel's centre is within half the width of the stroke. Not
+// antialiased: every pixel is covered or not. Null for any other item.
+QImage brushCoverage(const Item& item);
+// The redactions, bottom to top: what the union (3.10) is made of.
+QList<Item> redactionItems(const Document& doc);
 // The two points a box item keeps for `box`.
 QList<QPointF> boxPoints(const QRect& box);
 // The item moved by whole pixels: edges stay edges and centres centres.

@@ -70,6 +70,7 @@ namespace capture {
 class Capture;
 class CaptureEditor;
 class CaptureOcr;
+struct SmartHooks;
 class PinManager;
 class PinWindow;
 }
@@ -178,6 +179,12 @@ private:
     // the first time, beside `where` (physical), reading `image`.
     void showCaptureOcr(const QImage& image, double dpr, const QRect& where);
     void closeCaptureOcr(bool destroy = false); // `destroy`: the capture was turned off
+    // The OCR window's reader, made the first time it is wanted: the window's
+    // text and smart redaction's scans go through the same thread and model.
+    capture::CaptureOcr& captureOcr();
+    // How the capture and the editing window ask for smart redaction's scans,
+    // its rules and whether it scans by itself ([Capture] Smart...).
+    capture::SmartHooks smartHooks();
     // 识别文字并复制 / 搜索 / 网页搜索: read `image` on a reader of its own, no
     // window (the OCR window is up only when the models are missing, to say so),
     // then go on with the words. The reader goes when it has answered.

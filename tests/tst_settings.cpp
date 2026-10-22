@@ -224,6 +224,33 @@ private slots:
         typed.load();
         QCOMPARE(typed.captureToolbarHidden, u"undo,ocr"_s);
         QCOMPARE(odd.captureMouseRight, u"ocrweb"_s);
+
+        // Smart redaction's options: defaults, a round trip, and the words typed by hand with no quotes.
+        QVERIFY(typed.captureSmartPrescan && !typed.captureSmartIpMac && !typed.captureSmartAllText);
+        QVERIFY(typed.captureSmartWords.isEmpty());
+        typed.captureSmartPrescan = false;
+        typed.captureSmartWords = u"Atlas,客户甲"_s;
+        typed.save();
+        ws::Settings words;
+        words.load();
+        QVERIFY(!words.captureSmartPrescan);
+        QCOMPARE(words.captureSmartWords, u"Atlas,客户甲"_s);
+        {
+            QFile file(ws::Settings::filePath());
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            QByteArray text = file.readAll();
+            file.close();
+            const qsizetype at = text.indexOf("SmartWords=");
+            QVERIFY(at >= 0);
+            text.replace(at, text.indexOf('\n', at) - at, "SmartWords=Atlas, Beta;Atlas");
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            file.write(text);
+            file.close();
+        }
+        ws::Settings hand;
+        hand.load();
+        QCOMPARE(hand.captureSmartWords, u"Atlas,Beta"_s);
+        QCOMPARE(ws::Settings::normalizedSmartWords(u"a，b、c；d\n e ,a"_s), (QStringList {u"a"_s, u"b"_s, u"c"_s, u"d"_s, u"e"_s}));
     }
 
     void sortAndDoubleClick()

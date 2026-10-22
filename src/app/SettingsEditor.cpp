@@ -1039,6 +1039,41 @@ void SettingsEditor::setCaptureToolbarHidden(const QString& ids)
     commit();
 }
 
+void SettingsEditor::setCaptureSmartPrescan(bool on)
+{
+    if (m_settings.captureSmartPrescan == on)
+        return;
+    m_settings.captureSmartPrescan = on;
+    commit();
+}
+
+void SettingsEditor::setCaptureSmartIpMac(bool on)
+{
+    if (m_settings.captureSmartIpMac == on)
+        return;
+    m_settings.captureSmartIpMac = on;
+    commit();
+}
+
+void SettingsEditor::setCaptureSmartAllText(bool on)
+{
+    if (m_settings.captureSmartAllText == on)
+        return;
+    m_settings.captureSmartAllText = on;
+    commit();
+}
+
+// Words separated by commas (also the Chinese ones, semicolons, line breaks),
+// each trimmed, none empty, kept as one comma separated line.
+void SettingsEditor::setCaptureSmartWords(const QString& words)
+{
+    const QString normal = Settings::normalizedSmartWords(words).join(u',');
+    if (m_settings.captureSmartWords == normal)
+        return;
+    m_settings.captureSmartWords = normal;
+    commit();
+}
+
 void SettingsEditor::setCaptureNote(const QString& note)
 {
     if (m_captureNote == note)

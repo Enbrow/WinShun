@@ -91,6 +91,7 @@ Capture::Capture(QQmlEngine* engine, Callbacks callbacks, QObject* parent)
     , m_callbacks(std::move(callbacks))
 {
     m_session.setOcrAvailable(CaptureOcr::available());
+    m_session.setSmartHooks(m_callbacks.smart);
     m_draftTimer.setSingleShot(true);
     m_draftTimer.setInterval(kDraftMs);
     connect(&m_draftTimer, &QTimer::timeout, this, [this] { m_draft.reset(); });

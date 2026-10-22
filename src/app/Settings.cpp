@@ -704,6 +704,17 @@ QStringList Settings::captureToolbarButtonIds()
     return {u"undo"_s, u"redo"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"cancel"_s};
 }
 
+QStringList Settings::normalizedSmartWords(const QString& text)
+{
+    QStringList words;
+    for (const QString& part : text.split(QRegularExpression(u"[,;\\n\\r\uFF0C\u3001\uFF1B]"_s), Qt::SkipEmptyParts)) {
+        const QString word = part.trimmed().left(64);
+        if (!word.isEmpty() && !words.contains(word, Qt::CaseInsensitive))
+            words.append(word);
+    }
+    return words;
+}
+
 QString Settings::normalizedToolbarHidden(const QString& text)
 {
     QStringList asked;
@@ -1031,6 +1042,14 @@ void Settings::load()
             : (hiddenRaw.isValid() ? hiddenRaw.toString() : d.captureToolbarHidden));
     captureKeyword = readOrDefault(s, u"Capture/Keyword"_s, d.captureKeyword).trimmed();
     captureAnnotateStyles = readOrDefault(s, u"Capture/AnnotateStyles"_s, d.captureAnnotateStyles).trimmed();
+    captureSmartPrescan = readOrDefault(s, u"Capture/SmartPrescan"_s, d.captureSmartPrescan);
+    captureSmartIpMac = readOrDefault(s, u"Capture/SmartIpMac"_s, d.captureSmartIpMac);
+    captureSmartAllText = readOrDefault(s, u"Capture/SmartAllText"_s, d.captureSmartAllText);
+    // Unquoted and hand-written, "a,b" reads back as a list too.
+    const QVariant wordsRaw = s.value(u"Capture/SmartWords"_s);
+    captureSmartWords = normalizedSmartWords(wordsRaw.metaType().id() == QMetaType::QStringList
+            ? wordsRaw.toStringList().join(u',')
+            : (wordsRaw.isValid() ? wordsRaw.toString() : d.captureSmartWords)).join(u',');
 
     // Before the list: writing it (defaults new to the file) rewrites the whole group.
     webSuggestions = readOrDefault(s, u"WebSearch/Suggestions"_s, d.webSuggestions);
@@ -1166,6 +1185,10 @@ void Settings::save() const
     s.setValue(u"Capture/ToolbarHidden"_s, captureToolbarHidden);
     s.setValue(u"Capture/Keyword"_s, captureKeyword);
     s.setValue(u"Capture/AnnotateStyles"_s, captureAnnotateStyles);
+    s.setValue(u"Capture/SmartPrescan"_s, captureSmartPrescan);
+    s.setValue(u"Capture/SmartIpMac"_s, captureSmartIpMac);
+    s.setValue(u"Capture/SmartAllText"_s, captureSmartAllText);
+    s.setValue(u"Capture/SmartWords"_s, captureSmartWords);
     writeWebShortcuts(s, webShortcuts, webSuggestions);
     writeFileTypes(s, fileTypes);
     writeShares(s, shares);

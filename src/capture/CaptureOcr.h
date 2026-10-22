@@ -5,7 +5,10 @@
 #include <QString>
 #include <QtQml/qqmlregistration.h>
 
+#include "SmartRedact.h"
+
 #include <condition_variable>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -23,6 +26,11 @@ namespace ws::capture {
 //
 // One window, one picture at a time: a new one replaces what is shown and
 // a result for an older one is dropped.
+//
+// The same thread and the same reader also do smart redaction's scans
+// (scan()): the lines of a picture with each character's place, for the
+// capture and the editing window. A scan waits for no window and a window
+// for no scan, except that the one running finishes first.
 class CaptureOcr : public QObject {
     Q_OBJECT
     QML_ELEMENT
@@ -42,6 +50,13 @@ public:
 
     // Reads `image`, taken on a monitor at `dpr` (its text's size).
     void read(const QImage& image, double dpr);
+
+    // The lines of `image` with their corners and characters' places, in its
+    // own pixels (SmartRedact.h); `done` is called on the GUI thread, once,
+    // unless a newer scan() or cancelScan() came first. Nothing the picture
+    // says is kept or logged.
+    void scan(const QImage& image, double dpr, std::function<void(QList<RedactLine>)> done);
+    void cancelScan();
 
     bool busy() const { return m_busy; }
     QString text() const { return m_text; }
@@ -70,8 +85,15 @@ private:
         QImage image;
         double scale = 1.0;
     };
+    struct ScanJob {
+        int ticket = 0;
+        QImage image;
+        double scale = 1.0;
+        std::function<void(QList<RedactLine>)> done;
+    };
     void work(const std::stop_token& stop);
     void done(int round, const QString& text, const QString& error);
+    void scanDone(int ticket, QList<RedactLine> lines);
 
     bool m_busy = false;
     QString m_text;
@@ -81,6 +103,9 @@ private:
     std::mutex m_mutex;
     std::condition_variable_any m_wake;
     std::optional<Job> m_job;
+    std::optional<ScanJob> m_scan;
+    int m_scanTicket = 0; // the GUI thread's: the scan whose result is wanted
+    std::function<void(QList<RedactLine>)> m_scanDone;
     std::jthread m_thread; // last: started once the rest is there
 };
 

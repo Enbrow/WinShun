@@ -1060,24 +1060,58 @@ QQuickWindow* App::createPreviewWindow()
     return window;
 }
 
+capture::CaptureOcr& App::captureOcr()
+{
+    if (!m_captureOcr) {
+        m_captureOcr = std::make_unique<capture::CaptureOcr>();
+        connect(m_captureOcr.get(), &capture::CaptureOcr::copyRequested, this, [this](const QString& text) {
+            if (!text.isEmpty())
+                m_clipboard->copyText(text, m_settings.clipboard && !m_clipboardPaused);
+        });
+        connect(m_captureOcr.get(), &capture::CaptureOcr::searchRequested, this, [this](const QString& query) {
+            showLauncher(query);
+        });
+        connect(m_captureOcr.get(), &capture::CaptureOcr::webSearchRequested, this,
+            [this](const QString& query) { openWebSearch(query); });
+        connect(m_captureOcr.get(), &capture::CaptureOcr::closeRequested, this, [this] { closeCaptureOcr(); });
+    }
+    return *m_captureOcr;
+}
+
+// 智能打码 (SmartRedact.h): the scans go to the OCR window's reader; the rules
+// are read from the settings at the moment they are used, plus the names of this
+// computer and its user, which are never written anywhere.
+capture::SmartHooks App::smartHooks()
+{
+    capture::SmartHooks hooks;
+    hooks.scan = [this](const QImage& image, double dpr, std::function<void(QList<capture::RedactLine>)> done) {
+        captureOcr().scan(image, dpr, std::move(done));
+    };
+    hooks.cancel = [this] {
+        if (m_captureOcr)
+            m_captureOcr->cancelScan();
+    };
+    hooks.rules = [this] {
+        capture::RedactRules rules;
+        rules.ipMac = m_settings.captureSmartIpMac;
+        rules.allText = m_settings.captureSmartAllText;
+        rules.words = Settings::normalizedSmartWords(m_settings.captureSmartWords);
+        for (const QString& name : {qEnvironmentVariable("USERNAME"), qEnvironmentVariable("COMPUTERNAME"), QDir::home().dirName()}) {
+            if (!name.trimmed().isEmpty() && !rules.names.contains(name, Qt::CaseInsensitive))
+                rules.names.append(name.trimmed());
+        }
+        return rules;
+    };
+    hooks.prescan = [this] { return m_settings.captureSmartPrescan && capture::CaptureOcr::available(); };
+    return hooks;
+}
+
 // 识别文字 (CaptureOcr, OcrPanel.qml): one window, made the first time,
 // styled as the preview but taking the focus (the text can be edited).
 void App::showCaptureOcr(const QImage& image, double dpr, const QRect& where)
 {
     if (!m_ocrWindow) {
-        if (!m_captureOcr) {
-            m_captureOcr = std::make_unique<capture::CaptureOcr>();
-            connect(m_captureOcr.get(), &capture::CaptureOcr::copyRequested, this, [this](const QString& text) {
-                if (!text.isEmpty())
-                    m_clipboard->copyText(text, m_settings.clipboard && !m_clipboardPaused);
-            });
-            connect(m_captureOcr.get(), &capture::CaptureOcr::searchRequested, this, [this](const QString& query) {
-                showLauncher(query);
-            });
-            connect(m_captureOcr.get(), &capture::CaptureOcr::webSearchRequested, this,
-                [this](const QString& query) { openWebSearch(query); });
-            connect(m_captureOcr.get(), &capture::CaptureOcr::closeRequested, this, [this] { closeCaptureOcr(); });
-        }
+        captureOcr();
         m_ocrFrame = std::make_unique<WindowFrame>(false);
         QQmlComponent component(m_qml.get(), u"WinShun"_s, u"OcrPanel"_s);
         QObject* object = component.createWithInitialProperties({
@@ -1116,7 +1150,7 @@ void App::showCaptureOcr(const QImage& image, double dpr, const QRect& where)
         m_ocrWindow->setScreen(screen);
         m_ocrWindow->setPosition(screen->geometry().topLeft() + (at - monitorOrigin) / ratio);
     }
-    m_captureOcr->read(image, dpr);
+    captureOcr().read(image, dpr);
     m_ocrWindow->show();
     m_ocrWindow->raise();
     win::bringToFront(m_ocrWindow);
@@ -1560,6 +1594,7 @@ void App::applyCapture()
                 then == Action::OcrCopy ? OcrThen::Copy : then == Action::OcrSearch ? OcrThen::Search : OcrThen::Web);
         };
         callbacks.pins = [this] { return &pins(); };
+        callbacks.smart = smartHooks();
         m_capture = std::make_unique<capture::Capture>(m_qml.get(), std::move(callbacks));
     } else if (!m_settings.captureEnabled && m_capture) {
         m_capture.reset();
@@ -1814,6 +1849,7 @@ capture::CaptureEditor* App::editor()
         pins().pin(image, origin, true, project);
     };
     hooks.ocr = [this](const QImage& image, double dpr, const QRect& where) { showCaptureOcr(image, dpr, where); };
+    hooks.smart = smartHooks();
     hooks.styles = [this] { return m_settings.captureAnnotateStyles; };
     hooks.stylesChanged = [this](const QString& json) {
         if (json == m_settings.captureAnnotateStyles)

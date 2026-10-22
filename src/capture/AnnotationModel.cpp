@@ -2,10 +2,15 @@
 
 #include "Geometry.h"
 
+#include <QCoreApplication>
+#include <QDebug>
 #include <QElapsedTimer>
 #include <QFont>
 #include <QHash>
+#include <QPointer>
 #include <QRandomGenerator>
+#include <QRegion>
+#include <QTimer>
 
 #include <algorithm>
 #include <array>
@@ -114,7 +119,7 @@ bool applyPanel(const QVariantMap& change, Kind kind, annot::Style& style, qreal
                 style.color = *color;
                 any = true;
             }
-        } else if (key == u"width" && usesWidth(kind)) {
+        } else if (key == u"width" && (usesWidth(kind) || kind == Kind::Redact)) {
             style.width = annot::toImagePx(logicalValue(value), scale);
             any = true;
         } else if (key == u"fill" && usesFill(kind)) {
@@ -139,6 +144,11 @@ bool applyPanel(const QVariantMap& change, Kind kind, annot::Style& style, qreal
         } else if (key == u"cell" && kind == Kind::Redact) {
             style.cell = annot::toImagePx(logicalValue(value), scale);
             any = true;
+        } else if (key == u"shape" && kind == Kind::Redact) {
+            if (const std::optional<annot::RedactShape> shape = annot::redactShapeFromName(value.toString())) {
+                style.shape = *shape;
+                any = true;
+            }
         }
     }
     return any;
@@ -311,6 +321,22 @@ struct AnnotationModel::Private {
     bool notched = false;
     qint64 lastNotch = 0;
 
+    // Smart redaction (4.1): the scan of the selection's text and what it found.
+    struct Smart {
+        SmartHooks hooks;
+        QTimer* timer = nullptr;
+        int ticket = 0; // the scan whose result is wanted
+        bool scanning = false;
+        bool ready = false; // `lines` are the text of `rect`
+        bool apply = false; // asked for by the button before the scan was done: hide what it finds at once
+        bool told = false; // the "may have missed some" word has been said
+        QRect rect; // the pixels scanned, image px
+        QList<RedactLine> lines; // in `rect`'s pixels
+        QImage gray; // the picture scanned, for the boxes' edges
+        std::optional<QList<RedactHit>> all; // every place the rules found, in the document's pixels; made when asked for
+        std::optional<QList<RedactHit>> hits; // those not hidden yet; made again when the redactions change
+    } smart;
+
     // What the change signals were last sent for: sync() sends each one when
     // its value is no longer this.
     struct Shown {
@@ -332,6 +358,8 @@ struct AnnotationModel::Private {
         QRectF marquee;
         bool picking = false;
         int selectedCount = 0;
+        int smartFound = -1;
+        bool smartBusy = false;
     } shown;
 };
 
@@ -342,6 +370,10 @@ AnnotationModel::AnnotationModel(QObject* parent)
 {
     d->clock.start();
     d->shown.panel = panel();
+    d->smart.timer = new QTimer(this);
+    d->smart.timer->setSingleShot(true);
+    d->smart.timer->setInterval(300);
+    connect(d->smart.timer, &QTimer::timeout, this, [this] { smartStart(false); });
 }
 
 AnnotationModel::~AnnotationModel() = default;
@@ -381,6 +413,7 @@ void AnnotationModel::begin(const annot::Project& project, qreal deviceDpr, cons
     m_stylesChanged = false;
     emit changed(QRectF()); // a new picture: all of it
     sync();
+    smartSchedule();
 }
 
 void AnnotationModel::setView(qreal devicePerLogical, qreal zoom)
@@ -415,6 +448,7 @@ void AnnotationModel::discardChanges()
 void AnnotationModel::end()
 {
     reset();
+    smartInvalidate();
     m_base = QImage();
     emit changed(QRectF()); // the canvas lets go of its tiles
     sync();
@@ -460,6 +494,7 @@ void AnnotationModel::setSelection(const QRect& selection)
         change.dirty |= QRectF(box);
     touched(change);
     sync();
+    smartSchedule();
 }
 
 QRect AnnotationModel::sampleBounds() const
@@ -475,6 +510,16 @@ std::optional<quint32> AnnotationModel::skipped() const
     if (m_editing && m_editing->id != 0 && !m_editing->words)
         return m_editing->id;
     return std::nullopt;
+}
+
+std::optional<quint32> AnnotationModel::draft() const
+{
+    if (m_gesture != Gesture::Draw || !d->command || !d->applied)
+        return std::nullopt;
+    const auto* add = static_cast<const annot::AddItems*>(d->command.get());
+    if (add->items.isEmpty() || !annot::isBrush(add->items[0]))
+        return std::nullopt;
+    return add->items[0].id;
 }
 
 std::optional<quint32> AnnotationModel::unworded() const
@@ -613,6 +658,9 @@ QVariantMap AnnotationModel::panel() const
         t.bold = s.bold;
         t.boxed = s.boxed;
         t.mode = s.redact;
+        t.shape = s.shape;
+        if (s.shape == annot::RedactShape::Brush)
+            t.width = annot::toLogicalPx(s.width, dpr);
         t.cell = annot::toLogicalPx(s.cell, dpr);
     }
     // Objects of different kinds share the colour and the layer buttons only.
@@ -642,8 +690,13 @@ QVariantMap AnnotationModel::panel() const
     }
     if (kind == Kind::Redact) {
         m[u"mode"_s] = annot::redactModeName(t.mode);
+        m[u"shape"_s] = annot::redactShapeName(t.shape);
         m[u"cell"_s] = t.cell;
         m[u"cells"_s] = variantList(annot::sizePresets(kind));
+        if (t.shape == annot::RedactShape::Brush) {
+            m[u"width"_s] = t.width;
+            m[u"widths"_s] = variantList(annot::brushWidths());
+        }
     }
     if (kind == Kind::Number) {
         int start = 1;
@@ -1025,6 +1078,10 @@ void AnnotationModel::push(std::unique_ptr<annot::Command> command)
 void AnnotationModel::touched(const annot::Change& change)
 {
     m_compositor->invalidate(change);
+    if (change.redactions)
+        d->smart.hits.reset(); // what is still to hide changes with what is hidden
+    if (change.crop && m_editor)
+        smartSchedule();
     for (const QRectF& area : change.areas()) {
         if (!area.isEmpty())
             emit changed(area);
@@ -1108,6 +1165,13 @@ void AnnotationModel::sync()
         emit pickingChanged();
     }
     s.selectedCount = static_cast<int>(m_picked.size());
+    const int found = smartFound();
+    const bool busy = smartBusy();
+    if (found != s.smartFound || busy != s.smartBusy) {
+        s.smartFound = found;
+        s.smartBusy = busy;
+        emit smartChanged();
+    }
 }
 
 // ---- the mouse -------------------------------------------------------------
@@ -1242,9 +1306,15 @@ void AnnotationModel::startDraw(Kind kind, QPoint p, Qt::KeyboardModifiers modif
     case Kind::Rect:
     case Kind::Ellipse:
     case Kind::Redact:
-        item.points = annot::boxPoints(annot::pixelBox(at, at));
         if (kind == Kind::Redact)
             item.seed = QRandomGenerator::global()->generate64();
+        if (kind == Kind::Redact && !annot::isBrush(item))
+            item.style.width = annot::Style {}.width; // the tool's width is the brush's
+        if (annot::isBrush(item)) {
+            item.points = {annot::pixelCentre(QPointF(at))};
+            break;
+        }
+        item.points = annot::boxPoints(annot::pixelBox(at, at));
         break;
     case Kind::Arrow:
     case Kind::Line:
@@ -1400,7 +1470,7 @@ void AnnotationModel::updateGesture()
         // A stroke keeps every point from the press on; a shape is made
         // again from the press, once the mouse went past the drag start.
         annot::Item next = current;
-        if (annot::isStroke(current.kind))
+        if (annot::isStrokeItem(current))
             next = strokeTo(current, d->last, constrain);
         else if (d->dragging)
             next = shapeTo(d->last, constrain);
@@ -1408,7 +1478,7 @@ void AnnotationModel::updateGesture()
         if (next == current && show == d->applied)
             return;
         std::optional<QRectF> grown;
-        if (d->applied && show && annot::isStroke(current.kind))
+        if (d->applied && show && annot::isStroke(current.kind)) // a brush moves every redaction (its change says so)
             grown = strokeGrowth(current, next);
         annot::Change change;
         if (d->applied)
@@ -1520,14 +1590,14 @@ void AnnotationModel::finishGesture()
         annot::Item& item = add->items[0];
         // A shape is its press and its release: those closer than a drag
         // are a click, not a shape (a stroke shows its path instead).
-        bool nothing = item.kind != Kind::Number && !annot::isStroke(item.kind) && shortDrag;
+        bool nothing = item.kind != Kind::Number && !annot::isStrokeItem(item) && shortDrag;
         if (annot::isLine(item.kind))
             nothing = nothing || item.points.value(0) == item.points.value(1);
         if (nothing) {
             touched(add->revert(m_document));
             return;
         }
-        if (annot::isStroke(item.kind)) {
+        if (annot::isStrokeItem(item)) {
             const QList<QPointF> simple = annot::simplifyStroke(item.points);
             if (simple != item.points) {
                 annot::Change change = add->revert(m_document);
@@ -1537,6 +1607,14 @@ void AnnotationModel::finishGesture()
             }
         }
         const quint32 id = item.id;
+        if (annot::isBrush(item)) {
+            // Drawn as a mosaic meanwhile (draft()): the real kind is made once now.
+            annot::Change redraw;
+            redraw.ids = {id};
+            redraw.redactions = true;
+            redraw.dirty = QRectF(annot::itemBox(item));
+            touched(redraw);
+        }
         if (item.kind == Kind::Number) {
             // Typing goes on into its words; the step joins the stack when
             // they end, so the number and its words are one undo step.
@@ -1715,6 +1793,11 @@ bool AnnotationModel::key(int key, Qt::KeyboardModifiers modifiers)
         updateGesture();
         sync();
         return false;
+    }
+
+    if (!ctrl && !other && shift && key == Qt::Key_B) {
+        smartRedact(); // Shift+B: not the tool, whose key is B alone
+        return true;
     }
 
     enum class Action { None, Tool, Undo, Redo, Delete, Nudge, Smaller, Bigger, Lower, Raise, Pick, SelectAll, Duplicate };
@@ -2048,7 +2131,10 @@ void AnnotationModel::setPanel(const QVariantMap& change)
             }
         }
     }
-    // The objects (or the text being typed), in image px.
+    // The objects (or the text being typed), in image px. The shape is for
+    // the next redaction only: a box does not turn into a stroke.
+    QVariantMap forObjects = change;
+    forObjects.remove(u"shape"_s);
     QList<Kind> kinds;
     if (!target->ids.isEmpty()) {
         QList<quint32> ids;
@@ -2060,7 +2146,7 @@ void AnnotationModel::setPanel(const QVariantMap& change)
             if (!kinds.contains(item->kind))
                 kinds.append(item->kind);
             annot::Style style = item->style;
-            if (applyPanel(change, item->kind, style, dpr()) && style != item->style) {
+            if (applyPanel(forObjects, item->kind, style, dpr()) && style != item->style) {
                 ids.append(id);
                 styles.append(style);
             }
@@ -2110,6 +2196,10 @@ void AnnotationModel::stepSize(int direction)
         field = u"size"_s;
         value = remembered ? memory.size : annot::toLogicalPx(style.fontPx, dpr);
         next = stepped(kSizeSteps, value, direction);
+    } else if (kind == Kind::Redact && (remembered ? memory.shape : style.shape) == annot::RedactShape::Brush) {
+        field = u"width"_s;
+        value = remembered ? memory.width : annot::toLogicalPx(style.width, dpr);
+        next = stepped(kWidthSteps, value, direction);
     } else if (kind == Kind::Redact) {
         field = u"cell"_s;
         value = remembered ? memory.cell : annot::toLogicalPx(style.cell, dpr);
@@ -2369,6 +2459,187 @@ void AnnotationModel::setNumber(int id, const QVariant& value)
 void AnnotationModel::closeNumberEdit()
 {
     m_numberEdit.reset();
+    sync();
+}
+
+// ---- smart redaction (4.1) -------------------------------------------------
+
+void AnnotationModel::setSmartHooks(SmartHooks hooks)
+{
+    d->smart.hooks = std::move(hooks);
+}
+
+// The selection (the crop, in the editor) changed: whatever was read is of
+// something else now. Read again once it has held still for 300 ms, if the
+// settings let the scan start on its own.
+void AnnotationModel::smartSchedule()
+{
+    smartInvalidate();
+    Private::Smart& s = d->smart;
+    if (!active() || !s.hooks.scan || (s.hooks.prescan && !s.hooks.prescan()))
+        return;
+    s.timer->start();
+}
+
+void AnnotationModel::smartInvalidate()
+{
+    Private::Smart& s = d->smart;
+    s.timer->stop();
+    if (s.scanning && s.hooks.cancel)
+        s.hooks.cancel();
+    ++s.ticket; // a result still on its way is for nothing now
+    s.scanning = false;
+    s.ready = false;
+    s.apply = false;
+    s.lines.clear();
+    s.gray = QImage();
+    s.all.reset();
+    s.hits.reset();
+    s.rect = QRect();
+}
+
+void AnnotationModel::smartStart(bool apply)
+{
+    Private::Smart& s = d->smart;
+    if (!active() || !s.hooks.scan || s.scanning)
+        return;
+    const QRect canvas(QPoint(0, 0), m_document.canvas);
+    const QRect rect = (m_document.crop.isEmpty() ? canvas : m_document.crop) & canvas;
+    if (rect.isEmpty())
+        return;
+    s.rect = rect;
+    s.scanning = true;
+    s.apply = apply;
+    const int ticket = s.ticket;
+    const QImage picture = m_base.copy(rect);
+    QPointer<AnnotationModel> self(this);
+    s.hooks.scan(picture, dpr(), [self, ticket, picture](QList<RedactLine> lines) {
+        if (self)
+            self->smartScanned(ticket, picture, std::move(lines));
+    });
+    sync();
+}
+
+void AnnotationModel::smartScanned(int ticket, const QImage& scanned, QList<RedactLine> lines)
+{
+    Private::Smart& s = d->smart;
+    if (ticket != s.ticket)
+        return;
+    s.scanning = false;
+    s.ready = true;
+    s.lines = std::move(lines);
+    s.gray = scanned.convertToFormat(QImage::Format_Grayscale8);
+    s.all.reset();
+    s.hits.reset();
+    const bool apply = std::exchange(s.apply, false);
+    qInfo().noquote() << u"Screen capture: smart redaction found %1 places in %2 lines"_s.arg(smartHits().size()).arg(s.lines.size());
+    if (apply)
+        smartRedact();
+    sync();
+}
+
+const QList<RedactHit>& AnnotationModel::smartHits() const
+{
+    static const QList<RedactHit> none;
+    Private::Smart& s = d->smart;
+    if (!s.ready)
+        return none;
+    if (!s.all) {
+        // The rules run once per scan; what is hidden since is taken off below.
+        const RedactRules rules = s.hooks.rules ? s.hooks.rules() : RedactRules();
+        QList<RedactHit> found;
+        for (RedactHit& hit : findSensitive(s.lines, rules, {}, s.gray)) {
+            hit.box = hit.box.translated(s.rect.topLeft()) & s.rect;
+            if (!hit.box.isEmpty())
+                found.append(hit);
+        }
+        s.all = std::move(found);
+    }
+    if (!s.hits) {
+        QRegion hidden;
+        for (const QRect& box : annot::redactionBoxes(m_document))
+            hidden += box;
+        QList<RedactHit> left;
+        for (const RedactHit& hit : *s.all) {
+            qint64 area = 0;
+            if (!hidden.isEmpty()) {
+                for (const QRect& r : hidden & QRegion(hit.box))
+                    area += qint64(r.width()) * r.height();
+            }
+            // Hidden by 80 % or more already: not offered again.
+            if (area * 10 < qint64(hit.box.width()) * hit.box.height() * 8)
+                left.append(hit);
+        }
+        s.hits = std::move(left);
+    }
+    return *s.hits;
+}
+
+int AnnotationModel::smartFound() const
+{
+    const int n = int(smartHits().size());
+    return n > 0 ? n : -1;
+}
+
+bool AnnotationModel::smartBusy() const
+{
+    return d->smart.scanning && d->smart.apply;
+}
+
+void AnnotationModel::smartRedact()
+{
+    if (!active())
+        return;
+    commitPending();
+    Private::Smart& s = d->smart;
+    if (!s.ready) {
+        // Not read yet (the scan is off, or still under way): read now, and hide when done.
+        if (s.scanning) {
+            s.apply = true;
+        } else {
+            smartStart(true);
+            if (!s.scanning) {
+                emit notice(tr("没找到要打码的内容"));
+                return;
+            }
+        }
+        emit notice(tr("正在识别文字…"));
+        sync();
+        return;
+    }
+    const QList<RedactHit> hits = smartHits();
+    if (hits.isEmpty()) {
+        emit notice(tr("没找到要打码的内容"));
+        return;
+    }
+    // In the tool's remembered style, as a box: a brush has no place on a line of text.
+    annot::Style style = m_styles.forTool(Kind::Redact, dpr());
+    style.shape = annot::RedactShape::Box;
+    style.width = annot::Style {}.width;
+    QList<annot::Item> items;
+    for (const RedactHit& hit : hits) {
+        annot::Item item;
+        item.kind = Kind::Redact;
+        item.style = style;
+        // At least a third of the box's height a cell, so that big letters do not show through.
+        item.style.cell = std::max(style.cell, int(std::lround(0.3 * hit.box.height())));
+        item.seed = QRandomGenerator::global()->generate64();
+        item.points = annot::boxPoints(hit.box);
+        items.append(item);
+    }
+    QElapsedTimer clock;
+    clock.start();
+    auto add = std::make_unique<annot::AddItems>(items);
+    add->label = QCoreApplication::translate("Annotation", "智能打码");
+    m_picked.clear();
+    push(std::move(add));
+    QString word = tr("已打码 %1 处 · Ctrl+Z 撤销").arg(hits.size());
+    if (!s.told) {
+        s.told = true;
+        word += tr(" · 自动找的可能有漏，发出去前再看一眼");
+    }
+    emit notice(word);
+    qInfo().noquote() << u"Screen capture: smart redaction hid %1 places (%2 ms to put them on)"_s.arg(hits.size()).arg(clock.elapsed());
     sync();
 }
 

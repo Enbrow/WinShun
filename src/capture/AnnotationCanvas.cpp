@@ -216,6 +216,7 @@ void AnnotationCanvas::updatePolish()
     const annot::Document& doc = model->document();
     const std::optional<quint32> skip = model->skipped();
     const std::optional<quint32> unworded = model->unworded();
+    const std::optional<quint32> draft = model->draft();
     // Sparse: where the objects reach, measured once for all the tiles. The
     // text being typed is not drawn, so it does not count.
     std::vector<QRect> reach;
@@ -288,7 +289,7 @@ void AnnotationCanvas::updatePolish()
         // just the allocation (dragging a big rectangle: 99% of the tiles).
         if (!tile.image.isDetached())
             tile.image = QImage();
-        model->compositor().render(doc, model->base(), sample, area, &tile.image, skip, unworded);
+        model->compositor().render(doc, model->base(), sample, area, &tile.image, skip, unworded, draft);
         ++drawn;
         tile.shown = true;
         tile.upload = true;

@@ -104,6 +104,11 @@ class SettingsEditor : public QObject {
     // The capture toolbar's buttons left off it: comma separated ids (Settings::captureToolbarButtonIds).
     Q_PROPERTY(QString captureToolbarHidden READ captureToolbarHidden WRITE setCaptureToolbarHidden NOTIFY changed FINAL)
     Q_PROPERTY(QString captureNote READ captureNote NOTIFY hotkeyErrorChanged FINAL)
+    // Smart redaction's options (Settings::captureSmart*).
+    Q_PROPERTY(bool captureSmartPrescan READ captureSmartPrescan WRITE setCaptureSmartPrescan NOTIFY changed FINAL)
+    Q_PROPERTY(bool captureSmartIpMac READ captureSmartIpMac WRITE setCaptureSmartIpMac NOTIFY changed FINAL)
+    Q_PROPERTY(bool captureSmartAllText READ captureSmartAllText WRITE setCaptureSmartAllText NOTIFY changed FINAL)
+    Q_PROPERTY(QString captureSmartWords READ captureSmartWords WRITE setCaptureSmartWords NOTIFY changed FINAL)
     // The screenshot history's keyword (jt): set through saveCaptureKeyword.
     Q_PROPERTY(QString captureKeyword READ captureKeyword NOTIFY changed FINAL)
     Q_PROPERTY(bool includeRemovableDrives READ includeRemovableDrives WRITE setIncludeRemovableDrives NOTIFY changed FINAL)
@@ -370,6 +375,14 @@ public:
     void setCaptureMouseForward(const QString& action) { setCaptureMouse(m_settings.captureMouseForward, action, false); }
     QString captureToolbarHidden() const { return m_settings.captureToolbarHidden; }
     void setCaptureToolbarHidden(const QString& ids);
+    bool captureSmartPrescan() const { return m_settings.captureSmartPrescan; }
+    void setCaptureSmartPrescan(bool on);
+    bool captureSmartIpMac() const { return m_settings.captureSmartIpMac; }
+    void setCaptureSmartIpMac(bool on);
+    bool captureSmartAllText() const { return m_settings.captureSmartAllText; }
+    void setCaptureSmartAllText(bool on);
+    QString captureSmartWords() const { return m_settings.captureSmartWords; }
+    void setCaptureSmartWords(const QString& words);
     QString captureNote() const { return m_captureNote; }
     void setCaptureNote(const QString& note);
     QString captureKeyword() const { return m_settings.captureKeyword; }

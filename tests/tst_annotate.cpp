@@ -12,6 +12,7 @@
 #include "EditView.h"
 #include "Geometry.h"
 
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFont>
 #include <QGlyphRun>
@@ -642,11 +643,12 @@ private slots:
         // Moved by whole pixels, edges stay edges and centres centres.
         const Item moved = translated(lineItem(Kind::Line, QPointF(1.5, 2.5), QPointF(9.5, 2.5)), QPoint(-4, 7));
         QCOMPARE(moved.points, (QList<QPointF>{QPointF(-2.5, 9.5), QPointF(5.5, 9.5)}));
-        // A brush redaction's box holds the pixels of all its points.
+        // A brush redaction's box holds the pixels of all its points and the
+        // stroke round them (half the width, 3 px at 6).
         Item brush = redactItem(QRect(), RedactMode::Mosaic, 8, 1);
         brush.style.shape = RedactShape::Brush;
         brush.points = {QPointF(10.5, 10.5), QPointF(20.5, 4.5), QPointF(12.5, 30.5)};
-        QCOMPARE(itemBox(brush), QRect(QPoint(10, 4), QPoint(20, 30)));
+        QCOMPARE(itemBox(brush), QRect(QPoint(7, 1), QPoint(23, 33)));
 
         // The redactions are the bottom segment, in the order they came.
         Document doc = emptyDoc(QSize(100, 100));
@@ -1947,10 +1949,14 @@ private slots:
             }
         }
         QCOMPARE(redactionPatch(grey, s, mask, *findItem(doc, solid)).pixel(7, 7), kDark);
-        // Smooth is drawn as Mosaic until stage 5.
+        // Smooth has no cells and no noise: the seed does not matter, and it is not the mosaic.
         Item smooth = *findItem(doc, m);
         smooth.style.redact = RedactMode::Smooth;
-        QCOMPARE(compare(redactionPatch(base, s, mask, smooth), redactionPatch(base, s, mask, *findItem(doc, m))).count, 0);
+        Item other = smooth;
+        other.seed ^= 0xFFFF;
+        const QImage rubbed = redactionPatch(base, s, mask, smooth);
+        QCOMPARE(compare(rubbed, redactionPatch(base, s, mask, other)).count, 0);
+        QVERIFY(compare(rubbed, redactionPatch(base, s, mask, *findItem(doc, m))).count > 0);
     }
 
     // On a plain base a redaction moved by whole pixels takes its pixels
@@ -1968,7 +1974,8 @@ private slots:
             const QImage after = Compositor().exportImage(doc, grey, all);
             QCOMPARE(compare(after.copy(box.translated(150, 120)), before.copy(box)).count, 0);
             QCOMPARE(compare(after.copy(box), grey.copy(box)).count, 0);
-            QVERIFY(compare(before.copy(box), grey.copy(box)).count > 0);
+            if (mode != RedactMode::Smooth) // rubbed out on a flat ground, it is the ground
+                QVERIFY(compare(before.copy(box), grey.copy(box)).count > 0);
         }
     }
 
@@ -2397,6 +2404,312 @@ private slots:
         QCOMPARE(odd.tool(Kind::Marker).width, 28);
         QVERIFY(StyleMemory::fromJson(QString::fromUtf8(jsonText("{'version':2,'marker':{'width':28}}"))) == defaults);
         QVERIFY(StyleMemory::fromJson(u"not json"_s) == defaults);
+    }
+
+    // ---- stage 5: brush and smooth redactions ----
+
+    static Item brushItem(const QList<QPointF>& points, int width, RedactMode mode, int cell, quint64 seed)
+    {
+        Item item;
+        item.kind = Kind::Redact;
+        item.points = points;
+        item.style.shape = RedactShape::Brush;
+        item.style.width = width;
+        item.style.redact = mode;
+        item.style.cell = cell;
+        item.style.color = kDark;
+        item.seed = seed;
+        return item;
+    }
+
+    // The stroke's pixels are those whose centre is within half the width of
+    // the line; nothing else of its box is touched.
+    void brushCoverageIsThePixelsNearTheLine()
+    {
+        const Item item = brushItem({QPointF(20.5, 20.5), QPointF(80.5, 50.5)}, 10, RedactMode::Solid, 8, 1);
+        const QRect box = itemBox(item);
+        QCOMPARE(box, QRect(QPoint(15, 15), QPoint(85, 55)));
+        const QImage mask = brushCoverage(item);
+        QCOMPARE(mask.size(), box.size());
+        int covered = 0;
+        for (int y = 0; y < mask.height(); ++y) {
+            for (int x = 0; x < mask.width(); ++x) {
+                const QPointF c(box.x() + x + 0.5, box.y() + y + 0.5);
+                const QPointF a = item.points[0], b = item.points[1];
+                const QPointF ab = b - a;
+                const qreal t = std::clamp(QPointF::dotProduct(c - a, ab) / QPointF::dotProduct(ab, ab), 0.0, 1.0);
+                const QPointF q = a + ab * t;
+                const bool inside = std::hypot(c.x() - q.x(), c.y() - q.y()) <= 5.0;
+                QCOMPARE(mask.constScanLine(y)[x] == 255, inside);
+                covered += inside;
+            }
+        }
+        QVERIFY(covered > 400 && covered < 1000);
+        // A diagonal stroke leaves the corners of its box readable.
+        QCOMPARE(mask.constScanLine(0)[mask.width() - 1], uchar(0));
+        // A single point is a disc.
+        const QImage dot = brushCoverage(brushItem({QPointF(30.5, 30.5)}, 11, RedactMode::Solid, 8, 1));
+        QCOMPARE(dot.width(), 13);
+        QCOMPARE(dot.constScanLine(6)[6], uchar(255));
+        QCOMPARE(dot.constScanLine(0)[0], uchar(0));
+        // Box redactions have none.
+        QVERIFY(brushCoverage(redactItem(QRect(1, 1, 5, 5), RedactMode::Mosaic, 4, 1)).isNull());
+    }
+
+    void brushReadsNothingUnder_data()
+    {
+        QTest::addColumn<int>("mode");
+        for (RedactMode m : {RedactMode::Mosaic, RedactMode::Blur, RedactMode::Solid, RedactMode::Smooth})
+            QTest::addRow("%s", qPrintable(redactModeName(m))) << int(m);
+    }
+
+    // The same promise as the box: whatever is under the stroke, the picture
+    // is the same bit for bit; the rest of the picture, its box included, stays as it was.
+    void brushReadsNothingUnder()
+    {
+        QFETCH(int, mode);
+        const QSize size(420, 300);
+        const QImage base = noiseImage(size, 11);
+        const QRect all(QPoint(0, 0), size);
+        Document doc = emptyDoc(size);
+        addItem(doc, brushItem({QPointF(40.5, 40.5), QPointF(200.5, 140.5), QPointF(330.5, 60.5)}, 24, RedactMode(mode), 12, 0x77));
+        addItem(doc, brushItem({QPointF(60.5, 250.5), QPointF(380.5, 270.5)}, 16, RedactMode(mode), 8, 0x78));
+        addItem(doc, redactItem(QRect(300, 150, 80, 60), RedactMode(mode), 9, 0x79));
+        const QImage before = Compositor().exportImage(doc, base, all);
+        const QImage covered = coverageMask(doc, all);
+        QImage changed = base;
+        Rng rng(5);
+        for (int y = 0; y < size.height(); ++y) {
+            for (int x = 0; x < size.width(); ++x) {
+                if (covered.constScanLine(y)[x])
+                    changed.setPixel(x, y, 0xff000000u | QRgb(rng.next() & 0xffffffu));
+            }
+        }
+        const Diff d = compare(Compositor().exportImage(doc, changed, all), before);
+        QVERIFY2(d.count == 0, qPrintable(describe(d)));
+        // Outside the strokes and the box the picture is the base.
+        int redrawn = 0;
+        int changedOutside = 0;
+        for (int y = 0; y < size.height(); ++y) {
+            for (int x = 0; x < size.width(); ++x) {
+                if (covered.constScanLine(y)[x])
+                    redrawn += before.pixel(x, y) != base.pixel(x, y);
+                else
+                    changedOutside += before.pixel(x, y) != base.pixel(x, y);
+            }
+        }
+        QCOMPARE(changedOutside, 0);
+        QVERIFY(redrawn > 1000);
+        // What is next to the stroke is read: a change there shows.
+        if (RedactMode(mode) != RedactMode::Solid) {
+            QImage next = base;
+            for (int y = 0; y < size.height(); ++y) {
+                for (int x = 0; x < size.width(); ++x) {
+                    if (!covered.constScanLine(y)[x])
+                        next.setPixel(x, y, base.pixel(x, y) ^ 0x00ffffffu);
+                }
+            }
+            QVERIFY(compare(Compositor().exportImage(doc, next, all), before).count > 0);
+        }
+    }
+
+    // 抹平: white text on a plain dark ground goes, every pixel of the area
+    // within 3 of the ground, by box and by brush.
+    void smoothRubsOut_data()
+    {
+        QTest::addColumn<bool>("brush");
+        QTest::addColumn<QRgb>("ground");
+        QTest::addRow("box on black") << false << QRgb(0xff000000u);
+        QTest::addRow("brush on black") << true << QRgb(0xff000000u);
+        QTest::addRow("box on grey") << false << QRgb(0xff303030u);
+        QTest::addRow("brush on blue") << true << QRgb(0xff102040u);
+    }
+
+    void smoothRubsOut()
+    {
+        QFETCH(bool, brush);
+        QFETCH(QRgb, ground);
+        const QSize size(360, 120);
+        QImage base(size, QImage::Format_RGB32);
+        base.fill(ground);
+        {
+            QPainter painter(&base);
+            QFont font(u"Microsoft YaHei UI"_s);
+            font.setPixelSize(22);
+            painter.setFont(font);
+            painter.setPen(Qt::white);
+            painter.drawText(30, 62, u"Hello 13812345678 电话"_s);
+        }
+        const QRect all(QPoint(0, 0), size);
+        Document doc = emptyDoc(size);
+        const Item item = brush ? brushItem({QPointF(18.5, 52.5), QPointF(330.5, 52.5)}, 44, RedactMode::Smooth, 12, 3)
+                                : redactItem(QRect(18, 30, 312, 44), RedactMode::Smooth, 12, 3);
+        addItem(doc, item);
+        const QImage out = Compositor().exportImage(doc, base, all);
+        const QRect box = itemBox(doc.items[0]);
+        const QImage stroke = coverageMask(doc, all);
+        int worst = 0;
+        int inside = 0;
+        int white = 0;
+        for (int y = box.top(); y <= box.bottom(); ++y) {
+            for (int x = box.left(); x <= box.right(); ++x) {
+                if (!stroke.constScanLine(y)[x])
+                    continue;
+                ++inside;
+                white += qGray(base.pixel(x, y)) > 200;
+                const QRgb p = out.pixel(x, y);
+                worst = std::max({worst, std::abs(qRed(p) - qRed(ground)), std::abs(qGreen(p) - qGreen(ground)),
+                    std::abs(qBlue(p) - qBlue(ground))});
+            }
+        }
+        QVERIFY(inside > 5000);
+        QVERIFY(white > 300); // the text really was there
+        QVERIFY2(worst <= 3, qPrintable(u"worst difference %1"_s.arg(worst)));
+    }
+
+    // A long brush stroke across a big screenshot: how long a redraw takes. The
+    // number is logged; the test only fails when it is absurd.
+    void brushStrokeSpeed_data()
+    {
+        QTest::addColumn<int>("mode");
+        for (RedactMode m : {RedactMode::Mosaic, RedactMode::Blur, RedactMode::Smooth})
+            QTest::addRow("%s", qPrintable(redactModeName(m))) << int(m);
+    }
+
+    void brushStrokeSpeed()
+    {
+        QFETCH(int, mode);
+        const QSize size(2560, 1600);
+        const QImage base = noiseImage(size, 21);
+        const QRect all(QPoint(0, 0), size);
+        Document doc = emptyDoc(size, 1.5);
+        QList<QPointF> zigzag;
+        for (int i = 0; i < 40; ++i)
+            zigzag.append(QPointF(80.5 + i * 60, i % 2 ? 1400.5 : 160.5)); // across the whole picture
+        addItem(doc, brushItem(zigzag, 36, RedactMode(mode), 18, 5));
+        QElapsedTimer clock;
+        clock.start();
+        Compositor compositor;
+        const QImage out = compositor.exportImage(doc, base, all);
+        const qint64 first = clock.elapsed();
+        QCOMPARE(out.size(), size);
+        // The same stroke one point longer: the patch is made again (what every mouse move does).
+        zigzag.append(QPointF(2500.5, 800.5));
+        doc.items[0].points = zigzag;
+        compositor.invalidate(Change{.ids = {doc.items[0].id}, .redactions = true});
+        clock.restart();
+        compositor.exportImage(doc, base, all);
+        qInfo().noquote() << u"brush stroke %1 over %2x%3: %4 ms, longer by a point %5 ms (box %6x%7)"_s
+                                 .arg(redactModeName(RedactMode(mode)))
+                                 .arg(size.width())
+                                 .arg(size.height())
+                                 .arg(first)
+                                 .arg(clock.elapsed())
+                                 .arg(itemBox(doc.items[0]).width())
+                                 .arg(itemBox(doc.items[0]).height());
+        QVERIFY(first < 10000 && clock.elapsed() < 10000); // sanity only: a stroke across a whole 2560 px screen
+    }
+
+    // A brush stroke being drawn is shown as a mosaic whatever its mode; once let go (no draft) it is the real
+    // kind, the same pixels as a compositor that never saw the draft, and the export never has a draft.
+    void brushDraftIsCheapAndTheFinalIsUnchanged_data()
+    {
+        QTest::addColumn<int>("mode");
+        QTest::addRow("blur") << int(RedactMode::Blur);
+        QTest::addRow("smooth") << int(RedactMode::Smooth);
+        QTest::addRow("solid") << int(RedactMode::Solid);
+    }
+
+    void brushDraftIsCheapAndTheFinalIsUnchanged()
+    {
+        QFETCH(int, mode);
+        const QSize size(300, 200);
+        const QImage base = noiseImage(size, 31);
+        const QRect all(QPoint(0, 0), size);
+        Document doc = emptyDoc(size);
+        const quint32 id = addItem(doc, brushItem({QPointF(30.5, 40.5), QPointF(150.5, 120.5), QPointF(260.5, 60.5)}, 24, RedactMode(mode), 10, 9));
+        Document asMosaic = doc;
+        asMosaic.items[0].style.redact = RedactMode::Mosaic;
+        Compositor live;
+        QImage draft;
+        live.render(doc, base, all, all, &draft, std::nullopt, std::nullopt, id);
+        QImage mosaic;
+        Compositor().render(asMosaic, base, all, all, &mosaic);
+        if (RedactMode(mode) == RedactMode::Solid)
+            QCOMPARE(compare(draft, Compositor().exportImage(doc, base, all)).count, 0); // solid is cheap already
+        else
+            QCOMPARE(compare(draft, mosaic).count, 0);
+        // Let go: the same compositor now gives what a fresh one does, and so does the export.
+        QImage final;
+        live.render(doc, base, all, all, &final);
+        const QImage fresh = Compositor().exportImage(doc, base, all);
+        QCOMPARE(compare(final, fresh).count, 0);
+        QCOMPARE(compare(live.exportImage(doc, base, all), fresh).count, 0);
+        if (RedactMode(mode) != RedactMode::Solid)
+            QVERIFY(compare(final, draft).count > 0);
+    }
+
+    // The new fields go to doc.json and back, through the project and the
+    // remembered styles; older ones load as boxes.
+    void brushAndSmoothRoundTrip()
+    {
+        Document doc = emptyDoc(QSize(300, 200), 1.5);
+        addItem(doc, brushItem({QPointF(10.5, 10.5), QPointF(90.5, 40.5), QPointF(120.5, 90.5)}, 36, RedactMode::Smooth, 12, 0xABCDEF));
+        addItem(doc, redactItem(QRect(5, 100, 50, 30), RedactMode::Smooth, 9, 7));
+        addItem(doc, brushItem({QPointF(200.5, 150.5)}, 16, RedactMode::Blur, 18, 9));
+        const QByteArray text = QJsonDocument(toJson(doc)).toJson(QJsonDocument::Compact);
+        QString error;
+        const std::optional<Document> back = fromJson(QJsonDocument::fromJson(text).object(), &error);
+        QVERIFY2(back, qPrintable(error));
+        QCOMPARE(*back, doc);
+        QCOMPARE(back->items[0].style.shape, RedactShape::Brush);
+        QCOMPARE(back->items[0].style.redact, RedactMode::Smooth);
+        QCOMPARE(back->items[0].style.width, 36);
+        QCOMPARE(back->items[1].style.shape, RedactShape::Box);
+        const QImage base = noiseImage(doc.canvas, 4);
+        const std::optional<Project> project = readProject(writeProject(doc, base), &error);
+        QVERIFY2(project, qPrintable(error));
+        QCOMPARE(project->doc, doc);
+        // The remembered styles.
+        StyleMemory memory;
+        Style s = memory.forTool(Kind::Redact, 1.5);
+        QCOMPARE(s.shape, RedactShape::Box);
+        s.shape = RedactShape::Brush;
+        s.redact = RedactMode::Smooth;
+        memory.remember(Kind::Redact, s, 1.5);
+        QCOMPARE(memory.tool(Kind::Redact).shape, RedactShape::Brush);
+        QCOMPARE(memory.tool(Kind::Redact).width, 24);
+        QCOMPARE(memory.forTool(Kind::Redact, 1.5).width, toImagePx(24, 1.5));
+        QVERIFY(StyleMemory::fromJson(memory.toJson()) == memory);
+        // A box's own width does not change the brush's remembered one.
+        Style box = memory.forTool(Kind::Redact, 1.0);
+        box.shape = RedactShape::Box;
+        box.width = 6;
+        StyleMemory other = memory;
+        other.remember(Kind::Redact, box, 1.0);
+        QCOMPARE(other.tool(Kind::Redact).width, 24);
+        // Older remembered styles (no shape, no width) load as boxes.
+        const StyleMemory old = StyleMemory::fromJson(QString::fromUtf8(jsonText("{'version':1,'redact':{'mode':'blur','cell':18}}")));
+        QCOMPARE(old.tool(Kind::Redact).shape, RedactShape::Box);
+        QCOMPARE(old.tool(Kind::Redact).width, 24);
+    }
+
+    // Smart redaction adds many boxes as one step: one Ctrl+Z takes them all.
+    void manyRedactionsAreOneStep()
+    {
+        Document doc = emptyDoc(QSize(300, 200));
+        CommandStack stack;
+        QList<Item> items;
+        for (int i = 0; i < 7; ++i)
+            items.append(redactItem(QRect(10 + i * 30, 20, 25, 12), RedactMode::Mosaic, 6, quint64(i + 1)));
+        const Change change = stack.push(std::make_unique<AddItems>(items), doc, 1000);
+        QVERIFY(change.redactions);
+        QCOMPARE(doc.items.size(), qsizetype(7));
+        QCOMPARE(stack.count(), 1);
+        stack.undo(doc);
+        QCOMPARE(doc.items.size(), qsizetype(0));
+        stack.redo(doc);
+        QCOMPARE(doc.items.size(), qsizetype(7));
     }
 
     // --- tool table -------------------------------------------------------------

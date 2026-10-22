@@ -40,6 +40,7 @@ struct Fields {
     bool bold = false;
     bool boxed = false;
     bool mode = false;
+    bool shape = false; // Redact: box or brush
     bool cell = false;
     bool format = false; // Number: how a series writes its numbers
 };
@@ -70,6 +71,8 @@ Fields fieldsOf(Kind kind)
         break;
     case Kind::Redact:
         f.mode = true;
+        f.shape = true;
+        f.width = true; // the brush's
         f.cell = true;
         break;
     }
@@ -127,6 +130,11 @@ QList<int> sizePresets(Kind kind)
     }
 }
 
+QList<int> brushWidths()
+{
+    return {16, 24, 36};
+}
+
 int toImagePx(int logical, qreal dpr)
 {
     return std::max(1, int(std::lround(logical * dpr)));
@@ -152,6 +160,7 @@ StyleMemory::Tool StyleMemory::defaults(Kind kind)
         t.width = 20;
     } else if (kind == Kind::Redact) {
         t.color = qRgb(0x21, 0x21, 0x21); // the solid fill's colour
+        t.width = 24; // the brush's
     }
     return t;
 }
@@ -214,6 +223,10 @@ StyleMemory StyleMemory::fromJson(const QString& json)
             if (const auto mode = redactModeFromName(o.value(u"mode"_s).toString()))
                 t.mode = *mode;
         }
+        if (f.shape) {
+            if (const auto shape = redactShapeFromName(o.value(u"shape"_s).toString()))
+                t.shape = *shape;
+        }
         if (f.cell)
             readSize(o.value(u"cell"_s), t.cell);
         if (f.format) {
@@ -249,6 +262,8 @@ QString StyleMemory::toJson() const
             o[u"boxed"_s] = t.boxed;
         if (f.mode)
             o[u"mode"_s] = redactModeName(t.mode);
+        if (f.shape)
+            o[u"shape"_s] = redactShapeName(t.shape);
         if (f.cell)
             o[u"cell"_s] = t.cell;
         if (f.format)
@@ -266,7 +281,7 @@ Style StyleMemory::forTool(Kind kind, qreal dpr) const
     if (f.color)
         s.color = t.color;
     if (f.width)
-        s.width = toImagePx(t.width, dpr);
+        s.width = toImagePx(t.width, dpr); // a box redaction is given Style's width when it is made
     if (f.fill)
         s.fill = t.fill;
     if (f.size)
@@ -277,6 +292,8 @@ Style StyleMemory::forTool(Kind kind, qreal dpr) const
         s.boxed = t.boxed;
     if (f.mode)
         s.redact = t.mode;
+    if (f.shape)
+        s.shape = t.shape;
     if (f.cell)
         s.cell = toImagePx(t.cell, dpr);
     return s;
@@ -288,7 +305,7 @@ void StyleMemory::remember(Kind kind, const Style& style, qreal dpr)
     const Fields f = fieldsOf(kind);
     if (f.color)
         t.color = style.color | 0xff000000u;
-    if (f.width)
+    if (f.width && (kind != Kind::Redact || style.shape == RedactShape::Brush))
         t.width = std::min(kMaxLogical, toLogicalPx(style.width, dpr));
     if (f.fill)
         t.fill = style.fill;
@@ -300,6 +317,8 @@ void StyleMemory::remember(Kind kind, const Style& style, qreal dpr)
         t.boxed = style.boxed;
     if (f.mode)
         t.mode = style.redact;
+    if (f.shape)
+        t.shape = style.shape;
     if (f.cell)
         t.cell = std::min(kMaxLogical, toLogicalPx(style.cell, dpr));
 }

@@ -33,6 +33,8 @@ QString toolName(Kind kind);
 const QList<QRgb>& palette();
 // The panel's sizes for a tool, logical px: widths, font sizes or cells.
 QList<int> sizePresets(Kind kind);
+// The brush redaction's widths, logical px.
+QList<int> brushWidths();
 // Logical px to image px on a screen of scale `dpr` (3.4: 2 / 4 / 7 at 150 %
 // are 3 / 6 / 11), never under 1; and back, as the panel shows a width.
 int toImagePx(int logical, qreal dpr);
@@ -41,7 +43,7 @@ int toLogicalPx(int image, qreal dpr);
 // What each tool remembers, kept in [Capture] AnnotateStyles as JSON:
 // {"version": 1, "rect": {"color": "#E53935", "width": 4, "fill": "none"},
 //  "text": {"color": "#E53935", "size": 18, "bold": false, "boxed": false},
-//  "redact": {"mode": "mosaic", "cell": 12, "color": "#212121"}, ...}
+//  "redact": {"mode": "mosaic", "cell": 12, "shape": "brush", "width": 24, "color": "#212121"}, ...}
 // Only tools changed from their defaults are written, so a later change of
 // a default reaches everyone who never changed that tool.
 class StyleMemory {
@@ -55,6 +57,7 @@ public:
         bool bold = false;
         bool boxed = false;
         RedactMode mode = RedactMode::Mosaic;
+        RedactShape shape = RedactShape::Box; // Redact: along a box or along a stroke
         int cell = 12;
         NumberFormat format = NumberFormat::Arabic; // Number: the last format chosen
         bool operator==(const Tool&) const = default;

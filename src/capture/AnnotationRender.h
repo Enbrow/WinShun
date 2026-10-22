@@ -46,8 +46,10 @@ public:
     // redactions take their colours from (the selection in the overlay, the
     // whole base in the editor). `skip` is an item not drawn (the text being
     // edited); `unworded` is a Number drawn without its words (those being typed).
+    // `draft` is a brush redaction being drawn: shown as a mosaic, which is
+    // cheap, whatever its mode (the exported picture never has a draft).
     void render(const Document& doc, const QImage& base, const QRect& sampleBounds, const QRect& area, QImage* target,
-        std::optional<quint32> skip = {}, std::optional<quint32> unworded = {});
+        std::optional<quint32> skip = {}, std::optional<quint32> unworded = {}, std::optional<quint32> draft = {});
     // The document's crop (within the canvas; all of it when the crop is
     // empty) drawn as an opaque Format_RGB32 picture.
     QImage exportImage(const Document& doc, const QImage& base, const QRect& sampleBounds);
@@ -77,6 +79,9 @@ QImage coverageMask(const Document& doc, const QRect& sampleBounds);
 // (none: the mean of all readable pixels, else #808080), plus a brightness
 // noise of +-16 per cell from the item's seed. Blur: the same on a finer
 // grid (max(4, cell / 2)), bilinear in between, +-4 noise per pixel. Solid:
-// the style's colour. Smooth is drawn as Mosaic until stage 5.
+// the style's colour. Smooth: every pixel from the nearest readable ones, no
+// noise. A Brush redaction gives an ARGB32_Premultiplied picture of its box,
+// clear outside the stroke; the pixels of its box that the stroke does not
+// cover may be read.
 QImage redactionPatch(const QImage& base, const QRect& sampleBounds, const QImage& covered, const Item& item);
 }

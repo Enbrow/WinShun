@@ -46,7 +46,9 @@ Rectangle {
     readonly property bool showFill: p.fill !== undefined
     readonly property bool showSizes: p.sizes !== undefined
     readonly property bool showText: p.bold !== undefined
-    readonly property bool showCells: p.cells !== undefined && p.mode !== "solid"
+    readonly property bool showCells: p.cells !== undefined && p.mode !== "solid" && p.mode !== "smooth"
+    // The redaction's shape (box, or along a stroke) is the tool's, so it is not offered for a selected object.
+    readonly property bool showShape: redact && p.shape !== undefined && !showObject
     readonly property bool showNumber: p.start !== undefined
     readonly property bool showObject: p.selected === true
     readonly property bool inPalette: {
@@ -112,12 +114,29 @@ Rectangle {
         Row {
             visible: panel.redact
             Repeater {
-                model: [["mosaic", qsTr("马赛克")], ["blur", qsTr("模糊")], ["solid", qsTr("纯色")]]
+                model: [["mosaic", qsTr("马赛克"), ""], ["blur", qsTr("模糊"), ""], ["solid", qsTr("纯色"), ""],
+                    ["smooth", qsTr("抹平"), qsTr("用四周的底色盖住，像擦掉了一样")]]
                 delegate: WordButton {
                     required property var modelData
                     words: modelData[1]
+                    tip: modelData[2]
                     checked: panel.p.mode === modelData[0]
                     onClicked: panel.change({mode: modelData[0]})
+                }
+            }
+        }
+
+        Separator { visible: panel.showShape }
+        Row { // the next redaction: a box, or painted along the mouse
+            visible: panel.showShape
+            Repeater {
+                model: [["box", qsTr("框"), qsTr("拖出一个框来打码")], ["brush", qsTr("涂抹"), qsTr("沿着鼠标走过的地方打码")]]
+                delegate: WordButton {
+                    required property var modelData
+                    words: modelData[1]
+                    tip: modelData[2]
+                    checked: panel.p.shape === modelData[0]
+                    onClicked: panel.change({shape: modelData[0]})
                 }
             }
         }
@@ -209,7 +228,7 @@ Rectangle {
                     required property int modelData
                     readonly property int dot: panel.dots[Math.min(index, panel.dots.length - 1)]
                     checked: panel.p.width === modelData
-                    tip: qsTr("粗细 %1").arg(modelData)
+                    tip: panel.redact ? qsTr("笔宽 %1").arg(modelData) : qsTr("粗细 %1").arg(modelData)
                     tipKeys: "[  ]"
                     onClicked: panel.change({width: modelData})
 
@@ -396,6 +415,16 @@ Rectangle {
                     onClicked: panel.change({format: modelData[0]})
                 }
             }
+        }
+
+        Separator { visible: panel.redact }
+        WordButton { // every place in the text that should be hidden, in one go
+            visible: panel.redact
+            words: panel.annot && panel.annot.smartBusy ? qsTr("识别中…")
+                 : panel.annot && panel.annot.smartFound > 0 ? qsTr("智能打码 %1").arg(panel.annot.smartFound) : qsTr("智能打码")
+            tip: qsTr("找出图里的手机号、证件号、银行卡、邮箱、密钥和本机用户名，一次全部打码")
+            tipKeys: "Shift+B"
+            onClicked: panel.annot.smartRedact()
         }
 
         Separator { visible: panel.showObject }

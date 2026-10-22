@@ -315,6 +315,14 @@ Window {
             color: Theme.divider
         }
 
+        AnnotateSmartHint { // 智能打码's offer, in the style panel's place while no tool is on
+            annot: window.annotation
+            dpr: window.dpr
+            visible: !panel.visible && found > 0
+            x: window.margin
+            y: window.onPixel((strip.height - height) / 2)
+        }
+
         AnnotateStylePanel {
             id: panel
             x: window.margin

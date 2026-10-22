@@ -185,6 +185,7 @@ set(qml_files
     qml/CaptureOverlay.qml
     qml/AnnotateToolbar.qml
     qml/AnnotateStylePanel.qml
+    qml/AnnotateSmartHint.qml
     qml/AnnotateLayer.qml
     qml/AnnotateObjects.qml
     qml/EditWindow.qml

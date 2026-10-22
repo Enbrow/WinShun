@@ -1,6 +1,9 @@
 #pragma once
 
 #include <QImage>
+#include <QList>
+#include <QPair>
+#include <QPolygonF>
 #include <QString>
 #include <QStringList>
 
@@ -18,6 +21,18 @@ namespace ws {
 // Loaded by their full paths (an older onnxruntime.dll is in System32).
 // One object reads one picture at a time; its threads run below normal
 // priority. Letting it go gives back its memory (~40 MB while reading).
+// One line of text the reader found, where it stands, and where each
+// character is along it (smart redaction cuts a match out of a line by them).
+struct OcrPiece {
+    QPolygonF quad; // the line's four corners in the picture: top left, top right, bottom right, bottom left
+    QString text;
+    float score = 0;
+    // Each character read: its index in `text` (UTF-16) and where its middle
+    // is along the line, 0 (left end) to 1. Empty for a line standing up,
+    // and for a character the reading model gave no place.
+    QList<QPair<int, float>> chars;
+};
+
 class PaddleOcr {
 public:
     // The files are there (cheap: what to use, decided before loading).
@@ -31,9 +46,13 @@ public:
     // False when the recognition itself failed (`error`); a picture without
     // words is true with no lines.
     bool read(const QImage& image, QStringList* lines, QString* error = nullptr);
+    // The lines as found, each with its corners and its characters' places,
+    // in the picture's own pixels; the same reading as read(), in no order.
+    bool readPieces(const QImage& image, QList<OcrPiece>* pieces, QString* error = nullptr);
 
 private:
     PaddleOcr();
+    bool find(const QImage& image, QList<OcrPiece>* found, bool chars, QString* error);
     struct Impl;
     std::unique_ptr<Impl> d;
 };

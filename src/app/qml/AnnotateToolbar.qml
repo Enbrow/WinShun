@@ -41,6 +41,7 @@ Rectangle {
         "Ctrl+Y、Ctrl+Shift+Z", qsTr("重做"),
         "Delete、Backspace", qsTr("删除选中的对象"),
         "[  ]", qsTr("粗细、字号、格子小一档 / 大一档"),
+        "Shift+B", qsTr("智能打码：自动找出手机号、证件号、卡号、邮箱、密钥，一次全部打码"),
         "Ctrl+[  Ctrl+]", qsTr("下移一层 / 上移一层，加 Shift 到底 / 到顶"),
         qsTr("画的时候按住 Shift"), qsTr("正方形、正圆；线吸附 15°；画笔、荧光笔画直线"),
         qsTr("双击"), qsTr("文字：改文字；序号：改号，序号旁的字：改字"),

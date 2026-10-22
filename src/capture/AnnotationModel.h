@@ -5,6 +5,7 @@
 #include "AnnotationFormat.h"
 #include "AnnotationRender.h"
 #include "AnnotationStyles.h"
+#include "SmartRedact.h"
 
 #include <QImage>
 #include <QList>
@@ -78,6 +79,12 @@ class AnnotationModel : public QObject {
     // The eyedropper (I) is on: the next press takes the colour under it.
     Q_PROPERTY(bool picking READ picking NOTIFY pickingChanged FINAL)
     Q_PROPERTY(int selectedCount READ selectedCount NOTIFY selectionChanged FINAL)
+    // Smart redaction (4.1): how many places the last scan of the selection's
+    // text found that are not hidden yet; -1 while there is nothing to offer
+    // (no scan yet, one under way, nothing found, all hidden).
+    Q_PROPERTY(int smartFound READ smartFound NOTIFY smartChanged FINAL)
+    // A scan asked for by the button is under way.
+    Q_PROPERTY(bool smartBusy READ smartBusy NOTIFY smartChanged FINAL)
     // The crop's edge is being dragged.
     Q_PROPERTY(bool cropping READ cropping NOTIFY gestureChanged FINAL)
     Q_PROPERTY(bool gestureActive READ gestureActive NOTIFY gestureChanged FINAL)
@@ -132,10 +139,21 @@ public:
     std::optional<quint32> skipped() const;
     // The Number whose words are being typed: drawn without them (the text box shows them).
     std::optional<quint32> unworded() const;
+    // The brush redaction under the mouse (not yet let go): drawn as a mosaic meanwhile.
+    std::optional<quint32> draft() const;
     // The styles as they are now (the tools' remembered ones, including this
     // capture's changes); `stylesChanged()` tells whether any changed.
     const annot::StyleMemory& styles() const { return m_styles; }
     bool stylesChanged() const { return m_stylesChanged; }
+    // Smart redaction: how the text of the selection is read, the rules to
+    // find, and whether to scan on its own (SmartRedact.h). The scan starts
+    // 300 ms after the selection (the crop, in the editor) stops changing.
+    void setSmartHooks(SmartHooks hooks);
+    int smartFound() const;
+    bool smartBusy() const;
+    // 智能打码: every place found becomes a redaction, in the tool's remembered
+    // style, as one undo step. Reads the text first when that has not been done.
+    Q_INVOKABLE void smartRedact();
     // The composed picture of the selection (annot::Compositor::exportImage)
     // and the project that makes it editable again; both commit a text under
     // way first. Null / empty when there are no items. The editor's: the
@@ -298,6 +316,7 @@ signals:
     void cropChanged();
     void marqueeChanged();
     void pickingChanged();
+    void smartChanged();
     // A word for the user (the overlay shows it by the selection).
     void notice(const QString& text);
 
@@ -371,6 +390,11 @@ private:
     void push(std::unique_ptr<annot::Command> command);
     void touched(const annot::Change& change);
     void keepValid();
+    void smartSchedule();
+    void smartInvalidate();
+    void smartStart(bool apply);
+    void smartScanned(int ticket, const QImage& scanned, QList<RedactLine> lines);
+    const QList<RedactHit>& smartHits() const;
     void reset();
     void sync();
 
