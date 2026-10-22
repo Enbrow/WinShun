@@ -101,9 +101,10 @@ Window {
             id: flick
             anchors.fill: parent
             anchors.margins: 10
+            anchors.rightMargin: 14 // room for the scroll bar
             clip: true
             contentWidth: width
-            contentHeight: words.implicitHeight
+            contentHeight: words.height
             boundsBehavior: Flickable.StopAtBounds
             visible: !window.ocr.busy && window.ocr.message.length === 0
 
@@ -117,6 +118,7 @@ Window {
             TextEdit {
                 id: words
                 width: flick.width
+                height: Math.max(contentHeight, flick.height) // a click below short text still lands in it
                 textFormat: TextEdit.PlainText
                 wrapMode: TextEdit.Wrap
                 selectByMouse: true
@@ -126,8 +128,21 @@ Window {
                 selectedTextColor: Theme.text
                 font.pixelSize: Theme.uiBody
                 onCursorRectangleChanged: flick.ensureVisible(cursorRectangle)
-                Keys.onEscapePressed: window.ocr.close()
+                Keys.onEscapePressed: (event) => {
+                    if (words.inputMethodComposing) // Esc while composing belongs to the input method
+                        event.accepted = false
+                    else
+                        window.ocr.close()
+                }
             }
+        }
+
+        ListScrollBar {
+            flickable: flick
+            visible: flick.visible && flick.contentHeight > flick.height
+            anchors.right: parent.right
+            anchors.top: flick.top
+            anchors.bottom: flick.bottom
         }
 
         Text { // reading, or why there is nothing

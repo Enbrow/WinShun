@@ -350,6 +350,14 @@ Item {
         }
     }
 
+    Text { // nothing to show
+        anchors.centerIn: parent
+        visible: preview.kind < 0
+        text: qsTr("没有可预览的内容")
+        color: Theme.faint
+        font.pixelSize: Theme.uiBody
+    }
+
     ListScrollBar {
         flickable: flick
         anchors.right: parent.right

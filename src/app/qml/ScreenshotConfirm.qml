@@ -136,6 +136,7 @@ Window {
         }
         FlatButton {
             highlighted: true
+            keyboardActivation: false
             text: qsTr("允许")
             onClicked: window.answer(1)
         }

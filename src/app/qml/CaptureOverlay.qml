@@ -267,7 +267,7 @@ Window {
         visible: overlay.screenModel.cursorHere && overlay.screenModel.hasImage
         x: Math.round(place.x * overlay.dpr) / overlay.dpr
         y: Math.round(place.y * overlay.dpr) / overlay.dpr
-        width: loupe.width + 2
+        width: Math.max(loupe.width + 2, position.implicitWidth + 16 + 2) // the position line can be wider than the picture
         height: loupe.height + 2 + info.implicitHeight + 10
         color: Theme.background
         border.width: 1
@@ -315,6 +315,7 @@ Window {
             spacing: 2
 
             Text { // the screen pixel, in the virtual desktop's coordinates
+                id: position
                 text: qsTr("位置 %1, %2").arg(overlay.screenModel.cursor.x + overlay.screenModel.origin.x)
                                           .arg(overlay.screenModel.cursor.y + overlay.screenModel.origin.y)
                 color: Theme.text

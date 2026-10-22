@@ -140,8 +140,10 @@ Item {
                             tabs.nameCommitted(field.text.trim())
                             event.accepted = true
                         } else if (event.key === Qt.Key_Escape) {
-                            tabs.nameCancelled()
-                            event.accepted = true
+                            if (field.preeditText.length === 0) { // Esc while composing belongs to the input method
+                                tabs.nameCancelled()
+                                event.accepted = true
+                            }
                         } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
                             event.accepted = true // stays in the field
                         }
