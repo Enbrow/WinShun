@@ -6,7 +6,7 @@ import QtQuick
 // Ported from MacShun (Gleaning.swift). The content lives here and nothing is
 // fetched: the program does not go online.
 // To use the page in another program, change only `thisApp`, `works`,
-// `authorUrl` and `feedbackEmail`.
+// `authorUrl`, `feedbackEmail` and `thanks`.
 QtObject {
     readonly property string title: qsTr("拾穗计划")
 
@@ -16,6 +16,19 @@ QtObject {
     readonly property string authorUrl: ""
     // Where suggestions go; when empty, the feedback card says 还没有 and its button does nothing.
     readonly property string feedbackEmail: ""
+
+    // Sites that list this program, thanked at the foot of the page; [] shows nothing.
+    //   logo:  the site's own logo, drawn on a light plate
+    //   words: its slogan, one short line
+    //   url:   the site's page for this program
+    readonly property var thanks: [
+        {
+            name: qsTr("果核剥壳"),
+            logo: "qrc:/qt/qml/WinShun/gleaning/ghxi.png",
+            words: qsTr("互联网的净土"),
+            url: "https://www.ghxi.com/winshun.html"
+        }
+    ]
 
     // The work this program is: it gets the 正在使用 tag.
     readonly property string thisApp: "winshun"

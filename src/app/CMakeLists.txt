@@ -208,6 +208,7 @@ set(gleaning_images
     ${PROJECT_SOURCE_DIR}/resources/gleaning/avatar.png
     ${PROJECT_SOURCE_DIR}/resources/gleaning/winshun.png
     ${PROJECT_SOURCE_DIR}/resources/gleaning/macshun.png
+    ${PROJECT_SOURCE_DIR}/resources/gleaning/ghxi.png
     ${PROJECT_SOURCE_DIR}/resources/gleaning/ikun.mp3
 )
 foreach(file IN LISTS gleaning_images)

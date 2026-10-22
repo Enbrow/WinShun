@@ -185,6 +185,15 @@ Flickable {
             return (Math.round(deviceY) - deviceY + 0.02) / dpr
         }
     }
+    // A line further down in `bottom`, which Snapped puts on a device pixel:
+    // its offset from bottom's top rounded to whole device pixels too.
+    component SnappedInBottom: Translate {
+        required property real offset
+        y: {
+            const dpr = Screen.devicePixelRatio
+            return (Math.round(offset * dpr) - offset * dpr) / dpr
+        }
+    }
 
     Column {
         id: top
@@ -424,6 +433,12 @@ Flickable {
                     }
                 }
                 Text {
+                    // Nothing to copy without an address (the button says "还没有").
+                    visible: writeButton.usable
+                    // As wide as the longer of the two words, so the label
+                    // swapping to "已复制" does not shift the centred row.
+                    width: Math.max(copyShort.width, copyDone.width)
+                    horizontalAlignment: Text.AlignHCenter
                     anchors.verticalCenter: writeButton.verticalCenter
                     text: copyArea.copied ? qsTr("已复制") : qsTr("复制")
                     color: WarmPalette.ink
@@ -452,17 +467,113 @@ Flickable {
                             onTriggered: copyArea.copied = false
                         }
                     }
+                    TextMetrics {
+                        id: copyShort
+                        text: qsTr("复制")
+                        font.pixelSize: 13
+                        font.weight: Font.DemiBold
+                    }
+                    TextMetrics {
+                        id: copyDone
+                        text: qsTr("已复制")
+                        font.pixelSize: 13
+                        font.weight: Font.DemiBold
+                    }
                 }
             }
         }
 
-        Text {
+        Column {
+            id: foot
             width: parent.width
-            horizontalAlignment: Text.AlignHCenter
-            text: qsTr("“拾穗计划”的名字取自米勒的名画《拾穗者》")
-            color: WarmPalette.ink
-            opacity: 0.8
-            font.pixelSize: 13
+            spacing: 12
+
+            // Thanks to the sites that list the program: the site's logo on a
+            // light plate, the thanks and its slogan beside it; the whole row
+            // opens its page there.
+            Repeater {
+                model: Gleaning.thanks
+                delegate: Item {
+                    id: thanked
+
+                    required property var modelData
+                    readonly property string host: modelData.url.split("/")[2].replace(/^www\./, "")
+
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    implicitWidth: thanksRow.implicitWidth
+                    implicitHeight: thanksRow.implicitHeight
+                    transform: SnappedInBottom { offset: foot.y + thanked.y }
+
+                    Row {
+                        id: thanksRow
+                        spacing: 14
+
+                        Rectangle { // the logo has colours of its own, orange among them: never straight on the field
+                            width: 150
+                            height: 46
+                            radius: 10
+                            color: thanksArea.containsMouse ? "white" : Qt.rgba(1, 0.98, 0.95, 0.92)
+                            border.width: 1
+                            border.color: WarmPalette.iconStroke
+
+                            Image {
+                                anchors.fill: parent
+                                anchors.margins: 9
+                                source: thanked.modelData.logo
+                                sourceSize.width: Math.ceil(width * Screen.devicePixelRatio)
+                                sourceSize.height: Math.ceil(height * Screen.devicePixelRatio)
+                                fillMode: Image.PreserveAspectFit
+                                smooth: true
+                            }
+                        }
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 4
+
+                            Row {
+                                spacing: 6
+                                Text {
+                                    id: thanksTitle
+                                    text: qsTr("感谢%1收录推荐").arg(thanked.modelData.name)
+                                    color: WarmPalette.ink
+                                    font.pixelSize: Theme.fontBody
+                                    font.weight: Font.DemiBold
+                                    font.underline: thanksArea.containsMouse
+                                }
+                                Glyph {
+                                    anchors.verticalCenter: thanksTitle.verticalCenter
+                                    glyph: "" // OpenInNewWindow
+                                    size: 12
+                                    color: thanksArea.containsMouse ? WarmPalette.ink : WarmPalette.inkSoft
+                                }
+                            }
+                            Text {
+                                text: [thanked.modelData.words, thanked.host].join(" · ")
+                                color: WarmPalette.inkSoft
+                                font.pixelSize: Theme.fontCaption
+                            }
+                        }
+                    }
+                    MouseArea {
+                        id: thanksArea
+                        anchors.fill: parent
+                        anchors.margins: -4
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: page.editor.openUrl(thanked.modelData.url)
+                    }
+                }
+            }
+            Text {
+                id: footnote
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                transform: SnappedInBottom { offset: foot.y + footnote.y }
+                text: qsTr("“拾穗计划”的名字取自米勒的名画《拾穗者》")
+                color: WarmPalette.ink
+                opacity: 0.8
+                font.pixelSize: Theme.fontCaption
+            }
         }
     }
 }
