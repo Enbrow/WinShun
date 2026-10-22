@@ -4367,6 +4367,18 @@
         <translation>Install the index service…</translation>
     </message>
     <message>
+        <source>索引服务装在一个别的程序能改动的位置，有安全风险。点“修复”把它移到受保护的位置（需要管理员权限一次）</source>
+        <translation>The index service is installed in a folder that another program could change, which is a security risk. Click Repair to move it to a protected folder (asks for administrator rights once).</translation>
+    </message>
+    <message>
+        <source>索引服务装在一个别的程序能改动的位置，有安全风险。请让管理员打开 Win顺 的设置，点“修复”。</source>
+        <translation>The index service is installed in a folder that another program could change, which is a security risk. Ask an administrator to open WinShun&apos;s settings and click Repair.</translation>
+    </message>
+    <message>
+        <source>修复</source>
+        <translation>Repair</translation>
+    </message>
+    <message>
         <source>卸载索引服务</source>
         <translation>Uninstall the index service</translation>
     </message>

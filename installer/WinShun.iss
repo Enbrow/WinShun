@@ -245,6 +245,33 @@ begin
     DeleteAtRestart(Folder);
 end;
 
+// A portable copy's index service puts its executable in
+// %ProgramFiles%\WinShun Service (WinShunService.exe --install, so a SYSTEM
+// service cannot be registered from a user-writable folder). Installing for
+// all users re-registers the one machine service "WinShun" to
+// {app}\WinShunService.exe ([Run] --install), so that portable copy there is
+// now stale and unregistered; remove it (admin only — it is admin-writable).
+// Not when the service runs from there: installed into a folder ordinary
+// users may change (a custom {app} on D:\, say), [Run] --install put its own
+// copy there instead. Never under {app}, so uninstalling does not take it;
+// done here, not in --uninstall, because the installed service keeps its own
+// {app} copy (and --uninstall removes the folder when it ran from it).
+procedure RemoveServiceFolder();
+var
+  Folder, ImagePath: String;
+begin
+  if not IsAdminInstallMode then
+    exit;
+  Folder := ExpandConstant('{commonpf}\WinShun Service');
+  if not DirExists(Folder) then
+    exit;
+  if RegQueryStringValue(HKLM, 'SYSTEM\CurrentControlSet\Services\WinShun', 'ImagePath', ImagePath) and
+     (Pos(Lowercase(AddBackslash(Folder)), Lowercase(ImagePath)) > 0) then
+    exit;
+  if not DelTree(Folder, True, True, True) then
+    DeleteAtRestart(Folder);
+end;
+
 // Started in the tray as the files were in place ([Run]); "run Win顺" left
 // unticked on the last page, it goes again. A silent install leaves it
 // running, as it was before an update.
@@ -255,6 +282,10 @@ begin
   // The new files in place (an update that failed keeps the old version's copies).
   if CurStep = ssPostInstall then
     RemoveTapCopies();
+  // After [Run] re-registered the service from {app}: a portable copy's old
+  // service folder is now stale.
+  if CurStep = ssDone then
+    RemoveServiceFolder();
   if (CurStep = ssDone) and not WizardSilent() and
      ((WizardForm.RunList.Items.Count = 0) or not WizardForm.RunList.Checked[0]) then
     Exec(ExpandConstant('{app}\{#AppExe}'), '--quit', '', SW_HIDE, ewNoWait, ResultCode);

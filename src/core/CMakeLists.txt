@@ -37,6 +37,7 @@ qt_add_library(wscore STATIC
     Release.cpp Release.h
     SearchEngine.cpp SearchEngine.h
     SearchTypes.h
+    ServiceLocation.cpp ServiceLocation.h
     ServiceVolumeAccess.cpp ServiceVolumeAccess.h
     SettingsMatch.cpp SettingsMatch.h
     ShareIndexer.cpp ShareIndexer.h

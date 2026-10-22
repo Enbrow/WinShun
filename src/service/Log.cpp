@@ -1,5 +1,7 @@
 #include "Log.h"
 
+#include "ServiceLocation.h"
+
 #include <windows.h>
 
 #include <cstdarg>
@@ -49,6 +51,11 @@ void toConsole()
     g_console = true;
 }
 
+void secureFolder()
+{
+    svcloc::secureLogFolder(folder());
+}
+
 void write(const wchar_t* format, ...)
 {
     std::vector<wchar_t> text(1024);
@@ -65,7 +72,13 @@ void write(const wchar_t* format, ...)
         return;
     }
     const std::wstring dir = folder();
-    ::CreateDirectoryW(dir.c_str(), nullptr);
+    // %ProgramData%\WinShun: ordinary users may add folders to ProgramData, so
+    // make our folder writable only by administrators / SYSTEM (secureFolder
+    // fixes a weak one left by an older version), and never follow a reparse
+    // point for the log file, so a planted junction cannot redirect a SYSTEM
+    // write to another file.
+    if (!svcloc::createProtectedDir(dir))
+        return;
     const std::wstring path = dir + L"\\service.log";
     WIN32_FILE_ATTRIBUTE_DATA info {};
     if (::GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &info)
@@ -76,7 +89,7 @@ void write(const wchar_t* format, ...)
             return; // a reader may deny rename: never keep appending beyond the cap
     }
     const HANDLE file = ::CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     if (file == INVALID_HANDLE_VALUE)
         return;
     DWORD written = 0;

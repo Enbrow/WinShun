@@ -29,6 +29,7 @@
 #include "Release.h"
 #include "SearchEngine.h"
 #include "SearchTyping.h"
+#include "ServiceLocation.h"
 #include "ServiceVolumeAccess.h"
 #include "SettingsMatch.h"
 #include "ShareIndexer.h"
@@ -58,6 +59,7 @@
 #include <QTest>
 
 #include <windows.h>
+#include <sddl.h>
 #include <winioctl.h>
 
 #include <algorithm>
@@ -9693,6 +9695,91 @@ private slots:
         QVERIFY(autostart::runCommandProgram(L"").empty());
         QVERIFY(autostart::runCommandProgram(L"   ").empty());
         QVERIFY(!autostart::runCommandStarts(L"", exe));
+    }
+
+    // The index service must be registered from a place only administrators
+    // can write to; svcloc judges that from a security descriptor. The owner
+    // and DACL cases below are the heart of the local privilege-escalation fix.
+    void protectedLocationJudgment()
+    {
+        // A security descriptor built from SDDL, judged in one of the three
+        // roles. unsafe = a non-admin could change it (Object) / plant a file
+        // beside the exe (Parent) / replace the child in it (Parent, Ancestor).
+        const auto unsafe = [](const wchar_t* sddl, svcloc::Role role) -> bool {
+            PSECURITY_DESCRIPTOR sd = nullptr;
+            [&] { QVERIFY2(::ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, SDDL_REVISION_1, &sd, nullptr),
+                      "bad test SDDL"); }();
+            PSID owner = nullptr;
+            PACL dacl = nullptr;
+            BOOL ownerDefaulted = FALSE, present = FALSE, defaulted = FALSE;
+            ::GetSecurityDescriptorOwner(sd, &owner, &ownerDefaulted);
+            ::GetSecurityDescriptorDacl(sd, &present, &dacl, &defaulted);
+            const bool verdict = svcloc::writableByNonAdmin(owner, dacl, role);
+            ::LocalFree(sd);
+            return verdict;
+        };
+        using svcloc::Role;
+
+        // Only SYSTEM / Administrators have rights, users may read: safe.
+        QVERIFY(!unsafe(L"O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1200a9;;;BU)", Role::Object));
+        QVERIFY(!unsafe(L"O:BAD:P(A;;FR;;;BU)(A;;FA;;;SY)(A;;FA;;;BA)", Role::Object));
+        QVERIFY(!unsafe(L"O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)", Role::Object)); // empty-ish DACL, admin owner
+        // Users or Authenticated Users can write / modify: unsafe.
+        QVERIFY(unsafe(L"O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1301bf;;;BU)", Role::Object)); // Modify
+        QVERIFY(unsafe(L"O:BAD:P(A;;FA;;;SY)(A;;FA;;;AU)", Role::Object));
+        QVERIFY(unsafe(L"O:BAD:P(A;;FA;;;SY)(A;;FW;;;WD)", Role::Object)); // Everyone, write
+        QVERIFY(unsafe(L"O:BAD:P(A;;FA;;;SY)(A;;FA;;;CO)", Role::Object)); // CREATOR OWNER
+        // A non-administrator owner can rewrite the DACL: unsafe, either role.
+        QVERIFY(unsafe(L"O:S-1-5-21-1-2-3-1001D:P(A;;FA;;;SY)(A;;FA;;;BA)", Role::Object));
+        QVERIFY(unsafe(L"O:S-1-5-21-1-2-3-1001D:P(A;;FA;;;SY)(A;;FA;;;BA)", Role::Ancestor));
+        // Deny aces do not grant; inherit-only aces do not apply here: safe.
+        QVERIFY(!unsafe(L"O:BAD:P(D;;FA;;;BU)(A;;FA;;;SY)(A;;FA;;;BA)", Role::Object));
+        QVERIFY(!unsafe(L"O:BAD:P(A;OICIIO;FA;;;WD)(A;;FA;;;SY)(A;;FA;;;BA)", Role::Object));
+        // The default C:\ : users may create a *folder* (0x4) but not delete a
+        // child. As an ancestor it is safe (or every path would be unsafe); as
+        // an object (a folder that is itself the exe's folder) it is not.
+        const wchar_t* rootLike
+            = L"O:SYD:P(A;OICIIO;GA;;;CO)(A;OICI;GA;;;SY)(A;OICI;GA;;;BA)(A;OICI;0x1200a9;;;BU)(A;CI;0x000004;;;AU)";
+        QVERIFY(!unsafe(rootLike, Role::Ancestor));
+        QVERIFY(unsafe(rootLike, Role::Object));
+        // The exe's own folder must not let anyone else add a file (a DLL the
+        // loader would take before System32's) or a folder: the C:\ above,
+        // or a ProgramData-like folder (users may add files and folders, but
+        // not delete others'), is fine further up, not as the exe's folder.
+        QVERIFY(unsafe(rootLike, Role::Parent));
+        const wchar_t* programDataLike = L"O:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICIIO;GA;;;CO)"
+                                         L"(A;OICI;0x1200a9;;;BU)(A;CI;0x116;;;BU)";
+        QVERIFY(!unsafe(programDataLike, Role::Ancestor));
+        QVERIFY(unsafe(programDataLike, Role::Parent));
+        QVERIFY(unsafe(L"O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1200a9;;;BU)(A;;0x2;;;BU)", Role::Parent)); // add a file
+        QVERIFY(!unsafe(L"O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1200a9;;;BU)", Role::Parent)); // read/run only
+        QVERIFY(unsafe(L"O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x10000;;;BU)", Role::Parent)); // delete it
+        QVERIFY(unsafe(L"O:S-1-5-21-1-2-3-1001D:P(A;;FA;;;SY)(A;;FA;;;BA)", Role::Parent));
+
+        // A NULL DACL grants everyone everything, even with an admin owner.
+        BYTE adminSid[SECURITY_MAX_SID_SIZE] {};
+        DWORD adminSize = sizeof adminSid;
+        QVERIFY(::CreateWellKnownSid(WinBuiltinAdministratorsSid, nullptr, adminSid, &adminSize));
+        QVERIFY(svcloc::writableByNonAdmin(adminSid, nullptr, Role::Object));
+
+        // On a real machine: a genuine Windows file is protected (this is the
+        // end-to-end check that the folder and ancestor walk is not
+        // over-strict); a file in the user's temp is not.
+        QVERIFY(svcloc::pathProtected(LR"(C:\Windows\System32\cmd.exe)"));
+        QVERIFY(svcloc::folderProtected(LR"(C:\Windows\System32)"));
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const QString file = temp.filePath(u"x.txt"_s);
+        QVERIFY(QFile(file).open(QIODevice::WriteOnly));
+        QVERIFY(!svcloc::pathProtected(QDir::toNativeSeparators(file).toStdWString()));
+        QVERIFY(!svcloc::folderProtected(QDir::toNativeSeparators(temp.path()).toStdWString()));
+
+        // The dedicated folder, and the parent test.
+        const std::wstring dir = svcloc::protectedServiceDir();
+        QVERIFY(dir.ends_with(L"\\WinShun Service"));
+        QVERIFY(svcloc::parentIs(dir + L"\\WinShunService.exe", dir));
+        QVERIFY(svcloc::parentIs(dir + L"\\winshunservice.exe", dir)); // paths ignore case
+        QVERIFY(!svcloc::parentIs(dir + L"\\sub\\WinShunService.exe", dir));
     }
 };
 

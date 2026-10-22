@@ -15,10 +15,11 @@ add_executable(WinShunService
     Volumes.cpp
     ${PROJECT_SOURCE_DIR}/src/core/Ntfs.cpp
     ${PROJECT_SOURCE_DIR}/src/core/NtfsBulk.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/ServiceLocation.cpp
     ${PROJECT_SOURCE_DIR}/src/core/VolumeProtocol.cpp
     ${PROJECT_SOURCE_DIR}/resources/WinShunService.rc)
 target_include_directories(WinShunService PRIVATE ${PROJECT_SOURCE_DIR}/src/core ${PROJECT_SOURCE_DIR}/src/app/platform)
-target_link_libraries(WinShunService PRIVATE winshun_options advapi32 user32 wtsapi32)
+target_link_libraries(WinShunService PRIVATE winshun_options advapi32 ole32 shell32 user32 wtsapi32)
 set_target_properties(WinShunService PROPERTIES AUTOMOC OFF MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 install(TARGETS WinShunService RUNTIME DESTINATION .)

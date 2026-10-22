@@ -55,6 +55,16 @@ public:
     static std::optional<ServiceState> forcedState(std::wstring_view value) noexcept;
     // Short English name (diagnostics): not_installed, disabled, stopped ...
     static const char* stateName(ServiceState state) noexcept;
+    // The executable the SCM runs the service from, unquoted; empty if it is
+    // not installed or its configuration cannot be read (QueryServiceConfig is
+    // open to any user).
+    static std::wstring imagePath();
+    // True when the service is installed and its registered executable sits
+    // where a non-administrator could replace it (an older portable copy that
+    // registered the service from a user-writable folder): a local
+    // privilege-escalation risk the settings offer to repair. False when the
+    // service is not installed, or its location is protected.
+    static bool registeredInUnsafeLocation();
 
     // Connects and shakes hands once: whether the service is there and
     // speaks our protocol. serviceVersion() and lastError() say more.

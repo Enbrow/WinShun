@@ -9,6 +9,10 @@
 namespace ws::service::log {
 
 void toConsole(); // --console: lines go to stderr instead of the file
+// Make %ProgramData%\WinShun writable only by administrators / SYSTEM, once,
+// where there are the rights to (at --install and at service start): an older
+// version let it inherit ProgramData's user-writable ACL. Harmless otherwise.
+void secureFolder();
 void write(const wchar_t* format, ...);
 // Start and stop failures go to the Windows event log too (source "WinShun").
 void toEventLog(const std::wstring& message);

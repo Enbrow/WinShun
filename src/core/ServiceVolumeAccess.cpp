@@ -1,5 +1,6 @@
 #include "ServiceVolumeAccess.h"
 
+#include "ServiceLocation.h"
 #include "VolumeProtocol.h"
 
 #include <QtGlobal>
@@ -630,6 +631,41 @@ ServiceState ServiceVolumeAccess::state()
     ::CloseServiceHandle(service);
     ::CloseServiceHandle(manager);
     return classify(0, startType, haveStatus ? status.dwCurrentState : 0);
+}
+
+std::wstring ServiceVolumeAccess::imagePath()
+{
+    const SC_HANDLE manager = ::OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (!manager)
+        return {};
+    const SC_HANDLE service = ::OpenServiceW(manager, kServiceName, SERVICE_QUERY_CONFIG);
+    if (!service) {
+        ::CloseServiceHandle(manager);
+        return {};
+    }
+    std::wstring path;
+    DWORD needed = 0;
+    ::QueryServiceConfigW(service, nullptr, 0, &needed);
+    if (needed > 0 && ::GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+        std::vector<std::byte> buffer(needed);
+        auto* config = reinterpret_cast<QUERY_SERVICE_CONFIGW*>(buffer.data());
+        if (::QueryServiceConfigW(service, config, needed, &needed) && config->lpBinaryPathName) {
+            path = config->lpBinaryPathName;
+            if (path.size() >= 2 && path.front() == L'"') { // "C:\...\WinShunService.exe"
+                const std::size_t close = path.find(L'"', 1);
+                path = close != std::wstring::npos ? path.substr(1, close - 1) : path.substr(1);
+            }
+        }
+    }
+    ::CloseServiceHandle(service);
+    ::CloseServiceHandle(manager);
+    return path;
+}
+
+bool ServiceVolumeAccess::registeredInUnsafeLocation()
+{
+    const std::wstring path = imagePath();
+    return !path.empty() && !svcloc::pathProtected(path);
 }
 
 bool ServiceVolumeAccess::probe()

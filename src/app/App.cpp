@@ -4084,6 +4084,11 @@ void App::refreshIndexAccess()
     state.serviceInstalled = ntfs::ServiceVolumeAccess::installed();
     state.serviceState = QString::fromLatin1(ntfs::ServiceVolumeAccess::stateName(m_serviceState));
     state.serviceInstallable = state.administrator;
+    // An older portable copy may have registered the service from a
+    // user-writable folder, where a non-administrator could replace it and run
+    // as SYSTEM (a local privilege escalation). The settings offer to repair it
+    // (reinstall, which now copies into a protected folder).
+    state.serviceUnsafeLocation = state.serviceInstalled && ntfs::ServiceVolumeAccess::registeredInUnsafeLocation();
     state.serviceBusy = m_serviceBusy;
     state.serviceMessage = m_serviceMessage;
     switch (kind) {

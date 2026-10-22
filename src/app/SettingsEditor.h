@@ -122,6 +122,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool indexServiceBusy READ indexServiceBusy NOTIFY indexAccessStateChanged FINAL)
     Q_PROPERTY(QString indexServiceState READ indexServiceState NOTIFY indexAccessStateChanged FINAL)
     Q_PROPERTY(bool indexServiceInstallable READ indexServiceInstallable NOTIFY indexAccessStateChanged FINAL)
+    Q_PROPERTY(bool indexServiceUnsafeLocation READ indexServiceUnsafeLocation NOTIFY indexAccessStateChanged FINAL)
     Q_PROPERTY(QString indexServiceMessage READ indexServiceMessage NOTIFY indexAccessStateChanged FINAL)
     // 索引哪些地方 (Settings::indexScope, GitHub #52): auto | drives | folders,
     // and, as the app has it (setIndexAccessState): only the chosen folders
@@ -401,6 +402,7 @@ public:
         bool serviceInstalled = false;
         QString serviceState; // the SCM's word: not_installed | disabled | stopped | starting | running | unknown
         bool serviceInstallable = false; // the account can install it (an administrator's); else it is not offered (GitHub #52)
+        bool serviceUnsafeLocation = false; // installed from a user-writable folder (an old portable copy): offer to repair
         bool serviceBusy = false; // --install / --uninstall running
         QString serviceMessage; // how the last install or uninstall went
         bool foldersInEffect = false; // only the chosen folders are indexed (App::foldersInEffect)
@@ -419,6 +421,7 @@ public:
     bool indexServiceBusy() const { return m_indexAccessState.serviceBusy; }
     QString indexServiceState() const { return m_indexAccessState.serviceState; }
     bool indexServiceInstallable() const { return m_indexAccessState.serviceInstallable; }
+    bool indexServiceUnsafeLocation() const { return m_indexAccessState.serviceUnsafeLocation; }
     QString indexServiceMessage() const { return m_indexAccessState.serviceMessage; }
     // The app restarts Win顺 as administrator (UAC asks once), installs or
     // uninstalls the index service (WinShunService.exe, elevated, UAC once).

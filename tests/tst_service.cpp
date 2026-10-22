@@ -9,6 +9,7 @@
 #include "IndexFolder.h"
 #include "IndexService.h"
 #include "Ntfs.h"
+#include "ServiceLocation.h"
 #include "ServiceVolumeAccess.h"
 #include "Snapshot.h"
 #include "VolumeProtocol.h"
@@ -16,8 +17,10 @@
 
 #include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QFileInfo>
 #include <QProcess>
+#include <QScopeGuard>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTest>
@@ -1030,6 +1033,75 @@ private slots:
         QVERIFY(!session->fetch(tickets, [](std::uint32_t, std::vector<std::byte>&&) {}));
         QVERIFY2(QString::fromStdWString(session->error()).contains(u"let go"),
             qPrintable(QString::fromStdWString(session->error())));
+    }
+
+    // Registering the service from a user-writable folder is a local
+    // privilege escalation (a portable copy could be replaced and run as
+    // SYSTEM), so --install first copies itself into a protected folder. This
+    // checks that copy machinery on a real protected folder (a throwaway one
+    // under Program Files, never the real "WinShun Service", never the SCM).
+    void placingInAProtectedFolder()
+    {
+        // The built service exe sits in the build tree (user-writable): the
+        // very location --install must refuse to register from.
+        QVERIFY(!svcloc::pathProtected(m_exe.toStdWString()));
+
+        // A protected folder cannot live under a user-writable parent: refused.
+        QTemporaryDir under; // in %TEMP%, which the user can write
+        QVERIFY(under.isValid());
+        std::wstring error;
+        QVERIFY(!svcloc::ensureProtectedDir(QDir::toNativeSeparators(under.filePath(u"svc"_s)).toStdWString(), &error));
+        QVERIFY(!error.empty());
+
+        // A throwaway folder under Program Files (protected ancestors).
+        std::wstring programFiles = svcloc::protectedServiceDir();
+        QVERIFY(!programFiles.empty());
+        programFiles.resize(programFiles.size() - std::wstring(L"\\WinShun Service").size());
+        const std::wstring dir = programFiles + L"\\WinShunServiceTest-" + std::to_wstring(::GetCurrentProcessId());
+        const auto cleanup = qScopeGuard([&] {
+            ::DeleteFileW((dir + L"\\copy.exe").c_str());
+            ::DeleteFileW((dir + L"\\copy.exe.new").c_str());
+            ::RemoveDirectoryW(dir.c_str());
+        });
+        QVERIFY2(svcloc::ensureProtectedDir(dir, &error), qPrintable(QString::fromStdWString(error)));
+        QVERIFY(svcloc::folderProtected(dir)); // the folder and all its ancestors
+        // It already exists now: ensureProtectedDir verifies and accepts it.
+        QVERIFY(svcloc::ensureProtectedDir(dir, &error));
+
+        std::wstring dest;
+        QVERIFY2(svcloc::copyExeInto(dir, L"copy.exe", m_exe.toStdWString(), &dest, &error),
+            qPrintable(QString::fromStdWString(error)));
+        QCOMPARE(dest, dir + L"\\copy.exe");
+        QVERIFY(svcloc::pathProtected(dest)); // a non-admin cannot replace the copy
+        {
+            QFile source(m_exe), copied(QString::fromStdWString(dest));
+            QVERIFY(source.open(QIODevice::ReadOnly) && copied.open(QIODevice::ReadOnly));
+            QCOMPARE(copied.readAll(), source.readAll()); // byte for byte
+        } // closed: an open handle (no FILE_SHARE_DELETE) would block the replace below
+        // Replacing an existing copy (an upgrade, the service stopped) works too.
+        QVERIFY2(svcloc::copyExeInto(dir, L"copy.exe", m_exe.toStdWString(), &dest, &error),
+            qPrintable(QString::fromStdWString(error)));
+        QVERIFY(svcloc::pathProtected(dest));
+
+        // Let users add files to the folder, and nothing more: the copy itself
+        // keeps its safe DACL, but a DLL planted beside it would be loaded by
+        // a SYSTEM service before System32's, so the copy is no longer
+        // protected (because of its folder) and the folder is refused.
+        PSECURITY_DESCRIPTOR weak = nullptr;
+        QVERIFY(::ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            L"D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)(A;;0x2;;;BU)", SDDL_REVISION_1, &weak, nullptr));
+        BOOL present = FALSE, defaulted = FALSE;
+        PACL weakDacl = nullptr;
+        ::GetSecurityDescriptorDacl(weak, &present, &weakDacl, &defaulted);
+        const DWORD set = ::SetNamedSecurityInfoW(const_cast<wchar_t*>(dir.c_str()), SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, nullptr, nullptr, weakDacl, nullptr);
+        ::LocalFree(weak);
+        QCOMPARE(set, DWORD(ERROR_SUCCESS));
+        std::wstring why;
+        QVERIFY(!svcloc::pathProtected(dest, &why));
+        QCOMPARE(QString::fromStdWString(why), QString::fromStdWString(dir)); // the folder, not the file
+        QVERIFY(!svcloc::folderProtected(dir));
+        QVERIFY(!svcloc::ensureProtectedDir(dir, &error));
     }
 };
 

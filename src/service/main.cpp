@@ -35,6 +35,7 @@
 #include "Log.h"
 #include "InputListener.h"
 #include "Server.h"
+#include "ServiceLocation.h"
 #include "VolumeProtocol.h"
 
 #include <windows.h>
@@ -138,7 +139,25 @@ void WINAPI serviceMain(DWORD, wchar_t**)
         return;
     }
     g_stopEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    ws::service::log::secureFolder(); // lock down %ProgramData%\WinShun before the first line
     ws::service::log::write(L"starting, version %hs", WINSHUN_VERSION);
+    // An older portable copy may have registered the service from a
+    // user-writable folder (a copy of WinShun run from Downloads, Desktop,
+    // D:\tools...). Then a program with the user's normal rights could replace
+    // this executable and have it run as SYSTEM at the next start. We do not
+    // refuse to serve (that would only slow the user's search, and an
+    // attacker's replacement would not check either), but we say so, loudly:
+    // the settings offer a one-click "repair" that reinstalls into a protected
+    // folder (installIndexService -> --install, which moves the copy).
+    if (std::wstring why; !ws::svcloc::pathProtected(ownPath(), &why)) {
+        ws::service::log::write(L"warning: this service runs from an unprotected location (%ls); it could be "
+                                L"replaced by a non-administrator. Reinstall it from Win顺's settings to move it.",
+            why.c_str());
+        ws::service::log::toEventLog(L"The Win顺 (WinShun) index service is installed in a folder that "
+                                     L"non-administrators can change (" + why
+            + L"), which is a security risk. Reinstall it from Win顺's settings (搜索范围 → 文件夹) to move it to a "
+              L"protected folder.");
+    }
     // RUNNING only once the pipe is there; the start takes milliseconds.
     const DWORD error = serve(ws::volproto::kPipeName, g_stopEvent, g_statusHandle, DEVICE_NOTIFY_SERVICE_HANDLE,
         [] { report(SERVICE_RUNNING); });
@@ -241,9 +260,53 @@ bool waitForState(SC_HANDLE service, DWORD state, DWORD limitMs)
     }
 }
 
-int install()
+// Stops the service by name and waits for it to stop, so its executable can be
+// replaced. Harmless when it is not installed or already stopped.
+void stopServiceByName()
 {
-    const std::wstring path = L"\"" + ownPath() + L"\"";
+    ScHandle manager {::OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT)};
+    if (!manager.value)
+        return;
+    ScHandle service {::OpenServiceW(manager.value, ws::volproto::kServiceName, SERVICE_STOP | SERVICE_QUERY_STATUS)};
+    if (!service.value)
+        return;
+    SERVICE_STATUS status {};
+    if (::ControlService(service.value, SERVICE_CONTROL_STOP, &status) || ::GetLastError() == ERROR_SERVICE_NOT_ACTIVE)
+        waitForState(service.value, SERVICE_STOPPED, 15'000);
+}
+
+// The executable path the SCM runs the service from, unquoted; empty when it
+// is not installed or its configuration cannot be read. QueryServiceConfig is
+// open to any user, which is how the settings judge the location as well.
+std::wstring registeredImagePath()
+{
+    ScHandle manager {::OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT)};
+    if (!manager.value)
+        return {};
+    ScHandle service {::OpenServiceW(manager.value, ws::volproto::kServiceName, SERVICE_QUERY_CONFIG)};
+    if (!service.value)
+        return {};
+    DWORD needed = 0;
+    ::QueryServiceConfigW(service.value, nullptr, 0, &needed);
+    if (needed == 0 || ::GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+        return {};
+    std::vector<std::byte> buffer(needed);
+    auto* config = reinterpret_cast<QUERY_SERVICE_CONFIGW*>(buffer.data());
+    if (!::QueryServiceConfigW(service.value, config, needed, &needed) || !config->lpBinaryPathName)
+        return {};
+    std::wstring path = config->lpBinaryPathName;
+    if (path.size() >= 2 && path.front() == L'"') { // registered as "C:\...\WinShunService.exe"
+        const std::size_t close = path.find(L'"', 1);
+        path = close != std::wstring::npos ? path.substr(1, close - 1) : path.substr(1);
+    }
+    return path;
+}
+
+// Registers (or re-points and reconfigures, if it already exists) the service
+// to run `exePath`, and starts it. `exePath` is the final, protected location.
+int registerService(const std::wstring& exePath)
+{
+    const std::wstring path = L"\"" + exePath + L"\"";
     ScHandle manager {::OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE | SC_MANAGER_CONNECT)};
     if (!manager.value)
         return fail(L"OpenSCManager");
@@ -302,8 +365,48 @@ int install()
     return 0;
 }
 
+int install()
+{
+    const std::wstring own = ownPath();
+    if (own.empty())
+        return fail(L"GetModuleFileName");
+    ws::service::log::secureFolder(); // with full rights now: fix a weak log folder left by an older version
+    // Already somewhere only administrators / SYSTEM can write (the Program
+    // Files install, run by the installer): register it where it is.
+    if (std::wstring why; ws::svcloc::pathProtected(own, &why))
+        return registerService(own);
+    // A portable copy, in a user-writable folder (Downloads, Desktop,
+    // D:\tools...): copy it into the protected folder and register that copy,
+    // or a program with the user's normal rights could replace this SYSTEM
+    // service's executable and run as SYSTEM at the next start.
+    const std::wstring dir = ws::svcloc::protectedServiceDir();
+    if (dir.empty()) {
+        std::fwprintf(stderr, L"could not locate Program Files\n");
+        return static_cast<int>(ERROR_PATH_NOT_FOUND);
+    }
+    std::wstring error;
+    if (!ws::svcloc::ensureProtectedDir(dir, &error)) {
+        std::fwprintf(stderr, L"the protected folder is not usable: %ls\n", error.c_str());
+        return static_cast<int>(ERROR_ACCESS_DENIED);
+    }
+    // Stop a copy a previous portable install registered here, so its file can
+    // be replaced; then put this one in place and register it.
+    stopServiceByName();
+    std::wstring placed;
+    if (!ws::svcloc::copyExeInto(dir, L"WinShunService.exe", own, &placed, &error)) {
+        std::fwprintf(stderr, L"could not place the service in %ls: %ls\n", dir.c_str(), error.c_str());
+        return static_cast<int>(ERROR_ACCESS_DENIED);
+    }
+    std::fwprintf(stdout, L"copied the service to %ls\n", placed.c_str());
+    return registerService(placed);
+}
+
 int uninstall()
 {
+    // Where the service runs from, before it is removed: a copy this code
+    // placed in the protected folder is deleted with it; the installer's {app}
+    // copy (or any other) is left to whoever put it there.
+    const std::wstring imagePath = registeredImagePath();
     ScHandle manager {::OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT)};
     if (!manager.value)
         return fail(L"OpenSCManager");
@@ -319,6 +422,15 @@ int uninstall()
         waitForState(service.value, SERVICE_STOPPED, 15'000);
     if (!::DeleteService(service.value) && ::GetLastError() != ERROR_SERVICE_MARKED_FOR_DELETE)
         return fail(L"DeleteService");
+    // Our placed copy and its folder (only when the service ran from there);
+    // if the file is still held, it goes at the next restart.
+    if (const std::wstring dir = ws::svcloc::protectedServiceDir();
+        !dir.empty() && ws::svcloc::parentIs(imagePath, dir)) {
+        if (!::DeleteFileW(imagePath.c_str()) && ::GetLastError() != ERROR_FILE_NOT_FOUND)
+            ::MoveFileExW(imagePath.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
+        if (!::RemoveDirectoryW(dir.c_str()))
+            ::MoveFileExW(dir.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
+    }
     std::fwprintf(stdout, L"removed\n");
     return 0;
 }

@@ -2394,7 +2394,11 @@ Window {
                     shown: window.editor.isPortable
                     title: qsTr("便携版的索引服务")
                     keywords: qsTr("便携;安装服务;卸载服务;索引服务;没有管理员权限;装不了;portable;service").split(";")
-                    description: !window.editor.indexServiceInstallable
+                    description: window.editor.indexServiceInstalled && window.editor.indexServiceUnsafeLocation
+                                 ? (window.editor.indexServiceInstallable
+                                    ? qsTr("索引服务装在一个别的程序能改动的位置，有安全风险。点“修复”把它移到受保护的位置（需要管理员权限一次）")
+                                    : qsTr("索引服务装在一个别的程序能改动的位置，有安全风险。请让管理员打开 Win顺 的设置，点“修复”。"))
+                                 : !window.editor.indexServiceInstallable
                                  ? (window.editor.indexServiceInstalled
                                     ? qsTr("已安装 Windows 服务“Win顺 索引服务”，它替普通权限的 Win顺 读取主文件表。这个账户不是管理员，不能卸载它")
                                     : window.editor.foldersInEffect
@@ -2406,13 +2410,18 @@ Window {
                     bodyShown: window.editor.indexServiceMessage.length > 0
 
                     FlatButton {
-                        visible: window.editor.indexServiceInstallable && !window.editor.indexServiceInstalled
-                        text: qsTr("安装索引服务…")
+                        // Install, or, when the service is in a place a non-administrator
+                        // could change, repair it (reinstall into a protected folder).
+                        visible: window.editor.indexServiceInstallable
+                                 && (!window.editor.indexServiceInstalled || window.editor.indexServiceUnsafeLocation)
+                        text: window.editor.indexServiceInstalled && window.editor.indexServiceUnsafeLocation
+                              ? qsTr("修复") : qsTr("安装索引服务…")
                         enabled: !window.editor.indexServiceBusy
                         onClicked: window.editor.installIndexService()
                     }
                     FlatButton {
                         visible: window.editor.indexServiceInstallable && window.editor.indexServiceInstalled
+                                 && !window.editor.indexServiceUnsafeLocation
                         text: qsTr("卸载索引服务")
                         enabled: !window.editor.indexServiceBusy
                         onClicked: window.editor.uninstallIndexService()
