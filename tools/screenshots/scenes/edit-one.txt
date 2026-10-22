@@ -1,0 +1,47 @@
+# One pass of edit.txt ({p}: L light, D dark): the clipboard history over
+# Notepad, its newest row (the chart picture) → 编辑 (Shift+F10; items: 粘贴,
+# 复制, 贴到屏幕, 编辑), the annotations, the matte, the window closed.
+notepad work\clipseed.txt
+clickfg 400 170
+sleep 600
+down 5B
+down 12
+tap 56
+up 12
+up 5B
+sleep 1200
+chord 10 79
+sleep 800
+tap 28
+tap 28
+tap 28
+tap 0D
+sleep 2500
+
+# a box round the 华东 bar and its number
+tap 52
+sleep 300
+dragfg 209 377 394 939
+sleep 400
+# the arrow, from the text to the box
+tap 41
+sleep 300
+dragfg 681 349 406 396
+sleep 400
+# the text: its style (edit-style.txt the first time, the panel remembers it:
+# its buttons toggle), then the words at the arrow's tail
+tap 54
+sleep 300
+run {style}
+clickfg 640 285
+sleep 500
+type 华东最高
+sleep 400
+chord 11 0D
+sleep 600
+# the T tool off, the text stays selected
+tap 54
+sleep 600
+matte {p}-edit winshun
+chord 12 73
+sleep 800

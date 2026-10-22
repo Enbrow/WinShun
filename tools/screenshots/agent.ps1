@@ -13,6 +13,7 @@
 #   clickfg <dx> <dy> (physical px from the front window's frame) | clickb <dx> <up from bottom> | dblclickb (the same, twice)
 #   clickws <x> <y> (on a window of WinShun's) | clickbox <x> <y> (on its taskbar box) | wheel <dx> <dy> <delta>
 #   dragws <x1> <y1> <x2> <y2> (left button held from one point to the other, both on a window of WinShun's)
+#   dragfg <dx1> <dy1> <dx2> <dy2> (the same from the front window's frame: a shape drawn in the edit window)
 #   shot <name> (the front window) | shotabs <name> <x> <y> <w> <h>        -> work\shots\<name>.png
 #   matte <name> [winshun|beside] (cut out by shots.py shoot)               -> work\shots\<name>.png
 #   scene [--theme light|dark] [--wallpaper NAME] | restore
@@ -183,6 +184,23 @@ function RunLines($lines) {
                     Start-Sleep -Milliseconds 20
                 }
                 [A]::Button($true)
+            }
+            'dragfg' { # <dx1> <dy1> <dx2> <dy2>: physical px from the front window's frame (a shape drawn in the edit window)
+                Guard
+                $p = $arg -split '\s+'; $h = [A]::GetForegroundWindow(); $r = [A]::Frame($h)
+                $x1 = $r.L + [int]$p[0]; $y1 = $r.T + [int]$p[1]; $x2 = $r.L + [int]$p[2]; $y2 = $r.T + [int]$p[3]
+                foreach ($q in @(@($x2, $y2), @($x1, $y1))) {
+                    if ([A]::RootAt($q[0], $q[1]) -ne $h) { throw "drag at $($q[0]),$($q[1]) would land on another window" }
+                }
+                [A]::SetCursorPos($x1, $y1) | Out-Null; Start-Sleep -Milliseconds 150
+                [A]::Button($false)
+                try {
+                    for ($k = 1; $k -le 12; $k++) {
+                        [A]::SetCursorPos([int]($x1 + ($x2 - $x1) * $k / 12), [int]($y1 + ($y2 - $y1) * $k / 12)) | Out-Null
+                        Start-Sleep -Milliseconds 25
+                    }
+                    Start-Sleep -Milliseconds 80
+                } finally { [A]::Button($true) }
             }
             'clickbox' { # absolute physical px, on WinShun's search box in the taskbar
                 $p = $arg -split '\s+'; $x = [int]$p[0]; $y = [int]$p[1]

@@ -1,0 +1,8 @@
+# The text tool's style (the panel's buttons, from the frame): size 24, bold,
+# a block behind the words. The panel keeps it: click these once per profile.
+clickfg 555 1041
+sleep 300
+clickfg 674 1041
+sleep 300
+clickfg 717 1041
+sleep 300

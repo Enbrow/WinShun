@@ -1,7 +1,8 @@
 # The README's pictures that the post has no room for (shots.py README_ONLY),
 # light: search by meaning, the content search in one folder, the menu on a
 # double-click in an Explorer folder, the appearance settings, the search
-# panel and the preview (features.txt). Search by
+# panel and the preview (features.txt), the editing window (edit.txt, light;
+# edit-dark.txt is the dark one, a run of its own). Search by
 # meaning takes this user's model service and key from their settings (the
 # profile points it at the demo folder): its index is built here, a few
 # files' text sent to that service. Explorer windows of one's own: close them
@@ -73,6 +74,10 @@ sleep 500
 run scenes\features.txt
 
 run scenes\foldermenu.txt
+
+# The editing window, light (edit.txt; it deletes the clipboard history's
+# seed row itself; the dark one is edit-dark.txt)
+run scenes\edit.txt
 
 restore
 quit

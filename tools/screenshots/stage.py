@@ -232,7 +232,9 @@ def make_profile(folder, files, recent, number_keys="ctrl", number_hints="held")
     text = ini_set(text, "Update", {"Automatic": "false"})
     text = ini_drop(text, "WebSearch", "Shares")  # one's own sites and shares stay out; the defaults come back
     text = ini_set(text, "Results", {"Sort": "match", "StartList": "recent", "NumberKeys": number_keys,
-                                     "NumberHints": number_hints})
+                                     "NumberHints": number_hints,
+                                     # Alt+P in Win顺's own preview, not a QuickLook or Seer of one's own
+                                     "PreviewWith": "builtin"})
     text = ini_set(text, "Appearance", {"Theme": "system", "Transparency": "on", "TaskbarIcon": "color",
                                         "UiSize": "standard", "Language": "system", "Corners": "round"})
     text = ini_set(text, "Launcher", {"DialogAutoJumpAsked": "true"})  # no question under the dialog bar

@@ -98,6 +98,7 @@ README_ONLY = (
     ("panel", "L-panel", "结果太多，[展开面板]", "Ctrl+E：左边筛选，右边分列排序"),
     ("preview", "L-preview", "Alt+P，[先看一眼]", "图片、文本、Office、PDF，启动器不关"),
     ("switches", "L-switch1+L-switch2+L-switch3", "系统开关，[打字就切]", "行尾就是现在的状态，回车就地切换，窗口不关"),
+    ("edit", "L-edit", "截图标完，[还能再改]", "箭头、方框、文字：从剪贴板历史打开，随时再编辑"),
 )
 ENDING_PAGE = "17-follow"  # who made it, where to get it, follow
 

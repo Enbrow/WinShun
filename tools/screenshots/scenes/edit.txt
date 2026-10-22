@@ -1,0 +1,36 @@
+# The editing window (README_ONLY "edit", L-edit), light only (the dark
+# D-edit, which the README doesn't use, is edit-dark.txt): the demo's chart
+# picture (区域销售额.png, the clipboard history's newest) opened from the
+# history's row menu (Shift+F10 → 编辑), then a box round the 华东 bar, an
+# arrow and a text with a block behind it. WinShun on the profile already
+# (more.txt runs this last). The edit window opens at 100 %: the picture is
+# 1200x800 physical px, its top left (81,174) from the window's frame; the
+# coordinates below are from the frame (dragfg, clickfg). Keys: R box, A arrow,
+# T text (Ctrl+Enter commits it); the T button again leaves the tool, the text
+# stays selected. Esc would give the changes up: never.
+# Starts from nothing open; ends with the edit window closed (Alt+F4). The
+# editing window opened a second time in one WinShun run came out with no
+# shadow and square corners (an opaque matte, 2026-10-22): the dark shot has
+# a WinShun run of its own, edit-dark.txt.
+
+# WinShun put what was on the clipboard at its start on top of the demo
+# history: Delete takes it away (see all.txt)
+notepad work\clipseed.txt
+clickfg 400 170
+sleep 600
+down 5B
+down 12
+tap 56
+up 12
+up 5B
+sleep 900
+tap 2E
+sleep 6000
+clickfg 400 170
+sleep 300
+
+scene --theme light --wallpaper dawn
+sleep 2500
+let p L
+let style scenes\edit-style.txt
+run scenes\edit-one.txt

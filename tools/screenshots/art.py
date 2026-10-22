@@ -1167,9 +1167,9 @@ def cover(window, preset="xhs", bg="silk", title=TITLE, badges=BADGES, keys=("Ct
 
 # Where things are on the full-screen shot taken with the launcher opened from
 # the taskbar box (2560x1600, physical px): the launcher, the taskbar's top and
-# bottom, the part of the taskbar taken as it is (Start and the box), the box.
+# bottom, the part of the taskbar taken as it is (the box, at its left end since 0.12), the box.
 # A new screen shot needs these measured again.
-TASKBAR = {"frame": (80, 617, 1220, 1510), "bar": (1528, 1600), "real": (378, 839), "box": (460, 1540, 820, 1588)}
+TASKBAR = {"frame": (18, 617, 1158, 1510), "bar": (1528, 1600), "real": (0, 392), "box": (12, 1540, 372, 1588)}
 
 
 def taskbar_page(window, screen, title, subtitle, preset="xhs", bg="letters", seed=7, places=TASKBAR):
@@ -1195,11 +1195,12 @@ def taskbar_page(window, screen, title, subtitle, preset="xhs", bg="letters", se
     bar_y = h - bar_h
 
     strip = screen[bar_top:bar_bottom]
-    plain = strip[:, 60:200].mean(axis=1, keepdims=True)  # empty taskbar, row by row
+    plain = strip[:, 420:760].mean(axis=1, keepdims=True)  # empty taskbar (between the box and Start), row by row
     band = np.repeat(plain, strip.shape[1], axis=1)
     real = strip[:, real_x[0]:real_x[1]]
     fade = np.ones(real.shape[1], np.float32)
-    fade[:16] = np.linspace(0, 1, 16)
+    if real_x[0] > 0:  # from the screen's own left edge there is nothing to blend from
+        fade[:16] = np.linspace(0, 1, 16)
     fade[-6:] = np.linspace(1, 0, 6)
     band[:, real_x[0]:real_x[1]] = band[:, real_x[0]:real_x[1]] * (1 - fade[None, :, None]) \
         + real * fade[None, :, None]

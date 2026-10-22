@@ -1,0 +1,24 @@
+# The editing window, dark (D-edit): a run of its own, see edit.txt. Run
+# elevated: tools\screenshots\agent.ps1 scenes\edit-dark.txt
+profile start
+sleep 15000
+notepad work\clipseed.txt
+clickfg 400 170
+sleep 600
+down 5B
+down 12
+tap 56
+up 12
+up 5B
+sleep 900
+tap 2E
+sleep 6000
+clickfg 400 170
+sleep 300
+scene --theme dark --wallpaper aurora
+sleep 2500
+let p D
+let style scenes\edit-style.txt
+run scenes\edit-one.txt
+restore
+quit
