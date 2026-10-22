@@ -56,12 +56,25 @@ IdleTrim::IdleTrim(std::function<const char*()> busy, QObject* parent)
 
 bool IdleTrim::inUse()
 {
-    return QGuiApplication::applicationState() == Qt::ApplicationActive;
+    // Qt's application state follows the focus events only; closing the
+    // focused window sets the focus window to null without ever going
+    // inactive, so the state alone stays Active for good. A window of ours has
+    // the focus, or the foreground window (a native dialog too) is ours.
+    if (QGuiApplication::applicationState() != Qt::ApplicationActive)
+        return false;
+    if (QGuiApplication::focusWindow())
+        return true;
+    DWORD owner = 0;
+    if (const HWND foreground = ::GetForegroundWindow())
+        ::GetWindowThreadProcessId(foreground, &owner);
+    return owner == ::GetCurrentProcessId();
 }
 
 void IdleTrim::poke()
 {
-    if (inUse() || m_busy())
+    // Not asking inUse() here: right after a window closes the foreground may
+    // not have moved yet; check() asks again when the time is up.
+    if (m_busy())
         return;
     startAfter(static_cast<int>(std::max<qint64>(kSettleMs, kAfterUseMs - m_inactive.elapsed())));
 }

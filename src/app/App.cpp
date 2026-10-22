@@ -2567,6 +2567,7 @@ void App::showSettings()
             if (!visible) {
                 m_contentStatusTimer.stop();
                 window->deleteLater(); // free the window's memory until it is needed again
+                m_idleTrim->poke(); // Qt may stay "active" after this close; do not wait for a focus event
             }
         });
     }
