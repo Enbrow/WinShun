@@ -375,6 +375,111 @@ private slots:
         QCOMPARE(textsIn(store, groupNamed(store, u"Ditto 导入"_s)), (QStringList {u"beta"_s, u"alpha 真实库"_s}));
     }
 
+    // Bytes captured by Ditto 3.25.113.0 itself (data/ditto-real.db): five clips put on the
+    // clipboard by another program (text; HTML Format + text; Rich Text Format + text; a 37x23
+    // CF_DIB; a CF_HDROP of two files), as Ditto stored them.
+    void dittoRealBytes()
+    {
+        QTemporaryDir dir;
+        QTemporaryDir data;
+        const QString file = dir.filePath(u"Ditto.db"_s);
+        QVERIFY(QFile::copy(QStringLiteral(WINSHUN_TEST_DATA "/ditto-real.db"), file));
+        QFile::setPermissions(file, QFile::ReadOwner | QFile::WriteOwner);
+
+        // What Ditto stored, read straight from its tables.
+        const auto stored = [&](const QString& format) {
+            QByteArray bytes;
+            {
+                QSqlDatabase db = QSqlDatabase::addDatabase(u"QSQLITE"_s, u"real-bytes"_s);
+                db.setDatabaseName(file);
+                if (db.open()) {
+                    QSqlQuery query(db);
+                    query.prepare(u"SELECT ooData FROM Data WHERE strClipBoardFormat = ?"_s);
+                    query.addBindValue(format);
+                    if (query.exec() && query.next())
+                        bytes = query.value(0).toByteArray();
+                }
+                db.close();
+            }
+            QSqlDatabase::removeDatabase(u"real-bytes"_s);
+            return bytes;
+        };
+        const QByteArray storedHtml = stored(u"HTML Format"_s);
+        const QByteArray storedRtf = stored(u"Rich Text Format"_s);
+        QVERIFY(storedHtml.size() > 100);
+        QVERIFY(storedRtf.size() > 20);
+
+        ClipStore store(data.path());
+        QVERIFY(store.open(kStart));
+        const Report report = runImport(store, file);
+        QCOMPARE(int(report.error), int(Error::None));
+        QCOMPARE(report.added, 5);
+        QCOMPARE(report.skipped, 0);
+        QCOMPARE(report.failed, 0);
+        const qint64 own = groupNamed(store, u"Ditto 导入"_s);
+        QCOMPARE(textsIn(store, own).size(), 5);
+
+        const auto byText = [&](const QString& text) -> const Clip* {
+            for (const Clip& c : store.clips()) {
+                if (c.text == text)
+                    return &c;
+            }
+            return nullptr;
+        };
+
+        const QString plain = u"Ditto real text: café 真实 αβγ \U0001F600\r\nline two\ttab"_s;
+        const Clip* text = byText(plain);
+        QVERIFY(text);
+        QCOMPARE(text->kind, ClipKind::Text);
+        QVERIFY(!text->html && !text->rtf);
+
+        const Clip* html = byText(u"Ditto html 真实 link"_s);
+        QVERIFY(html);
+        QCOMPARE(html->kind, ClipKind::Text);
+        QVERIFY(html->html);
+        const QByteArray gotHtml = store.payload(html->id).html;
+        QCOMPARE(gotHtml, storedHtml.chopped(1)); // Ditto stores the trailing NUL; the clip does not need it
+        QVERIFY(gotHtml.contains("<!--StartFragment-->"));
+        QVERIFY(gotHtml.contains(QString(u"真实").toUtf8()));
+
+        const Clip* rtf = byText(u"Ditto rtf italic end"_s);
+        QVERIFY(rtf && rtf->rtf);
+        QCOMPARE(rtf->kind, ClipKind::Text);
+        QCOMPARE(store.payload(rtf->id).rtf, storedRtf.chopped(1));
+        QVERIFY(store.payload(rtf->id).rtf.startsWith("{\\rtf1"));
+
+        const Clip* image = nullptr;
+        const Clip* files = nullptr;
+        for (const Clip& c : store.clips()) {
+            if (c.kind == ClipKind::Image)
+                image = &c;
+            else if (c.kind == ClipKind::Files)
+                files = &c;
+        }
+        QVERIFY(image);
+        QCOMPARE(image->width, 37);
+        QCOMPARE(image->height, 23);
+        store.flush();
+        const QImage png(store.imagePath(image->id));
+        QCOMPARE(png.size(), QSize(37, 23));
+        for (int y = 0; y < 23; ++y) {
+            for (int x = 0; x < 37; ++x) {
+                // The pattern the capture helper drew: R = 7x, G = 11y, B = x*y (each mod 256).
+                const QColor want((x * 7) % 256, (y * 11) % 256, (x * y) % 256);
+                if (png.pixelColor(x, y) != want)
+                    QFAIL(qPrintable(u"pixel %1,%2 is %3, wanted %4"_s.arg(x).arg(y).arg(png.pixelColor(x, y).name(), want.name())));
+            }
+        }
+        QCOMPARE(image->hash, imagePixelHash(png));
+
+        QVERIFY(files);
+        QStringList names = files->text.split(u'\n');
+        QCOMPARE(names.size(), 2);
+        QCOMPARE(QFileInfo(names[0]).fileName(), u"ditto-drop-a.txt"_s);
+        QCOMPARE(QFileInfo(names[1]).fileName(), u"ditto-drop-b.txt"_s);
+        QVERIFY(names[0].contains(u"\\scratchpad\\dropfiles\\"_s));
+    }
+
     void dittoNotDitto()
     {
         QTemporaryDir dir;
