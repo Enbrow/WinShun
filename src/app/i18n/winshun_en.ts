@@ -225,36 +225,8 @@
 <context>
     <name>AiSettings</name>
     <message>
-        <source>双击 Ctrl 打开</source>
-        <translation>Press Ctrl twice to open</translation>
-    </message>
-    <message>
-        <source>用哪个 Ctrl</source>
-        <translation>Which Ctrl</translation>
-    </message>
-    <message>
         <source>左右都行</source>
         <translation>Either</translation>
-    </message>
-    <message>
-        <source>左 Ctrl</source>
-        <translation>Left Ctrl</translation>
-    </message>
-    <message>
-        <source>右 Ctrl</source>
-        <translation>Right Ctrl</translation>
-    </message>
-    <message>
-        <source>玩游戏时不响应双击 Ctrl</source>
-        <translation>Ignore Ctrl twice while gaming</translation>
-    </message>
-    <message>
-        <source>任何程序全屏时都不响应双击 Ctrl</source>
-        <translation>Ignore Ctrl twice over any full-screen program</translation>
-    </message>
-    <message>
-        <source>在这些程序里不响应双击 Ctrl</source>
-        <translation>Ignore Ctrl twice in these programs</translation>
     </message>
     <message>
         <source>双击 Ctrl 或 Alt 打开</source>
@@ -872,10 +844,6 @@
         <translation>Home %1</translation>
     </message>
     <message>
-        <source>快捷键与双击 Ctrl</source>
-        <translation>Shortcuts and Ctrl twice</translation>
-    </message>
-    <message>
         <source>快捷键与双击 Ctrl 或 Alt</source>
         <translation>Shortcuts and Ctrl or Alt twice</translation>
     </message>
@@ -1033,6 +1001,14 @@
         <source>删除</source>
         <translation>Delete</translation>
     </message>
+    <message>
+        <source>吸管：点图上的一点，取它的颜色</source>
+        <translation>Eyedropper: click a point on the picture to take its colour</translation>
+    </message>
+    <message>
+        <source>恢复默认样式</source>
+        <translation>Restore the default style</translation>
+    </message>
 </context>
 <context>
     <name>AnnotateToolbar</name>
@@ -1172,6 +1148,62 @@
         <source>退一步：写完文字、放弃标注、关闭截图</source>
         <translation>One step back: finish the text, put the annotations down, close the capture</translation>
     </message>
+    <message>
+        <source>挪动选中的对象，按住 Shift 一次 10 像素；没有选中时滚动图片</source>
+        <translation>Move the selected object, 10 pixels at a time with Shift; with none selected they scroll the picture</translation>
+    </message>
+    <message>
+        <source>Shift+点击、拖空白处</source>
+        <translation>Shift+click, drag on the empty picture</translation>
+    </message>
+    <message>
+        <source>多选；Ctrl+A 全选，Ctrl+D 复制一份</source>
+        <translation>Select several; Ctrl+A selects all, Ctrl+D copies them</translation>
+    </message>
+    <message>
+        <source>吸管：点图上的一点，取它的颜色</source>
+        <translation>Eyedropper: click a point on the picture to take its colour</translation>
+    </message>
+    <message>
+        <source>拖图片的边</source>
+        <translation>Drag the picture&apos;s edge</translation>
+    </message>
+    <message>
+        <source>裁剪（没有工具时；有工具时从图外拖）</source>
+        <translation>Crop (with no tool on; with a tool, drag from outside the picture)</translation>
+    </message>
+    <message>
+        <source>上下滚动，Shift 左右；Alt+滚轮改粗细</source>
+        <translation>Scroll up and down, sideways with Shift; Alt+wheel changes the width</translation>
+    </message>
+    <message>
+        <source>Ctrl+滚轮、Ctrl+加号 / 减号</source>
+        <translation>Ctrl+wheel, Ctrl+plus / minus</translation>
+    </message>
+    <message>
+        <source>缩放</source>
+        <translation>Zoom</translation>
+    </message>
+    <message>
+        <source>适合窗口 / 100%</source>
+        <translation>Fit the window / 100%</translation>
+    </message>
+    <message>
+        <source>空格 + 拖动，或中键拖动</source>
+        <translation>Space + drag, or middle-button drag</translation>
+    </message>
+    <message>
+        <source>平移</source>
+        <translation>Pan</translation>
+    </message>
+    <message>
+        <source>Esc</source>
+        <translation>Esc</translation>
+    </message>
+    <message>
+        <source>写完文字；有改动时放弃全部（Ctrl+Z 恢复）；没有改动时关闭</source>
+        <translation>Finish the text; with changes, give them all up (Ctrl+Z brings them back); with none, close</translation>
+    </message>
 </context>
 <context>
     <name>Annotation</name>
@@ -1266,6 +1298,10 @@
     <message>
         <source>打码</source>
         <translation>Redact</translation>
+    </message>
+    <message>
+        <source>放弃修改</source>
+        <translation>Give up changes</translation>
     </message>
 </context>
 <context>
@@ -1412,6 +1448,10 @@
 </context>
 <context>
     <name>ClipPreview</name>
+    <message>
+        <source>没有可预览的内容</source>
+        <translation>Nothing to preview</translation>
+    </message>
     <message numerus="yes">
         <source>…还有 %Ln 字</source>
         <translation>
@@ -1730,6 +1770,17 @@
     </message>
 </context>
 <context>
+    <name>EditWindow</name>
+    <message>
+        <source>编辑图片</source>
+        <translation>Edit picture</translation>
+    </message>
+    <message>
+        <source>缩放</source>
+        <translation>Zoom</translation>
+    </message>
+</context>
+<context>
     <name>FavoriteForm</name>
     <message>
         <source>名称</source>
@@ -1976,6 +2027,14 @@
         <translation>Serve the People</translation>
     </message>
     <message>
+        <source>果核剥壳</source>
+        <translation>Guohe</translation>
+    </message>
+    <message>
+        <source>互联网的净土</source>
+        <translation>A clean corner of the internet</translation>
+    </message>
+    <message>
         <source>Win顺</source>
         <translation>WinShun</translation>
     </message>
@@ -2074,6 +2133,10 @@
     <message>
         <source>复制</source>
         <translation>Copy</translation>
+    </message>
+    <message>
+        <source>感谢%1收录推荐</source>
+        <translation>Thanks to %1 for featuring us</translation>
     </message>
     <message>
         <source>“拾穗计划”的名字取自米勒的名画《拾穗者》</source>
@@ -3300,32 +3363,12 @@
         <translation>Try other words, or fewer of them</translation>
     </message>
     <message>
-        <source>双击 Ctrl 打开</source>
-        <translation>Press Ctrl twice to open</translation>
-    </message>
-    <message>
-        <source>双击;呼出;唤出;double ctrl</source>
-        <translation>double tap;double press;summon;ctrl</translation>
-    </message>
-    <message>
-        <source>玩游戏时不响应双击 Ctrl</source>
-        <translation>Ignore Ctrl twice while gaming</translation>
-    </message>
-    <message>
         <source>游戏;蹲下;误触;game</source>
         <translation>games;gaming;crouch;by accident</translation>
     </message>
     <message>
-        <source>任何程序全屏时都不响应双击 Ctrl</source>
-        <translation>Ignore Ctrl twice over any full-screen program</translation>
-    </message>
-    <message>
         <source>全屏;视频;幻灯片;误触;fullscreen</source>
         <translation>fullscreen;video;slideshow;by accident</translation>
-    </message>
-    <message>
-        <source>在这些程序里不响应双击 Ctrl</source>
-        <translation>Ignore Ctrl twice in these programs</translation>
     </message>
     <message>
         <source>双击 Ctrl 或 Alt 打开</source>
@@ -3741,7 +3784,7 @@
     </message>
     <message>
         <source>这些扩展名的文件不出现在搜索结果里，例如 wbk、bak</source>
-        <translation>Files with these extensions don't appear in results, such as wbk and bak</translation>
+        <translation>Files with these extensions don&apos;t appear in results, such as wbk and bak</translation>
     </message>
     <message>
         <source>例如 wbk, bak</source>
@@ -4123,28 +4166,8 @@
         <translation>quick access;go to often;shortcuts</translation>
     </message>
     <message>
-        <source>用哪个 Ctrl</source>
-        <translation>Which Ctrl</translation>
-    </message>
-    <message>
-        <source>左 Ctrl;右 Ctrl;左边;右边;冲突;PowerToys;查找鼠标;left ctrl;right ctrl</source>
-        <translation>left ctrl;right ctrl;left;right;conflict;PowerToys;Find My Mouse;both ctrl</translation>
-    </message>
-    <message>
-        <source>同一个 Ctrl 连按两下才算。和别的软件撞了时，可以只用一边</source>
-        <translation>Both taps on the same Ctrl. When another program uses them too, keep to one side</translation>
-    </message>
-    <message>
         <source>左右都行</source>
         <translation>Either</translation>
-    </message>
-    <message>
-        <source>左 Ctrl</source>
-        <translation>Left Ctrl</translation>
-    </message>
-    <message>
-        <source>右 Ctrl</source>
-        <translation>Right Ctrl</translation>
     </message>
     <message>
         <source>PowerToys 的“查找鼠标”也是双击左 Ctrl，两边会一起出来。</source>
@@ -4355,8 +4378,8 @@
         <translation>The Windows service &quot;WinShun Index Service&quot; is installed: it reads the master file tables for a WinShun running with normal rights. This account is not an administrator and cannot uninstall it</translation>
     </message>
     <message>
-        <source>你在这台电脑上没有管理员权限，装不了索引服务。Win顺 按文件夹遍历整个磁盘。</source>
-        <translation>You have no administrator rights on this computer, so the index service cannot be installed. WinShun walks the whole disk folder by folder.</translation>
+        <source>你在这台电脑上没有管理员权限，装不了索引服务。Win顺 按文件夹遍历整个磁盘</source>
+        <translation>You have no administrator rights on this computer, so the index service cannot be installed. WinShun walks the whole disk folder by folder</translation>
     </message>
     <message>
         <source>安装一个 Windows 服务，替普通权限的 Win顺 读取主文件表，建索引快得多；需要管理员权限一次</source>
@@ -4529,6 +4552,10 @@
     <message>
         <source>预览文件（Alt+P）</source>
         <translation>Preview files (Alt+P)</translation>
+    </message>
+    <message>
+        <source>排除;忽略;扩展名;后缀;格式;exclude</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>预览;快速查看;看一眼;QuickLook;Seer;空格;Alt+P;preview</source>
@@ -4965,8 +4992,8 @@
         <translation>Another key combination that opens the search box, such as Alt+Space</translation>
     </message>
     <message>
-        <source>只存在这台电脑上，不会上传。按住 Ctrl 点击可以多选，合在一起粘贴。</source>
-        <translation>Kept on this PC only, never uploaded. Ctrl+click to pick several and paste them together.</translation>
+        <source>只存在这台电脑上，不会上传。按住 Ctrl 或 Shift 点击可以多选，合在一起粘贴。</source>
+        <translation>Kept on this PC only, never uploaded. Ctrl+click or Shift+click to pick several and paste them together.</translation>
     </message>
     <message>
         <source>启动与历史</source>
@@ -5178,10 +5205,6 @@
         <translation>Nothing inside these folders shows up in results</translation>
     </message>
     <message>
-        <source>连按两下 Ctrl，打开或关闭搜索框。管理员或部分输入法窗口中需要 Win顺 服务支持</source>
-        <translation>Press Ctrl twice quickly to open or close the search box. Elevated windows and some input methods require the WinShun service.</translation>
-    </message>
-    <message>
         <source>按 %1+1 打开第一行，依此类推到第九行</source>
         <translation>%1+1 opens the first row, up to the ninth</translation>
     </message>
@@ -5267,8 +5290,8 @@
         <translation>diagnostics;log;slow indexing;troubleshooting;feedback</translation>
     </message>
     <message>
-        <source>导出后会打开文件夹，把 WinShun-diagnostics.zip 发给开发者即可。包含索引耗时和错误，可能含文件路径；不含设置、剪贴板或文档正文。诊断记录最多 3 MB，过期自动清理；诊断包只保留一份。</source>
-        <translation>Export opens the folder: send WinShun-diagnostics.zip to the developer. It includes indexing times and errors, and may contain file paths. Settings, clipboard and document text are excluded. Diagnostic records are capped at 3 MB; files untouched for 7 days are removed. Only the latest archive is kept.</translation>
+        <source>导出后会打开文件夹，把 WinShun-diagnostics.zip 发给开发者即可。包含索引耗时和错误，可能含文件路径；不含设置、剪贴板或文档正文。诊断记录最多 3 MB，过期自动清理；诊断包只保留一份</source>
+        <translation>Export opens the folder: send WinShun-diagnostics.zip to the developer. It includes indexing times and errors, and may contain file paths. Settings, clipboard and document text are excluded. Diagnostic records are capped at 3 MB; files untouched for 7 days are removed. Only the latest archive is kept</translation>
     </message>
     <message>
         <source>正在导出…</source>
@@ -5390,8 +5413,8 @@
         </translation>
     </message>
     <message>
-        <source>你在这台电脑上没有管理员权限，装不了索引服务。Win顺 会索引你选的文件夹，并定时核对。</source>
-        <translation>You have no administrator rights on this computer, so the index service cannot be installed. WinShun indexes the folders you choose and checks them regularly.</translation>
+        <source>你在这台电脑上没有管理员权限，装不了索引服务。Win顺 会索引你选的文件夹，并定时核对</source>
+        <translation>You have no administrator rights on this computer, so the index service cannot be installed. WinShun indexes the folders you choose and checks them regularly</translation>
     </message>
 </context>
 <context>
@@ -5807,10 +5830,6 @@
         <translation>Open WinShun</translation>
     </message>
     <message>
-        <source>双击 Ctrl</source>
-        <translation>Ctrl twice</translation>
-    </message>
-    <message>
         <source>剪贴板历史</source>
         <translation>Clipboard history</translation>
     </message>
@@ -5859,14 +5878,6 @@
         <translation>Keep awake</translation>
     </message>
     <message>
-        <source>双击左 Ctrl</source>
-        <translation>Left Ctrl twice</translation>
-    </message>
-    <message>
-        <source>双击右 Ctrl</source>
-        <translation>Right Ctrl twice</translation>
-    </message>
-    <message>
         <source>双击 %1</source>
         <translation>%1 twice</translation>
     </message>
@@ -5899,8 +5910,6 @@
         <translation>Get back the annotations just given up</translation>
     </message>
     <message>
-        <source>没有安装索引服务</source>
-        <translation>the index service is not installed</translation>
         <source>你在这台电脑上没有管理员权限，装不了索引服务。现在按文件夹遍历整个磁盘。</source>
         <translation>You have no administrator rights on this computer, so the index service cannot be installed. The whole disk is walked folder by folder.</translation>
     </message>
@@ -6235,6 +6244,22 @@
     <message>
         <source>关闭全部贴图</source>
         <translation>Close all pins</translation>
+    </message>
+    <message>
+        <source>编辑</source>
+        <translation>Edit</translation>
+    </message>
+    <message>
+        <source>没能编辑这张图片</source>
+        <translation>Could not edit this picture</translation>
+    </message>
+    <message>
+        <source>它已不在历史里，或读不出来。</source>
+        <translation>It is no longer in the history, or cannot be read.</translation>
+    </message>
+    <message>
+        <source>读不出这张图。</source>
+        <translation>This picture cannot be read.</translation>
     </message>
     <message>
         <source>双击 Ctrl 打开搜索。Win顺 先索引你常用的文件夹（桌面、文档、下载等），可以在设置里增减。</source>
@@ -6760,6 +6785,10 @@
     <message>
         <source>已复制截图</source>
         <translation>Screenshot copied</translation>
+    </message>
+    <message>
+        <source>编辑</source>
+        <translation>Edit</translation>
     </message>
 </context>
 <context>
@@ -7310,7 +7339,7 @@
     </message>
     <message>
         <source>不再提示</source>
-        <translation>Don't show again</translation>
+        <translation>Don&apos;t show again</translation>
     </message>
     <message>
         <source>没有叫“%1”的，按读音找到：</source>
@@ -7933,6 +7962,10 @@
         <source>搜索%1</source>
         <comment>a kind of file, as 图片</comment>
         <translation>Search %1</translation>
+    </message>
+    <message>
+        <source>编辑</source>
+        <translation>Edit</translation>
     </message>
 </context>
 <context>
@@ -9287,6 +9320,18 @@
         <source>只能在选区里画</source>
         <translation>Draw inside the selection</translation>
     </message>
+    <message>
+        <source>%1 个对象</source>
+        <translation>%1 objects</translation>
+    </message>
+    <message>
+        <source>只能在图片里画</source>
+        <translation>Draw inside the picture</translation>
+    </message>
+    <message>
+        <source>复制</source>
+        <translation>Copy</translation>
+    </message>
 </context>
 <context>
     <name>ws::capture::Capture</name>
@@ -9297,6 +9342,29 @@
     <message>
         <source>无法保存到 %1</source>
         <translation>Could not save to %1</translation>
+    </message>
+</context>
+<context>
+    <name>ws::capture::CaptureEditor</name>
+    <message>
+        <source>%1%</source>
+        <translation>%1%</translation>
+    </message>
+    <message>
+        <source>%1 × %2</source>
+        <translation>%1 × %2</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>Done</translation>
+    </message>
+    <message>
+        <source>复制</source>
+        <translation>Copy</translation>
+    </message>
+    <message>
+        <source>已放弃修改 · Ctrl+Z 恢复</source>
+        <translation>Changes given up · Ctrl+Z brings them back</translation>
     </message>
 </context>
 <context>
@@ -9378,6 +9446,10 @@
     <message>
         <source>PNG 图片</source>
         <translation>PNG picture</translation>
+    </message>
+    <message>
+        <source>编辑</source>
+        <translation>Edit</translation>
     </message>
 </context>
 <context>
