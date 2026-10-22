@@ -32,7 +32,13 @@ Rectangle {
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.IBeamCursor
-        acceptedButtons: Qt.NoButton
+        // Only the margins beside the text reach here: the press is kept
+        // (let through, the page under it took the focus back), and the
+        // caret goes to the nearer end.
+        onPressed: (mouse) => {
+            input.forceActiveFocus(Qt.MouseFocusReason)
+            input.cursorPosition = mouse.x < width / 2 ? 0 : input.length
+        }
     }
 
     TextInput {
@@ -62,7 +68,10 @@ Rectangle {
             color: Theme.faint
             font: input.font
             elide: Text.ElideRight
+            // Centred, the empty field's cursor stands in the middle of the
+            // placeholder: it goes once the field is being typed in.
             visible: input.text.length === 0 && input.preeditText.length === 0
+                     && !(input.activeFocus && input.horizontalAlignment !== TextInput.AlignLeft)
         }
     }
 

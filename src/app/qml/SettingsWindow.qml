@@ -2402,8 +2402,8 @@ Window {
                                  ? (window.editor.indexServiceInstalled
                                     ? qsTr("已安装 Windows 服务“Win顺 索引服务”，它替普通权限的 Win顺 读取主文件表。这个账户不是管理员，不能卸载它")
                                     : window.editor.foldersInEffect
-                                    ? qsTr("你在这台电脑上没有管理员权限，装不了索引服务。Win顺 会索引你选的文件夹，并定时核对。")
-                                    : qsTr("你在这台电脑上没有管理员权限，装不了索引服务。Win顺 按文件夹遍历整个磁盘。"))
+                                    ? qsTr("你在这台电脑上没有管理员权限，装不了索引服务。Win顺 会索引你选的文件夹，并定时核对")
+                                    : qsTr("你在这台电脑上没有管理员权限，装不了索引服务。Win顺 按文件夹遍历整个磁盘"))
                                  : window.editor.indexServiceInstalled
                                  ? qsTr("已安装 Windows 服务“Win顺 索引服务”，它替普通权限的 Win顺 读取主文件表")
                                  : qsTr("安装一个 Windows 服务，替普通权限的 Win顺 读取主文件表，建索引快得多；需要管理员权限一次")
@@ -3392,7 +3392,7 @@ Window {
             SettingsSection {
                 page: window.clipboardPage
                 width: parent.width
-                note: qsTr("只存在这台电脑上，不会上传。按住 Ctrl 点击可以多选，合在一起粘贴。")
+                note: qsTr("只存在这台电脑上，不会上传。按住 Ctrl 或 Shift 点击可以多选，合在一起粘贴。")
 
                 SettingRow {
                     title: qsTr("记录剪贴板历史")
@@ -3969,7 +3969,7 @@ Window {
                 SettingRow {
                     title: qsTr("诊断日志")
                     keywords: qsTr("诊断;日志;索引慢;排查;反馈;diagnostics;log").split(";")
-                    description: qsTr("导出后会打开文件夹，把 WinShun-diagnostics.zip 发给开发者即可。包含索引耗时和错误，可能含文件路径；不含设置、剪贴板或文档正文。诊断记录最多 3 MB，过期自动清理；诊断包只保留一份。")
+                    description: qsTr("导出后会打开文件夹，把 WinShun-diagnostics.zip 发给开发者即可。包含索引耗时和错误，可能含文件路径；不含设置、剪贴板或文档正文。诊断记录最多 3 MB，过期自动清理；诊断包只保留一份")
                                  + (window.editor.diagnosticsStatus.length > 0 ? "\n" + window.editor.diagnosticsStatus : "")
 
                     FlatButton {

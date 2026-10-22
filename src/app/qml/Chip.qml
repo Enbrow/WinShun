@@ -12,9 +12,9 @@ Rectangle {
     implicitWidth: label.implicitWidth + 40
     implicitHeight: 32
     radius: Theme.controlRadius
-    color: Theme.control
-    border.width: marked ? 2 : 1
-    border.color: marked ? Theme.accent : Theme.controlBorder
+    color: marked ? Theme.selection : Theme.control
+    border.width: 1
+    border.color: Theme.controlBorder
 
     Text {
         id: label

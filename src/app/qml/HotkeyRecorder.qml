@@ -42,7 +42,21 @@ Rectangle {
         focus = false
     }
 
-    implicitWidth: Math.max(150, label.implicitWidth + 28)
+    // Wide enough for the longest label it shows itself, so it does not
+    // change width while recording.
+    TextMetrics {
+        id: widest
+        font.pixelSize: Theme.fontBody
+        font.weight: Font.DemiBold
+        text: qsTr("这个键不能用，换一个试试")
+    }
+    TextMetrics {
+        id: widest2
+        font.pixelSize: Theme.fontBody
+        font.weight: Font.DemiBold
+        text: qsTr("请同时按住 Ctrl、Alt 或 Win")
+    }
+    implicitWidth: Math.max(150, widest.width, widest2.width) + 28
     implicitHeight: 36
     radius: Theme.controlRadius
     activeFocusOnTab: true
@@ -52,8 +66,8 @@ Rectangle {
     Accessible.name: recording ? qsTr("正在录制快捷键") : hotkey.length > 0 ? hotkey : qsTr("录制快捷键")
     Accessible.onPressAction: recording ? stop() : forceActiveFocus()
     color: recording ? Theme.inputFocused : area.containsMouse ? Theme.controlHover : Theme.control
-    border.width: recording ? 2 : 1
-    border.color: recording ? Theme.accent : Theme.controlBorder
+    border.width: 1
+    border.color: Theme.controlBorder
 
     onRecordingChanged: if (!recording) { partial = ""; partialIsHint = false }
     // Keeping the focus on another page, or in a window closed or left, it
@@ -122,6 +136,8 @@ Rectangle {
     Text {
         id: label
         anchors.centerIn: parent
+        width: Math.min(implicitWidth, parent.width - 28)
+        elide: Text.ElideRight
         text: recorder.recording
               ? (recorder.partial.length > 0 ? recorder.partial : qsTr("请按下组合键…"))
               : (recorder.hotkey.length > 0 ? recorder.hotkey.split("+").join(" + ") : qsTr("未设置"))
@@ -137,5 +153,15 @@ Rectangle {
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         onClicked: recorder.recording ? recorder.stop() : recorder.forceActiveFocus()
+    }
+
+    Rectangle {
+        visible: recorder.recording
+        anchors.bottom: parent.bottom
+        x: 1
+        width: parent.width - 2
+        height: 2
+        radius: Theme.lineRadius
+        color: Theme.accent
     }
 }
