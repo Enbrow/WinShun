@@ -4164,7 +4164,7 @@ void App::installIndexService(bool install)
                         m_serviceMessage = (install ? tr("安装索引服务失败（错误 %1）") : tr("卸载索引服务失败（错误 %1）"))
                                                .arg(*code);
                     } else if (install) {
-                        m_serviceMessage = tr("索引服务已安装并启动。移动了 Win顺 的文件夹后要重新安装。");
+                        m_serviceMessage = tr("索引服务已安装并启动。换了新版本的 Win顺 后，在这里再装一次，服务也会跟着更新。");
                         probeService(); // taken into use as soon as it answers
                     } else {
                         m_serviceMessage = tr("索引服务已卸载。");

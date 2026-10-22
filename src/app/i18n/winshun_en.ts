@@ -5985,8 +5985,8 @@
         <translation>Uninstalling the index service failed (error %1)</translation>
     </message>
     <message>
-        <source>索引服务已安装并启动。移动了 Win顺 的文件夹后要重新安装。</source>
-        <translation>The index service is installed and running. After moving WinShun&apos;s folder, install it again.</translation>
+        <source>索引服务已安装并启动。换了新版本的 Win顺 后，在这里再装一次，服务也会跟着更新。</source>
+        <translation>The index service is installed and running. After updating WinShun, install it here once more so the service is updated too.</translation>
     </message>
     <message>
         <source>索引服务已卸载。</source>
