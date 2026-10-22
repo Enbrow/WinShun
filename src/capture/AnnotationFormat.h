@@ -20,6 +20,10 @@ namespace ws::capture::annot {
 struct Project {
     Document doc;
     QImage base;
+    // The base as the PNG it was stored in, when it was read from a project:
+    // given back to writeProject(), it is stored again as it is (a long
+    // picture takes seconds to encode, and the editor never changes it).
+    QByteArray basePng;
 };
 
 // doc.json. Each style writes the fields its kind uses and any other that
@@ -33,8 +37,9 @@ QJsonObject toJson(const Document& doc);
 // left out, and the redactions are put first. Empty with `error` set when
 // the document cannot be used.
 std::optional<Document> fromJson(const QJsonObject& json, QString* error);
-// The zip's bytes; empty when the picture cannot be encoded.
-QByteArray writeProject(const Document& doc, const QImage& base);
+// The zip's bytes; empty when the picture cannot be encoded. With `basePng`
+// (the same picture, already encoded) that is stored instead of encoding it.
+QByteArray writeProject(const Document& doc, const QImage& base, const QByteArray& basePng = {});
 // A project from its bytes, the base as Format_RGB32 of the canvas' size.
 std::optional<Project> readProject(const QByteArray& data, QString* error);
 // The overlay's document as a project: the base is the selection of the

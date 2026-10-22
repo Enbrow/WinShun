@@ -67,8 +67,10 @@ class Updater;
 class Backup;
 namespace capture {
 class Capture;
+class CaptureEditor;
 class CaptureOcr;
 class PinManager;
+class PinWindow;
 }
 class VolumeNotifier;
 class WindowFrame;
@@ -178,6 +180,12 @@ private:
     // The pictures pinned on the screen: made when first wanted (a capture's
     // 贴图, or 贴到屏幕 with the capture off too); closed with the capture.
     capture::PinManager& pins();
+    // 编辑: the editing window (EditWindow.qml, CaptureEditor), made the
+    // first time, on a history entry (jt, the clipboard window) or a pin.
+    // With the capture off too.
+    capture::CaptureEditor* editor();
+    void editHistory(qint64 clipId);
+    void editPin(capture::PinWindow* pin);
     // 贴到屏幕: a picture file, read off the GUI thread; `screenshot`: one
     // of the screenshot history's (PinWindow::screenshot).
     void pinPicture(const QString& path, bool screenshot = false);
@@ -568,6 +576,10 @@ private:
     // Its overlay windows are the engine's: reset in ~App, before the engine goes.
     std::unique_ptr<capture::Capture> m_capture;
     std::unique_ptr<capture::PinManager> m_pins; // pins(); reset in ~App with the capture
+    // The editing window and what it needs; the window is the engine's, deleted in ~App before it.
+    std::unique_ptr<capture::CaptureEditor> m_editor;
+    std::unique_ptr<WindowFrame> m_editFrame;
+    QPointer<QQuickWindow> m_editWindow;
     struct ScreenshotAsk { // take_screenshot waiting for the user's answer: one at a time
         std::function<void(mcp::ScreenshotTaken)> done;
         HMONITOR monitor = nullptr;

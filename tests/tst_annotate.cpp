@@ -9,6 +9,8 @@
 #include "AnnotationFormat.h"
 #include "AnnotationRender.h"
 #include "AnnotationStyles.h"
+#include "EditView.h"
+#include "Geometry.h"
 
 #include <QFile>
 #include <QFont>
@@ -1046,6 +1048,44 @@ private slots:
     // on the font face, and large text is filled from outlines loaded with
     // it. A recipe built after small text was drawn at x.25, x.5 or x.75 must
     // still draw the same pixels.
+    // A picture without objects comes out of the compositor, tile by tile, as the base itself
+    // (the live test of 4b found one black pixel at a tile's inner corner on a 1080 x 30000 one).
+    void tilesOfAPlainPicture()
+    {
+        QImage base(1080, 6000, QImage::Format_RGB32);
+        for (int y = 0; y < base.height(); ++y) {
+            auto* line = reinterpret_cast<QRgb*>(base.scanLine(y));
+            for (int x = 0; x < base.width(); ++x)
+                line[x] = qRgb(y & 255, ((y >> 8) & 255) * 2 + (x % 7), (x * 5 + y * 3) & 255);
+        }
+        Document doc;
+        doc.canvas = base.size();
+        doc.crop = QRect(QPoint(0, 0), base.size());
+        Compositor compositor;
+        int differing = 0;
+        QPoint first(-1, -1);
+        for (int ty = 0; ty < base.height(); ty += 256) {
+            for (int tx = 0; tx < base.width(); tx += 256) {
+                const QRect area = QRect(tx, ty, 256, 256) & QRect(QPoint(0, 0), base.size());
+                QImage tile;
+                compositor.render(doc, base, QRect(QPoint(0, 0), base.size()), area, &tile);
+                for (int y = 0; y < tile.height(); ++y) {
+                    // The raw words, the alpha byte too: a texture is made from the memory, not from pixel().
+                    const auto* got = reinterpret_cast<const quint32*>(tile.constScanLine(y));
+                    const auto* want = reinterpret_cast<const quint32*>(base.constScanLine(ty + y));
+                    for (int x = 0; x < tile.width(); ++x) {
+                        if (got[x] != want[tx + x]) {
+                            if (!differing)
+                                first = QPoint(tx + x, ty + y);
+                            ++differing;
+                        }
+                    }
+                }
+            }
+        }
+        QVERIFY2(differing == 0, qPrintable(u"%1 pixels differ, the first at %2,%3"_s.arg(differing).arg(first.x()).arg(first.y())));
+    }
+
     void tilesTextHistory()
     {
         Document doc = emptyDoc(QSize(640, 360));
@@ -2164,6 +2204,111 @@ private slots:
     }
 
     // --- tool table -------------------------------------------------------------
+
+    // ---- the editing window (stage 4b) ----
+
+    void fitAndZoom()
+    {
+        using namespace ws::capture::editview;
+        // Smaller than the window: as it is. Larger: the whole of it.
+        QCOMPARE(fitZoom(QSize(400, 300), QSize(1200, 800)), 1.0);
+        QCOMPARE(fitZoom(QSize(2400, 1600), QSize(1200, 800)), 0.5);
+        // A long picture is fitted by its width, not shown as a sliver.
+        QCOMPARE(fitZoom(QSize(1080, 30000), QSize(1200, 800)), 1.0);
+        QCOMPARE(fitZoom(QSize(4000, 30000), QSize(1200, 800)), 0.3);
+        QCOMPARE(fitZoom(QSize(), QSize(1200, 800)), 1.0);
+        QCOMPARE(clampZoom(0.01), kMinZoom);
+        QCOMPARE(clampZoom(99), kMaxZoom);
+        QCOMPARE(shownSize(QSize(1001, 333), 1.0), QSize(1001, 333));
+        QCOMPARE(shownSize(QSize(1000, 300), 0.5), QSize(500, 150));
+        // The picture sits in the middle when it fits, else it cannot leave a gap.
+        QCOMPARE(clampOrigin(QPoint(5, 7), QSize(400, 300), QSize(1000, 800)), QPoint(300, 250));
+        QCOMPARE(clampOrigin(QPoint(50, -5000), QSize(2000, 3000), QSize(1000, 800)), QPoint(0, -2200));
+        QCOMPARE(clampOrigin(QPoint(-5000, -100), QSize(2000, 3000), QSize(1000, 800)), QPoint(-1000, -100));
+        // The pixel under the mouse, and what shows.
+        QCOMPARE(imagePixelAt(QPoint(300, 250), QPoint(300, 250), 1.0), QPoint(0, 0));
+        QCOMPARE(imagePixelAt(QPoint(299, 249), QPoint(300, 250), 1.0), QPoint(-1, -1));
+        QCOMPARE(imagePixelAt(QPoint(110, 60), QPoint(10, 10), 0.5), QPoint(200, 100));
+        QCOMPARE(imagePixelAt(QPoint(110, 60), QPoint(10, 10), 4.0), QPoint(25, 12));
+        QCOMPARE(visibleImage(QPoint(-100, -200), 1.0, QSize(1000, 800)), QRectF(100, 200, 1000, 800));
+        QCOMPARE(visibleImage(QPoint(0, 0), 0.5, QSize(1000, 800)), QRectF(0, 0, 2000, 1600));
+        // The same zoom steps as a pin's, 100 % among them, so Z can come back to it exactly.
+        const std::vector<double>& steps = ws::capture::zoomSteps();
+        QVERIFY(std::find(steps.begin(), steps.end(), 1.0) != steps.end());
+    }
+
+    void tileRanges()
+    {
+        using namespace ws::capture::editview;
+        const QSize image(1080, 30000); // 5 columns x 118 rows of 256
+        // The top of it at 100 %: 4 rows seen (800 / 256 -> rows 0-3) and one more.
+        QRect r = tileRange(visibleImage(QPoint(0, 0), 1.0, QSize(1080, 800)), image, 256, 1);
+        QCOMPARE(r, QRect(QPoint(0, 0), QPoint(4, 4)));
+        // Scrolled to the middle: only the rows it shows, and a ring.
+        r = tileRange(visibleImage(QPoint(0, -15000), 1.0, QSize(1080, 800)), image, 256, 1);
+        QCOMPARE(r.left(), 0);
+        QCOMPARE(r.right(), 4);
+        QCOMPARE(r.top(), 15000 / 256 - 1);
+        QCOMPARE(r.bottom(), (15000 + 800 - 1) / 256 + 1);
+        QVERIFY(r.height() <= 800 / 256 + 2 + 2);
+        // A view ending exactly on a tile's edge needs no tile beyond it but the ring.
+        r = tileRange(QRectF(0, 0, 512, 256), QSize(2048, 2048), 256, 0);
+        QCOMPARE(r, QRect(QPoint(0, 0), QPoint(1, 0)));
+        // Out of the picture: nothing. Cut short at the edges.
+        QVERIFY(tileRange(QRectF(-500, -500, 100, 100), image, 256, 1).isEmpty());
+        QCOMPARE(tileRange(QRectF(-100, -100, 99999, 99999), QSize(300, 300), 256, 3), QRect(QPoint(0, 0), QPoint(1, 1)));
+        // Nearest the middle first, at most `limit`.
+        const QList<int> near = nearestTiles(QRect(QPoint(0, 0), QPoint(4, 4)), 5, 256, QPointF(640, 640), 6);
+        QCOMPARE(near.size(), 6);
+        QCOMPARE(near.first(), 2 * 5 + 2);
+        QCOMPARE(nearestTiles(QRect(QPoint(0, 0), QPoint(4, 4)), 5, 256, QPointF(0, 0), 100).size(), 25);
+        QVERIFY(nearestTiles({}, 5, 256, QPointF(), 4).isEmpty());
+        QCOMPARE(deviceLength(100, 1.5), 150);
+        QCOMPARE(deviceLength(33.3, 1.0), 33);
+    }
+
+    void replaceDocumentCommand()
+    {
+        Document before;
+        before.canvas = QSize(300, 200);
+        before.crop = QRect(QPoint(0, 0), before.canvas);
+        before.dpr = 1.5;
+        Document doc = before;
+        CommandStack stack;
+        Item rect;
+        rect.id = doc.nextId;
+        rect.seq = doc.nextSeq;
+        rect.kind = Kind::Rect;
+        rect.points = boxPoints(QRect(10, 10, 80, 50));
+        stack.push(std::make_unique<AddItems>(QList<Item>{rect}), doc, 0);
+        stack.push(std::make_unique<SetCrop>(doc, QRect(5, 5, 200, 100)), doc, 5000);
+        QVERIFY(doc != before);
+        // Everything given up in one step, everything redrawn; one undo takes it back.
+        const Change gone = stack.push(std::make_unique<ReplaceDocument>(doc, before), doc, 10000);
+        QCOMPARE(doc, before);
+        QVERIFY(gone.crop && gone.numbers && gone.redactions);
+        QVERIFY(gone.dirty.contains(QRectF(10, 10, 80, 50)));
+        QVERIFY(gone.ids.contains(rect.id));
+        stack.undo(doc);
+        QCOMPARE(doc.items.size(), qsizetype(1));
+        QCOMPARE(doc.crop, QRect(5, 5, 200, 100));
+        stack.redo(doc);
+        QCOMPARE(doc, before);
+        // And back through the earlier steps to the start: the same document.
+        while (stack.canUndo())
+            stack.undo(doc);
+        QCOMPARE(doc, before);
+    }
+
+    void styleReset()
+    {
+        StyleMemory memory;
+        memory.remember(Kind::Arrow, [] { Style s; s.color = qRgb(0x1E, 0x88, 0xE5); s.width = 11; return s; }(), 1.5);
+        QVERIFY(memory.tool(Kind::Arrow) != StyleMemory::defaults(Kind::Arrow));
+        memory.reset(Kind::Arrow);
+        QCOMPARE(memory.tool(Kind::Arrow), StyleMemory::defaults(Kind::Arrow));
+        QVERIFY(memory == StyleMemory());
+    }
 
     void toolsTable()
     {

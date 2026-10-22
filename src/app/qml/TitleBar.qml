@@ -13,6 +13,12 @@ Item {
     property string title
     property real iconX: 16
     property color foreground: Theme.text
+    // The close button asks (closeRequested) instead of closing the window, for a window that
+    // empties itself first (EditWindow). Not by refusing the window's closing: that also stops
+    // the application from quitting (Qt asks every window to close first).
+    property bool closeIntercepted: false
+
+    signal closeRequested()
 
     readonly property bool maximized: Window.visibility === Window.Maximized
     // Dimmed while the window is inactive, as Windows does.
@@ -111,7 +117,7 @@ Item {
         CaptionButton {
             glyph: "" // ChromeClose
             closes: true
-            onClicked: bar.Window.window.close()
+            onClicked: bar.closeIntercepted ? bar.closeRequested() : bar.Window.window.close()
         }
     }
 }

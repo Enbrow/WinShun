@@ -2,7 +2,9 @@
 
 #include <QDir>
 #include <QFile>
+#include <QDateTime>
 #include <QFileInfo>
+#include <QThread>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -848,6 +850,47 @@ private slots:
             QVERIFY(!QFile::exists(store.projectPath(c)));
             QVERIFY(!QFile::exists(store.imagePath(c)));
         }
+    }
+
+    // 编辑 then Enter without a change copies the original entry again; the
+    // watcher sees the picture come back and adds it, a duplicate of the same
+    // pixels: the entry moves to the top and its PNG file is not written
+    // again (the bytes stay the ones that were stored), its project not touched.
+    void copiedAgainKeepsThePicture()
+    {
+        QTemporaryDir dir;
+        ClipStore store(dir.path());
+        QVERIFY(store.open(kStart));
+        ClipCapture first;
+        first.kind = ClipKind::Image;
+        first.png = "first-png-bytes";
+        first.hash = "same";
+        first.screenshot = true;
+        first.project = "the-project";
+        const qint64 id = store.add(first, kStart);
+        store.flush();
+        const QString path = store.imagePath(id);
+        QVERIFY(QFile::exists(path));
+        const QDateTime written = QFileInfo(path).lastModified();
+        QThread::msleep(30);
+        ClipCapture other = text(u"between"_s);
+        store.add(other, kStart + 1);
+        ClipCapture again;
+        again.kind = ClipKind::Image;
+        again.png = "re-encoded-differently";
+        again.hash = "same";
+        const qint64 back = store.add(again, kStart + 2);
+        store.flush();
+        QCOMPARE(back, id);
+        QCOMPARE(store.clips().front().id, id); // moved to the top
+        QCOMPARE(store.clips().size(), std::size_t(2));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), QByteArray("first-png-bytes"));
+        file.close();
+        QCOMPARE(QFileInfo(path).lastModified(), written);
+        QVERIFY(store.clip(id)->screenshot);
+        QCOMPARE(store.project(id), QByteArray("the-project"));
     }
 
     // A history from before projects: the column is added, nothing is lost.

@@ -295,8 +295,12 @@ struct AnnotationModel::Private {
     QPoint last;
     Qt::KeyboardModifiers modifiers;
     annot::Item before; // Draw: the item as the press made it; Reshape: the item before
-    int handle = -1; // Reshape
+    int handle = -1; // Reshape: of the item (BoxHandle, LineHandle); Crop: a Handle of Geometry.h
     QPoint own; // Reshape: the pixel the handle stands for (handlePixel)
+    QList<quint32> moveIds; // Move: what moves together
+    QRect cropStart; // Crop: the crop as the press found it
+    QList<quint32> marqueeBase; // Marquee: the selected ones before it (Shift keeps them)
+    QRect marqueeBox; // Marquee: the pixels spanned from the press to the mouse
 
     int wheelSum = 0;
     bool notched = false;
@@ -318,6 +322,11 @@ struct AnnotationModel::Private {
         QVariantMap numberEdit;
         bool gestureActive = false;
         QRectF gestureBounds;
+        bool editor = false;
+        QRect crop;
+        QRectF marquee;
+        bool picking = false;
+        int selectedCount = 0;
     } shown;
 };
 
@@ -346,6 +355,57 @@ void AnnotationModel::begin(const QImage& base, qreal dpr, const annot::StyleMem
     sync();
 }
 
+void AnnotationModel::begin(const annot::Project& project, qreal deviceDpr, const annot::StyleMemory& styles)
+{
+    reset();
+    m_editor = true;
+    m_base = project.base;
+    m_document = project.doc;
+    m_document.canvas = m_base.size();
+    const QRect canvas(QPoint(0, 0), m_document.canvas);
+    QRect crop = m_document.crop & canvas;
+    if (crop.isEmpty())
+        crop = canvas;
+    m_document.crop = crop;
+    if (!(m_document.dpr > 0))
+        m_document.dpr = deviceDpr > 0 ? deviceDpr : 1.0;
+    m_loaded = m_document;
+    m_basePng = project.basePng;
+    m_styles = styles;
+    m_stylesChanged = false;
+    emit changed(QRectF()); // a new picture: all of it
+    sync();
+}
+
+void AnnotationModel::setView(qreal devicePerLogical, qreal zoom)
+{
+    m_devicePerLogical = devicePerLogical > 0 ? devicePerLogical : 0;
+    m_zoom = zoom > 0 ? zoom : 1;
+}
+
+bool AnnotationModel::modified() const
+{
+    if (!active())
+        return false;
+    return committed() != m_loaded;
+}
+
+void AnnotationModel::discardChanges()
+{
+    if (!m_editor || !active())
+        return;
+    commitPending();
+    if (m_gesture != Gesture::None)
+        cancelGesture();
+    if (m_document == m_loaded)
+        return;
+    m_picked.clear();
+    m_numberEdit.reset();
+    m_picking = false;
+    push(std::make_unique<annot::ReplaceDocument>(m_document, m_loaded));
+    sync();
+}
+
 void AnnotationModel::end()
 {
     reset();
@@ -366,9 +426,18 @@ void AnnotationModel::reset()
     m_stack.clear();
     m_compositor->clear();
     m_tool = -1;
-    m_selected.reset();
+    m_picked.clear();
     m_editing.reset();
     m_numberEdit.reset();
+    m_editor = false;
+    m_loaded = annot::Document {};
+    m_basePng.clear();
+    m_picking = false;
+    m_devicePerLogical = 0;
+    m_zoom = 1;
+    d->moveIds.clear();
+    d->marqueeBase.clear();
+    d->marqueeBox = QRect();
 }
 
 void AnnotationModel::setSelection(const QRect& selection)
@@ -388,7 +457,10 @@ void AnnotationModel::setSelection(const QRect& selection)
 
 QRect AnnotationModel::sampleBounds() const
 {
-    return m_document.crop.isEmpty() ? QRect(QPoint(0, 0), m_document.canvas) : m_document.crop;
+    // The editor's redactions read all of the picture, whatever the crop (3.10).
+    if (m_editor || m_document.crop.isEmpty())
+        return QRect(QPoint(0, 0), m_document.canvas);
+    return m_document.crop;
 }
 
 std::optional<quint32> AnnotationModel::skipped() const
@@ -401,7 +473,7 @@ std::optional<quint32> AnnotationModel::skipped() const
 QImage AnnotationModel::composed()
 {
     commitPending();
-    if (m_base.isNull() || m_document.items.isEmpty())
+    if (m_base.isNull() || (!m_editor && m_document.items.isEmpty()))
         return {};
     return m_compositor->exportImage(m_document, m_base, sampleBounds());
 }
@@ -409,7 +481,13 @@ QImage AnnotationModel::composed()
 annot::Project AnnotationModel::project() const
 {
     const annot::Document doc = committed();
-    if (m_base.isNull() || doc.items.isEmpty())
+    if (m_base.isNull())
+        return {};
+    // The editor keeps the whole picture, and the crop in the document, so
+    // what was cropped away can be brought back.
+    if (m_editor)
+        return annot::Project {doc, m_base, m_basePng};
+    if (doc.items.isEmpty())
         return {};
     return annot::projectFromOverlay(doc, m_base, doc.crop);
 }
@@ -438,10 +516,13 @@ void AnnotationModel::setTool(int tool)
     m_numberEdit.reset();
     // An object of another kind is let go of: the panel then shows the new
     // tool's style, which is what the next drawing gets.
-    if (tool >= 0 && m_selected) {
-        const annot::Item* item = find(m_selected);
-        if (!item || item->kind != annot::tools()[tool].kind)
-            m_selected.reset();
+    m_picking = false;
+    if (tool >= 0) {
+        const Kind kind = annot::tools()[tool].kind;
+        m_picked.removeIf([this, kind](quint32 id) {
+            const annot::Item* item = find(id);
+            return !item || item->kind != kind;
+        });
     }
     m_tool = tool;
     d->wheelSum = 0;
@@ -485,7 +566,7 @@ QString AnnotationModel::redoLabel() const
 
 bool AnnotationModel::panelVisible() const
 {
-    return active() && (m_tool >= 0 || m_selected.has_value() || m_editing.has_value());
+    return active() && (m_tool >= 0 || !m_picked.isEmpty() || m_editing.has_value());
 }
 
 QVariantMap AnnotationModel::panel() const
@@ -504,10 +585,11 @@ QVariantMap AnnotationModel::panel() const
         return m;
     }
     const Kind kind = target->kind;
+    const bool mixed = target->mixed;
     // An object's sizes through the document's scale; a tool's as it
     // remembers them, which are logical already.
     annot::StyleMemory::Tool t = m_styles.tool(kind);
-    if (target->id || target->typing) {
+    if (!target->ids.isEmpty() || target->typing) {
         const annot::Style s = targetStyle(*target);
         const qreal dpr = this->dpr();
         t.color = s.color;
@@ -519,9 +601,17 @@ QVariantMap AnnotationModel::panel() const
         t.mode = s.redact;
         t.cell = annot::toLogicalPx(s.cell, dpr);
     }
-    m[u"kind"_s] = int(kind);
-    m[u"name"_s] = annot::toolName(kind);
+    // Objects of different kinds share the colour and the layer buttons only.
+    m[u"kind"_s] = mixed ? -1 : int(kind);
+    m[u"name"_s] = target->ids.size() > 1 ? tr("%1 个对象").arg(target->ids.size()) : annot::toolName(kind);
     m[u"color"_s] = colorHex(t.color);
+    m[u"many"_s] = target->ids.size() > 1;
+    if (mixed) {
+        m[u"selected"_s] = true;
+        m[u"canRaise"_s] = false;
+        m[u"canLower"_s] = false;
+        return m;
+    }
     if (usesWidth(kind)) {
         m[u"width"_s] = t.width;
         m[u"widths"_s] = variantList(annot::sizePresets(kind));
@@ -549,8 +639,8 @@ QVariantMap AnnotationModel::panel() const
         }
         m[u"start"_s] = start;
     }
-    m[u"selected"_s] = target->id.has_value();
-    const bool layered = target->id && !m_editing;
+    m[u"selected"_s] = !target->ids.isEmpty();
+    const bool layered = target->ids.size() == 1 && !m_editing;
     m[u"canRaise"_s] = layered && canReorder(1);
     m[u"canLower"_s] = layered && canReorder(-1);
     return m;
@@ -560,17 +650,23 @@ QVariantList AnnotationModel::selection() const
 {
     if (m_editing)
         return {}; // the text box stands for it
-    const annot::Item* item = find(m_selected);
-    if (!item)
-        return {};
-    const QRectF outline = annot::bounds(m_document, *item);
-    const QList<QPointF> points = annot::handles(*item);
-    QVariantList handles;
-    for (qsizetype i = 0; i < points.size(); ++i)
-        handles.append(QVariantMap {{u"x"_s, points[i].x()}, {u"y"_s, points[i].y()}, {u"index"_s, int(i)}});
-    return {QVariantMap {{u"id"_s, int(item->id)}, {u"kind"_s, int(item->kind)}, {u"x"_s, outline.x()},
-        {u"y"_s, outline.y()}, {u"width"_s, outline.width()}, {u"height"_s, outline.height()},
-        {u"box"_s, points.size() == 8}, {u"handles"_s, handles}}};
+    QVariantList list;
+    const bool one = m_picked.size() == 1;
+    for (const quint32 id : m_picked) {
+        const annot::Item* item = find(id);
+        if (!item)
+            continue;
+        const QRectF outline = annot::bounds(m_document, *item);
+        // Handles reshape one object; several are moved, restyled, deleted together.
+        const QList<QPointF> points = one ? annot::handles(*item) : QList<QPointF>();
+        QVariantList handles;
+        for (qsizetype i = 0; i < points.size(); ++i)
+            handles.append(QVariantMap {{u"x"_s, points[i].x()}, {u"y"_s, points[i].y()}, {u"index"_s, int(i)}});
+        list.append(QVariantMap {{u"id"_s, int(item->id)}, {u"kind"_s, int(item->kind)}, {u"x"_s, outline.x()},
+            {u"y"_s, outline.y()}, {u"width"_s, outline.width()}, {u"height"_s, outline.height()},
+            {u"box"_s, points.size() == 8}, {u"handles"_s, handles}});
+    }
+    return list;
 }
 
 QVariantMap AnnotationModel::editing() const
@@ -603,7 +699,8 @@ QVariantMap AnnotationModel::numberEdit() const
 
 QRectF AnnotationModel::gestureBounds() const
 {
-    if (m_gesture == Gesture::None || !d->command)
+    // Cropping and selecting in the editor are far from any toolbar.
+    if (m_gesture == Gesture::None || m_gesture == Gesture::Crop || m_gesture == Gesture::Marquee || !d->command)
         return {};
     QRectF r;
     if (m_gesture == Gesture::Draw) {
@@ -612,6 +709,11 @@ QRectF AnnotationModel::gestureBounds() const
         if (!add->items.isEmpty()) {
             const annot::Item& item = add->items[0];
             r = d->applied ? annot::bounds(m_document, item) : annot::bounds(item, dpr());
+        }
+    } else if (m_gesture == Gesture::Move) {
+        for (const quint32 id : d->moveIds) {
+            if (const annot::Item* item = find(id))
+                r |= annot::bounds(m_document, *item);
         }
     } else if (const annot::Item* item = find(d->before.id)) {
         r = annot::bounds(m_document, *item);
@@ -622,6 +724,11 @@ QRectF AnnotationModel::gestureBounds() const
     return r.adjusted(-m, -m, m, m);
 }
 
+QRectF AnnotationModel::marquee() const
+{
+    return m_gesture == Gesture::Marquee && d->dragging ? QRectF(d->marqueeBox) : QRectF();
+}
+
 // ---- helpers ---------------------------------------------------------------
 
 qint64 AnnotationModel::now() const
@@ -629,24 +736,41 @@ qint64 AnnotationModel::now() const
     return d->clock.elapsed();
 }
 
+qreal AnnotationModel::factor() const
+{
+    const qreal device = m_devicePerLogical > 0 ? m_devicePerLogical : dpr();
+    return device / std::max<qreal>(0.01, m_zoom);
+}
+
+QRect AnnotationModel::room() const
+{
+    return m_editor ? QRect(QPoint(0, 0), m_document.canvas) : m_document.crop;
+}
+
+std::optional<quint32> AnnotationModel::single() const
+{
+    return m_picked.size() == 1 ? std::optional<quint32>(m_picked.first()) : std::nullopt;
+}
+
 qreal AnnotationModel::tolerance() const
 {
-    return 4 * dpr(); // 3.2: lines count within half their width and 4 logical px
+    return 4 * factor(); // 3.2: lines count within half their width and 4 logical px
 }
 
 int AnnotationModel::reach() const
 {
-    return static_cast<int>(std::lround(6 * dpr())); // as CaptureSession reaches the selection's handles
+    return std::max(1, static_cast<int>(std::lround(6 * factor()))); // as CaptureSession reaches the selection's handles
 }
 
 int AnnotationModel::dragStart() const
 {
-    return std::max(2, static_cast<int>(std::lround(3 * dpr()))); // as CaptureSession starts a drag
+    // Whole image pixels are the least a mouse position can differ by.
+    return std::max(m_zoom > 1 ? 1 : 2, static_cast<int>(std::lround(3 * factor()))); // as CaptureSession starts a drag
 }
 
 QPoint AnnotationModel::clampToSelection(QPoint p) const
 {
-    return clampInto(p, m_document.crop);
+    return clampInto(p, room());
 }
 
 std::optional<Kind> AnnotationModel::toolKind() const
@@ -670,21 +794,28 @@ std::optional<quint32> AnnotationModel::itemAt(QPoint p) const
 // tested alone, a Number keeping the number it shows (its disc's width).
 bool AnnotationModel::onSelected(QPoint p) const
 {
-    const annot::Item* item = find(m_selected);
-    if (!item || m_editing)
+    if (m_picked.isEmpty() || m_editing)
         return false;
-    annot::Document probe;
-    probe.canvas = m_document.canvas;
-    probe.dpr = m_document.dpr;
-    probe.items = {*item};
-    if (item->kind == Kind::Number)
-        probe.items[0].pinned = annot::numbers(m_document).value(item->id, 1);
-    return annot::hitTest(probe, QPointF(p), tolerance()) == item->id;
+    const QHash<quint32, int> shown = annot::numbers(m_document);
+    for (const quint32 id : m_picked) {
+        const annot::Item* item = find(id);
+        if (!item)
+            continue;
+        annot::Document probe;
+        probe.canvas = m_document.canvas;
+        probe.dpr = m_document.dpr;
+        probe.items = {*item};
+        if (item->kind == Kind::Number)
+            probe.items[0].pinned = shown.value(item->id, 1);
+        if (annot::hitTest(probe, QPointF(p), tolerance()) == item->id)
+            return true;
+    }
+    return false;
 }
 
 int AnnotationModel::handleAt(QPoint p) const
 {
-    const annot::Item* item = find(m_selected);
+    const annot::Item* item = find(single());
     if (!item || m_editing)
         return -1;
     const QList<QPointF> points = annot::handles(*item);
@@ -702,30 +833,67 @@ int AnnotationModel::handleAt(QPoint p) const
     return best;
 }
 
+// A handle of the editor's crop under `p`. With a tool on, a press inside
+// the crop draws, and one on an object takes the object: the handles are
+// reached from outside the crop then.
+int AnnotationModel::cropHandleAt(QPoint p) const
+{
+    if (!m_editor || m_gesture != Gesture::None || m_editing || m_document.crop.isEmpty())
+        return 0;
+    const QRect crop = m_document.crop;
+    if (crop.contains(p) && (m_tool >= 0 || itemAt(p)))
+        return 0;
+    const Handle h = ws::capture::handleAt(crop, p, reach());
+    return h == Handle::None || h == Handle::Move ? 0 : int(h);
+}
+
+QRgb AnnotationModel::colorAt(QPoint p) const
+{
+    QImage out;
+    m_compositor->render(m_document, m_base, sampleBounds(), QRect(p, QSize(1, 1)), &out, skipped());
+    return out.isNull() ? qRgb(0, 0, 0) : (out.pixel(0, 0) | 0xff000000u);
+}
+
 bool AnnotationModel::onHandle(QPoint p) const
 {
-    return active() && m_gesture == Gesture::None && handleAt(p) >= 0;
+    return active() && m_gesture == Gesture::None && (handleAt(p) >= 0 || cropHandleAt(p) != 0);
 }
 
 std::optional<AnnotationModel::Target> AnnotationModel::styleTarget() const
 {
     if (!active())
         return std::nullopt;
+    Target target;
     if (m_editing) {
+        target.kind = Kind::Text;
         if (m_editing->id != 0 && find(m_editing->id))
-            return Target {Kind::Text, m_editing->id, false};
-        return Target {Kind::Text, std::nullopt, true};
+            target.ids = {m_editing->id};
+        else
+            target.typing = true;
+        return target;
     }
-    if (const annot::Item* item = find(m_selected))
-        return Target {item->kind, item->id, false};
-    if (const std::optional<Kind> kind = toolKind())
-        return Target {*kind, std::nullopt, false};
+    for (const quint32 id : m_picked) {
+        const annot::Item* item = find(id);
+        if (!item)
+            continue;
+        if (target.ids.isEmpty())
+            target.kind = item->kind;
+        else if (item->kind != target.kind)
+            target.mixed = true;
+        target.ids.append(id);
+    }
+    if (!target.ids.isEmpty())
+        return target;
+    if (const std::optional<Kind> kind = toolKind()) {
+        target.kind = *kind;
+        return target;
+    }
     return std::nullopt;
 }
 
 annot::Style AnnotationModel::targetStyle(const Target& target) const
 {
-    if (const annot::Item* item = find(target.id))
+    if (const annot::Item* item = find(target.id()))
         return item->style;
     if (target.typing && m_editing)
         return m_editing->style;
@@ -809,8 +977,7 @@ void AnnotationModel::touched(const annot::Change& change)
 // After undo and redo: what was selected or renumbered may be gone.
 void AnnotationModel::keepValid()
 {
-    if (m_selected && !find(m_selected))
-        m_selected.reset();
+    m_picked.removeIf([this](quint32 id) { return !find(id); });
     if (m_numberEdit && !find(m_numberEdit))
         m_numberEdit.reset();
 }
@@ -866,6 +1033,24 @@ void AnnotationModel::sync()
         s.gestureBounds = gestureRect;
         emit gestureChanged();
     }
+    if (m_editor != s.editor) {
+        s.editor = m_editor;
+        emit editorChanged();
+    }
+    if (m_document.crop != s.crop) {
+        s.crop = m_document.crop;
+        emit cropChanged();
+    }
+    const QRectF box = marquee();
+    if (box != s.marquee) {
+        s.marquee = box;
+        emit marqueeChanged();
+    }
+    if (m_picking != s.picking) {
+        s.picking = m_picking;
+        emit pickingChanged();
+    }
+    s.selectedCount = static_cast<int>(m_picked.size());
 }
 
 // ---- the mouse -------------------------------------------------------------
@@ -886,9 +1071,22 @@ bool AnnotationModel::pressFirst(QPoint p, Qt::KeyboardModifiers modifiers)
         sync();
         return true;
     }
+    if (m_picking) {
+        // The eyedropper: the pixel as drawn, annotations included.
+        m_picking = false;
+        if (QRect(QPoint(0, 0), m_document.canvas).contains(p))
+            setPanel(QVariantMap {{u"color"_s, colorHex(colorAt(p))}});
+        sync();
+        return true;
+    }
     const int handle = handleAt(p);
     if (handle >= 0) {
         startReshape(handle, p, modifiers);
+        sync();
+        return true;
+    }
+    if (const int crop = cropHandleAt(p); crop != 0) {
+        startCrop(crop, p);
         sync();
         return true;
     }
@@ -909,10 +1107,10 @@ bool AnnotationModel::pressSecond(QPoint p, Qt::KeyboardModifiers modifiers)
         return true;
     }
     if (const std::optional<Kind> kind = toolKind()) {
-        // 3.6, step 4: the selected object moves, a text is edited, a number
+        // 3.6, step 4: the selected objects move, a text is edited, a number
         // picked up; anything else inside the selection is drawn on.
         if (onSelected(p)) {
-            startMove(*m_selected, p, modifiers);
+            startMove(m_picked, p, modifiers);
             sync();
             return true;
         }
@@ -921,14 +1119,14 @@ bool AnnotationModel::pressSecond(QPoint p, Qt::KeyboardModifiers modifiers)
         // (at the release, finishGesture()).
         const annot::Item* under = find(itemAt(p));
         if (under && under->kind == *kind && (*kind == Kind::Text || *kind == Kind::Number)) {
-            m_selected = under->id;
-            startMove(under->id, p, modifiers);
+            m_picked = {under->id};
+            startMove(m_picked, p, modifiers);
             sync();
             return true;
         }
-        m_selected.reset();
-        if (!m_document.crop.contains(p)) {
-            emit notice(tr("只能在选区里画"));
+        m_picked.clear();
+        if (!room().contains(p)) {
+            emit notice(m_editor ? tr("只能在图片里画") : tr("只能在选区里画"));
             sync();
             return true;
         }
@@ -939,16 +1137,31 @@ bool AnnotationModel::pressSecond(QPoint p, Qt::KeyboardModifiers modifiers)
         sync();
         return true;
     }
-    // 3.6, step 5: without a tool an object is picked up; a press elsewhere
-    // lets the selected one go and leaves the press to the session.
+    // 3.6, step 5: without a tool an object is picked up; Shift adds it to
+    // the selected ones, or takes it from them; a press elsewhere lets them
+    // go and, in the overlay, leaves the press to the session; in the editor
+    // it starts a box that selects what it touches.
+    const bool shift = modifiers & Qt::ShiftModifier;
     if (const std::optional<quint32> hit = itemAt(p)) {
-        m_selected = *hit;
-        startMove(*hit, p, modifiers);
+        if (shift) {
+            if (!m_picked.removeOne(*hit))
+                m_picked.append(*hit);
+            sync();
+            return true; // taken; nothing to drag
+        }
+        if (!m_picked.contains(*hit))
+            m_picked = {*hit};
+        startMove(m_picked, p, modifiers);
         sync();
         return true;
     }
-    if (m_selected) {
-        m_selected.reset();
+    if (m_editor) {
+        startMarquee(p, modifiers);
+        sync();
+        return true;
+    }
+    if (!m_picked.isEmpty()) {
+        m_picked.clear();
         sync();
     }
     return false;
@@ -1000,14 +1213,15 @@ void AnnotationModel::startDraw(Kind kind, QPoint p, Qt::KeyboardModifiers modif
     }
 }
 
-void AnnotationModel::startMove(quint32 id, QPoint p, Qt::KeyboardModifiers modifiers)
+void AnnotationModel::startMove(const QList<quint32>& ids, QPoint p, Qt::KeyboardModifiers modifiers)
 {
-    const annot::Item* item = find(id);
+    const annot::Item* item = ids.isEmpty() ? nullptr : find(ids.first());
     if (!item)
         return;
-    auto move = std::make_unique<annot::MoveItems>(QList<quint32> {id}, QPoint());
+    auto move = std::make_unique<annot::MoveItems>(ids, QPoint());
     move->merge = false; // a drag is a step of its own
     d->before = *item;
+    d->moveIds = ids;
     d->command = std::move(move);
     d->applied = true; // moved by nothing: the document is as it would be
     d->dragging = false;
@@ -1017,9 +1231,41 @@ void AnnotationModel::startMove(quint32 id, QPoint p, Qt::KeyboardModifiers modi
     m_gesture = Gesture::Move;
 }
 
+void AnnotationModel::startCrop(int handle, QPoint p)
+{
+    auto crop = std::make_unique<annot::SetCrop>(m_document, m_document.crop);
+    d->cropStart = m_document.crop;
+    d->handle = handle;
+    d->command = std::move(crop);
+    d->applied = true; // cropped to itself
+    d->dragging = false;
+    d->pressAt = p;
+    d->last = p;
+    d->modifiers = {};
+    m_gesture = Gesture::Crop;
+}
+
+// A box dragged over the empty picture selects the objects it touches; with
+// Shift they join the ones selected already.
+void AnnotationModel::startMarquee(QPoint p, Qt::KeyboardModifiers modifiers)
+{
+    const bool shift = modifiers & Qt::ShiftModifier;
+    d->marqueeBase = shift ? m_picked : QList<quint32>();
+    if (!shift)
+        m_picked.clear();
+    d->marqueeBox = QRect(p, QSize(1, 1));
+    d->command.reset();
+    d->applied = false;
+    d->dragging = false;
+    d->pressAt = p;
+    d->last = p;
+    d->modifiers = modifiers;
+    m_gesture = Gesture::Marquee;
+}
+
 void AnnotationModel::startReshape(int handle, QPoint p, Qt::KeyboardModifiers modifiers)
 {
-    const annot::Item* item = find(m_selected);
+    const annot::Item* item = find(single());
     if (!item)
         return;
     auto reshape = std::make_unique<annot::Reshape>(item->id, *item, *item);
@@ -1038,7 +1284,7 @@ void AnnotationModel::startReshape(int handle, QPoint p, Qt::KeyboardModifiers m
 
 annot::Item AnnotationModel::shapeTo(QPoint p, bool constrain) const
 {
-    const QRect room = m_document.crop;
+    const QRect room = this->room();
     const QPoint to = clampToSelection(p);
     const annot::Item& start = d->before;
     if (annot::isBox(start.kind)) {
@@ -1060,12 +1306,12 @@ annot::Item AnnotationModel::strokeTo(const annot::Item& stroke, QPoint p, bool 
 {
     const QPoint to = clampToSelection(p);
     const annot::Item made = annot::reshaped(stroke, int(annot::LineHandle::End), QPointF(to), constrain);
-    return constrain ? fitLine(stroke, made, m_document.crop) : made;
+    return constrain ? fitLine(stroke, made, room()) : made;
 }
 
 void AnnotationModel::move(QPoint p, Qt::KeyboardModifiers modifiers)
 {
-    if (m_gesture == Gesture::None || !d->command)
+    if (m_gesture == Gesture::None || (!d->command && m_gesture != Gesture::Marquee))
         return;
     d->last = p;
     d->modifiers = modifiers;
@@ -1079,7 +1325,7 @@ void AnnotationModel::move(QPoint p, Qt::KeyboardModifiers modifiers)
 // and applied again, the old place and the new one drawn again (3.7).
 void AnnotationModel::updateGesture()
 {
-    if (!d->command)
+    if (!d->command && m_gesture != Gesture::Marquee)
         return;
     const bool constrain = d->modifiers & Qt::ShiftModifier;
     switch (m_gesture) {
@@ -1113,6 +1359,33 @@ void AnnotationModel::updateGesture()
             change.parts.clear();
         }
         touched(change);
+        break;
+    }
+    case Gesture::Crop: {
+        if (!d->dragging)
+            return;
+        auto* crop = static_cast<annot::SetCrop*>(d->command.get());
+        const QRect canvas(QPoint(0, 0), m_document.canvas);
+        const QRect to = dragHandle(d->cropStart, Handle(d->handle), d->last - d->pressAt, canvas);
+        if (to == crop->after)
+            return;
+        annot::Change change = crop->revert(m_document);
+        crop->after = to;
+        change.merge(crop->apply(m_document));
+        touched(change);
+        break;
+    }
+    case Gesture::Marquee: {
+        const QRect box = spanRect(d->pressAt, d->last);
+        d->marqueeBox = box;
+        QList<quint32> picked = d->marqueeBase;
+        if (d->dragging) {
+            for (const annot::Item& item : std::as_const(m_document.items)) {
+                if (!picked.contains(item.id) && annot::bounds(m_document, item).intersects(QRectF(box)))
+                    picked.append(item.id);
+            }
+        }
+        m_picked = picked;
         break;
     }
     case Gesture::Move: {
@@ -1172,6 +1445,8 @@ void AnnotationModel::finishGesture()
     const QPoint end = gesture == Gesture::Draw ? clampToSelection(d->last) : d->last;
     const bool shortDrag = (end - d->pressAt).manhattanLength() < dragStart();
     d->dragging = false;
+    if (gesture == Gesture::Marquee)
+        d->marqueeBox = QRect(); // the objects it touched stay selected
     if (!command || !applied)
         return; // nothing was drawn: a click
     switch (gesture) {
@@ -1200,7 +1475,7 @@ void AnnotationModel::finishGesture()
         }
         const quint32 id = item.id;
         m_stack.pushApplied(std::move(command), now());
-        m_selected = id; // the tool stays; what it drew can be adjusted at once (3.6)
+        m_picked = {id}; // the tool stays; what it drew can be adjusted at once (3.6)
         break;
     }
     case Gesture::Move: {
@@ -1223,6 +1498,14 @@ void AnnotationModel::finishGesture()
         m_stack.pushApplied(std::move(command), now());
         break;
     }
+    case Gesture::Crop: {
+        const auto* crop = static_cast<annot::SetCrop*>(command.get());
+        if (crop->after == crop->before)
+            return;
+        m_stack.pushApplied(std::move(command), now());
+        break;
+    }
+    case Gesture::Marquee:
     case Gesture::None:
         break;
     }
@@ -1233,6 +1516,10 @@ void AnnotationModel::cancelGesture()
     if (m_gesture == Gesture::None)
         return;
     std::unique_ptr<annot::Command> command = std::move(d->command);
+    if (m_gesture == Gesture::Marquee) {
+        m_picked = d->marqueeBase;
+        d->marqueeBox = QRect();
+    }
     m_gesture = Gesture::None;
     if (command && d->applied)
         touched(command->revert(m_document));
@@ -1251,13 +1538,20 @@ int AnnotationModel::cursorAt(QPoint p) const
         return Qt::SizeAllCursor;
     case Gesture::Reshape:
         return handleCursor(d->before, d->handle);
+    case Gesture::Crop:
+        return cursorFor(Handle(d->handle));
+    case Gesture::Marquee:
     case Gesture::Draw:
         return Qt::CrossCursor;
     case Gesture::None:
         break;
     }
+    if (m_picking)
+        return Qt::CrossCursor;
     if (const int handle = handleAt(p); handle >= 0)
-        return handleCursor(*find(m_selected), handle);
+        return handleCursor(*find(single()), handle);
+    if (const int crop = cropHandleAt(p); crop != 0)
+        return cursorFor(Handle(crop));
     if (const std::optional<Kind> kind = toolKind()) {
         if (onSelected(p))
             return Qt::SizeAllCursor;
@@ -1267,7 +1561,7 @@ int AnnotationModel::cursorAt(QPoint p) const
             if (*kind == Kind::Number && under->kind == Kind::Number)
                 return Qt::SizeAllCursor;
         }
-        if (m_document.crop.contains(p))
+        if (room().contains(p))
             return *kind == Kind::Text ? Qt::IBeamCursor : Qt::CrossCursor;
         return -1;
     }
@@ -1291,7 +1585,7 @@ bool AnnotationModel::doubleClick(QPoint p)
         if (item->kind == Kind::Text) {
             beginEdit(*item, p);
         } else {
-            m_selected = item->id;
+            m_picked = {item->id};
             m_numberEdit = item->id;
         }
         sync();
@@ -1342,7 +1636,7 @@ bool AnnotationModel::key(int key, Qt::KeyboardModifiers modifiers)
         return false;
     }
 
-    enum class Action { None, Tool, Undo, Redo, Delete, Nudge, Smaller, Bigger, Lower, Raise };
+    enum class Action { None, Tool, Undo, Redo, Delete, Nudge, Smaller, Bigger, Lower, Raise, Pick, SelectAll, Duplicate };
     Action action = Action::None;
     int toolIndex = -1;
     QPoint delta;
@@ -1361,6 +1655,9 @@ bool AnnotationModel::key(int key, Qt::KeyboardModifiers modifiers)
         if (action == Action::None) {
             const int step = shift ? 10 : 1;
             switch (key) {
+            case Qt::Key_I:
+                action = Action::Pick;
+                break;
             case Qt::Key_Delete:
             case Qt::Key_Backspace:
                 action = Action::Delete;
@@ -1393,6 +1690,12 @@ bool AnnotationModel::key(int key, Qt::KeyboardModifiers modifiers)
         }
     } else if (ctrl && !other) {
         switch (key) {
+        case Qt::Key_A:
+            action = shift ? Action::None : Action::SelectAll;
+            break;
+        case Qt::Key_D:
+            action = shift ? Action::None : Action::Duplicate;
+            break;
         case Qt::Key_Z:
             action = shift ? Action::Redo : Action::Undo;
             break;
@@ -1430,14 +1733,29 @@ bool AnnotationModel::key(int key, Qt::KeyboardModifiers modifiers)
         redo();
         return true;
     case Action::Delete:
-        if (!m_selected)
+        if (m_picked.isEmpty())
             return false;
         deleteSelection();
         return true;
     case Action::Nudge:
-        if (!m_selected)
+        if (m_picked.isEmpty())
             return false; // the session nudges the selection instead
         nudge(delta);
+        return true;
+    case Action::Pick:
+        if (!styleTarget())
+            return false;
+        pickColor(!m_picking);
+        return true;
+    case Action::SelectAll:
+        if (m_document.items.isEmpty())
+            return false;
+        selectAll();
+        return true;
+    case Action::Duplicate:
+        if (m_picked.isEmpty())
+            return false;
+        duplicateSelection();
         return true;
     case Action::Smaller:
     case Action::Bigger:
@@ -1447,7 +1765,7 @@ bool AnnotationModel::key(int key, Qt::KeyboardModifiers modifiers)
         return true;
     case Action::Lower:
     case Action::Raise:
-        if (!m_selected)
+        if (!single())
             return false;
         reorder(action == Action::Raise ? 1 : -1, toEnd);
         return true;
@@ -1459,9 +1777,9 @@ bool AnnotationModel::key(int key, Qt::KeyboardModifiers modifiers)
 
 void AnnotationModel::nudge(QPoint delta)
 {
-    if (!m_selected)
+    if (m_picked.isEmpty())
         return;
-    auto move = std::make_unique<annot::MoveItems>(QList<quint32> {*m_selected}, delta);
+    auto move = std::make_unique<annot::MoveItems>(m_picked, delta);
     move->merge = true; // a run of presses is one step (3.7)
     push(std::move(move));
     sync();
@@ -1484,6 +1802,10 @@ bool AnnotationModel::escape()
         cancelGesture();
         return true;
     }
+    if (m_picking) {
+        pickColor(false);
+        return true;
+    }
     return false;
 }
 
@@ -1501,7 +1823,7 @@ void AnnotationModel::beginNewText(QPoint p)
     editing.at = clampToSelection(p);
     editing.style = m_styles.forTool(Kind::Text, dpr());
     m_editing = editing;
-    m_selected.reset();
+    m_picked.clear();
     m_numberEdit.reset();
 }
 
@@ -1514,7 +1836,7 @@ void AnnotationModel::beginEdit(const annot::Item& item, QPoint p)
     editing.click = p - editing.at;
     editing.style = item.style;
     m_editing = editing;
-    m_selected.reset();
+    m_picked.clear();
     m_numberEdit.reset();
     emit changed(annot::bounds(m_document, item)); // the canvas leaves it out now
 }
@@ -1550,9 +1872,9 @@ void AnnotationModel::commitText(const QString& typed)
     } else if (!area.isEmpty()) {
         emit changed(area);
     }
-    m_selected.reset();
+    m_picked.clear();
     if (id != 0 && find(id))
-        m_selected = id;
+        m_picked = {id};
     sync();
 }
 
@@ -1561,23 +1883,41 @@ void AnnotationModel::setPanel(const QVariantMap& change)
     const std::optional<Target> target = styleTarget();
     if (!target || change.isEmpty())
         return;
-    // The object (or the text being typed), in image px.
-    if (const annot::Item* item = find(target->id)) {
-        annot::Style style = item->style;
-        if (applyPanel(change, item->kind, style, dpr()) && style != item->style)
-            push(std::make_unique<annot::Restyle>(m_document, QList<quint32> {item->id}, QList<annot::Style> {style}));
+    // The objects (or the text being typed), in image px.
+    QList<Kind> kinds;
+    if (!target->ids.isEmpty()) {
+        QList<quint32> ids;
+        QList<annot::Style> styles;
+        for (const quint32 id : target->ids) {
+            const annot::Item* item = find(id);
+            if (!item)
+                continue;
+            if (!kinds.contains(item->kind))
+                kinds.append(item->kind);
+            annot::Style style = item->style;
+            if (applyPanel(change, item->kind, style, dpr()) && style != item->style) {
+                ids.append(id);
+                styles.append(style);
+            }
+        }
+        if (!ids.isEmpty())
+            push(std::make_unique<annot::Restyle>(m_document, ids, styles));
     } else if (target->typing && m_editing) {
         applyPanel(change, Kind::Text, m_editing->style, dpr());
     }
+    if (kinds.isEmpty())
+        kinds.append(target->kind);
     // A change made on the panel is a preference: the tool remembers it
     // (3.5), the fields changed only, in logical px (StyleMemory at scale
     // 1 keeps them exactly).
-    annot::Style memory = m_styles.forTool(target->kind, 1.0);
-    if (applyPanel(change, target->kind, memory, 1.0)) {
-        const annot::StyleMemory before = m_styles;
-        m_styles.remember(target->kind, memory, 1.0);
-        if (!(m_styles == before))
-            m_stylesChanged = true;
+    for (const Kind kind : std::as_const(kinds)) {
+        annot::Style memory = m_styles.forTool(kind, 1.0);
+        if (applyPanel(change, kind, memory, 1.0)) {
+            const annot::StyleMemory before = m_styles;
+            m_styles.remember(kind, memory, 1.0);
+            if (!(m_styles == before))
+                m_stylesChanged = true;
+        }
     }
     sync();
 }
@@ -1590,7 +1930,7 @@ void AnnotationModel::stepSize(int direction)
     if (!target)
         return;
     const Kind kind = target->kind;
-    const bool remembered = !target->id && !target->typing;
+    const bool remembered = target->ids.isEmpty() && !target->typing;
     const annot::StyleMemory::Tool& memory = m_styles.tool(kind);
     const annot::Style style = targetStyle(*target);
     const qreal dpr = this->dpr();
@@ -1652,14 +1992,14 @@ void AnnotationModel::deleteSelection()
     if (!active() || m_gesture != Gesture::None)
         return;
     commitPending();
-    if (!m_selected) {
+    if (m_picked.isEmpty()) {
         sync();
         return;
     }
-    const quint32 id = *std::exchange(m_selected, std::nullopt);
-    if (m_numberEdit == id)
+    const QList<quint32> ids = std::exchange(m_picked, {});
+    if (m_numberEdit && ids.contains(*m_numberEdit))
         m_numberEdit.reset();
-    push(std::make_unique<annot::RemoveItems>(QList<quint32> {id}));
+    push(std::make_unique<annot::RemoveItems>(ids));
     sync();
 }
 
@@ -1677,7 +2017,7 @@ void AnnotationModel::lower(bool toBottom)
 // (redactions stay below everything else, 3.2).
 bool AnnotationModel::canReorder(int direction) const
 {
-    const annot::Item* item = find(m_selected);
+    const annot::Item* item = find(single());
     if (!item)
         return false;
     const int i = annot::indexOf(m_document, item->id);
@@ -1696,7 +2036,7 @@ void AnnotationModel::reorder(int direction, bool toEnd)
         sync();
         return;
     }
-    const annot::Item* item = find(m_selected);
+    const annot::Item* item = find(single());
     const int i = annot::indexOf(m_document, item->id);
     // Reorder's index is in the list without the item: one past the next
     // one up, the one below, or the segment's end (insertionIndex keeps it
@@ -1704,6 +2044,102 @@ void AnnotationModel::reorder(int direction, bool toEnd)
     const int low = item->kind == Kind::Redact ? 0 : annot::redactionEnd(m_document);
     const int to = direction > 0 ? (toEnd ? -1 : i + 1) : (toEnd ? low : i - 1);
     push(std::make_unique<annot::Reorder>(item->id, to));
+    sync();
+}
+
+void AnnotationModel::resetStyle()
+{
+    const std::optional<Target> target = styleTarget();
+    if (!active() || !target)
+        return;
+    static const annot::StyleMemory defaults;
+    QList<Kind> kinds;
+    if (!target->ids.isEmpty()) {
+        QList<quint32> ids;
+        QList<annot::Style> styles;
+        for (const quint32 id : target->ids) {
+            const annot::Item* item = find(id);
+            if (!item)
+                continue;
+            if (!kinds.contains(item->kind))
+                kinds.append(item->kind);
+            const annot::Style style = defaults.forTool(item->kind, dpr());
+            if (style != item->style) {
+                ids.append(id);
+                styles.append(style);
+            }
+        }
+        if (!ids.isEmpty())
+            push(std::make_unique<annot::Restyle>(m_document, ids, styles));
+    } else if (target->typing && m_editing) {
+        m_editing->style = defaults.forTool(Kind::Text, dpr());
+    }
+    if (kinds.isEmpty())
+        kinds.append(target->kind);
+    for (const Kind kind : std::as_const(kinds)) {
+        if (m_styles.tool(kind) == annot::StyleMemory::defaults(kind))
+            continue;
+        m_styles.reset(kind);
+        m_stylesChanged = true;
+    }
+    sync();
+}
+
+void AnnotationModel::pickColor(bool on)
+{
+    if (!active() || on == m_picking)
+        return;
+    if (on && (m_gesture != Gesture::None || !styleTarget()))
+        return;
+    m_picking = on;
+    sync();
+}
+
+void AnnotationModel::selectAll()
+{
+    if (!active() || m_gesture != Gesture::None)
+        return;
+    commitPending();
+    m_picked.clear();
+    for (const annot::Item& item : std::as_const(m_document.items))
+        m_picked.append(item.id);
+    sync();
+}
+
+// Copies of the selected objects, a little down and to the right of them
+// (12 logical px), on top; the copies are selected. A number's copy counts
+// on from the others, a redaction's draws its noise of its own.
+void AnnotationModel::duplicateSelection()
+{
+    if (!active() || m_gesture != Gesture::None)
+        return;
+    commitPending();
+    if (m_picked.isEmpty())
+        return;
+    const int offset = std::max(4, annot::toImagePx(12, dpr()));
+    quint32 id = m_document.nextId;
+    quint32 seq = m_document.nextSeq;
+    QList<annot::Item> copies;
+    for (const annot::Item& item : std::as_const(m_document.items)) { // in layer order
+        if (!m_picked.contains(item.id))
+            continue;
+        annot::Item copy = annot::translated(item, QPoint(offset, offset));
+        copy.id = id++;
+        copy.seq = seq++;
+        copy.pinned.reset();
+        if (copy.kind == Kind::Redact)
+            copy.seed = QRandomGenerator::global()->generate64();
+        copies.append(copy);
+    }
+    if (copies.isEmpty())
+        return;
+    QList<quint32> ids;
+    for (const annot::Item& copy : std::as_const(copies))
+        ids.append(copy.id);
+    auto add = std::make_unique<annot::AddItems>(copies);
+    add->label = tr("复制");
+    push(std::move(add));
+    m_picked = ids;
     sync();
 }
 

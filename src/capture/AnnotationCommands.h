@@ -209,6 +209,20 @@ public:
     QRect after;
 };
 
+// The whole document put back to another (the editor's Esc: every change
+// given up in one step that Ctrl+Z takes back). Everything is redrawn.
+class ReplaceDocument final : public Command {
+public:
+    ReplaceDocument(Document before, Document after);
+    Change apply(Document& doc) override;
+    Change revert(Document& doc) override;
+    Document before;
+    Document after;
+
+private:
+    Change put(Document& doc, const Document& to) const;
+};
+
 // Several commands as one step (smart redaction adds many boxes at once,
 // deleting a selection of several items); applied in order, reverted in
 // reverse. The label is the first step's unless set.

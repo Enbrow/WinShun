@@ -8,6 +8,7 @@
 #include <QRect>
 #include <QRectF>
 #include <QSize>
+#include <QTimer>
 #include <QtQml/qqmlregistration.h>
 
 #include <vector>
@@ -35,6 +36,17 @@ class AnnotationCanvas : public QQuickItem {
     // beneath (the CaptureImage of the same picture) shows the same pixels.
     // The overlay's way, which keeps a mostly empty screen nearly free.
     Q_PROPERTY(bool sparse READ sparse WRITE setSparse NOTIFY sparseChanged FINAL)
+    // The editing window's: with `limited`, only the tiles `viewport` (the
+    // part of the picture that shows, image px) reaches, and one ring of
+    // tiles more, have pictures and textures; the others are let go of, and
+    // drawn again when they come into view, nearest the middle first and a
+    // few milliseconds at a time (a 1080 x 30000 picture is 590 tiles). Not
+    // limited: all the tiles, as in the overlay.
+    Q_PROPERTY(bool limited READ limited WRITE setLimited NOTIFY limitedChanged FINAL)
+    Q_PROPERTY(QRectF viewport READ viewport WRITE setViewport NOTIFY viewportChanged FINAL)
+    // Smoothed (linear) when the picture is shown smaller than it is; sharp
+    // (nearest) at 100 % and larger, where it must be pixel for pixel.
+    Q_PROPERTY(bool linear READ linear WRITE setLinear NOTIFY linearChanged FINAL)
 
 public:
     static constexpr int kTile = 256;
@@ -50,13 +62,28 @@ public:
     void setScaleY(qreal scale);
     bool sparse() const { return m_sparse; }
     void setSparse(bool sparse);
+    bool limited() const { return m_limited; }
+    void setLimited(bool limited);
+    QRectF viewport() const { return m_viewport; }
+    void setViewport(const QRectF& viewport);
+    bool linear() const { return m_linear; }
+    void setLinear(bool linear);
     // The tiles that have a picture now (what the tests see of sparse mode).
     int tilesShown() const;
+    // The most tiles a limited canvas keeps (the nearest to the middle of the view).
+    static constexpr int kMaxTiles = 480;
+    static constexpr int kRing = 1;
+    static constexpr int kPolishBudgetMs = 8;
+    // The textures a limited canvas makes in one frame; the rest follow in the next ones.
+    static constexpr int kUploadsPerFrame = 8;
 
 signals:
     void modelChanged();
     void scaleChanged();
     void sparseChanged();
+    void limitedChanged();
+    void viewportChanged();
+    void linearChanged();
 
 protected:
     void updatePolish() override;
@@ -86,6 +113,10 @@ private:
     qreal m_scaleX = 1;
     qreal m_scaleY = 1;
     bool m_sparse = false;
+    bool m_limited = false;
+    QRectF m_viewport;
+    bool m_linear = false;
+    bool m_filterStale = false; // m_linear changed: every node's filtering
     QSize m_size; // the picture's, image px
     int m_columns = 0;
     int m_rows = 0;
@@ -93,6 +124,10 @@ private:
     // The render thread's, touched only in updatePaintNode() (while the GUI
     // thread waits): the node of each tile, null where there is none.
     std::vector<QSGImageNode*> m_nodes;
+    std::vector<int> m_order; // a limited canvas: the tiles it wants, nearest the middle of the view first
+    QTimer m_viewMoving; // a limited canvas's view moved a moment ago: measured like a gesture
+    int m_mostShown = 0; // a limited canvas: the most tiles it kept, and the most it was asked for, for the log
+    int m_mostWanted = 0;
     bool m_dropNodes = false; // the tiles were let go of: so are their nodes, at the next sync
     bool m_rectsStale = true; // the scale changed: every node's rectangle
 

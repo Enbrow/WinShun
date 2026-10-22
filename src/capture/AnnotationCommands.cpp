@@ -545,6 +545,39 @@ Change SetCrop::revert(Document& doc)
     return change;
 }
 
+ReplaceDocument::ReplaceDocument(Document before_, Document after_)
+    : before(std::move(before_))
+    , after(std::move(after_))
+{
+    label = QCoreApplication::translate("Annotation", "放弃修改");
+}
+
+Change ReplaceDocument::put(Document& doc, const Document& to) const
+{
+    Change change;
+    change.ids = idsOf(doc.items);
+    for (const Item& item : to.items) {
+        if (!change.ids.contains(item.id))
+            change.ids.append(item.id);
+    }
+    change.dirty = QRectF(QPointF(0, 0), QSizeF(doc.canvas.expandedTo(to.canvas)));
+    change.numbers = true;
+    change.redactions = true;
+    change.crop = true;
+    doc = to;
+    return change;
+}
+
+Change ReplaceDocument::apply(Document& doc)
+{
+    return put(doc, after);
+}
+
+Change ReplaceDocument::revert(Document& doc)
+{
+    return put(doc, before);
+}
+
 Batch::Batch(std::vector<std::unique_ptr<Command>> steps_)
     : steps(std::move(steps_))
 {

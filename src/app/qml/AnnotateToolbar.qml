@@ -6,18 +6,63 @@ import WinShun
 // nine annotation tools in AnnotationModel.tools' order, undo and redo, then
 // the capture's own actions in their old order (copy, save, pin, OCR,
 // cancel), and a "?" that lists every key. A card of its own: CaptureOverlay
-// places it and the style panel (AnnotateStylePanel) beside it.
+// places it and the style panel (AnnotateStylePanel) beside it. The editing
+// window (EditWindow) uses it too, without a session: its buttons then say
+// what they want through action(), and the key list has the editor's keys.
 Rectangle {
     id: bar
 
-    required property CaptureSession session
+    // The capture's; none in the editing window, which answers action().
+    property CaptureSession session: null
     required property AnnotationModel annot
+    property bool editor: false
+    property bool ocrAvailable: session ? session.ocrAvailable : false
+    // What the first button says (the editing window: 完成 on a pin) and
+    // whether there is a 贴图 button (not when the picture is a pin already).
+    property string copyText: qsTr("复制")
+    property bool pinnable: true
     // The toolbar's rows on the screen now (this one, and the style panel
     // when it shows), logical px in the window, and whether the toolbar
     // lies below the selection: the key list opens on the side away from it.
     property rect blockRect
     property bool opensDown: true
     property real dpr: 1
+
+    // The key list: the rows both have, then the overlay's or the editor's.
+    readonly property var commonRows: [
+        qsTr("R E A L P M T N B 或 1–9"), qsTr("选工具：矩形、椭圆、箭头、直线、画笔、荧光笔、文字、序号、打码"),
+        qsTr("工具键再按一次"), qsTr("关掉工具"),
+        "Ctrl+Z", qsTr("撤销"),
+        "Ctrl+Y、Ctrl+Shift+Z", qsTr("重做"),
+        "Delete、Backspace", qsTr("删除选中的对象"),
+        "[  ]", qsTr("粗细、字号、格子小一档 / 大一档"),
+        "Ctrl+[  Ctrl+]", qsTr("下移一层 / 上移一层，加 Shift 到底 / 到顶"),
+        qsTr("画的时候按住 Shift"), qsTr("正方形、正圆；线吸附 15°；画笔、荧光笔画直线"),
+        qsTr("双击"), qsTr("文字：改文字；序号：改号"),
+        "Ctrl+Enter、Esc", qsTr("写完文字（Enter 换行）"),
+        "Ctrl+C、Enter", qsTr("复制"),
+        "Ctrl+S", qsTr("保存"),
+        "F3", qsTr("贴图")
+    ]
+    readonly property var overlayRows: [
+        qsTr("滚轮"), qsTr("有工具或选中对象时改粗细"),
+        qsTr("方向键"), qsTr("挪动选中的对象，按住 Shift 一次 10 像素；没有选中时微调选区"),
+        "H", qsTr("隐藏 / 显示工具条"),
+        "C", qsTr("复制颜色"),
+        qsTr("Esc、右键"), qsTr("退一步：写完文字、放弃标注、关闭截图")
+    ]
+    readonly property var editorRows: [
+        qsTr("方向键"), qsTr("挪动选中的对象，按住 Shift 一次 10 像素；没有选中时滚动图片"),
+        qsTr("Shift+点击、拖空白处"), qsTr("多选；Ctrl+A 全选，Ctrl+D 复制一份"),
+        "I", qsTr("吸管：点图上的一点，取它的颜色"),
+        qsTr("拖图片的边"), qsTr("裁剪（没有工具时；有工具时从图外拖）"),
+        qsTr("滚轮"), qsTr("上下滚动，Shift 左右；Alt+滚轮改粗细"),
+        qsTr("Ctrl+滚轮、Ctrl+加号 / 减号"), qsTr("缩放"),
+        "Z", qsTr("适合窗口 / 100%"),
+        qsTr("空格 + 拖动，或中键拖动"), qsTr("平移"),
+        qsTr("Esc"), qsTr("写完文字；有改动时放弃全部（Ctrl+Z 恢复）；没有改动时关闭")
+    ]
+    readonly property var keyRows: commonRows.concat(editor ? editorRows : overlayRows)
 
     // ---- geometry, logical px ----
     readonly property int pad: 4 // card edge to the buttons
@@ -49,6 +94,16 @@ Rectangle {
     // 1.5 up to 28 (150 %, 175 %), 2 above, as Fluent icons step it.
     readonly property int thinUpTo: 20
     readonly property int midUpTo: 28
+
+    // A CaptureSession.Action asked for.
+    signal action(int which)
+
+    function act(which) {
+        if (session)
+            session.act(which)
+        else
+            action(which)
+    }
 
     // The tool or button the mouse is on, for the one HoverTip.
     property Item tipItem: null
@@ -107,6 +162,7 @@ Rectangle {
             id: undoButton
             flat: true
             keyboardActivation: false
+            border.width: 0 // no hover border, like the tool buttons beside it
             width: bar.toolWidth
             glyph: String.fromCharCode(0xE7A7) // Undo
             enabled: bar.annot !== null && bar.annot.canUndo
@@ -117,6 +173,7 @@ Rectangle {
             id: redoButton
             flat: true
             keyboardActivation: false
+            border.width: 0 // no hover border, like the tool buttons beside it
             width: bar.toolWidth
             glyph: String.fromCharCode(0xE7A6) // Redo
             enabled: bar.annot !== null && bar.annot.canRedo
@@ -129,48 +186,54 @@ Rectangle {
         FlatButton {
             flat: true
             keyboardActivation: false
+            border.width: 0 // no hover border, like the tool buttons beside it
             width: Math.ceil(implicitWidth / 4) * 4
             glyph: String.fromCharCode(0xE8C8) // Copy
-            text: qsTr("复制")
-            onClicked: bar.session.act(CaptureSession.Copy)
+            text: bar.copyText
+            onClicked: bar.act(CaptureSession.Copy)
         }
         FlatButton {
             flat: true
             keyboardActivation: false
+            border.width: 0 // no hover border, like the tool buttons beside it
             width: Math.ceil(implicitWidth / 4) * 4
             glyph: String.fromCharCode(0xE74E) // Save
             text: qsTr("保存")
-            onClicked: bar.session.act(CaptureSession.Save)
+            onClicked: bar.act(CaptureSession.Save)
         }
         FlatButton {
             id: pinButton
+            visible: bar.pinnable
             flat: true
             keyboardActivation: false
+            border.width: 0 // no hover border, like the tool buttons beside it
             width: Math.ceil(implicitWidth / 4) * 4
             glyph: String.fromCharCode(0xE718) // Pin
             text: qsTr("贴图")
-            onClicked: bar.session.act(CaptureSession.Pin)
+            onClicked: bar.act(CaptureSession.Pin)
             HoverHandler { onHoveredChanged: bar.hover(pinButton, hovered, -1) }
         }
         FlatButton {
             id: ocrButton
             flat: true
             keyboardActivation: false
+            border.width: 0 // no hover border, like the tool buttons beside it
             width: Math.ceil(implicitWidth / 4) * 4
             // Without the models it still says why, in its tip and the OCR window.
-            opacity: bar.session.ocrAvailable ? 1 : 0.45
+            opacity: bar.ocrAvailable ? 1 : 0.45
             glyph: String.fromCharCode(0xE8D2) // Font
             text: qsTr("识别文字")
-            onClicked: bar.session.act(CaptureSession.Ocr)
+            onClicked: bar.act(CaptureSession.Ocr)
             HoverHandler { onHoveredChanged: bar.hover(ocrButton, hovered, -1) }
         }
         FlatButton {
             flat: true
             keyboardActivation: false
+            border.width: 0 // no hover border, like the tool buttons beside it
             width: Math.ceil(implicitWidth / 4) * 4
             glyph: String.fromCharCode(0xE711) // Cancel
             text: qsTr("取消")
-            onClicked: bar.session.act(CaptureSession.Cancel)
+            onClicked: bar.act(CaptureSession.Cancel)
         }
 
         Rectangle { // "?": every key, in a list by the toolbar
@@ -211,7 +274,7 @@ Rectangle {
             if (bar.tipItem === pinButton)
                 return qsTr("留在屏幕上，可拖动、缩放")
             if (bar.tipItem === ocrButton)
-                return bar.session.ocrAvailable ? qsTr("识别图里的文字，可复制或拿去搜索")
+                return bar.ocrAvailable ? qsTr("识别图里的文字，可复制或拿去搜索")
                                                 : qsTr("没有安装文字识别模型（Win顺 文件夹里的 ocr 文件夹），无法识别文字")
             if (bar.tipItem === helpButton)
                 return qsTr("全部按键")
@@ -294,26 +357,7 @@ Rectangle {
 
             Repeater {
                 // [keys, what they do] flattened: even cells are keys.
-                model: [
-                    qsTr("R E A L P M T N B 或 1–9"), qsTr("选工具：矩形、椭圆、箭头、直线、画笔、荧光笔、文字、序号、打码"),
-                    qsTr("工具键再按一次"), qsTr("关掉工具"),
-                    "Ctrl+Z", qsTr("撤销"),
-                    "Ctrl+Y、Ctrl+Shift+Z", qsTr("重做"),
-                    "Delete、Backspace", qsTr("删除选中的对象"),
-                    qsTr("方向键"), qsTr("挪动选中的对象，按住 Shift 一次 10 像素；没有选中时微调选区"),
-                    "[  ]", qsTr("粗细、字号、格子小一档 / 大一档"),
-                    "Ctrl+[  Ctrl+]", qsTr("下移一层 / 上移一层，加 Shift 到底 / 到顶"),
-                    qsTr("滚轮"), qsTr("有工具或选中对象时改粗细"),
-                    qsTr("画的时候按住 Shift"), qsTr("正方形、正圆；线吸附 15°；画笔、荧光笔画直线"),
-                    qsTr("双击"), qsTr("文字：改文字；序号：改号"),
-                    "Ctrl+Enter、Esc", qsTr("写完文字（Enter 换行）"),
-                    "H", qsTr("隐藏 / 显示工具条"),
-                    "C", qsTr("复制颜色"),
-                    "Ctrl+C、Enter", qsTr("复制"),
-                    "Ctrl+S", qsTr("保存"),
-                    "F3", qsTr("贴图"),
-                    qsTr("Esc、右键"), qsTr("退一步：写完文字、放弃标注、关闭截图")
-                ]
+                model: bar.keyRows
                 delegate: Text {
                     required property int index
                     required property string modelData

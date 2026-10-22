@@ -1178,6 +1178,8 @@ QVariantList Clipboard::menuItems(int row) const
         else if (c.kind == ClipKind::Image)
             items.append(entry(PinImage, tr("贴到屏幕"), QString(), u"\uE718"_s));
         if (c.kind == ClipKind::Image)
+            items.append(entry(EditImage, tr("编辑"), QString(), u"\uE70F"_s));
+        if (c.kind == ClipKind::Image)
             items.append(entry(OpenImage, tr("打开图片"), QString(), u""_s));
     }
     items.append(separator);
@@ -1277,6 +1279,20 @@ void Clipboard::trigger(int row, int action)
             break;
         }
         emit pinRequested(m_store->imagePath(c->id));
+        break;
+    }
+    case EditImage: {
+        const Clip* c = m_model.at(row);
+        if (!c || c->kind != ClipKind::Image)
+            break;
+        if (m_store->imagePending(c->id)) { // just copied, its file not written yet
+            flash(tr("图片还在保存，请稍后再试"));
+            break;
+        }
+        // The window goes first (its keys are given back), then the editing window takes the front.
+        const qint64 id = c->id;
+        emit dismissRequested();
+        emit editRequested(id);
         break;
     }
     case OpenLink:

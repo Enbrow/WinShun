@@ -13,9 +13,12 @@
 #include "AnnotationFormat.h"
 #include "AnnotationRender.h"
 #include "AnnotationStyles.h"
+#include "EditView.h"
+#include "Geometry.h"
 
 #include <QColor>
 #include <QGuiApplication>
+#include <QImageReader>
 #include <QJsonDocument>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -241,6 +244,22 @@ struct Rig {
     {
         model.begin(base, dpr, StyleMemory());
         model.setSelection(selection.isNull() ? QRect(QPoint(0, 0), size) : selection);
+    }
+    QImage base;
+    AnnotationModel model;
+};
+
+// The editing window's model: a project's whole picture opened, nothing cropped.
+struct EditRig {
+    explicit EditRig(QSize size = QSize(400, 300), qreal dpr = 1.0)
+        : base(noiseImage(size, 9))
+    {
+        Project project;
+        project.base = base;
+        project.doc.canvas = size;
+        project.doc.crop = QRect(QPoint(0, 0), size);
+        project.doc.dpr = dpr;
+        model.begin(project, dpr, StyleMemory());
     }
     QImage base;
     AnnotationModel model;
@@ -1174,6 +1193,497 @@ private slots:
         m.begin(rig.base, 1.0, StyleMemory());
         m.setSelection(QRect(0, 0, 500, 360));
         CHECK_SCREEN(screen);
+    }
+
+    // ---- the editing window (stage 4b) ----
+
+    void editorBasics()
+    {
+        EditRig rig;
+        AnnotationModel& m = rig.model;
+        QVERIFY(m.editor());
+        QVERIFY(m.active());
+        QVERIFY(!m.modified());
+        QCOMPARE(m.cropRect(), QRect(0, 0, 400, 300));
+        QCOMPARE(m.sampleBounds(), QRect(0, 0, 400, 300));
+        // Nothing drawn: the picture itself, pixel for pixel.
+        QImage out = m.composed();
+        QVERIFY(!out.isNull());
+        Diff d = compare(out, rig.base);
+        QVERIFY2(d.count == 0, describe(d).constData());
+        // Drawing is allowed anywhere on the picture, its last pixel too.
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(300, 200), QPoint(399, 299));
+        QCOMPARE(m.document().items.size(), qsizetype(1));
+        QVERIFY(m.modified());
+        // Undone to the start it is not modified: the document is the one opened.
+        m.undo();
+        QVERIFY(!m.modified());
+        m.redo();
+        QVERIFY(m.modified());
+        // The project keeps the whole picture, even when the crop is small.
+        m.setTool(-1);
+        const Project project = m.project();
+        QCOMPARE(project.base.size(), QSize(400, 300));
+        QCOMPARE(project.doc.items.size(), qsizetype(1));
+        // A text under way counts as a change.
+        EditRig other;
+        other.model.setTool(toolIndex(Kind::Text));
+        click(other.model, QPoint(50, 50));
+        QVERIFY(other.model.editingText());
+        other.model.setEditingText(u"hi"_s);
+        QVERIFY(other.model.modified());
+        // The model lets go of everything at the end.
+        m.end();
+        QVERIFY(!m.editor());
+        QVERIFY(!m.active());
+    }
+
+    void cropByTheEdges()
+    {
+        EditRig rig;
+        AnnotationModel& m = rig.model;
+        QSignalSpy cropped(&m, &AnnotationModel::cropChanged);
+        const QRect canvas(QPoint(0, 0), rig.base.size());
+        const QRect start = canvas;
+        // The bottom right corner pulled in: undoable, one step.
+        drag(m, QPoint(399, 299), QPoint(300, 200));
+        const QRect want = dragHandle(start, Handle::BottomRight, QPoint(-99, -99), canvas);
+        QCOMPARE(m.cropRect(), want);
+        QVERIFY(want != canvas);
+        QVERIFY(cropped.count() >= 1);
+        QVERIFY(m.modified());
+        QVERIFY(m.canUndo());
+        QCOMPARE(m.document().items.size(), qsizetype(0));
+        // What is exported is the crop; the picture and S are still all of it.
+        QImage out = m.composed();
+        QCOMPARE(out.size(), want.size());
+        QCOMPARE(m.sampleBounds(), canvas);
+        Diff d = compare(out, rig.base.copy(want));
+        QVERIFY2(d.count == 0, describe(d).constData());
+        QCOMPARE(m.project().base.size(), canvas.size());
+        QCOMPARE(m.project().doc.crop, want);
+        m.undo();
+        QCOMPARE(m.cropRect(), canvas);
+        QVERIFY(!m.modified());
+        m.redo();
+        QCOMPARE(m.cropRect(), want);
+        // An edge from outside, past the picture: kept inside it.
+        drag(m, QPoint(want.right() + 4, 100), QPoint(2000, 100));
+        QCOMPARE(m.cropRect().right(), canvas.right());
+        QCOMPARE(m.cropRect().height(), want.height());
+        // Esc mid-drag puts it back.
+        const QRect before = m.cropRect();
+        press(m, QPoint(0, 0));
+        m.move(QPoint(40, 30), {});
+        QCOMPARE(m.cropRect().topLeft(), QPoint(40, 30));
+        QVERIFY(m.gestureActive());
+        QVERIFY(m.escape());
+        QCOMPARE(m.cropRect(), before);
+
+        // Reopened from its project, the cropped parts come back by dragging out.
+        m.undo(); // the outward drag
+        QCOMPARE(m.cropRect(), want);
+        const Project project = m.project();
+        const std::optional<Project> read = readProject(writeProject(project.doc, project.base), nullptr);
+        QVERIFY(read.has_value());
+        AnnotationModel again;
+        again.begin(*read, 1.0, StyleMemory());
+        QCOMPARE(again.cropRect(), want);
+        QVERIFY(!again.modified());
+        drag(again, QPoint(want.right(), want.bottom()), QPoint(450, 350));
+        QCOMPARE(again.cropRect(), canvas);
+
+        // With a tool on, a press inside the crop draws, even at its edge;
+        // from outside the crop its handle is taken.
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(want.right() - 1, want.bottom() - 1), QPoint(want.right() - 20, want.bottom() - 20));
+        QCOMPARE(m.cropRect(), want);
+        QCOMPARE(m.document().items.size(), qsizetype(1));
+        m.setTool(-1);
+        click(m, QPoint(20, 20)); // lets go of the rectangle, whose handle would be taken first
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(want.right() + 3, want.bottom() + 3), QPoint(want.right() + 30, want.bottom() + 30));
+        QVERIFY(m.cropRect() != want);
+        QCOMPARE(m.document().items.size(), qsizetype(1));
+    }
+
+    void multiSelect()
+    {
+        EditRig rig;
+        AnnotationModel& m = rig.model;
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(40, 40), QPoint(100, 90));
+        const quint32 a = m.document().items.last().id;
+        drag(m, QPoint(160, 40), QPoint(220, 90));
+        const quint32 b = m.document().items.last().id;
+        m.setTool(toolIndex(Kind::Ellipse));
+        drag(m, QPoint(40, 160), QPoint(100, 220));
+        const quint32 c = m.document().items.last().id;
+        m.setTool(-1);
+        const auto picked = [&m] {
+            QList<quint32> ids;
+            for (const QVariant& v : m.selection())
+                ids.append(v.toMap().value(u"id"_s).toUInt());
+            std::sort(ids.begin(), ids.end());
+            return ids;
+        };
+        // Shift adds, Shift again takes away; handles only for one object.
+        click(m, pointOn(m, a));
+        QCOMPARE(picked(), (QList<quint32>{a}));
+        QVERIFY(!m.selection()[0].toMap().value(u"handles"_s).toList().isEmpty());
+        press(m, pointOn(m, b), Qt::ShiftModifier);
+        m.release(pointOn(m, b));
+        QCOMPARE(picked(), (QList<quint32>{a, b}));
+        QCOMPARE(m.selectedCount(), 2);
+        for (const QVariant& v : m.selection())
+            QVERIFY(v.toMap().value(u"handles"_s).toList().isEmpty());
+        QVERIFY(!m.panel().value(u"canRaise"_s).toBool());
+        QVERIFY(m.panel().value(u"many"_s).toBool());
+        press(m, pointOn(m, b), Qt::ShiftModifier);
+        m.release(pointOn(m, b));
+        QCOMPARE(picked(), (QList<quint32>{a}));
+        press(m, pointOn(m, b), Qt::ShiftModifier);
+        m.release(pointOn(m, b));
+
+        // Dragging one of them moves both, as one step.
+        const QPointF a0 = findItem(m.document(), a)->points[0];
+        const QPointF b0 = findItem(m.document(), b)->points[0];
+        const int steps = m.document().items.size();
+        Q_UNUSED(steps);
+        drag(m, pointOn(m, a), pointOn(m, a) + QPoint(30, 25));
+        QCOMPARE(findItem(m.document(), a)->points[0], a0 + QPointF(30, 25));
+        QCOMPARE(findItem(m.document(), b)->points[0], b0 + QPointF(30, 25));
+        QCOMPARE(picked(), (QList<quint32>{a, b}));
+        m.undo();
+        QCOMPARE(findItem(m.document(), a)->points[0], a0);
+        QCOMPARE(findItem(m.document(), b)->points[0], b0);
+
+        // A box over the empty picture selects what it touches.
+        QSignalSpy marqueeSpy(&m, &AnnotationModel::marqueeChanged);
+        press(m, QPoint(10, 10));
+        QVERIFY(m.gestureActive());
+        m.move(QPoint(240, 120), {});
+        QVERIFY(!m.marquee().isNull());
+        QCOMPARE(m.marquee().toRect(), QRect(QPoint(10, 10), QPoint(240, 120)));
+        QCOMPARE(picked(), (QList<quint32>{a, b}));
+        m.release(QPoint(240, 120));
+        QVERIFY(m.marquee().isNull());
+        QVERIFY(marqueeSpy.count() >= 2);
+        QCOMPARE(picked(), (QList<quint32>{a, b}));
+        // A box with Shift keeps them; without it starts afresh; a click on nothing lets go.
+        press(m, QPoint(10, 150), Qt::ShiftModifier);
+        m.move(QPoint(120, 240), Qt::ShiftModifier);
+        m.release(QPoint(120, 240));
+        QCOMPARE(picked(), (QList<quint32>{a, b, c}));
+        click(m, QPoint(300, 280));
+        QCOMPARE(m.selectedCount(), 0);
+        drag(m, QPoint(10, 150), QPoint(120, 240));
+        QCOMPARE(picked(), (QList<quint32>{c}));
+        // Esc in the middle of a box gives the old selection back.
+        click(m, pointOn(m, a));
+        press(m, QPoint(250, 10), Qt::ShiftModifier);
+        m.move(QPoint(390, 290), Qt::ShiftModifier);
+        QVERIFY(m.escape());
+        QCOMPARE(picked(), (QList<quint32>{a}));
+
+        // All of them: Ctrl+A. The panel of mixed kinds has the colour and the layer buttons only.
+        QVERIFY(m.key(Qt::Key_A, Qt::ControlModifier));
+        QCOMPARE(picked(), (QList<quint32>{a, b, c}));
+        const QVariantMap panel = m.panel();
+        QCOMPARE(panel.value(u"kind"_s).toInt(), -1);
+        QVERIFY(panel.contains(u"color"_s));
+        QVERIFY(!panel.contains(u"width"_s));
+        QVERIFY(panel.value(u"selected"_s).toBool());
+        // One colour for all: one step, and each kind's tool remembers it.
+        m.setPanel({{u"color"_s, u"#1E88E5"_s}});
+        for (quint32 id : {a, b, c})
+            QCOMPARE(findItem(m.document(), id)->style.color, qRgb(0x1E, 0x88, 0xE5));
+        QCOMPARE(m.styles().tool(Kind::Rect).color, qRgb(0x1E, 0x88, 0xE5));
+        QCOMPARE(m.styles().tool(Kind::Ellipse).color, qRgb(0x1E, 0x88, 0xE5));
+        m.undo();
+        for (quint32 id : {a, b, c})
+            QCOMPARE(findItem(m.document(), id)->style.color, qRgb(0xE5, 0x39, 0x35));
+        // Delete takes them all, in one step.
+        QVERIFY(m.key(Qt::Key_Delete, {}));
+        QCOMPARE(m.document().items.size(), qsizetype(0));
+        m.undo();
+        QCOMPARE(m.document().items.size(), qsizetype(3));
+    }
+
+    void duplicateSelected()
+    {
+        EditRig rig;
+        AnnotationModel& m = rig.model;
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(40, 40), QPoint(100, 90));
+        m.setTool(toolIndex(Kind::Number));
+        click(m, QPoint(200, 60));
+        m.setTool(-1);
+        const quint32 rect = m.document().items.first().id;
+        click(m, QPoint(300, 280)); // lets go of the number just drawn
+        QVERIFY(!m.key(Qt::Key_D, Qt::ControlModifier)); // nothing selected
+        click(m, pointOn(m, rect));
+        const Item before = *findItem(m.document(), rect);
+        QVERIFY(m.key(Qt::Key_D, Qt::ControlModifier));
+        QCOMPARE(m.document().items.size(), qsizetype(3));
+        // The copy is on top, a little aside, and the one selected.
+        const Item& copy = m.document().items.last();
+        QVERIFY(copy.id != rect);
+        QVERIFY(copy.seq > before.seq);
+        QCOMPARE(copy.style, before.style);
+        const QPointF offset = copy.points[0] - before.points[0];
+        QVERIFY(offset.x() > 0 && offset.x() == offset.y());
+        QCOMPARE(copy.points[1] - before.points[1], offset);
+        QCOMPARE(m.selectedCount(), 1);
+        QCOMPARE(selectedId(m), copy.id);
+        QCOMPARE(*findItem(m.document(), rect), before);
+        // Both together: copies of both, in layer order, selected.
+        QVERIFY(m.key(Qt::Key_A, Qt::ControlModifier));
+        QVERIFY(m.key(Qt::Key_D, Qt::ControlModifier));
+        QCOMPARE(m.document().items.size(), qsizetype(3 + 3));
+        QCOMPARE(m.selectedCount(), 3);
+        QSet<quint32> ids;
+        for (const Item& item : m.document().items)
+            ids.insert(item.id);
+        QCOMPARE(ids.size(), qsizetype(6));
+        // Numbers counted on: a copy is another number, not the same twice.
+        QCOMPARE(shownNumbers(m).size(), 2);
+        QCOMPARE(shownNumbers(m), (QList<int>{1, 2}));
+        // One step each.
+        m.undo();
+        QCOMPARE(m.document().items.size(), qsizetype(3));
+        m.undo();
+        QCOMPARE(m.document().items.size(), qsizetype(2));
+    }
+
+    void eyedropper()
+    {
+        EditRig rig;
+        AnnotationModel& m = rig.model;
+        // Nothing for the colour to go to: no eyedropper.
+        QVERIFY(!m.key(Qt::Key_I, {}));
+        QVERIFY(!m.picking());
+        m.setTool(toolIndex(Kind::Rect));
+        QSignalSpy spy(&m, &AnnotationModel::pickingChanged);
+        QVERIFY(m.key(Qt::Key_I, {}));
+        QVERIFY(m.picking());
+        QCOMPARE(m.cursorAt(QPoint(5, 5)), int(Qt::CrossCursor));
+        // Esc leaves it.
+        QVERIFY(m.escape());
+        QVERIFY(!m.picking());
+        QVERIFY(m.key(Qt::Key_I, {}));
+        QVERIFY(m.key(Qt::Key_I, {})); // I again turns it off
+        QVERIFY(!m.picking());
+        // The press takes the colour as drawn: the picture under it.
+        QVERIFY(m.key(Qt::Key_I, {}));
+        const QPoint at(123, 77);
+        QVERIFY(m.pressFirst(at, {}));
+        m.release(at);
+        QVERIFY(!m.picking());
+        QCOMPARE(m.panel().value(u"color"_s).toString().toUpper(), colorHex(rig.base.pixel(at) | 0xff000000u).toUpper());
+        QCOMPARE(m.document().items.size(), qsizetype(0)); // no rectangle was begun
+        QVERIFY(spy.count() >= 2);
+        // And what is drawn there: a solid box shows its own colour.
+        drag(m, QPoint(200, 100), QPoint(260, 160));
+        m.setPanel({{u"fill"_s, u"solid"_s}, {u"color"_s, u"#43A047"_s}});
+        m.setTool(-1);
+        click(m, pointOn(m, lastOf(m, Kind::Rect)->id));
+        QVERIFY(m.key(Qt::Key_I, {}));
+        QVERIFY(m.pressFirst(QPoint(230, 130), {}));
+        QCOMPARE(findItem(m.document(), lastOf(m, Kind::Rect)->id)->style.color, qRgb(0x43, 0xA0, 0x47));
+        // The selected object takes it.
+        QVERIFY(m.key(Qt::Key_I, {}));
+        QVERIFY(m.pressFirst(QPoint(230, 130), {}));
+        QCOMPARE(m.panel().value(u"color"_s).toString().toUpper(), u"#43A047"_s);
+    }
+
+    void discardingAllChanges()
+    {
+        EditRig rig;
+        AnnotationModel& m = rig.model;
+        m.discardChanges(); // nothing to give up
+        QVERIFY(!m.canUndo());
+        m.setTool(toolIndex(Kind::Arrow));
+        drag(m, QPoint(30, 30), QPoint(150, 90));
+        m.setTool(toolIndex(Kind::Number));
+        click(m, QPoint(200, 200));
+        m.setTool(-1);
+        drag(m, QPoint(399, 299), QPoint(350, 250)); // a crop
+        QVERIFY(m.modified());
+        const Document changed = m.document();
+        m.discardChanges();
+        QVERIFY(!m.modified());
+        QCOMPARE(m.document().items.size(), qsizetype(0));
+        QCOMPARE(m.cropRect(), QRect(0, 0, 400, 300));
+        // One Ctrl+Z gets it all back, a second Esc finds nothing to give up.
+        QVERIFY(m.canUndo());
+        m.undo();
+        QCOMPARE(m.document(), changed);
+        QVERIFY(m.modified());
+        m.redo();
+        QVERIFY(!m.modified());
+        const int before = m.canRedo();
+        m.discardChanges();
+        QCOMPARE(int(m.canRedo()), before);
+        // The canvas redraws what was given up: the compositor's picture is the base again.
+        Compositor fresh;
+        QImage out;
+        fresh.render(m.document(), m.base(), m.sampleBounds(), QRect(QPoint(0, 0), m.base().size()), &out);
+        const Diff d = compare(out, rig.base);
+        QVERIFY2(d.count == 0, describe(d).constData());
+    }
+
+    void handsFollowTheZoom()
+    {
+        EditRig rig(QSize(600, 400), 1.5);
+        AnnotationModel& m = rig.model;
+        m.setTool(toolIndex(Kind::Line));
+        drag(m, QPoint(100, 200), QPoint(400, 200), {}, 10);
+        m.setTool(-1);
+        click(m, QPoint(500, 350)); // let go
+        const QPoint near(250, 200 + 14);
+        // At 100 % on a 150 % screen a line is touched within 6 image px (plus half its width).
+        m.setView(1.5, 1.0);
+        QCOMPARE(m.cursorAt(near), -1);
+        // Zoomed out to a quarter, the same screen distance is four times as many image px.
+        m.setView(1.5, 0.25);
+        QCOMPARE(m.cursorAt(near), int(Qt::SizeAllCursor));
+        // Zoomed in to 800 %, it is a fraction of a pixel.
+        m.setView(1.5, 8.0);
+        QCOMPARE(m.cursorAt(QPoint(250, 200 + 8)), -1);
+    }
+
+    void limitedCanvasKeepsTheView()
+    {
+        const QSize size(600, 20000); // 3 columns x 79 rows of tiles
+        Rig big(size);
+        AnnotationModel& m = big.model;
+        m.setTool(toolIndex(Kind::Rect));
+        drag(m, QPoint(40, 10100), QPoint(300, 10300));
+        drag(m, QPoint(40, 100), QPoint(300, 300));
+        m.setTool(-1);
+
+        const auto expected = [&](int top) {
+            QImage out;
+            Compositor fresh;
+            fresh.render(m.document(), m.base(), m.sampleBounds(), QRect(0, top, 600, 800), &out);
+            return out;
+        };
+        const int ring = AnnotationCanvas::kRing;
+        const auto tilesFor = [&](int top) {
+            const QRect r = ws::capture::editview::tileRange(QRectF(0, top, 600, 800), size, AnnotationCanvas::kTile, ring);
+            return r.width() * r.height();
+        };
+        // The tiles come a few milliseconds at a time: frames until it is all there.
+        const auto settle = [](QQuickWindow& window) {
+            QImage got;
+            for (int i = 0; i < 40; ++i) {
+                got = window.grabWindow().convertToFormat(QImage::Format_RGB32);
+                QCoreApplication::processEvents();
+            }
+            return got;
+        };
+
+        QQuickWindow window;
+        window.setColor(QColor::fromRgb(kMagenta));
+        window.resize(QSize(600, 800));
+        AnnotationCanvas canvas(window.contentItem());
+        canvas.setSize(QSizeF(size));
+        canvas.setLimited(true);
+        canvas.setModel(&m);
+        canvas.setViewport(QRectF(0, 0, 600, 800));
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        // The top of the picture: only a screen's worth of tiles, not 237, and the right pixels.
+        QImage got = settle(window);
+        Diff d = compare(got, expected(0));
+        QVERIFY2(d.count == 0, describe(d).constData());
+        QCOMPARE(canvas.tilesShown(), tilesFor(0));
+        QVERIFY(canvas.tilesShown() < 30);
+
+        // Far down: the ones above are let go of, those in view drawn.
+        canvas.setY(-10000);
+        canvas.setViewport(QRectF(0, 10000, 600, 800));
+        settle(window);
+        QCOMPARE(canvas.tilesShown(), tilesFor(10000));
+        // A change in view is drawn again where it shows, and not where it does not.
+        m.setTool(toolIndex(Kind::Ellipse));
+        drag(m, QPoint(350, 10150), QPoint(500, 10250));
+        drag(m, QPoint(350, 150), QPoint(500, 250));
+        m.setTool(-1);
+        settle(window);
+        QCOMPARE(canvas.tilesShown(), tilesFor(10000));
+        canvas.setY(0);
+        canvas.setViewport(QRectF(0, 0, 600, 800));
+        settle(window);
+        QCOMPARE(canvas.tilesShown(), tilesFor(0));
+        // Not limited: all of them, as in the overlay.
+        canvas.setLimited(false);
+        settle(window);
+        QCOMPARE(canvas.tilesShown(), 3 * 79);
+        m.end();
+        settle(window);
+        QCOMPARE(canvas.tilesShown(), 0);
+
+        // The same picture looked at from far down on a canvas of its own: the pixels in view.
+        Rig other(size);
+        other.model.setTool(toolIndex(Kind::Rect));
+        drag(other.model, QPoint(40, 10100), QPoint(300, 10300));
+        other.model.setTool(-1);
+        QQuickWindow window2;
+        window2.setColor(QColor::fromRgb(kMagenta));
+        window2.resize(QSize(600, 800));
+        AnnotationCanvas canvas2(window2.contentItem());
+        canvas2.setSize(QSizeF(size));
+        canvas2.setY(-10000);
+        canvas2.setLimited(true);
+        canvas2.setViewport(QRectF(0, 10000, 600, 800));
+        canvas2.setModel(&other.model);
+        window2.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window2));
+        got = settle(window2);
+        QImage want;
+        Compositor fresh;
+        fresh.render(other.model.document(), other.model.base(), other.model.sampleBounds(), QRect(0, 10000, 600, 800), &want);
+        d = compare(got, want);
+        QVERIFY2(d.count == 0, describe(d).constData());
+        QCOMPARE(canvas2.tilesShown(), tilesFor(10000));
+    }
+
+    // The eyedropper reads a pixel as a 1 x 1 area of the compositor; without objects that is the base's pixel.
+    void onePixelAreas()
+    {
+        EditRig rig(QSize(1080, 1400));
+        QImage base(1080, 1400, QImage::Format_RGB32);
+        for (int y = 0; y < base.height(); ++y) {
+            auto* line = reinterpret_cast<QRgb*>(base.scanLine(y));
+            for (int x = 0; x < base.width(); ++x)
+                line[x] = qRgb(y & 255, ((y >> 8) & 255) * 2 + (x % 7), (x * 5 + y * 3) & 255);
+        }
+        Project project;
+        project.base = base;
+        project.doc.canvas = base.size();
+        project.doc.crop = QRect(QPoint(0, 0), base.size());
+        AnnotationModel model;
+        model.begin(project, 1.5, StyleMemory());
+        int wrong = 0;
+        QPoint first;
+        for (int y = 0; y < base.height(); y += 3) {
+            for (int x = 0; x < base.width(); x += 5) {
+                QImage out;
+                model.compositor().render(model.document(), model.base(), model.sampleBounds(), QRect(x, y, 1, 1), &out);
+                if (out.isNull() || (out.pixel(0, 0) | 0xff000000u) != base.pixel(x, y)) {
+                    if (!wrong)
+                        first = QPoint(x, y);
+                    ++wrong;
+                }
+            }
+        }
+        QVERIFY2(wrong == 0, qPrintable(u"%1 one pixel areas are not the base's pixel, the first at %2,%3"_s.arg(wrong).arg(first.x()).arg(first.y())));
+        QImage out;
+        model.compositor().render(model.document(), model.base(), model.sampleBounds(), QRect(353, 1037, 1, 1), &out);
+        QCOMPARE(out.pixel(0, 0) | 0xff000000u, base.pixel(353, 1037));
     }
 
     void canvasTiles()

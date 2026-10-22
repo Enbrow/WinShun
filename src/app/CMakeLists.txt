@@ -186,6 +186,8 @@ set(qml_files
     qml/AnnotateToolbar.qml
     qml/AnnotateStylePanel.qml
     qml/AnnotateLayer.qml
+    qml/AnnotateObjects.qml
+    qml/EditWindow.qml
     qml/CaptureCard.qml
     qml/OcrPanel.qml
     qml/ScreenshotConfirm.qml
@@ -263,6 +265,7 @@ qt_add_qml_module(WinShun
         ../capture/AnnotationModel.cpp ../capture/AnnotationModel.h
         ../capture/AnnotationCanvas.cpp ../capture/AnnotationCanvas.h
         ../capture/CaptureSession.cpp ../capture/CaptureSession.h
+        ../capture/CaptureEditor.cpp ../capture/CaptureEditor.h
         ../capture/CaptureOcr.cpp ../capture/CaptureOcr.h
         ../capture/PinManager.cpp ../capture/PinManager.h
         ../capture/PinWindow.cpp ../capture/PinWindow.h

@@ -17,6 +17,7 @@ enum MenuCommand {
     CopyCommand = 1,
     SaveCommand,
     SaveAsCommand,
+    EditCommand,
     OcrCommand,
     TopmostCommand,
     ClickThroughCommand,
@@ -59,6 +60,11 @@ void PinManager::pin(const QImage& image, QPoint origin, bool screenshot, QByteA
     pin->setProject(std::move(project));
     if (pin->hwnd())
         m_pins.push_back(std::move(pin));
+}
+
+bool PinManager::contains(const PinWindow* pin) const
+{
+    return std::ranges::any_of(m_pins, [pin](const auto& p) { return p.get() == pin; });
 }
 
 bool PinManager::anyClickThrough() const
@@ -105,6 +111,7 @@ void PinManager::showMenu(PinWindow* pin, POINT at)
         {SaveCommand, tr("保存到“屏幕截图”") + u"\tCtrl+S"_s},
         {SaveAsCommand, tr("另存为…")},
         shell::MenuItem::separator(),
+        {EditCommand, tr("编辑")},
         {OcrCommand, ocr, false, m_callbacks.ocrAvailable},
         shell::MenuItem::separator(),
         {TopmostCommand, tr("置顶"), pin->topmost()},
@@ -134,6 +141,10 @@ void PinManager::showMenu(PinWindow* pin, POINT at)
             m_callbacks.save(pin->image(), path);
         break;
     }
+    case EditCommand:
+        if (m_callbacks.edit)
+            m_callbacks.edit(pin);
+        break;
     case OcrCommand:
         if (m_callbacks.ocr)
             m_callbacks.ocr(pin->image(), pin->dpr(), pin->pictureRect());

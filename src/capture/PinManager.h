@@ -16,7 +16,7 @@ namespace ws::capture {
 // pictures pinned from a file's row or the clipboard history (贴到屏幕),
 // which need no capture turned on. The app makes it when first wanted;
 // turning the capture off closes them all (the stage 2 rule). Each one's
-// menu (the native popup menu, as the tray's): 复制, 保存, 另存为…,
+// menu (the native popup menu, as the tray's): 复制, 保存, 另存为…, 编辑,
 // 识别文字, 置顶, 鼠标穿透, 关闭, 关闭全部贴图. What leaves (the
 // clipboard, a file, the OCR window) goes through the callbacks.
 class PinManager : public QObject {
@@ -27,6 +27,7 @@ public:
         std::function<void(const QImage&, bool screenshot)> copy; // screenshot: the pin came from a capture
         std::function<void(const QImage&, const QString& path)> save; // empty path: the Screenshots folder
         std::function<void(const QImage&, double dpr, const QRect& picture)> ocr;
+        std::function<void(PinWindow*)> edit; // 编辑: the editing window opens on it
         std::function<void()> closed; // a pin closed: its memory can go back to Windows
         std::function<bool()> dark;
         bool ocrAvailable = false; // the models are there (PaddleOcr::installed)
@@ -40,6 +41,9 @@ public:
     // `project`: its annotations, to edit again (empty: none).
     void pin(const QImage& image, QPoint origin, bool screenshot = true, QByteArray project = {});
     int count() const { return static_cast<int>(m_pins.size()); }
+    // `pin` is one of the pins on the screen (not closed since): for what
+    // keeps a pointer to one meanwhile (the editing window).
+    bool contains(const PinWindow* pin) const;
     bool anyClickThrough() const;
     void clearClickThrough(); // the tray menu: every pin takes the mouse again
     void closeAll();

@@ -121,6 +121,7 @@ public:
         Reveal,
         OpenImage,
         PinImage, // a picture on the screen (贴到屏幕): pinRequested
+        EditImage, // the editing window (编辑): editRequested
         Remove,
         MoveUp, // in its group's own order (ClipModel::movable)
         MoveDown,
@@ -297,6 +298,9 @@ signals:
     void fieldRequested(QQuickItem* field);
     // 贴到屏幕 on a picture's row: its file, for the app to pin (PinManager).
     void pinRequested(const QString& imagePath);
+    // 编辑 on a picture: the entry's id, for the editing window (its project
+    // if it has one, else the picture as the base of an empty document).
+    void editRequested(qint64 id);
 
 private:
     struct Category {

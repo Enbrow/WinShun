@@ -76,6 +76,22 @@ add_test(NAME tst_annotate COMMAND tst_annotate)
 set_tests_properties(tst_annotate PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
 
+# The editing window's controller (src/capture/CaptureEditor): the zoom and
+# where the picture lies, the mouse as image pixels, the ways out, Esc, the
+# crop, the window emptying on close; and a pin's new picture (PinWindow).
+qt_add_executable(tst_editor tst_editor.cpp
+    ${PROJECT_SOURCE_DIR}/src/capture/CaptureEditor.cpp
+    ${PROJECT_SOURCE_DIR}/src/capture/AnnotationModel.cpp
+    ${PROJECT_SOURCE_DIR}/src/capture/AnnotationCanvas.cpp
+    ${PROJECT_SOURCE_DIR}/src/capture/PinWindow.cpp)
+target_link_libraries(tst_editor PRIVATE wscapture Qt6::Qml Qt6::Quick Qt6::Test imm32)
+set_target_properties(tst_editor PROPERTIES WIN32_EXECUTABLE FALSE QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+add_test(NAME tst_editor COMMAND tst_editor)
+
+set_tests_properties(tst_editor PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
 # The overlay's annotations (AnnotationModel, AnnotationCanvas): every tool
 # drawn with the mouse, undo and redo, the keys, numbers, text, the style
 # panel and the wheel; the canvas's tiles grabbed from an offscreen window on
@@ -262,6 +278,7 @@ qt_add_executable(tst_clipselect tst_clipselect.cpp ${PROJECT_SOURCE_DIR}/src/ap
     ${PROJECT_SOURCE_DIR}/src/app/ColorText.cpp)
 target_include_directories(tst_clipselect PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(tst_clipselect PRIVATE wscore Qt6::Quick Qt6::Test)
+set_target_properties(tst_clipselect PROPERTIES WIN32_EXECUTABLE FALSE QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
 add_test(NAME tst_clipselect COMMAND tst_clipselect)
 set_tests_properties(tst_clipselect PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")

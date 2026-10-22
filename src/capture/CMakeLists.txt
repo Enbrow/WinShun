@@ -4,7 +4,8 @@
 # windows on the screen (WindowSnapshot) and the PrtScn takeover
 # (PrintScreen), and the annotations' core (Annotation*: the document, its
 # commands, the compositor that draws tiles and exports, the project format
-# and the tools' styles; docs/design-capture-roadmap.md, 3). What the
+# and the tools' styles; docs/design-capture-roadmap.md, 3) and the editing
+# window's zoom and tile arithmetic (EditView). What the
 # overlays bind to (CaptureSession, CaptureImage) and the controller
 # (Capture) are in this folder too, but built into WinShun's QML module
 # (src/app/CMakeLists.txt), which registers their types.
@@ -14,6 +15,7 @@ add_library(wscapture STATIC
     PrintScreen.cpp PrintScreen.h
     WindowSnapshot.cpp WindowSnapshot.h
     Grabber.cpp Grabber.h
+    EditView.cpp EditView.h
     Annotation.cpp Annotation.h
     AnnotationCommands.cpp AnnotationCommands.h
     AnnotationRender.cpp AnnotationRender.h

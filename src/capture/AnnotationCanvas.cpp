@@ -1,5 +1,7 @@
 #include "AnnotationCanvas.h"
 
+#include "EditView.h"
+
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QQuickWindow>
@@ -10,12 +12,20 @@
 #include <algorithm>
 #include <numeric>
 
+using namespace Qt::StringLiterals;
+
 namespace ws::capture {
 
 AnnotationCanvas::AnnotationCanvas(QQuickItem* parent)
     : QQuickItem(parent)
 {
     setFlag(ItemHasContents, true);
+    m_viewMoving.setSingleShot(true);
+    m_viewMoving.setInterval(400);
+    connect(&m_viewMoving, &QTimer::timeout, this, [this] {
+        if (m_meter.on && m_model)
+            reportMeter(m_model->compositor().patchesMade());
+    });
 }
 
 // The nodes are the scene graph's (it deletes them with their textures);
@@ -70,6 +80,37 @@ void AnnotationCanvas::setSparse(bool sparse)
     m_sparse = sparse;
     markAll(); // which tiles have a picture is decided again
     emit sparseChanged();
+}
+
+void AnnotationCanvas::setLimited(bool limited)
+{
+    if (limited == m_limited)
+        return;
+    m_limited = limited;
+    markAll();
+    emit limitedChanged();
+}
+
+void AnnotationCanvas::setViewport(const QRectF& viewport)
+{
+    if (viewport == m_viewport)
+        return;
+    m_viewport = viewport;
+    if (m_limited) {
+        m_viewMoving.start();
+        polish(); // tiles come into view or go out of it
+    }
+    emit viewportChanged();
+}
+
+void AnnotationCanvas::setLinear(bool linear)
+{
+    if (linear == m_linear)
+        return;
+    m_linear = linear;
+    m_filterStale = true;
+    update();
+    emit linearChanged();
 }
 
 int AnnotationCanvas::tilesShown() const
@@ -141,13 +182,22 @@ void AnnotationCanvas::updatePolish()
 {
     AnnotationModel* model = m_model;
     if (!model || !model->active()) {
+        if (m_limited && m_mostShown > 0) {
+            qInfo().noquote() << u"Annotation canvas: a view of a %1 x %2 picture kept at most %3 tiles (the view and a ring need %4; the picture has %5)"_s
+                                     .arg(m_size.width())
+                                     .arg(m_size.height())
+                                     .arg(m_mostShown)
+                                     .arg(m_mostWanted)
+                                     .arg(m_tiles.size());
+        }
+        m_mostShown = m_mostWanted = 0;
         dropTiles();
         update();
         return;
     }
     QElapsedTimer clock;
     clock.start();
-    const bool gesture = model->gestureActive();
+    const bool gesture = model->gestureActive() || (m_limited && m_viewMoving.isActive());
     if (gesture && !m_meter.on) {
         m_meter = Meter {};
         m_meter.on = true;
@@ -183,10 +233,41 @@ void AnnotationCanvas::updatePolish()
     const QRect sample = model->sampleBounds();
     bool any = false;
     int drawn = 0;
-    for (int i = 0; i < int(m_tiles.size()); ++i) {
+    bool pending = false;
+    // The tiles to look at: all of them, or the view's nearest the middle
+    // first (the others let go of at once).
+    std::vector<int> order;
+    if (m_limited) {
+        const QRect range = editview::tileRange(m_viewport, m_size, kTile, kRing);
+        const QList<int> near = editview::nearestTiles(range, m_columns, kTile, m_viewport.center(), kMaxTiles);
+        std::vector<bool> wanted(m_tiles.size(), false);
+        order.reserve(std::size_t(near.size()));
+        for (const int i : near) {
+            wanted[std::size_t(i)] = true;
+            order.push_back(i);
+        }
+        for (std::size_t i = 0; i < m_tiles.size(); ++i) {
+            Tile& tile = m_tiles[i];
+            if (wanted[i] || (!tile.shown && tile.image.isNull()))
+                continue;
+            tile.image = QImage();
+            tile.shown = false;
+            tile.dirty = true; // drawn again when it comes back
+            tile.upload = true; // its node goes
+            any = true;
+        }
+    } else {
+        order.resize(m_tiles.size());
+        std::iota(order.begin(), order.end(), 0);
+    }
+    for (const int i : order) {
         Tile& tile = m_tiles[std::size_t(i)];
-        if (!tile.dirty)
+        if (!tile.dirty && (!m_limited || tile.shown))
             continue;
+        if (m_limited && drawn > 0 && clock.elapsed() >= kPolishBudgetMs) {
+            pending = true; // the rest at the next frame
+            break;
+        }
         tile.dirty = false;
         const QRect area = tileRect(i);
         const bool needed = !m_sparse
@@ -211,6 +292,16 @@ void AnnotationCanvas::updatePolish()
         tile.shown = true;
         tile.upload = true;
         any = true;
+    }
+    if (pending)
+        polish();
+    if (m_limited)
+        m_order.assign(order.begin(), order.end());
+    else
+        m_order.clear();
+    if (m_limited) {
+        m_mostShown = std::max<int>(m_mostShown, tilesShown());
+        m_mostWanted = std::max<int>(m_mostWanted, int(order.size()));
     }
     if (gesture) {
         m_meter.polishNs.push_back(clock.nsecsElapsed());
@@ -287,10 +378,26 @@ QSGNode* AnnotationCanvas::updatePaintNode(QSGNode* old, UpdatePaintNodeData*)
     }
     QSGNode* root = old ? old : new QSGNode;
     m_nodes.resize(m_tiles.size(), nullptr);
-    for (std::size_t i = 0; i < m_tiles.size(); ++i) {
+    // Zoomed out on a long picture hundreds of tiles come into view at once, and all their
+    // textures made in one frame took 50 ms: a limited canvas makes a few dozen a frame, those
+    // nearest the middle first, and asks for the next frame.
+    // (The software renderer has no textures to upload, and shows nodes added in a later frame wrongly.)
+    const bool software = win->rendererInterface() && win->rendererInterface()->graphicsApi() == QSGRendererInterface::Software;
+    int made = 0;
+    bool deferred = false;
+    const auto step = [&](std::size_t i) {
         Tile& tile = m_tiles[i];
         QSGImageNode*& node = m_nodes[i];
         if (tile.upload) {
+            const bool creating = tile.shown && !tile.image.isNull();
+            if (creating && m_limited && !software && made >= kUploadsPerFrame) {
+                deferred = true; // the node it has now (an older picture) stays meanwhile
+                if (node && m_rectsStale)
+                    node->setRect(nodeRect(int(i)));
+                if (node && m_filterStale)
+                    node->setFiltering(m_linear ? QSGTexture::Linear : QSGTexture::Nearest);
+                return;
+            }
             tile.upload = false;
             // A new picture gets a new node, as CaptureImage does: the old
             // one goes with its texture (setOwnsTexture).
@@ -299,10 +406,11 @@ QSGNode* AnnotationCanvas::updatePaintNode(QSGNode* old, UpdatePaintNodeData*)
                 delete node;
                 node = nullptr;
             }
-            if (tile.shown && !tile.image.isNull()) {
+            if (creating) {
+                ++made;
                 node = win->createImageNode();
                 node->setOwnsTexture(true);
-                node->setFiltering(QSGTexture::Nearest);
+                node->setFiltering(m_linear ? QSGTexture::Linear : QSGTexture::Nearest);
                 node->setMipmapFiltering(QSGTexture::None);
                 node->setTexture(win->createTextureFromImage(tile.image, QQuickWindow::TextureIsOpaque));
                 if (m_meter.on)
@@ -311,11 +419,33 @@ QSGNode* AnnotationCanvas::updatePaintNode(QSGNode* old, UpdatePaintNodeData*)
                 node->setRect(nodeRect(int(i)));
                 root->appendChildNode(node);
             }
-        } else if (node && m_rectsStale) {
-            node->setRect(nodeRect(int(i)));
+        } else if (node) {
+            if (m_rectsStale)
+                node->setRect(nodeRect(int(i)));
+            if (m_filterStale)
+                node->setFiltering(m_linear ? QSGTexture::Linear : QSGTexture::Nearest);
         }
+    };
+    if (m_limited && !m_order.empty()) {
+        std::vector<bool> seen(m_tiles.size(), false);
+        for (const int i : m_order) {
+            if (i >= 0 && std::size_t(i) < m_tiles.size()) {
+                seen[std::size_t(i)] = true;
+                step(std::size_t(i));
+            }
+        }
+        for (std::size_t i = 0; i < m_tiles.size(); ++i) {
+            if (!seen[i])
+                step(i);
+        }
+    } else {
+        for (std::size_t i = 0; i < m_tiles.size(); ++i)
+            step(i);
     }
+    if (deferred)
+        QMetaObject::invokeMethod(this, [this] { update(); }, Qt::QueuedConnection);
     m_rectsStale = false;
+    m_filterStale = false;
     return root;
 }
 

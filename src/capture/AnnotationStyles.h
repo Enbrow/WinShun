@@ -69,6 +69,8 @@ public:
     // The fields its kind uses, from an item's style.
     void remember(Kind kind, const Style& style, qreal dpr);
     static Tool defaults(Kind kind);
+    // The tool's style back to the defaults.
+    void reset(Kind kind);
     const Tool& tool(Kind kind) const;
     bool operator==(const StyleMemory&) const = default;
 

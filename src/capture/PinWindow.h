@@ -70,6 +70,13 @@ public:
     const QByteArray& project() const { return m_project; }
     void setProject(QByteArray project) { m_project = std::move(project); }
 
+    // A new picture where this one is (the editing window's 完成): the top
+    // left and the zoom stay, the window follows the new size. A null picture
+    // changes nothing.
+    void setPicture(const QImage& image, QByteArray project);
+    // Out of sight while it is edited, and back (it keeps its place).
+    void setShown(bool shown);
+
     void setTopmost(bool on);
     // The mouse goes through it to what is under it (WS_EX_TRANSPARENT);
     // only the tray menu brings it back then.

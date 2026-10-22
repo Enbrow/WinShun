@@ -49,6 +49,14 @@ Rectangle {
     readonly property bool showCells: p.cells !== undefined && p.mode !== "solid"
     readonly property bool showNumber: p.start !== undefined
     readonly property bool showObject: p.selected === true
+    readonly property bool inPalette: {
+        const colors = p.colors !== undefined ? p.colors : []
+        for (let i = 0; i < colors.length; ++i) {
+            if (same(colors[i], p.color))
+                return true
+        }
+        return false
+    }
 
     property PanelButton tipItem: null
 
@@ -145,6 +153,48 @@ Rectangle {
                         }
                     }
                 }
+            }
+        }
+
+        Row { // a colour taken with the eyedropper is not among the eight: shown, ticked, after them
+            visible: panel.showColors && !panel.inPalette
+            PanelButton {
+                id: customSwatch
+                tip: panel.p.color !== undefined ? panel.p.color : ""
+                onClicked: panel.annot.pickColor(!panel.annot.picking)
+
+                Rectangle {
+                    x: panel.snap((panel.cellWidth - panel.swatchSize) / 2)
+                    y: panel.snap((panel.controlHeight - panel.swatchSize) / 2)
+                    width: panel.swatchSize
+                    height: panel.swatchSize
+                    radius: Theme.smallControlRadius
+                    color: panel.p.color !== undefined ? panel.p.color : "transparent"
+                    border.width: 1
+                    border.color: Theme.windowEdge
+
+                    Glyph {
+                        anchors.centerIn: parent
+                        glyph: String.fromCharCode(0xE73E) // CheckMark
+                        size: panel.checkSize
+                        color: panel.inkOn(panel.p.color !== undefined ? panel.p.color : "#000000")
+                    }
+                }
+            }
+        }
+        PanelButton { // the eyedropper (I): the next click on the picture takes its colour
+            id: pickerButton
+            visible: panel.showColors
+            checked: panel.annot !== null && panel.annot.picking
+            tip: qsTr("吸管：点图上的一点，取它的颜色")
+            tipKeys: "I"
+            onClicked: panel.annot.pickColor(!panel.annot.picking)
+
+            Glyph {
+                anchors.centerIn: parent
+                glyph: String.fromCharCode(0xEF3C) // Eyedropper
+                size: panel.layerGlyph
+                color: pickerButton.foreground
             }
         }
 
@@ -374,6 +424,20 @@ Rectangle {
                     size: panel.layerGlyph
                     color: deleteButton.foreground
                 }
+            }
+        }
+        Separator { visible: panel.kind >= 0 || panel.p.selected === true }
+        PanelButton { // the defaults again, for the object and for the tool
+            id: resetButton
+            visible: panel.kind >= 0 || panel.p.selected === true
+            tip: qsTr("恢复默认样式")
+            onClicked: panel.annot.resetStyle()
+
+            Glyph {
+                anchors.centerIn: parent
+                glyph: String.fromCharCode(0xE777) // UpdateRestore
+                size: panel.layerGlyph
+                color: resetButton.foreground
             }
         }
     }

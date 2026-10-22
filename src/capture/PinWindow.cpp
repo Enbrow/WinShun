@@ -227,6 +227,22 @@ void PinWindow::setZoom(double zoom, QPoint cursor)
     render();
 }
 
+void PinWindow::setPicture(const QImage& image, QByteArray project)
+{
+    if (!m_hwnd || image.isNull())
+        return;
+    m_image = image.convertToFormat(QImage::Format_RGB32);
+    m_scaled = {};
+    m_project = std::move(project);
+    render();
+}
+
+void PinWindow::setShown(bool shown)
+{
+    if (m_hwnd)
+        ::ShowWindow(m_hwnd, shown ? SW_SHOWNA : SW_HIDE);
+}
+
 void PinWindow::setTopmost(bool on)
 {
     m_topmost = on;

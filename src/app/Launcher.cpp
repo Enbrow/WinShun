@@ -3624,6 +3624,7 @@ QVariantList Launcher::menuItems(int row) const
     if (r->clipId > 0) { // a screenshot of the history
         items.append(entry(Open, tr("复制并粘贴"), u"Enter"_s, u"\uE77F"_s)); // Paste
         items.append(entry(PinPicture, tr("贴到屏幕"), u"Ctrl+Enter"_s, u"\uE718"_s)); // Pin
+        items.append(entry(EditPicture, tr("编辑"), u"Shift+Enter"_s, u"\uE70F"_s)); // Edit
         items.append(entry(Preview, tr("预览"), u"Alt+P"_s, u"\uE890"_s)); // View
         items.append(separator);
         items.append(entry(CopyItem, tr("复制图片"), u"Ctrl+C"_s, u"\uE8C8"_s));
@@ -4058,7 +4059,8 @@ SearchResults Launcher::screenshotRows(const QString& words) const
         p->icon = kShotIcon.toString();
         const QString text = shot.ocr.simplified();
         p->copy = text;
-        p->actions = {{u"paste"_s, tr("复制并粘贴"), u"Enter"_s}, {u"pin"_s, tr("贴到屏幕"), u"Ctrl+Enter"_s}};
+        p->actions = {{u"paste"_s, tr("复制并粘贴"), u"Enter"_s}, {u"pin"_s, tr("贴到屏幕"), u"Ctrl+Enter"_s},
+            {u"edit"_s, tr("编辑"), u"Shift+Enter"_s}};
         SearchResult r;
         r.name = text.isEmpty() ? tr("（没有识别出文字）") : text.left(120);
         r.path = plugin::pluginPath(p->pluginId, p->commandId, p->itemId);
@@ -4119,6 +4121,14 @@ void Launcher::performScreenshot(const SearchResult& result, Action action)
     case PluginAction + 1:
         emit pinRequested(result.target, true);
         emit dismissRequested();
+        return;
+    case Alternate:
+    case EditPicture:
+    case PluginAction + 2:
+        if (m_shotHooks.edit) {
+            emit dismissRequested(); // first: the editing window takes the front
+            m_shotHooks.edit(id);
+        }
         return;
     case CopyItem:
         if (m_shotHooks.copy)

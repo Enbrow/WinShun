@@ -343,11 +343,11 @@ std::optional<Document> fromJson(const QJsonObject& json, QString* error)
     return parse(migrate(json, int(*version)), error);
 }
 
-QByteArray writeProject(const Document& doc, const QImage& base)
+QByteArray writeProject(const Document& doc, const QImage& base, const QByteArray& basePng)
 {
     const QByteArray json = QJsonDocument(toJson(doc)).toJson(QJsonDocument::Compact);
-    QByteArray png;
-    {
+    QByteArray png = basePng;
+    if (png.isEmpty()) {
         QBuffer buffer(&png);
         if (!buffer.open(QIODevice::WriteOnly) || !base.save(&buffer, "PNG"))
             return {};
@@ -405,7 +405,7 @@ std::optional<Project> readProject(const QByteArray& data, QString* error)
         return broken();
     if (base.format() != QImage::Format_RGB32)
         base = base.convertToFormat(QImage::Format_RGB32);
-    return Project{std::move(*doc), std::move(base)};
+    return Project{std::move(*doc), std::move(base), std::move(png)};
 }
 
 Project projectFromOverlay(const Document& doc, const QImage& screen, const QRect& selection)

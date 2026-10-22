@@ -4,6 +4,7 @@
 #include "AppCatalog.h"
 #include "Backup.h"
 #include "Capture.h"
+#include "CaptureEditor.h"
 #include "CaptureOcr.h"
 #include "Geometry.h" // capture::placeBeside
 #include "Grabber.h"
@@ -76,6 +77,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImageReader>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QOperatingSystemVersion>
@@ -384,6 +386,14 @@ App::~App()
     m_keyListener.reset(); // no double click told to the folder menu
     m_capture.reset(); // its overlays, before the QML engine they were made with
     m_pins.reset();
+    if (m_editWindow) {
+        // Its destruction hides it: the controller must not answer that.
+        if (m_editor)
+            QObject::disconnect(m_editWindow.data(), nullptr, m_editor.get(), nullptr);
+        delete m_editWindow.data(); // the editing window, before the QML engine and its controller
+    }
+    m_editor.reset();
+    m_editFrame.reset();
     if (m_screenshotAsk && m_screenshotAsk->window)
         delete m_screenshotAsk->window.data(); // before the QML engine, and before its frame
     m_screenshotAsk.reset();
@@ -616,6 +626,7 @@ bool App::start(const StartOptions& options)
     // Esc hands the focus back too.
     connect(m_clipboard.get(), &Clipboard::dismissRequested, this, [this] { hideClipboard(); });
     connect(m_clipboard.get(), &Clipboard::pinRequested, this, [this](const QString& path) { pinPicture(path); });
+    connect(m_clipboard.get(), &Clipboard::editRequested, this, [this](qint64 id) { editHistory(id); });
     // The history changed (a screenshot taken, removed, put back): the
     // launcher's screenshot list too, while it shows it.
     connect(m_clipboard.get(), &Clipboard::categoriesChanged, m_launcher.get(), &Launcher::refreshScreenshots);
@@ -1626,6 +1637,7 @@ void App::applyScreenshots()
             m_clipboard->pasteEntry(id, target);
         };
         hooks.copy = [this](qint64 id) { m_clipboard->pasteEntry(id, nullptr); };
+        hooks.edit = [this](qint64 id) { editHistory(id); };
         hooks.remove = [this](qint64 id) { m_clipboard->removeEntries({id}); };
         hooks.undo = [this] {
             if (!m_clipboard->canUndo())
@@ -1653,12 +1665,170 @@ capture::PinManager& App::pins()
             });
         };
         callbacks.ocr = [this](const QImage& image, double dpr, const QRect& where) { showCaptureOcr(image, dpr, where); };
+        callbacks.edit = [this](capture::PinWindow* pin) { editPin(pin); };
         callbacks.closed = [this] { m_idleTrim->poke(); }; // its pixels can go back to Windows
         callbacks.dark = [] { return isDarkMode(); };
         callbacks.ocrAvailable = capture::CaptureOcr::available();
         m_pins = std::make_unique<capture::PinManager>(std::move(callbacks));
     }
     return *m_pins;
+}
+
+namespace {
+
+// The window's client area on the screen, physical: where the editing
+// window's canvas is measured from (its title bar is its own, the whole
+// window is client area).
+QRect clientRectOf(QQuickWindow* window)
+{
+    const auto hwnd = reinterpret_cast<HWND>(window->winId());
+    RECT client {};
+    POINT origin {0, 0};
+    if (!::GetClientRect(hwnd, &client) || !::ClientToScreen(hwnd, &origin))
+        return {};
+    return QRect(origin.x, origin.y, client.right, client.bottom);
+}
+
+// The window moved so that its client area's top left is `topLeft`.
+void moveClientTo(QQuickWindow* window, QPoint topLeft)
+{
+    const auto hwnd = reinterpret_cast<HWND>(window->winId());
+    RECT outer {};
+    const QRect client = clientRectOf(window);
+    if (client.isEmpty() || !::GetWindowRect(hwnd, &outer))
+        return;
+    const QPoint shift = client.topLeft() - QPoint(outer.left, outer.top);
+    ::SetWindowPos(hwnd, nullptr, topLeft.x() - shift.x(), topLeft.y() - shift.y(), 0, 0,
+        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+// A history picture, from its PNG file: a long capture is far above Qt's default limit of 256 MB.
+QImage readPicture(const QString& path)
+{
+    QImageReader reader(path);
+    reader.setAllocationLimit(2048);
+    return reader.read();
+}
+
+} // namespace
+
+capture::CaptureEditor* App::editor()
+{
+    if (m_editor)
+        return m_editor.get();
+    if (!m_qml)
+        return nullptr;
+    auto editor = std::make_unique<capture::CaptureEditor>();
+    capture::CaptureEditor::Hooks hooks;
+    hooks.project = [this](qint64 id) { return m_clipStore ? m_clipStore->project(id) : QByteArray(); };
+    hooks.picture = [this](qint64 id) { return m_clipStore ? readPicture(m_clipStore->imagePath(id)) : QImage(); };
+    hooks.exists = [this](qint64 id) { return m_clipStore && m_clipStore->clip(id) != nullptr; };
+    // Changed: a new entry and the clipboard, the original left as it is.
+    hooks.copy = [this](const QImage& image, const QByteArray& project) {
+        m_clipboard->copyImage(image, m_settings.clipboard && m_settings.clipboardImages && !m_clipboardPaused, true, project);
+    };
+    // Not changed: the original again, which moves it to the top.
+    hooks.copyOriginal = [this](qint64 id) { m_clipboard->pasteEntry(id, nullptr); };
+    hooks.record = [this](const QImage& image, const QByteArray& project) {
+        if (m_settings.clipboard && m_settings.clipboardImages && !m_clipboardPaused)
+            m_clipboard->recordImage(image, project);
+    };
+    hooks.save = [this](const QImage& image, const QString& path) {
+        capture::saveImage(m_pinSaver, this, image, path, [this](const QString& saved, const QString& error) {
+            if (error.isEmpty())
+                m_messages->showNotification(tr("截图已保存"), QDir::toNativeSeparators(saved));
+            else
+                m_messages->showNotification(tr("截图没能保存"), error);
+        });
+    };
+    hooks.pin = [this](const QImage& image, const QByteArray& project, QPoint origin) {
+        pins().pin(image, origin, true, project);
+    };
+    hooks.ocr = [this](const QImage& image, double dpr, const QRect& where) { showCaptureOcr(image, dpr, where); };
+    hooks.styles = [this] { return m_settings.captureAnnotateStyles; };
+    hooks.stylesChanged = [this](const QString& json) {
+        if (json == m_settings.captureAnnotateStyles)
+            return;
+        m_settings.captureAnnotateStyles = json;
+        m_settings.save();
+        if (m_settingsEditor) // its copy must not bring the old styles back with its next change
+            m_settingsEditor->setSettings(m_settings);
+    };
+    // The picture, the document and the tiles are let go of: the pages go back to Windows.
+    hooks.closed = [this] { m_idleTrim->poke(); };
+    hooks.window.show = [](QQuickWindow* window) {
+        window->showNormal();
+        window->raise();
+        win::bringToFront(window);
+        window->requestActivate();
+    };
+    hooks.window.cloak = [](QQuickWindow* window, bool cloaked) { win::setCloaked(window, cloaked); };
+    hooks.window.nativeRect = [](QQuickWindow* window) { return clientRectOf(window); };
+    hooks.window.moveTo = [](QQuickWindow* window, QPoint topLeft) { moveClientTo(window, topLeft); };
+    editor->setHooks(std::move(hooks));
+    editor->setOcrAvailable(capture::CaptureOcr::available());
+
+    m_editFrame = std::make_unique<WindowFrame>(true); // its own title bar
+    QQmlComponent component(m_qml.get(), u"WinShun"_s, u"EditWindow"_s);
+    QObject* object = component.createWithInitialProperties({
+        {u"editor"_s, QVariant::fromValue(editor.get())},
+        {u"frame"_s, QVariant::fromValue(m_editFrame.get())},
+    });
+    auto* window = qobject_cast<QQuickWindow*>(object);
+    if (!window) {
+        qWarning().noquote() << "Screen capture: no editing window:" << component.errorString();
+        delete object;
+        m_editFrame.reset();
+        return nullptr;
+    }
+    window->create();
+    styleWindow(window, false);
+    win::setDarkFrame(window, isDarkMode());
+    m_editFrame->setWindow(window);
+    editor->attach(window);
+    m_editWindow = window;
+    m_editor = std::move(editor);
+    return m_editor.get();
+}
+
+void App::editHistory(qint64 clipId)
+{
+    if (!m_clipStore || !m_clipStore->isOpen())
+        return;
+    if (m_clipStore->imagePending(clipId)) { // taken a moment ago: said where the user looks
+        m_messages->showNotification(tr("编辑"), tr("图片还在保存，请稍后再试"));
+        return;
+    }
+    capture::CaptureEditor* editor = this->editor();
+    if (editor && !editor->openHistory(clipId))
+        m_messages->showNotification(tr("没能编辑这张图片"), tr("它已不在历史里，或读不出来。"));
+}
+
+void App::editPin(capture::PinWindow* pin)
+{
+    if (!pin || !m_pins || !m_pins->contains(pin))
+        return;
+    capture::CaptureEditor* editor = this->editor();
+    if (!editor)
+        return;
+    // The pin is lent for as long as the window is open; it may be closed meanwhile.
+    capture::CaptureEditor::PinTarget target;
+    target.image = pin->image();
+    target.project = pin->project();
+    target.picture = pin->pictureRect();
+    target.zoom = pin->zoom();
+    const auto alive = [this, pin] { return m_pins && m_pins->contains(pin); };
+    target.alive = alive;
+    target.setShown = [alive, pin](bool shown) {
+        if (alive())
+            pin->setShown(shown);
+    };
+    target.replace = [alive, pin](const QImage& image, const QByteArray& project) {
+        if (alive())
+            pin->setPicture(image, project);
+    };
+    if (!editor->openPin(std::move(target)))
+        m_messages->showNotification(tr("没能编辑这张图片"), tr("读不出这张图。"));
 }
 
 // 贴到屏幕 on a picture file's row (the launcher) or a picture in the

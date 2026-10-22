@@ -230,6 +230,7 @@ public:
         RemoveScreenshot, // 从历史删除: a screenshot's row (Delete)
         SwitchOn, // a system switch's row, set on / off (the menu's two entries; Enter is the row's own)
         SwitchOff,
+        EditPicture, // 编辑: a screenshot's row, in the editing window (Shift+Enter)
         PluginAction = 100
     };
     Q_ENUM(Action)
@@ -275,6 +276,7 @@ public:
         std::function<std::vector<Screenshot>(const QString& words)> list; // newest first, words in the OCR
         std::function<void(qint64 id)> paste; // Enter: copied, and pasted where the launcher was opened over
         std::function<void(qint64 id)> copy; // Ctrl+C
+        std::function<void(qint64 id)> edit; // Shift+Enter: in the editing window
         std::function<void(qint64 id)> remove; // Delete
         std::function<bool()> undo; // Ctrl+Z: false when there is nothing to put back
     };

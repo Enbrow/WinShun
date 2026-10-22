@@ -154,6 +154,11 @@ StyleMemory::Tool StyleMemory::defaults(Kind kind)
     return t;
 }
 
+void StyleMemory::reset(Kind kind)
+{
+    m_tools[std::size_t(kind)] = defaults(kind);
+}
+
 const StyleMemory::Tool& StyleMemory::tool(Kind kind) const
 {
     return m_tools[std::size_t(kind)];

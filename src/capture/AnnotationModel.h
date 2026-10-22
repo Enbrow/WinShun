@@ -7,6 +7,7 @@
 #include "AnnotationStyles.h"
 
 #include <QImage>
+#include <QList>
 #include <QObject>
 #include <QPoint>
 #include <QRect>
@@ -29,8 +30,15 @@ namespace ws::capture {
 // Every position here is in image pixels: the pixels of the frozen screen,
 // which are the physical pixels of that monitor. The overlay's own unit
 // (logical) never comes in. Logical sizes (a width of "4") appear only in
-// the panel map, as the user thinks of them; the document keeps image
+// panel map, as the user thinks of them; the document keeps image
 // pixels (3.4).
+//
+// The editing window (stage 4b, CaptureEditor) uses the same model for a
+// project: begin(project) makes it an editor, where the picture is the
+// project's whole base, drawing is allowed anywhere on it, redactions read
+// all of it, and `crop` is what is exported, dragged at its edges. Several
+// objects can be selected there (and in the overlay): Shift+click, a box
+// dragged on the empty picture, Ctrl+A.
 class AnnotationModel : public QObject {
     Q_OBJECT
     QML_ELEMENT
@@ -61,6 +69,17 @@ class AnnotationModel : public QObject {
     // A drawing, moving or reshaping gesture is under way.
     // The family the compositor draws text in (annotationFont); the text box uses the same.
     Q_PROPERTY(QString fontFamily READ fontFamily CONSTANT FINAL)
+    // The editing window's model (begin(project)); the overlay's is not.
+    Q_PROPERTY(bool editor READ editor NOTIFY editorChanged FINAL)
+    // The editor's export range (image px); the selection in the overlay.
+    Q_PROPERTY(QRect crop READ cropRect NOTIFY cropChanged FINAL)
+    // The box being dragged to select objects (image px); null when none.
+    Q_PROPERTY(QRectF marquee READ marquee NOTIFY marqueeChanged FINAL)
+    // The eyedropper (I) is on: the next press takes the colour under it.
+    Q_PROPERTY(bool picking READ picking NOTIFY pickingChanged FINAL)
+    Q_PROPERTY(int selectedCount READ selectedCount NOTIFY selectionChanged FINAL)
+    // The crop's edge is being dragged.
+    Q_PROPERTY(bool cropping READ cropping NOTIFY gestureChanged FINAL)
     Q_PROPERTY(bool gestureActive READ gestureActive NOTIFY gestureChanged FINAL)
     // What the gesture is changing (image px, set 16 logical px wider): the
     // toolbar steps aside when it reaches it (3.5). Null when no gesture.
@@ -74,13 +93,31 @@ public:
     // size of `base`, no tool, nothing selected, an empty undo stack; every
     // tool's style as `styles` remembers it. `dpr` is the monitor's scale.
     void begin(const QImage& base, qreal dpr, const annot::StyleMemory& styles);
+    // The editing window's: a project opened (its base whole, its crop as it
+    // was left) with every tool's style as `styles` remembers it.
+    // `deviceDpr` is the window's scale, for a project that has none (a
+    // picture that never was a screenshot). What the model is asked to keep
+    // from here on is measured against this document (modified()).
+    void begin(const annot::Project& project, qreal deviceDpr, const annot::StyleMemory& styles);
     // Everything let go of (the picture, the caches, the stack).
     void end();
+    bool editor() const { return m_editor; }
+    // The editor's picture shown at `zoom` on a window whose device pixel is
+    // `devicePerLogical` logical px (its real buffer scale): hit tolerances,
+    // handle reach and the drag distance are screen sizes, so in image px
+    // they follow the zoom. The overlay is 1 at its monitor's scale (default).
+    void setView(qreal devicePerLogical, qreal zoom);
+    // The document differs from the one opened (a text under way counts).
+    bool modified() const;
+    // Esc in the editor: all changes given up in one step Ctrl+Z takes back.
+    // Nothing when there is none.
+    Q_INVOKABLE void discardChanges();
     bool active() const { return !m_base.isNull(); }
     // The selection rectangle (image px): the document's crop and the range
     // redactions take their colours from. Moving it redraws the redactions.
     void setSelection(const QRect& selection);
     QRect selectionRect() const { return m_document.crop; }
+    QRect cropRect() const { return m_document.crop; }
     // What redactions take their colours from (3.10, S): the selection in
     // the overlay (all of the picture before there is one). The canvas and
     // composed() render with it.
@@ -99,7 +136,9 @@ public:
     bool stylesChanged() const { return m_stylesChanged; }
     // The composed picture of the selection (annot::Compositor::exportImage)
     // and the project that makes it editable again; both commit a text under
-    // way first. Null / empty when there are no items.
+    // way first. Null / empty when there are no items. The editor's: the
+    // crop of the picture, with or without items; the project is the whole
+    // base with the crop kept in the document.
     QImage composed();
     annot::Project project() const;
 
@@ -146,17 +185,23 @@ public:
     QVariantMap numberEdit() const;
     bool gestureActive() const { return m_gesture != Gesture::None; }
     QRectF gestureBounds() const;
+    QRectF marquee() const;
+    bool picking() const { return m_picking; }
+    bool cropping() const { return m_gesture == Gesture::Crop; }
+    int selectedCount() const { return static_cast<int>(m_picked.size()); }
 
     // ---- the mouse, from CaptureSession (3.6); positions are image px ----
     // The first questions of a press, before the selection's own handles:
-    // commit a text when the press is outside it; a handle of the selected
-    // object. Returns true when the press is taken.
+    // commit a text when the press is outside it; take a colour when the
+    // eyedropper is on; a handle of the selected object; in the editor a
+    // handle of the crop. Returns true when the press is taken.
     bool pressFirst(QPoint p, Qt::KeyboardModifiers modifiers);
     // The rest, after the selection's handles: with a tool, the selected
-    // object's body (move), a text or number under it (edit / select), or
+    // objects' bodies (move), a text or number under it (edit / select), or
     // a new object inside the selection (outside it: taken, nothing done,
     // notice()); without one, an object under the press (select, drag to
-    // move). A text under the text tool is picked up like a number: a drag
+    // move; with Shift it joins or leaves the selected ones), and in the
+    // editor the empty picture starts a box that selects what it touches. A text under the text tool is picked up like a number: a drag
     // moves it, a click (released without a drag) opens it for typing, the
     // caret where the press was. Returns true when taken; a press that does
     // nothing (outside the selection with a tool) is taken too, but
@@ -184,7 +229,8 @@ public:
     // most (touchpads). True when the wheel is the model's (tool or selection).
     bool wheel(int angleDelta, qint64 nowMs);
     // The tool keys, undo and redo, Delete, arrows on a selected object,
-    // [ and ], Ctrl+[ and Ctrl+]. True when taken.
+    // [ and ], Ctrl+[ and Ctrl+], Ctrl+A (all objects), Ctrl+D (a copy of
+    // the selected ones, a little aside), I (the eyedropper). True when taken.
     bool key(int key, Qt::KeyboardModifiers modifiers);
     // Esc, steps 2 and 3 of 3.6: commit the text under way, or cancel the
     // gesture under way; before either, close a number's edit box. True
@@ -215,6 +261,14 @@ public:
     Q_INVOKABLE void deleteSelection();
     Q_INVOKABLE void raise(bool toTop);
     Q_INVOKABLE void lower(bool toBottom);
+    // The selected objects' styles, and the tool's, back to the defaults
+    // (恢复默认样式).
+    Q_INVOKABLE void resetStyle();
+    // The eyedropper on (or off): the next press on the picture sets the
+    // colour of what the panel is for to the pixel under it.
+    Q_INVOKABLE void pickColor(bool on = true);
+    Q_INVOKABLE void selectAll();
+    Q_INVOKABLE void duplicateSelection();
     // "另起一组": the next numbers start a new group counting from 1.
     Q_INVOKABLE void newSeries();
     // "起始值": where the current group's numbers start.
@@ -234,17 +288,23 @@ signals:
     void editingChanged();
     void numberEditChanged();
     void gestureChanged();
+    void editorChanged();
+    void cropChanged();
+    void marqueeChanged();
+    void pickingChanged();
     // A word for the user (the overlay shows it by the selection).
     void notice(const QString& text);
 
 private:
-    enum class Gesture { None, Draw, Move, Reshape };
+    enum class Gesture { None, Draw, Move, Reshape, Crop, Marquee };
     // What a style change goes to (3.5): the text being typed, else the
     // selected object, else the tool.
     struct Target {
-        annot::Kind kind = annot::Kind::Rect;
-        std::optional<quint32> id; // an object in the document
+        annot::Kind kind = annot::Kind::Rect; // the first object's, when several
+        QList<quint32> ids; // objects in the document
         bool typing = false; // a new text, not in the document yet
+        bool mixed = false; // several objects of different kinds
+        std::optional<quint32> id() const { return ids.isEmpty() ? std::nullopt : std::optional<quint32>(ids.first()); }
     };
     struct Editing {
         quint32 id = 0; // 0: a new text, in the document only once committed
@@ -258,6 +318,11 @@ private:
     struct Private;
 
     qint64 now() const;
+    // Screen pixels as image pixels at the zoom (the monitor's scale in the overlay).
+    qreal factor() const;
+    // Where objects may go: the whole picture in the editor, the selection in the overlay.
+    QRect room() const;
+    std::optional<quint32> single() const; // the selected object, when it is one
     qreal tolerance() const;
     int reach() const;
     int dragStart() const;
@@ -267,6 +332,8 @@ private:
     std::optional<quint32> itemAt(QPoint p) const;
     bool onSelected(QPoint p) const;
     int handleAt(QPoint p) const;
+    int cropHandleAt(QPoint p) const; // a Handle (Geometry.h) of the crop under `p`, or 0 (None)
+    QRgb colorAt(QPoint p) const;
     std::optional<Target> styleTarget() const;
     annot::Style targetStyle(const Target& target) const;
     annot::Style editingStyle() const;
@@ -274,7 +341,9 @@ private:
     annot::Document committed() const;
     std::unique_ptr<annot::Command> textCommand(const annot::Document& doc, const QString& text) const;
     void startDraw(annot::Kind kind, QPoint p, Qt::KeyboardModifiers modifiers);
-    void startMove(quint32 id, QPoint p, Qt::KeyboardModifiers modifiers);
+    void startMove(const QList<quint32>& ids, QPoint p, Qt::KeyboardModifiers modifiers);
+    void startCrop(int handle, QPoint p);
+    void startMarquee(QPoint p, Qt::KeyboardModifiers modifiers);
     void startReshape(int handle, QPoint p, Qt::KeyboardModifiers modifiers);
     void updateGesture();
     void finishGesture();
@@ -293,6 +362,12 @@ private:
     void sync();
 
     annot::Document m_document;
+    annot::Document m_loaded; // the editor's: as opened
+    QByteArray m_basePng; // the editor's: the base as stored (annot::Project::basePng)
+    bool m_editor = false;
+    qreal m_devicePerLogical = 0; // 0: the document's scale
+    qreal m_zoom = 1;
+    bool m_picking = false;
     QImage m_base;
     annot::StyleMemory m_styles;
     bool m_stylesChanged = false;
@@ -300,7 +375,7 @@ private:
     std::unique_ptr<annot::Compositor> m_compositor;
     int m_tool = -1;
     Gesture m_gesture = Gesture::None;
-    std::optional<quint32> m_selected;
+    QList<quint32> m_picked; // the selected objects, in the order they were picked
     std::optional<Editing> m_editing;
     std::optional<quint32> m_numberEdit;
     std::unique_ptr<Private> d;
