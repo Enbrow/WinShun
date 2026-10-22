@@ -332,7 +332,7 @@ struct Settings {
     QString captureMouseBack = QStringLiteral("none"); // the side button toward the user (X1)
     QString captureMouseForward = QStringLiteral("none"); // X2
     // The capture toolbar's action buttons left off it (#57), comma separated:
-    // undo, redo, copy, save, pin, ocr, cancel (captureToolbarButtonIds); empty
+    // undo, redo, copy, save, pin, ocr, long, cancel (captureToolbarButtonIds); empty
     // shows them all. Their keys work all the same.
     QString captureToolbarHidden;
     // Keyword=: typed first in the search box with a space after it, the

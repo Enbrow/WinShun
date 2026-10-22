@@ -16,12 +16,13 @@
 #include <windows.h>
 
 #include <d3d11.h>
-#include <dxgi1_2.h>
+#include <dxgi1_3.h>
 
 #include <Windows.Graphics.Capture.Interop.h>
 #include <windows.graphics.directx.direct3d11.interop.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstring>
 #include <deque>
@@ -132,6 +133,74 @@ QImage bitblt(const QRect& r)
 
 } // namespace
 
+// A stream's state, shared by the capture thread's job, WGC's thread that
+// hands frames over and the thread that asks for them.
+struct StreamState {
+    explicit StreamState(const QRect& r)
+        : region(r)
+    {
+    }
+    ~StreamState()
+    {
+        ::CloseHandle(wake);
+        ::CloseHandle(stop);
+    }
+
+    const QRect region; // physical pixels, virtual desktop
+    bool hdr = false; // set before `started`
+    HANDLE wake = ::CreateEventW(nullptr, FALSE, FALSE, nullptr); // a frame came, or one is asked for
+    HANDLE stop = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    std::promise<bool> started;
+    std::promise<void> finished;
+
+    std::mutex mutex;
+    std::condition_variable read; // a frame was read back
+    wgc::Direct3D11CaptureFrame pending {nullptr}; // the newest frame WGC gave, not read yet
+    quint64 given = 0; // frames WGC gave
+    quint64 pendingNumber = 0;
+    bool wanted = false; // next() waits for a frame after `wantedAfter`
+    quint64 wantedAfter = 0;
+    QImage image; // the last frame read back
+    quint64 imageNumber = 0;
+    bool ended = false;
+};
+
+class StreamImpl : public Grabber::Stream {
+public:
+    StreamImpl(std::shared_ptr<StreamState> state, std::future<void> finished)
+        : m_state(std::move(state))
+        , m_finished(std::move(finished))
+    {
+    }
+    ~StreamImpl() override
+    {
+        ::SetEvent(m_state->stop);
+        m_finished.wait();
+    }
+
+    Frame next(quint64 after, int timeoutMs) override
+    {
+        StreamState& s = *m_state;
+        std::unique_lock lock(s.mutex);
+        if (s.imageNumber <= after) {
+            s.wanted = true;
+            s.wantedAfter = after;
+            ::SetEvent(s.wake);
+            s.read.wait_for(lock, std::chrono::milliseconds(std::max(0, timeoutMs)),
+                [&] { return s.ended || s.imageNumber > after; });
+        }
+        if (s.imageNumber <= after)
+            return {};
+        return {s.image, s.imageNumber};
+    }
+
+    bool hdr() const override { return m_state->hdr; }
+
+private:
+    std::shared_ptr<StreamState> m_state;
+    std::future<void> m_finished;
+};
+
 struct Grabber::Worker {
     struct Monitor {
         HMONITOR handle = nullptr;
@@ -145,6 +214,7 @@ struct Grabber::Worker {
     std::condition_variable wake;
     std::deque<std::function<void()>> jobs;
     bool stopping = false;
+    HANDLE quit = ::CreateEventW(nullptr, TRUE, FALSE, nullptr); // ends a stream's job too
 
     // Only touched on the thread:
     winrt::com_ptr<ID3D11Device> d3d;
@@ -166,7 +236,9 @@ struct Grabber::Worker {
             stopping = true;
         }
         wake.notify_all();
+        ::SetEvent(quit);
         thread.join();
+        ::CloseHandle(quit);
     }
 
     void post(std::function<void()> job)
@@ -409,6 +481,167 @@ struct Grabber::Worker {
         }
         return shots;
     }
+
+    // `region` of the frame (`m`'s pixels; `region` in the virtual desktop's)
+    // through `staging`, a texture of the region's size.
+    QImage readRegion(const wgc::Direct3D11CaptureFrame& frame, const Monitor& m, const QRect& region, ID3D11Texture2D* staging)
+    {
+        winrt::com_ptr<ID3D11Texture2D> texture;
+        const auto access = frame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
+        winrt::check_hresult(access->GetInterface(IID_PPV_ARGS(texture.put())));
+        D3D11_TEXTURE2D_DESC desc {};
+        texture->GetDesc(&desc);
+        if (static_cast<int>(desc.Width) != m.rect.width() || static_cast<int>(desc.Height) != m.rect.height())
+            return {}; // the monitor changed under its item
+        const int left = region.x() - m.rect.x();
+        const int top = region.y() - m.rect.y();
+        const D3D11_BOX box {UINT(left), UINT(top), 0, UINT(left + region.width()), UINT(top + region.height()), 1};
+        context->CopySubresourceRegion(staging, 0, 0, 0, 0, texture.get(), 0, &box);
+        D3D11_MAPPED_SUBRESOURCE mapped {};
+        winrt::check_hresult(context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped));
+        QImage image;
+        if (m.color.hdr) {
+            image = mapScRgbToSdr(static_cast<const std::uint16_t*>(mapped.pData), region.width(), region.height(),
+                static_cast<int>(mapped.RowPitch), m.color.sdrWhiteNits);
+        } else {
+            image = QImage(region.width(), region.height(), QImage::Format_RGB32);
+            const std::size_t row = std::size_t(region.width()) * 4;
+            for (int y = 0; y < region.height(); ++y)
+                std::memcpy(image.scanLine(y), static_cast<const std::uint8_t*>(mapped.pData) + std::size_t(mapped.RowPitch) * std::size_t(y), row);
+        }
+        context->Unmap(staging, 0);
+        return image;
+    }
+
+    // A stream's job: runs until it is stopped (or the grabber goes), the
+    // other jobs waiting behind it.
+    void streamJob(const std::shared_ptr<StreamState>& s)
+    {
+        const Monitor* m = nullptr;
+        for (const Monitor& candidate : monitors)
+            if (candidate.rect.contains(s->region))
+                m = &candidate;
+        if (!device || !m || !m->item || s->region.isEmpty()) {
+            s->started.set_value(false);
+            s->finished.set_value();
+            return;
+        }
+        const Monitor monitor = *m; // the list may be made again after the job
+        wgc::Direct3D11CaptureFramePool pool {nullptr};
+        wgc::GraphicsCaptureSession session {nullptr};
+        winrt::event_token token {};
+        winrt::com_ptr<ID3D11Texture2D> staging;
+        try {
+            const bool hdr = monitor.color.hdr;
+            D3D11_TEXTURE2D_DESC desc {};
+            desc.Width = UINT(s->region.width());
+            desc.Height = UINT(s->region.height());
+            desc.MipLevels = 1;
+            desc.ArraySize = 1;
+            desc.Format = hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_B8G8R8A8_UNORM;
+            desc.SampleDesc.Count = 1;
+            desc.Usage = D3D11_USAGE_STAGING;
+            desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            winrt::check_hresult(d3d->CreateTexture2D(&desc, nullptr, staging.put()));
+            const auto format = hdr ? wdx::DirectXPixelFormat::R16G16B16A16Float : wdx::DirectXPixelFormat::B8G8R8A8UIntNormalized;
+            pool = wgc::Direct3D11CaptureFramePool::CreateFreeThreaded(device, format, 2, monitor.item.Size());
+            session = pool.CreateCaptureSession(monitor.item);
+            session.IsCursorCaptureEnabled(false);
+            if (borderless)
+                session.IsBorderRequired(false);
+            // On WGC's thread; the state lives as long as the handler.
+            token = pool.FrameArrived([state = s](const wgc::Direct3D11CaptureFramePool& sender, const auto&) {
+                wgc::Direct3D11CaptureFrame frame = sender.TryGetNextFrame();
+                if (!frame)
+                    return;
+                {
+                    const std::lock_guard lock(state->mutex);
+                    if (state->ended) {
+                        frame.Close();
+                        return;
+                    }
+                    if (state->pending)
+                        state->pending.Close(); // only the newest is kept
+                    state->pending = frame;
+                    state->pendingNumber = ++state->given;
+                }
+                ::SetEvent(state->wake);
+            });
+            session.StartCapture();
+            s->hdr = hdr;
+        } catch (const winrt::hresult_error& e) {
+            qWarning().noquote() << u"Screen capture: could not stream a region (0x%1)"_s.arg(
+                static_cast<quint32>(e.code().value), 8, 16, QChar(u'0'));
+            try {
+                if (pool)
+                    pool.FrameArrived(token);
+                if (session)
+                    session.Close();
+                if (pool)
+                    pool.Close();
+            } catch (const winrt::hresult_error&) {
+            }
+            s->started.set_value(false);
+            s->finished.set_value();
+            return;
+        }
+        s->started.set_value(true);
+        const HANDLE waits[] = {s->stop, quit, s->wake};
+        for (;;) {
+            const DWORD woke = ::WaitForMultipleObjects(3, waits, FALSE, INFINITE);
+            if (woke != WAIT_OBJECT_0 + 2)
+                break; // stopped, the grabber going, or failed
+            wgc::Direct3D11CaptureFrame frame {nullptr};
+            quint64 number = 0;
+            {
+                const std::lock_guard lock(s->mutex);
+                if (!s->wanted || !s->pending || s->pendingNumber <= s->wantedAfter)
+                    continue;
+                frame = std::exchange(s->pending, nullptr);
+                number = s->pendingNumber;
+            }
+            QImage image;
+            try {
+                image = readRegion(frame, monitor, s->region, staging.get());
+                frame.Close();
+            } catch (const winrt::hresult_error& e) {
+                qWarning().noquote() << u"Screen capture: could not read a streamed frame (0x%1)"_s.arg(
+                    static_cast<quint32>(e.code().value), 8, 16, QChar(u'0'));
+            }
+            {
+                const std::lock_guard lock(s->mutex);
+                s->image = std::move(image);
+                s->imageNumber = number;
+                s->wanted = false;
+            }
+            s->read.notify_all();
+        }
+        try {
+            pool.FrameArrived(token);
+            session.Close();
+            pool.Close();
+        } catch (const winrt::hresult_error&) {
+        }
+        {
+            const std::lock_guard lock(s->mutex);
+            if (s->pending)
+                s->pending.Close();
+            s->pending = nullptr;
+            s->image = QImage();
+            s->ended = true;
+        }
+        // What the frames took goes back now: the driver keeps freed
+        // textures for the next ones otherwise (two of the monitor's size).
+        staging = nullptr;
+        pool = nullptr;
+        session = nullptr;
+        context->ClearState();
+        context->Flush();
+        if (const auto dxgi = d3d.try_as<IDXGIDevice3>())
+            dxgi->Trim();
+        s->read.notify_all();
+        s->finished.set_value();
+    }
 };
 
 Grabber::Grabber()
@@ -436,6 +669,20 @@ std::vector<Grabber::Shot> Grabber::grab(QString* report)
     Worker* worker = m_worker.get();
     worker->post([worker, &promise, report] { promise.set_value(worker->grabAll(report)); });
     return future.get();
+}
+
+std::unique_ptr<Grabber::Stream> Grabber::stream(const QRect& region)
+{
+    auto state = std::make_shared<StreamState>(region);
+    std::future<bool> started = state->started.get_future();
+    std::future<void> finished = state->finished.get_future();
+    Worker* worker = m_worker.get();
+    worker->post([worker, state] { worker->streamJob(state); });
+    if (!started.get()) {
+        finished.wait();
+        return nullptr;
+    }
+    return std::make_unique<StreamImpl>(std::move(state), std::move(finished));
 }
 
 } // namespace ws::capture

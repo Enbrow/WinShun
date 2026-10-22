@@ -175,6 +175,12 @@
 //                      from, and the time from the last key to the plugin's
 //                      rows. A text no plugin answers is run again without
 //                      plugins and the two lists compared
+//   wsbench --scroll-replay FOLDER [--save FILE.png]
+//                      a long screenshot's frames again (dumped with
+//                      WINSHUN_SCROLL_DUMP=FOLDER: frame_NNNN.png and
+//                      steps.txt): each stitched as the capture did, the
+//                      step printed beside what it recorded then; --save
+//                      writes the picture (docs/design-capture-roadmap.md, 4.2)
 //
 // Default snapshot: %LOCALAPPDATA%\WinShun\index.bin
 #include "AiBridge.h"
@@ -201,6 +207,7 @@
 #include "NtfsIndexer.h"
 #include "PathText.h"
 #include "Query.h"
+#include "ScrollStitcher.h"
 #include "SearchEngine.h"
 #include "ServiceVolumeAccess.h"
 #include "Settings.h"
@@ -232,6 +239,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QStandardPaths>
@@ -5257,6 +5265,105 @@ int runSuggest(QStringList args)
     return 0;
 }
 
+// ---- a long screenshot again (--scroll-replay) ------------------------------------
+
+// The frames LongCapture dumped, through the stitcher in their order with the
+// rows each step was expected to move (steps.txt), as the capture did; each
+// step beside the one recorded, a difference marked.
+int runScrollReplay(QStringList args)
+{
+    const qsizetype at = args.indexOf(u"--scroll-replay"_s);
+    if (at < 0 || at + 1 >= args.size()) {
+        std::fprintf(stderr, "usage: wsbench --scroll-replay FOLDER [--save FILE.png]\n");
+        return 2;
+    }
+    const QDir dir(args[at + 1]);
+    QString save;
+    if (const qsizetype s = args.indexOf(u"--save"_s); s >= 0 && s + 1 < args.size())
+        save = args[s + 1];
+    const QStringList files = dir.entryList({u"frame_*.png"_s}, QDir::Files, QDir::Name);
+    if (files.isEmpty()) {
+        std::fprintf(stderr, "no frame_*.png in %ls\n", qUtf16Printable(dir.absolutePath()));
+        return 1;
+    }
+    // steps.txt: "# region WxH, ignore right N px, scale S", then a line a frame:
+    // "NNNN state dy D score S votes V[ guessed] height H bands T/B expect E".
+    int ignoreRight = 0;
+    std::map<int, QString> recorded;
+    std::map<int, int> expects;
+    std::set<int> guessed;
+    QFile stepsFile(dir.filePath(u"steps.txt"_s));
+    if (stepsFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        for (const QByteArray& raw : stepsFile.readAll().split('\n')) {
+            const QString line = QString::fromUtf8(raw).trimmed();
+            const QStringList parts = line.split(u' ', Qt::SkipEmptyParts);
+            if (line.startsWith(u'#')) {
+                if (const qsizetype i = parts.indexOf(u"right"_s); i >= 0 && i + 1 < parts.size())
+                    ignoreRight = parts[i + 1].toInt();
+                continue;
+            }
+            if (parts.size() < 2)
+                continue;
+            const int n = parts[0].toInt();
+            recorded[n] = parts.mid(1).join(u' ');
+            if (const qsizetype i = parts.indexOf(u"expect"_s); i >= 0 && i + 1 < parts.size())
+                expects[n] = parts[i + 1].toInt();
+            if (parts.contains(u"guessed"_s))
+                guessed.insert(n);
+        }
+    }
+    QImageReader probe(dir.filePath(files.front()));
+    const QSize size = probe.size();
+    ws::capture::ScrollStitcher stitcher(size, {}, {ignoreRight});
+    std::printf("%lld frames of %dx%d, ignore right %d px\n", qlonglong(files.size()), size.width(), size.height(), ignoreRight);
+    int differ = 0;
+    double slowest = 0;
+    double total = 0;
+    for (const QString& file : files) {
+        const int n = QStringView(file).mid(6, 4).toInt(); // frame_NNNN.png
+        QImage frame(dir.filePath(file));
+        if (frame.size() != size) {
+            std::printf("%04d: %dx%d, not %dx%d: skipped\n", n, frame.width(), frame.height(), size.width(), size.height());
+            continue;
+        }
+        frame = frame.convertToFormat(QImage::Format_RGB32);
+        const auto e = expects.find(n);
+        const std::optional<int> expect = e != expects.end() && e->second > 0 ? std::optional<int>(e->second) : std::nullopt;
+        QElapsedTimer t;
+        t.start();
+        const ws::capture::ScrollStitcher::Step step = stitcher.add(frame, expect, guessed.contains(n));
+        const double ms = msSince(t);
+        slowest = std::max(slowest, ms);
+        total += ms;
+        const QString now = u"%1 dy %2 score %3 votes %4%5 height %6 bands %7/%8"_s.arg(ws::capture::stateName(step.state))
+                                .arg(step.dy)
+                                .arg(step.score, 0, 'f', 3)
+                                .arg(step.votes)
+                                .arg(step.predicted ? u" guessed"_s : QString())
+                                .arg(step.height)
+                                .arg(step.top)
+                                .arg(step.bottom);
+        const auto r = recorded.find(n);
+        const QString then = r != recorded.end() ? r->second.section(u" expect"_s, 0, 0) : QString();
+        const bool same = then.isEmpty() || then == now;
+        differ += same ? 0 : 1;
+        std::printf("%04d %ls  %.1f ms%ls\n", n, qUtf16Printable(now), ms,
+            qUtf16Printable(same ? QString() : u"\n     recorded: "_s + then));
+    }
+    std::printf("result %dx%d, fixed top %d, bottom %d%s; %d of %lld steps differ from the recording; %.1f ms a frame, slowest %.1f ms\n",
+        size.width(), stitcher.height(), stitcher.fixedTop(), stitcher.fixedBottom(), stitcher.partial() ? ", partly guessed" : "", differ,
+        qlonglong(files.size()), total / double(files.size()), slowest);
+    if (!save.isEmpty()) {
+        const QImage picture = stitcher.result();
+        if (!picture.save(save, "PNG")) {
+            std::fprintf(stderr, "could not write %ls\n", qUtf16Printable(save));
+            return 1;
+        }
+        std::printf("saved %ls\n", qUtf16Printable(QDir::toNativeSeparators(QFileInfo(save).absoluteFilePath())));
+    }
+    return differ == 0 ? 0 : 3;
+}
+
 // ---- the words in pictures (--ocr) ---------------------------------------------
 
 // Reads pictures as the clipboard history does (PaddleOcr, models and
@@ -5332,6 +5439,8 @@ int main(int argc, char* argv[])
         args.removeAll(u"--ocr"_s);
         return runOcr(args);
     }
+    if (args.contains(u"--scroll-replay"_s))
+        return runScrollReplay(args);
     if (args.contains(u"--site-icon"_s)) {
         args.removeAll(u"--site-icon"_s);
         return runSiteIcon(args);

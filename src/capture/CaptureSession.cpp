@@ -784,6 +784,12 @@ bool CaptureSession::key(int key, Qt::KeyboardModifiers modifiers)
         if (!busy)
             finish(Action::Pin);
         return true;
+    case Qt::Key_L:
+        if (!ctrl)
+            return false;
+        if (!busy)
+            act(static_cast<int>(Action::Long));
+        return true;
     case Qt::Key_H:
         if (ctrl || busy || m_selection.screen < 0)
             return false;
@@ -949,8 +955,21 @@ bool CaptureSession::keyPressed(int key, int modifiers)
 
 void CaptureSession::act(int action)
 {
-    if (m_active && action >= static_cast<int>(Action::Copy) && action <= static_cast<int>(Action::OcrWeb))
-        finish(static_cast<Action>(action));
+    if (!m_active || action < static_cast<int>(Action::Copy) || action > static_cast<int>(Action::Long))
+        return;
+    if (action == static_cast<int>(Action::Long)) {
+        // Its picture is the screen's, scrolled: annotations would be lost.
+        if (hasAnnotations()) {
+            showNotice(tr("先完成或放弃标注"));
+            return;
+        }
+        const Pick pick = m_selection.screen >= 0 ? m_selection : hovered();
+        if (pick.screen >= 0 && (pick.rect.width() < kLongMinimum || pick.rect.height() < kLongMinimum)) {
+            showNotice(tr("选区太小，不能长截图"));
+            return;
+        }
+    }
+    finish(static_cast<Action>(action));
 }
 
 } // namespace ws::capture

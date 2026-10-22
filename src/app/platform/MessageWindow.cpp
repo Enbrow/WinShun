@@ -191,6 +191,17 @@ void MessageWindow::showNotification(const QString& title, const QString& text)
     ::Shell_NotifyIconW(NIM_MODIFY, &nid);
 }
 
+void MessageWindow::hideNotification()
+{
+    if (!m_trayVisible)
+        return;
+    NOTIFYICONDATAW nid {sizeof(NOTIFYICONDATAW)};
+    nid.hWnd = m_hwnd;
+    nid.uID = kTrayId;
+    nid.uFlags = NIF_INFO; // with no text: the balloon (Windows' toast of it) goes
+    ::Shell_NotifyIconW(NIM_MODIFY, &nid);
+}
+
 bool MessageWindow::parseHotkey(const QString& shortcut, UINT* modifiers, UINT* vk)
 {
     *modifiers = MOD_NOREPEAT;

@@ -50,6 +50,7 @@ public:
     // colours; the one-colour icon follows the taskbar's light or dark mode.
     void setTrayIconMono(bool mono);
     void showNotification(const QString& title, const QString& text);
+    void hideNotification(); // the one on the screen, if any
 
     bool registerHotkey(int id, const QString& shortcut); // "Alt+Space", "Ctrl+Shift+F"
     void unregisterHotkey(int id);

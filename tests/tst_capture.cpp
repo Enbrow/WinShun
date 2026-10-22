@@ -610,6 +610,31 @@ private slots:
         QCOMPARE(finished.count(), 2);
     }
 
+    void ctrlLStartsALongScreenshotWithoutAnnotations()
+    {
+        Rig rig;
+        rig.begin();
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.drag({100, 100}, {499, 399});
+        drawRect(rig, {150, 150}, {300, 250});
+        QVERIFY(rig.session.key(Qt::Key_L, Qt::ControlModifier));
+        QCOMPARE(finished.count(), 0); // 先完成或放弃标注
+        QVERIFY(!rig.screen.notice().isEmpty());
+        rig.session.act(int(CaptureSession::Action::Long)); // the toolbar's 长截图 alike
+        QCOMPARE(finished.count(), 0);
+        rig.begin();
+        rig.drag({10, 20}, {49, 319}); // 40 px wide: too narrow to scroll
+        QVERIFY(rig.session.key(Qt::Key_L, Qt::ControlModifier));
+        QCOMPARE(finished.count(), 0);
+        QVERIFY(!rig.screen.notice().isEmpty());
+        rig.begin();
+        rig.drag({10, 20}, {209, 319});
+        QVERIFY(rig.session.key(Qt::Key_L, Qt::ControlModifier));
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Long);
+        QCOMPARE(finished[0][2].toRect(), QRect(10, 20, 200, 300));
+    }
+
     void flyoutIsPickedOverTheWindows()
     {
         Rig rig;

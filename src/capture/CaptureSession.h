@@ -161,8 +161,11 @@ public:
     // Pin: left on the screen where it was (PinWindow); Ocr: its words read (CaptureOcr);
     // OcrCopy, OcrSearch and OcrWeb read them and go on at once: to the clipboard,
     // the launcher's search box, the default web search (the mouse buttons' choices).
-    enum class Action { Copy, Save, Cancel, Pin, Ocr, OcrCopy, OcrSearch, OcrWeb };
+    // Long: the selection scrolls into a long screenshot (Ctrl+L; LongCapture),
+    // one at least kLongMinimum px each way.
+    enum class Action { Copy, Save, Cancel, Pin, Ocr, OcrCopy, OcrSearch, OcrWeb, Long };
     Q_ENUM(Action)
+    static constexpr int kLongMinimum = 48;
 
     // The windows at the freeze: top-level ones from the top of the Z order
     // down, physical, virtual desktop; children(i) gives window i's controls.

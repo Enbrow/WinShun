@@ -27,6 +27,8 @@ public:
     const std::vector<QRect>& windows() const { return m_rects; }
     // Window i's visible child windows, cut to it.
     const std::vector<QRect>& children(std::size_t i) const;
+    // The window on top at `point` (physical, virtual desktop); null for none.
+    HWND windowAt(const QPoint& point) const;
     void clear();
 
 private:

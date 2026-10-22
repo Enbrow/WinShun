@@ -1298,6 +1298,18 @@
         <source>智能打码：自动找出手机号、证件号、卡号、邮箱、密钥，一次全部打码</source>
         <translation>Smart redact: finds phone numbers, ID and card numbers, e-mail addresses and keys, and redacts them all at once</translation>
     </message>
+    <message>
+        <source>长截图</source>
+        <translation>Long screenshot</translation>
+    </message>
+    <message>
+        <source>滚动着截下选区里更长的内容</source>
+        <translation>Scroll and capture more of what is in the selection</translation>
+    </message>
+    <message>
+        <source>长截图：选区里的内容一边滚动一边截</source>
+        <translation>Long screenshot: the selection’s content captured while it scrolls</translation>
+    </message>
 </context>
 <context>
     <name>Annotation</name>
@@ -1565,8 +1577,8 @@
         <translation>Toolbar buttons</translation>
     </message>
     <message>
-        <source>点一下显示或隐藏，亮着的就是显示的。隐藏的按钮，快捷键照样能用：撤销 Ctrl+Z、重做 Ctrl+Y、复制 Enter、保存 Ctrl+S、贴图 F3、取消 Esc；识别文字没有快捷键，只能点工具条上的按钮，或设给上面的鼠标键。标注工具一直显示</source>
-        <translation>Click to show or hide a button; a lit one is shown. A hidden button’s key still works: Undo Ctrl+Z, Redo Ctrl+Y, Copy Enter, Save Ctrl+S, Pin F3, Cancel Esc. Read text has no key: use its toolbar button, or give it to a mouse button above. The annotation tools always show</translation>
+        <source>点一下显示或隐藏，亮着的就是显示的。隐藏的按钮，快捷键照样能用：撤销 Ctrl+Z、重做 Ctrl+Y、复制 Enter、保存 Ctrl+S、贴图 F3、长截图 Ctrl+L、取消 Esc；识别文字没有快捷键，只能点工具条上的按钮，或设给上面的鼠标键。标注工具一直显示</source>
+        <translation>Click to show or hide a button; a lit one is shown. A hidden button’s key still works: Undo Ctrl+Z, Redo Ctrl+Y, Copy Enter, Save Ctrl+S, Pin F3, Long screenshot Ctrl+L, Cancel Esc. Read text has no key: use its toolbar button, or give it to a mouse button above. The annotation tools always show</translation>
     </message>
     <message>
         <source>智能打码</source>
@@ -1603,6 +1615,10 @@
     <message>
         <source>图里出现这些词就打码，用逗号隔开，比如项目代号、客户名</source>
         <translation>These words are redacted wherever they appear in the picture; separate them with commas, such as project code names or client names</translation>
+    </message>
+    <message>
+        <source>长截图</source>
+        <translation>Long screenshot</translation>
     </message>
 </context>
 <context>
@@ -2361,6 +2377,61 @@
     <message>
         <source>未设置</source>
         <translation>Not set</translation>
+    </message>
+</context>
+<context>
+    <name>LongCapturePanel</name>
+    <message>
+        <source>等待</source>
+        <translation>Waiting</translation>
+    </message>
+    <message>
+        <source>拼接中</source>
+        <translation>Stitching</translation>
+    </message>
+    <message>
+        <source>往回滚了</source>
+        <translation>Scrolled back</translation>
+    </message>
+    <message>
+        <source>跟丢了</source>
+        <translation>Lost track</translation>
+    </message>
+    <message>
+        <source>到上限</source>
+        <translation>At the limit</translation>
+    </message>
+    <message>
+        <source>长截图</source>
+        <translation>Long screenshot</translation>
+    </message>
+    <message>
+        <source>等第一帧…</source>
+        <translation>Waiting for the first frame…</translation>
+    </message>
+    <message>
+        <source>高 %1 像素，有一段是推测着接上的</source>
+        <translation>%1 px high; one part was joined by a guess</translation>
+    </message>
+    <message>
+        <source>高 %1 像素</source>
+        <translation>%1 px high</translation>
+    </message>
+    <message>
+        <source>自动滚动</source>
+        <translation>Auto-scroll</translation>
+    </message>
+    <message>
+        <source>复制诊断信息</source>
+        <translation>Copy diagnostics</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>Done</translation>
     </message>
 </context>
 <context>
@@ -6598,6 +6669,14 @@
         <source>图片里没有找到文字。</source>
         <translation>No text was found in the picture.</translation>
     </message>
+    <message>
+        <source>长截图</source>
+        <translation>Long screenshot</translation>
+    </message>
+    <message>
+        <source>没能打开编辑窗口。</source>
+        <translation>Couldn’t open the editing window.</translation>
+    </message>
 </context>
 <context>
     <name>ws::Backup</name>
@@ -9767,6 +9846,53 @@
     <message>
         <source>已放弃这次的标注 · Ctrl+Z 恢复</source>
         <translation>Annotations given up · Ctrl+Z brings them back</translation>
+    </message>
+    <message>
+        <source>先完成或放弃标注</source>
+        <translation>Finish or give up the annotations first</translation>
+    </message>
+    <message>
+        <source>选区太小，不能长截图</source>
+        <translation>The selection is too small for a long screenshot</translation>
+    </message>
+</context>
+<context>
+    <name>ws::capture::LongCapture</name>
+    <message>
+        <source>正在自动滚动。Enter 完成，Esc 取消</source>
+        <translation>Scrolling by itself. Enter finishes, Esc cancels</translation>
+    </message>
+    <message>
+        <source>滚动区域里的内容，滚完按 Enter 或点“完成”</source>
+        <translation>Scroll the content in the region, then press Enter or click “Done”</translation>
+    </message>
+    <message>
+        <source>把鼠标放到要滚动的区域上</source>
+        <translation>Put the mouse over the region to scroll</translation>
+    </message>
+    <message>
+        <source>这个程序以管理员身份运行，请手动滚动，滚完点“完成”</source>
+        <translation>This program runs as administrator: scroll it yourself, then click “Done”</translation>
+    </message>
+    <message>
+        <source>自动滚动不起作用，请自己滚动</source>
+        <translation>Auto-scroll doesn’t work here: please scroll yourself</translation>
+    </message>
+    <message>
+        <source>跟丢了：往回滚一点，接上刚才的地方</source>
+        <translation>Lost track: scroll back a little to where it was</translation>
+    </message>
+    <message>
+        <source>5 秒没有新画面</source>
+        <translation>No new frame for 5 seconds</translation>
+    </message>
+    <message>
+        <source>到上限了（3 万像素高）</source>
+        <translation>At the limit (30,000 px high)</translation>
+    </message>
+    <message>
+        <source>诊断信息已复制</source>
+        <translation>Diagnostics copied</translation>
     </message>
 </context>
 <context>

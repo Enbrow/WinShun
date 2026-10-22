@@ -21,7 +21,8 @@ Rectangle {
     // editing window shows them all): their keys work all the same.
     readonly property var hidden: session ? session.hiddenButtons : []
     readonly property bool historyShown: shows("undo") || shows("redo")
-    readonly property bool actionsShown: shows("copy") || shows("save") || (pinnable && shows("pin")) || shows("ocr") || shows("cancel")
+    readonly property bool actionsShown: shows("copy") || shows("save") || (pinnable && shows("pin")) || shows("ocr")
+                                         || (!editor && shows("long")) || shows("cancel")
     // What the first button says (the editing window: 完成 on a pin) and
     // whether there is a 贴图 button (not when the picture is a pin already).
     property string copyText: qsTr("复制")
@@ -55,6 +56,7 @@ Rectangle {
         qsTr("方向键"), qsTr("挪动选中的对象，按住 Shift 一次 10 像素；没有选中时微调选区"),
         "H", qsTr("隐藏 / 显示工具条"),
         "C", qsTr("复制颜色"),
+        "Ctrl+L", qsTr("长截图：选区里的内容一边滚动一边截"),
         qsTr("Esc、右键"), qsTr("退一步：写完文字、放弃标注、关闭截图")
     ]
     readonly property var editorRows: [
@@ -239,6 +241,18 @@ Rectangle {
             HoverHandler { onHoveredChanged: bar.hover(ocrButton, hovered, -1) }
         }
         FlatButton {
+            id: longButton
+            visible: !bar.editor && bar.shows("long")
+            flat: true
+            keyboardActivation: false
+            border.width: 0 // no hover border, like the tool buttons beside it
+            width: Math.ceil(implicitWidth / 4) * 4
+            glyph: String.fromCharCode(0xEC8F)
+            text: qsTr("长截图")
+            onClicked: bar.act(CaptureSession.Long)
+            HoverHandler { onHoveredChanged: bar.hover(longButton, hovered, -1) }
+        }
+        FlatButton {
             visible: bar.shows("cancel")
             flat: true
             keyboardActivation: false
@@ -289,6 +303,8 @@ Rectangle {
             if (bar.tipItem === ocrButton)
                 return bar.ocrAvailable ? qsTr("识别图里的文字，可复制或拿去搜索")
                                                 : qsTr("没有安装文字识别模型（Win顺 文件夹里的 ocr 文件夹），无法识别文字")
+            if (bar.tipItem === longButton)
+                return qsTr("滚动着截下选区里更长的内容")
             if (bar.tipItem === helpButton)
                 return qsTr("全部按键")
             return ""
@@ -302,6 +318,7 @@ Rectangle {
             return bar.tipItem === undoButton ? "Ctrl+Z"
                  : bar.tipItem === redoButton ? "Ctrl+Y"
                  : bar.tipItem === pinButton ? "F3"
+                 : bar.tipItem === longButton ? "Ctrl+L"
                  : ""
         }
     }

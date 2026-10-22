@@ -48,6 +48,7 @@ Rectangle {
         { id: "save", text: qsTr("保存") },
         { id: "pin", text: qsTr("贴图") },
         { id: "ocr", text: qsTr("识别文字") },
+        { id: "long", text: qsTr("长截图") },
         { id: "cancel", text: qsTr("取消") }
     ]
     function setButtonShown(id, shown) {
@@ -513,7 +514,7 @@ Rectangle {
                 }
                 Text {
                     width: parent.width
-                    text: qsTr("点一下显示或隐藏，亮着的就是显示的。隐藏的按钮，快捷键照样能用：撤销 Ctrl+Z、重做 Ctrl+Y、复制 Enter、保存 Ctrl+S、贴图 F3、取消 Esc；识别文字没有快捷键，只能点工具条上的按钮，或设给上面的鼠标键。标注工具一直显示")
+                    text: qsTr("点一下显示或隐藏，亮着的就是显示的。隐藏的按钮，快捷键照样能用：撤销 Ctrl+Z、重做 Ctrl+Y、复制 Enter、保存 Ctrl+S、贴图 F3、长截图 Ctrl+L、取消 Esc；识别文字没有快捷键，只能点工具条上的按钮，或设给上面的鼠标键。标注工具一直显示")
                     color: Theme.subtext
                     font.pixelSize: Theme.fontCaption
                     wrapMode: Text.Wrap

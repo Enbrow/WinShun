@@ -1595,6 +1595,17 @@ void App::applyCapture()
         };
         callbacks.pins = [this] { return &pins(); };
         callbacks.smart = smartHooks();
+        // 长截图: straight into the editing window (Enter copies, Ctrl+S saves, F3 pins).
+        callbacks.longCapture = [this](const QImage& picture) {
+            capture::CaptureEditor* editor = this->editor();
+            if (!editor || !editor->openImage(picture))
+                m_messages->showNotification(tr("长截图"), tr("没能打开编辑窗口。"));
+        };
+        callbacks.copyText = [this](const QString& text) {
+            m_clipboard->copyText(text, m_settings.clipboard && !m_clipboardPaused);
+        };
+        // A toast of ours ("截图已保存" of the one before) would be in its frames.
+        callbacks.longStarting = [this] { m_messages->hideNotification(); };
         m_capture = std::make_unique<capture::Capture>(m_qml.get(), std::move(callbacks));
     } else if (!m_settings.captureEnabled && m_capture) {
         m_capture.reset();

@@ -43,11 +43,34 @@ public:
     Grabber(const Grabber&) = delete;
     Grabber& operator=(const Grabber&) = delete;
 
+    // One region's pixels as they change (the long screenshot,
+    // ScrollGrabber): WGC gives a frame only when something on that
+    // monitor changed; the newest is kept and read back on the capture
+    // thread when next() asks for it, cut to the region on the GPU, without
+    // the mouse pointer. Destroying it ends it.
+    class Stream {
+    public:
+        struct Frame {
+            QImage image; // the region's pixels, Format_RGB32 (HDR mapped as grab() maps it)
+            quint64 number = 0; // which of the frames WGC gave since the start
+        };
+        virtual ~Stream() = default;
+        // The newest frame after frame `after`, waiting up to `timeoutMs` for
+        // one to come; a null image when none came.
+        virtual Frame next(quint64 after, int timeoutMs) = 0;
+        virtual bool hdr() const = 0;
+    };
+
     // The monitors changed: their capture items are made again.
     void refresh();
     // A picture of every monitor; blocks until they are taken. `report`
     // (may be null) tells how, for the log.
     std::vector<Shot> grab(QString* report = nullptr);
+    // A stream of `region` (physical pixels, virtual desktop, inside one
+    // monitor); null when WGC cannot (no device, no capture item for that
+    // monitor). It is the capture thread's job while it lasts: grab() and
+    // refresh() wait behind it, so it must end before either is needed.
+    std::unique_ptr<Stream> stream(const QRect& region);
 
 private:
     struct Worker;

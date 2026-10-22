@@ -78,8 +78,8 @@ qt_add_executable(wsbench tools/wsbench.cpp src/app/Settings.cpp
     src/app/platform/SwitchTheme.cpp src/app/platform/SystemSwitches.cpp # --switches
     src/app/platform/PaddleOcr.cpp) # --ocr
 target_include_directories(wsbench PRIVATE src/app src/app/platform) # Settings: the user's crawl rules for --sync
-target_link_libraries(wsbench PRIVATE wscore wsextract wsmcp wsplugin Qt6::Gui Qt6::Svg psapi winhttp advapi32 onnxruntime_headers
-    windowsapp iphlpapi) # wsmcp: --mcp-host; wsplugin: --plugin; advapi32: --open-probe; windowsapp, iphlpapi: --switches (the radios)
+target_link_libraries(wsbench PRIVATE wscore wsextract wsmcp wsplugin wscapture Qt6::Gui Qt6::Svg psapi winhttp advapi32 onnxruntime_headers
+    windowsapp iphlpapi) # wsmcp: --mcp-host; wsplugin: --plugin; wscapture: --scroll-replay; advapi32: --open-probe; windowsapp, iphlpapi: --switches (the radios)
 add_dependencies(wsbench WinShunPluginHost bundled_plugins) # --plugin starts it from next to wsbench; the bundled plugins next to it too
 set_target_properties(wsbench PROPERTIES WIN32_EXECUTABLE OFF)
 
@@ -104,6 +104,12 @@ set_target_properties(capture-probe PROPERTIES AUTOMOC OFF MSVC_RUNTIME_LIBRARY 
 qt_add_executable(capture-probe-qt tools/capture-probe-qt.cpp)
 target_link_libraries(capture-probe-qt PRIVATE winshun_options Qt6::Gui Qt6::Qml Qt6::Quick dwmapi dxgi psapi user32 gdi32)
 set_target_properties(capture-probe-qt PROPERTIES WIN32_EXECUTABLE OFF)
+# Long screenshot, stage 6 (docs/design-capture-roadmap.md, 2.4): leaving our
+# own windows out of the capture, posted wheel messages in real programs, and
+# the frame rate while a page scrolls. Run it with Qt's bin folder on PATH.
+qt_add_executable(scroll-probe tools/scroll-probe.cpp)
+target_link_libraries(scroll-probe PRIVATE winshun_options Qt6::Gui Qt6::Quick windowsapp d3d11 dxgi dwmapi user32 gdi32 advapi32)
+set_target_properties(scroll-probe PROPERTIES WIN32_EXECUTABLE OFF)
 
 if(WINSHUN_ASAN AND MSVC)
     # Fuzzing the parsers (tools/wsfuzz.cpp) with libFuzzer. They are built

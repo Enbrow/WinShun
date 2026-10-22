@@ -6,7 +6,8 @@
 # commands, the compositor that draws tiles and exports, the project format
 # and the tools' styles; docs/design-capture-roadmap.md, 3) and the editing
 # window's zoom and tile arithmetic (EditView), and the smart redaction's
-# rules (SmartRedact). What the
+# rules (SmartRedact), and the long screenshot's stitching, scrolling and
+# diagnostics (Scroll*; docs/design-capture-roadmap.md, 4.2). What the
 # overlays bind to (CaptureSession, CaptureImage) and the controller
 # (Capture) are in this folder too, but built into WinShun's QML module
 # (src/app/CMakeLists.txt), which registers their types.
@@ -23,8 +24,12 @@ add_library(wscapture STATIC
     AnnotationFormat.cpp AnnotationFormat.h
     AnnotationStyles.cpp AnnotationStyles.h
     SmartRedact.cpp SmartRedact.h
+    ScrollStitcher.cpp ScrollStitcher.h
+    ScrollInput.cpp ScrollInput.h
+    ScrollGrabber.cpp ScrollGrabber.h
+    ScrollDiagnostics.cpp ScrollDiagnostics.h
 )
 target_include_directories(wscapture PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-# miniz: the projects' zip (AnnotationFormat).
+# miniz: the projects' zip (AnnotationFormat). ole32: UI Automation (ScrollInput).
 target_link_libraries(wscapture PUBLIC winshun_options Qt6::Gui
-    PRIVATE miniz windowsapp d3d11 dxgi dwmapi user32 gdi32 advapi32)
+    PRIVATE miniz windowsapp d3d11 dxgi dwmapi user32 gdi32 advapi32 ole32)

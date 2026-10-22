@@ -108,6 +108,14 @@ const std::vector<QRect>& WindowSnapshot::children(std::size_t i) const
     return *entry.children;
 }
 
+HWND WindowSnapshot::windowAt(const QPoint& point) const
+{
+    for (std::size_t i = 0; i < m_rects.size(); ++i)
+        if (m_rects[i].contains(point))
+            return m_entries[i].hwnd;
+    return nullptr;
+}
+
 void WindowSnapshot::clear()
 {
     m_entries = {};

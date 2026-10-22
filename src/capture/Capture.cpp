@@ -123,7 +123,9 @@ Capture::Capture(QQmlEngine* engine, Callbacks callbacks, QObject* parent)
     connect(&m_rebuild, &QTimer::timeout, this, [this] {
         if (m_state == State::Showing || m_state == State::Waiting)
             m_session.act(static_cast<int>(CaptureSession::Action::Cancel));
-        if (m_state != State::Idle) {
+        if (m_long && m_long->running())
+            m_long->finish(); // its region may be gone; the grabber waits for its frames to stop
+        if (busy()) {
             m_rebuild.start(); // once the capture is over
             return;
         }
@@ -204,6 +206,10 @@ void Capture::destroyOverlays()
 
 void Capture::trigger()
 {
+    if (m_long && m_long->running()) {
+        m_long->finish();
+        return;
+    }
     switch (m_state) {
     case State::Idle:
         start();
@@ -415,7 +421,20 @@ void Capture::finish(CaptureSession::Action action, int screen, const QRect& rec
     QPoint origin; // the picture's top left on the screen, physical
     double dpr = 1.0;
     AnnotationModel* annotation = m_session.annotation();
-    if (action != CaptureSession::Action::Cancel) {
+    if (action == CaptureSession::Action::Long) {
+        // The selection scrolls once the overlays are gone (hideAll); no picture now.
+        for (const Overlay& overlay : m_overlays) {
+            if (overlay.model->index() != screen)
+                continue;
+            const QRect region(overlay.model->rect().topLeft() + rect.topLeft(), rect.size());
+            m_longRegion = LongRegion {region, overlay.monitor, overlay.model->dpr()};
+            // The window the region shows goes in front now, while the overlay has the
+            // foreground: when the overlay goes, Windows gives it to the window before it,
+            // which need not be this one, and the keys and the scrolling are for this one.
+            if (const HWND under = m_snapshot.windowAt(region.center()); under && !::SetForegroundWindow(under))
+                qWarning() << "Long screenshot: the window under the region did not come to the front";
+        }
+    } else if (action != CaptureSession::Action::Cancel) {
         for (const Overlay& overlay : m_overlays) {
             if (overlay.model->index() == screen) {
                 picture = overlay.model->image().copy(rect);
@@ -507,6 +526,7 @@ void Capture::finish(CaptureSession::Action action, int screen, const QRect& rec
             m_callbacks.ocrThen(picture, dpr, QRect(origin, picture.size()), action);
         break;
     case CaptureSession::Action::Cancel:
+    case CaptureSession::Action::Long:
         break;
     }
 }
@@ -598,6 +618,32 @@ void Capture::hideAll()
     m_state = State::Idle;
     if (m_callbacks.ended)
         m_callbacks.ended();
+    if (const std::optional<LongRegion> region = std::exchange(m_longRegion, std::nullopt)) {
+        if (m_callbacks.longStarting)
+            m_callbacks.longStarting();
+        longCapture().start(region->rect, region->monitor, region->dpr);
+    }
+}
+
+LongCapture& Capture::longCapture()
+{
+    if (!m_long) {
+        LongCapture::Hooks hooks;
+        hooks.done = [this](const QImage& picture) {
+            if (m_callbacks.longCapture)
+                m_callbacks.longCapture(picture);
+        };
+        hooks.copyText = [this](const QString& text) {
+            if (m_callbacks.copyText)
+                m_callbacks.copyText(text);
+        };
+        hooks.ended = [this] {
+            if (m_callbacks.ended)
+                m_callbacks.ended();
+        };
+        m_long = std::make_unique<LongCapture>(m_engine, m_grabber, std::move(hooks));
+    }
+    return *m_long;
 }
 
 void Capture::save(const QImage& image, const QString& path)

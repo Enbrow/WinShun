@@ -174,7 +174,7 @@ private slots:
         fresh.load();
         QVERIFY(fresh.captureToolbarHidden.isEmpty()); // all shown
         QCOMPARE(ws::Settings::captureToolbarButtonIds(),
-            (QStringList {u"undo"_s, u"redo"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"cancel"_s}));
+            (QStringList {u"undo"_s, u"redo"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"long"_s, u"cancel"_s}));
 
         ws::Settings s;
         s.load();

@@ -191,6 +191,7 @@ set(qml_files
     qml/EditWindow.qml
     qml/CaptureCard.qml
     qml/OcrPanel.qml
+    qml/LongCapturePanel.qml
     qml/ScreenshotConfirm.qml
     qml/SettingsConfirm.qml
     qml/SettingsNotice.qml
@@ -272,6 +273,7 @@ qt_add_qml_module(WinShun
         ../capture/CaptureSession.cpp ../capture/CaptureSession.h
         ../capture/CaptureEditor.cpp ../capture/CaptureEditor.h
         ../capture/CaptureOcr.cpp ../capture/CaptureOcr.h
+        ../capture/LongCapture.cpp ../capture/LongCapture.h
         ../capture/PinManager.cpp ../capture/PinManager.h
         ../capture/PinWindow.cpp ../capture/PinWindow.h
 )

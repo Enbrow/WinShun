@@ -3,6 +3,7 @@
 #include "AnnotationFormat.h"
 #include "CaptureSession.h"
 #include "Grabber.h"
+#include "LongCapture.h"
 #include "PinManager.h"
 #include "WindowSnapshot.h"
 
@@ -72,6 +73,11 @@ public:
         // The pins (the app's: they outlive the capture's pictures, and a
         // file can be pinned with the capture off). Made when first asked for.
         std::function<PinManager*()> pins;
+        // 长截图: the stitched picture, for the editing window; 复制诊断信息's text;
+        // its frames are about to begin (a notice of ours on the screen goes).
+        std::function<void(const QImage&)> longCapture;
+        std::function<void(const QString&)> copyText;
+        std::function<void()> longStarting;
     };
 
     Capture(QQmlEngine* engine, Callbacks callbacks, QObject* parent = nullptr);
@@ -81,9 +87,10 @@ public:
     void setMouseActions(const CaptureSession::MouseActions& actions) { m_session.setMouseActions(actions); }
     void setHiddenButtons(const QStringList& ids) { m_session.setHiddenButtons(ids); }
     // The hotkey, PrtScn, the tray menu: a capture, or the end of the one
-    // under way (what a key opened, the same key closes).
+    // under way (what a key opened, the same key closes; a long screenshot
+    // is finished).
     void trigger();
-    bool busy() const { return m_state != State::Idle; }
+    bool busy() const { return m_state != State::Idle || (m_long && m_long->running()); }
 
     // 贴上最近一次截图 (the tray menu).
     bool hasLast() const { return !m_last.isNull(); }
@@ -119,10 +126,19 @@ private:
     void finish(CaptureSession::Action action, int screen, const QRect& rect);
     void hideAll(); // once the frames without the pictures are drawn
     void findFlyout(); // the Start menu closed: where it was in the picture
+    LongCapture& longCapture(); // made the first time
 
     QQmlEngine* m_engine;
     Callbacks m_callbacks;
     Grabber m_grabber;
+    // After the grabber: its thread streams the frames, so it goes first.
+    std::unique_ptr<LongCapture> m_long;
+    struct LongRegion {
+        QRect rect; // physical, virtual desktop
+        HMONITOR monitor = nullptr;
+        double dpr = 1;
+    };
+    std::optional<LongRegion> m_longRegion; // chosen; starts once the overlays are hidden
     CaptureSession m_session;
     std::vector<Overlay> m_overlays;
     std::vector<Grabber::Shot> m_shots;
