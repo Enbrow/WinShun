@@ -4670,6 +4670,50 @@
         <translation>No limit on the number; only the time below removes entries. Pinned and grouped entries are kept for good</translation>
     </message>
     <message>
+        <source>导入剪贴板历史</source>
+        <translation>Import clipboard history</translation>
+    </message>
+    <message>
+        <source>Ditto;导入;迁移;文本;表格;txt;csv;import</source>
+        <translation>Ditto;import;migrate;text;table;spreadsheet;txt;csv</translation>
+    </message>
+    <message>
+        <source>从 Ditto、文本文件（.txt）或表格文件（.csv）导入，放进一个新分组里，不会被自动删除</source>
+        <translation>Import from Ditto, a text file (.txt) or a table (.csv) into a new group; they are never deleted automatically</translation>
+    </message>
+    <message>
+        <source>从 Ditto 导入</source>
+        <translation>Import from Ditto</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>导入…</source>
+        <translation>Import…</translation>
+    </message>
+    <message>
+        <source>拆分方式</source>
+        <translation>Split into entries</translation>
+    </message>
+    <message>
+        <source>每行一条</source>
+        <translation>One per line</translation>
+    </message>
+    <message>
+        <source>空行分段</source>
+        <translation>By blank lines</translation>
+    </message>
+    <message>
+        <source>整个文件一条</source>
+        <translation>Whole file as one</translation>
+    </message>
+    <message>
+        <source>开始导入</source>
+        <translation>Start import</translation>
+    </message>
+    <message>
         <source>清除剪贴板历史</source>
         <translation>Clear clipboard history</translation>
     </message>
@@ -8764,6 +8808,101 @@
     <message>
         <source>，</source>
         <translation>, </translation>
+    </message>
+    <message>
+        <source>导入剪贴板历史</source>
+        <translation>Import clipboard history</translation>
+    </message>
+    <message>
+        <source>支持的文件</source>
+        <translation>Supported files</translation>
+    </message>
+    <message>
+        <source>Ditto 数据库</source>
+        <translation>Ditto database</translation>
+    </message>
+    <message>
+        <source>文本</source>
+        <translation>Text</translation>
+    </message>
+    <message>
+        <source>表格</source>
+        <translation>Table</translation>
+    </message>
+    <message>
+        <source>正在读取…</source>
+        <translation>Reading…</translation>
+    </message>
+    <message>
+        <source>正在导入… %1 / %2</source>
+        <translation>Importing… %1 / %2</translation>
+    </message>
+    <message>
+        <source>找不到这个文件</source>
+        <translation>The file cannot be found</translation>
+    </message>
+    <message>
+        <source>文件太大了（超过 1 GB）</source>
+        <translation>The file is too large (over 1 GB)</translation>
+    </message>
+    <message>
+        <source>这不是 Ditto 的数据库，或者数据库有密码、已损坏</source>
+        <translation>This is not a Ditto database, or it is password-protected or damaged</translation>
+    </message>
+    <message>
+        <source>复制不了 Ditto 的数据库（磁盘空间不够，或被占用）</source>
+        <translation>Cannot copy Ditto's database (not enough disk space, or it is locked)</translation>
+    </message>
+    <message>
+        <source>剪贴板历史没有打开</source>
+        <translation>Clipboard history is off</translation>
+    </message>
+    <message>
+        <source>上一个导入还没做完</source>
+        <translation>The previous import is not finished yet</translation>
+    </message>
+    <message>
+        <source>导入失败：%1</source>
+        <translation>Import failed: %1</translation>
+    </message>
+    <message numerus="yes">
+        <source>已取消，已导入 %n 条</source>
+        <translation>
+            <numerusform>Cancelled, %n entry imported</numerusform>
+            <numerusform>Cancelled, %n entries imported</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>已导入 %n 条</source>
+        <translation>
+            <numerusform>%n entry imported</numerusform>
+            <numerusform>%n entries imported</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>跳过 %n 条重复</source>
+        <translation>
+            <numerusform>%n duplicate skipped</numerusform>
+            <numerusform>%n duplicates skipped</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 条用不了（空的、太大或格式不支持）</source>
+        <translation>
+            <numerusform>%n unusable (empty, too large or an unsupported format)</numerusform>
+            <numerusform>%n unusable (empty, too large or an unsupported format)</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 条没存上</source>
+        <translation>
+            <numerusform>%n could not be saved</numerusform>
+            <numerusform>%n could not be saved</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>。放在分组“%1”里，不会被自动删除</source>
+        <translation>. They are in the group "%1" and are never deleted automatically</translation>
     </message>
     <message>
         <source>还没有网页搜索可以导出</source>
