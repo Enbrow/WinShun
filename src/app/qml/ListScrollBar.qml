@@ -13,6 +13,9 @@ Item {
     readonly property real maxY: flickable.originY + flickable.contentHeight + flickable.bottomMargin - flickable.height
     readonly property real position: maxY > minY ? Math.max(0, Math.min(1, (flickable.contentY - minY) / (maxY - minY))) : 0
 
+    // A size in logical pixels as whole device pixels (3 is 4.5 at 150 %).
+    function pixels(v) { return Math.max(1, Math.round(v * Screen.devicePixelRatio)) / Screen.devicePixelRatio }
+
     function scrollTo(fraction) {
         flickable.cancelFlick()
         flickable.contentY = minY + Math.max(0, Math.min(1, fraction)) * (maxY - minY)
@@ -34,12 +37,12 @@ Item {
     Rectangle {
         id: track
         anchors.right: parent.right
-        anchors.rightMargin: 3
+        anchors.rightMargin: bar.pixels(3)
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         anchors.topMargin: 4
         anchors.bottomMargin: 4
-        width: bar.expanded ? 8 : 3
+        width: bar.expanded ? bar.pixels(8) : bar.pixels(3)
         radius: Theme.pillRadius(width)
         color: bar.expanded ? Theme.track : "transparent"
 

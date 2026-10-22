@@ -316,6 +316,7 @@ Item {
 
                     BoundBox {
                         id: dateFrom
+                        implicitWidth: 126 // the placeholder fits; 16 + 126 + 6 + 126 leaves 16 on the right too
                         next: dateTo
                         placeholder: qsTr("起 2026-01-01")
                         text: panel.launcher.dateFrom
@@ -324,6 +325,7 @@ Item {
                     }
                     BoundBox {
                         id: dateTo
+                        implicitWidth: 126
                         placeholder: qsTr("止")
                         text: panel.launcher.dateTo
                         onEditingFinished: panel.launcher.setDateRange(dateFrom.text, text)
@@ -460,14 +462,16 @@ Item {
             anchors.fill: parent
             anchors.topMargin: 2
             anchors.bottomMargin: 2
+            anchors.leftMargin: -4 // the text sits on the column line, as the rows' text; the hover reaches past it
+            anchors.rightMargin: -4
             radius: Theme.controlRadius
             color: headerArea.containsMouse ? Theme.hover : "transparent"
         }
         Text {
             id: headerText
-            x: header.alignRight ? Math.max(4, header.width - 4 - width - (arrow.visible ? 14 : 0)) : 4
+            x: header.alignRight ? Math.max(0, header.width - width - (arrow.visible ? 14 : 0)) : 0
             y: panel.onPixel((header.height - height) / 2)
-            width: Math.min(implicitWidth, header.width - 8 - (arrow.visible ? 14 : 0))
+            width: Math.min(implicitWidth, header.width - (arrow.visible ? 14 : 0))
             text: header.text
             elide: Text.ElideRight
             color: header.active ? Theme.text : Theme.subtext

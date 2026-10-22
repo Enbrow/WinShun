@@ -384,6 +384,7 @@ Window {
                     id: chipArea
                     anchors.fill: parent
                     hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
                     onClicked: chip.press()
                 }
             }
@@ -416,6 +417,7 @@ Window {
                     id: moreArea
                     anchors.fill: parent
                     hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
                     onClicked: moreButton.press()
                 }
             }
@@ -486,6 +488,7 @@ Window {
                         id: answerArea
                         anchors.fill: parent
                         hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
                         onClicked: window.bar.answerAutoJump(answer.modelData[1])
                     }
                 }

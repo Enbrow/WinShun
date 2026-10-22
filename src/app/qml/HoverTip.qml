@@ -27,7 +27,10 @@ Item {
     parent: anchor ? anchor.Window.contentItem : null
     z: 1000
     // The size it settles at; `width` follows it with an animation.
-    readonly property real fullWidth: label.implicitWidth + (shownShortcut.length > 0 ? 10 + keys.implicitWidth : 0) + 20
+    readonly property real keysWidth: shownShortcut.length > 0 ? 10 + keys.implicitWidth : 0
+    // The label: its one-line width, but no wider than the window leaves (8 px each side, 10 px padding each side); beyond that it wraps.
+    readonly property real labelWidth: Math.min(probe.implicitWidth, Math.max(40, (parent ? parent.width : 100000) - 16 - 20 - keysWidth))
+    readonly property real fullWidth: labelWidth + keysWidth + 20
 
     width: bubble.width
     height: Math.max(label.implicitHeight, keys.implicitHeight) + 12
@@ -105,6 +108,13 @@ Item {
         Behavior on y { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
     }
 
+    Text { // the text on one line, only to measure it: wrapping the label does not feed back
+        id: probe
+        visible: false
+        text: tip.shownText
+        font.pixelSize: Theme.fontCaption
+    }
+
     Rectangle {
         id: bubble
         width: tip.fullWidth
@@ -126,7 +136,9 @@ Item {
 
             Text {
                 id: label
+                width: tip.labelWidth
                 text: tip.shownText
+                wrapMode: Text.Wrap
                 color: Theme.text
                 font.pixelSize: Theme.fontCaption
             }

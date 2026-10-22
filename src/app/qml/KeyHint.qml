@@ -12,7 +12,10 @@ Row {
 
     spacing: 5
 
+    function onPixel(v) { return Math.round(v * Screen.devicePixelRatio) / Screen.devicePixelRatio }
+
     Rectangle {
+        id: cap
         anchors.verticalCenter: parent.verticalCenter
         width: keyText.implicitWidth + 10
         height: Theme.keycapHeight
@@ -23,7 +26,8 @@ Row {
 
         Text {
             id: keyText
-            anchors.centerIn: parent
+            x: hint.onPixel((cap.width - width) / 2)
+            y: hint.onPixel((cap.height - height) / 2)
             text: hint.keys
             color: Theme.subtext
             font.pixelSize: Theme.uiCaption

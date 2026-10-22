@@ -27,6 +27,8 @@ Window {
 
     property Item button: null
 
+    function onPixel(v) { return Math.round(v * Screen.devicePixelRatio) / Screen.devicePixelRatio }
+
     // Over `button` (under it when there is no room above), its right
     // edge at the button's, kept on the screen.
     function popup(button) {
@@ -89,8 +91,9 @@ Window {
                     id: keysCell
 
                     Rectangle { // a key cap, as the footer's (KeyHint)
+                        id: cap
                         width: keyText.implicitWidth + 10
-                        height: 22
+                        height: Theme.keycapHeight
                         radius: Theme.controlRadius
                         color: Theme.keycap
                         border.width: 1
@@ -98,10 +101,11 @@ Window {
 
                         Text {
                             id: keyText
-                            anchors.centerIn: parent
+                            x: tip.onPixel((cap.width - width) / 2)
+                            y: tip.onPixel((cap.height - height) / 2)
                             text: cell.modelData
                             color: Theme.subtext
-                            font.pixelSize: Theme.fontCaption
+                            font.pixelSize: Theme.uiCaption
                         }
                     }
                 }

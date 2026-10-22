@@ -187,9 +187,12 @@ Item {
                         Accessible.name: modelData
                         Accessible.checked: active
 
+                        function onPixel(v) { return Math.round(v * Screen.devicePixelRatio) / Screen.devicePixelRatio }
+
                         Text {
                             id: label
-                            anchors.centerIn: parent
+                            x: chip.onPixel((chip.width - width) / 2)
+                            y: chip.onPixel((chip.height - height) / 2)
                             text: chip.modelData
                             color: chip.active || area.containsMouse ? Theme.text : Theme.subtext
                             font.pixelSize: Theme.uiCaption

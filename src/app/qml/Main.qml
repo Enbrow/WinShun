@@ -1123,7 +1123,7 @@ Window {
                             }
                             Text {
                                 x: 60 // under the rows' text
-                                width: (hintAction2.visible ? hintAction2.x : hintAction.x) - 16 - x
+                                width: hintAction.x - 16 - x // the leftmost link (the first, with two showing)
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: hintRow.modelData.text
                                 color: Theme.subtext

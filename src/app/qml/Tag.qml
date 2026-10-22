@@ -13,9 +13,12 @@ Rectangle {
     radius: Theme.smallControlRadius
     color: Theme.badge
 
+    function onPixel(v) { return Math.round(v * Screen.devicePixelRatio) / Screen.devicePixelRatio }
+
     Text {
         id: label
-        anchors.centerIn: parent
+        x: tag.onPixel((tag.width - width) / 2)
+        y: tag.onPixel((tag.height - height) / 2)
         text: tag.text
         color: Theme.accent
         font.pixelSize: 12
