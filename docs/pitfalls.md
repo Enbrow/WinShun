@@ -3167,3 +3167,29 @@
 
 - **现象**：`prepareScope` 在加锁前逐个看选中文件夹和它们的上级（`presenceOf`、`FindFirstFileExW`），盘慢或在休眠时要一会儿；这期间弹出 U 盘、改设置要等它看完（`stopWorker` 会 join）。
 - **做法**：每个选中文件夹看之前查一次 `stop_token`，停了就什么都不做直接返回（还没动索引）；`run` 随即返回，已经放进来、该走的文件夹记进 `m_verifyOwed`，下一轮接着走。
+
+## 剪贴板导入（Ditto、txt、csv，GitHub #56）
+
+### 导入不能一条条调 `ClipStore::add`
+
+- **现象**：想到的最短写法是对每一条调 `add`。
+- **原因**：`add` 是“刚复制了一次”：同内容的条目会被顶到最前、`used` 改成现在，新条目算现在复制的，还要按条数和天数限制清理。导入几万条历史时，旧记录一进来就被 `prune` 删掉，时间也全成了今天。
+- **做法**：`ClipStore::importClips` 一次一批：内存里按 `used` 插到该在的位置，一个事务写盘（图片写 `images\<id>.png`），已有的哈希跳过（批内、批间都算重复），全部放进分组（名字重复时 `uniqueGroupName` 加序号），限制只清不在分组里的条目，所以导入的不会被悄悄删。哈希用和捕获同一套（`clipHash`、`kindOfText`、`imagePixelHash`）。`imagePixelHash` 和 `imageFromDib` 因此从 `ClipboardWatcher.cpp` 搬到了 `ClipImage.cpp`。
+
+### Ditto 的数据库：从源码（sabrogden/Ditto，`DatabaseUtilities.cpp`、`Clip.cpp`、`Misc.cpp`）和它自己建出来的库对过
+
+- 表 `Main`（`lID`、`lDate` Unix **秒**、`mText`、`lDontAutoDelete`、`bIsGroup`、`lParentID`、`clipOrder`、`clipGroupOrder`、`lastPasteDate` 秒、`stickyClipOrder`、`stickyClipGroupOrder` 等）和 `Data`（`lParentID` 指向 `Main.lID`、`strClipBoardFormat`、`ooData` 原样的字节）。组是 `bIsGroup=1` 的一行，`mText` 是组名，组里的条目 `lParentID` 是组的 `lID`，不在组里是 `-1`；组可以嵌套（组的 `lParentID` 指向上级组），导入时拍平成“父/子”。
+- “置顶”（sticky）不是 0：没置顶的 `stickyClipOrder` 和 `stickyClipGroupOrder` 都是 `-2147483647`，排序时降序，置顶的在前。组里的顺序用 `clipGroupOrder` / `stickyClipGroupOrder`，不在组里用 `clipOrder` / `stickyClipOrder`。老版本的库可能缺这些列，读之前先 `PRAGMA table_info(Main)`。
+- 格式名：`CF_UNICODETEXT`（UTF-16，带结尾的 NUL）、`CF_TEXT`（ANSI，按系统代码页）、`CF_HDROP`（`DROPFILES`：第一个 DWORD 是名单起点，偏移 16 的 BOOL 是宽字符，名字之间是 NUL，最后多一个）、`CF_DIB` / `CF_DIBV5`、`PNG`、`HTML Format`、`Rich Text Format`（后两个是注册的名字，和 WinShun 存的一样，去掉结尾的 NUL 就能用）。同一条里同一种格式有几行时取 `Data.lID` 最大的（Ditto 自己按 `lID desc` 读）。
+- Ditto 开着时库被占着，还可能有 `-wal`：复制 `Ditto.db`（和 `-wal`、`-shm`）到临时文件夹再打开，用自己的连接名（`QSqlDatabase` 的连接不能跨线程，也不碰 `ClipStore` 的）。导入在自己的线程里跑，每批 200 条或 32 MB 交给 GUI 线程的 `importClips`（`ClipImportJob`）。
+- 没有也不需要的做法：往用户的 Windows 剪贴板里复制东西来给 Ditto 造测试数据（Win+V 只留 25 条，会把用户的挤掉）；测试用 Ditto 自己的 `CREATE TABLE` 在临时文件夹里造库（`tst_clipimport`），另可用 `WINSHUN_TEST_DITTO_DB` 指向真 Ditto 建出来的库。
+
+### 段落拆分的正则不能吃掉下一段开头的缩进
+
+- **现象**：按空行分段时，`  三` 这样带缩进的段落首行丢了空格。
+- **原因**：分隔符写成“换行，加空白，再换行，加空白”，最后那个“空白”把下一段开头的缩进也吞了。
+- **做法**：分隔符是“换行，再一行或几行只有空白的行，每行以换行结束”：`\r?\n(?:[ \t]*\r?\n)+`。`splitting` 用例。
+
+### 不是 UTF-8 的 txt / csv 按 GBK 读
+
+- 先看 BOM（UTF-8、UTF-16 LE/BE），没有 BOM 就严格按 UTF-8 解，出错（`QStringDecoder::hasError`）再用 `MultiByteToWideChar(936)`。中文版 Excel 存的“CSV”是 GBK，不是 UTF-8，直接按 UTF-8 读全是乱码。
