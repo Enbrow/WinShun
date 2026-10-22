@@ -820,6 +820,13 @@
 - **现象**：搜索框里有字时按两次 `Ctrl+A`（第一次选字，第二次选条目），搜索框的字仍是选中的，`Delete` 被当成“删字”让给了输入框，条目没删。
 - **做法**：`ClipboardPage.qml` 里有选中的条目时，`Delete` 不再看搜索框的选区和光标（`Ctrl+C` 早就是这样）。`Ctrl+A` 只在搜索框没字或字已全选时才选条目；选条目用 `ClipModel::selectListed` 一次换掉整个选择、只发一次 `dataChanged`，几千条也不卡。
 
+### 从历史里粘贴 Word、WPS 的公式，粘出来是死图或一行字（GitHub #58）
+
+- **现象**：用户想把 WPS、Word 里公式编辑器写的公式复制下来，从 Win顺 粘进别的文档，还要能预览。原来 Word 自带的公式在列表里是一行线性文字（`x=(-b±√(b^2-4ac))/2a`）；嵌入的公式对象（Equation 3.0、MathType、WPS 的公式编辑器）粘回去是一张改不了的图。
+- **原因**：只存文字、HTML、RTF，没有文字时只存图片。2026-10-22 用 Word 2024（LTSC，16.0.17932）实测：单独复制一个公式，给 `MathML`、`MathML Presentation`、`Object Descriptor`、RTF（76 KB，带 `\moMath`）、文字（线性格式）、EMF、`Embed Source`（Word 文档类）、`Native`、`Link Source` 等，`HTML Format` 要了也不给；文字加 RTF 放回去，Word 就粘成公式（`OMaths.Count` 1），所以 Word 的公式缺的只是预览。单独复制一个嵌入对象（用 Package 代替，这台机器没装公式编辑器），给 `Embedded Object`、`Object Descriptor`（对象自己的类）、RTF（带 `\objdata`）、EMF、PNG、DIBV5，没有文字：原来只存 PNG，粘回去是图片（`InlineShape.Type` 3）。文字里夹着公式时不给 `MathML`，靠 RTF 粘回去，照旧是文字条目。
+- **做法**：见 architecture.md 的“公式和嵌入的对象照原样粘回去”。实测（`ClipboardWatcher` 的源码编进一个小程序，对着放回剪贴板的 Word 原格式判断、存、再由 `writeNow` 写出，粘进新建的隐藏文档）：公式 `OMaths.Count` 1，对象 `Type` 1、ProgID 仍是 Package；预览图是 EMF 画出来的，275 × 87。
+- **测试从 Office 复制，不进两边的历史**：复制一返回就去开剪贴板（每 1 ms 试一次），读出全部格式，清空后原样放回，带上 `ExcludeClipboardContentFromMonitorProcessing` 和 `CanIncludeInClipboardHistory = 0`。Win顺 等 40 ms 才读，读到的已经带标记，不记；之后的粘贴测试都从存下的格式放回去（带标记）。只用 Word 的 COM：已开着的 Word 里 `Documents.Add(..., Visible: false)`，测完不保存关掉自己的文档。WPS 没测（这台机器上没装），它复制公式对象给不给 `Embedded Object`、`Embed Source` 加 `Equation.KSEE3` 的类，要在装了 WPS 的机器上看。
+
 ## 搜索面板（Ctrl+E，linux.do #209）
 
 ### 面板里的筛选输入框把键盘留住了

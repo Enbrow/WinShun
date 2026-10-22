@@ -1,5 +1,6 @@
 // Importing clipboard history: Ditto's database, text and CSV files, and the
-// store's batch import under them.
+// store's batch import under them. Also ClipImage, which they share with the
+// watcher: the picture of a metafile.
 #include "ClipImage.h"
 #include "ClipImport.h"
 #include "ClipImportJob.h"
@@ -15,6 +16,8 @@
 #include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QTest>
+
+#include <windows.h>
 
 using namespace ws;
 using namespace ws::clipimport;
@@ -516,6 +519,53 @@ private slots:
         QCOMPARE(decodeText(be), u"中文"_s);
         QCOMPARE(decodeText("\xD6\xD0\xCE\xC4"), u"中文"_s); // GBK
         QCOMPARE(decodeText("\xB1\xEA\xCC\xE2,\xC4\xDA\xC8\xDD"), u"标题,内容"_s);
+    }
+
+    // The picture the history shows of an equation, which Word gives as a
+    // metafile only (GitHub #58; ClipImage.cpp, used by the watcher): twice
+    // its size at 96 dpi, on white, opaque, the blank around it cut off.
+    void metafilePicture()
+    {
+        const RECT frame {0, 0, 5000, 2000}; // 50 x 20 mm
+        HDC dc = ::CreateEnhMetaFileW(nullptr, nullptr, &frame, nullptr);
+        QVERIFY(dc);
+        // A black box, about 10 x 4 mm, 20 mm from the left and 8 mm from the top.
+        const double perMm = static_cast<double>(::GetDeviceCaps(dc, HORZRES)) / ::GetDeviceCaps(dc, HORZSIZE);
+        const double perMmY = static_cast<double>(::GetDeviceCaps(dc, VERTRES)) / ::GetDeviceCaps(dc, VERTSIZE);
+        const RECT box {static_cast<LONG>(20 * perMm), static_cast<LONG>(8 * perMmY), static_cast<LONG>(30 * perMm),
+            static_cast<LONG>(12 * perMmY)};
+        ::FillRect(dc, &box, static_cast<HBRUSH>(::GetStockObject(BLACK_BRUSH)));
+        HENHMETAFILE emf = ::CloseEnhMetaFile(dc);
+        QVERIFY(emf);
+        QByteArray bits(static_cast<qsizetype>(::GetEnhMetaFileBits(emf, 0, nullptr)), Qt::Uninitialized);
+        ::GetEnhMetaFileBits(emf, static_cast<UINT>(bits.size()), reinterpret_cast<BYTE*>(bits.data()));
+        // Its size by the reference device the metafile records: a process
+        // not aware of the display's scaling gets scaled numbers from
+        // GetDeviceCaps, the metafile the real ones.
+        ENHMETAHEADER header {};
+        ::GetEnhMetaFileHeader(emf, sizeof header, &header);
+        ::DeleteEnhMetaFile(emf);
+        const int boxWidth = qRound((box.right - box.left) * 192 / 25.4 * header.szlMillimeters.cx / header.szlDevice.cx);
+        const int boxHeight = qRound((box.bottom - box.top) * 192 / 25.4 * header.szlMillimeters.cy / header.szlDevice.cy);
+
+        const QImage image = imageFromEmf(bits);
+        QVERIFY(!image.isNull());
+        // At 192 dpi, and 8 pixels of white on each side.
+        QVERIFY2(qAbs(image.width() - (boxWidth + 16)) <= 2 && qAbs(image.height() - (boxHeight + 16)) <= 2,
+            qPrintable(u"%1 x %2, the box %3 x %4"_s.arg(image.width()).arg(image.height()).arg(boxWidth).arg(boxHeight)));
+        QCOMPARE(image.pixel(0, 0), qRgba(255, 255, 255, 255));
+        QCOMPARE(image.pixel(image.width() - 1, image.height() - 1), qRgba(255, 255, 255, 255));
+        QCOMPARE(image.pixel(image.width() / 2, image.height() / 2), qRgba(0, 0, 0, 255));
+
+        // Nothing drawn, or not a metafile: no picture.
+        dc = ::CreateEnhMetaFileW(nullptr, nullptr, &frame, nullptr);
+        emf = ::CloseEnhMetaFile(dc);
+        QByteArray blank(static_cast<qsizetype>(::GetEnhMetaFileBits(emf, 0, nullptr)), Qt::Uninitialized);
+        ::GetEnhMetaFileBits(emf, static_cast<UINT>(blank.size()), reinterpret_cast<BYTE*>(blank.data()));
+        ::DeleteEnhMetaFile(emf);
+        QVERIFY(imageFromEmf(blank).isNull());
+        QVERIFY(imageFromEmf(QByteArray(200, 'x')).isNull());
+        QVERIFY(imageFromEmf({}).isNull());
     }
 
     void splitting()

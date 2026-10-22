@@ -497,12 +497,28 @@ ClipWrite Clipboard::writeFor(const std::vector<const Clip*>& clips, bool plainT
         const Clip& c = *clips.front();
         write.id = c.id;
         switch (c.kind) {
-        case ClipKind::Image:
-            if (plainText)
+        case ClipKind::Image: {
+            ClipPayload payload = m_store->payload(c.id); // its file written, if it was just copied
+            if (!plainText) {
+                write.imagePath = std::move(payload.imagePath);
+                write.formats = std::move(payload.formats); // an equation: pasted from these
+                break;
+            }
+            // An equation has its text (Word's linear form); a picture none.
+            for (const ClipFormat& format : unpackClipFormats(payload.formats)) {
+                if (format.name != u"CF_UNICODETEXT"_s)
+                    continue;
+                write.text = QString::fromUtf16(reinterpret_cast<const char16_t*>(format.data.constData()),
+                    format.data.size() / 2);
+                if (const qsizetype end = write.text.indexOf(QChar()); end >= 0)
+                    write.text.truncate(end);
+            }
+            if (write.text.trimmed().isEmpty()) {
+                write.text.clear();
                 *problem = tr("图片没有可以粘贴的文字");
-            else
-                write.imagePath = m_store->payload(c.id).imagePath; // written, if it was just copied
+            }
             break;
+        }
         case ClipKind::Files: {
             QStringList files = c.files();
             if (plainText) {

@@ -893,7 +893,76 @@ private slots:
         QCOMPARE(store.project(id), QByteArray("the-project"));
     }
 
-    // A history from before projects: the column is added, nothing is lost.
+    // An equation or an embedded object (GitHub #58): a picture, with the
+    // formats it was copied in to paste it back from, kept through undo, the
+    // same picture copied again and a restart.
+    void objectFormats()
+    {
+        const QList<ClipFormat> formats {
+            {u"MathML"_s, QByteArray("<mml:math/>")},
+            {u"Rich Text Format"_s, QByteArray("{\\rtf1{\\mmath{\\*\\moMathPara x}}}")},
+            {u"CF_UNICODETEXT"_s, QByteArray(reinterpret_cast<const char*>(u"x=1"), 8)},
+            {u"CF_ENHMETAFILE"_s, QByteArray(100, '\x01')},
+            {u"Embed Source"_s, QByteArray(4096, '\0')},
+        };
+        const QByteArray packed = packClipFormats(formats);
+        const QList<ClipFormat> unpacked = unpackClipFormats(packed);
+        QCOMPARE(unpacked.size(), formats.size());
+        for (qsizetype i = 0; i < formats.size(); ++i) {
+            QCOMPARE(unpacked[i].name, formats[i].name);
+            QCOMPARE(unpacked[i].data, formats[i].data);
+        }
+        QVERIFY(packClipFormats({}).isEmpty());
+        QVERIFY(unpackClipFormats({}).isEmpty());
+        QVERIFY(unpackClipFormats("not packed formats").isEmpty());
+        QVERIFY(unpackClipFormats(packed.chopped(3)).isEmpty()); // cut short
+
+        const auto equation = [](const QByteArray& kept) {
+            ClipCapture c;
+            c.kind = ClipKind::Image;
+            c.png = "png";
+            c.hash = "equation";
+            c.formats = kept;
+            return c;
+        };
+        QTemporaryDir dir;
+        qint64 id = 0;
+        {
+            ClipStore store(dir.path());
+            QVERIFY(store.open(kStart));
+            id = store.add(equation(packed), kStart);
+            QVERIFY(store.clip(id)->formats);
+            QCOMPARE(store.payload(id).formats, packed);
+            // The same picture from somewhere else, without them: kept.
+            QCOMPARE(store.add(equation({}), kStart + 1), id);
+            QVERIFY(store.clip(id)->formats);
+            QCOMPARE(store.payload(id).formats, packed);
+            // Removed and put back.
+            const qint64 ids[] {id};
+            std::vector<ClipRecord> removed = store.remove(ids);
+            QCOMPARE(removed.size(), std::size_t(1));
+            QCOMPARE(removed.front().formats, packed);
+            store.restore(std::move(removed));
+            QVERIFY(store.clip(id)->formats);
+            QCOMPARE(store.payload(id).formats, packed);
+            // Text has none.
+            const qint64 plain = store.add(text(u"x=1"_s), kStart + 2);
+            QVERIFY(!store.clip(plain)->formats);
+            QVERIFY(store.payload(plain).formats.isEmpty());
+        }
+        ClipStore store(dir.path());
+        QVERIFY(store.open(kStart + 3));
+        QVERIFY(store.clip(id)->formats);
+        QCOMPARE(store.payload(id).formats, packed);
+        QCOMPARE(store.payload(id).imagePath, store.imagePath(id));
+        // Copied again with formats: the new ones.
+        const QByteArray newer = packClipFormats({{u"MathML"_s, QByteArray("<mml:math>2</mml:math>")}});
+        QCOMPARE(store.add(equation(newer), kStart + 4), id);
+        QCOMPARE(store.payload(id).formats, newer);
+    }
+
+    // A history from before projects (and kept formats): the columns are
+    // added, nothing is lost.
     void projectColumnAddedToAnOldHistory()
     {
         QTemporaryDir dir;
@@ -919,18 +988,23 @@ private slots:
             QVERIFY(store.open(kStart));
             QCOMPARE(store.clips().size(), std::size_t(1));
             QVERIFY(!store.clip(3)->project);
+            QVERIFY(!store.clip(3)->formats);
             ClipCapture image;
             image.kind = ClipKind::Image;
             image.png = "png";
             image.hash = "p";
             image.project = "proj";
+            image.formats = packClipFormats({{u"Embedded Object"_s, QByteArray("storage")}});
             picture = store.add(image, kStart + 1);
             QCOMPARE(store.project(picture), QByteArray("proj"));
         }
-        ClipStore store(dir.path()); // and the column is there the second time
+        ClipStore store(dir.path()); // and the columns are there the second time
         QVERIFY(store.open(kStart + 2));
         QVERIFY(store.clip(picture)->project);
         QCOMPARE(store.project(picture), QByteArray("proj"));
+        QVERIFY(store.clip(picture)->formats);
+        QCOMPARE(unpackClipFormats(store.payload(picture).formats).front().data, QByteArray("storage"));
+        QCOMPARE(store.payload(3).text, u"old"_s);
     }
 
     void bundles()

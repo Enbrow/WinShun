@@ -33,6 +33,22 @@ ClipKind kindOfText(const QString& text);
 // same entry. Any thread.
 QByteArray clipHash(ClipKind kind, const QString& text);
 
+// A clipboard format as the program that copied it gave it, kept for what
+// text and a picture cannot paste back as it was: an equation, an embedded
+// object (GitHub #58). Registered formats by their name ("Embed Source");
+// of the standard ones, "CF_UNICODETEXT" and "CF_ENHMETAFILE" (the
+// metafile's bits).
+struct ClipFormat {
+    QString name;
+    QByteArray data;
+};
+
+// Several, in their order on the clipboard, as one value for the database
+// (empty for none) ...
+QByteArray packClipFormats(const QList<ClipFormat>& formats);
+// ... and back; none if `packed` is not one.
+QList<ClipFormat> unpackClipFormats(const QByteArray& packed);
+
 // One entry of the clipboard history, as kept in memory: what the list, the
 // preview and searching need. The formats that paste it as it was (HTML,
 // RTF, the picture) stay on disk until then (ClipStore::payload).
@@ -68,6 +84,9 @@ struct Clip {
     // Image: it has a project (ClipStore::project), the annotated picture's
     // editable form, in a file of its own beside the PNG.
     bool project = false;
+    // Image: it is an equation or an embedded object, its picture what the
+    // list shows; the program's own formats paste it (ClipCapture::formats).
+    bool formats = false;
 
     QStringList files() const; // Files, Path: the paths
     bool truncated() const { return textLength > text.size(); }
@@ -96,6 +115,10 @@ struct ClipCapture {
     // same pixels copied again with one replace the old entry's; without,
     // the old one stays.
     QByteArray project;
+    // Image: an equation or an embedded object's own formats, put on the
+    // clipboard before the picture when it is pasted (packClipFormats();
+    // empty: none). Replaced and kept like `project`.
+    QByteArray formats;
     // On the clipboard already when the history started: copied at some
     // earlier time, so an entry it matches stays where it is.
     bool initial = false;
@@ -133,6 +156,7 @@ struct ClipPayload {
     QByteArray html;
     QByteArray rtf;
     QString imagePath; // Image: its PNG file
+    QByteArray formats; // Image: packClipFormats(), if it has them
 };
 
 // A removed entry with everything needed to put it back (undo).
@@ -141,6 +165,7 @@ struct ClipRecord {
     QString text; // whole
     QByteArray html;
     QByteArray rtf;
+    QByteArray formats;
 };
 
 // A removed group with its entries, to put back (undo).

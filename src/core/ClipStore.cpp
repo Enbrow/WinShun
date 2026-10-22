@@ -5,6 +5,7 @@
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QDataStream>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
@@ -34,6 +35,7 @@ namespace {
 
 constexpr qint64 kDayMs = 24ll * 60 * 60 * 1000;
 constexpr qsizetype kPinyinChars = 4096; // pinyin is for words near the start: searching it further costs too much
+constexpr quint32 kFormatsMagic = 0x57534631; // "WSF1": packClipFormats()
 
 QString unquoted(QString line)
 {
@@ -120,6 +122,39 @@ QByteArray clipHash(ClipKind kind, const QString& text)
     hash.addData(QByteArrayView(&tag, 1));
     hash.addData(QByteArrayView(reinterpret_cast<const char*>(text.utf16()), text.size() * 2));
     return hash.result();
+}
+
+QByteArray packClipFormats(const QList<ClipFormat>& formats)
+{
+    if (formats.isEmpty())
+        return {};
+    QByteArray packed;
+    QDataStream out(&packed, QIODevice::WriteOnly);
+    out.setVersion(QDataStream::Qt_6_0);
+    out << kFormatsMagic << static_cast<qint32>(formats.size());
+    for (const ClipFormat& format : formats)
+        out << format.name << format.data;
+    return packed;
+}
+
+QList<ClipFormat> unpackClipFormats(const QByteArray& packed)
+{
+    QDataStream in(packed);
+    in.setVersion(QDataStream::Qt_6_0);
+    quint32 magic = 0;
+    qint32 count = 0;
+    in >> magic >> count;
+    if (magic != kFormatsMagic || count < 0)
+        return {};
+    QList<ClipFormat> formats;
+    for (qint32 i = 0; i < count && in.status() == QDataStream::Ok; ++i) {
+        ClipFormat format;
+        in >> format.name >> format.data;
+        formats.append(std::move(format));
+    }
+    if (in.status() != QDataStream::Ok)
+        return {};
+    return formats;
 }
 
 QStringList Clip::files() const
@@ -369,6 +404,7 @@ bool ClipStore::open(qint64 now)
         bool hasRank = false;
         bool hasScreenshot = false;
         bool hasProject = false;
+        bool hasFormats = false;
         QSqlQuery columns(db);
         columns.prepare(u"PRAGMA table_info(clips)"_s);
         if (!run(columns, "Reading the columns"))
@@ -378,6 +414,7 @@ bool ClipStore::open(qint64 now)
             hasRank = hasRank || columns.value(1).toString() == u"rank"_s;
             hasScreenshot = hasScreenshot || columns.value(1).toString() == u"screenshot"_s;
             hasProject = hasProject || columns.value(1).toString() == u"project"_s;
+            hasFormats = hasFormats || columns.value(1).toString() == u"formats"_s;
         }
         columns.finish();
         if (!hasOcr && !run(db, u"ALTER TABLE clips ADD COLUMN ocr TEXT"_s))
@@ -402,6 +439,10 @@ bool ClipStore::open(qint64 now)
         // the column says whether the entry has one.
         if (!hasProject && !run(db, u"ALTER TABLE clips ADD COLUMN project INTEGER NOT NULL DEFAULT 0"_s))
             return loaded;
+        // An equation's or an embedded object's own formats (packClipFormats;
+        // NULL: none), since GitHub #58.
+        if (!hasFormats && !run(db, u"ALTER TABLE clips ADD COLUMN formats BLOB"_s))
+            return loaded;
 
         QSqlQuery groups(db);
         groups.prepare(u"SELECT id, name FROM groups ORDER BY position, id"_s);
@@ -413,8 +454,8 @@ bool ClipStore::open(qint64 now)
         QSqlQuery clips(db);
         clips.setForwardOnly(true);
         clips.prepare(u"SELECT id, kind, substr(text, 1, %1), length, hash, created, used, source, sourcePath, groupId, "
-                      u"width, height, bytes, html IS NOT NULL, rtf IS NOT NULL, ocr, rank, screenshot, project FROM clips "
-                      u"ORDER BY used DESC, id DESC"_s
+                      u"width, height, bytes, html IS NOT NULL, rtf IS NOT NULL, ocr, rank, screenshot, project, "
+                      u"formats IS NOT NULL FROM clips ORDER BY used DESC, id DESC"_s
                 .arg(kTextInMemory));
         if (!run(clips, "Reading the history"))
             return loaded;
@@ -440,6 +481,7 @@ bool ClipStore::open(qint64 now)
             clip.rank = clips.value(16).toLongLong();
             clip.screenshot = clip.kind == ClipKind::Image && clips.value(17).toInt() != 0;
             clip.project = clip.kind == ClipKind::Image && clips.value(18).toInt() != 0;
+            clip.formats = clip.kind == ClipKind::Image && clips.value(19).toBool();
             loaded.clips.push_back(std::move(clip));
         }
         QSqlQuery last(db);
@@ -611,14 +653,18 @@ qint64 ClipStore::add(const ClipCapture& capture, qint64 now)
         const bool newProject = same->kind == ClipKind::Image && !capture.project.isEmpty();
         same->project = same->project || newProject;
         const bool project = same->project;
+        // An equation's formats: the new ones; none (its picture alone, from
+        // somewhere else) keeps the old.
+        const QByteArray formats = same->kind == ClipKind::Image ? capture.formats : QByteArray();
+        same->formats = same->formats || !formats.isEmpty();
         moveToFront(static_cast<std::size_t>(same - m_clips.begin()));
-        m_writer->post([this, id, now, capture, screenshot, project, newProject](QSqlDatabase& db) {
+        m_writer->post([this, id, now, capture, screenshot, project, newProject, formats](QSqlDatabase& db) {
             bool projectSaved = true;
             if (newProject)
                 projectSaved = writeProject(id, capture.project);
             QSqlQuery query(db);
             query.prepare(u"UPDATE clips SET used = ?, source = ?, sourcePath = ?, html = COALESCE(?, html), "
-                          u"rtf = COALESCE(?, rtf), screenshot = ?, project = ? WHERE id = ?"_s);
+                          u"rtf = COALESCE(?, rtf), screenshot = ?, project = ?, formats = COALESCE(?, formats) WHERE id = ?"_s);
             query.addBindValue(now);
             query.addBindValue(text(capture.source));
             query.addBindValue(text(capture.sourcePath));
@@ -626,6 +672,7 @@ qint64 ClipStore::add(const ClipCapture& capture, qint64 now)
             query.addBindValue(blob(capture.rtf));
             query.addBindValue(screenshot ? 1 : 0);
             query.addBindValue(project && (projectSaved || QFile::exists(projectPath(id))) ? 1 : 0);
+            query.addBindValue(blob(formats));
             query.addBindValue(id);
             run(query, "Updating an entry");
         });
@@ -650,6 +697,7 @@ qint64 ClipStore::add(const ClipCapture& capture, qint64 now)
     clip.rtf = !capture.rtf.isEmpty();
     clip.screenshot = capture.kind == ClipKind::Image && capture.screenshot;
     clip.project = capture.kind == ClipKind::Image && !capture.project.isEmpty();
+    clip.formats = capture.kind == ClipKind::Image && !capture.formats.isEmpty();
     m_clips.insert(m_clips.begin(), std::move(clip));
     if (capture.kind == ClipKind::Image)
         m_picturesPending.insert(id);
@@ -658,7 +706,8 @@ qint64 ClipStore::add(const ClipCapture& capture, qint64 now)
     m_writer->post([this, context = m_context.get(), id, hash, now, capture](QSqlDatabase& db) {
         QSqlQuery query(db);
         query.prepare(u"INSERT INTO clips (id, kind, text, length, html, rtf, hash, created, used, source, sourcePath, "
-                      u"width, height, bytes, screenshot, project) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"_s);
+                      u"width, height, bytes, screenshot, project, formats) "
+                      u"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"_s);
         query.addBindValue(id);
         query.addBindValue(static_cast<int>(capture.kind));
         query.addBindValue(text(capture.text));
@@ -675,6 +724,7 @@ qint64 ClipStore::add(const ClipCapture& capture, qint64 now)
         query.addBindValue(static_cast<qint64>(capture.png.size()));
         query.addBindValue(capture.kind == ClipKind::Image && capture.screenshot ? 1 : 0);
         query.addBindValue(capture.kind == ClipKind::Image && !capture.project.isEmpty() ? 1 : 0);
+        query.addBindValue(blob(capture.kind == ClipKind::Image ? capture.formats : QByteArray()));
         bool ok = run(query, "Saving an entry");
         if (ok && capture.kind == ClipKind::Image) {
             QSaveFile file(imagePath(id));
@@ -757,7 +807,7 @@ std::vector<ClipRecord> ClipStore::remove(std::span<const qint64> ids)
     m_writer->call([&records](QSqlDatabase& db) {
         db.transaction();
         QSqlQuery read(db);
-        read.prepare(u"SELECT text, html, rtf FROM clips WHERE id = ?"_s);
+        read.prepare(u"SELECT text, html, rtf, formats FROM clips WHERE id = ?"_s);
         QSqlQuery drop(db);
         drop.prepare(u"DELETE FROM clips WHERE id = ?"_s);
         for (ClipRecord& record : records) {
@@ -766,6 +816,7 @@ std::vector<ClipRecord> ClipStore::remove(std::span<const qint64> ids)
                 record.text = read.value(0).toString();
                 record.html = read.value(1).toByteArray();
                 record.rtf = read.value(2).toByteArray();
+                record.formats = read.value(3).toByteArray();
             }
             read.finish();
             drop.addBindValue(record.clip.id);
@@ -794,8 +845,8 @@ void ClipStore::restore(std::vector<ClipRecord> records)
         db.transaction();
         QSqlQuery query(db);
         query.prepare(u"INSERT OR REPLACE INTO clips (id, kind, text, length, html, rtf, hash, created, used, source, "
-                      u"sourcePath, groupId, width, height, bytes, ocr, rank, screenshot, project) "
-                      u"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"_s);
+                      u"sourcePath, groupId, width, height, bytes, ocr, rank, screenshot, project, formats) "
+                      u"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"_s);
         for (const ClipRecord& record : records) {
             const Clip& c = record.clip;
             query.addBindValue(c.id);
@@ -817,6 +868,7 @@ void ClipStore::restore(std::vector<ClipRecord> records)
             query.addBindValue(c.rank);
             query.addBindValue(c.screenshot ? 1 : 0);
             query.addBindValue(c.project ? 1 : 0);
+            query.addBindValue(blob(record.formats));
             written.push_back(run(query, "Restoring an entry"));
         }
         db.commit();
@@ -1242,18 +1294,19 @@ ClipPayload ClipStore::payload(qint64 id) const
             m_writer->call([](QSqlDatabase&) {}); // its file is there once that is done
         payload.imagePath = imagePath(id);
     }
-    if (!c->truncated() && !c->html && !c->rtf) {
+    if (!c->truncated() && !c->html && !c->rtf && !c->formats) {
         payload.text = c->text; // all of it is in memory
         return payload;
     }
     m_writer->call([id, &payload](QSqlDatabase& db) {
         QSqlQuery query(db);
-        query.prepare(u"SELECT text, html, rtf FROM clips WHERE id = ?"_s);
+        query.prepare(u"SELECT text, html, rtf, formats FROM clips WHERE id = ?"_s);
         query.addBindValue(id);
         if (run(query, "Reading an entry") && query.next()) {
             payload.text = query.value(0).toString();
             payload.html = query.value(1).toByteArray();
             payload.rtf = query.value(2).toByteArray();
+            payload.formats = query.value(3).toByteArray();
         }
     });
     return payload;

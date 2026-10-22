@@ -12,6 +12,8 @@
 #include <shellapi.h>
 #include <shlobj.h>
 
+#include <algorithm>
+#include <cwchar>
 #include <latch>
 #include <vector>
 
@@ -28,6 +30,7 @@ constexpr UINT kSettleMs = 40; // programs often put their formats up one after 
 constexpr qsizetype kMaxText = 2 * 1024 * 1024; // characters: 4 MB, Windows' own limit for its history
 constexpr qsizetype kFormattedUpTo = 1024 * 1024; // characters: longer text keeps no HTML / RTF
 constexpr SIZE_T kMaxFormatBytes = 16 * 1024 * 1024;
+constexpr qsizetype kMaxObjectBytes = 32 * 1024 * 1024; // an equation's or an object's formats all together
 constexpr SIZE_T kMaxImageBytes = 256 * 1024 * 1024;
 constexpr qint64 kMaxPixels = 100'000'000;
 
@@ -37,6 +40,11 @@ struct Formats {
     UINT png = ::RegisterClipboardFormatW(L"PNG");
     UINT pngMime = ::RegisterClipboardFormatW(L"image/png");
     UINT dropEffect = ::RegisterClipboardFormatW(CFSTR_PREFERREDDROPEFFECT);
+    // An equation or an embedded object (GitHub #58).
+    UINT mathMl = ::RegisterClipboardFormatW(L"MathML");
+    UINT objectDescriptor = ::RegisterClipboardFormatW(L"Object Descriptor");
+    UINT embeddedObject = ::RegisterClipboardFormatW(L"Embedded Object");
+    UINT embedSource = ::RegisterClipboardFormatW(L"Embed Source");
     // Not for clipboard history (Windows' own documented formats).
     UINT excludeMonitoring = ::RegisterClipboardFormatW(L"ExcludeClipboardContentFromMonitorProcessing");
     UINT canIncludeInHistory = ::RegisterClipboardFormatW(L"CanIncludeInClipboardHistory");
@@ -129,6 +137,105 @@ QStringList readFiles()
     return files;
 }
 
+// CF_ENHMETAFILE's bits (it is a handle, not memory); empty (and *tooBig
+// set) beyond `maxBytes`.
+QByteArray metafileBits(SIZE_T maxBytes, bool* tooBig)
+{
+    const auto emf = static_cast<HENHMETAFILE>(::GetClipboardData(CF_ENHMETAFILE));
+    const UINT size = emf ? ::GetEnhMetaFileBits(emf, 0, nullptr) : 0;
+    if (size > maxBytes)
+        *tooBig = true;
+    if (size == 0 || size > maxBytes)
+        return {};
+    QByteArray bits(static_cast<qsizetype>(size), Qt::Uninitialized);
+    if (::GetEnhMetaFileBits(emf, size, reinterpret_cast<BYTE*>(bits.data())) != size)
+        return {};
+    return bits;
+}
+
+// Whether an Object Descriptor names a class of an equation editor's
+// (Equation 3.0, MathType, WPS's 公式编辑器: "Equation.3", "Equation.DSMT4",
+// "Equation.KSEE3"), by its ProgID.
+bool equationClass(const QByteArray& descriptor)
+{
+    OBJECTDESCRIPTOR object {};
+    if (descriptor.size() < static_cast<qsizetype>(sizeof object))
+        return false;
+    std::memcpy(&object, descriptor.constData(), sizeof object);
+    wchar_t clsid[40];
+    if (::StringFromGUID2(object.clsid, clsid, 40) == 0)
+        return false;
+    const std::wstring key = L"CLSID\\" + std::wstring(clsid) + L"\\ProgID";
+    wchar_t progId[128];
+    DWORD size = sizeof progId;
+    return ::RegGetValueW(HKEY_CLASSES_ROOT, key.c_str(), nullptr, RRF_RT_REG_SZ, nullptr, progId, &size) == ERROR_SUCCESS
+        && ::_wcsnicmp(progId, L"Equation.", 9) == 0;
+}
+
+// Whether what is on the (open) clipboard is an equation or an embedded
+// object, which pastes back as one only from its own formats (GitHub #58).
+// Word offers MathML for an equation copied alone (not for text with one in
+// it, which its RTF pastes back as it was); a container offers "Embedded
+// Object" for an object it holds; an equation editor may offer "Embed Source"
+// of a class of its own. Not "Embed Source" by itself: Word, Excel and
+// PowerPoint offer it with whatever they copy, and reading it has them
+// write a whole document.
+bool isObject(const Formats& f)
+{
+    if (::IsClipboardFormatAvailable(f.mathMl) && ::IsClipboardFormatAvailable(CF_ENHMETAFILE))
+        return true;
+    if (!::IsClipboardFormatAvailable(f.objectDescriptor))
+        return false;
+    return ::IsClipboardFormatAvailable(f.embeddedObject)
+        || (::IsClipboardFormatAvailable(f.embedSource) && equationClass(readBytes(f.objectDescriptor, 64 * 1024)));
+}
+
+// The name an equation's or an object's format is kept under
+// (ClipFormat::name); empty for the rest. Not kept: what links to the
+// document it came from (Link Source, ObjectLink ...), OLE's own (DataObject,
+// Ole Private Data, OLE 1's Native and OwnerLink), what Windows makes from
+// the others (CF_TEXT, CF_METAFILEPICT ...), and the pictures, which are
+// written from the entry's PNG.
+QString objectFormatName(UINT format)
+{
+    if (format == CF_UNICODETEXT)
+        return u"CF_UNICODETEXT"_s;
+    if (format == CF_ENHMETAFILE)
+        return u"CF_ENHMETAFILE"_s;
+    static const QStringList kept {u"Object Descriptor"_s, u"Embedded Object"_s, u"Embed Source"_s,
+        u"Rich Text Format"_s, u"HTML Format"_s, u"MathML"_s, u"MathML Presentation"_s};
+    wchar_t name[64];
+    const int length = format >= 0xC000 ? ::GetClipboardFormatNameW(format, name, 64) : 0;
+    const QString s = QString::fromWCharArray(name, std::max(length, 0));
+    return length > 0 && kept.contains(s) ? s : QString();
+}
+
+// An equation's or an object's formats, in the order the program put them
+// (the clipboard is open); none if one is too big, or all of them more than
+// kMaxObjectBytes: some of them might paste as something else.
+QList<ClipFormat> readObjectFormats()
+{
+    QList<ClipFormat> formats;
+    qsizetype total = 0;
+    for (UINT format = ::EnumClipboardFormats(0); format != 0; format = ::EnumClipboardFormats(format)) {
+        QString name = objectFormatName(format);
+        if (name.isEmpty())
+            continue;
+        bool tooBig = false;
+        QByteArray data = format == CF_ENHMETAFILE ? metafileBits(kMaxFormatBytes, &tooBig)
+                                                   : readBytes(format, kMaxFormatBytes, &tooBig);
+        if (tooBig)
+            return {};
+        if (data.isEmpty())
+            continue; // not given after all: Word draws no HTML of an equation
+        total += data.size();
+        if (total > kMaxObjectBytes)
+            return {};
+        formats.append({std::move(name), std::move(data)});
+    }
+    return formats;
+}
+
 std::wstring processPath(DWORD pid)
 {
     if (pid == 0)
@@ -143,6 +250,14 @@ std::wstring processPath(DWORD pid)
     ::CloseHandle(process);
     path.resize(size);
     return path;
+}
+
+// A kept format's number here (ClipFormat::name; CF_ENHMETAFILE aside).
+UINT formatId(const QString& name)
+{
+    if (name == u"CF_UNICODETEXT"_s)
+        return CF_UNICODETEXT;
+    return ::RegisterClipboardFormatW(qUtf16Printable(name));
 }
 
 HGLOBAL globalCopy(const void* data, std::size_t size)
@@ -413,10 +528,16 @@ void ClipboardWatcher::read()
             }
         }
     }
-    // A picture only when there is no text: Excel and Word offer a picture of
-    // what was copied as well, which they draw only when asked for it.
+    // An equation or an embedded object: its own formats too, to paste it
+    // back from (pictures are what the history lists it by).
+    QList<ClipFormat> object;
+    if (capture.kind != ClipKind::Files && tooBig == 0 && options.images && isObject(f))
+        object = readObjectFormats();
+    // A picture only when there is no text (or it is an equation): Excel and
+    // Word offer a picture of what was copied as well, which they draw only
+    // when asked for it.
     bool imageTooBig = false;
-    if (capture.text.isEmpty() && tooBig == 0 && options.images) {
+    if ((capture.text.isEmpty() || !object.isEmpty()) && tooBig == 0 && options.images) {
         if (::IsClipboardFormatAvailable(f.png))
             png = readBytes(f.png, kMaxImageBytes, &imageTooBig);
         else if (::IsClipboardFormatAvailable(f.pngMime))
@@ -430,13 +551,39 @@ void ClipboardWatcher::read()
     }
     lock.close(); // the slow part (pictures) without holding the clipboard
 
+    QImage image;
+    if (!object.isEmpty()) {
+        // Listed by the picture it came with, else by its metafile drawn
+        // (Word gives an equation no other); pasted from its formats. With
+        // no picture to show, it is kept as it would be without them.
+        if (!imageTooBig && (!png.isEmpty() || !dib.isEmpty()))
+            image = png.isEmpty() ? imageFromDib(dib) : QImage::fromData(png, "PNG");
+        if (image.isNull()) {
+            png.clear();
+            const auto metafile = std::ranges::find(object, u"CF_ENHMETAFILE"_s, &ClipFormat::name);
+            if (metafile != object.cend())
+                image = imageFromEmf(metafile->data);
+        }
+        if (!image.isNull() && static_cast<qint64>(image.width()) * image.height() <= kMaxPixels) {
+            imageTooBig = false;
+            capture.text.clear();
+            capture.html.clear();
+            capture.rtf.clear();
+            capture.formats = packClipFormats(object);
+        } else {
+            image = {};
+            png.clear();
+            dib.clear();
+            imageTooBig = imageTooBig && capture.text.isEmpty(); // else its text, as before
+        }
+    }
     if (tooBig > 0 || imageTooBig) {
         if (m_callbacks.skippedTooBig)
             m_callbacks.skippedTooBig(tooBig);
         return;
     }
-    if (!png.isEmpty() || !dib.isEmpty()) {
-        const QImage image = png.isEmpty() ? imageFromDib(dib) : QImage::fromData(png, "PNG");
+    if (image.isNull() && (!png.isEmpty() || !dib.isEmpty())) {
+        image = png.isEmpty() ? imageFromDib(dib) : QImage::fromData(png, "PNG");
         if (image.isNull())
             return;
         if (static_cast<qint64>(image.width()) * image.height() > kMaxPixels) {
@@ -444,6 +591,8 @@ void ClipboardWatcher::read()
                 m_callbacks.skippedTooBig(static_cast<qint64>(image.width()) * image.height() * 4);
             return;
         }
+    }
+    if (!image.isNull()) {
         capture.kind = ClipKind::Image;
         capture.width = image.width();
         capture.height = image.height();
@@ -469,11 +618,34 @@ void ClipboardWatcher::read()
 bool ClipboardWatcher::writeNow(const ClipWrite& data)
 {
     const Formats& f = formats();
-    std::vector<std::pair<UINT, HGLOBAL>> items;
+    std::vector<std::pair<UINT, HANDLE>> items; // memory, a metafile for CF_ENHMETAFILE
     const auto add = [&](UINT format, const void* bytes, std::size_t size) {
         if (const HGLOBAL handle = globalCopy(bytes, size))
             items.emplace_back(format, handle);
     };
+    const auto release = [](UINT format, HANDLE handle) {
+        if (format == CF_ENHMETAFILE)
+            ::DeleteEnhMetaFile(static_cast<HENHMETAFILE>(handle));
+        else
+            ::GlobalFree(handle);
+    };
+    const auto fail = [&] {
+        for (const auto& [format, handle] : items)
+            release(format, handle);
+        return false;
+    };
+    // An equation's or an embedded object's own formats first, as the
+    // program that copied it put them: Word and WPS paste it from them, the
+    // picture after them is for the rest.
+    for (const ClipFormat& format : unpackClipFormats(data.formats)) {
+        if (format.name == u"CF_ENHMETAFILE"_s) {
+            if (const HENHMETAFILE emf = ::SetEnhMetaFileBits(static_cast<UINT>(format.data.size()),
+                    reinterpret_cast<const BYTE*>(format.data.constData())))
+                items.emplace_back(CF_ENHMETAFILE, emf);
+        } else if (const UINT id = formatId(format.name)) {
+            add(id, format.data.constData(), static_cast<std::size_t>(format.data.size()));
+        }
+    }
     if (!data.text.isEmpty())
         add(CF_UNICODETEXT, data.text.utf16(), (static_cast<std::size_t>(data.text.size()) + 1) * sizeof(char16_t));
     if (!data.html.isEmpty()) {
@@ -505,12 +677,12 @@ bool ClipboardWatcher::writeNow(const ClipWrite& data)
         if (png.isEmpty()) {
             QFile file(data.imagePath);
             if (!file.open(QIODevice::ReadOnly))
-                return false;
+                return fail();
             png = file.readAll();
         }
         const QImage image = QImage::fromData(png, "PNG").convertToFormat(QImage::Format_ARGB32);
         if (image.isNull())
-            return false;
+            return fail();
         add(f.png, png.constData(), static_cast<std::size_t>(png.size()));
         const QByteArray pixels = dibPixels(image);
         // CF_DIB, 32 bits a pixel (most programs ignore the fourth byte) ...
@@ -554,16 +726,13 @@ bool ClipboardWatcher::writeNow(const ClipWrite& data)
     const qint64 id = data.id;
     add(f.ours, &id, sizeof id);
 
-    if (items.size() <= 1 || !openClipboard()) {
-        for (const auto& [format, handle] : items)
-            ::GlobalFree(handle);
-        return false;
-    }
+    if (items.size() <= 1 || !openClipboard())
+        return fail();
     ::EmptyClipboard();
     bool ok = true;
     for (const auto& [format, handle] : items) {
         if (!::SetClipboardData(format, handle)) { // the clipboard owns it once this works
-            ::GlobalFree(handle);
+            release(format, handle);
             ok = false;
         }
     }

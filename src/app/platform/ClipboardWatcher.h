@@ -27,12 +27,19 @@ struct ClipWrite {
     // ... or the PNG itself, for a picture with no file yet (a screen capture:
     // the history writes its file later).
     QByteArray png;
+    // An equation's or an embedded object's own formats (packClipFormats()),
+    // put first, in the order the program that copied it put them: Word and
+    // WPS paste from these what was copied, the picture is for the rest.
+    QByteArray formats;
     // The history entry this is: when it reaches the clipboard, that entry
     // moves to the top instead of a new one being added. 0 for several
     // entries joined, which are not recorded at all.
     qint64 id = 0;
 
-    bool empty() const { return text.isEmpty() && files.isEmpty() && imagePath.isEmpty() && png.isEmpty(); }
+    bool empty() const
+    {
+        return text.isEmpty() && files.isEmpty() && imagePath.isEmpty() && png.isEmpty() && formats.isEmpty();
+    }
 };
 
 // Watches the clipboard for the history, and writes it for pastes.
@@ -48,6 +55,11 @@ struct ClipWrite {
 // CanIncludeInClipboardHistory = 0, Clipboard Viewer Ignore), copies from
 // the excluded programs, and what this class wrote itself (see
 // ClipWrite::id).
+//
+// An equation (Word offers MathML for one copied alone) or an embedded
+// object (Equation 3.0, MathType, WPS's 公式编辑器) is recorded as a
+// picture, drawn from its metafile if there is no other, together with the
+// formats that paste it back as one (ClipCapture::formats; GitHub #58).
 class ClipboardWatcher {
 public:
     struct Options {
