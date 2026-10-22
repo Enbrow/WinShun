@@ -235,6 +235,8 @@ qt_add_qml_module(WinShun
     SOURCES
         AuthorMark.cpp AuthorMark.h
         BoxSide.h
+        ClipImage.cpp ClipImage.h
+        ClipImport.cpp ClipImport.h
         ClipModel.cpp ClipModel.h
         Clipboard.cpp Clipboard.h
         ColorSwatch.cpp ColorSwatch.h

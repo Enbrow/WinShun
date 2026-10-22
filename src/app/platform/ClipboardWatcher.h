@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ClipImage.h"
 #include "ClipStore.h"
 
 #include <QImage>
@@ -33,10 +34,6 @@ struct ClipWrite {
 
     bool empty() const { return text.isEmpty() && files.isEmpty() && imagePath.isEmpty() && png.isEmpty(); }
 };
-
-// A picture's identity in the history (ClipCapture::hash): the same pixels
-// copied again are the same entry, whatever format they came in.
-QByteArray imagePixelHash(const QImage& image);
 
 // Watches the clipboard for the history, and writes it for pastes.
 //

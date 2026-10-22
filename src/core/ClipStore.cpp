@@ -991,6 +991,157 @@ qint64 ClipStore::addGroup(const QString& name)
     return id;
 }
 
+QString ClipStore::uniqueGroupName(const QString& base) const
+{
+    const auto taken = [this](const QString& name) {
+        return std::ranges::any_of(m_groups, [&](const ClipGroup& g) { return g.id != kPinned && g.name == name; });
+    };
+    QString name = base;
+    for (int n = 2; taken(name); ++n)
+        name = u"%1 %2"_s.arg(base).arg(n);
+    return name;
+}
+
+ClipImportResult ClipStore::importClips(std::vector<ClipImportItem> items, const QString& ownGroup)
+{
+    ClipImportResult result;
+    if (!m_open) {
+        result.failed = static_cast<int>(items.size());
+        return result;
+    }
+    struct Prepared {
+        Clip clip;
+        QString text; // whole
+        QByteArray html;
+        QByteArray rtf;
+        QByteArray png;
+    };
+    std::vector<Prepared> fresh;
+    fresh.reserve(items.size());
+    QSet<QByteArray> known;
+    known.reserve(static_cast<qsizetype>(m_clips.size() + items.size()));
+    for (const Clip& c : m_clips)
+        known.insert(c.hash);
+    QHash<QString, qint64> groupIds; // by name, for this batch
+    QHash<qint64, qint64> nextRank; // per group: after what it has
+    for (ClipImportItem& item : items) {
+        const QByteArray hash = item.hash.isEmpty() ? clipHash(item.kind, item.text) : item.hash;
+        if (known.contains(hash)) {
+            ++result.duplicates;
+            continue;
+        }
+        const QString& name = item.group.isEmpty() ? ownGroup : item.group;
+        qint64 groupId = groupIds.value(name, 0);
+        if (groupId == 0) {
+            const auto it = std::ranges::find_if(m_groups, [&](const ClipGroup& g) { return g.id != kPinned && g.name == name; });
+            groupId = it != m_groups.end() ? it->id : addGroup(name);
+            if (groupId == 0) { // not saved: it would be pruned like any entry
+                ++result.failed;
+                continue;
+            }
+            groupIds.insert(name, groupId);
+        }
+        if (!nextRank.contains(groupId)) {
+            qint64 next = 0;
+            for (const Clip& c : m_clips) {
+                if (c.group == groupId)
+                    next = std::max(next, c.rank + 1);
+            }
+            nextRank.insert(groupId, next);
+        }
+        known.insert(hash);
+        Prepared p;
+        Clip& clip = p.clip;
+        clip.id = m_nextId++;
+        clip.kind = item.kind;
+        clip.text = item.text.left(kTextInMemory);
+        clip.textLength = item.text.size();
+        clip.hash = hash;
+        clip.created = item.created;
+        clip.used = std::max(item.used, item.created);
+        clip.source = item.source;
+        clip.group = groupId;
+        clip.rank = nextRank[groupId]++;
+        clip.width = item.width;
+        clip.height = item.height;
+        clip.bytes = item.png.size();
+        clip.html = !item.html.isEmpty();
+        clip.rtf = !item.rtf.isEmpty();
+        p.text = std::move(item.text);
+        p.html = std::move(item.html);
+        p.rtf = std::move(item.rtf);
+        p.png = std::move(item.png);
+        fresh.push_back(std::move(p));
+    }
+    items.clear();
+    result.added = static_cast<int>(fresh.size());
+    if (fresh.empty())
+        return result;
+
+    // In memory at once, among the others by when they were used.
+    const auto newer = [](const Clip& a, const Clip& b) { return a.used != b.used ? a.used > b.used : a.id > b.id; };
+    std::vector<Clip> added;
+    added.reserve(fresh.size());
+    for (const Prepared& p : fresh) {
+        added.push_back(p.clip);
+        if (p.clip.kind == ClipKind::Image)
+            m_picturesPending.insert(p.clip.id);
+    }
+    std::ranges::sort(added, newer);
+    const auto middle = static_cast<std::ptrdiff_t>(m_clips.size());
+    m_clips.insert(m_clips.end(), std::make_move_iterator(added.begin()), std::make_move_iterator(added.end()));
+    std::inplace_merge(m_clips.begin(), m_clips.begin() + middle, m_clips.end(), newer);
+
+    m_writer->post([this, context = m_context.get(), fresh = std::move(fresh)](QSqlDatabase& db) {
+        std::vector<std::pair<qint64, bool>> pictures; // id, saved
+        db.transaction();
+        QSqlQuery query(db);
+        query.prepare(u"INSERT INTO clips (id, kind, text, length, html, rtf, hash, created, used, source, sourcePath, "
+                      u"groupId, rank, width, height, bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?)"_s);
+        for (const Prepared& p : fresh) {
+            const Clip& c = p.clip;
+            query.addBindValue(c.id);
+            query.addBindValue(static_cast<int>(c.kind));
+            query.addBindValue(text(p.text));
+            query.addBindValue(c.textLength);
+            query.addBindValue(blob(p.html));
+            query.addBindValue(blob(p.rtf));
+            query.addBindValue(c.hash);
+            query.addBindValue(c.created);
+            query.addBindValue(c.used);
+            query.addBindValue(text(c.source));
+            query.addBindValue(c.group);
+            query.addBindValue(c.rank);
+            query.addBindValue(c.width);
+            query.addBindValue(c.height);
+            query.addBindValue(c.bytes);
+            bool ok = run(query, "Importing an entry");
+            if (c.kind == ClipKind::Image) {
+                QSaveFile file(imagePath(c.id));
+                if (ok && (!file.open(QIODevice::WriteOnly) || file.write(p.png) != p.png.size() || !file.commit())) {
+                    qWarning().noquote() << "Clipboard history: cannot save a picture:" << file.errorString();
+                    QSqlQuery drop(db);
+                    drop.prepare(u"DELETE FROM clips WHERE id = ?"_s);
+                    drop.addBindValue(c.id);
+                    run(drop, "Removing an entry");
+                    ok = false;
+                }
+                pictures.emplace_back(c.id, ok);
+            } else if (!ok) {
+                pictures.emplace_back(c.id, false);
+            }
+        }
+        db.commit();
+        if (!pictures.empty()) {
+            QMetaObject::invokeMethod(context, [this, pictures] {
+                for (const auto& [id, ok] : pictures)
+                    saved(id, ok);
+            }, Qt::QueuedConnection);
+        }
+    });
+    return result;
+}
+
 void ClipStore::renameGroup(qint64 id, const QString& name)
 {
     const auto it = std::ranges::find(m_groups, id, &ClipGroup::id);

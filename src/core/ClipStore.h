@@ -101,6 +101,31 @@ struct ClipCapture {
     bool initial = false;
 };
 
+// An entry brought in from elsewhere (ClipStore::importClips): the history of
+// another program, or lines of a text file. Times are as the source had them.
+struct ClipImportItem {
+    ClipKind kind = ClipKind::Text;
+    QString text; // Files: one path per line
+    QByteArray html;
+    QByteArray rtf;
+    QByteArray png; // Image
+    QByteArray hash; // as for ClipCapture; worked out if empty
+    int width = 0;
+    int height = 0;
+    qint64 created = 0; // ms since the epoch
+    qint64 used = 0;
+    QString source; // the program it was copied from, if known
+    // The group it goes in, by name (made if there is none of that name);
+    // empty: the import's own group. Their order in a batch is their order in it.
+    QString group;
+};
+
+struct ClipImportResult {
+    int added = 0;
+    int duplicates = 0; // the history had it already, or an earlier one of the batch did
+    int failed = 0; // could not be saved
+};
+
 // The rest of an entry, read when it is pasted.
 struct ClipPayload {
     QString text; // whole
@@ -238,6 +263,16 @@ public:
     void moveInGroup(qint64 id, qint64 target);
     std::vector<qint64> groupOrder(qint64 group) const; // its entries' ids, in their order
     qint64 addGroup(const QString& name); // 0 if it could not be saved
+    // `base`, or "base 2", "base 3" ... when a group has that name already.
+    QString uniqueGroupName(const QString& base) const;
+    // Entries from elsewhere, all at once: one write, the list updated once.
+    // Never added by add(), which would move the one it matches to the top
+    // and count toward the limits: these go into groups (named by each item;
+    // `ownGroup` for those with none, made when the first needs it), which
+    // the limits leave alone, after the entries a group has. An entry the
+    // history has already is skipped. Pictures are written beside the
+    // others like copied ones.
+    ClipImportResult importClips(std::vector<ClipImportItem> items, const QString& ownGroup);
     void renameGroup(qint64 id, const QString& name);
     // A group and its entries; not the built-in one. Their pictures stay
     // until discardImages(), as for remove().

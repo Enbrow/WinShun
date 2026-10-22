@@ -273,6 +273,14 @@ add_test(NAME tst_tools COMMAND tst_tools)
 add_test(NAME tst_semantic COMMAND tst_semantic)
 add_test(NAME tst_mcp COMMAND tst_mcp)
 add_test(NAME tst_plugin COMMAND tst_plugin)
+# Importing clipboard history (Ditto, text, CSV): the reader with a real store.
+qt_add_executable(tst_clipimport tst_clipimport.cpp ${PROJECT_SOURCE_DIR}/src/app/ClipImport.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/ClipImage.cpp)
+target_include_directories(tst_clipimport PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_link_libraries(tst_clipimport PRIVATE wscore Qt6::Gui Qt6::Test)
+add_test(NAME tst_clipimport COMMAND tst_clipimport)
+set_tests_properties(tst_clipimport PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
 # Picking the whole clipboard list (Ctrl+A, delete all): ClipModel with a real store.
 qt_add_executable(tst_clipselect tst_clipselect.cpp ${PROJECT_SOURCE_DIR}/src/app/ClipModel.cpp
     ${PROJECT_SOURCE_DIR}/src/app/ColorText.cpp)
