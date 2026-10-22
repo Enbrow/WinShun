@@ -106,7 +106,10 @@ Item {
                 label: qsTr("名称")
                 placeholder: form.favorite.ownName
                 hint: qsTr("不填就用它自己的名字")
-                onTextChanged: if (form.ready) form.edited(nameField.text, keywordField.text)
+                onTextChanged: {
+                    form.error = "" // an old complaint is stale once the field changes
+                    if (form.ready) form.edited(nameField.text, keywordField.text)
+                }
                 onAccepted: form.save()
             }
             Field {
@@ -115,7 +118,10 @@ Item {
                 label: qsTr("关键词")
                 placeholder: qsTr("可选，例如 gz")
                 hint: qsTr("只输入它，按 Enter 就打开")
-                onTextChanged: if (form.ready) form.edited(nameField.text, keywordField.text)
+                onTextChanged: {
+                    form.error = ""
+                    if (form.ready) form.edited(nameField.text, keywordField.text)
+                }
                 onAccepted: form.save()
             }
         }

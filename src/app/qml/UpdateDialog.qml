@@ -46,7 +46,7 @@ Item {
         radius: Theme.largeCardRadius
         color: Theme.menuBackground
         border.width: 1
-        border.color: Theme.cardBorder
+        border.color: Theme.windowEdge
         scale: dialog.open ? 1 : 0.96
         Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 

@@ -22,7 +22,9 @@ FocusScope {
     property string svgError
     property bool svgTouched: false
     readonly property bool compact: height < 520
-    readonly property int labelWidth: 84
+    // 84, or the widest label if a language needs more ("Search address").
+    readonly property int labelWidth: Math.ceil(Math.max(84, keywordMetrics.width, urlMetrics.width,
+                                                         homeMetrics.width, suggestMetrics.width, iconMetrics.width))
     readonly property int inset: form.compact ? 12 : 16
     readonly property int fieldGap: form.compact ? 6 : 8
     readonly property int sectionGap: form.compact ? 10 : 12
@@ -30,6 +32,12 @@ FocusScope {
     // one only, SettingsEditor::knownSuggestUrl): replaced as the address
     // changes, unless its user wrote another.
     property string offeredSuggest
+
+    TextMetrics { id: keywordMetrics; text: qsTr("关键词"); font.pixelSize: Theme.fontCaption }
+    TextMetrics { id: urlMetrics; text: qsTr("搜索网址"); font.pixelSize: Theme.fontCaption }
+    TextMetrics { id: homeMetrics; text: qsTr("主页"); font.pixelSize: Theme.fontCaption }
+    TextMetrics { id: suggestMetrics; text: qsTr("搜索建议"); font.pixelSize: Theme.fontCaption }
+    TextMetrics { id: iconMetrics; text: qsTr("图标"); font.pixelSize: Theme.fontCaption }
 
     signal finished()
 
@@ -195,6 +203,7 @@ FocusScope {
                 id: box
                 width: field.width - field.labelWidth - parent.spacing
                 onAccepted: field.accepted()
+                onTextChanged: form.error = "" // an old complaint is stale once the field changes
             }
         }
         Text {

@@ -50,7 +50,7 @@ SettingsSection {
                     width: 180
                     implicitHeight: 32
                     placeholder: qsTr("名字，如 hello")
-                    onAccepted: createButton.clicked()
+                    onAccepted: if (createButton.enabled) createButton.clicked()
                 }
                 FlatButton {
                     id: createButton
@@ -227,6 +227,14 @@ SettingsSection {
                             onClicked: logLine.open = !logLine.open
                         }
                     }
+                }
+
+                ListScrollBar {
+                    flickable: logList
+                    anchors.top: logList.top
+                    anchors.bottom: logList.bottom
+                    anchors.right: parent.right
+                    anchors.rightMargin: 2
                 }
             }
         ]

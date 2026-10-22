@@ -130,8 +130,8 @@ Item {
         height: Math.round(card.width * 0.64)
         radius: Theme.largeCardRadius
         color: "transparent"
-        border.width: card.selected ? 2 : 1
-        border.color: card.selected ? Theme.accent : area.containsMouse ? Theme.subtext : Theme.cardBorder
+        border.width: 1 // neutral 1 px edges only; the selection shows in the radio button below
+        border.color: card.selected || area.containsMouse ? Theme.subtext : Theme.cardBorder
 
         Behavior on border.color { ColorAnimation { duration: 120 } }
 

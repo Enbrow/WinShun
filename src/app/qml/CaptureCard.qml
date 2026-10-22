@@ -30,6 +30,12 @@ Rectangle {
     readonly property var mouseValues: [editor.captureMouseDoubleLeft, editor.captureMouseRight, editor.captureMouseMiddle,
         editor.captureMouseBack, editor.captureMouseForward]
 
+    // The five mouse-action drop-downs share one width, the widest option's
+    // (rightChoices holds them all): text + gap + chevron + FlatButton's padding.
+    readonly property int pickWidth: Math.ceil(Math.max(...rightChoices.map(c => pickMetrics.advanceWidth(c.text)))) + 6 + 10 + 24
+
+    FontMetrics { id: pickMetrics; font.pixelSize: Theme.fontBody }
+
     implicitHeight: body.implicitHeight + 24
     radius: Theme.controlRadius
     color: marked ? Theme.selection : "transparent"
@@ -343,6 +349,7 @@ Rectangle {
                         FlatButton {
                             id: pick
                             anchors.right: parent.right
+                            implicitWidth: card.pickWidth
                             anchors.verticalCenter: parent.verticalCenter
                             text: mouseRow.current >= 0 ? mouseRow.choices[mouseRow.current].text : ""
                             trailingGlyph: String.fromCharCode(0xE70D) // ChevronDown

@@ -76,8 +76,16 @@ Item {
         Behavior on scale { enabled: dialog.animated; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
         Keys.onEscapePressed: dialog.reject()
-        Keys.onReturnPressed: primary.clicked()
-        Keys.onEnterPressed: primary.clicked()
+        // Enter never deletes the plugin's data: with data to ask about it
+        // takes the gentler choice (the plugin alone, data kept).
+        Keys.onReturnPressed: enterKey()
+        Keys.onEnterPressed: enterKey()
+        function enterKey() {
+            if (dialog.kind === "uninstall" && dialog.info.hasData === true)
+                dialog.accept(false)
+            else
+                primary.clicked()
+        }
 
         MouseArea { anchors.fill: parent } // a click on the card does not reach the dimmer
 
@@ -179,6 +187,7 @@ Item {
                                 color: Theme.success
                             }
                             Rectangle { // declared only: Win顺 cannot hold the plugin to it
+                                id: declaredTag
                                 x: 2
                                 y: 4
                                 visible: !permissionRow.modelData.enforced
@@ -200,7 +209,8 @@ Item {
                             Text {
                                 id: permissionText
                                 anchors.left: parent.left
-                                anchors.leftMargin: 60
+                                // After the tag when it is wider than the usual margin (English).
+                                anchors.leftMargin: declaredTag.visible ? Math.max(60, declaredTag.x + declaredTag.width + 8) : 60
                                 anchors.right: parent.right
                                 y: 4
                                 text: permissionRow.modelData.text

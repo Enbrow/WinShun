@@ -528,7 +528,8 @@ Rectangle {
                         Text {
                             id: permissionText
                             anchors.left: parent.left
-                            anchors.leftMargin: 64
+                            // After the tag when it is wider than the usual margin (English).
+                            anchors.leftMargin: declaredTag.visible ? Math.max(64, declaredTag.x + declaredTag.width + 8) : 64
                             anchors.right: parent.right
                             y: 3
                             text: permissionRow.modelData.text

@@ -329,7 +329,7 @@ Window {
                     width: 18
                     height: 18
                     radius: Theme.smallControlRadius
-                    color: box.checked ? Theme.accentFill : Theme.control
+                    color: box.checked ? Theme.accentFill : box.containsMouse ? Theme.controlHover : Theme.control
                     border.width: box.checked ? 0 : 1
                     border.color: Theme.controlBorder
 
@@ -354,6 +354,8 @@ Window {
                     property bool checked: false
                     anchors.fill: parent
                     enabled: window.armed
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
                     onClicked: checked = !checked
                 }
                 Accessible.role: Accessible.CheckBox
