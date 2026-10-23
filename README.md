@@ -27,8 +27,8 @@
 
 <p align="center">
   拼音秒搜文件 · 文件内容全文搜索（Word / Excel / PPT / PDF） · 应用和系统设置 · 网页搜索 · 收藏夹 · 插件<br>
-  “打开 / 另存为”对话框搜索 · 剪贴板历史（代替 Win+V，图片文字也能搜） · 任务栏搜索框 · AI 助手 MCP<br>
-  <sub>Pinyin file search · full-text search in documents · apps and settings · web search · favorites · plugins · file dialog search · clipboard history with OCR · taskbar search box · MCP server for AI assistants</sub>
+  “打开 / 另存为”对话框搜索 · 剪贴板历史（代替 Win+V，图片文字也能搜） · 截图、长截图和贴图 · 任务栏搜索框 · AI 助手 MCP<br>
+  <sub>Pinyin file search · full-text search in documents · apps and settings · web search · favorites · plugins · file dialog search · clipboard history with OCR · screenshots, scrolling screenshots and pins · taskbar search box · MCP server for AI assistants</sub>
 </p>
 
 ---
@@ -70,7 +70,7 @@
 
 ## 中文
 
-**Win顺** 是 Windows 上免费开源的快速搜索启动器：连按两下 Ctrl 弹出搜索框，边打字边出结果。按文件名或拼音秒找文件，搜 Word、Excel、PDF 里的文字，打开应用和系统设置，还有剪贴板历史、对话框搜索、任务栏搜索框、插件和给 AI 用的 MCP 搜索。
+**Win顺** 是 Windows 上免费开源的快速搜索启动器：连按两下 Ctrl 弹出搜索框，边打字边出结果。按文件名或拼音秒找文件，搜 Word、Excel、PDF 里的文字，打开应用和系统设置，还有剪贴板历史、截图和贴图、对话框搜索、任务栏搜索框、插件和给 AI 用的 MCP 搜索。
 
 它直接读 NTFS 主文件表（MFT）建索引，三百多万个文件几秒建好，增删改名实时跟上，**不用装 Everything**。不需要账号，不上传数据。界面有简体中文和英文。
 
@@ -134,17 +134,20 @@
 - **收藏夹**：
   - 右键“加入收藏夹”，不打字时排在最前；
   - 起个关键词，一打就开；
-  - 收藏的文件夹按 `Tab` 进去接着搜。
+  - 收藏的文件夹按 `Tab` 进去接着搜；
+  - **自定义命令**：设置 › 收藏夹 › 添加命令，起个关键词，命令里写 `{query}`，关键词后面打的字就替换到那里。比如关键词 `code`、命令 `"C:\Tools\Code.exe" {query}`，输入 `code D:\我的项目` 回车，就把这个文件夹交给编辑器；不经命令提示符，搜索和导入都不会自己运行命令；
+  - **拖文件时晃一晃**：按住左键拖着文件或文件夹（资源管理器、桌面、别的程序都行），左右快速晃几下鼠标，指针处弹出一个圆盘：内圈选移动或复制，外圈是前 8 个文件夹收藏，名字长的分两行写。拖到哪个文件夹上松开，就移动或复制到哪里，进度和重名提示都是 Windows 自己的，在资源管理器里按 `Ctrl+Z` 能撤销。在中间松开或按 `Esc` 什么也不做，拖出圆盘它就收起，接着拖到别处照常放。默认开，在设置 › 收藏夹 里关；Win顺 以管理员身份运行时用不了。
 - **插件**：
   - 随包的小工具：`= 1+2*3` 计算器、`12 inch to cm` 单位换算、`#ff8800` 颜色，还有时间戳、UUID、Base64、哈希；
   - `kill` 结束进程，`bm` 搜浏览器书签，`tr` 翻译；
   - **按意思找**（默认关）：`? 去年报销的规定` 也能找到写着“差旅费用申请”的文档。用你选的模型：本机的 Ollama、LM Studio 什么都不上传；硅基流动、百炼、OpenAI 等填自己的密钥，第一次计算前告诉你要发出去多少字，你按回车才开始。见 [plugins/winshun.semantic](plugins/winshun.semantic/README.md)；
+  - **插件库**：设置 › 插件 › 插件库 里看别人写的插件（来自 [WinShun-plugins](https://github.com/LingCore/WinShun-plugins)），点一下安装或更新，下载后先核对大小和校验值；只在打开这一页、点“刷新”或安装时联网；
   - 自己写插件：零代码的 `plugin.json`、任意语言的脚本或常驻进程都行，附 Python / PowerShell / C++ SDK；
   - 插件以普通权限、限内存运行。见 [docs/plugins.md](docs/plugins.md)。
 
 #### 📂 “打开”“另存为”对话框
 
-- **对话框旁的搜索框**：输入文件夹或文件名（拼音也行），回车，对话框直接转过去；网页上传文件、WPS 的对话框、VBA 宏弹出的“浏览文件夹”也认。
+- **对话框旁的搜索框**：输入文件夹或文件名（拼音也行），回车，对话框直接转过去；网页上传文件、WPS 的对话框、VBA 宏弹出的“浏览文件夹”也认；安装程序（Inno Setup）里的“浏览文件夹”窗口也有，选好只是把路径填进去，“确定”还是你自己点（选开始菜单文件夹的那个不接管）。
 - **`Ctrl+G`**：转到资源管理器、Total Commander、Directory Opus、XYplorer 或 Pulse 正在显示的文件夹，和 Listary 的同名快捷键一样。
 - **不输入时**：列出打开着的文件夹、刚复制的路径、收藏和最近用过的文件夹。
 - **自动转过去**：可以设成对话框一出现就转到文件管理器的文件夹，或者先停在上次的位置，从文件管理器切回来时再转。
@@ -156,13 +159,16 @@
 - **Directory Opus 里也能双击**：Win顺 可以替你在 Opus 的设置里加好这条命令（Opus 会重启一下），关掉或卸载时换回原来的。
 - **用快捷键弹出**：双击被别的程序占了，或者想在 Total Commander、XYplorer、Pulse 里用，就在设置里给文件夹菜单设一个快捷键，在任何窗口里按：资源管理器、桌面、Directory Opus、Total Commander、XYplorer、“打开”“另存为”对话框里选中的文件夹在那个窗口里打开（Pulse 里交给 Pulse，按它的“从其他程序打开的文件夹”设置开新标签或新窗口），别的窗口里用文件管理器打开；再按一次关闭。
 - **右键“用 Win顺 搜索此处”**：文件夹、文件夹的空白处和磁盘的右键菜单里都有（Windows 11 在“显示更多选项”里），搜索框带着这个文件夹打开，接着打字就在里面找。设置里可以关。
-- **直接打字搜索**：在资源管理器的文件列表里随意打字，Win顺 就带着打的字、在这个窗口的文件夹里搜，和 Listary 一样；中文输入法照常组拼音，`Esc` 回到资源管理器。选中的文件夹在同一个标签页里打开，接着打字就再往里一层；资源管理器的 `Shift` 右键菜单也不会被抢走按键。设置里打开（它代替了资源管理器自己的按首字母跳到文件，所以默认关）。
+- **直接打字搜索**：在资源管理器的文件列表里随意打字，Win顺 就带着打的字、在这个窗口的文件夹里搜，和 Listary 一样；中文输入法照常组拼音，`Esc` 回到资源管理器。选中的文件夹在同一个标签页里打开，接着打字就再往里一层；选中一个文件或文件夹按 `Ctrl+Enter`，也在这个标签页里转到它所在的文件夹并选中它（设置里选的文件管理器是资源管理器时）；资源管理器的 `Shift` 右键菜单也不会被抢走按键。设置里打开（它代替了资源管理器自己的按首字母跳到文件，所以默认关）。
 
 #### 📋 剪贴板历史（代替 Win+V）
 
 - **记什么**：复制过的文字、图片、文件都记下来。
 - **怎么打开**：`Win+V` 或自设的快捷键；开在输入光标旁，不抢焦点。
 - **怎么粘贴**：双击或 `Enter` 粘贴（也可以设成像 Windows 自带的那样单击就粘贴），`Shift+Enter` 粘贴为纯文本，`Alt+1`～`9` 直接粘贴第几条（按住 `Alt` 时序号显示在图标上）。
+- **不开面板直接粘贴**：设置 › 剪贴板 › 快捷键 里打开“不打开面板直接粘贴”（`Ctrl+1–9` 或 `Alt+1–9`），在别的程序里就能直接粘贴前九条，格式照旧。默认关，打开后这些键在别的程序里原来的用处（比如浏览器切换标签页）就让给它。
+- **粘进上传框**：在 Windows 的“打开”文件选择框里从剪贴板历史粘贴文件，完整路径直接填进“文件名”，多个文件也行，再点“打开”。
+- **公式和嵌入的对象**：Word 里单独复制的公式、文档里嵌入的对象，记成一条带图的历史（公式的文字也搜得到），粘回 Word 里还是能编辑的公式或对象，只认图片的程序拿到的是图片；`Shift+Enter` 把公式粘贴成一行文字。（用 Word 测过。）
 - **能搜**：拼音搜索，`@wx` 只看微信里复制的；**图片里的字也能搜**（PaddleOCR 文字识别，在本机，不联网，截图里的数字和小字也认得准）。
 - **预览**：全文、大图、颜色值的 HEX / RGB / HSL；点一条旁边的眼睛按钮（或 `Alt+P`）开关预览，预览开着时鼠标停在哪一行就预览哪一行；预览窗口更宽，中间的竖线可以拖着调，下次还记得；图片缩略图可以调大，不打开预览也看得清。
 - **拖出图片**：按住图片拖到文件夹里，就存成 PNG 文件；用 Ctrl 或 Shift 选多张后，从选中的图片起拖，就能一起保存。在资源管理器里打开剪贴板，粘贴一张或多张图片，也会保存为 PNG 文件。
@@ -170,7 +176,18 @@
 - **复制过的文件被删了**：那一条会标“已不存在”；可以设成自动隐藏或自动清理（固定的和分组里的不动，拔掉的 U 盘不算）。
 - **从别处导入**：设置 › 剪贴板 › 保留 里的“导入剪贴板历史”，可以导入 Ditto 的数据库（装了 Ditto 的话一键导入）、`.txt` 文本和 `.csv` 表格（中文 Excel 存的 GBK 也认）；导入的放进一个新分组，不会被自动删除，已经有的内容会跳过。
 - **隐私**：密码管理器复制的密码不记录，历史只存在本机。
-- **截图**（默认关，在设置 › 插件里打开）：快捷键或 `PrtScn` 截图，点选窗口、按钮或拖出一块；框好后可以直接在图上标注：矩形、椭圆、箭头、画笔、荧光笔、文字、序号和打码（马赛克、模糊、纯色，打码的地方还原不出来）。`Enter` 复制，截图进剪贴板历史，图里的字也能搜；标过的图以后还能再打开接着改，从剪贴板历史、搜索框或贴图上都能进，可多选、取色、裁剪。`F3` 贴在屏幕上，还能识别文字。搜索框里打 `jt` 加空格，按图里的字找截过的图。框选之后双击左键、右键、中键、鼠标侧键各做什么（复制、保存、贴图、识别文字、取消、后退），可以在设置里自己定。
+- **截图**（默认关，在设置 › 插件里打开；快捷键自己录，想用 `PrtScn` 也在那里打开）：
+  - **框选**：鼠标移到窗口、按钮上就把它框出来，框外变暗，点一下选中，也可以拖出一块；滚轮扩大或缩小框。设置、计算器这类程序里的侧栏和按钮也能框出来（Chrome、Edge、VS Code、微信这类 Chromium 程序里面不识别，只框整个窗口，需要时手动拖选）。`Shift+R` 回到上一次的那一块。
+  - **放大镜和取色**：跟着鼠标放大像素，`C` 复制鼠标下的颜色，`Shift+C` 在 `#RRGGBB`、`rgb()`、`hsl()` 三种写法之间换。
+  - **延时**：`D` 或工具条的“延时”，倒计时（秒数在设置里选）到点才定住屏幕，用来截菜单、悬停提示。设置里可以让截图带上鼠标指针（默认关）。
+  - **二维码**：`Q` 读选区里的二维码，文字显示在小窗口里可以复制；是网址时多一个“打开链接”，点了才打开。
+  - **标注**：矩形、椭圆、箭头、直线、画笔、荧光笔、文字、序号和打码。序号可以选 `1 2 3`、`A B C`、`a b c`、罗马数字、圈里的数字，序号旁边还能直接写字。打码有马赛克、模糊、纯色和抹平（用四周的底色盖住，像擦掉了一样），可以框也可以涂抹，打码的地方还原不出来。
+  - **智能打码**：选好区域停一会儿，Win顺 在本机找出图里的手机号、身份证号、银行卡号、邮箱、密钥和本机用户名，提示“发现 N 处”，点一下（或 `Shift+B`）全部盖上，一次 `Ctrl+Z` 全撤；自动找的可能有漏，发出去前再看一眼。
+  - **长截图**：网页、聊天记录、文档、文件列表比屏幕还长时，选好区域按 `Ctrl+L`（或工具条的“长截图”），Win顺 自己往下滚着截，拼成一张长图，在编辑窗口里打开；也可以关掉“自动滚动”自己滚，滚完按 `Enter`。只能左右滚的、一直在动的画面不适合。
+  - **完成**：`Enter` 复制，截图进剪贴板历史，图里的字也能搜；`Ctrl+S` 保存到“图片\屏幕截图”。打开设置里的“复制截图时同时贴图”，复制的同时也贴在屏幕上。标过的图以后还能再打开接着改，从剪贴板历史、搜索框或贴图上都能进，可多选、取色、裁剪。
+  - **贴图**：`F3` 把截图贴在屏幕上，一直在最上面，可以缩放、调透明度、转和翻、收成小块、识别文字，或用 `T` 在图上拖选文字直接复制；双击贴图做什么（回到 100%、关闭、收起或不做什么）可以在设置里选。设了“鼠标穿透”的贴图，按住 `Ctrl` 就又能拖动、点右键菜单。
+  - **识别文字、查找**：工具条的“识别文字”读出图里的字，可以复制、用它搜索或去网页搜索；搜索框里打 `jt` 加空格，按图里的字找截过的图。
+  - **自己定**：框选之后双击左键、右键、中键、鼠标侧键各做什么（复制、复制并贴图、保存、贴图、识别文字并复制或搜索、取消、后退），工具条上要显示哪些按钮，都在设置里自己选。
 
 #### 🔎 任务栏搜索框
 
@@ -199,7 +216,7 @@
 
 | 按键 | 作用 |
 |---|---|
-| 双击 `Ctrl` | 打开 / 关闭搜索框（可改成双击 `Alt`，或另设组合键，如 `Alt+Space`） |
+| 双击 `Ctrl` | 打开 / 关闭搜索框（可改成双击 `Alt` 或 `Shift`，或另设组合键，如 `Alt+Space`） |
 | `Enter` / `Ctrl+Enter` / `Ctrl+Shift+Enter` | 打开 / 打开所在文件夹 / 以管理员身份运行 |
 | `Ctrl+C` / `Ctrl+Shift+C` | 复制文件 / 复制路径 |
 | `Ctrl+1`～`Ctrl+9` | 打开第几行（按住 `Ctrl` 时图标上显示序号） |
@@ -229,7 +246,7 @@
 - **便携版**：默认一个个文件夹走一遍来建索引，第一次慢一些，之后实时跟上改动。在设置 → 索引方式里可以装上索引服务，或以管理员身份重新启动。便携版装索引服务时，会把服务程序复制一份放进 `%ProgramFiles%\WinShun Service`，只有管理员能改，普通程序没法把它换掉；以前装过的，设置里会提醒并有“修复”按钮。
 - **没有管理员权限（“只为我安装”）**：安装时选“只为我安装”，不装索引服务，也不用管理员同意。这时 Win顺 只索引你选的文件夹（设置 › 搜索范围 › 文件夹 里改，默认是桌面、文档、下载、图片这些常用位置），可以从资源管理器把文件夹直接拖进去；改动实时跟上，每天再整个核对一遍（也可以改成每小时、每 4 小时或只在启动时）。输入的文件夹不在索引范围里时，搜索框会提示，点“这次也搜它”只搜这一次，点“加入索引”就长期收录。内容搜索照样能用，只是慢一些。
 - **管理员直读**：管理员账户可以在设置 → 索引方式里选“管理员直读”，像旧版一样整个程序以管理员身份运行、直接读盘。
-- **以管理员身份运行的程序**：Windows 不让普通权限的程序往它们里面打字。往这样的窗口里粘贴时，Win顺 只复制，提示你按 `Ctrl+V`；对话框旁的搜索框也不出现在这些程序上。
+- **以管理员身份运行的程序**：Windows 不让普通权限的程序往它们里面打字。往这样的窗口里粘贴时，Win顺 只复制，提示你按 `Ctrl+V`；它们的“打开”“另存为”对话框旁也有搜索框，但只能复制选中的路径，要你自己粘贴到路径框里，不会自动转过去，`Ctrl+G` 也不管用。
 - **打开的东西是普通权限**：从 Win顺 打开的文件和应用都以普通权限运行，只有 `Ctrl+Shift+Enter` 才以管理员身份运行。
 
 ### 常见问题
@@ -238,7 +255,7 @@
 Win顺 自己建索引，不用装 Everything。文件名、拼音、应用和文件内容在一个框里搜，针对中文做了优化。对话框里有和 Listary 一样的 `Ctrl+G` 和搜索框，但不嵌进资源管理器窗口。
 
 **双击 Ctrl 和别的软件冲突？**
-Listary、PowerToys 的“查找鼠标”默认也用双击 Ctrl，关掉其中一边就行，或者让 Win顺 改用双击 Alt 或 Shift、只认左边或右边的键（设置 › 打开 Win顺 › 双击哪个键、用哪一边）。也可以在 Win顺 里改用别的组合键。游戏全屏、藏起鼠标时，Win顺 默认不响应双击 Ctrl。
+Listary、PowerToys 的“查找鼠标”默认也用双击 Ctrl，关掉其中一边就行，或者让 Win顺 改用双击 Alt 或 Shift、只认左边或右边的键（设置 › 打开 Win顺 › 双击哪个键、用哪一边；输入法用 Shift 切换中英文的，双击 Shift 会切换两次，最后回到原来的状态）。也可以在 Win顺 里改用别的组合键。游戏全屏、藏起鼠标时，Win顺 默认不响应双击 Ctrl。
 
 **AutoHotkey 改的键在 Win顺 里不起作用？**
 选了“管理员直读”时，Win顺 以管理员身份运行，Windows 不让普通权限的程序拦截发给它的按键。换回别的索引方式，或用 AutoHotkey 的 UI Access 模式、以管理员身份运行脚本。
@@ -251,7 +268,7 @@ Listary、PowerToys 的“查找鼠标”默认也用双击 Ctrl，关掉其中�
 到 **设置 › 高级 › 诊断日志** 点“导出诊断日志”，把打开的文件夹里的 `WinShun-diagnostics.zip` 发到 GitHub Issues 或论坛。诊断包记的是版本、系统、磁盘、索引进度和错误，不含设置、剪贴板、搜索历史和文档正文。
 
 **收费吗？会上传数据吗？**
-完全免费，MIT 开源。只在这些时候联网：到 GitHub 检查新版本（可以关掉）；第一次显示某个网页搜索或书签时取一次那个网站的图标；在网站关键词后打字时，把这些字发给那个网站取搜索建议（不打关键词时一个字也不发，可以在设置里关掉）；你自己打开“按意思找”插件并选了云服务时，把文档的文字发给你选的服务商。索引和历史只存在本机（`%LOCALAPPDATA%\WinShun`）。
+完全免费，MIT 开源。只在这些时候联网：到 GitHub 检查新版本（可以关掉）；第一次显示某个网页搜索或书签时取一次那个网站的图标；打开设置里的“插件库”这一页、点“刷新”或安装插件时，到插件库取列表和插件；在网站关键词后打字时，把这些字发给那个网站取搜索建议（不打关键词时一个字也不发，可以在设置里关掉）；你自己打开“按意思找”插件并选了云服务时，把文档的文字发给你选的服务商。索引和历史只存在本机（`%LOCALAPPDATA%\WinShun`）。
 
 ### 反馈
 
@@ -282,14 +299,14 @@ Listary、PowerToys 的“查找鼠标”默认也用双击 Ctrl，关掉其中�
 - search the text inside Word, Excel and PDF files;
 - launch apps and open Windows settings.
 
-It also brings a clipboard history, a search bar for file dialogs, a taskbar search box, plugins and an MCP server for AI assistants.
+It also brings a clipboard history, screenshots with pins, a search bar for file dialogs, a taskbar search box, plugins and an MCP server for AI assistants.
 
 It reads the NTFS master file table (MFT) directly, indexing three million files in a few seconds and following every change live: **no Everything install needed**. It needs no account and uploads nothing. The interface comes in English and Simplified Chinese. Screenshots: [above](#screenshots). A step-by-step guide to every feature (in Chinese): [docs/使用说明.md](docs/使用说明.md).
 
 ### Features
 
 - 🔍 **File search**
-  - **Speed**: press Ctrl twice (or Alt twice, if you prefer); a search over three million files takes milliseconds.
+  - **Speed**: press Ctrl twice (or Alt or Shift twice, if you prefer); a search over three million files takes milliseconds.
   - **Pinyin**: `ndbg` finds 年度报告; a mistyped homophone (年度报高) is retried by sound.
   - **Where**: all local drives, USB drives if you like (an unindexed one that is plugged in is offered at the end of the list), and **NAS / SMB network shares**, still searchable while their server is off. On a PC without administrator rights it indexes only the folders you choose (see Administrator rights below).
   - **Order**: your own files first, the date modified on each row, `Ctrl+S` for best match / newest / oldest, and More in the footer sorts by name, folder, type or size. Click a result once to select and twice to open, if you would rather not open one by mistake (a setting). Recent files are listed when the box is empty, or nothing if you like; the search can also start empty each time it opens.
@@ -316,13 +333,17 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Settings**: about 1,200 Windows settings pages and Control Panel items (`ncpa.cpl`, “network adapter”), plus Group Policy, Disk Management, hosts, AppData and more.
   - **Switches**: dark mode, hidden files, file extensions, Bluetooth, WLAN, volume and mute, keep awake, each with its live state at the end of its row; `Enter` flips it in place and the box stays open, `Ctrl+Enter` opens its settings page. `bluetooth off`, `mute` and `volume 30` act in one step; `awake 1h` keeps the PC awake for an hour.
 - 🌐 **Web search**: `zhihu 显卡`, `baidu 天气`: a keyword and a space search that site. Ten Chinese sites are built in; add your own with `%s` in the URL, and import or export the list and icons. The site's search suggestions show below as you type (Enter searches one, Tab puts it in the box), and a site's icon can be an SVG file or pasted SVG code.
-- ⭐ **Favorites**: right-click → Add to favorites. They come first when the box is empty; give one a keyword to open it, and `Tab` searches inside a favorite folder.
+- ⭐ **Favorites**
+  - Right-click → Add to favorites. They come first when the box is empty; give one a keyword to open it, and `Tab` searches inside a favorite folder.
+  - **Your own commands**: Settings › Favorites › Add command. Give it a keyword and put `{query}` in the command; what you type after the keyword goes there. With the keyword `code` and the command `"C:\Tools\Code.exe" {query}`, typing `code D:\my-project` and Enter hands that folder to the editor. No command prompt is involved, and searching or importing never runs a command.
+  - **Shake while dragging**: drag files or folders with the left button (from File Explorer, the desktop or another program) and shake the mouse left and right a few times: a round menu opens at the pointer. The inner ring picks Move or Copy; the outer ring is your first 8 favorite folders, a long name written on two lines. Release on a folder to move or copy there; the progress and name-conflict windows are Windows' own, and `Ctrl+Z` in File Explorer undoes it. Release in the middle or press `Esc` and nothing happens; drag out of the menu and it closes, and the drag goes on as usual. On by default; turn it off in Settings › Favorites (“Shake while dragging files to bring up the favorites pie”). It does not work while WinShun itself runs as administrator.
 - 🧩 **Plugins**
   - **Bundled**: `= 1+2*3`, `12 inch to cm`, `#ff8800`, timestamps, UUID, Base64, hashes; `kill` processes, `bm` browser bookmarks, `tr` translation.
   - **Search by meaning** (off by default): `? last year's expense rules` finds a document that says “travel cost requests”. It uses the model you pick: Ollama or LM Studio on your PC uploads nothing; for SiliconFlow, Model Studio, OpenAI and others you enter your own key, and before the first run it says how much text would be sent and waits for your Enter. See [plugins/winshun.semantic](plugins/winshun.semantic/README.md).
+  - **Plugin library**: Settings › Plugins › Plugin library lists plugins other people wrote (from [WinShun-plugins](https://github.com/LingCore/WinShun-plugins)); one click installs or updates one, after its size and checksum are checked. It goes online only when that page is opened, on Refresh, or to install.
   - **Your own**: zero-code `plugin.json`, scripts in any language, or resident processes, with SDKs for Python, PowerShell and C++. Plugins run with normal rights under a memory limit. See [docs/plugins.en.md](docs/plugins.en.md).
 - 📂 **Open / Save dialogs**
-  - **Search bar**: a search bar under every file dialog; type a name (pinyin too), press Enter, and the dialog goes there; web page uploads, WPS dialogs and the "Browse For Folder" box of VBA macros too.
+  - **Search bar**: a search bar under every file dialog; type a name (pinyin too), press Enter, and the dialog goes there; web page uploads, WPS dialogs and the "Browse For Folder" box of VBA macros too. The "Browse for folder" window of installers made with Inno Setup has it as well: a pick only fills in the path, and you press the installer's OK yourself (the Start Menu folder picker is left alone).
   - **`Ctrl+G`**: jumps to the folder open in File Explorer, Total Commander, Directory Opus, XYplorer or Pulse, like Listary.
   - **Suggestions**: open folders, a path you just copied, favorites and recent folders.
   - **Going there by itself**: optional, as the dialog opens, or only when you come back to it from the file manager.
@@ -332,17 +353,32 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **In Directory Opus too**: WinShun can add its command to Opus's settings for you (Opus restarts once), and puts the old one back when turned off or uninstalled.
   - **By a shortcut**: when another program has the double click, or for Total Commander, XYplorer and Pulse, give the folder menu a shortcut in the settings and press it in any window: in File Explorer, on the desktop, in Directory Opus, Total Commander, XYplorer and Open / Save dialogs the folder picked opens in that window (in Pulse, where its “Folders opened from other apps” setting puts it: a new tab or a new window); anywhere else, in your file manager. Press it again to close the menu.
   - **“Search here with WinShun”** on the right-click menu of folders, a folder's blank space and drives (under “Show more options” on Windows 11): the search window opens with that folder typed. It can be turned off.
-  - **Type to search**: type anywhere in a File Explorer file list and WinShun searches that window's folder for what you typed, like Listary; a Chinese input method composes as usual, and `Esc` goes back to File Explorer. A folder you pick opens in the same tab, so typing again goes one level deeper, and the keys of Explorer's `Shift`+right-click menu stay with the menu. Turn it on in the settings (it replaces Explorer's own jump to a file by its first letters, so it is off by default).
+  - **Type to search**: type anywhere in a File Explorer file list and WinShun searches that window's folder for what you typed, like Listary; a Chinese input method composes as usual, and `Esc` goes back to File Explorer. A folder you pick opens in the same tab, so typing again goes one level deeper; `Ctrl+Enter` on a file or folder also goes, in that tab, to the folder holding it and selects it (when the file manager set in Settings is File Explorer); and the keys of Explorer's `Shift`+right-click menu stay with the menu. Turn it on in the settings (it replaces Explorer's own jump to a file by its first letters, so it is off by default).
 - 📋 **Clipboard history (replaces Win+V)**
   - **What**: text, pictures and files, opened with `Win+V` or your own shortcut, by the text cursor, without taking the focus.
   - **Search**: pinyin, `@app` filters, and **words in copied pictures** (PaddleOCR text recognition, on your PC and offline, good with numbers and small print in screenshots).
   - **Preview**: full text, pictures, HEX / RGB / HSL color values. The eye button (or `Alt+P`) opens and closes it; while it is open, the row under the mouse is shown. It is wider now, and the line beside it can be dragged, the width remembered.
-  - **Drag pictures out**: hold a picture and drop it on a folder to save it as a PNG file.
+  - **Drag pictures out**: hold a picture and drop it on a folder to save it as a PNG file; select several with Ctrl or Shift and drag from one of them to save them together. Pasting one or more pictures from the clipboard history into a File Explorer folder saves them as PNG files too.
   - **Paste**: double-click or `Enter`, or one click as in Windows' own history (an option); larger picture thumbnails as another.
+  - **Paste without opening it**: Settings › Clipboard › Shortcuts › “Paste without opening the panel” (`Ctrl+1–9` or `Alt+1–9`) pastes the first nine entries straight into any program, format kept. Off by default; when on, those keys no longer do their usual job in other programs (switching browser tabs, say).
+  - **Upload boxes**: in a Windows “Open” file box, pasting files from the clipboard history puts their full paths in the File name field, several at once if you like; then click Open.
+  - **Equations and embedded objects**: an equation copied alone from Word, or an embedded object, is kept as a picture entry (with its text, which you can search) and pasted back into Word as an equation or object you can still edit; a program that only takes pictures gets the picture. `Shift+Enter` pastes the equation as a line of text. (Tested with Word.)
   - **Organize**: pins, groups, multi-paste in order, and `Alt+1`…`Alt+9`; pinned items can come first, and the order is yours to drag or move with `Ctrl+↑`/`↓`. `Ctrl+A` picks every listed entry, Delete all in the row menu clears them at once, and `Ctrl+Z` brings them back.
   - **Copied files that are gone**: their entry says “no longer there”, and can be hidden or cleaned out automatically (pinned and grouped entries stay; a pulled-out USB drive does not count).
+  - **Import**: Settings › Clipboard › Keeping › Import clipboard history takes a Ditto database (one click if Ditto is installed), `.txt` text and `.csv` tables (GBK files saved by Chinese Excel are recognised); what is imported goes into a new group, is never cleaned out automatically, and entries you already have are skipped.
   - **Privacy**: passwords from password managers are not kept, and the history stays on your PC.
-  - **Screenshots** (off by default; turn it on in Settings › Plugins): a shortcut or `PrtScn`, then click a window or a control, or drag an area. Mark it up right there: rectangle, ellipse, arrow, pen, highlighter, text, numbers and redaction (mosaic, blur or solid; what is under it cannot be worked back out). `Enter` copies it, into the clipboard history too, where the words in it can be searched; a marked-up picture can be opened and changed again later, from the clipboard history, the search box or a pin, with multi-select, a color picker and cropping. `F3` pins it on the screen, and its text can be read out. `jt` and a space in the search box list past screenshots by the text in them. What a double left click, the right, middle and side buttons do after you have chosen an area (copy, save, pin, read text, cancel, step back) is yours to set.
+  - **Screenshots** (off by default; turn it on in Settings › Plugins, record your own shortcut there, and turn on `PrtScn` too if you want it):
+    - **Choosing**: rest the pointer on a window or a button and it is outlined, with everything outside it dimmed; click to take it, or drag an area; the wheel makes the outline larger or smaller. Side panels and buttons in apps that draw their own interface, such as Settings and Calculator, are outlined too (not inside Chromium apps such as Chrome, Edge, VS Code and WeChat, where only the whole window is outlined; drag an area there). `Shift+R` goes back to the area of the last screenshot.
+    - **Magnifier and color**: the pixels under the pointer, enlarged; `C` copies the color under it and `Shift+C` switches between `#RRGGBB`, `rgb()` and `hsl()`.
+    - **Delay**: `D`, or Delay on the toolbar, counts down (the seconds are a setting) and freezes the screen only at the end, for menus and tooltips. “Include the mouse cursor” in the settings puts the pointer in the picture (off by default).
+    - **QR codes**: `Q` reads a QR code in the area and shows its text to copy; for a web address there is an Open link button, and nothing opens until you click it.
+    - **Marking up**: rectangle, ellipse, arrow, line, pen, highlighter, text, numbers and redaction. Numbers can be `1 2 3`, `A B C`, `a b c`, Roman numerals or numbers in circles, and a few words can be typed beside one. Redaction is mosaic, blur, solid or Smooth (covered with the surrounding background, as if wiped away), as a box or a stroke; what is under it cannot be worked back out.
+    - **Smart redaction**: after you rest on an area, WinShun reads it on your PC and finds phone numbers, ID card and bank card numbers, e-mail addresses, keys and this PC's user name, and offers “N found · click to redact”; one click (or the Smart redact button, or `Shift+B`) covers them all and one `Ctrl+Z` takes it back. It can miss some, so look once more before you send.
+    - **Scrolling screenshots**: for a web page, a chat, a document or a file list longer than the screen, choose the area and press `Ctrl+L` (or Long screenshot on the toolbar): WinShun scrolls it by itself while it shoots and stitches one long picture, opened in the editing window. Turn off Auto-scroll to scroll yourself and press `Enter` when done. Content that only scrolls sideways, or keeps moving, does not suit it.
+    - **Finishing**: `Enter` copies it, into the clipboard history too, where the words in it can be searched; `Ctrl+S` saves it to Pictures\Screenshots. “Pin screenshots when copying” also pins it on the screen whenever it is copied. A marked-up picture can be opened and changed again later, from the clipboard history, the search box or a pin, with multi-select, a color picker and cropping.
+    - **Pins**: `F3` pins it on the screen, always on top: zoom, change opacity, rotate and flip, fold it to a small tile, read its text, or drag over the text with `T` to copy it. What “Double-clicking a pin” does (back to 100%, close, fold or nothing) is a setting. A click-through pin can be reached again by holding `Ctrl` over it, to drag it or use its right-click menu.
+    - **Text and search**: Recognize text on the toolbar shows the words in a picture to copy, to search with, or to search on the web; `jt` and a space in the search box list past screenshots by the text in them.
+    - **Yours to set**: what a double left click, the right, middle and side buttons do after you have chosen an area (copy, copy and pin, save, pin, read text and copy, search or search the web, cancel, step back), and which buttons the toolbar shows.
 - 🔎 **Taskbar search box**: WinShun's own search box on the Windows 11 taskbar, or a pinned WinShun icon instead (the only way on Windows 10). The box has a fixed place the icons never push around: the taskbar's left end with centred icons, left of the tray icons with left-aligned ones; a whole box, its icon and label, or its icon alone, as Windows' own search, narrower by itself when the taskbar fills up. It works on its own or alongside Windows search; hiding Windows search, taking over `Win+S`, and searching as you type in the Start menu are all optional.
 - 🤖 **AI assistants (MCP)**
   - **What**: WinShun is an MCP server. Claude Desktop, Claude Code, Cursor and VS Code connect in one click and search file names, file contents and recent changes.
@@ -357,7 +393,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 
 | Key | Action |
 |---|---|
-| Ctrl twice | Open / close the search bar (Alt twice instead, or another shortcut such as `Alt+Space`, can be set) |
+| Ctrl twice | Open / close the search bar (Alt or Shift twice instead, or another shortcut such as `Alt+Space`, can be set) |
 | `Enter` / `Ctrl+Enter` / `Ctrl+Shift+Enter` | Open / show in folder / run as administrator |
 | `Ctrl+C` / `Ctrl+Shift+C` | Copy the file / copy its path |
 | `Ctrl+1`…`Ctrl+9` | Open the nth row (hold `Ctrl` to see the numbers) |
@@ -387,7 +423,7 @@ Requires Windows 10 or 11, 64-bit.
 - **Portable version**: by default it walks the folders one by one, so the first index is slower; changes are followed live after that. Settings → Index access can install the index service or restart it as administrator. When a portable copy installs the service, it puts a copy of the service program in `%ProgramFiles%\WinShun Service`, where only administrators can change it, so no ordinary program can swap it; an older registration gets a warning and a Repair button in the settings.
 - **Without administrator rights (“for me only”)**: pick “for me only” in Setup: no index service, and no administrator needed. WinShun then indexes only the folders you choose (Settings › Search scope › Folders; the desktop, documents, downloads, pictures and the like to begin with), and you can drag folders in from File Explorer. Changes are followed live, and everything is checked again once a day (hourly, every 4 hours or only at start are options). When the folder you type is not indexed, the search box says so: “Search it this time” looks there once, “Add to the index” keeps it. Content search still works, only slower.
 - **Direct as administrator**: on an administrator account, Settings → Index access → “Direct (administrator)” runs the whole app as administrator and reads the drives itself, as earlier versions did.
-- **Programs running as administrator**: Windows doesn't let normal-rights programs type into them. Pasting into such a window only copies, and WinShun tells you to press `Ctrl+V`; the search bar beside file dialogs doesn't appear on them either.
+- **Programs running as administrator**: Windows doesn't let normal-rights programs type into them. Pasting into such a window only copies, and WinShun tells you to press `Ctrl+V`. The search bar beside their Open / Save dialogs does appear, but it can only copy the chosen path for you to paste into the path box yourself: no automatic jump, and `Ctrl+G` does nothing there.
 - **What you open is not elevated**: files and apps you open from WinShun run with your normal rights; only `Ctrl+Shift+Enter` runs one as administrator.
 
 ### FAQ
@@ -396,7 +432,7 @@ Requires Windows 10 or 11, 64-bit.
 WinShun builds its own index, so Everything is not needed. File names, pinyin, apps and file contents are searched from one box, tuned for Chinese. File dialogs get Listary's `Ctrl+G` and a search bar, but WinShun does not embed itself in Explorer windows.
 
 **Ctrl twice clashes with another program?**
-Listary and PowerToys' Find My Mouse use it too: turn it off on one side, let WinShun use Alt twice instead, or count only the left or the right key (Settings › Open WinShun › Key to press twice / Which side), or give WinShun another shortcut. Full-screen games and games that hide the mouse are ignored by default.
+Listary and PowerToys' Find My Mouse use it too: turn it off on one side, let WinShun use Alt or Shift twice instead, or count only the left or the right key (Settings › Open WinShun › Key to press twice / Which side), or give WinShun another shortcut. (An input method that switches language with Shift switches twice on a double Shift, so it ends where it began.) Full-screen games and games that hide the mouse are ignored by default.
 
 **AutoHotkey remaps don't work in WinShun?**
 With “Direct (administrator)” chosen, WinShun runs as administrator, and Windows keeps normal-rights programs from intercepting keys sent to it. Pick another index access, or run the script with UI Access or as administrator.
@@ -409,7 +445,7 @@ With “Direct (administrator)” chosen, WinShun runs as administrator, and Win
 Under **Settings › Advanced › Diagnostic logs**, click “Export diagnostic logs” and attach the `WinShun-diagnostics.zip` from the folder that opens to a GitHub issue. It holds the version, system, disks, indexing progress and errors, not your settings, clipboard, search history or document text.
 
 **Is it free? Does it collect data?**
-Free and MIT-licensed. It goes online only to check GitHub for new versions (you can turn that off), to fetch a web shortcut's or bookmark's site icon once, to ask a site for search suggestions while you type after its keyword (nothing is sent without a site keyword; you can turn this off), and, if you turn on the “Search by meaning” plugin with a cloud service, to send document text to the service you chose. The index and history stay on your PC (`%LOCALAPPDATA%\WinShun`).
+Free and MIT-licensed. It goes online only to check GitHub for new versions (you can turn that off), to fetch a web shortcut's or bookmark's site icon once, to fetch the plugin list and plugins when you open the Plugin library page in the settings, press Refresh or install one, to ask a site for search suggestions while you type after its keyword (nothing is sent without a site keyword; you can turn this off), and, if you turn on the “Search by meaning” plugin with a cloud service, to send document text to the service you chose. The index and history stay on your PC (`%LOCALAPPDATA%\WinShun`).
 
 ### Feedback
 
