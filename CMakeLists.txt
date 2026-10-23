@@ -103,13 +103,14 @@ target_link_libraries(capture-probe PRIVATE winshun_options windowsapp d3d11 dxg
 set_target_properties(capture-probe PROPERTIES AUTOMOC OFF MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 qt_add_executable(capture-probe-qt tools/capture-probe-qt.cpp)
 target_link_libraries(capture-probe-qt PRIVATE winshun_options Qt6::Gui Qt6::Qml Qt6::Quick dwmapi dxgi psapi user32 gdi32)
-set_target_properties(capture-probe-qt PROPERTIES WIN32_EXECUTABLE OFF)
+# Neither probe loads QML imports: no scan (it would walk the whole source tree).
+set_target_properties(capture-probe-qt PROPERTIES WIN32_EXECUTABLE OFF QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
 # Long screenshot, stage 6 (docs/design-capture-roadmap.md, 2.4): leaving our
 # own windows out of the capture, posted wheel messages in real programs, and
 # the frame rate while a page scrolls. Run it with Qt's bin folder on PATH.
 qt_add_executable(scroll-probe tools/scroll-probe.cpp)
 target_link_libraries(scroll-probe PRIVATE winshun_options Qt6::Gui Qt6::Quick windowsapp d3d11 dxgi dwmapi user32 gdi32 advapi32)
-set_target_properties(scroll-probe PROPERTIES WIN32_EXECUTABLE OFF)
+set_target_properties(scroll-probe PROPERTIES WIN32_EXECUTABLE OFF QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
 
 if(WINSHUN_ASAN AND MSVC)
     # Fuzzing the parsers (tools/wsfuzz.cpp) with libFuzzer. They are built
