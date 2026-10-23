@@ -10,7 +10,7 @@ Plugins add keyword commands to the search box and mix their rows into the list.
 
 The plugins that come with Win顺 are in `<install dir>\plugins\` (all off until you turn them on under Settings → Plugins): `winshun.tools` (calculator, units, colours, timestamps, UUIDs, Base64, hashes; C++), `winshun.kill` (end a process; PowerShell), `winshun.bookmarks` (browser bookmarks; Python, once), `winshun.translate` (translation with your own API key; Python, resident), `winshun.semantic` (search by meaning: `? a sentence` finds documents by what they are about, with the embedding model you pick — Ollama on this PC or a cloud service's key; C++, resident, takes the text Win顺 already read through `winshun:content`), `winshun.web` and `winshun.go` (zero-code). Each is a working example with a README.
 
-Plugins by other people, and a place to share yours: [WinShun-plugins](https://github.com/LingCore/WinShun-plugins) (download a `.wsplugin`, then Settings → Plugins → install from archive; see its CONTRIBUTING to submit one).
+Plugins by other people, and a place to share yours: [WinShun-plugins](https://github.com/LingCore/WinShun-plugins) (install and update them right from Settings → Plugins → Library: each download is checked against the list's size and sha256, then installed as an archive would be; or download a `.wsplugin` yourself and install it from the archive on the Installed tab; see its CONTRIBUTING to submit one). The Library goes online only when its tab is opened (at most once in ten minutes), when Refresh is pressed, or to install; the last list is kept in the data folder as `plugin-index.json`.
 
 The Chinese version, [plugins.md](plugins.md), is the reference; this one follows it.
 

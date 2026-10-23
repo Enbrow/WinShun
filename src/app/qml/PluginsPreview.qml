@@ -4,10 +4,10 @@ import WinShun
 
 // The 插件 page on its own (or, with `aiPage`, the AI 助手 page), for the
 // offscreen rendering Preview.cpp does (--preview-plugins): the sections
-// in a column shaped like the settings window's page column (what
-// SettingsSection reads from its parent), over the page's colour, and the
-// permission dialog over it when asked. Never shown to anyone: a window
-// only so that it can be grabbed.
+// (its three tabs one under another) in a column shaped like the settings
+// window's page column (what SettingsSection reads from its parent), over
+// the page's colour, and the permission dialog over it when asked. Never
+// shown to anyone: a window only so that it can be grabbed.
 Window {
     id: preview
 
@@ -56,6 +56,13 @@ Window {
 
         PluginsSection {
             id: pluginsSection
+            page: 0
+            width: parent.width
+            visible: !preview.aiPage
+            plugins: preview.plugins
+        }
+
+        PluginGallerySection {
             page: 0
             width: parent.width
             visible: !preview.aiPage

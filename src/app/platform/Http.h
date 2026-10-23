@@ -4,6 +4,7 @@
 #include <QList>
 #include <QString>
 
+#include <functional>
 #include <utility>
 
 namespace ws::http {
@@ -23,12 +24,16 @@ struct Response {
 // a reused connection answers in tens of milliseconds instead of hundreds.
 enum class Session { Own, Shared };
 
+// Hears how much of the body has come, after each piece read; false stops
+// the call, which then ends with no answer (error ERROR_CANCELLED).
+using Progress = std::function<bool(qint64 received)>;
+
 // A blocking GET through WinHTTP: the system's TLS and proxy settings (a
 // proxy many users need to reach GitHub), and no TLS plugin for Qt Network
 // to ship. Redirects are followed. Run it off the GUI thread. The body stops
 // at `maxBytes` (0: no limit). `timeoutMs` is each step's (resolving,
 // connecting, sending, waiting for the answer), not the whole call's.
 Response get(const QString& url, const QList<std::pair<QString, QString>>& headers, int timeoutMs = 20000,
-    qsizetype maxBytes = 0, Session session = Session::Own);
+    qsizetype maxBytes = 0, Session session = Session::Own, const Progress& progress = {});
 
 } // namespace ws::http

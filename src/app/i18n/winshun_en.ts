@@ -3149,6 +3149,112 @@
     </message>
 </context>
 <context>
+    <name>PluginGalleryEntry</name>
+    <message>
+        <source>%1（这台电脑还没装）</source>
+        <translation>%1 (not installed on this PC)</translation>
+    </message>
+    <message>
+        <source>权限</source>
+        <translation>Permissions</translation>
+    </message>
+    <message>
+        <source>不需要额外的权限</source>
+        <translation>No extra permissions</translation>
+    </message>
+    <message>
+        <source>已安装 %1</source>
+        <translation>Installed %1</translation>
+    </message>
+    <message>
+        <source>随 Win顺 自带</source>
+        <translation>Comes with WinShun</translation>
+    </message>
+    <message>
+        <source>已装 %1</source>
+        <translation>You have %1</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>安装</source>
+        <translation>Install</translation>
+    </message>
+    <message>
+        <source>更新到 %1</source>
+        <translation>Update to %1</translation>
+    </message>
+    <message>
+        <source>需要更新 Win顺</source>
+        <translation>Update WinShun first</translation>
+    </message>
+    <message>
+        <source>查看</source>
+        <translation>Show</translation>
+    </message>
+    <message>
+        <source>正在下载… %1%</source>
+        <translation>Downloading… %1%</translation>
+    </message>
+    <message>
+        <source>要 Win顺 %1 或更新的版本，可以在“高级”里检查更新</source>
+        <translation>Needs WinShun %1 or newer; you can check for updates under “Advanced”</translation>
+    </message>
+</context>
+<context>
+    <name>PluginGallerySection</name>
+    <message>
+        <source>Win顺 插件库里的插件，下载后先核对文件再安装。装好的插件默认关着，打开时会先列出它要的权限。</source>
+        <translation>Plugins from the WinShun plugin library. Each download is checked before it is installed. A new plugin starts out off, and turning it on first shows the permissions it asks for.</translation>
+    </message>
+    <message>
+        <source>刚才的结果</source>
+        <translation>Last result</translation>
+    </message>
+    <message>
+        <source>知道了</source>
+        <translation>OK</translation>
+    </message>
+    <message>
+        <source>插件库</source>
+        <translation>Plugin library</translation>
+    </message>
+    <message>
+        <source>下载插件;安装插件;更新插件;商店;市场;store;gallery;download</source>
+        <translation>download plugins;install plugins;update plugins;store;marketplace;gallery</translation>
+    </message>
+    <message>
+        <source>刷新</source>
+        <translation>Refresh</translation>
+    </message>
+    <message>
+        <source>筛选：名称、关键字、说明</source>
+        <translation>Filter: name, keyword, description</translation>
+    </message>
+    <message>
+        <source>没有找到“%1”</source>
+        <translation>Nothing matches “%1”</translation>
+    </message>
+    <message>
+        <source>分享你的插件</source>
+        <translation>Share your plugin</translation>
+    </message>
+    <message>
+        <source>投稿;发布;提交;开发;share;publish;submit</source>
+        <translation>share;publish;submit;develop;contribute</translation>
+    </message>
+    <message>
+        <source>做了好用的插件？可以投稿到插件库，给大家用</source>
+        <translation>Made a useful plugin? Submit it to the plugin library for everyone to use</translation>
+    </message>
+    <message>
+        <source>看看怎么投稿</source>
+        <translation>How to submit</translation>
+    </message>
+</context>
+<context>
     <name>PluginsPreview</name>
     <message>
         <source>插件</source>
@@ -3275,6 +3381,10 @@
     <message>
         <source>随 Win顺 一起提供，默认关着；关着时不占内存，也不注册快捷键</source>
         <translation>Come with WinShun, off by default; while off they use no memory and register no shortcut</translation>
+    </message>
+    <message>
+        <source>从插件库挑选</source>
+        <translation>From the plugin library</translation>
     </message>
 </context>
 <context>
@@ -3681,6 +3791,10 @@
     <message>
         <source>已安装</source>
         <translation>Installed</translation>
+    </message>
+    <message>
+        <source>插件库</source>
+        <translation>Library</translation>
     </message>
     <message>
         <source>开发者</source>
@@ -8457,6 +8571,146 @@
     </message>
 </context>
 <context>
+    <name>ws::PluginGallery</name>
+    <message numerus="yes">
+        <source>%n 个插件；正在获取最新的列表…</source>
+        <translation>
+            <numerusform>%n plugin; getting the latest list…</numerusform>
+            <numerusform>%n plugins; getting the latest list…</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>正在获取插件列表…</source>
+        <translation>Getting the plugin list…</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 个插件</source>
+        <translation>
+            <numerusform>%n plugin</numerusform>
+            <numerusform>%n plugins</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 个插件；列表是 %1 获取的</source>
+        <translation>
+            <numerusform>%n plugin; list from %1</numerusform>
+            <numerusform>%n plugins; list from %1</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>没看懂插件列表，过一会儿再试。</source>
+        <translation>Couldn’t read the plugin list. Try again in a while.</translation>
+    </message>
+    <message>
+        <source>需要 Python 3</source>
+        <translation>Needs Python 3</translation>
+    </message>
+    <message>
+        <source>需要 PowerShell 7</source>
+        <translation>Needs PowerShell 7</translation>
+    </message>
+    <message>
+        <source>需要 Node.js</source>
+        <translation>Needs Node.js</translation>
+    </message>
+    <message>
+        <source>这个插件包太大（%1 MB），没有下载。</source>
+        <translation>This plugin package is too big (%1 MB), so it wasn’t downloaded.</translation>
+    </message>
+    <message>
+        <source>下载的文件校验不对，没有安装。再试一次；还不行就过一会儿再试。</source>
+        <translation>The download didn’t pass the check, so it wasn’t installed. Try again; if it still fails, try again later.</translation>
+    </message>
+    <message>
+        <source>下载的文件存不下：%1</source>
+        <translation>Couldn’t save the download: %1</translation>
+    </message>
+    <message>
+        <source>GitHub 暂时不让下载（访问太频繁），过一会儿再试。</source>
+        <translation>GitHub is limiting downloads right now. Try again in a while.</translation>
+    </message>
+    <message>
+        <source>GitHub 上没有这个文件了，可能刚更新过：点“刷新”再试。</source>
+        <translation>The file is no longer on GitHub; it may have just been updated. Click “Refresh” and try again.</translation>
+    </message>
+    <message>
+        <source>GitHub 返回了错误（%1）。</source>
+        <translation>GitHub returned an error (%1).</translation>
+    </message>
+    <message>
+        <source>网络不通，找不到 GitHub。检查一下网络。</source>
+        <translation>Can’t find GitHub: no network. Check your connection.</translation>
+    </message>
+    <message>
+        <source>连接 GitHub 超时。网络没问题的话，可能要开代理。</source>
+        <translation>GitHub took too long to answer. If your network is fine, you may need a proxy.</translation>
+    </message>
+    <message>
+        <source>读不了这个文件（错误 %1）。</source>
+        <translation>Couldn’t read the file (error %1).</translation>
+    </message>
+    <message>
+        <source>连不上 GitHub。网络没问题的话，可能要开代理。</source>
+        <translation>Couldn’t reach GitHub. If your network is fine, you may need a proxy.</translation>
+    </message>
+    <message>
+        <source>翻译</source>
+        <translation>Translate</translation>
+    </message>
+    <message>
+        <source>fy 词：中英互译，Enter 复制译文</source>
+        <translation>fy words: translates between Chinese and English; Enter copies the translation</translation>
+    </message>
+    <message>
+        <source>结束进程</source>
+        <translation>Kill process</translation>
+    </message>
+    <message>
+        <source>kill &lt;进程名或 PID&gt; 列出进程，Enter 结束，Ctrl+Enter 连同子进程</source>
+        <translation>kill &lt;name or PID&gt; lists processes; Enter kills, Ctrl+Enter with children</translation>
+    </message>
+    <message>
+        <source>浏览器书签</source>
+        <translation>Browser bookmarks</translation>
+    </message>
+    <message>
+        <source>bm 词：搜 Chrome 和 Edge 的书签，Enter 打开</source>
+        <translation>bm words: searches Chrome and Edge bookmarks; Enter opens</translation>
+    </message>
+    <message>
+        <source>剪贴板存档</source>
+        <translation>Clipboard archive</translation>
+    </message>
+    <message>
+        <source>cb 词：把剪贴板记录存成每天一个文本文件</source>
+        <translation>cb: saves the clipboard history as one text file a day</translation>
+    </message>
+    <message>
+        <source>天气</source>
+        <translation>Weather</translation>
+    </message>
+    <message>
+        <source>tq 词：今天和明天的天气</source>
+        <translation>tq: today’s and tomorrow’s weather</translation>
+    </message>
+    <message>
+        <source>倒计时</source>
+        <translation>Countdown</translation>
+    </message>
+    <message>
+        <source>ds 5m：五分钟后提醒</source>
+        <translation>ds 5m: a reminder in five minutes</translation>
+    </message>
+    <message>
+        <source>便签</source>
+        <translation>Notes</translation>
+    </message>
+    <message>
+        <source>bq 词：记一句话，再搜出来</source>
+        <translation>bq: jot down a line, find it again later</translation>
+    </message>
+</context>
+<context>
     <name>ws::PluginSettings</name>
     <message>
         <source>这些由 Windows 强制：不是管理员、内存上限、子进程、剪贴板、窗口。这些只是插件自己的说明，Win顺 挡不住：联网、读哪些文件、写哪些文件（严格沙箱的插件除外）。只安装你信得过来源的插件。</source>
@@ -8808,6 +9062,10 @@
     <message>
         <source>时间戳</source>
         <translation>Timestamp</translation>
+    </message>
+    <message>
+        <source>没有安装 %1：下载来的是另一个插件（%2）</source>
+        <translation>%1 wasn’t installed: the download is a different plugin (%2)</translation>
     </message>
 </context>
 <context>

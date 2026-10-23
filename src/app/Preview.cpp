@@ -688,8 +688,10 @@ int runSettings(const QStringList& args)
         int tab;
     };
     const Probe probes[] = {
+        {u"无需面板"_s, window->property("clipboardPage").toInt(), 1},
         {u"插件"_s, pluginsPage, 0},
-        {u"消息记录"_s, pluginsPage, 1}, // the 开发者 tab (developer mode is on in the preview)
+        {u"插件库"_s, pluginsPage, 1},
+        {u"消息记录"_s, pluginsPage, 2}, // the 开发者 tab (developer mode is on in the preview)
         {u"API 密钥"_s, pluginsPage, 0}, // a plugin's own setting: its card unfolds (search-API 密钥.png)
         {u"AI"_s, aiPage, 0},
         {u"收藏"_s, favoritesPage, 0},

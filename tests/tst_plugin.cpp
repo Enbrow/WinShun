@@ -1,10 +1,12 @@
 // The plugin system (src/plugin): manifests, items, zero-code commands, the
-// catalog's keywords, and plugin processes for real -- started through the
-// runner WinShunPluginHost.exe, played by plugin_fake.exe -- with the
-// protocol, cancelling, timeouts, crashes and restarts, encodings, and
-// (run elevated) the token, job and permissions a plugin process gets.
+// catalog's keywords, installing (from the 插件库's list too), and plugin
+// processes for real -- started through the runner WinShunPluginHost.exe,
+// played by plugin_fake.exe -- with the protocol, cancelling, timeouts,
+// crashes and restarts, encodings, and (run elevated) the token, job and
+// permissions a plugin process gets.
 
 #include "Catalog.h"
+#include "Gallery.h"
 #include "Host.h"
 #include "IndexService.h"
 #include "Install.h"
@@ -20,6 +22,7 @@
 #include "WebShortcut.h"
 #include "ZeroCode.h"
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -1243,6 +1246,119 @@ private slots:
         c = install::inspect(f.dir.path() + u"/junk.zip"_s);
         QVERIFY(c.has_value() && !c->manifest);
         QVERIFY2(c->error.contains(u"zip"_s), qPrintable(c->error));
+    }
+
+    // ---- the plugin library (Gallery.h) ------------------------------------------
+    void galleryListStatesAndPackage()
+    {
+        namespace gallery = ws::plugin::gallery;
+        QTemporaryDir dir;
+        const QString root = dir.path();
+        // A package, and a list beside it naming it by a relative address.
+        const QString package = root + u"/list/test.lib-1.2.0.wsplugin"_s;
+        QVERIFY(QDir().mkpath(root + u"/list"_s));
+        QVERIFY(writeZip(package, {{u"plugin.json"_s, zeroManifest(u"test.lib"_s, u"1.2.0"_s)}}));
+        QFile file(package);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QByteArray bytes = file.readAll();
+        file.close();
+        const QString sha = QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+        const auto entry = [&](const QString& id, const QString& url, const QString& hash, qint64 size, const QString& minWinShun = {}) {
+            return QJsonObject {{u"id"_s, id}, {u"name"_s, QJsonObject {{u"zh"_s, u"库"_s}, {u"en"_s, u"Lib"_s}}}, {u"version"_s, u"1.2.0"_s},
+                {u"minWinShun"_s, minWinShun}, {u"keywords"_s, QJsonArray {u"lib"_s}},
+                {u"permissions"_s, QJsonArray {u"network"_s, QJsonObject {{u"files:read"_s, QJsonArray {u"x"_s}}}}},
+                {u"runtime"_s, QJsonObject {{u"mode"_s, u"once"_s}, {u"program"_s, u"python"_s}}}, {u"url"_s, url}, {u"sha256"_s, hash},
+                {u"size"_s, static_cast<double>(size)}};
+        };
+        const QJsonArray entries {
+            entry(u"test.lib"_s, u"test.lib-1.2.0.wsplugin"_s, sha.toUpper(), bytes.size()),
+            entry(u"test.new"_s, package, sha, bytes.size(), u"9.0"_s),
+            entry(u"Bad Id"_s, package, sha, bytes.size()), // left out: the id
+            entry(u"test.nohash"_s, package, QString(), bytes.size()), // left out: no SHA-256
+            entry(u"test.lib"_s, package, sha, bytes.size()), // left out: the same id again
+        };
+        const QByteArray json = QJsonDocument(QJsonObject {{u"schema"_s, 1}, {u"generated"_s, u"2026-10-23T00:00:00Z"_s}, {u"plugins"_s, entries}}).toJson();
+        const QString listPath = root + u"/list/index.json"_s;
+        QString error;
+        const std::optional<gallery::Index> index = gallery::parse(json, listPath, &error);
+        QVERIFY2(index.has_value(), qPrintable(error));
+        QCOMPARE(index->items.size(), 2u);
+        QCOMPARE(index->skipped, 3);
+        const gallery::Item* lib = index->find(u"test.lib"_s);
+        QVERIFY(lib);
+        QCOMPARE(lib->name.pick(u"en"_s), u"Lib"_s);
+        QCOMPARE(lib->sha256, sha); // lower-cased
+        QCOMPARE(lib->url, QDir::toNativeSeparators(package)); // beside the list
+        QCOMPARE(lib->permissions, (QStringList {u"network"_s, u"files:read"_s}));
+        QVERIFY(lib->program == Program::Python);
+        QVERIFY(!gallery::parse("[]", listPath, &error));
+        QVERIFY(!gallery::parse(R"({"schema":2,"plugins":[]})", listPath, &error));
+        // From the web: a relative address is taken from the list's; anything but https is left out.
+        const QJsonArray webEntries {
+            entry(u"test.web"_s, u"test.web-1.wsplugin"_s, sha, 1),
+            entry(u"test.http"_s, u"http:"_s + u"//example.com/a.wsplugin"_s, sha, 1),
+            entry(u"test.file"_s, package, sha, 1),
+        };
+        const std::optional<gallery::Index> web = gallery::parse(QJsonDocument(QJsonObject {{u"schema"_s, 1}, {u"plugins"_s, webEntries}}).toJson(),
+            u"https:"_s + u"//example.com/dl/index.json"_s, &error);
+        QVERIFY2(web.has_value(), qPrintable(error));
+        QCOMPARE(web->items.size(), 1u);
+        QCOMPARE(web->items[0].url, u"https:"_s + u"//example.com/dl/test.web-1.wsplugin"_s);
+        QCOMPARE(web->skipped, 2);
+
+        // What each is here.
+        const QString userDir = root + u"/user"_s;
+        const QString bundledDir = root + u"/bundled"_s;
+        Catalog catalog(userDir, bundledDir);
+        const QString app = u"0.12.0"_s;
+        const auto stateNow = [&](const gallery::Item& item) {
+            catalog.scan();
+            return gallery::stateOf(item, gallery::localOf(catalog, bundledDir, item.id), app);
+        };
+        gallery::Item asks = *lib; // the same, asking for a newer Win顺
+        asks.minWinShun = u"9.0"_s;
+        QVERIFY(stateNow(*lib) == gallery::State::Install);
+        QVERIFY(stateNow(asks) == gallery::State::NeedsNewerApp);
+        QVERIFY(writeFile(bundledDir + u"/test.lib/plugin.json"_s, zeroManifest(u"test.lib"_s, u"1.0.0"_s)));
+        QVERIFY(stateNow(*lib) == gallery::State::Bundled);
+        QVERIFY(stateNow(asks) == gallery::State::Bundled); // updated with Win顺
+        QVERIFY(writeFile(userDir + u"/test.lib/plugin.json"_s, zeroManifest(u"test.lib"_s, u"1.0.0"_s)));
+        QVERIFY(stateNow(*lib) == gallery::State::Update);
+        QVERIFY(stateNow(asks) == gallery::State::NeedsNewerApp);
+        QVERIFY(writeFile(userDir + u"/test.lib/plugin.json"_s, zeroManifest(u"test.lib"_s, u"1.2.0"_s)));
+        QVERIFY(stateNow(*lib) == gallery::State::Installed);
+        QVERIFY(writeFile(userDir + u"/test.lib/plugin.json"_s, zeroManifest(u"test.lib"_s, u"1.3.0"_s)));
+        QVERIFY(stateNow(asks) == gallery::State::Installed); // newer than the list's: nothing to do
+
+        // The package: fetched from its file in pieces, checked, saved, looked at by the install.
+        int reports = 0;
+        gallery::Fetched f = gallery::fetch(lib->url, lib->size + 1, {}, [&](qint64) { return ++reports > 0; });
+        QCOMPARE(f.status, 200);
+        QCOMPARE(f.body, bytes);
+        QVERIFY(reports >= 1);
+        QVERIFY(gallery::check(*lib, f.body) == gallery::Problem::None);
+        QByteArray changed = f.body;
+        changed[changed.size() / 2] = static_cast<char>(changed[changed.size() / 2] ^ 1);
+        QVERIFY(gallery::check(*lib, changed) == gallery::Problem::HashMismatch);
+        QVERIFY(gallery::check(*lib, f.body + "x") == gallery::Problem::SizeMismatch);
+        gallery::Item huge = *lib;
+        huge.size = gallery::kMaxPackageBytes + 1;
+        QVERIFY(gallery::check(huge, f.body) == gallery::Problem::TooBig);
+        QCOMPARE(gallery::fetch(lib->url, 10, {}).body.size(), 10); // cut at maxBytes
+        const gallery::Fetched stopped = gallery::fetch(lib->url, 0, {}, [](qint64) { return false; });
+        QCOMPARE(stopped.status, 0);
+        QCOMPARE(stopped.error, static_cast<unsigned long>(ERROR_CANCELLED));
+        QCOMPARE(gallery::fetch(root + u"/missing.wsplugin"_s, 0, {}).error, static_cast<unsigned long>(ERROR_FILE_NOT_FOUND));
+        QCOMPARE(gallery::fetch(web->items[0].url, 0, {}).status, 0); // a web address and no fetcher
+        const QString saved = gallery::saveTemporary(*lib, f.body, &error);
+        QVERIFY2(!saved.isEmpty(), qPrintable(error));
+        QVERIFY(saved.endsWith(u".wsplugin"_s));
+        std::optional<install::Candidate> candidate = install::inspect(saved);
+        QVERIFY(candidate.has_value());
+        QVERIFY2(candidate->manifest.has_value(), qPrintable(candidate->error));
+        QCOMPARE(candidate->manifest->id, u"test.lib"_s);
+        install::discard(*candidate);
+        QVERIFY(QFile::remove(saved));
     }
 
     void uninstallRemovesEverything()

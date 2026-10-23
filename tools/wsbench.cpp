@@ -156,6 +156,22 @@
 //                      settings page would); --action runs that action on
 //                      the first item of the first answer and prints the
 //                      effects
+//   wsbench --plugin-index [URL-OR-FILE]
+//                      the 插件库's list (src/plugin/Gallery.h), from the
+//                      address or file given, else WINSHUN_PLUGIN_INDEX,
+//                      else the published one: fetched through WinHTTP as
+//                      the settings page does, read, and each plugin printed
+//                      with what the tab would say of it here (安装, 更新到,
+//                      已安装, 随 Win顺 自带, 需要更新 Win顺: the user's
+//                      plugins of the profile, the bundled ones next to
+//                      wsbench), its permissions (the riskiest marked !)
+//                      and the interpreter it needs
+//   wsbench --plugin-install-from-index ID [--index URL-OR-FILE] [--stop-after BYTES]
+//                      what 安装 does before the install's own questions:
+//                      the package downloaded, its size and SHA-256 checked
+//                      against the list, saved to a temporary file and read
+//                      by install::inspect; then removed, nothing installed.
+//                      --stop-after stops the download there, as 取消 does
 //   wsbench --semantic [--setting KEY=VALUE ...] [--data FOLDER] [--wait S] [--settle S] [--no-start] ["QUERY" ...]
 //                      the 按意思找 plugin (winshun.semantic) over a copy of
 //                      the index and the content index, its settings from
@@ -192,9 +208,12 @@
 #include "Crawler.h"
 #include "DocExtractor.h"
 #include "Documents.h"
+#include "Catalog.h"
 #include "Extract.h"
+#include "Gallery.h"
 #include "Host.h"
 #include "IndexService.h"
+#include "Install.h"
 #include "Items.h"
 #include "Manifest.h"
 #include "McpServer.h"
@@ -206,6 +225,7 @@
 #include "NtfsBulk.h"
 #include "NtfsIndexer.h"
 #include "PathText.h"
+#include "Programs.h"
 #include "Query.h"
 #include "ScrollStitcher.h"
 #include "SearchEngine.h"
@@ -229,6 +249,7 @@
 #include "platform/Http.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDeadlineTimer>
 #include <QDir>
@@ -5190,6 +5211,214 @@ int runSemantic(QStringList args)
     return 0;
 }
 
+// ---- the plugin library (--plugin-index, --plugin-install-from-index) -----------
+
+namespace {
+
+namespace gallery = ws::plugin::gallery;
+
+// WinHTTP as the app's 插件库 has it (PluginGallery): the system's proxy.
+gallery::Fetched webFetch(const QString& url, qint64 maxBytes, const gallery::Progress& progress)
+{
+    ws::http::Response r = ws::http::get(url, {}, 30000, maxBytes, ws::http::Session::Own, progress);
+    return gallery::Fetched {r.status, std::move(r.body), r.error};
+}
+
+// What the tab would say of it.
+QString galleryStateText(const gallery::Item& item, gallery::State state, const gallery::Local& local)
+{
+    switch (state) {
+    case gallery::State::Install: return u"安装"_s;
+    case gallery::State::Update: return u"更新到 %1（已装 %2）"_s.arg(item.version, local.userVersion.isEmpty() ? u"?"_s : local.userVersion);
+    case gallery::State::Installed: return u"已安装 %1"_s.arg(local.userVersion);
+    case gallery::State::Bundled: return u"随 Win顺 自带"_s;
+    case gallery::State::NeedsNewerApp: return u"需要更新 Win顺（要 %1）"_s.arg(item.minWinShun);
+    }
+    return {};
+}
+
+// `--index SOURCE`, else the first word that is no flag, else
+// WINSHUN_PLUGIN_INDEX, else the published list.
+QString gallerySource(QStringList& args, bool positional)
+{
+    if (const qsizetype at = args.indexOf(u"--index"_s); at >= 0 && at + 1 < args.size()) {
+        const QString source = args[at + 1];
+        args.remove(at, 2);
+        return source;
+    }
+    if (positional) {
+        for (const QString& a : std::as_const(args)) {
+            if (!a.startsWith(u"--"_s))
+                return a;
+        }
+    }
+    const QString given = qEnvironmentVariable("WINSHUN_PLUGIN_INDEX");
+    return given.isEmpty() ? QString(gallery::kIndexUrl) : given;
+}
+
+std::optional<gallery::Index> loadGallery(const QString& source)
+{
+    QElapsedTimer t;
+    t.start();
+    const gallery::Fetched f = gallery::fetch(source, gallery::kMaxIndexBytes + 1, webFetch);
+    std::printf("list: %s\n  HTTP %d (error %lu), %lld bytes, %.0f ms\n", qUtf8Printable(source), f.status, f.error,
+        static_cast<long long>(f.body.size()), msSince(t));
+    if (f.status != 200)
+        return std::nullopt;
+    QString error;
+    std::optional<gallery::Index> index = gallery::parse(f.body, source, &error);
+    if (!index) {
+        std::printf("  not a list: %s\n", qUtf8Printable(error));
+        return std::nullopt;
+    }
+    std::printf("  made %s: %zu plugin(s), %d left out\n", qUtf8Printable(index->generated), index->items.size(), index->skipped);
+    return index;
+}
+
+// The plugins here: the user's folder of the profile (--profile), the
+// bundled ones next to wsbench (as next to WinShun.exe).
+QString galleryBundledDir()
+{
+    const QString dir = QDir::toNativeSeparators(QCoreApplication::applicationDirPath() + u"/plugins"_s);
+    return QFileInfo::exists(dir) ? dir : QString();
+}
+
+} // namespace
+
+// Fetches and reads the 插件库's list (a web address or a file) and prints
+// each plugin as the tab would show it here.
+int runPluginIndex(QStringList args)
+{
+    args.removeAll(u"--plugin-index"_s);
+    const QString source = gallerySource(args, true);
+    const std::optional<gallery::Index> index = loadGallery(source);
+    if (!index)
+        return 2;
+    const QString userDir = ws::Settings::dataDir() + u"\\plugins"_s;
+    const QString bundledDir = galleryBundledDir();
+    ws::plugin::Catalog catalog(userDir, bundledDir);
+    catalog.scan();
+    std::printf("here: Win顺 %s; user's plugins %s; bundled %s\n\n", WINSHUN_VERSION, qUtf8Printable(userDir),
+        bundledDir.isEmpty() ? "(none)" : qUtf8Printable(bundledDir));
+    for (const gallery::Item& item : index->items) {
+        const gallery::Local local = gallery::localOf(catalog, bundledDir, item.id);
+        const gallery::State state = gallery::stateOf(item, local, QStringLiteral(WINSHUN_VERSION));
+        QStringList permissions;
+        for (const QString& name : item.permissions) {
+            const std::optional<ws::plugin::Permission> p = ws::plugin::permissionFromName(name);
+            const bool risky = p && (*p == ws::plugin::Permission::Network || *p == ws::plugin::Permission::FilesWrite || *p == ws::plugin::Permission::Processes);
+            permissions.push_back(risky ? u"!"_s + name : name);
+        }
+        QString needs = u"-"_s;
+        if (item.program) {
+            const QString found = ws::plugin::programs::find(*item.program);
+            needs = u"%1 (%2)"_s.arg(item.program == ws::plugin::Program::Python ? u"python"_s : item.program == ws::plugin::Program::Pwsh ? u"pwsh"_s
+                                         : item.program == ws::plugin::Program::Node ? u"node"_s : item.program == ws::plugin::Program::PowerShell ? u"powershell"_s : u"exe"_s,
+                found.isEmpty() ? u"not found"_s : found);
+        }
+        std::printf("%s %s  =>  %s\n    %s: %s\n    keywords %s; permissions %s; needs %s; minWinShun %s\n    %lld bytes, sha256 %s\n    %s\n",
+            qUtf8Printable(item.id), qUtf8Printable(item.version), qUtf8Printable(galleryStateText(item, state, local)),
+            qUtf8Printable(item.name.pick(u"zh"_s)), qUtf8Printable(item.description.pick(u"zh"_s)),
+            qUtf8Printable(item.keywords.isEmpty() ? u"-"_s : item.keywords.join(u' ')),
+            qUtf8Printable(permissions.isEmpty() ? u"-"_s : permissions.join(u' ')), qUtf8Printable(needs),
+            qUtf8Printable(item.minWinShun.isEmpty() ? u"-"_s : item.minWinShun), static_cast<long long>(item.size),
+            qUtf8Printable(item.sha256), qUtf8Printable(item.url));
+    }
+    return 0;
+}
+
+// What 安装 / 更新到 does before the install's own questions: the package
+// downloaded (its progress heard; --stop-after N stops it there, as 取消
+// does), checked against the list, saved to a temporary file and looked at
+// by the install (install::inspect); then let go of, nothing installed.
+int runPluginInstallFromIndex(QStringList args)
+{
+    args.removeAll(u"--plugin-install-from-index"_s);
+    qint64 stopAfter = -1;
+    if (const qsizetype at = args.indexOf(u"--stop-after"_s); at >= 0 && at + 1 < args.size()) {
+        stopAfter = args[at + 1].toLongLong();
+        args.remove(at, 2);
+    }
+    const QString source = gallerySource(args, false);
+    args.removeIf([](const QString& a) { return a.startsWith(u"--"_s); });
+    if (args.isEmpty()) {
+        std::printf("usage: wsbench --plugin-install-from-index ID [--index URL-OR-FILE] [--stop-after BYTES]\n");
+        return 1;
+    }
+    const QString id = args.first();
+    const std::optional<gallery::Index> index = loadGallery(source);
+    if (!index)
+        return 2;
+    const gallery::Item* item = index->find(id);
+    if (!item) {
+        std::printf("%s is not in the list\n", qUtf8Printable(id));
+        return 3;
+    }
+    const QString bundledDir = galleryBundledDir();
+    ws::plugin::Catalog catalog(ws::Settings::dataDir() + u"\\plugins"_s, bundledDir);
+    catalog.scan();
+    const gallery::Local local = gallery::localOf(catalog, bundledDir, item->id);
+    const gallery::State state = gallery::stateOf(*item, local, QStringLiteral(WINSHUN_VERSION));
+    std::printf("%s %s: %s%s\n", qUtf8Printable(item->id), qUtf8Printable(item->version), qUtf8Printable(galleryStateText(*item, state, local)),
+        state == gallery::State::Install || state == gallery::State::Update ? "" : " (the tab offers no install; checked anyway)");
+    if (item->size > gallery::kMaxPackageBytes) {
+        std::printf("the list says %lld bytes: more than the %lld allowed, not downloaded\n", static_cast<long long>(item->size),
+            static_cast<long long>(gallery::kMaxPackageBytes));
+        return 5;
+    }
+
+    QElapsedTimer t;
+    t.start();
+    int reports = 0;
+    const gallery::Progress progress = [&](qint64 received) {
+        ++reports;
+        return stopAfter < 0 || received < stopAfter;
+    };
+    const gallery::Fetched f = gallery::fetch(item->url, item->size + 1, webFetch, progress);
+    std::printf("package: %s\n  HTTP %d (error %lu%s), %lld bytes, %.0f ms, %d progress report(s)\n", qUtf8Printable(item->url), f.status, f.error,
+        f.error == ERROR_CANCELLED ? ": stopped" : "", static_cast<long long>(f.body.size()), msSince(t), reports);
+    if (f.status != 200)
+        return 4;
+    const QString sha256 = QString::fromLatin1(QCryptographicHash::hash(f.body, QCryptographicHash::Sha256).toHex());
+    std::printf("  size %lld, the list says %lld: %s\n  sha256 %s\n  the list's %s: %s\n", static_cast<long long>(f.body.size()),
+        static_cast<long long>(item->size), f.body.size() == item->size ? "same" : "DIFFERENT", qUtf8Printable(sha256),
+        qUtf8Printable(item->sha256), sha256 == item->sha256 ? "same" : "DIFFERENT");
+    const gallery::Problem problem = gallery::check(*item, f.body);
+    if (problem != gallery::Problem::None) {
+        std::printf("check: %s, not installed\n", problem == gallery::Problem::SizeMismatch ? "size mismatch"
+                                                   : problem == gallery::Problem::HashMismatch ? "sha256 mismatch" : "too big");
+        return 5;
+    }
+    QString error;
+    const QString path = gallery::saveTemporary(*item, f.body, &error);
+    if (path.isEmpty()) {
+        std::printf("check: ok; could not save it: %s\n", qUtf8Printable(error));
+        return 6;
+    }
+    std::printf("check: ok; saved %s\n", qUtf8Printable(path));
+    std::optional<ws::plugin::install::Candidate> candidate = ws::plugin::install::inspect(path);
+    int result = 0;
+    if (!candidate || !candidate->manifest) {
+        std::printf("inspect: %s\n", candidate ? qUtf8Printable(candidate->error) : "the file is gone");
+        result = 6;
+    } else {
+        const ws::plugin::Manifest& m = *candidate->manifest;
+        std::printf("inspect: %s %s (%s), permissions %s, unpacked to %s\n", qUtf8Printable(m.id), qUtf8Printable(m.version),
+            qUtf8Printable(m.name.pick(u"zh"_s)), qUtf8Printable(m.permissions.names().isEmpty() ? u"-"_s : m.permissions.names().join(u' ')),
+            qUtf8Printable(candidate->dir));
+        if (m.id != item->id) {
+            std::printf("  the package is %s, not %s: the app would not install it\n", qUtf8Printable(m.id), qUtf8Printable(item->id));
+            result = 6;
+        } else if (m.version != item->version) {
+            std::printf("  its version is %s, the list says %s\n", qUtf8Printable(m.version), qUtf8Printable(item->version));
+        }
+        ws::plugin::install::discard(*candidate);
+    }
+    std::printf("removed the temporary file: %s; the unpacked folder: %s\n", QFile::remove(path) ? "yes" : "NO",
+        candidate && QFileInfo::exists(candidate->dir) ? "STILL THERE" : "gone");
+    return result;
+}
+
 // ---- sites' icons (--site-icon) -----------------------------------------------
 
 // Fetches each home page's icon as Win顺 does (siteicons::fetchNow): which
@@ -5493,6 +5722,10 @@ int main(int argc, char* argv[])
     }
     if (args.contains(u"--plugin"_s))
         return runPlugin(args);
+    if (args.contains(u"--plugin-index"_s))
+        return runPluginIndex(args);
+    if (args.contains(u"--plugin-install-from-index"_s))
+        return runPluginInstallFromIndex(args);
     if (args.contains(u"--semantic"_s)) {
         args.removeAll(u"--semantic"_s);
         return runSemantic(args);

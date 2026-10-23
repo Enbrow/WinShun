@@ -59,7 +59,7 @@ Window {
         [qsTr("记录"), qsTr("快捷键", "settings tab"), qsTr("保留")],
         [],
         window.editor.mcp ? [qsTr("权限"), qsTr("连接客户端"), qsTr("隐私与记录")] : [], // the others: nothing while off
-        window.editor.plugins.developerMode ? [qsTr("已安装"), qsTr("开发者")] : [], // 开发者: in developer mode only
+        window.editor.plugins.developerMode ? [qsTr("已安装"), qsTr("插件库"), qsTr("开发者")] : [qsTr("已安装"), qsTr("插件库")], // 开发者: in developer mode only
         []
     ]
     readonly property int gleaningPage: 11
@@ -68,7 +68,7 @@ Window {
     readonly property int clipboardPage: 7
     readonly property int advancedPage: 8 // where the updates are
     readonly property int aiPage: 9 // AI 助手: the MCP server (AiAccessSection, AiClientsSection, AiPrivacySection)
-    readonly property int pluginsPage: 10 // 插件: 已安装 (PluginsSection), 开发者 (PluginDevSection)
+    readonly property int pluginsPage: 10 // 插件: 已安装 (PluginsSection), 插件库 (PluginGallerySection), 开发者 (PluginDevSection)
     readonly property string tapKey: editor.doubleTapKey === "alt" ? "Alt" : "Ctrl" // the key tapped twice to open Win顺
     property int currentPage: 0
     property int currentTab: 0
@@ -442,6 +442,11 @@ Window {
         target: window.editor.plugins
         property: "active"
         value: window.visible && !window.searching && window.currentPage === window.pluginsPage && window.currentTab === 0
+    }
+    Binding { // the 插件库 fetches its list while its tab is on show (never for the settings search)
+        target: window.editor.plugins.gallery
+        property: "active"
+        value: window.visible && !window.searching && window.currentPage === window.pluginsPage && window.currentTab === 1
     }
 
     TitleBar {
@@ -4116,10 +4121,18 @@ Window {
                 lockedElsewhere: pluginDevSection.lockedRows
             }
 
+            PluginGallerySection {
+                page: window.pluginsPage
+                tab: 1
+                width: parent.width
+                plugins: window.editor.plugins
+                onShowInstalled: (pluginId) => window.showPluginPage(pluginId)
+            }
+
             PluginDevSection {
                 id: pluginDevSection
                 page: window.pluginsPage
-                tab: 1
+                tab: 2
                 width: parent.width
                 plugins: window.editor.plugins
             }

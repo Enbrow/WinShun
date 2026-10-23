@@ -439,28 +439,47 @@ QVariantList PluginSettings::permissionRows(const QString& id) const
         row(QString(), tr("以普通用户权限运行，不是管理员；内存上限 %1 MB").arg(m.runtime->memoryMB), true);
     using P = plugin::Permission;
     if (m.permissions.has(P::Processes))
-        row(u"processes"_s, tr("启动其他程序（子进程）"), true);
+        row(u"processes"_s, permissionText(P::Processes), true);
     if (m.permissions.has(P::ClipboardRead))
-        row(u"clipboard:read"_s, tr("读剪贴板"), true);
+        row(u"clipboard:read"_s, permissionText(P::ClipboardRead), true);
     if (m.permissions.has(P::ClipboardWrite))
-        row(u"clipboard:write"_s, tr("写剪贴板"), true);
+        row(u"clipboard:write"_s, permissionText(P::ClipboardWrite), true);
     if (m.permissions.has(P::Ui))
-        row(u"ui"_s, tr("打开自己的窗口、切换前台"), true, tr("部分"));
+        row(u"ui"_s, permissionText(P::Ui), true, tr("部分"));
     if (m.permissions.has(P::WinshunSearch))
-        row(u"winshun:search"_s, tr("用 Win顺 搜索文件名和内容"), true);
+        row(u"winshun:search"_s, permissionText(P::WinshunSearch), true);
     if (m.permissions.has(P::WinshunOpen))
-        row(u"winshun:open"_s, tr("让 Win顺 打开文件和网址（以普通权限）"), true);
+        row(u"winshun:open"_s, permissionText(P::WinshunOpen), true);
     if (m.permissions.has(P::WinshunHistory))
-        row(u"winshun:history"_s, tr("读最近打开的项目"), true);
+        row(u"winshun:history"_s, permissionText(P::WinshunHistory), true);
     if (m.permissions.has(P::WinshunContent))
-        row(u"winshun:content"_s, tr("读 Win顺 从文档和文本文件里取出的文字"), true);
+        row(u"winshun:content"_s, permissionText(P::WinshunContent), true);
     if (m.permissions.has(P::FilesWrite))
-        row(u"files:write"_s, tr("写文件"), strict, strict ? tr("严格沙箱：只能写它自己的数据文件夹") : tr("和你自己一样能写"));
+        row(u"files:write"_s, permissionText(P::FilesWrite), strict, strict ? tr("严格沙箱：只能写它自己的数据文件夹") : tr("和你自己一样能写"));
     if (m.permissions.has(P::FilesRead))
-        row(u"files:read"_s, m.permissions.readPaths.isEmpty() ? tr("读你的文件") : tr("读这些文件：%1").arg(m.permissions.readPaths.join(u"、"_s)), false);
+        row(u"files:read"_s, m.permissions.readPaths.isEmpty() ? permissionText(P::FilesRead) : tr("读这些文件：%1").arg(m.permissions.readPaths.join(u"、"_s)), false);
     if (m.permissions.has(P::Network))
-        row(u"network"_s, tr("联网"), false, tr("Win顺 不能阻止它联网"));
+        row(u"network"_s, permissionText(P::Network), false, tr("Win顺 不能阻止它联网"));
     return rows;
+}
+
+QString PluginSettings::permissionText(plugin::Permission p)
+{
+    using P = plugin::Permission;
+    switch (p) {
+    case P::Processes: return tr("启动其他程序（子进程）");
+    case P::ClipboardRead: return tr("读剪贴板");
+    case P::ClipboardWrite: return tr("写剪贴板");
+    case P::Ui: return tr("打开自己的窗口、切换前台");
+    case P::WinshunSearch: return tr("用 Win顺 搜索文件名和内容");
+    case P::WinshunOpen: return tr("让 Win顺 打开文件和网址（以普通权限）");
+    case P::WinshunHistory: return tr("读最近打开的项目");
+    case P::WinshunContent: return tr("读 Win顺 从文档和文本文件里取出的文字");
+    case P::FilesWrite: return tr("写文件");
+    case P::FilesRead: return tr("读你的文件");
+    case P::Network: return tr("联网");
+    }
+    return plugin::permissionName(p);
 }
 
 PluginListModel::Card PluginSettings::cardFor(const QString& id) const
@@ -643,6 +662,7 @@ void PluginSettings::rebuild()
     if (!m_host) {
         if (m_list.setCards({}))
             emit listChanged();
+        m_gallery.rebuild();
         return;
     }
     std::vector<PluginListModel::Card> cards;
@@ -664,6 +684,7 @@ void PluginSettings::rebuild()
     }
     if (rowsChanged)
         emit listChanged();
+    m_gallery.rebuild(); // what is installed now, the cards' icons, the language
 }
 
 void PluginSettings::readMemory()
@@ -830,6 +851,11 @@ void PluginSettings::installFromArchive()
 
 void PluginSettings::install(const QString& given)
 {
+    installFrom(given, {}, {});
+}
+
+void PluginSettings::installFrom(const QString& given, const QString& expectedId, const QString& name)
+{
     if (!m_host)
         return;
     QString path = given;
@@ -842,10 +868,15 @@ void PluginSettings::install(const QString& given)
         return;
     }
     if (!candidate->manifest) {
-        setMessage(tr("不能安装 %1：%2").arg(QFileInfo(path).fileName(), candidate->error));
+        setMessage(tr("不能安装 %1：%2").arg(name.isEmpty() ? QFileInfo(path).fileName() : name, candidate->error));
         return;
     }
     const QString id = candidate->manifest->id;
+    if (!expectedId.isEmpty() && id != expectedId) {
+        plugin::install::discard(*candidate);
+        setMessage(tr("没有安装 %1：下载来的是另一个插件（%2）").arg(name.isEmpty() ? expectedId : name, id));
+        return;
+    }
     if (const plugin::Entry* e = m_host->catalog().find(id); e && e->source == plugin::Entry::Source::User && e->manifest) {
         const int compared = plugin::compareVersions(candidate->manifest->version, e->manifest->version);
         QVariantMap info {{u"id"_s, id}, {u"name"_s, candidate->manifest->name.pick(m_locale)}, {u"installedVersion"_s, e->manifest->version},
@@ -1348,6 +1379,7 @@ void PluginSettings::loadPreview()
     emit stateChanged();
     emit logPluginsChanged();
     rebuild();
+    m_gallery.loadPreview();
 }
 
 } // namespace ws

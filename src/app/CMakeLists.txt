@@ -181,6 +181,8 @@ set(qml_files
     qml/Tag.qml
     qml/PluginDevSection.qml
     qml/PluginDialog.qml
+    qml/PluginGallerySection.qml
+    qml/PluginGalleryEntry.qml
     qml/PluginsPreview.qml
     qml/CaptureOverlay.qml
     qml/AnnotateToolbar.qml
@@ -254,6 +256,7 @@ qt_add_qml_module(WinShun
         IconBadge.cpp IconBadge.h
         Launcher.cpp Launcher.h
         Placement.cpp Placement.h
+        PluginGallery.cpp PluginGallery.h
         PluginSettings.cpp PluginSettings.h
         ResultModel.cpp ResultModel.h
         SettingsEditor.cpp SettingsEditor.h

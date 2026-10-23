@@ -4,10 +4,11 @@ import WinShun
 
 // Settings → 插件 › 已安装: the plugins installed, each a card (PluginCard),
 // folded to three lines until asked for more; how to add one (a folder or
-// an archive picked, or dropped on the page), where they are, and the
-// switch of developer mode, whose rows are on the 开发者 tab
-// (PluginDevSection, which `lockedElsewhere` comes from). What the
-// view-model says of the last install or removal shows over the cards.
+// an archive picked, or dropped on the page; or the 插件库 tab,
+// PluginGallerySection), where they are, and the switch of developer
+// mode, whose rows are on the 开发者 tab (PluginDevSection, which
+// `lockedElsewhere` comes from). What the view-model says of the last
+// install or removal shows over the cards.
 SettingsSection {
     id: pluginsSection
 
@@ -161,15 +162,18 @@ SettingsSection {
             glyph: "" // Add
             onClicked: addMenu.open = !addMenu.open
 
-            DropMenu { // 文件夹… / 压缩包…
+            DropMenu { // 文件夹… / 压缩包… / the 插件库 tab
                 id: addMenu
                 anchor: addButton
                 entries: [
                     { text: qsTr("插件文件夹"), glyph: "" }, // Folder
-                    { text: qsTr("压缩包（.zip / .wsplugin）"), glyph: "" } // ZipFolder
+                    { text: qsTr("压缩包（.zip / .wsplugin）"), glyph: "" }, // ZipFolder
+                    { text: qsTr("从插件库挑选"), glyph: "" } // Shop
                 ]
                 onActivated: (index) => {
-                    if (index === 1)
+                    if (index === 2)
+                        pluginsSection.column.openPage(pluginsSection.page, 1)
+                    else if (index === 1)
                         pluginsSection.plugins.installFromArchive()
                     else
                         pluginsSection.plugins.installFromFolder()

@@ -8,9 +8,10 @@
 // SettingsEditor, whose commit the app applies (App::applyPlugins);
 // passwords go to the Credential Manager (plugin::Secrets), never into the
 // INI. Without a host (the offscreen preview: loadPreview) it shows made-up
-// plugins.
+// plugins. The 插件库 tab's plugins to install are its `gallery`'s.
 
 #include "Install.h"
+#include "PluginGallery.h"
 
 #include <QAbstractListModel>
 #include <QObject>
@@ -163,6 +164,7 @@ class PluginSettings : public QObject {
     Q_PROPERTY(QString templateAuthor READ templateAuthor CONSTANT FINAL) // "<author>." of a new plugin's id
     // The made-up plugins of the offscreen preview (loadPreview): no frames, so no animations.
     Q_PROPERTY(bool preview READ preview NOTIFY listChanged FINAL)
+    Q_PROPERTY(ws::PluginGallery* gallery READ gallery CONSTANT FINAL) // the 插件库 tab
 
 public:
     explicit PluginSettings(SettingsEditor* editor, QObject* parent = nullptr);
@@ -191,6 +193,12 @@ public:
     bool recordingHotkey() const { return m_recordingHotkey; }
     void setRecordingHotkey(bool on);
     QString templateAuthor() const;
+    PluginGallery* gallery() { return &m_gallery; }
+    // What a permission lets a plugin do, as the cards and the dialog say it.
+    static QString permissionText(plugin::Permission p);
+    // install(), for a package downloaded from the 插件库: it must be
+    // `expectedId`, and is called `name` in what is said of it.
+    void installFrom(const QString& path, const QString& expectedId, const QString& name);
 
     // The switch: turning on asks first (confirmationNeeded) when the plugin
     // was never confirmed or asks for more permissions than it did.
@@ -248,6 +256,7 @@ signals:
     void uninstallQuestion(const QVariantMap& info);
 
 private:
+    friend class PluginGallery; // reads the host, the language and the cards (their icons)
     struct Preview;
     void rebuild(); // the cards from the host and the settings
     PluginListModel::Card cardFor(const QString& id) const;
@@ -273,6 +282,7 @@ private:
     bool m_recordingHotkey = false;
     std::optional<plugin::install::Candidate> m_pendingInstall; // waiting for the user's answer
     std::unique_ptr<Preview> m_preview; // loadPreview(): no host
+    PluginGallery m_gallery {this};
 };
 
 } // namespace ws

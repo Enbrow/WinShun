@@ -564,17 +564,17 @@ std::vector<Entry> buildCatalog()
             {u"hide"_s, u"hidden"_s, QT_TRANSLATE_NOOP("AiSettings", "自动隐藏")},
             {u"clean"_s, u"removed"_s, QT_TRANSLATE_NOOP("AiSettings", "自动清理")}}));
 
-    // ---- 截图 (the 插件 page's card) ----
-    add(recording({"Capture/Enabled", QT_TRANSLATE_NOOP("AiSettings", "屏幕截图"), "capture", -1,
+    // ---- 截图 (the 插件 page's card, on its 已安装 tab, not the one left on) ----
+    add(recording({"Capture/Enabled", QT_TRANSLATE_NOOP("AiSettings", "屏幕截图"), "capture", 0,
                     "Win顺's screen capture with its screenshot history. Off until turned on; nothing of it runs while off. Turning it on starts keeping screenshots, so that asks the user."},
         &Settings::captureEnabled));
-    add(hotkey({"Capture/Hotkey", QT_TRANSLATE_NOOP("AiSettings", "截图快捷键"), "capture", -1,
+    add(hotkey({"Capture/Hotkey", QT_TRANSLATE_NOOP("AiSettings", "截图快捷键"), "capture", 0,
                    "The shortcut that starts a capture, written like Ctrl+Alt+A. Empty: none."},
         &Settings::captureHotkey));
-    add(boolean({"Capture/PrintScreen", QT_TRANSLATE_NOOP("AiSettings", "PrtScn 键也截图"), "capture", -1,
+    add(boolean({"Capture/PrintScreen", QT_TRANSLATE_NOOP("AiSettings", "PrtScn 键也截图"), "capture", 0,
                     "The PrintScreen key starts a capture too, taken from the Snipping Tool."},
         &Settings::capturePrintScreen));
-    add(boolean({"Capture/CopyOnSelect", QT_TRANSLATE_NOOP("AiSettings", "选中后直接复制"), "capture", -1,
+    add(boolean({"Capture/CopyOnSelect", QT_TRANSLATE_NOOP("AiSettings", "选中后直接复制"), "capture", 0,
                     "Letting go of a drag, or a click on a window, copies the picture at once."},
         &Settings::captureCopyOnSelect));
     {
@@ -595,24 +595,24 @@ std::vector<Entry> buildCatalog()
                                                   QT_TRANSLATE_NOOP("AiSettings", "后退（重新框选）")});
             return list;
         };
-        add(choice({"Capture/MouseDoubleLeft", QT_TRANSLATE_NOOP("AiSettings", "截图：双击左键"), "capture", -1,
+        add(choice({"Capture/MouseDoubleLeft", QT_TRANSLATE_NOOP("AiSettings", "截图：双击左键"), "capture", 0,
                        "What a double click with the left button inside the selection does."},
             &Settings::captureMouseDoubleLeft, mouseChoices(false)));
-        add(choice({"Capture/MouseRight", QT_TRANSLATE_NOOP("AiSettings", "截图：右键"), "capture", -1,
+        add(choice({"Capture/MouseRight", QT_TRANSLATE_NOOP("AiSettings", "截图：右键"), "capture", 0,
                        "What the right button does once there is a selection. Esc always steps back."},
             &Settings::captureMouseRight, mouseChoices(true)));
-        add(choice({"Capture/MouseMiddle", QT_TRANSLATE_NOOP("AiSettings", "截图：中键"), "capture", -1,
+        add(choice({"Capture/MouseMiddle", QT_TRANSLATE_NOOP("AiSettings", "截图：中键"), "capture", 0,
                        "What the middle button does once there is a selection."},
             &Settings::captureMouseMiddle, mouseChoices(false)));
-        add(choice({"Capture/MouseBack", QT_TRANSLATE_NOOP("AiSettings", "截图：侧键（后退）"), "capture", -1,
+        add(choice({"Capture/MouseBack", QT_TRANSLATE_NOOP("AiSettings", "截图：侧键（后退）"), "capture", 0,
                        "What the side button toward the user (back, X1) does once there is a selection."},
             &Settings::captureMouseBack, mouseChoices(false)));
-        add(choice({"Capture/MouseForward", QT_TRANSLATE_NOOP("AiSettings", "截图：侧键（前进）"), "capture", -1,
+        add(choice({"Capture/MouseForward", QT_TRANSLATE_NOOP("AiSettings", "截图：侧键（前进）"), "capture", 0,
                        "What the side button away from the user (forward, X2) does once there is a selection."},
             &Settings::captureMouseForward, mouseChoices(false)));
     }
     {
-        Entry e = base({"Capture/Keyword", QT_TRANSLATE_NOOP("AiSettings", "截图历史的关键词"), "capture", -1,
+        Entry e = base({"Capture/Keyword", QT_TRANSLATE_NOOP("AiSettings", "截图历史的关键词"), "capture", 0,
                            "The word typed first in the search box (with a space after it) that lists the screenshot history. One word, no spaces or quotes; not one a web search or a favorite has."},
             Type::Text);
         e.field = &Settings::captureKeyword;

@@ -43,7 +43,7 @@ HINTERNET sharedSession()
 } // namespace
 
 Response get(const QString& url, const QList<std::pair<QString, QString>>& headers, int timeoutMs, qsizetype maxBytes,
-    Session sessionKind)
+    Session sessionKind, const Progress& progress)
 {
     Response response;
     const auto fail = [&response] {
@@ -85,7 +85,7 @@ Response get(const QString& url, const QList<std::pair<QString, QString>>& heade
     ::WinHttpSetTimeouts(request.get(), timeoutMs, timeoutMs, timeoutMs, timeoutMs);
     std::wstring headerText;
     for (const auto& [name, value] : headers)
-        headerText += (name + u": "_qs + value + u"\r\n"_qs).toStdWString();
+        headerText += (name + u": "_s + value + u"\r\n"_s).toStdWString();
     if (!::WinHttpSendRequest(request.get(), headerText.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : headerText.c_str(),
             static_cast<DWORD>(headerText.size()), WINHTTP_NO_REQUEST_DATA, 0, 0, 0)
         || !::WinHttpReceiveResponse(request.get(), nullptr))
@@ -126,6 +126,11 @@ Response get(const QString& url, const QList<std::pair<QString, QString>>& heade
         if (!::WinHttpReadData(request.get(), response.body.data() + at, available, &read))
             return fail();
         response.body.resize(at + read);
+        if (progress && !progress(response.body.size())) {
+            response.body.clear();
+            response.error = ERROR_CANCELLED;
+            return response;
+        }
     }
     response.status = static_cast<int>(status);
     return response;
