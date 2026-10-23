@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>2026 第三季度 经营简报（演示）</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    background: #f4f6fb; color: #1f2430; line-height: 1.7;
+  }
+  .bar {
+    position: sticky; top: 0; z-index: 5; height: 56px; padding: 0 40px; display: flex; align-items: center;
+    background: #ffffff; border-bottom: 1px solid #e3e7ef; font-size: 18px; font-weight: 600;
+  }
+  .bar i { display: inline-block; width: 12px; height: 12px; border-radius: 4px; background: #4f7cff; margin-right: 12px; }
+  .bar span { margin-left: auto; color: #8a93a6; font-weight: 400; font-size: 15px; }
+  .hero { padding: 64px 40px 52px; background: linear-gradient(120deg, #3d5afe, #7c4dff 70%, #b388ff); color: #fff; }
+  .hero h1 { margin: 0 0 8px; font-size: 44px; letter-spacing: .03em; }
+  .hero p { margin: 0; font-size: 20px; opacity: .88; }
+  .wrap { padding: 0 40px 56px; }
+  h2 { margin: 52px 0 18px; font-size: 28px; }
+  h2::before { content: ""; display: inline-block; width: 6px; height: 26px; margin-right: 12px; border-radius: 3px;
+    background: #4f7cff; vertical-align: -4px; }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: -30px; }
+  .kpi { background: #fff; border-radius: 14px; padding: 20px 22px; box-shadow: 0 4px 18px rgba(31, 36, 48, .08); }
+  .kpi b { display: block; font-size: 28px; white-space: nowrap; }
+  .kpi em { font-style: normal; color: #8a93a6; font-size: 15px; white-space: nowrap; }
+  .kpi u { text-decoration: none; color: #1aa55c; font-size: 15px; margin-left: 6px; }
+  p.t { font-size: 18px; color: #3b4254; margin: 0 0 14px; }
+  .chart { background: #fff; border-radius: 14px; padding: 26px 28px; box-shadow: 0 4px 18px rgba(31, 36, 48, .06); }
+  .row { display: flex; align-items: center; margin: 14px 0; font-size: 18px; }
+  .row label { width: 70px; }
+  .row .track { flex: 1; height: 26px; background: #eef1f8; border-radius: 13px; overflow: hidden; }
+  .row .fill { height: 100%; border-radius: 13px; background: linear-gradient(90deg, #4f7cff, #8c6bff); }
+  .row span { width: 90px; text-align: right; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 14px; overflow: hidden;
+    box-shadow: 0 4px 18px rgba(31, 36, 48, .06); font-size: 18px; }
+  th { background: #eef1fb; text-align: left; padding: 14px 18px; }
+  td { padding: 14px 18px; border-top: 1px solid #edf0f6; }
+  td.n, th.n { text-align: right; }
+  .steps { border-left: 3px solid #cfd8ee; margin-left: 10px; padding-left: 26px; }
+  .step { position: relative; margin-bottom: 26px; }
+  .step::before { content: ""; position: absolute; left: -36px; top: 7px; width: 14px; height: 14px; border-radius: 50%;
+    background: #fff; border: 3px solid #4f7cff; }
+  .step h3 { margin: 0; font-size: 20px; }
+  .step p { margin: 2px 0 0; color: #5a6379; font-size: 17px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .note { background: #fff; border-radius: 14px; padding: 22px 26px; box-shadow: 0 4px 18px rgba(31, 36, 48, .06); }
+  .note h3 { margin: 0 0 8px; font-size: 20px; }
+  .note p { margin: 0; color: #5a6379; font-size: 17px; }
+  .foot { padding: 34px 40px; text-align: center; color: #8a93a6; font-size: 15px; background: #e9edf6; }
+</style>
+</head>
+<body>
+<div class="bar"><i></i>经营简报<span>演示数据 · 2026 Q3</span></div>
+<div class="hero">
+  <h1>2026 第三季度 经营简报</h1>
+  <p>销售、成本、区域表现和下季度计划，一页看完</p>
+</div>
+<div class="wrap">
+  <div class="kpis">
+    <div class="kpi"><b>1260 万</b><em>销售额</em><u>↑ 9%</u></div>
+    <div class="kpi"><b>41%</b><em>毛利率</em><u>↑ 1.2 点</u></div>
+    <div class="kpi"><b>318</b><em>活跃客户</em><u>↑ 24</u></div>
+    <div class="kpi"><b>96%</b><em>续约率</em><u>↑ 2 点</u></div>
+  </div>
+
+  <h2>一、本季度概况</h2>
+  <p class="t">第三季度销售额稳步增长，华东区首次超过华南区。毛利率受益于采购价格下降和产品结构调整，
+    比上季度提高 1.2 个百分点。费用率略有下降，主要来自差旅和市场活动的精简。</p>
+  <p class="t">新增活跃客户 24 家，其中老客户转介绍占四成；重点客户的续约率保持在 96%，没有出现大客户流失。</p>
+
+  <h2>二、分区域销售</h2>
+  <div class="chart">
+    <div class="row"><label>华东</label><div class="track"><div class="fill" style="width:97%"></div></div><span>486 万</span></div>
+    <div class="row"><label>华南</label><div class="track"><div class="fill" style="width:90%"></div></div><span>452 万</span></div>
+    <div class="row"><label>华北</label><div class="track"><div class="fill" style="width:40%"></div></div><span>198 万</span></div>
+    <div class="row"><label>西南</label><div class="track"><div class="fill" style="width:25%"></div></div><span>124 万</span></div>
+  </div>
+
+  <h2>三、季度对比</h2>
+  <table>
+    <tr><th>季度</th><th class="n">销售额（万）</th><th class="n">毛利率</th><th class="n">环比</th></tr>
+    <tr><td>第一季度</td><td class="n">980</td><td class="n">36%</td><td class="n">—</td></tr>
+    <tr><td>第二季度</td><td class="n">1150</td><td class="n">38%</td><td class="n">+17%</td></tr>
+    <tr><td>第三季度</td><td class="n">1260</td><td class="n">41%</td><td class="n">+9%</td></tr>
+    <tr><td>第四季度（预计）</td><td class="n">1420</td><td class="n">42%</td><td class="n">+13%</td></tr>
+  </table>
+
+  <h2>四、重点事项</h2>
+  <div class="steps">
+    <div class="step"><h3>7 月 · 新品上线</h3><p>两款新品陆续上市，第一个月订单超出预期两成。</p></div>
+    <div class="step"><h3>8 月 · 渠道调整</h3><p>西南区合并两个经销点，库存周转天数从 48 天降到 39 天。</p></div>
+    <div class="step"><h3>9 月 · 客户回访</h3><p>走访 40 家重点客户，收集到十二条产品改进建议，已排进下季度计划。</p></div>
+    <div class="step"><h3>10 月 · 年度预算</h3><p>下季度开始编制明年预算，各部门月底前提交草案。</p></div>
+  </div>
+
+  <h2>五、风险与对策</h2>
+  <div class="two">
+    <div class="note"><h3>原材料价格</h3><p>下半年价格有反弹迹象，已和两家供应商签了季度锁价协议。</p></div>
+    <div class="note"><h3>华北区增长慢</h3><p>增加两名客户经理，第四季度重点跟进十家待开发客户。</p></div>
+    <div class="note"><h3>回款周期</h3><p>平均回款天数 52 天，目标压到 45 天以内，逾期客户逐家沟通。</p></div>
+    <div class="note"><h3>人员招聘</h3><p>客服和仓储各缺两人，十一月前到岗，避免年底旺季被动。</p></div>
+  </div>
+
+  <h2>六、下季度计划</h2>
+  <p class="t">销售目标 1420 万，毛利率不低于 42%；上线客户自助下单；完成华南区新仓库搬迁；年终前开一次全员复盘会。</p>
+  <p class="t">需要各部门配合的事项会在下周一的例会上逐条确认，负责人和完成时间写进共享表格。</p>
+</div>
+<div class="foot">经营简报 · 演示数据，仅用于展示 · 第 1 页 / 共 1 页</div>
+</body>
+</html>

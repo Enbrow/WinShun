@@ -1,0 +1,37 @@
+# The long screenshot (README_ONLY "longshot", L-longshot): a long page (季度经营简报.html, Edge as an app window,
+# guest), the capture on it (the hovered window, no drag), Ctrl+L: it scrolls and stitches by itself (about 5 s);
+# the result opens in the edit window; zoomed out to 50 % (Ctrl+wheel) to show how long it is. The editing window is
+# put clear of the taskbar (the matte's margin would take it in). Needs the page at its top: a long screenshot that
+# found nothing to scroll ("NothingWorks") keeps its panel up (Esc ends it). WinShun on the profile, capture on, light theme.
+closewin 经营简报
+edge scenes\季度经营简报.html
+place 经营简报 560 120 1440 1300
+front 经营简报
+sleep 800
+hover 1300 800
+sleep 500
+down 11
+down 12
+tap 79
+up 12
+up 11
+sleep 2000
+hover 1310 810
+sleep 800
+chord 11 4C
+sleep 9000
+place 编辑图片 560 30 1469 1400
+sleep 1500
+front 编辑图片
+down 11
+wheel 700 700 -120
+wheel 700 700 -120
+wheel 700 700 -120
+wheel 700 700 -120
+wheel 700 700 -120
+up 11
+sleep 1500
+matte L-longshot winshun
+chord 12 73
+sleep 800
+closewin 经营简报

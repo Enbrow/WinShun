@@ -21,6 +21,13 @@
 #   notepad <file> | paint <file> (files of this folder) | explorer open <folder of the demo> | explorer close
 #   explorer place <x> <y> <w> <h> (the demo's Explorer windows restored and moved there, physical px)
 #   canceldialogs | clip <text> | clipfile <path>
+#   cover on [paper] | cover off (a window of the wallpaper over the whole screen, so nothing of this computer shows behind the program shot)
+#   edge <file of scenes\> | closewin <title part> (Edge as an app window on a page; closewin: a window of an allowed program)
+#   place <title part> <x> <y> <w> <h> | front <title part> | hover <x> <y> (the pointer, over a window of an allowed program or WinShun)
+#   pie start <item> <dx> <dy> | pie hover <sector> <of> <left|right> [<turn deg> <reach>] | pie end (the drop pie: a file of the demo's Explorer window
+#     dragged, shaken at (dx,dy) from the frame, held over a sector; pie end: Esc, button up -- never released over a sector)
+#   matte <name> [winshun|beside|hold] [with <window class>]   (hold: the pointer stays, a drag going on)
+#   profile start [--unelevated] ...: WinShun not elevated (a drop from Explorer can't reach an elevated one)
 param([string]$Scene, [string]$Exe) # Exe: another WinShun.exe than dist's (a build under test)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
@@ -36,6 +43,7 @@ public static class A {
     [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
     [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint flags);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
     [StructLayout(LayoutKind.Sequential)] public struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr extra; }
     [StructLayout(LayoutKind.Sequential)] public struct MOUSEINPUT { public int dx; public int dy; public uint data; public uint dwFlags; public uint time; public IntPtr extra; }
     [StructLayout(LayoutKind.Explicit, Size=40)] public struct INPUT { [FieldOffset(0)] public uint type; [FieldOffset(8)] public KEYBDINPUT ki; [FieldOffset(8)] public MOUSEINPUT mi; }
@@ -71,6 +79,70 @@ public static class A {
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
     [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int ht, bool repaint);
+    [DllImport("winmm.dll")] public static extern uint timeBeginPeriod(uint p);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool f);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+    [DllImport("user32.dll")] public static extern int GetSystemMetrics(int i);
+    [DllImport("user32.dll")] public static extern uint GetDpiForSystem();
+    [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vk);
+    [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowTextW(IntPtr h, System.Text.StringBuilder s, int n);
+    delegate bool EnumProcType(IntPtr h, IntPtr l);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumProcType f, IntPtr l);
+    public static string Title(IntPtr h) { var s = new System.Text.StringBuilder(300); GetWindowTextW(h, s, 300); return s.ToString(); }
+    public static string Class(IntPtr h) { var s = new System.Text.StringBuilder(128); GetClassNameW(h, s, 128); return s.ToString(); }
+    // the first visible top-level window whose title has `part` in it and which is at least 100 px each way
+    public static IntPtr FindTitle(string part) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows(delegate (IntPtr h, IntPtr l) {
+            if (IsWindowVisible(h) && Title(h).IndexOf(part, StringComparison.OrdinalIgnoreCase) >= 0) {
+                RECT r; GetWindowRect(h, out r);
+                if (r.R - r.L >= 100 && r.B - r.T >= 100) { found = h; return false; }
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+    // the first visible window of a process at least minW wide that is not a drag image: {l, t, r, b}, or null
+    public static int[] BigWindow(uint pid, int minW) {
+        int[] found = null;
+        EnumWindows(delegate (IntPtr h, IntPtr l) {
+            RECT r;
+            if (Pid(h) == pid && IsWindowVisible(h) && GetWindowRect(h, out r) && r.R - r.L >= minW && Class(h) != "SysDragImage") {
+                found = new int[] { r.L, r.T, r.R, r.B }; return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+    [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int hh, uint flags);
+    // to the top of the (not topmost) windows, without activating it
+    public static void Raise(IntPtr h) { SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010); }
+    // how many visible windows of this class there are (SysDragImage: the picture of a file in the air)
+    public static int CountClass(string cls) {
+        int n = 0;
+        EnumWindows(delegate (IntPtr h, IntPtr l) { if (IsWindowVisible(h) && Class(h) == cls) n++; return true; }, IntPtr.Zero);
+        return n;
+    }
+    public static void Front(IntPtr h) {
+        if (IsIconic(h)) ShowWindow(h, 9);
+        uint a = GetCurrentThreadId(); uint pid;
+        uint b = GetWindowThreadProcessId(GetForegroundWindow(), out pid);
+        if (a != b) AttachThreadInput(a, b, true);
+        SetForegroundWindow(h);
+        if (a != b) AttachThreadInput(a, b, false);
+    }
+    // the pointer to a place by input (absolute, over the whole virtual screen), as a hand moves it
+    public static void MoveAbs(int x, int y) {
+        int vx = GetSystemMetrics(76), vy = GetSystemMetrics(77), vw = GetSystemMetrics(78), vh = GetSystemMetrics(79);
+        var i = new INPUT[1]; i[0].type = 0;
+        i[0].mi.dx = (int)Math.Round((x - vx) * 65535.0 / (vw - 1));
+        i[0].mi.dy = (int)Math.Round((y - vy) * 65535.0 / (vh - 1));
+        i[0].mi.dwFlags = 0x8000u | 0x4000u | 0x0001u;
+        SendInput(1, i, Marshal.SizeOf(typeof(INPUT)));
+    }
     public static uint Pid(IntPtr h) { uint p; GetWindowThreadProcessId(h, out p); return p; }
     public static RECT Frame(IntPtr h) { RECT r; DwmGetWindowAttribute(h, 9, out r, 16); return r; }
     public static IntPtr RootAt(int x, int y) { var p = new POINT(); p.X = x; p.Y = y; return GetAncestor(WindowFromPoint(p), 2); }
@@ -79,6 +151,8 @@ public static class A {
 }
 '@
 [A]::SetProcessDPIAware() | Out-Null
+[A]::timeBeginPeriod(1) | Out-Null
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 $here = $PSScriptRoot
 $root = (Resolve-Path (Join-Path $here '..\..')).Path
 $work = Join-Path $here 'work'
@@ -87,7 +161,8 @@ $profileDir = Join-Path $work 'profile'
 New-Item -ItemType Directory -Force $shots | Out-Null
 $cmdFile = Join-Path $work 'cmd.txt'
 $log = Join-Path $work 'agent.txt'
-$exe = if ($Exe) { $Exe } else { Join-Path $root 'dist\WinShun\WinShun.exe' }
+$userExe = Join-Path $root 'dist\WinShun\WinShun.exe' # the user's own copy
+$exe = if ($Exe) { $Exe } else { $userExe }
 $tool = Join-Path $here 'shots.py'
 $demo = 'F:\Win' + [char]0x987A + [char]0x6F14 + [char]0x793A # the demo folder the shots show (stage.py's DEMO)
 $python = (Get-Command python -ErrorAction SilentlyContinue).Source
@@ -120,20 +195,166 @@ function Shots { # shots.py with these arguments, its output in the log
     Note $out.Trim()
     if ($LASTEXITCODE -ne 0) { throw "shots.py $($args[0]) failed ($LASTEXITCODE)" }
 }
-function QuitWs {
-    if (-not (WsPid)) { return }
-    Start-Process -FilePath $exe -ArgumentList '--quit' -WindowStyle Normal
+function QuitOne($path) { # one WinShun.exe of this path off (the program ends on --quit; a second one hands the message over)
+    $running = @(Get-Process WinShun -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $path })
+    if (-not $running) { return }
+    Start-Process -FilePath $path -ArgumentList '--quit' -WindowStyle Normal
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    while ((WsPid) -and $sw.Elapsed.TotalSeconds -lt 30) { Start-Sleep -Milliseconds 200 }
-    if (WsPid) { throw 'WinShun did not quit' }
+    while (@(Get-Process WinShun -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $path }) -and $sw.Elapsed.TotalSeconds -lt 30) { Start-Sleep -Milliseconds 200 }
+    if (@(Get-Process WinShun -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $path })) { throw 'WinShun did not quit' }
 }
-function StartWs($more) {
-    Start-Process -FilePath $exe -ArgumentList (@('--background') + $more) -WindowStyle Normal
+function QuitWs { # the copy shots are taken with, and the user's own (dist) if that is another: one instance only
+    QuitOne $exe
+    if ($userExe -ne $exe) { QuitOne $userExe }
+}
+function RunUnelevated($program, $arguments, $show = 1) {
+    if ($program -eq 'explorer.exe') { $program = Join-Path $env:windir 'explorer.exe' } # started by the shell, not by this elevated process: a normal user's program
+    $shell = New-Object -ComObject Shell.Application
+    $none = 0
+    $desktop = $shell.Windows().FindWindowSW([ref]$none, [ref]$none, 8, [ref]$none, 1) # SWC_DESKTOP, SWFO_NEEDDISPATCH
+    $desktop.Document.Application.ShellExecute($program, $arguments, (Split-Path $program), 'open', $show)
+}
+function StartWs($more, $program = $exe, [bool]$unelevated = $false) {
+    if ($unelevated) { # through cmd, which hands the environment on (WINSHUN_RECENT=own, the log's info lines) to the program
+        $envs = @(); if ($program -ne $userExe) { $envs += 'set "WINSHUN_LOG_INFO=1"' }; if ($env:WINSHUN_RECENT -and $program -ne $userExe) { $envs += 'set "WINSHUN_RECENT=' + $env:WINSHUN_RECENT + '"' }
+        $line = '/c ' + (($envs + @('ver>nul')) -join '&& ') + '&& start "" "' + $program + '" ' + ((@('--background') + $more) -join ' ')
+        RunUnelevated (Join-Path $env:windir 'System32\cmd.exe') $line 0
+    }
+    else { Start-Process -FilePath $program -ArgumentList (@('--background') + $more) -WindowStyle Normal }
     Start-Sleep -Seconds 6
-    if (-not (WsPid)) { throw 'WinShun did not stay up' }
-    Note "WinShun up (pid $(WsPid)) $more"
+    $up = Get-Process WinShun -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $program } | Select-Object -First 1
+    if (-not $up) { throw 'WinShun did not stay up' }
+    Note "WinShun up (pid $($up.Id), unelevated $unelevated) $more"
 }
 function Save($bmp, $name) { $bmp.Save((Join-Path $shots "$name.png"), [Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose() }
+
+
+function CoverOff { # the wallpaper window away
+    $stop = Join-Path $work 'cover.stop'
+    if (-not $script:coverProc) { return }
+    New-Item -ItemType File $stop -Force | Out-Null
+    $script:coverProc.WaitForExit(8000) | Out-Null
+    if (-not $script:coverProc.HasExited) { Stop-Process -Id $script:coverProc.Id -Force }
+    $script:coverProc = $null
+    Remove-Item $stop -ErrorAction SilentlyContinue
+}
+# ---- the drop pie: a left-button drag of a file in Explorer, held while the pie is looked at. The button is
+# only ever let go by `pie end` (or by the cleanup when a batch fails): Esc first, so nothing is dropped.
+$script:dragging = $false
+$script:pie = $null
+function Glide([int]$x, [int]$y, [int]$ms) {
+    $p = New-Object A+POINT
+    [A]::GetCursorPos([ref]$p) | Out-Null
+    $x0 = $p.X; $y0 = $p.Y
+    $steps = [Math]::Max(1, [int]($ms / 8))
+    for ($k = 1; $k -le $steps; $k++) {
+        [A]::MoveAbs([int]($x0 + ($x - $x0) * $k / $steps), [int]($y0 + ($y - $y0) * $k / $steps))
+        Start-Sleep -Milliseconds 8
+    }
+}
+function ExplorerOfDemo { # the hwnd of an Explorer window showing a folder of the demo
+    foreach ($w in @((New-Object -ComObject Shell.Application).Windows())) {
+        try { if ($w.Document.Folder.Self.Path.StartsWith($demo)) { return [IntPtr]$w.HWND } } catch {}
+    }
+    return [IntPtr]::Zero
+}
+function ItemRect($hwnd, [string]$name) { # the screen rect of a list item of an Explorer window, by UI Automation
+    $root = [Windows.Automation.AutomationElement]::FromHandle($hwnd)
+    $c1 = New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::NameProperty, $name)
+    $c2 = New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)
+    $el = $root.FindFirst([Windows.Automation.TreeScope]::Descendants, (New-Object Windows.Automation.AndCondition($c1, $c2)))
+    if (-not $el) { return $null }
+    $r = $el.Current.BoundingRectangle
+    return @([int]$r.Left, [int]$r.Top, [int]$r.Right, [int]$r.Bottom)
+}
+function ItemNameAt([int]$x, [int]$y) {
+    try {
+        $e = [Windows.Automation.AutomationElement]::FromPoint((New-Object Windows.Point($x, $y)))
+        $w = [Windows.Automation.TreeWalker]::ControlViewWalker
+        for ($i = 0; $e -and $i -lt 6; $i++) {
+            if ($e.Current.ControlType -eq [Windows.Automation.ControlType]::ListItem) { return $e.Current.Name }
+            $e = $w.GetParent($e)
+        }
+    } catch {}
+    return ''
+}
+function PieStart([string]$spec) { # <item> <dx> <dy>: where the shake is, from the Explorer window's frame
+    if ($script:dragging) { throw 'a drag is going on already' }
+    $q = $spec.Trim() -split '\s+'
+    $dy = [int]$q[$q.Count - 1]; $dx = [int]$q[$q.Count - 2]
+    $item = ($q[0..($q.Count - 3)]) -join ' '
+    $h = ExplorerOfDemo
+    if ($h -eq [IntPtr]::Zero) { throw 'pie: no Explorer window on the demo folder' }
+    [A]::Front($h); Start-Sleep -Milliseconds 500; Guard
+    if ([A]::Pid([A]::GetForegroundWindow()) -ne [A]::Pid($h)) { throw 'pie: Explorer is not in front' }
+    $r = ItemRect $h $item
+    if (-not $r) { throw "pie: no item '$item'" }
+    $sx = $r[0] + 45; $sy = [int](($r[1] + $r[3]) / 2)
+    Glide $sx $sy 250; Start-Sleep -Milliseconds 250
+    if ([A]::RootAt($sx, $sy) -ne $h) { throw 'pie: the start point is not on the Explorer window' }
+    if ((ItemNameAt $sx $sy) -ne $item) { throw "pie: the item under the pointer is not '$item'" }
+    $f = [A]::Frame($h)
+    $tx = $f.L + $dx; $ty = $f.T + $dy
+    $script:pie = @{ hwnd = $h; item = $item }
+    $script:dragging = $true
+    [A]::Button($false)
+    Start-Sleep -Milliseconds 120
+    Glide ($sx + 12) ($sy + 2) 50; Glide ($sx + 40) ($sy + 4) 80; Start-Sleep -Milliseconds 80
+    Glide $tx $ty 450; Start-Sleep -Milliseconds 150
+    if ([A]::Pid([A]::GetForegroundWindow()) -ne [A]::Pid($h)) { throw 'pie: Explorer lost the front during the drag' }
+    # three quick swings
+    $c = New-Object A+POINT; [A]::GetCursorPos([ref]$c) | Out-Null
+    $px = $c.X; $py = $c.Y
+    Glide ($px + 40) $py 60; Glide ($px + 130) ($py + 3) 90; Glide ($px + 40) $py 100
+    Glide ($px + 130) ($py - 3) 100; Glide ($px + 40) $py 100; Glide ($px + 90) $py 60
+    $win = $null
+    for ($i = 0; $i -lt 30; $i++) {
+        $win = [A]::BigWindow((WsPid), 500)
+        if ($win -and ($win[2] - $win[0]) -ge 700) { break }
+        Start-Sleep -Milliseconds 60
+    }
+    if (-not $win) {
+        $c = New-Object A+POINT; [A]::GetCursorPos([ref]$c) | Out-Null
+        Note "pie: none after the shake; pointer $($c.X),$($c.Y), drag images $([A]::CountClass('SysDragImage')), button down $(([A]::GetAsyncKeyState(1) -band 0x8000) -ne 0), front pid $([A]::Pid([A]::GetForegroundWindow())) (Explorer's $([A]::Pid($h)))"
+        throw 'pie: no pie after the shake'
+    }
+    Start-Sleep -Milliseconds 250
+    $win = [A]::BigWindow((WsPid), 500)
+    $dpr = [A]::GetDpiForSystem() / 96.0
+    $script:pie.rect = $win
+    $script:pie.cx = [int]($win[0] + 378 * $dpr); $script:pie.cy = [int]($win[1] + 276 * $dpr)
+    Note "pie up: window $($win -join ','), centre $($script:pie.cx),$($script:pie.cy), dpr $dpr"
+    $c = New-Object A+POINT; [A]::GetCursorPos([ref]$c) | Out-Null
+    Glide ($c.X + 3) ($c.Y + 2) 16; Start-Sleep -Milliseconds 260
+}
+function PieHover([string]$spec) { # <sector> <of> <left|right>: across the inner half, then onto the sector of the outer ring
+    if (-not $script:dragging) { throw 'pie hover: no drag' }
+    $q = $spec -split '\s+'
+    $k = [int]$q[0]; $n = [int]$q[1]; $side = $q[2]
+    $turn = if ($q.Count -gt 3) { [double]$q[3] } else { 0 }        # degrees off the sector's middle (clockwise)
+    $reach = if ($q.Count -gt 4) { [double]$q[4] } else { 173 }     # logical px from the centre (the ring is 120-226)
+    $dpr = [A]::GetDpiForSystem() / 96.0
+    $cx = $script:pie.cx; $cy = $script:pie.cy
+    $inner = [int](85 * $dpr); $outer = [int]($reach * $dpr) # a point of the inner half, a point of the outer ring (logical px from the centre)
+    $ix = if ($side -eq 'left') { $cx - $inner } else { $cx + $inner }
+    Glide $ix $cy 180; Start-Sleep -Milliseconds 200
+    $a = 2 * [Math]::PI * $k / $n + $turn * [Math]::PI / 180
+    Glide ([int]($cx + $outer * [Math]::Sin($a))) ([int]($cy - $outer * [Math]::Cos($a))) 220
+    Start-Sleep -Milliseconds 700
+    if ([A]::Pid([A]::GetForegroundWindow()) -ne [A]::Pid($script:pie.hwnd)) { throw 'pie: Explorer lost the front' }
+}
+function PieEnd { # Esc (the source cancels the drag), then the button up
+    if (-not $script:dragging) { return }
+    try {
+        if ([A]::Pid([A]::GetForegroundWindow()) -eq [A]::Pid($script:pie.hwnd)) { [A]::Key(0x1B, $false); [A]::Key(0x1B, $true) }
+        Start-Sleep -Milliseconds 500
+    } finally {
+        [A]::Button($true)
+        $script:dragging = $false
+        Start-Sleep -Milliseconds 300
+    }
+    if (([A]::GetAsyncKeyState(1) -band 0x8000) -ne 0) { Note 'WARNING: the left button is still down' }
+}
 
 $vars = @{}
 function RunLines($lines) {
@@ -229,26 +450,33 @@ function RunLines($lines) {
                 $g = [Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen([int]$p[1], [int]$p[2], 0, 0, $bmp.Size); $g.Dispose()
                 Save $bmp $p[0]
             }
-            'matte' { # <name> [winshun|beside]
+            'matte' { # <name> [winshun|beside|hold] [with <window class>]
                 $m = $arg -split '\s+'
-                if ($m.Count -gt 1 -and $m[1] -eq 'winshun') { Shots shoot -o (Join-Path $shots "$($m[0]).png") --winshun }
-                elseif ($m.Count -gt 1 -and $m[1] -eq 'beside') { Guard; Shots shoot -o (Join-Path $shots "$($m[0]).png") --beside }
-                else { Guard; Shots shoot -o (Join-Path $shots "$($m[0]).png") }
+                $out = Join-Path $shots "$($m[0]).png"
+                $extra = @()
+                if ($m -contains 'with') { $extra += @('--with', $m[[array]::IndexOf($m, 'with') + 1]) }
+                if ($m.Count -gt 1 -and $m[1] -eq 'winshun') { Shots shoot -o $out --winshun @extra }
+                elseif ($m.Count -gt 1 -and $m[1] -eq 'beside') { Guard; Shots shoot -o $out --beside @extra }
+                elseif ($m.Count -gt 1 -and $m[1] -eq 'hold') { Guard; Shots shoot -o $out --hold @extra }
+                else { Guard; Shots shoot -o $out @extra }
             }
             'scene' { Shots scene @($arg -split '\s+') }
             'restore' { Shots restore }
             'quit' { QuitWs } # WinShun off (when it wasn't running before)
-            'profile' { # start [shots.py profile options]: WinShun on work\profile, with a fresh clipboard history; stop: the user's own again
+            'profile' { # start [--unelevated] [shots.py profile options]: WinShun on work\profile, with a fresh clipboard history; stop: the user's own again
                 QuitWs
                 $more = @($arg -split '\s+' | Select-Object -Skip 1 | Where-Object { $_ })
                 $arg = ($arg -split '\s+')[0]
                 if ($arg -eq 'start') {
+                    $un = $more -contains '--unelevated'
+                    $script:unelevatedRun = $un
+                    $more = @($more | Where-Object { $_ -ne '--unelevated' })
                     # made again each time: the demo dates counted from now, the clipboard history filled in
                     Shots profile $profileDir @more
-                    # the recent folders of the profile's history only, not Windows' (this user's)
+                    # the recent folders of the profile's history only, not Windows' (this user's); the shell can't hand an environment over
                     $env:WINSHUN_RECENT = 'own'
-                    StartWs @('--profile', "`"$profileDir`"")
-                } elseif ($arg -eq 'stop') { Remove-Item Env:WINSHUN_RECENT -ErrorAction SilentlyContinue; StartWs @() }
+                    StartWs @('--profile', "`"$profileDir`"") $exe $un
+                } elseif ($arg -eq 'stop') { Remove-Item Env:WINSHUN_RECENT -ErrorAction SilentlyContinue; StartWs @() $userExe $true }
                 else { throw "profile what? '$arg'" }
             }
             'notepad' { # Notepad on a file of this folder (made if missing), which then counts as "in front"
@@ -265,7 +493,9 @@ function RunLines($lines) {
                 $p = $arg -split '\s+', 2
                 if ($p[0] -eq 'open') {
                     if (-not $p[1].StartsWith($demo)) { throw 'explorer only on the demo folder' }
-                    Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$($p[1])`""; Start-Sleep -Milliseconds 2000
+                    # an elevated Explorer window is not seen by a WinShun that isn't (UIPI): then the shell opens it
+                    if ($script:unelevatedRun) { RunUnelevated 'explorer.exe' "`"$($p[1])`"" } else { Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$($p[1])`"" }
+                    Start-Sleep -Milliseconds 2000
                 } elseif ($p[0] -eq 'place') { # <x> <y> <w> <h>, physical px: the demo's Explorer windows, not maximized
                     $q = $p[1] -split '\s+'
                     foreach ($w in @((New-Object -ComObject Shell.Application).Windows())) {
@@ -281,6 +511,109 @@ function RunLines($lines) {
                         try { if ($w.Document.Folder.Self.Path.StartsWith($demo)) { $w.Quit() } } catch {}
                     }
                 }
+            }
+            'restart' { # WinShun again on the same profile (not made afresh), as it was started: a hook that Windows dropped, or one that was not up
+                QuitWs
+                if ($script:unelevatedRun) { $env:WINSHUN_RECENT = 'own' }
+                StartWs @('--profile', "`"$profileDir`"") $exe $script:unelevatedRun
+            }
+            'unelevated' { $script:unelevatedRun = ($arg -eq 'on') } # programs the agent opens (Explorer) not elevated, as WinShun's own is
+            'calc' { # start | end: a Calculator window to point at (the one that is open, left where it is; else one opened here and closed again)
+                if ($arg -eq 'start') {
+                    $script:allowed += 'ApplicationFrameHost'
+                    $h = [A]::FindTitle('Calculator'); if ($h -eq [IntPtr]::Zero) { $h = [A]::FindTitle([string][char]0x8BA1 + [char]0x7B97 + [char]0x5668) }
+                    $script:calcStarted = ($h -eq [IntPtr]::Zero)
+                    if ($script:calcStarted) {
+                        Start-Process -FilePath 'calc.exe'
+                        $sw = [Diagnostics.Stopwatch]::StartNew()
+                        while ($h -eq [IntPtr]::Zero -and $sw.Elapsed.TotalSeconds -lt 10) { Start-Sleep -Milliseconds 300; $h = [A]::FindTitle('Calculator') }
+                        if ($h -eq [IntPtr]::Zero) { throw 'calc: no Calculator window' }
+                    }
+                    [A]::Front($h); [A]::Raise($h); Start-Sleep -Milliseconds 600; Guard
+                } elseif ($script:calcStarted) {
+                    $h = [A]::FindTitle('Calculator'); if ($h -ne [IntPtr]::Zero) { [A]::PostMessageW($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }
+                    $script:calcStarted = $false; Start-Sleep -Milliseconds 700
+                }
+            }
+            'cover' { # on [paper] | off: the wallpaper in a window over the whole screen, under whatever is shown after
+                $p = $arg -split '\s+'
+                $stop = Join-Path $work 'cover.stop'
+                if ($p[0] -eq 'on') {
+                    Remove-Item $stop -ErrorAction SilentlyContinue
+                    $pythonw = Join-Path (Split-Path $python) 'pythonw.exe'
+                    if (-not (Test-Path $pythonw)) { throw "no pythonw next to $python" }
+                    $paper = if ($p.Count -gt 1 -and $p[1]) { $p[1] } else { 'dawn' }
+                    $script:coverProc = Start-Process -FilePath $pythonw -ArgumentList "`"$tool`"", 'cover-window', '--bg', $paper, '--stop', "`"$stop`"" -PassThru
+                    $sw = [Diagnostics.Stopwatch]::StartNew()
+                    while ([A]::FindTitle('WinShun shot cover') -eq [IntPtr]::Zero -and $sw.Elapsed.TotalSeconds -lt 30) { Start-Sleep -Milliseconds 200 }
+                    if ([A]::FindTitle('WinShun shot cover') -eq [IntPtr]::Zero) { throw 'the cover did not come up' }
+                } elseif ($p[0] -eq 'raise') { [A]::Raise([A]::FindTitle('WinShun shot cover')) # over the user's windows that came up again
+                } else { CoverOff }
+            }
+            'edge' { # <file of scenes\>: Edge as an app window on that page (a profile of its own: nothing of this user's shows)
+                $f = Local $arg
+                $edge = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+                if (-not $edge) { throw 'no Edge' }
+                $uri = ([Uri]$f).AbsoluteUri
+                Start-Process -FilePath $edge -ArgumentList "--app=$uri", "--user-data-dir=`"$(Join-Path $work 'edge-profile')`"", '--guest', '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--disable-sync'
+                $script:allowed += 'msedge'
+                Start-Sleep -Milliseconds 3500
+            }
+            'closewin' { # <title part>: WM_CLOSE to a window of an allowed program
+                $h = [A]::FindTitle($arg)
+                if ($h -ne [IntPtr]::Zero) {
+                    $name = try { (Get-Process -Id ([int][A]::Pid($h))).ProcessName } catch { '' }
+                    if ($allowed -contains $name) { [A]::PostMessageW($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }
+                    else { throw "closewin: '$arg' is a window of $name, not one of ours" }
+                }
+                Start-Sleep -Milliseconds 700
+            }
+            'place' { # <title part> <x> <y> <w> <h>, physical px
+                $p = $arg -split '\s+'
+                $n = $p.Count
+                $title = ($p[0..($n - 5)]) -join ' '
+                $h = [A]::FindTitle($title)
+                if ($h -eq [IntPtr]::Zero) { throw "place: no window '$title'" }
+                [A]::ShowWindow($h, 9) | Out-Null
+                [A]::MoveWindow($h, [int]$p[$n - 4], [int]$p[$n - 3], [int]$p[$n - 2], [int]$p[$n - 1], $true) | Out-Null
+                Start-Sleep -Milliseconds 800
+            }
+            'front' { # <title part>
+                $h = [A]::FindTitle($arg)
+                if ($h -eq [IntPtr]::Zero) { throw "front: no window '$arg'" }
+                [A]::Front($h); [A]::Raise($h); Start-Sleep -Milliseconds 500; Guard
+            }
+            'hover' { # <x> <y>: the pointer there, over a window of an allowed program or of WinShun's
+                $p = $arg -split '\s+'; $x = [int]$p[0]; $y = [int]$p[1]
+                [A]::MoveAbs($x, $y); Start-Sleep -Milliseconds 150
+                $pid1 = [A]::Pid([A]::RootAt($x, $y))
+                $name = try { (Get-Process -Id ([int]$pid1)).ProcessName } catch { '' }
+                $mine = @(Get-Process WinShun -ErrorAction SilentlyContinue | ForEach-Object Id) -contains $pid1
+                if (-not ($mine -or $allowed -contains $name)) { throw "hover at $x,$y is over $name" }
+                Start-Sleep -Milliseconds 250
+            }
+            'hoverwin' { # <title part> <dx> <dy>: the pointer on that window's frame + (dx, dy), over a window of an allowed program or of WinShun's
+                $p = $arg -split '\s+'; $n = $p.Count
+                $h = [A]::FindTitle((($p[0..($n - 3)]) -join ' '))
+                if ($h -eq [IntPtr]::Zero) { throw "hoverwin: no window '$arg'" }
+                $f = [A]::Frame($h)
+                $x = $f.L + [int]$p[$n - 2]; $y = $f.T + [int]$p[$n - 1]
+                [A]::MoveAbs($x, $y); Start-Sleep -Milliseconds 150
+                $pid1 = [A]::Pid([A]::RootAt($x, $y))
+                $name = try { (Get-Process -Id ([int]$pid1)).ProcessName } catch { '' }
+                $mine = @(Get-Process WinShun -ErrorAction SilentlyContinue | ForEach-Object Id) -contains $pid1
+                if (-not ($mine -or $allowed -contains $name)) { throw "hoverwin at $x,$y is over $name" }
+                Start-Sleep -Milliseconds 250
+            }
+            'pie' { # start <item> <dx> <dy> | hover <sector> <of> <left|right> | end
+                $p = $arg -split '\s+', 2
+                if ($p[0] -eq 'start') { PieStart $p[1] } elseif ($p[0] -eq 'hover') { PieHover $p[1] } elseif ($p[0] -eq 'end') { PieEnd } else { throw "pie what? '$arg'" }
+            }
+            'settingsapp' { # <page>: Windows' Settings on ms-settings:<page> (the shell opens it)
+                if ($arg -notmatch '^[a-z0-9-]+$') { throw "settingsapp: odd page '$arg'" }
+                Start-Process -FilePath 'explorer.exe' -ArgumentList "ms-settings:$arg"
+                $script:allowed += 'ApplicationFrameHost'; $script:allowed += 'SystemSettings'
+                Start-Sleep -Milliseconds 3500
             }
             'canceldialogs' { # Notepad's open dialogs (from Ctrl+O) get Cancel
                 $h = [IntPtr]::Zero; $n = 0
@@ -304,6 +637,8 @@ function RunLines($lines) {
 function Batch($lines) {
     try { RunLines $lines }
     catch {
+        try { PieEnd } catch { Note "pie cleanup: $_" }
+        try { CoverOff } catch { Note "cover cleanup: $_" }
         foreach ($k in 0x10, 0x11, 0x12, 0x5B) { [A]::Key([uint16]$k, $true) } # nothing left held
         Note "BLOCKED: $_"
         return $false

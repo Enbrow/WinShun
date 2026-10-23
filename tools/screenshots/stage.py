@@ -17,6 +17,7 @@ from PIL import Image
 from art import NAMES, background
 from capture import Desktop
 
+CAPTURE_HOTKEY = "Ctrl+Alt+F10"  # the profile's capture hotkey (agent: down 11, down 12, tap 79)
 PROFILE_MARK = "made-for-screenshots.txt"  # a profile folder this may empty again
 
 # The folder the shots show (its name shows in them too, as in the Open
@@ -32,6 +33,13 @@ CHANGED = {
     "年度报告 提纲.md": 60 * 24 * 3, "年度报告 封面.png": 60 * 24 * 5, "2026 年度报告.docx": 60 * 24 * 9,
     "2025 年度报告.pdf": 60 * 24 * 340, "年度报告素材": 60 * 24 * 2, "财务/年度报表汇总.xlsx": 45,
     "会议纪要/0915 季度复盘.md": 60 * 24 * 26, "董事会汇报 讲稿.txt": 60 * 5,
+    # the folders of the drop pie's favorites (PIE_FAVORITES) and what is in them: old, so they stay out of "newest"
+    "项目资料": 60 * 24 * 60, "项目资料/项目排期 2026Q4.md": 60 * 24 * 60,
+    "合同": 60 * 24 * 90, "合同/服务合同 范本.txt": 60 * 24 * 90,
+    "2026 归档": 60 * 24 * 120, "2026 归档/归档清单.md": 60 * 24 * 120,
+    "发给客户": 60 * 24 * 45, "发给客户/报价单 v2.md": 60 * 24 * 45,
+    "下载": 60 * 24 * 30, "下载/安装说明.txt": 60 * 24 * 30,
+    "2026年第三季度经营分析报告_终版": 60 * 24 * 20, "2026年第三季度经营分析报告_终版/摘要.md": 60 * 24 * 20,
 }
 
 # The demo profile's favorites: kind, path in the demo folder, name, keyword.
@@ -41,6 +49,11 @@ FAVORITES = (
     ("file", "年度报告 定稿 v3.pptx", "年报定稿", "nb"),
     ("folder", "年度报告素材", "年报素材", ""),
 )
+
+# The drop pie's ring (--pie-favorites): the first eight folder favorites,
+# clockwise from the top. The long name is there to show a label of two lines.
+PIE_FAVORITES = ("项目资料", "合同", "2026 归档", "发给客户", "下载",
+                 "2026年第三季度经营分析报告_终版", "财务", "会议纪要")
 
 # The demo clipboard history, newest first: minutes ago and the text; the
 # picture (scenes/区域销售额.png, copied in Paint) is the newest.
@@ -145,9 +158,10 @@ def touch_demo(files):
             os.utime(path, (now - minutes * 60, now - minutes * 60))
 
 
-def write_favorites(folder, files):
+def write_favorites(folder, files, pie=False):
+    chosen = tuple(("folder", path, "", "") for path in PIE_FAVORITES) if pie else FAVORITES
     entries = [{"kind": kind, "path": str(pathlib.Path(files) / path), "name": name, **({"keyword": key} if key else {})}
-               for kind, path, name, key in FAVORITES]
+               for kind, path, name, key in chosen]
     (folder / "favorites.json").write_text(json.dumps({"format": "winshun-favorites", "version": 1,
                                                        "favorites": entries}, ensure_ascii=False, indent=2),
                                            encoding="utf-8")
@@ -205,7 +219,22 @@ def seed_clipboard(folder):
     return len(rows)
 
 
-def make_profile(folder, files, recent, number_keys="ctrl", number_hints="held"):
+def sync_demo():
+    """What demo/ has and the demo folder has not, copied over (new demo files
+    after the folder was first made); nothing there is changed or deleted."""
+    source = pathlib.Path(__file__).resolve().parent / "demo"
+    for path in sorted(source.rglob("*")):
+        target = DEMO / path.relative_to(source)
+        if path.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+        elif not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, target)
+            print(f"demo file added: {target}")
+
+
+def make_profile(folder, files, recent, number_keys="ctrl", number_hints="held", pie=False, capture=False,
+                 explorer_typing=False):
     """A folder for `WinShun.exe --profile <folder>`: this user's settings,
     but nothing indexed outside `files`, no update check, the built-in web
     shortcuts only, no shares, `recent` (paths, newest first) as the recently
@@ -218,6 +247,8 @@ def make_profile(folder, files, recent, number_keys="ctrl", number_hints="held")
     if pathlib.Path(files) == DEMO and not DEMO.exists():
         shutil.copytree(pathlib.Path(__file__).resolve().parent / "demo", DEMO)
         print(f"demo files copied to {DEMO}")
+    elif pathlib.Path(files) == DEMO:
+        sync_demo()
     if folder.exists() and any(folder.iterdir()):
         if not (folder / PROFILE_MARK).exists():
             sys.exit(f"{folder} is not empty and not a profile made here; not touching it")
@@ -237,7 +268,16 @@ def make_profile(folder, files, recent, number_keys="ctrl", number_hints="held")
                                      "PreviewWith": "builtin"})
     text = ini_set(text, "Appearance", {"Theme": "system", "Transparency": "on", "TaskbarIcon": "color",
                                         "UiSize": "standard", "Language": "system", "Corners": "round"})
-    text = ini_set(text, "Launcher", {"DialogAutoJumpAsked": "true"})  # no question under the dialog bar
+    text = ini_set(text, "Launcher", {"DialogAutoJumpAsked": "true",  # no question under the dialog bar
+                                      "ExplorerTyping": "true" if explorer_typing else "false"})
+    if pie:  # the drop pie on (the default); the favorites it shows are PIE_FAVORITES
+        text = ini_set(text, "Favorites", {"DropPie": "true"})
+    # The capture (a hotkey of its own for the agent; the Snipping Tool's PrtScn is left alone), the tour's
+    # smart redaction on; whatever of this user's [Capture] was there is replaced.
+    text = ini_drop(text, "Capture")
+    if capture:
+        text = ini_set(text, "Capture", {"Enabled": "true", "Hotkey": CAPTURE_HOTKEY, "PrintScreen": "false",
+                                         "IncludeCursor": "false", "SmartPrescan": "true"})
     # Search by meaning on the demo folder, with this user's model service (and
     # its key, in Windows' credentials); its vectors are the profile's own.
     text = ini_set(text, "Plugin.winshun.semantic", {"Enabled": "true", "Confirmed": "winshun:content, network",
@@ -248,7 +288,7 @@ def make_profile(folder, files, recent, number_keys="ctrl", number_hints="held")
     lines = [f"{pathlib.Path(p)}\t1\t{now - i * 7 * 60_000}" for i, p in enumerate(recent)]
     (folder / "history.txt").write_text("\r\n".join(lines) + ("\r\n" if lines else ""), encoding="utf-8")
     touch_demo(files)
-    write_favorites(folder, files)
+    write_favorites(folder, files, pie)
     clips = seed_clipboard(folder)
     print(f"profile in {folder}: {len(excluded)} folders excluded, {len(recent)} recent items, "
           f"{len(FAVORITES)} favorites, {clips} clips")
@@ -315,3 +355,63 @@ def restore():
         wallpaper(saved["wallpaper"])
     SCENE.unlink()
     print(f"restored {saved}")
+
+
+def cover(paper="dawn", stop=None):
+    """A window over the whole screen showing the wallpaper `paper` (one of
+    art's backgrounds), not topmost, never activated: whatever program is
+    brought up after it lies over it and nothing else of this computer shows
+    behind (the capture overlay freezes what is on the screen). Stays until
+    the file `stop` exists, or this process is ended."""
+    import ctypes.wintypes as wt
+    d = Desktop()
+    u, g, k = d.user32, d.gdi32, d.kernel32
+    w, h = u.GetSystemMetrics(78), u.GetSystemMetrics(79)
+    left, top = u.GetSystemMetrics(76), u.GetSystemMetrics(77)
+    pixels, _ = background(paper, (w, h))
+    rgb = np.clip(np.round(pixels), 0, 255).astype(np.uint8)
+    bgra = np.dstack([rgb[..., 2], rgb[..., 1], rgb[..., 0], np.full(rgb.shape[:2], 255, np.uint8)])
+    data = np.ascontiguousarray(bgra).tobytes()
+
+    class BITMAPINFOHEADER(ctypes.Structure):
+        _fields_ = [("biSize", wt.DWORD), ("biWidth", wt.LONG), ("biHeight", wt.LONG), ("biPlanes", wt.WORD),
+                    ("biBitCount", wt.WORD), ("biCompression", wt.DWORD), ("biSizeImage", wt.DWORD),
+                    ("biXPelsPerMeter", wt.LONG), ("biYPelsPerMeter", wt.LONG), ("biClrUsed", wt.DWORD),
+                    ("biClrImportant", wt.DWORD)]
+
+    info = BITMAPINFOHEADER(ctypes.sizeof(BITMAPINFOHEADER), w, -h, 1, 32, 0, len(data), 0, 0, 0, 0)
+    g.CreateCompatibleBitmap.restype = wt.HBITMAP
+    g.CreateCompatibleBitmap.argtypes = [wt.HDC, ctypes.c_int, ctypes.c_int]
+    g.SetDIBits.argtypes = [wt.HDC, wt.HBITMAP, wt.UINT, wt.UINT, ctypes.c_void_p, ctypes.c_void_p, wt.UINT]
+    g.CreatePatternBrush.restype = wt.HBRUSH
+    g.CreatePatternBrush.argtypes = [wt.HBITMAP]
+    u.GetDC.restype = wt.HDC
+    u.GetDC.argtypes = [wt.HWND]
+    screen = u.GetDC(None)
+    bitmap = g.CreateCompatibleBitmap(screen, w, h)
+    g.SetDIBits(screen, bitmap, 0, h, data, ctypes.byref(info), 0)
+    brush = g.CreatePatternBrush(bitmap)
+    instance = k.GetModuleHandleW(None)
+    name = f"WinShunShotCover{os.getpid()}"
+    cls = Desktop.WNDCLASSEXW()
+    cls.cbSize = ctypes.sizeof(cls)
+    cls.lpfnWndProc = ctypes.cast(u.DefWindowProcW, ctypes.c_void_p).value
+    cls.hInstance = instance
+    cls.hbrBackground = brush
+    cls.lpszClassName = name
+    if not u.RegisterClassExW(ctypes.byref(cls)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    # no activate, tool window (not in the taskbar), popup
+    hwnd = u.CreateWindowExW(0x08000080, name, "WinShun shot cover", 0x80000000, left, top, w, h, None, None, instance, None)
+    if not hwnd:
+        raise ctypes.WinError(ctypes.get_last_error())
+    u.SetWindowPos(hwnd, wt.HWND(0), left, top, w, h, 0x0010 | 0x0040)  # HWND_TOP, no activate, show
+    print(f"cover up: {hwnd}", flush=True)
+    try:
+        while not (stop and pathlib.Path(stop).exists()):
+            d.pump()
+            time.sleep(0.05)
+    finally:
+        u.DestroyWindow(hwnd)
+        d.pump()
+        u.UnregisterClassW(name, instance)

@@ -1,0 +1,15 @@
+# Settings > 插件 > 插件库 (README_ONLY "pluginlib", L-pluginlib): the library is read from GitHub when the tab opens
+# (online). The window made taller, to take all the library's plugins. Click points are from the default window's frame
+# (2560x1600 screen, 150 %). WinShun on the profile, light theme.
+settings
+sleep 1500
+# 插件 in the sidebar, then the 插件库 tab
+clickfg 100 844
+sleep 1200
+clickfg 523 178
+sleep 5000
+place 设置 - Win顺 520 40 1500 1400
+sleep 2000
+matte L-pluginlib winshun
+chord 12 73
+sleep 800

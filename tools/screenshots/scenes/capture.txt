@@ -1,0 +1,29 @@
+# The capture overlay (README_ONLY "capture", L-capture), light: Calculator under it, the pointer on a key of it, so the
+# key is framed and the magnifier shows the pixels and the colour. The profile has the capture on, hotkey Ctrl+Alt+F10
+# (stage.CAPTURE_HOTKEY). A window of this screen over the cover (the wallpaper in a window of its own), so nothing of
+# the user's shows in the frozen screen; Calculator is the open one if there is one (left where it is), else one opened
+# here and closed again. The overlay is shot whole and cut to the Calculator and the magnifier (the taskbar stays out).
+# WinShun on the profile already, the light theme set (release013.txt does both). Needs Calculator's own UI Automation
+# (not a Chromium program, not Paint: Paint gave the whole window only).
+allow ApplicationFrameHost
+cover on dawn
+cover raise
+calc start
+front Calculator
+sleep 800
+# the 9 key: 560,538 from the frame
+hoverwin Calculator 560 538
+sleep 500
+down 11
+down 12
+tap 79
+up 12
+up 11
+sleep 2200
+hoverwin Calculator 564 540
+sleep 1000
+shotabs L-capture 150 70 1570 1120
+tap 1B
+sleep 800
+calc end
+cover off

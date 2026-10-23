@@ -1,0 +1,22 @@
+# The drop pie (README_ONLY "droppie", L-droppie): a file of the demo folder dragged in Explorer, shaken (three quick
+# swings of 40-130 px), the ring of folders on the cursor, the pointer held at the outer edge of sector 0 (the picture of the file hangs above the pointer, so the label of the sector, below it, stays clear), the 复制 half of the
+# inner ring crossed. The favorites are the profile's --pie-favorites (stage.PIE_FAVORITES, sector 0 at the top,
+# clockwise: 2 is on the right). The drag is never let go over a sector: `pie end` is Esc, then the button up.
+# Needs the build with the drop pie, and WinShun NOT elevated (a drop from Explorer can't reach an elevated one):
+# profile start --unelevated --pie-favorites. Explorer large enough for the ring (1134x828 px at 150 %) to lie in it.
+# WinShun on the profile already, the light theme set.
+unelevated on
+allow explorer
+explorer open F:\Win顺演示
+sleep 3000
+explorer place 360 150 1800 1150
+sleep 2000
+front Win顺演示
+sleep 1000
+pie start 年度报告 数据附录.xlsx 900 575
+pie hover 0 8 right 10 215
+sleep 500
+matte L-droppie hold
+pie end
+sleep 1000
+explorer close

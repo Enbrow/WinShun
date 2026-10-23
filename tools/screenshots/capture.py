@@ -211,11 +211,14 @@ def overlap(a, b):
     return w * h / min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
 
 
-def shoot(delay=0.0, winshun=False, margin=64, tries=12, beside=False):
+def shoot(delay=0.0, winshun=False, margin=64, tries=12, beside=False, hold=False, with_class=None):
     """The window in front, or with `winshun` WinShun's frontmost one (the
     clipboard pops up without taking the focus), and WinShun's windows by it
     (the logo; with `beside` also its others against it, such as the preview
-    beside the launcher), with transparency."""
+    beside the launcher), with transparency. `hold`: the pointer stays where it
+    is (a drag in progress, the pie under it). `with_class`: and the visible
+    windows of that class (CabinetWClass: an Explorer window) that lie against
+    the main one, which is then WinShun's frontmost (the launcher over Explorer)."""
     d = Desktop()
     time.sleep(delay)
     order = d.windows()
@@ -241,6 +244,9 @@ def shoot(delay=0.0, winshun=False, margin=64, tries=12, beside=False):
             targets += [h for h in ours if h != main and not logo(h) and near(d.frame(h), d.frame(main), 24)]
     else:
         targets += [h for h in ours if not logo(h) and near(d.frame(h), d.frame(main), 24)]
+    if with_class:
+        targets += [h for h in order if h not in ours and h not in targets and d.class_name(h) == with_class
+                    and overlap(d.frame(h), d.frame(main)) > 0.02 and min(size(h)) > 100]
     targets += [h for h in ours if logo(h) and any(near(d.frame(h), d.frame(t), 160) for t in targets)]
     frames = [d.frame(h) for h in targets]
     screen = (d.user32.GetSystemMetrics(76), d.user32.GetSystemMetrics(77))  # virtual screen origin
@@ -250,7 +256,7 @@ def shoot(delay=0.0, winshun=False, margin=64, tries=12, beside=False):
 
     cursor = wt.POINT()
     d.user32.GetCursorPos(ctypes.byref(cursor))
-    if near((cursor.x, cursor.y, cursor.x + 1, cursor.y + 1), region, 0):
+    if not hold and near((cursor.x, cursor.y, cursor.x + 1, cursor.y + 1), region, 0):
         d.user32.SetCursorPos(screen[0] + 2, screen[1] + 2)  # out of the way, and hover effects gone
         time.sleep(0.4)
 

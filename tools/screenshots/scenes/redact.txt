@@ -1,0 +1,37 @@
+# Smart redaction in the capture (README_ONLY "redact", L-redact): a page of made-up customer data (客户联系单.html, in
+# Edge as an app window, guest: nothing of this user's), the capture on it, the window picked with a click, "发现 5 处"
+# found by itself, Shift+B covers them. The pointer is moved off to the dimmed ground at the far left so the magnifier
+# doesn't sit on the data. Overlay shot whole and cut: the dimmed ground at both sides, the toolbar and the notice under.
+# WinShun on the profile (capture on), light theme.
+cover on dawn
+edge scenes\客户联系单.html
+place 客户联系单 560 110 1440 1260
+cover raise
+front 客户联系单
+sleep 1000
+hover 1280 700
+sleep 500
+down 11
+down 12
+tap 79
+up 12
+up 11
+sleep 2000
+hover 1290 710
+sleep 600
+clickfg 1290 710
+sleep 3500
+# the hint under the toolbar: 发现 N 处 · 点此打码 (not shot: the covered one is)
+down 10
+tap 42
+up 10
+sleep 1200
+hover 120 600
+sleep 900
+shotabs L-redact 440 60 1680 1420
+tap 1B
+sleep 600
+tap 1B
+sleep 800
+closewin 客户联系单
+cover off

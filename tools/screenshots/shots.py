@@ -99,7 +99,16 @@ README_ONLY = (
     ("preview", "L-preview", "Alt+P，[先看一眼]", "图片、文本、Office、PDF，启动器不关"),
     ("switches", "L-switch1+L-switch2+L-switch3", "系统开关，[打字就切]", "行尾就是现在的状态，回车就地切换，窗口不关"),
     ("edit", "L-edit", "截图标完，[还能再改]", "箭头、方框、文字：从剪贴板历史打开，随时再编辑"),
+    # 0.13.0 (scenes/release013.txt): "screen" = a piece of the screen, not a window with its own transparency
+    ("droppie", "L-droppie", "拖文件时，[晃一晃]", "弹出圆盘：内圈选移动或复制，外圈是常用文件夹，松手就到"),
+    ("longshot", "L-longshot", "比屏幕还长，[一键拼成长图]", "Ctrl+L 自动滚动、自动拼接：网页、聊天记录、文档都行"),
+    ("redact", "L-redact", "截图里的隐私，[一键打码]", "手机号、身份证、银行卡、邮箱：本机识别，一次 Ctrl+Z 全撤", "screen"),
+    ("pluginlib", "L-pluginlib", "插件库，[点一下就装]", "设置 › 插件 › 插件库：先看它要什么权限，核对后再安装"),
+    ("capture", "L-capture", "框选截图，[先认出控件]", "鼠标指到哪框到哪；放大镜看像素和颜色，C 复制色值", "screen"),
+    ("typing", "L-typing", "资源管理器里，[直接打字就搜]", "在文件夹里随便打字，只搜这个文件夹（设置里打开）"),
 )
+PENDING = {"L-droppie", "L-longshot", "L-redact", "L-pluginlib", "L-capture", "L-typing"}  # shot by scenes/release013.txt;
+# render leaves them out while there is no shot yet (so the other pictures can be made again meanwhile)
 ENDING_PAGE = "17-follow"  # who made it, where to get it, follow
 
 # Covers: file, shot, preset, background.
@@ -126,8 +135,11 @@ def jobs(sets, shots, out):
         file, launcher, screen, title, subtitle = TASKBAR_PAGE
         found.append(("taskbar", (shot(launcher), shot(screen), title, subtitle, "square"), named(file)))
         found.append(("cover", (shot("L-search"), "square", "letters"), images / "cover.jpg"))
-        for file, name, title, subtitle in README_ONLY:
-            found.append(("compose", (shot(name), "square", "letters", title, subtitle), images / f"{file}.jpg"))
+        for file, name, title, subtitle, *how in README_ONLY:
+            if not pathlib.Path(shot(name)).is_file() and name in PENDING:
+                print(f"skipped {file}: no shot yet ({name}.png: scenes/release013.txt)")
+                continue
+            found.append(("compose", (shot(name), "square", "letters", title, subtitle, *how), images / f"{file}.jpg"))
     for kind, preset, folder in (("pages", "xhs", "pages"), ("square", "square", "pages-square")):
         if kind in sets:
             for file, name, title, subtitle, *bg in PAGES:
@@ -144,9 +156,11 @@ def jobs(sets, shots, out):
 
 def make(kind, args):
     if kind == "compose":
-        window, preset, bg, title, subtitle = args
+        window, preset, bg, title, subtitle, *how = args
         parts = window.split("+")
         image = Image.open(window) if len(parts) == 1 else art.stacked([Image.open(p) for p in parts])
+        if "screen" in how:  # a piece of the screen, not a window with its own transparency
+            image = art.screen_piece(image)
         return art.compose(image, preset, bg, title, subtitle)
     if kind == "taskbar":
         launcher, screen, title, subtitle, preset = args
@@ -181,7 +195,8 @@ def render(sets, shots, out):
 
 
 def main() -> None:
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if sys.stdout:  # pythonw has none
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
     c = commands.add_parser("scene")
@@ -194,13 +209,21 @@ def main() -> None:
     c.add_argument("--recent", nargs="*", help="recently opened, newest first (default: some of the demo folder)")
     c.add_argument("--number-keys", default="ctrl", choices=("ctrl", "alt", "off"),
                    help="the launcher's number keys (default: ctrl, as WinShun's own; off takes the numbers off the icons)")
+    c.add_argument("--pie-favorites", action="store_true", help="the favorites are the drop pie's ring (folders only)")
+    c.add_argument("--capture", action="store_true", help="the capture on (hotkey stage.CAPTURE_HOTKEY), smart redaction on")
+    c.add_argument("--explorer-typing", action="store_true", help="typing in Explorer opens the launcher")
     c.add_argument("--number-hints", default="held", choices=("held", "always", "off"),
                    help="when the numbers show on the icons (default: held, as WinShun's own: only while Ctrl is held)")
+    c = commands.add_parser("cover-window")
+    c.add_argument("--bg", default="dawn", help="the wallpaper over the whole screen")
+    c.add_argument("--stop", help="a file whose appearing ends it")
     c = commands.add_parser("shoot")
     c.add_argument("-o", "--out", required=True)
     c.add_argument("--delay", type=float, default=0.0, help="seconds to wait first, to bring the window up")
     c.add_argument("--winshun", action="store_true", help="WinShun's frontmost window, not the one in front")
     c.add_argument("--beside", action="store_true", help="and WinShun's windows against it (the preview)")
+    c.add_argument("--hold", action="store_true", help="the pointer stays where it is (a drag going on)")
+    c.add_argument("--with", dest="with_class", help="and the windows of this class lying against WinShun's (CabinetWClass: Explorer)")
     c = commands.add_parser("matte")
     c.add_argument("black")
     c.add_argument("white")
@@ -239,6 +262,9 @@ def main() -> None:
     c.add_argument("--out", type=pathlib.Path, default=WORK / "out")
     args = parser.parse_args()
 
+    if args.command == "cover-window":
+        import stage
+        return stage.cover(args.bg, args.stop)
     if args.command in ("scene", "restore", "profile"):
         import stage
         if args.command == "scene":
@@ -247,14 +273,15 @@ def main() -> None:
             return stage.restore()
         files = pathlib.Path(args.files) if args.files else stage.DEMO
         recent = args.recent if args.recent is not None else [stage.DEMO / name for name in stage.RECENT]             if files == stage.DEMO else []
-        return stage.make_profile(args.folder, files, recent, args.number_keys, args.number_hints)
+        return stage.make_profile(args.folder, files, recent, args.number_keys, args.number_hints,
+                                  args.pie_favorites, args.capture, args.explorer_typing)
     if args.command == "render":
         if unknown := set(args.sets) - set(SETS):
             parser.error(f"no such set: {', '.join(sorted(unknown))} (there are {', '.join(SETS)})")
         return render(args.sets, args.shots, args.out)
     if args.command == "shoot":
         import capture
-        image = capture.shoot(args.delay, args.winshun, beside=args.beside)
+        image = capture.shoot(args.delay, args.winshun, beside=args.beside, hold=args.hold, with_class=args.with_class)
     elif args.command == "matte":
         import capture
         black, white = Image.open(args.black), Image.open(args.white)

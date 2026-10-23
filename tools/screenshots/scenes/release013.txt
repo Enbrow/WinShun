@@ -1,0 +1,23 @@
+# The six pictures new in 0.13.0 (shots.py README_ONLY: droppie, longshot, redact, pluginlib, capture, typing), one run,
+# light. Start it with tools\screenshots\run.ps1 (the lock for other sessions, the idle wait, the elevated agent, the
+# user's own WinShun back afterwards, unelevated). Before it:
+#  - PixPin and the like quit (their hotkeys show struck through in the launcher; the capture and the pie are shot over
+#    the real desktop), no Explorer windows of one's own open (they are not touched, but the typing scene closes only the
+#    demo folder's), the system clipboard not needed (nothing here copies);
+#  - the build under test (the release build, with the drop pie): run.ps1 -Exe <its WinShun.exe>;
+#  - 2560x1600 at 150 % (points below are physical px of that screen); Edge, Calculator and Paint-free: the capture
+#    shot points at Calculator (the open one, left where it is, else one opened and closed again).
+# WinShun is not elevated here (a drop from Explorer can't reach an elevated one): --unelevated.
+profile start --unelevated --pie-favorites --capture --explorer-typing
+# the demo folder indexed
+sleep 15000
+scene --theme light --wallpaper dawn
+sleep 2500
+run scenes\pluginlib.txt
+run scenes\typing.txt
+run scenes\capture.txt
+run scenes\redact.txt
+run scenes\longshot.txt
+run scenes\droppie.txt
+restore
+profile stop

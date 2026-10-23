@@ -342,6 +342,21 @@ def lifted(window):
     return image, (box[0] - left, box[1] - top, box[2] - left, box[3] - top)
 
 
+def screen_piece(image, radius=14):
+    """A piece of the screen (a plain shot, no transparency) as a window of
+    its own for compose: its corners rounded the way Windows 11's are
+    (8 logical px: 12 at 150%), a hair of edge so a light shot doesn't melt
+    into a light ground."""
+    image = image.convert("RGB")
+    size = image.size
+    inside = rounded(size, (0, 0, size[0], size[1]), radius)
+    pixels = np.asarray(image, np.float32)
+    ring = np.clip(inside - rounded(size, (1.5, 1.5, size[0] - 1.5, size[1] - 1.5), radius - 1.5), 0, 1)
+    pixels = pixels * (1 - 0.14 * ring[..., None])  # a grey line, 1.5 px, 14 % dark
+    out = np.dstack([pixels, inside * 255])
+    return Image.fromarray(np.round(np.clip(out, 0, 255)).astype(np.uint8), "RGBA")
+
+
 # A sprite: premultiplied colour (0-255) and alpha (0-1), as float arrays.
 
 def sprite(image):
