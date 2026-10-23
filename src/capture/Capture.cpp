@@ -505,6 +505,7 @@ void Capture::finish(CaptureSession::Action action, int screen, const QRect& rec
     m_uia.reset(); // a walk still under way finishes by itself
     m_uiaGate = {};
     m_uiaLogged = 0;
+    m_uiaChromiumSkipped.clear();
     if (m_session.stylesChanged() && m_callbacks.annotateStylesChanged)
         m_callbacks.annotateStylesChanged(m_session.styles().toJson());
     m_state = State::Closing;
@@ -721,6 +722,14 @@ void Capture::askUia(std::size_t window, QPoint point)
     const HWND hwnd = m_snapshot.handle(window);
     if (!hwnd || !m_uiaGate.allowed(reinterpret_cast<quintptr>(hwnd)))
         return; // its answers were slow or empty: the child windows are all it has
+    // Not a Chromium window, nor one with Chromium inside (WebView2, CEF, Qt WebEngine): asking it
+    // makes it turn its accessibility mode on (VS Code: "optimized for a screen reader"). Its child
+    // windows stand. Logged once per window, so a test can tell the skip from a slow answer.
+    if (m_snapshot.hostsChromium(window)) {
+        if (m_uiaChromiumSkipped.insert(reinterpret_cast<quintptr>(hwnd)).second)
+            qInfo().noquote() << u"Screen capture: UI Automation skipped for a Chromium window (class %1): its child windows only"_s.arg(m_snapshot.windowClass(window));
+        return;
+    }
     if (!wantsUia(m_snapshot.windowClass(window), m_snapshot.childWindows(window)))
         return;
     if (!m_uia) {

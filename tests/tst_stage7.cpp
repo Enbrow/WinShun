@@ -9,6 +9,7 @@
 #include "Geometry.h"
 #include "PinTools.h"
 #include "QrCode.h"
+#include "WindowSnapshot.h"
 
 #include <BitMatrix.h>
 #include <MultiFormatWriter.h>
@@ -510,13 +511,29 @@ private slots:
 
     void uiaIsAskedForProgramsThatDrawTheirOwnControls()
     {
-        QVERIFY(wantsUia(u"Chrome_WidgetWin_1"_s, 3)); // VS Code, Edge, WeChat
         QVERIFY(wantsUia(u"WinUIDesktopWin32WindowClass"_s, 1));
         QVERIFY(wantsUia(u"ApplicationFrameWindow"_s, 5));
         QVERIFY(wantsUia(u"MozillaWindowClass"_s, 2));
         QVERIFY(wantsUia(u"Notepad"_s, 0)); // no child windows to pick: UI Automation may know more
         QVERIFY(!wantsUia(u"Notepad"_s, 2)); // its controls are child windows
         QVERIFY(!wantsUia(u"CabinetWClass"_s, 12));
+    }
+
+    // Asking a Chromium window makes it turn its accessibility mode on for good, and VS Code then shows
+    // "optimized for a screen reader" until it restarts: never asked, with or without child windows.
+    void uiaIsNeverAskedOfChromium()
+    {
+        for (const QString& chromium : {u"Chrome_WidgetWin_0"_s, u"Chrome_WidgetWin_1"_s, u"Chrome_WidgetWin_2"_s,
+                 u"Chrome_RenderWidgetHostHWND"_s, u"Intermediate D3D Window"_s, u"CefBrowserWindow"_s}) {
+            QVERIFY2(!wantsUia(chromium, 0), qPrintable(chromium));
+            QVERIFY2(!wantsUia(chromium, 3), qPrintable(chromium)); // VS Code, Edge, WeChat
+            QVERIFY2(WindowSnapshot::isChromiumClass(chromium.toStdWString()), qPrintable(chromium));
+        }
+        // Not Chromium's: Firefox, XAML/WinUI, ordinary windows, look-alikes.
+        for (const QString& other : {u"MozillaWindowClass"_s, u"ApplicationFrameWindow"_s, u"Notepad"_s, u"CabinetWClass"_s,
+                 u"Qt6120QWindowIcon"_s, u"Chrome"_s, u"Chrome_WidgetWin"_s, u"MyChrome_WidgetWin_1"_s, u""_s})
+            QVERIFY2(!WindowSnapshot::isChromiumClass(other.toStdWString()), qPrintable(other));
+        QVERIFY(wantsUia(u"Notepad"_s, 0)); // still asked where nothing is a child window
     }
 
     void smallToolbarButtonBeatsDeepWrapperPanes()

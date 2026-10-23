@@ -60,8 +60,10 @@ bool drawCursor(QImage& image, QPoint hotspot, HCURSOR cursor);
 // ---- UI Automation for controls that are not child windows ----------------------
 
 // Whether to ask UI Automation about the point in a window: its class is one
-// whose controls are drawn by the program itself (Chromium and Electron, XAML
-// and WinUI, Firefox), or it has no child windows to pick.
+// whose controls are drawn by the program itself (XAML and WinUI, Firefox), or
+// it has no child windows to pick. Never for a Chromium class (Chrome, Edge,
+// Electron, CEF: WindowSnapshot::isChromiumClass); a window with a Chromium
+// child window is ruled out by the caller (WindowSnapshot::hostsChromium).
 bool wantsUia(const QString& windowClass, int childWindows);
 // The controls a chain of elements gives (from the one under the point out to
 // its ancestors): each cut to `window`, left out when under 8 pixels either

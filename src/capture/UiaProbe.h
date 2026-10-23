@@ -12,8 +12,8 @@
 
 namespace ws::capture {
 
-// The controls under a point that are not child windows (Electron, WinUI,
-// Firefox), asked of UI Automation on a thread of its own so the hover never
+// The controls under a point that are not child windows (WinUI, XAML,
+// Firefox; not Chromium's, whose windows are never asked), asked of UI Automation on a thread of its own so the hover never
 // waits for it: the question for the latest point is answered when it is, the
 // answer comes back on the thread that made the probe. From the window's
 // element the tree is walked down one level at a time, keeping the child

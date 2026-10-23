@@ -1,5 +1,7 @@
 #include "ScrollInput.h"
 
+#include "WindowSnapshot.h"
+
 #include <dwmapi.h>
 #include <ole2.h> // before uiautomation.h: WIN32_LEAN_AND_MEAN leaves it out of windows.h
 #include <uiautomation.h>
@@ -45,6 +47,20 @@ HWND deepestChild(HWND top, POINT at)
         window = child;
     }
     return window;
+}
+
+// Whether `content`, or a window it sits in up to `top`, is one of Chromium's. UI Automation must not
+// be asked there (WindowSnapshot::isChromiumClass): the browser or VS Code would turn its whole
+// accessibility mode on. The wheel ways above it work in these programs anyway.
+bool inChromium(HWND top, HWND content)
+{
+    for (HWND w = content; w; w = (w == top ? nullptr : ::GetParent(w))) {
+        wchar_t name[64] {};
+        ::GetClassNameW(w, name, int(std::size(name)));
+        if (WindowSnapshot::isChromiumClass(name))
+            return true;
+    }
+    return false;
 }
 
 bool down(int key)
@@ -393,6 +409,10 @@ ScrollResult ScrollInput::scroll(ScrollMethod method, double amount)
         Uia& u = *m_uia;
         if (!u.looked) {
             u.looked = true;
+            if (m_window && inChromium(m_window, m_content)) {
+                result.code = ScrollNoPattern;
+                return result;
+            }
             if (FAILED(::CoCreateInstance(__uuidof(CUIAutomation8), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&u.automation)))
                 && FAILED(::CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&u.automation)))) {
                 result.code = ScrollNoPattern;

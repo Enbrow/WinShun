@@ -8,7 +8,6 @@
 #include <ole2.h> // before uiautomation.h: WIN32_LEAN_AND_MEAN leaves it out of windows.h
 #include <uiautomation.h>
 #include <wrl/client.h>
-#include <wrl/implements.h>
 
 #include <chrono>
 #include <condition_variable>
@@ -16,30 +15,23 @@
 #include <optional>
 #include <thread>
 
-using Microsoft::WRL::ClassicCom;
 using Microsoft::WRL::ComPtr;
-using Microsoft::WRL::Make;
-using Microsoft::WRL::RuntimeClass;
-using Microsoft::WRL::RuntimeClassFlags;
 
 namespace ws::capture {
 
 namespace {
 
-constexpr int kMaxDepth = 32; // Chromium nests a dozen wrapper panes before its content
+constexpr int kMaxDepth = 32; // XAML and WinUI nest a dozen wrapper panes before their content
 
 struct Request {
     HWND window = nullptr;
     QPoint point;
 };
 
-// A program that draws its own controls (Chromium, so VS Code and the other Electron programs) builds the
-// tree UI Automation reads only once some client listens for events (UiaClientsAreListening); a client that
-// only asks gets the window's frame. This listens to the focus, and does nothing with it, while the probe lives.
-class FocusSink : public RuntimeClass<RuntimeClassFlags<ClassicCom>, IUIAutomationFocusChangedEventHandler> {
-public:
-    IFACEMETHODIMP HandleFocusChangedEvent(IUIAutomationElement*) override { return S_OK; }
-};
+// No event listener is registered here (there was one on the focus, to make Chromium build its tree):
+// a client that listens makes every Chromium program on the machine, VS Code among them, turn its
+// whole accessibility mode on, and VS Code then shows "optimized for a screen reader" until it restarts.
+// Chromium windows are never asked at all (WindowSnapshot::isChromiumClass, Capture::askUia).
 
 } // namespace
 
@@ -139,12 +131,6 @@ void run(std::shared_ptr<UiaProbe::Shared> shared)
         }
         automation->CreateTrueCondition(&all);
     }
-    ComPtr<IUIAutomationFocusChangedEventHandler> sink;
-    if (automation) {
-        sink = Make<FocusSink>();
-        if (sink)
-            automation->AddFocusChangedEventHandler(nullptr, sink.Get());
-    }
     const bool ready = automation && cache && all;
     for (;;) {
         Request request;
@@ -174,9 +160,6 @@ void run(std::shared_ptr<UiaProbe::Shared> shared)
             }, Qt::QueuedConnection);
         }
     }
-    if (automation && sink)
-        automation->RemoveAllEventHandlers();
-    sink.Reset();
     automation.Reset();
     cache.Reset();
     all.Reset();

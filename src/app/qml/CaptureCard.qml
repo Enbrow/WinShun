@@ -516,8 +516,8 @@ Rectangle {
                           words: qsTr("复制时同步贴到屏幕，也适用于“选好就复制”。只想偶尔使用，可在“鼠标”分类设置“复制并贴图”。") },
                         { key: "captureCursor", title: qsTr("截图带上鼠标指针"),
                           words: qsTr("在图片中保留截图那一刻的鼠标指针，复制、保存、贴图均生效。") },
-                        { key: "captureControlsUia", title: qsTr("识别 Electron、WinUI 等程序里的控件"),
-                          words: qsTr("自动框选 VS Code、微信等程序中的按钮、侧栏和编辑区。无法识别时可手动框选；管理员权限程序中的控件可能不可用。") }
+                        { key: "captureControlsUia", title: qsTr("识别 WinUI 等程序里的控件"),
+                          words: qsTr("自动框选设置、计算器等程序中的按钮和侧栏。Chrome、Edge、VS Code 这类 Chromium 程序不问（一问它们就打开屏幕阅读器模式），只框子窗口或整个窗口，可手动框选；管理员权限程序中的控件可能不可用。") }
                     ]
                     delegate: Item {
                         id: pictureOption

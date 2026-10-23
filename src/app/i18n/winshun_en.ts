@@ -1509,8 +1509,8 @@
         <translation>Nothing</translation>
     </message>
     <message>
-        <source>识别 Electron、WinUI 等程序里的控件</source>
-        <translation>Find controls in Electron, WinUI and similar programs</translation>
+        <source>识别 WinUI 等程序里的控件</source>
+        <translation>Find controls in WinUI and similar programs</translation>
     </message>
     <message>
         <source>截图带上鼠标指针</source>
@@ -1785,8 +1785,8 @@
         <translation>Include the cursor as it appeared when the screen was captured. Applies to copied, saved and pinned pictures.</translation>
     </message>
     <message>
-        <source>自动框选 VS Code、微信等程序中的按钮、侧栏和编辑区。无法识别时可手动框选；管理员权限程序中的控件可能不可用。</source>
-        <translation>Detect buttons, sidebars and editors in apps such as VS Code and WeChat. Select manually if detection fails. Controls in administrator apps may be unavailable.</translation>
+        <source>自动框选设置、计算器等程序中的按钮和侧栏。Chrome、Edge、VS Code 这类 Chromium 程序不问（一问它们就打开屏幕阅读器模式），只框子窗口或整个窗口，可手动框选；管理员权限程序中的控件可能不可用。</source>
+        <translation>Detect buttons and sidebars in apps such as Settings and Calculator. Chromium apps (Chrome, Edge, VS Code) are not asked, because asking makes them switch to screen reader mode: only their child windows or the whole window are picked; select manually when you need more. Controls in administrator apps may be unavailable.</translation>
     </message>
     <message>
         <source>从托盘菜单“截图 › 延时截图”开始，或截图时按 D，适合截菜单和悬停提示。再次按截图快捷键或点击倒计时可取消。</source>

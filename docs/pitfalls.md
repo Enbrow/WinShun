@@ -3433,11 +3433,19 @@
 - **现象**：想用 `IUIAutomation::ElementFromPoint` 取鼠标下的控件，得到的是 Win顺 的遮罩。
 - **做法**：从目标窗口的 `ElementFromHandle` 一层层往下走（`FindAllBuildCache(TreeScope_Children)`，缓存 `BoundingRectangle`、`IsOffscreen`），每层取包含这个点的子元素。
 
-### Chromium（VS Code、Edge、微信）的界面自动化树要有人听事件才会建
+### Chromium（VS Code、Edge、微信）的界面自动化树要有人听事件才会建（已作废，见下一条）
 
 - **现象**：另开的 VS Code 里，窗口的 `ElementFromHandle` 往下只有一个窗格，没有侧栏、编辑区；而测试脚本里用 `AutomationElement.FromPoint` 能看到完整的树（`TabItem`、`StatusBar`……）。
-- **原因**：Chromium 只在发现有界面自动化的客户端“在听”（`UiaClientsAreListening`，客户端注册过事件处理）时才建网页内容的辅助功能树；光问不听，只给窗口外壳。
-- **做法**：探针线程注册一个什么也不做的 `IUIAutomationFocusChangedEventHandler`（`UiaProbe.cpp` 的 `FocusSink`），线程结束时 `RemoveAllEventHandlers`。注册后，第一次悬停就拿得到侧栏、编辑区、标签页。
+- **原因**：Chromium 只在发现有界面自动化的客户端在听或在问时才建网页内容的辅助功能树；光问外壳，不给内容。
+- **做法（2026-10-23 撤销）**：当时让探针线程注册一个什么也不做的 `IUIAutomationFocusChangedEventHandler`（`FocusSink`）把树逼出来。这正是下一条的祸根：不要再这样做，Chromium 窗口根本不该问。
+
+### Chromium 的界面自动化会让 VS Code 进入屏幕阅读器模式（截图悬停控件识别，2026-10-23）
+
+- **现象**：开着截图悬停过 VS Code 之后，VS Code 状态栏出现“已为屏幕阅读器优化”（`editor.accessibilitySupport` 为默认的 `auto` 时），编辑器行为改变（折叠、缩略图、自动换行等被关），要重启 VS Code 才恢复。Chrome、Edge、新版微信等 Chromium 程序同样被打开整套无障碍。
+- **原因**：Chromium 收到界面自动化的请求（`WM_GETOBJECT` 的 `UiaRootObjectId`、读元素属性、事件监听）就升级无障碍模式（`legacy_render_widget_host_win.cc` 的 `OnGetObject` → `AXPlatform::SetUiaRequested`；`AXPlatformNodeWin::OnPropertiesUsed` → `BrowserAccessibilityStateImpl::OnPropertiesUsedInWebContent`；扩展属性触发 `DiscoverAssistiveTech`，可加上 `kScreenReader`）。Electron 的 `app.accessibilitySupportEnabled` 看的是 `kAXModeComplete`，VS Code 把它经 `accessibility-support-changed` 转给每个窗口（`isScreenReaderOptimized`：设置为 `auto` 且支持已开）。一旦开了，Chromium 不会自己关。`FindAllBuildCache(子元素)` 还会逐个读子窗口的元素，所以宿主窗口里只要嵌了 Chromium 子窗口（WebView2、CEF、Qt WebEngine）也一样。`WindowFromPoint` 不会：它只在 user32 里，不给别的进程发消息。
+- **做法**：Chromium 的窗口不问界面自动化：`WindowSnapshot::isChromiumClass`（`Chrome_WidgetWin_*`、`Chrome_RenderWidgetHostHWND`、`Intermediate D3D Window`、`CefBrowserWindow`）、`hostsChromium`（顶层或任何子窗口，含隐藏的）、`wantsUia` 都先拒绝这些类名；`ScrollInput` 的 `Uia` 一级在区域中心的窗口链上有 Chromium 时直接 `ScrollNoPattern`；删掉 `UiaProbe` 的 `FocusSink`（全局事件监听会让整台机器上所有 Chromium 程序都收到事件，探针去问 Notepad 也一样）。这些窗口只用 Win32 子窗口的矩形。测试：`tst_stage7` 的 `uiaIsNeverAskedOfChromium`。
+- **测的时候注意**：这台机器上有常驻的无障碍客户端（输入法或别的，没查出是哪个），任何新开的 VS Code 几秒内（实测约 2.6 s 时 no、5 s 时 yes）就自己变成 `Screen Reader: yes`（`bin\code.cmd --status --user-data-dir …` 读得到），所以“VS Code 有没有进屏幕阅读器模式”在这里区分不出两个版本，要看 Win顺 的日志：有 “UI Automation gave N controls” 还是 “UI Automation skipped for a Chromium window”。`HKCU\Software\Microsoft\Narrator\NoRoam\RunningState` 如果残留为 1（Narrator 没在跑），Chromium 的辅助技术探测会把它当成 Narrator 在跑，也会加上屏幕阅读器模式。
+- **同类**：`TextCaret`（剪贴板窗口找输入光标）早就对 Chrome 系和 Firefox 不用 UI Automation。截图探针仍会问 Firefox：它被问到也会打开自己的无障碍支持、之后变慢，但不改变界面。
 
 ### Chromium 把内容包在十几层同样大小的窗格里，只取“最后一个包含这个点的子元素”会走进死路
 

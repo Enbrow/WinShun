@@ -22,6 +22,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <set>
 #include <thread>
 #include <vector>
 
@@ -180,6 +181,7 @@ private:
     std::unique_ptr<UiaProbe> m_uia; // made with the first question of a capture
     UiaGate m_uiaGate;
     int m_uiaLogged = 0;
+    std::set<quintptr> m_uiaChromiumSkipped; // windows already logged as skipped
     int m_delay = 5;
     bool m_delayAfter = false; // D in the overlay: the countdown begins once it is gone
     std::unique_ptr<CountdownWindow> m_countdown;

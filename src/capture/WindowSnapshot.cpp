@@ -54,11 +54,17 @@ QRect boundsOf(HWND hwnd)
 struct ChildWalk {
     QRect parent;
     std::vector<QRect>* out = nullptr;
+    bool* chromium = nullptr;
 };
 
 BOOL CALLBACK addChild(HWND hwnd, LPARAM param)
 {
     auto* walk = reinterpret_cast<ChildWalk*>(param);
+    if (!*walk->chromium) { // before the visibility test: Chromium keeps hidden helper windows too
+        wchar_t className[64] {};
+        ::GetClassNameW(hwnd, className, static_cast<int>(std::size(className)));
+        *walk->chromium = WindowSnapshot::isChromiumClass(className);
+    }
     if (!::IsWindowVisible(hwnd)) // the window or one of its parents is hidden
         return TRUE;
     RECT r {};
@@ -76,6 +82,15 @@ bool WindowSnapshot::isCaptureSurfaceClass(std::wstring_view className)
 {
     // The pins and the delayed capture's countdown (the overlays are passed by handle).
     return className == L"WinShun.Pin" || className == L"WinShun.Countdown";
+}
+
+bool WindowSnapshot::isChromiumClass(std::wstring_view className)
+{
+    // Chrome_WidgetWin_0/1... (browser and Electron frames, WebView2's host),
+    // Chrome_RenderWidgetHostHWND (the page; also under Qt WebEngine),
+    // Intermediate D3D Window (its GPU surface), CefBrowserWindow (CEF).
+    return className.starts_with(L"Chrome_WidgetWin_") || className == L"Chrome_RenderWidgetHostHWND"
+        || className == L"Intermediate D3D Window" || className == L"CefBrowserWindow";
 }
 
 WindowSnapshot WindowSnapshot::take(const std::vector<HWND>& overlays)
@@ -109,7 +124,10 @@ const std::vector<QRect>& WindowSnapshot::children(std::size_t i) const
     const Entry& entry = m_entries[i];
     if (!entry.children) {
         entry.children.emplace();
-        ChildWalk walk {m_rects[i], &*entry.children};
+        wchar_t className[64] {};
+        ::GetClassNameW(entry.hwnd, className, static_cast<int>(std::size(className)));
+        entry.chromium = isChromiumClass(className);
+        ChildWalk walk {m_rects[i], &*entry.children, &entry.chromium};
         ::EnumChildWindows(entry.hwnd, addChild, reinterpret_cast<LPARAM>(&walk));
     }
     return *entry.children;
@@ -139,6 +157,14 @@ QString WindowSnapshot::windowClass(std::size_t i) const
 int WindowSnapshot::childWindows(std::size_t i) const
 {
     return static_cast<int>(children(i).size()) - (i < m_entries.size() ? m_entries[i].controls : 0);
+}
+
+bool WindowSnapshot::hostsChromium(std::size_t i) const
+{
+    if (i >= m_entries.size())
+        return false;
+    children(i); // reads the classes too
+    return m_entries[i].chromium;
 }
 
 bool WindowSnapshot::addControls(std::size_t i, const std::vector<QRect>& controls)

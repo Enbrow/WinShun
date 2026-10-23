@@ -28,6 +28,11 @@ public:
     // The class of a Win顺 window that is part of the capture (a pin, the
     // countdown) and never a target; other Win顺 windows are listed.
     static bool isCaptureSurfaceClass(std::wstring_view className);
+    // A class of Chromium's own windows (Chrome, Edge, Electron programs such
+    // as VS Code, CEF, WebView2, Qt WebEngine). Anything that asks one of them
+    // through UI Automation makes it build its whole accessibility tree, and
+    // VS Code then switches itself to "optimized for a screen reader": never ask.
+    static bool isChromiumClass(std::wstring_view className);
 
     const std::vector<QRect>& windows() const { return m_rects; }
     // Window i's visible child windows, cut to it.
@@ -39,6 +44,9 @@ public:
     // read already, for UI Automation's sake: wantsUia).
     QString windowClass(std::size_t i) const;
     int childWindows(std::size_t i) const;
+    // Whether window i, or any window inside it (hidden ones too: a WebView2 in a
+    // WinForms frame), is one of Chromium's. Reads the child windows, once.
+    bool hostsChromium(std::size_t i) const;
     // Controls UI Automation found in window i (UiaProbe): they join its
     // child windows. True when any was not there yet.
     bool addControls(std::size_t i, const std::vector<QRect>& controls);
@@ -50,6 +58,7 @@ private:
     struct Entry {
         HWND hwnd = nullptr;
         mutable std::optional<std::vector<QRect>> children;
+        mutable bool chromium = false; // the window or a child window is Chromium's; set with children
         int controls = 0; // of children's last ones, from UI Automation
     };
     std::vector<Entry> m_entries;

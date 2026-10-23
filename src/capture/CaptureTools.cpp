@@ -1,6 +1,7 @@
 #include "CaptureTools.h"
 
 #include "Geometry.h"
+#include "WindowSnapshot.h"
 
 #include <algorithm>
 #include <cmath>
@@ -194,12 +195,15 @@ bool drawCursor(QImage& image, QPoint hotspot, HCURSOR cursor)
 
 bool wantsUia(const QString& windowClass, int childWindows)
 {
+    // Never Chromium (checked first: such a frame may have no child window to
+    // stop us). Its accessibility tree is built on the first UI Automation
+    // question and stays on, and VS Code then turns "optimized for a screen
+    // reader" on for the user until it restarts. Its child windows stand.
+    if (WindowSnapshot::isChromiumClass(windowClass.toStdWString()))
+        return false;
     if (childWindows <= 0)
         return true;
     static const QStringList own {
-        QStringLiteral("Chrome_WidgetWin_0"),
-        QStringLiteral("Chrome_WidgetWin_1"),
-        QStringLiteral("Chrome_RenderWidgetHostHWND"),
         QStringLiteral("MozillaWindowClass"),
         QStringLiteral("ApplicationFrameWindow"),
         QStringLiteral("Windows.UI.Core.CoreWindow"),
