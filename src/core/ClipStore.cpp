@@ -214,7 +214,7 @@ bool ClipMatcher::matches(const Clip& clip) const
         if (!find(term, clip.source, &start, &length))
             return false;
     }
-    const QString& text = clip.kind == ClipKind::Image ? clip.ocr : clip.text; // a picture: the words in it
+    const QString& text = clip.searchText(); // a picture: the words in it
     for (const Term& term : m_terms) {
         if (!find(term, text, &start, &length))
             return false;

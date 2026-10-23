@@ -59,7 +59,8 @@ struct ClipWrite {
 // An equation (Word offers MathML for one copied alone) or an embedded
 // object (Equation 3.0, MathType, WPS's 公式编辑器) is recorded as a
 // picture, drawn from its metafile if there is no other, together with the
-// formats that paste it back as one (ClipCapture::formats; GitHub #58).
+// formats that paste it back as one (ClipCapture::formats; GitHub #58) and
+// its text, if it has some, which the search finds it by.
 class ClipboardWatcher {
 public:
     struct Options {

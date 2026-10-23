@@ -56,7 +56,8 @@ struct Clip {
     qint64 id = 0;
     ClipKind kind = ClipKind::Text;
     // Text, Link, Path: the text, or its first kTextInMemory characters;
-    // Files: one path per line; Image: empty.
+    // Files: one path per line; Image: empty, but for an equation's or an
+    // object's own text (Word's linear form of an equation).
     QString text;
     qint64 textLength = 0; // of the whole text, in UTF-16 units
     QByteArray hash; // of the content: copying the same again moves the entry to the top
@@ -90,6 +91,10 @@ struct Clip {
 
     QStringList files() const; // Files, Path: the paths
     bool truncated() const { return textLength > text.size(); }
+    // What the search finds it by: its text; a picture's words read from it,
+    // or the text an equation or an object came with (which the reading
+    // does not replace: it goes to `ocr`).
+    const QString& searchText() const { return kind == ClipKind::Image && (!formats || text.isEmpty()) ? ocr : text; }
 };
 
 // Entries the user keeps. The built-in one, "固定", has no name of its own.
@@ -101,7 +106,7 @@ struct ClipGroup {
 // Something just copied, as read from the clipboard.
 struct ClipCapture {
     ClipKind kind = ClipKind::Text;
-    QString text; // Files: one path per line
+    QString text; // Files: one path per line; Image: an equation's or an object's (with `formats`)
     QByteArray html; // "HTML Format" as it was on the clipboard (UTF-8, with its header)
     QByteArray rtf;
     QByteArray png; // Image

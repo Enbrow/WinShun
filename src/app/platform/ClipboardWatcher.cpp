@@ -566,7 +566,9 @@ void ClipboardWatcher::read()
         }
         if (!image.isNull() && static_cast<qint64>(image.width()) * image.height() <= kMaxPixels) {
             imageTooBig = false;
-            capture.text.clear();
+            // Its text stays (Word's linear form of an equation): the search
+            // finds it by that, Shift+Enter pastes it. HTML and RTF are
+            // among its formats.
             capture.html.clear();
             capture.rtf.clear();
             capture.formats = packClipFormats(object);

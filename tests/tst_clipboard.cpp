@@ -895,13 +895,15 @@ private slots:
 
     // An equation or an embedded object (GitHub #58): a picture, with the
     // formats it was copied in to paste it back from, kept through undo, the
-    // same picture copied again and a restart.
+    // same picture copied again and a restart; found by its own text (Word's
+    // linear form), which reading the picture does not replace.
     void objectFormats()
     {
+        const QString linear = u"x=(-b±√(b^2-4ac))/2a"_s;
         const QList<ClipFormat> formats {
             {u"MathML"_s, QByteArray("<mml:math/>")},
             {u"Rich Text Format"_s, QByteArray("{\\rtf1{\\mmath{\\*\\moMathPara x}}}")},
-            {u"CF_UNICODETEXT"_s, QByteArray(reinterpret_cast<const char*>(u"x=1"), 8)},
+            {u"CF_UNICODETEXT"_s, QByteArray(reinterpret_cast<const char*>(linear.utf16()), (linear.size() + 1) * 2)},
             {u"CF_ENHMETAFILE"_s, QByteArray(100, '\x01')},
             {u"Embed Source"_s, QByteArray(4096, '\0')},
         };
@@ -917,13 +919,20 @@ private slots:
         QVERIFY(unpackClipFormats("not packed formats").isEmpty());
         QVERIFY(unpackClipFormats(packed.chopped(3)).isEmpty()); // cut short
 
-        const auto equation = [](const QByteArray& kept) {
+        const auto equation = [&linear](const QByteArray& kept) {
             ClipCapture c;
             c.kind = ClipKind::Image;
             c.png = "png";
             c.hash = "equation";
             c.formats = kept;
+            if (!kept.isEmpty())
+                c.text = linear; // the watcher keeps it, as the program gave it
             return c;
+        };
+        const auto found = [](const ClipStore& store, const QString& query) {
+            ClipFilter filter;
+            filter.query = query;
+            return store.find(filter).size();
         };
         QTemporaryDir dir;
         qint64 id = 0;
@@ -933,6 +942,15 @@ private slots:
             id = store.add(equation(packed), kStart);
             QVERIFY(store.clip(id)->formats);
             QCOMPARE(store.payload(id).formats, packed);
+            // Found by its text, also once its picture was read: the words
+            // read are not what it is found by.
+            QCOMPARE(found(store, u"b^2"_s), std::size_t(1));
+            store.flush();
+            store.setPictureText(id, u"unrelated words"_s);
+            QCOMPARE(store.clip(id)->text, linear);
+            QCOMPARE(found(store, u"b^2"_s), std::size_t(1));
+            QCOMPARE(found(store, u"unrelated"_s), std::size_t(0));
+            QCOMPARE(store.payload(id).text, linear);
             // The same picture from somewhere else, without them: kept.
             QCOMPARE(store.add(equation({}), kStart + 1), id);
             QVERIFY(store.clip(id)->formats);
@@ -945,6 +963,7 @@ private slots:
             store.restore(std::move(removed));
             QVERIFY(store.clip(id)->formats);
             QCOMPARE(store.payload(id).formats, packed);
+            QCOMPARE(found(store, u"b^2"_s), std::size_t(1));
             // Text has none.
             const qint64 plain = store.add(text(u"x=1"_s), kStart + 2);
             QVERIFY(!store.clip(plain)->formats);
@@ -955,6 +974,8 @@ private slots:
         QVERIFY(store.clip(id)->formats);
         QCOMPARE(store.payload(id).formats, packed);
         QCOMPARE(store.payload(id).imagePath, store.imagePath(id));
+        QCOMPARE(found(store, u"b^2"_s), std::size_t(1)); // its text, read back from the disk
+        QCOMPARE(found(store, u"unrelated"_s), std::size_t(0));
         // Copied again with formats: the new ones.
         const QByteArray newer = packClipFormats({{u"MathML"_s, QByteArray("<mml:math>2</mml:math>")}});
         QCOMPARE(store.add(equation(newer), kStart + 4), id);

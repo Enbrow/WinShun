@@ -1107,7 +1107,7 @@ QVariantMap Clipboard::preview(int row) const
                                                             : QUrl::fromLocalFile(m_store->imagePath(c->id)).toString());
         map.insert(u"width"_s, c->width);
         map.insert(u"height"_s, c->height);
-        map.insert(u"words"_s, c->ocr); // what the search finds it by
+        map.insert(u"words"_s, c->searchText()); // what the search finds it by (an equation: its text)
         size = u"%1 × %2 · %3"_s.arg(c->width).arg(c->height).arg(
             QLocale().formattedDataSize(c->bytes, 1, QLocale::DataSizeTraditionalFormat));
         break;
