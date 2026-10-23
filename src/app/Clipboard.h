@@ -219,6 +219,9 @@ public:
     // in front before the launcher, as the window pastes; only copied when
     // that is not a window to paste into. False if there is no such entry.
     bool pasteEntry(qint64 id, HWND target);
+    // A global digit: keep the current program in front throughout. Never
+    // activates it again if the user changes windows while letting go.
+    void pasteDirect(qint64 id, HWND target);
     // Entries by their ids out of the history, as remove() takes rows: undo()
     // (Ctrl+Z, here or in the launcher) puts them back.
     void removeEntries(const std::vector<qint64>& ids);
@@ -261,6 +264,7 @@ public:
     Q_INVOKABLE void prepareMenuWindow(QWindow* menu) const;
 
 signals:
+    void quickPasteFailed(const QString& message); // no panel to show a failure in: App's notification
     void numberKeysChanged();
     void rowOptionsChanged();
     void layoutOptionsChanged();
@@ -309,7 +313,7 @@ private:
     };
     // Where a paste goes: only onto the clipboard (a copy), into the program
     // that was in front, or into a field of Win顺's own.
-    enum class Into { Clipboard, Program, Field };
+    enum class Into { Clipboard, Program, Field, CurrentProgram };
     // A field of Win顺's own, as it was when the window opened.
     struct Field {
         QPointer<QQuickItem> item;
@@ -322,6 +326,7 @@ private:
     void refresh();
     void refreshStatus();
     void flash(const QString& message);
+    void failPaste(const QString& message);
     std::vector<const Clip*> targets(int row) const; // the row, or the picked ones it is one of
     ClipWrite writeFor(const std::vector<const Clip*>& clips, bool plainText, QString* problem) const;
     void startPaste(ClipWrite write, Into into, std::vector<qint64> touched, QString done);

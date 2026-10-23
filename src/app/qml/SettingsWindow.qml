@@ -3608,10 +3608,10 @@ Window {
                 }
 
                 SettingRow {
-                    title: qsTr("用数字键直接粘贴")
+                    title: qsTr("面板内数字键粘贴")
                     unlocks: [clipNumberHintsRow]
                     keywords: qsTr("快捷键;数字键;序号;Alt+1;Ctrl+1;冲突;hotkey").split(";")
-                    description: qsTr("按 %1+1 粘贴第一条，依此类推到第九条，加按 Shift 粘贴为纯文本")
+                    description: qsTr("打开剪贴板面板后，按 %1+1 粘贴第一条，依此类推到第九条；加按 Shift 粘贴为纯文本")
                                  .arg(window.editor.clipboardNumberKeys === "ctrl" ? "Ctrl" : "Alt")
 
                     ScopeTabs {
@@ -3640,6 +3640,26 @@ Window {
                         labels: [qsTr("按住时显示"), qsTr("一直显示"), qsTr("不显示", "number hints")]
                         current: Math.max(0, ["held", "always", "off"].indexOf(window.editor.numberHints))
                         onActivated: (index) => window.editor.numberHints = ["held", "always", "off"][index]
+                    }
+                }
+                SettingRow {
+                    title: qsTr("不打开面板直接粘贴")
+                    keywords: qsTr("全局;快捷键;数字键;直接粘贴;无需面板;Ctrl+1;Alt+1;Ditto;QuickClipboard").split(";")
+                    description: qsTr("按“全部”列表的前九条粘贴，沿用“固定优先”顺序，不受搜索和分组影响。启用后会占用其他程序的同名快捷键，例如浏览器切换标签页。")
+
+                    ScopeTabs {
+                        labels: [qsTr("关闭"), "Ctrl+1–9", "Alt+1–9"]
+                        current: Math.max(0, ["off", "ctrl", "alt"].indexOf(window.editor.clipboardQuickPaste))
+                        onActivated: (index) => window.editor.clipboardQuickPaste = ["off", "ctrl", "alt"][index]
+                    }
+
+                    body: Text {
+                        visible: window.editor.clipboardQuickPasteError.length > 0
+                        width: parent.width
+                        text: window.editor.clipboardQuickPasteError
+                        color: Theme.danger
+                        font.pixelSize: Theme.fontCaption
+                        wrapMode: Text.Wrap
                     }
                 }
             }

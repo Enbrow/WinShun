@@ -124,6 +124,7 @@ constexpr int kCaptureHotkeyId = 8; // the screen capture's own hotkey (src/capt
 constexpr int kPrintScreenHotkeyId = 9; // PrtScn, once taken over from the Snipping Tool (printscreen::)
 constexpr int kPinsHotkeyId = 10; // hide / show every pin (stage 7)
 constexpr int kPinsRestoreHotkeyId = 11; // click-through pins take the mouse again (stage 7)
+constexpr int kQuickPasteHotkeyId = 20; // + 1…9: paste without opening the clipboard
 // For another program to tell where its text caret is: longer, and the
 // clipboard would open late; it opens by the mouse pointer then.
 constexpr auto kCaretWait = 100ms;
@@ -634,6 +635,10 @@ bool App::start(const StartOptions& options)
     };
     m_clipWatcher = std::make_unique<ClipboardWatcher>(clipboardOptions(), std::move(clipCallbacks));
     m_clipboard = std::make_unique<Clipboard>(m_clipStore.get(), m_clipWatcher.get());
+    connect(m_clipboard.get(), &Clipboard::quickPasteFailed, this,
+        [this](const QString& message) { m_messages->showNotification(tr("快捷粘贴"), message); });
+    connect(m_clipboard.get(), &Clipboard::activeChanged, this, &App::applyQuickPasteHotkeys);
+    connect(qApp, &QGuiApplication::focusWindowChanged, this, &App::applyQuickPasteHotkeys);
     // Pinned, it stays up through a paste or a file opened (hideClipboard);
     // Esc hands the focus back too.
     connect(m_clipboard.get(), &Clipboard::dismissRequested, this, [this] { hideClipboard(); });
@@ -704,7 +709,14 @@ bool App::start(const StartOptions& options)
             showSettingsFor(u"Index/Folders"_s);
     };
     callbacks.hotkeyPressed = [this](int id) {
-        if (id == kWinVHotkeyId || id == kClipboardHotkeyId)
+        if (id > kQuickPasteHotkeyId && id <= kQuickPasteHotkeyId + 9) {
+            const int number = id - kQuickPasteHotkeyId;
+            // A message already queued before the keys were suspended must
+            // not paste into the program behind our newly opened panel.
+            if ((m_quickPasteKeys & (1u << number)) && !QGuiApplication::focusWindow() && !m_clipboard->active())
+                m_clipboard->pasteDirect(m_clipStore->quickPasteEntry(number, m_clipboard->pinnedFirst()),
+                    ::GetForegroundWindow());
+        } else if (id == kWinVHotkeyId || id == kClipboardHotkeyId)
             toggleClipboard();
         else if (id == kWinSHotkeyId)
             toggleAtTaskbar(false);
@@ -2096,6 +2108,9 @@ void App::applyClipboard()
 
 void App::applyClipboardHotkeys()
 {
+    m_quickPasteKeys = 0;
+    for (int n = 1; n <= 9; ++n)
+        m_messages->unregisterHotkey(kQuickPasteHotkeyId + n);
     m_messages->unregisterHotkey(kWinVHotkeyId);
     m_messages->unregisterHotkey(kClipboardHotkeyId);
     if (m_settingsEditor && m_settingsEditor->recordingHotkey())
@@ -2127,6 +2142,52 @@ void App::applyClipboardHotkeys()
         m_settingsEditor->setClipboardHotkeyError(hotkeyError);
     } else if (!hotkeyError.isEmpty() && !m_aiApplying) {
         m_messages->showNotification(tr("快捷键不可用"), hotkeyError);
+    }
+    applyQuickPasteHotkeys();
+}
+
+void App::applyQuickPasteHotkeys()
+{
+    if (!m_messages)
+        return;
+    m_quickPasteKeys = 0;
+    for (int n = 1; n <= 9; ++n)
+        m_messages->unregisterHotkey(kQuickPasteHotkeyId + n);
+    if (m_settingsEditor && m_settingsEditor->recordingHotkey())
+        return;
+    const QString& keys = m_settings.clipboardQuickPaste;
+    QStringList unavailable;
+    if (m_settings.clipboard && (keys == u"ctrl" || keys == u"alt")) {
+        const QString modifier = keys == u"ctrl" ? u"Ctrl"_s : u"Alt"_s;
+        const bool suspended = QGuiApplication::focusWindow() || m_clipboard->active();
+        QStringList reserved {m_settings.hotkey, m_settings.clipboardHotkey, m_settings.folderMenuHotkey};
+        if (m_settings.captureEnabled)
+            reserved << m_settings.captureHotkey << m_settings.capturePinsHotkey << m_settings.capturePinsRestoreHotkey;
+        for (int n = 1; n <= 9; ++n) {
+            const QString chord = modifier + u'+' + QString::number(n);
+            UINT modifiers = 0, vk = 0;
+            MessageWindow::parseHotkey(chord, &modifiers, &vk);
+            const bool own = std::ranges::any_of(reserved, [&](const QString& shortcut) {
+                UINT otherModifiers = 0, otherVk = 0;
+                return MessageWindow::parseHotkey(shortcut, &otherModifiers, &otherVk)
+                    && modifiers == otherModifiers && vk == otherVk;
+            });
+            if (own || !m_messages->registerHotkey(kQuickPasteHotkeyId + n, chord))
+                unavailable.append(chord);
+            else if (suspended)
+                m_messages->unregisterHotkey(kQuickPasteHotkeyId + n);
+            else
+                m_quickPasteKeys |= 1u << n;
+        }
+    }
+    const QString error = unavailable.isEmpty() ? QString()
+        : tr("%1 已被其他快捷键占用，这几条无法直接粘贴；其余数字仍可用。可更换组合键，或调整冲突的快捷键。")
+              .arg(unavailable.join(tr("、")));
+    noteApplyProblem(u"Clipboard/QuickPaste"_s, error);
+    if (m_settingsEditor) {
+        m_settingsEditor->setClipboardQuickPasteError(error);
+        if (QGuiApplication::focusWindow())
+            m_settingsEditor->refreshNumberKeys();
     }
 }
 
@@ -3390,7 +3451,8 @@ void App::updateNumberKeys()
     // Asked again each time, as programs start and end: digits another
     // program holds as global hotkeys stay its (PixPin's Ctrl+1…), as do Win顺's own.
     const unsigned left = numberkeys::heldMask(
-        m_settings.numberKeys == u"alt" ? numberkeys::Modifier::Alt : numberkeys::Modifier::Ctrl);
+        m_settings.numberKeys == u"alt" ? numberkeys::Modifier::Alt : numberkeys::Modifier::Ctrl)
+        & ~(m_settings.numberKeys == m_settings.clipboardQuickPaste ? m_quickPasteKeys : 0u);
     m_launcher->setNumberKeysLeft(left);
     if (m_dialogBar)
         m_dialogBar->setNumberKeysLeft(left);
@@ -3555,7 +3617,8 @@ void App::showClipboard()
     // passes them on): their rows carry no number.
     if (m_settings.clipboardNumberKeys != u"off") {
         m_clipboard->setNumberKeysLeft(numberkeys::heldMask(
-            m_settings.clipboardNumberKeys == u"ctrl" ? numberkeys::Modifier::Ctrl : numberkeys::Modifier::Alt));
+            m_settings.clipboardNumberKeys == u"ctrl" ? numberkeys::Modifier::Ctrl : numberkeys::Modifier::Alt)
+            & ~(m_settings.clipboardNumberKeys == m_settings.clipboardQuickPaste ? m_quickPasteKeys : 0u));
     }
     if (m_keyRouter) // up already, over the program that keeps the focus
         return;
@@ -5242,6 +5305,8 @@ App::AiApplyReport App::applyAiState(const aisettings::State& wanted,
         }
         if (key == u"Capture/PrintScreen" && !m_applyProblems.value(key).isEmpty())
             report.notes.insert(key, u"Windows would not let Win顺 change what PrtScn does (the Snipping Tool setting)."_s);
+        if (key == u"Clipboard/QuickPaste" && !m_applyProblems.value(key).isEmpty())
+            report.notes.insert(key, m_applyProblems.value(key)); // partial registration: name the unavailable digits
     }
     if (putBack) {
         fixed.settings.save();

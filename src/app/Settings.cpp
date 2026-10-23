@@ -1008,6 +1008,9 @@ void Settings::load()
     clipboardNumberKeys = readOrDefault(s, u"Clipboard/NumberKeys"_s, d.clipboardNumberKeys).trimmed().toLower();
     if (clipboardNumberKeys != u"ctrl" && clipboardNumberKeys != u"off")
         clipboardNumberKeys = d.clipboardNumberKeys;
+    clipboardQuickPaste = readOrDefault(s, u"Clipboard/QuickPaste"_s, d.clipboardQuickPaste).trimmed().toLower();
+    if (clipboardQuickPaste != u"ctrl" && clipboardQuickPaste != u"alt")
+        clipboardQuickPaste = d.clipboardQuickPaste;
 
     taskbarWinS = readOrDefault(s, u"Taskbar/WinS"_s, d.taskbarWinS);
     taskbarStartTyping = readOrDefault(s, u"Taskbar/StartMenuTyping"_s, d.taskbarStartTyping);
@@ -1185,6 +1188,7 @@ void Settings::save() const
     s.setValue(u"Clipboard/SearchBoxSide"_s, clipboardSearchBoxSide);
     s.setValue(u"Clipboard/ExcludedApps"_s, clipboardExcludedApps);
     s.setValue(u"Clipboard/NumberKeys"_s, clipboardNumberKeys);
+    s.setValue(u"Clipboard/QuickPaste"_s, clipboardQuickPaste);
     s.setValue(u"Taskbar/WinS"_s, taskbarWinS);
     s.setValue(u"Taskbar/StartMenuTyping"_s, taskbarStartTyping);
     s.setValue(u"Taskbar/SearchBox"_s, taskbarSearchBox);

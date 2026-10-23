@@ -923,6 +923,14 @@
         <source>识别文字并网页搜索</source>
         <translation>Read text and search the web</translation>
     </message>
+    <message>
+        <source>面板内数字键粘贴</source>
+        <translation>Number keys inside the panel</translation>
+    </message>
+    <message>
+        <source>不打开面板直接粘贴</source>
+        <translation>Paste without opening the panel</translation>
+    </message>
 </context>
 <context>
     <name>AnnotateLayer</name>
@@ -5966,6 +5974,26 @@
         <source>你在这台电脑上没有管理员权限，装不了索引服务。Win顺 会索引你选的文件夹，并定时核对</source>
         <translation>You have no administrator rights on this computer, so the index service cannot be installed. WinShun indexes the folders you choose and checks them regularly</translation>
     </message>
+    <message>
+        <source>面板内数字键粘贴</source>
+        <translation>Number keys inside the panel</translation>
+    </message>
+    <message>
+        <source>打开剪贴板面板后，按 %1+1 粘贴第一条，依此类推到第九条；加按 Shift 粘贴为纯文本</source>
+        <translation>With the clipboard panel open, press %1+1 to paste the first entry, through 9 for the ninth. Add Shift to paste as plain text.</translation>
+    </message>
+    <message>
+        <source>不打开面板直接粘贴</source>
+        <translation>Paste without opening the panel</translation>
+    </message>
+    <message>
+        <source>全局;快捷键;数字键;直接粘贴;无需面板;Ctrl+1;Alt+1;Ditto;QuickClipboard</source>
+        <translation>global;shortcut;number keys;quick paste;without panel;Ctrl+1;Alt+1;Ditto;QuickClipboard</translation>
+    </message>
+    <message>
+        <source>按“全部”列表的前九条粘贴，沿用“固定优先”顺序，不受搜索和分组影响。启用后会占用其他程序的同名快捷键，例如浏览器切换标签页。</source>
+        <translation>Paste the first nine entries of All, keeping pinned-first order, regardless of searches or groups. When enabled, these shortcuts override the same shortcuts in other programs, such as switching browser tabs.</translation>
+    </message>
 </context>
 <context>
     <name>ShareCard</name>
@@ -6951,6 +6979,14 @@
         <source>没能打开编辑窗口。</source>
         <translation>Couldn’t open the editing window.</translation>
     </message>
+    <message>
+        <source>快捷粘贴</source>
+        <translation>Quick paste</translation>
+    </message>
+    <message>
+        <source>%1 已被其他快捷键占用，这几条无法直接粘贴；其余数字仍可用。可更换组合键，或调整冲突的快捷键。</source>
+        <translation>%1 are already assigned to other shortcuts. These slots cannot paste directly; the remaining digits still work. Choose another modifier or change the conflicting shortcuts.</translation>
+    </message>
 </context>
 <context>
     <name>ws::Backup</name>
@@ -7395,6 +7431,30 @@
     <message>
         <source>编辑</source>
         <translation>Edit</translation>
+    </message>
+    <message>
+        <source>已取消快捷粘贴：当前窗口已切换</source>
+        <translation>Quick paste cancelled: the active window changed.</translation>
+    </message>
+    <message>
+        <source>已取消快捷粘贴，请松开修饰键后重试</source>
+        <translation>Quick paste cancelled. Release the modifier keys and try again.</translation>
+    </message>
+    <message>
+        <source>内容已复制；窗口已切换，未自动粘贴</source>
+        <translation>Copied. The active window changed, so nothing was pasted automatically.</translation>
+    </message>
+    <message>
+        <source>内容已复制，请松开修饰键后按 Ctrl+V 粘贴</source>
+        <translation>Copied. Release the modifier keys, then press Ctrl+V to paste.</translation>
+    </message>
+    <message>
+        <source>内容已复制，自动粘贴失败，请按 Ctrl+V 粘贴</source>
+        <translation>Copied. Automatic paste failed; press Ctrl+V to paste.</translation>
+    </message>
+    <message>
+        <source>这一条还没有内容，可以先复制内容，或打开剪贴板面板查看</source>
+        <translation>This slot is empty. Copy something first, or open clipboard history to check.</translation>
     </message>
 </context>
 <context>

@@ -299,6 +299,7 @@ struct Settings {
     bool clipboardImages = true;
     QStringList clipboardExcludedApps; // program files whose copies are not kept, "KeePass.exe"
     QString clipboardNumberKeys = QStringLiteral("alt"); // alt | ctrl | off: Alt+1…9 pastes the nth row
+    QString clipboardQuickPaste = QStringLiteral("off"); // off | ctrl | alt: the first nine of All, without opening the window
     bool clipboardClickToPaste = false; // a click pastes the row (Windows' way); off: picks it, a double click pastes
     bool clipboardLargePictures = false; // pictures on taller rows, thumbnails large enough to make out
     // Opened over the caret (or a search box; Placement::above), the window

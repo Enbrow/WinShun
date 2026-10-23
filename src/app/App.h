@@ -257,6 +257,7 @@ private:
     ClipboardWatcher::Options clipboardOptions() const;
     void applyClipboard(); // the [Clipboard] settings
     void applyClipboardHotkeys(); // Win+V and the other shortcut; where Win+V stands, for the settings
+    void applyQuickPasteHotkeys(); // global digits, suspended while Win顺 has the keys
     void clipCaptured(const ClipCapture& capture);
     void applyTaskbar(); // the [Taskbar] settings: Win+S, typing in the Start menu
     void applyTaskbarHotkeys(); // Win+S and Win+Shift+S; where Win+S stands, for the settings
@@ -626,6 +627,7 @@ private:
     QHash<QString, QString> m_applyProblems; // noteApplyProblem
     bool m_aiApplying = false; // an AI's change is being applied: what goes wrong is in its answer, not in a balloon
     QString m_winVState; // as applyClipboardHotkeys last found it: off, on, waiting, releasing, failed
+    unsigned m_quickPasteKeys = 0; // successfully registered digits, 1 << n
     QString m_winSState; // likewise for Win+S
     // In front when the launcher last opened: where a screenshot of the
     // history (jt, Enter) is pasted.

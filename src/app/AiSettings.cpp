@@ -544,11 +544,18 @@ std::vector<Entry> buildCatalog()
     add(hotkey({"Clipboard/Hotkey", QT_TRANSLATE_NOOP("AiSettings", "另设快捷键"), "clipboard", 1,
                    "Another shortcut that opens the clipboard history, written like Ctrl+Alt+V. Empty: none."},
         &Settings::clipboardHotkey));
-    add(choice({"Clipboard/NumberKeys", QT_TRANSLATE_NOOP("AiSettings", "用数字键直接粘贴"), "clipboard", 1,
-                   "Which modifier with 1…9 pastes the nth clipboard row."},
+    add(choice({"Clipboard/NumberKeys", QT_TRANSLATE_NOOP("AiSettings", "面板内数字键粘贴"), "clipboard", 1,
+                   "Which modifier with 1…9 pastes the nth row while the clipboard panel is open."},
         &Settings::clipboardNumberKeys,
         {{u"alt"_s, u"Alt+1…9"_s, "Alt+1…9"}, {u"ctrl"_s, u"Ctrl+1…9"_s, "Ctrl+1…9"},
             {u"off"_s, u"none"_s, QT_TRANSLATE_NOOP("AiSettings", "不用")}}));
+    add(choice({"Clipboard/QuickPaste", QT_TRANSLATE_NOOP("AiSettings", "不打开面板直接粘贴"), "clipboard", 1,
+                   "Global 1…9 shortcuts paste the first nine entries of All, respecting pinned-first order, "
+                   "regardless of the last search or category. Overrides these shortcuts in other programs "
+                   "(such as browser tab switching). Suspended while WinShun has focus or its clipboard panel is open."},
+        &Settings::clipboardQuickPaste,
+        {{u"off"_s, u"disabled"_s, QT_TRANSLATE_NOOP("AiSettings", "关闭")},
+            {u"ctrl"_s, u"Ctrl+1…9"_s, "Ctrl+1…9"}, {u"alt"_s, u"Alt+1…9"_s, "Alt+1…9"}}));
     add(integer({"Clipboard/MaxItems", QT_TRANSLATE_NOOP("AiSettings", "最多保留"), "clipboard", 2,
                     "How many entries the history keeps (pinned and grouped ones aside); the oldest go first."},
         &Settings::clipboardMaxItems, 10, 100000, QT_TRANSLATE_NOOP("AiSettings", "不限"), "no limit"));

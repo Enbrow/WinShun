@@ -76,6 +76,7 @@ Index=false              ; 建立内容索引（中日韩文字，和三个字�
 Enabled=true             ; 记录剪贴板历史；第一次运行时和 Windows 自带的剪贴板历史开关一致
 WinV=false               ; 用 Win+V 打开，代替 Windows 自带的剪贴板（资源管理器重启或下次登录后生效）
 Hotkey=                  ; 另一个打开剪贴板的组合键，例如 Win+Alt+V
+QuickPaste=off           ; off | ctrl | alt：不呼出面板，直接粘贴“全部”的前九条（沿用固定优先）
 MaxItems=300             ; 分组以外最多保留几条（10–100000，0 = 不限，只按 MaxDays 删；GitHub #32）。设置里选 300 / 500 / 无限，或在旁边的框里填条数
 MaxDays=30               ; 多少天没再复制或粘贴过就删除；0 = 一直保留（分组里的都一直保留）
 Images=true              ; 也记录图片

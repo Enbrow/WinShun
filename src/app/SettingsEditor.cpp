@@ -274,6 +274,22 @@ void SettingsEditor::setClipboardNumberKeys(const QString& keys)
     refreshNumberKeys();
 }
 
+void SettingsEditor::setClipboardQuickPaste(const QString& keys)
+{
+    if (m_settings.clipboardQuickPaste == keys || (keys != u"ctrl" && keys != u"alt" && keys != u"off"))
+        return;
+    m_settings.clipboardQuickPaste = keys;
+    commit();
+}
+
+void SettingsEditor::setClipboardQuickPasteError(const QString& error)
+{
+    if (m_clipboardQuickPasteError == error)
+        return;
+    m_clipboardQuickPasteError = error;
+    emit hotkeyErrorChanged();
+}
+
 namespace {
 
 // What the user should know of the number keys `keys` ("ctrl", "alt"):

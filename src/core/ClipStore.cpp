@@ -1350,6 +1350,18 @@ int ClipStore::hiddenCount() const
     return static_cast<int>(std::ranges::count_if(m_clips, [this](const Clip& c) { return hidden(c); }));
 }
 
+qint64 ClipStore::quickPasteEntry(int number, bool pinnedFirst) const
+{
+    if (number < 1 || number > 9)
+        return 0;
+    ClipFilter filter;
+    filter.pinnedFirst = pinnedFirst;
+    const auto rows = find(filter);
+    if (static_cast<std::size_t>(number) > rows.size())
+        return 0;
+    return m_clips[static_cast<std::size_t>(rows[static_cast<std::size_t>(number - 1)])].id;
+}
+
 std::vector<int> ClipStore::find(const ClipFilter& filter) const
 {
     using Category = ClipFilter::Category;

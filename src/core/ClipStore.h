@@ -350,6 +350,9 @@ public:
     // in their order (and "固定"'s first with pinnedFirst); screenshots by
     // when they were taken.
     std::vector<int> find(const ClipFilter& filter) const;
+    // The first nine of All, independent of a window's search or category.
+    // Stable entry id (not a model row), or 0 when that slot is empty.
+    qint64 quickPasteEntry(int number, bool pinnedFirst) const;
 
 private:
     class Writer;

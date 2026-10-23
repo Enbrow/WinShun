@@ -211,6 +211,8 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString clipboardImportMessage READ clipboardImportMessage NOTIFY clipboardImportChanged FINAL)
     Q_PROPERTY(QString clipboardNumberKeys READ clipboardNumberKeys WRITE setClipboardNumberKeys NOTIFY changed FINAL)
     Q_PROPERTY(QString clipboardNumberKeysNote READ clipboardNumberKeysNote NOTIFY numberKeysNoteChanged FINAL)
+    Q_PROPERTY(QString clipboardQuickPaste READ clipboardQuickPaste WRITE setClipboardQuickPaste NOTIFY changed FINAL)
+    Q_PROPERTY(QString clipboardQuickPasteError READ clipboardQuickPasteError NOTIFY hotkeyErrorChanged FINAL)
     // Optional Windows search shortcuts (taskbar::)
     Q_PROPERTY(bool taskbarWinS READ taskbarWinS WRITE setTaskbarWinS NOTIFY changed FINAL)
     Q_PROPERTY(QString winSState READ winSState NOTIFY winSStateChanged FINAL) // as winVState, for Win+S
@@ -591,6 +593,10 @@ public:
     QString clipboardNumberKeys() const { return m_settings.clipboardNumberKeys; }
     void setClipboardNumberKeys(const QString& keys);
     QString clipboardNumberKeysNote() const { return m_clipboardNumberKeysNote; }
+    QString clipboardQuickPaste() const { return m_settings.clipboardQuickPaste; }
+    void setClipboardQuickPaste(const QString& keys);
+    QString clipboardQuickPasteError() const { return m_clipboardQuickPasteError; }
+    void setClipboardQuickPasteError(const QString& error);
 
     bool foldersFirst() const { return m_settings.foldersFirst; }
     void setFoldersFirst(bool on);
@@ -867,6 +873,7 @@ private:
     QString m_hotkeyError;
     QString m_numberKeysNote;
     QString m_clipboardNumberKeysNote;
+    QString m_clipboardQuickPasteError;
     QString m_doubleCtrlClash;
     QString m_folderMenuHotkeyError;
     QString m_captureHotkeyError;

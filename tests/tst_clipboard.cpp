@@ -69,6 +69,33 @@ class ClipboardTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void globalQuickPasteEntries()
+    {
+        QTemporaryDir dir;
+        ClipStore store(dir.path());
+        QVERIFY(store.open(kStart));
+        QCOMPARE(store.quickPasteEntry(1, false), 0);
+        std::vector<qint64> ids;
+        for (int i = 0; i < 12; ++i)
+            ids.push_back(store.add(text(QString::number(i)), kStart + i));
+        QCOMPARE(store.quickPasteEntry(0, false), 0);
+        QCOMPARE(store.quickPasteEntry(10, false), 0);
+        QCOMPARE(store.quickPasteEntry(1, false), ids[11]);
+        QCOMPARE(store.quickPasteEntry(9, false), ids[3]);
+        store.setGroup(std::span(&ids[0], 1), ClipStore::kPinned);
+        QCOMPARE(store.quickPasteEntry(1, true), ids[0]);
+        QCOMPARE(store.quickPasteEntry(2, true), ids[11]);
+        QCOMPARE(store.quickPasteEntry(1, false), ids[11]);
+        store.setHidden({{ids[11], store.clip(ids[11])->used}});
+        QCOMPARE(store.quickPasteEntry(2, true), ids[10]);
+        store.remove(std::span(&ids[10], 1));
+        QCOMPARE(store.quickPasteEntry(2, true), ids[9]);
+        store.touch(ids[1], kStart + 50);
+        QCOMPARE(store.quickPasteEntry(1, false), ids[1]);
+        QCOMPARE(store.quickPasteEntry(1, true), ids[0]);
+        QCOMPARE(store.quickPasteEntry(2, true), ids[1]);
+    }
+
     void kinds()
     {
         QCOMPARE(kindOfText(u"会议改到周三"_s), ClipKind::Text);

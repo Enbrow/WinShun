@@ -20,6 +20,33 @@ class NumberHintsTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void globalQuickPasteSettings()
+    {
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        ws::Settings::useProfile(profile.path());
+        ws::Settings settings;
+        settings.load();
+        QCOMPARE(settings.clipboardQuickPaste, u"off"_s);
+        for (const QString mode : {u"ctrl"_s, u"alt"_s, u"off"_s}) {
+            settings.clipboardQuickPaste = mode;
+            settings.save();
+            ws::Settings read;
+            read.load();
+            QCOMPARE(read.clipboardQuickPaste, mode);
+            QCOMPARE(read.clipboardNumberKeys, u"alt"_s); // panel shortcut stays independent
+        }
+        QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+        ini.setValue(u"Clipboard/QuickPaste"_s, u" CTRL "_s);
+        ini.sync();
+        settings.load();
+        QCOMPARE(settings.clipboardQuickPaste, u"ctrl"_s);
+        ini.setValue(u"Clipboard/QuickPaste"_s, u"invalid"_s);
+        ini.sync();
+        settings.load();
+        QCOMPARE(settings.clipboardQuickPaste, u"off"_s);
+    }
+
     void settings()
     {
         QTemporaryDir profile;

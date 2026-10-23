@@ -109,6 +109,17 @@ Clipboard::Clipboard(ClipStore* store, ClipboardWatcher* watcher, QObject* paren
     });
     m_keysTimer.setInterval(10ms);
     connect(&m_keysTimer, &QTimer::timeout, this, [this] {
+        if (m_into == Into::CurrentProgram) {
+            if (!paste::isForeground(m_pasteWindow)) {
+                failPaste(tr("已取消快捷粘贴：当前窗口已切换"));
+                return;
+            }
+            if (paste::modifiersDown()) {
+                if (m_pasteClock.elapsed() >= kModifierWaitMs)
+                    failPaste(tr("已取消快捷粘贴，请松开修饰键后重试"));
+                return;
+            }
+        }
         if (m_into == Into::Program && paste::modifiersDown() && m_pasteClock.elapsed() < kModifierWaitMs)
             return;
         m_keysTimer.stop();
@@ -120,6 +131,17 @@ Clipboard::Clipboard(ClipStore* store, ClipboardWatcher* watcher, QObject* paren
     m_focusTimer.setInterval(10ms);
     connect(&m_focusTimer, &QTimer::timeout, this, [this] {
         const bool front = paste::isForeground(m_pasteWindow);
+        if (m_into == Into::CurrentProgram) {
+            if (!front) {
+                failPaste(tr("内容已复制；窗口已切换，未自动粘贴"));
+                return;
+            }
+            if (paste::modifiersDown()) {
+                if (m_pasteClock.elapsed() >= kModifierWaitMs)
+                    failPaste(tr("内容已复制，请松开修饰键后按 Ctrl+V 粘贴"));
+                return;
+            }
+        }
         if (front && !m_frontClock.isValid())
             m_frontClock.start();
         // In front: a moment more, and while some program has the clipboard
@@ -131,9 +153,10 @@ Clipboard::Clipboard(ClipStore* store, ClipboardWatcher* watcher, QObject* paren
             return;
         m_focusTimer.stop();
         m_pasting = false;
-        if (front)
-            paste::sendPasteKeys(m_pasteWindow);
-        else if (m_window && m_window->isVisible())
+        if (front) {
+            if (!paste::sendPasteKeys(m_pasteWindow) && m_into == Into::CurrentProgram)
+                failPaste(tr("内容已复制，自动粘贴失败，请按 Ctrl+V 粘贴"));
+        } else if (m_window && m_window->isVisible())
             flash(tr("已复制。那个窗口没有回到前面，请自己按 Ctrl+V 粘贴"));
     });
     m_returnTimer.setInterval(10ms);
@@ -410,6 +433,16 @@ void Clipboard::flash(const QString& message)
     emit statusChanged();
 }
 
+void Clipboard::failPaste(const QString& message)
+{
+    m_keysTimer.stop();
+    m_focusTimer.stop();
+    m_pasting = false;
+    flash(message);
+    if (m_into == Into::CurrentProgram)
+        emit quickPasteFailed(message);
+}
+
 void Clipboard::handleShown()
 {
     m_flash.clear();
@@ -563,6 +596,8 @@ void Clipboard::startPaste(ClipWrite write, Into into, std::vector<qint64> touch
     m_pasting = true;
     m_write = std::move(write);
     m_into = into;
+    if (into == Into::CurrentProgram)
+        m_pasteWindow = m_target;
     m_touched = std::move(touched);
     m_doneMessage = std::move(done);
     m_pasteClock.start();
@@ -575,8 +610,7 @@ void Clipboard::onWritten(bool ok)
     // clipboard (which is written only to hold it after, as any paste
     // leaves it): no reason to stop.
     if (!ok && m_into != Into::Field) {
-        m_pasting = false;
-        flash(tr("剪贴板正被别的程序占用，请再试一次"));
+        failPaste(tr("剪贴板正被别的程序占用，请再试一次"));
         return;
     }
     // Joined pastes are not added to the history: their entries move up
@@ -597,7 +631,8 @@ void Clipboard::onWritten(bool ok)
         returnToField(std::exchange(m_fieldText, {})); // m_pasting until it is in
         return;
     }
-    m_pasteWindow = paste::usableTarget(m_target);
+    if (m_into != Into::CurrentProgram)
+        m_pasteWindow = paste::usableTarget(m_target);
     if (!m_pasteWindow) {
         m_pasting = false;
         flash(tr("已复制。没有找到要粘贴进去的窗口，可以自己按 Ctrl+V"));
@@ -606,8 +641,17 @@ void Clipboard::onWritten(bool ok)
     // An elevated program while Win顺 is not: Windows drops the keys Win顺
     // would press there (UIPI), SendInput says nothing. The user presses them.
     if (integrity::higherThanOurs(m_pasteWindow)) {
-        m_pasting = false;
-        flash(tr("已复制。那个程序以管理员身份运行，Win顺 没法替它粘贴：回到它那里按 Ctrl+V"));
+        failPaste(tr("已复制。那个程序以管理员身份运行，Win顺 没法替它粘贴：回到它那里按 Ctrl+V"));
+        return;
+    }
+    if (m_into == Into::CurrentProgram) {
+        if (!paste::isForeground(m_pasteWindow)) {
+            failPaste(tr("内容已复制；窗口已切换，未自动粘贴"));
+            return;
+        }
+        m_pasteClock.restart();
+        m_frontClock.start();
+        m_focusTimer.start();
         return;
     }
     // Pinned, it stays up: a joined paste's picks go, the next click is one
@@ -877,6 +921,28 @@ void Clipboard::storeImage(const QByteArray& png, const QByteArray& hash, QSize 
     if (!toClipboard)
         return; // history only: the clipboard and the status line stay as they are
     startPaste(std::move(write), Into::Clipboard, {}, screenshot ? tr("已复制截图") : tr("已复制图片"));
+}
+
+void Clipboard::pasteDirect(qint64 id, HWND target)
+{
+    if (m_pasting)
+        return;
+    const Clip* clip = m_store->clip(id);
+    if (!clip) {
+        emit quickPasteFailed(tr("这一条还没有内容，可以先复制内容，或打开剪贴板面板查看"));
+        return;
+    }
+    const HWND window = paste::usableTarget(target);
+    if (!window || !paste::isForeground(window))
+        return;
+    QString problem;
+    ClipWrite write = writeFor({clip}, false, &problem);
+    if (write.empty()) {
+        emit quickPasteFailed(problem);
+        return;
+    }
+    m_target = window;
+    startPaste(std::move(write), Into::CurrentProgram, {}, {});
 }
 
 bool Clipboard::pasteEntry(qint64 id, HWND target)
