@@ -62,11 +62,30 @@ private:
     bool m_inside = false; // between DragEnter and DragLeave or Drop, and not left early
 };
 
-// The file-system paths in a drag (CF_HDROP); none for shell items that
-// are not files (a phone's, a zip file's contents).
-std::vector<std::wstring> filePaths(IDataObject* data);
+// What is dragged. Read from CFSTR_SHELLIDLIST when the source offers it,
+// and then never CF_HDROP: an archiver may unpack its files on that call
+// (on our GUI thread, the drag held up); from CF_HDROP otherwise.
+struct DragItems {
+    std::size_t count = 0; // all of them
+    std::vector<std::wstring> paths; // the file-system paths of those that have one
+    // Every item a lasting file of the file system: not a phone's or a zip
+    // file's contents, nothing in the Recycle Bin ($R… names), nothing under
+    // the temporary folder (an archiver's unpacked copies, which it deletes
+    // when the drag is over). Only these are copied by our own file
+    // operation after the source has been let go; the rest go to the
+    // folder's own drop target while the source still holds them.
+    bool plain = false;
+    bool fromIdList = false; // read from CFSTR_SHELLIDLIST (else CF_HDROP)
+};
+DragItems readItems(IDataObject* data);
 bool hasFiles(IDataObject* data); // CF_HDROP offered
 bool hasShellItems(IDataObject* data); // CFSTR_SHELLIDLIST offered
+
+// A source that does its drops asynchronously (File Explorer: the data
+// object's IDataObjectAsyncCapability says so) is told the drop has started,
+// and keeps its data until `end`; the reference lets another thread end it.
+Microsoft::WRL::ComPtr<IAgileReference> startAsync(IDataObject* data);
+void endAsync(IAgileReference* async, HRESULT result); // on any thread with COM
 
 // Hands shell items that are not files to the folder's own drop target, as
 // File Explorer does when they are dropped on a folder (the shell copies
@@ -79,7 +98,9 @@ DWORD dropOnFolder(const std::wstring& folder, IDataObject* data, bool move, POI
 // (a single-threaded apartment): Windows' own progress window and questions
 // (replace, skip, administrator rights), and an entry in File Explorer's
 // undo (Ctrl+Z). Never waits on the caller's thread; the destructor waits
-// for those still running, so no copy is cut off halfway.
+// for those still running, so no copy is cut off halfway: the application
+// owns it (App), for its whole life, not the pie, which may go any time
+// (switched off) while a copy waits on a question.
 class FileOperations {
 public:
     FileOperations() = default;
@@ -88,9 +109,10 @@ public:
     FileOperations& operator=(const FileOperations&) = delete;
 
     // `done` runs on the operation's thread: whether it worked (S_OK), and
-    // whether the user cancelled part of it.
+    // whether the user cancelled part of it. `async` (startAsync) is ended
+    // with the result once the operation is over.
     void start(std::vector<std::wstring> items, std::wstring folder, bool move,
-        std::function<void(HRESULT result, bool aborted)> done);
+        Microsoft::WRL::ComPtr<IAgileReference> async, std::function<void(HRESULT result, bool aborted)> done);
 
 private:
     struct Operation {

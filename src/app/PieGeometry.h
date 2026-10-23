@@ -50,6 +50,20 @@ int sectorAt(double angle, int sectors) noexcept;
 double sectorCentre(int index, int sectors) noexcept;
 QPointF polar(double radius, double angle) noexcept; // the offset from the centre
 
+// What the drag's source allows (DROPEFFECT_MOVE, DROPEFFECT_COPY), and the
+// keys held.
+struct Allowed {
+    bool move = true;
+    bool copy = true;
+};
+struct Keys {
+    bool ctrl = false;
+    bool shift = false;
+};
+// What the mode is asked for: shown while dragging (None until a half was
+// crossed or a key held), or a drop (falls back to what the source allows).
+enum class Purpose { Show, Drop };
+
 // The inner half the pointer last crossed wins and stays while it slides
 // along the outer ring; a half the drag's source does not allow (no
 // DROPEFFECT_MOVE, say) is passed over. Ctrl (copy) and Shift (move)
@@ -57,11 +71,9 @@ QPointF polar(double radius, double angle) noexcept; // the offset from the cent
 class Latch {
 public:
     void reset(Mode start = Mode::None) noexcept { m_latched = start; }
-    void update(const Hit& hit, bool moveAllowed, bool copyAllowed) noexcept;
+    void update(const Hit& hit, Allowed allowed) noexcept;
     Mode latched() const noexcept { return m_latched; }
-    // What a drop would do now: None until a half was crossed (or a key
-    // held), unless `forDrop`, which falls back to what the source allows.
-    Mode effective(bool ctrl, bool shift, bool moveAllowed, bool copyAllowed, bool forDrop = false) const noexcept;
+    Mode effective(Keys keys, Allowed allowed, Purpose purpose = Purpose::Show) const noexcept;
 
 private:
     Mode m_latched = Mode::None;

@@ -3,6 +3,8 @@
 #include <shellapi.h>
 #include <shlobj.h>
 
+#include <algorithm>
+#include <cstddef>
 #include <utility>
 
 using Microsoft::WRL::ComPtr;
@@ -32,6 +34,55 @@ struct Medium {
     STGMEDIUM medium {};
     ~Medium() { ::ReleaseStgMedium(&medium); }
 };
+
+std::wstring folded(std::wstring text)
+{
+    if (!text.empty())
+        ::CharLowerBuffW(text.data(), static_cast<DWORD>(text.size()));
+    return text;
+}
+
+std::wstring withSlash(std::wstring path)
+{
+    if (!path.empty() && path.back() != L'\\')
+        path += L'\\';
+    return path;
+}
+
+// The temporary folder, lower-case with its backslash: as GetTempPath gives
+// it (short names, perhaps) and in its long form.
+const std::vector<std::wstring>& tempFolders()
+{
+    static const std::vector<std::wstring> folders = [] {
+        std::vector<std::wstring> result;
+        std::wstring raw(MAX_PATH + 1, L'\0');
+        const DWORD length = ::GetTempPathW(static_cast<DWORD>(raw.size()), raw.data());
+        if (length == 0 || length >= raw.size())
+            return result;
+        raw.resize(length);
+        result.push_back(folded(withSlash(raw)));
+        std::wstring full(32768, L'\0');
+        const DWORD fullLength = ::GetLongPathNameW(raw.c_str(), full.data(), static_cast<DWORD>(full.size()));
+        if (fullLength > 0 && fullLength < full.size()) {
+            full.resize(fullLength);
+            full = folded(withSlash(full));
+            if (full != result.front())
+                result.push_back(std::move(full));
+        }
+        return result;
+    }();
+    return folders;
+}
+
+// Gone when the drag is over, or not the item's real name: an archiver's
+// unpacked copy in the temporary folder, a deleted file's $R… in the bin.
+bool transient(const std::wstring& path)
+{
+    const std::wstring lower = folded(path);
+    if (lower.find(L"\\$recycle.bin\\") != std::wstring::npos)
+        return true;
+    return std::ranges::any_of(tempFolders(), [&](const std::wstring& temp) { return lower.starts_with(temp); });
+}
 
 } // namespace
 
@@ -138,6 +189,79 @@ std::vector<std::wstring> filePaths(IDataObject* data)
     return paths;
 }
 
+DragItems readItems(IDataObject* data)
+{
+    DragItems items;
+    if (!data)
+        return items;
+    bool fromBin = false;
+    if (hasShellItems(data)) {
+        items.fromIdList = true;
+        FORMATETC format = shellIdListFormat();
+        Medium m;
+        if (FAILED(data->GetData(&format, &m.medium)) || m.medium.tymed != TYMED_HGLOBAL)
+            return items;
+        const SIZE_T size = ::GlobalSize(m.medium.hGlobal);
+        const auto* ida = static_cast<const CIDA*>(::GlobalLock(m.medium.hGlobal));
+        if (!ida)
+            return items;
+        // The folder's ID list at aoffset[0], then each item's relative to it.
+        const auto base = reinterpret_cast<const BYTE*>(ida);
+        const SIZE_T table = offsetof(CIDA, aoffset) + sizeof(UINT) * (static_cast<SIZE_T>(ida->cidl) + 1);
+        const auto at = [&](UINT i) -> const void* {
+            return ida->aoffset[i] + sizeof(USHORT) <= size ? base + ida->aoffset[i] : nullptr;
+        };
+        if (size >= offsetof(CIDA, aoffset) + sizeof(UINT) && table <= size && at(0)) {
+            const auto parent = static_cast<PCIDLIST_ABSOLUTE>(at(0));
+            PIDLIST_ABSOLUTE bin = nullptr;
+            if (SUCCEEDED(::SHGetKnownFolderIDList(FOLDERID_RecycleBinFolder, 0, nullptr, &bin)) && ::ILIsEqual(parent, bin))
+                fromBin = true;
+            ::CoTaskMemFree(bin);
+            items.count = ida->cidl;
+            for (UINT i = 0; i < ida->cidl; ++i) {
+                const void* child = at(i + 1);
+                PIDLIST_ABSOLUTE full = child ? ::ILCombine(parent, static_cast<PCUIDLIST_RELATIVE>(child)) : nullptr;
+                ComPtr<IShellItem> item;
+                SFGAOF attributes = 0;
+                PWSTR path = nullptr;
+                if (full && SUCCEEDED(::SHCreateItemFromIDList(full, IID_PPV_ARGS(&item)))
+                    && SUCCEEDED(item->GetAttributes(SFGAO_FILESYSTEM, &attributes)) && (attributes & SFGAO_FILESYSTEM)
+                    && SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) && path && *path)
+                    items.paths.emplace_back(path);
+                ::CoTaskMemFree(path);
+                ::ILFree(full);
+            }
+        }
+        ::GlobalUnlock(m.medium.hGlobal);
+    } else {
+        items.paths = filePaths(data);
+        items.count = items.paths.size();
+    }
+    items.plain = items.count > 0 && !fromBin && items.paths.size() == items.count
+        && std::ranges::none_of(items.paths, transient);
+    return items;
+}
+
+ComPtr<IAgileReference> startAsync(IDataObject* data)
+{
+    ComPtr<IDataObjectAsyncCapability> async;
+    BOOL on = FALSE;
+    if (!data || FAILED(data->QueryInterface(IID_PPV_ARGS(&async))) || FAILED(async->GetAsyncMode(&on)) || !on)
+        return nullptr;
+    ComPtr<IAgileReference> reference;
+    if (FAILED(::RoGetAgileReference(AGILEREFERENCE_DEFAULT, __uuidof(IDataObjectAsyncCapability), async.Get(), &reference))
+        || FAILED(async->StartOperation(nullptr)))
+        return nullptr;
+    return reference;
+}
+
+void endAsync(IAgileReference* reference, HRESULT result)
+{
+    ComPtr<IDataObjectAsyncCapability> async;
+    if (reference && SUCCEEDED(reference->Resolve(IID_PPV_ARGS(&async))))
+        async->EndOperation(result, nullptr, DROPEFFECT_NONE); // nothing for the source to delete: moved here already
+}
+
 DWORD dropOnFolder(const std::wstring& folder, IDataObject* data, bool move, POINT pt, DWORD allowed, HRESULT* result)
 {
     const DWORD wanted = allowed & (move ? DROPEFFECT_MOVE : DROPEFFECT_COPY);
@@ -180,13 +304,14 @@ FileOperations::~FileOperations()
 }
 
 void FileOperations::start(std::vector<std::wstring> items, std::wstring folder, bool move,
-    std::function<void(HRESULT result, bool aborted)> done)
+    ComPtr<IAgileReference> async, std::function<void(HRESULT result, bool aborted)> done)
 {
     std::lock_guard lock(m_mutex);
     std::erase_if(m_running, [](const std::unique_ptr<Operation>& op) { return op->finished.load(); });
     auto op = std::make_unique<Operation>();
     Operation* const self = op.get();
-    op->thread = std::jthread([self, items = std::move(items), folder = std::move(folder), move, done = std::move(done)] {
+    op->thread = std::jthread([self, items = std::move(items), folder = std::move(folder), move, async = std::move(async),
+                                  done = std::move(done)]() mutable {
         const HRESULT init = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
         HRESULT hr = init;
         BOOL aborted = FALSE;
@@ -219,6 +344,9 @@ void FileOperations::start(std::vector<std::wstring> items, std::wstring folder,
             if (operation)
                 operation->GetAnyOperationsAborted(&aborted);
         } // released before COM is let go
+        if (SUCCEEDED(init))
+            endAsync(async.Get(), hr);
+        async.Reset(); // likewise
         if (done)
             done(hr, aborted != FALSE);
         if (SUCCEEDED(init))

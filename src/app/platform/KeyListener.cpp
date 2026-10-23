@@ -599,29 +599,27 @@ void KeyListener::onDrag(const RAWMOUSE& mouse)
     // one of the window pressed on; else the one in front. A window dragged
     // by its title bar (Aero Shake), a selection rectangle, a slider: no.
     // (Safe here: this thread has no window that WindowFromPoint would ask.)
-    const auto oleCapture = [](DWORD thread) -> HWND {
+    // Total Commander drags files inside its own window by itself, its main
+    // window holding the capture, and starts an OLE drag only once the
+    // pointer is over another program's window: such as the pie, which is
+    // shown (unseen until DragEnter) all the same. Its title bar dragged
+    // (Windows' own move, Aero Shake) or a menu open is not that.
+    const auto captureOf = [](DWORD thread, bool totalCommander) -> HWND {
         GUITHREADINFO info {sizeof info};
-        if (!::GetGUIThreadInfo(thread, &info) || !info.hwndCapture)
+        if (!::GetGUIThreadInfo(thread, &info) || !info.hwndCapture
+            || (info.flags & (GUI_INMOVESIZE | GUI_INMENUMODE | GUI_POPUPMENUMODE)))
             return nullptr;
         wchar_t name[32] {};
         ::GetClassNameW(info.hwndCapture, name, 32);
-        return std::wstring_view(name) == L"CLIPBRDWNDCLASS" ? info.hwndCapture : nullptr;
+        return std::wstring_view(name) == (totalCommander ? L"TTOTAL_CMD" : L"CLIPBRDWNDCLASS") ? info.hwndCapture : nullptr;
     };
     const HWND pressed = ::WindowFromPoint(m_pressedAt);
-    HWND capture = pressed ? oleCapture(::GetWindowThreadProcessId(pressed, nullptr)) : nullptr;
+    const DWORD pressedThread = pressed ? ::GetWindowThreadProcessId(pressed, nullptr) : 0;
+    HWND capture = pressed ? captureOf(pressedThread, false) : nullptr;
     if (!capture)
-        capture = oleCapture(0); // the foreground thread
-    if (!capture && pressed) {
-        // Total Commander drags files inside its own window by itself, its
-        // main window holding the capture, and starts an OLE drag only once
-        // the pointer is over another program's window: such as the pie,
-        // which is shown (unseen until DragEnter) all the same.
-        GUITHREADINFO info {sizeof info};
-        wchar_t name[32] {};
-        if (::GetGUIThreadInfo(::GetWindowThreadProcessId(pressed, nullptr), &info) && info.hwndCapture
-            && ::GetClassNameW(info.hwndCapture, name, 32) && std::wstring_view(name) == L"TTOTAL_CMD")
-            capture = info.hwndCapture;
-    }
+        capture = captureOf(0, false); // the foreground thread
+    if (!capture && pressed)
+        capture = captureOf(pressedThread, true);
     if (!capture) {
         if (m_keyLog)
             log("Key log: shaken while the button was held, but no OLE drag is under way");

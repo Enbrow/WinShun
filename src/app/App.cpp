@@ -3330,6 +3330,11 @@ void App::applyFolderMenu()
 void App::applyDropPie()
 {
     const bool on = m_settings.dropPie && !integrity::processElevated();
+    if (!on && m_dropPie && m_dropPie->inDrop()) {
+        // Switched off from inside its drop (a dialog's loop): once it returns.
+        QTimer::singleShot(100ms, this, &App::applyDropPie);
+        return;
+    }
     if (!on && m_dropPie) {
         m_serviceKeyListener.reset();
         m_keyListener.reset(); // it tells the pie shakes: gone first
@@ -3337,7 +3342,17 @@ void App::applyDropPie()
         delete m_dropPieWindow;
         m_dropPie.reset();
     } else if (on && !m_dropPie) {
-        auto pie = std::make_unique<DropPie>(m_favorites.get(), m_places.get());
+        if (!m_fileOperations)
+            m_fileOperations = std::make_unique<piedrop::FileOperations>();
+        // From any thread (a file operation's): shown on this one, if the
+        // app is still there.
+        auto notify = [this](const QString& title, const QString& text) {
+            QMetaObject::invokeMethod(this, [this, title, text] {
+                if (m_messages)
+                    m_messages->showNotification(title, text);
+            }, Qt::QueuedConnection);
+        };
+        auto pie = std::make_unique<DropPie>(m_favorites.get(), m_places.get(), m_fileOperations.get(), notify);
         QQmlComponent component(m_qml.get(), u"WinShun"_s, u"DropPieWindow"_s);
         QObject* object = component.createWithInitialProperties({{u"dropPie"_s, QVariant::fromValue(pie.get())}});
         auto* window = qobject_cast<QQuickWindow*>(object);

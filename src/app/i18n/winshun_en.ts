@@ -7702,6 +7702,18 @@
 <context>
     <name>ws::DropPie</name>
     <message>
+        <source>没能移动到“%1”</source>
+        <translation>Could not move to “%1”</translation>
+    </message>
+    <message>
+        <source>没能复制到“%1”</source>
+        <translation>Could not copy to “%1”</translation>
+    </message>
+    <message>
+        <source>这个文件夹不接受这些项目。</source>
+        <translation>This folder does not take these items.</translation>
+    </message>
+    <message>
         <source>复制到</source>
         <translation>Copy to</translation>
     </message>

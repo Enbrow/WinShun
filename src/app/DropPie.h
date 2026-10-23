@@ -15,6 +15,7 @@
 
 #include <windows.h>
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -39,10 +40,14 @@ class SystemCatalog;
 // and kept) without taking the focus, and is its OLE drop target in place
 // of Qt's (piedrop::DropTarget). It shows itself only once the drag enters
 // it with files or shell items: a drag of text (Word, VS Code) passes the
-// shake's test too. Files are copied or moved by IFileOperation on threads
-// of their own and the source is told nothing was dropped, so it never
-// deletes anything itself; shell items that are not files (a phone's, a zip
-// file's contents) go to the folder's own drop target, as in File Explorer.
+// shake's test too. Lasting files are copied or moved by IFileOperation on
+// threads of the application's (piedrop::FileOperations) and the source is
+// told nothing was dropped, so it never deletes anything itself (one that
+// drops asynchronously, File Explorer, is held until the copy is over);
+// everything else (a phone's or a zip file's contents, the Recycle Bin's,
+// an archiver's unpacked copies in the temporary folder) goes to the
+// folder's own drop target while the source still holds it, as in File
+// Explorer (piedrop::DragItems).
 //
 // Its window is see-through but still takes the pointer where nothing is
 // drawn (a layered D3D11 window): it goes the moment the pointer leaves the
@@ -77,7 +82,14 @@ class DropPie : public QObject, private piedrop::Handler {
     Q_PROPERTY(qreal statusWidth READ statusWidth NOTIFY layoutChanged FINAL)
 
 public:
-    DropPie(Favorites* favorites, SystemCatalog* places, QObject* parent = nullptr);
+    // A short notice to the user (the tray's), callable from any thread.
+    using Notify = std::function<void(const QString& title, const QString& text)>;
+
+    // `operations` is the application's (it outlives the pie and waits for
+    // copies under way when the application goes); `notify` tells the user
+    // when one fails.
+    DropPie(Favorites* favorites, SystemCatalog* places, piedrop::FileOperations* operations, Notify notify,
+        QObject* parent = nullptr);
     ~DropPie() override;
 
     // DropPieWindow: made into a see-through window and taken over as a
@@ -90,6 +102,9 @@ public:
     // mouse with `captureWindow`; the primary button let go.
     void shaken(POINT pt, HWND captureWindow, DWORD sourcePid);
     void buttonReleased();
+    // Inside a drop (the folder's drop target may run a dialog's loop): not
+    // to be destroyed now.
+    bool inDrop() const noexcept { return m_inDrop; }
 
     QVariantList sectors() const { return m_sectorItems; }
     bool noFolders() const noexcept { return m_folders.empty(); }
@@ -148,6 +163,9 @@ private:
     Block blockOf(const Folder& folder) const;
     QString reasonOf(Block block) const;
     pie::Hit hitAt(POINT pt) const;
+    POINT centreOnScreen() const; // physical pixels
+    pie::Allowed allowed() const noexcept { return {moveAllowed(), copyAllowed()}; }
+    pie::Keys keys() const noexcept { return {m_ctrl, m_shift}; }
     DWORD track(DWORD keys, POINT pt); // DragOver's work: the state and the effect
     void updateTexts();
     void setRevealed(bool revealed);
@@ -172,8 +190,11 @@ private:
     bool m_entered = false; // DragEnter came
     bool m_revealed = false;
     bool m_confirming = false;
+    bool m_inDrop = false;
     DWORD m_allowed = 0; // what the source allows
-    std::vector<std::wstring> m_items; // its files; empty: shell items that are not files
+    std::vector<std::wstring> m_items; // the file-system paths of what is dragged (piedrop::DragItems)
+    std::size_t m_count = 0; // ... and how many items there are
+    bool m_plain = false; // ... all lasting files: copied by our own file operation
     std::vector<Block> m_blocks; // by sector, for this drag
     pie::Latch m_latch;
     pie::Hit m_hit;
@@ -187,13 +208,17 @@ private:
     QString m_statusName;
     QString m_statusDetail;
     POINT m_shownAt {};
+    qreal m_dpr = 1; // the scale of the screen it is on (the window's may lag behind on its first showing there)
+    bool m_warp = false; // placed off the pointer by a screen's edge: the pointer goes to the middle at DragEnter
+    QElapsedTimer m_warped; // since it went: moves OLE saw before it are still on their way
     QElapsedTimer m_shownClock;
     QTimer m_revealWait; // no DragEnter yet: the drag is elsewhere, or the pointer is still
     QTimer m_releaseWait; // the button let go without a Drop or a DragLeave
     QTimer m_confirmTimer; // the dropped-on sector shown a moment
     int m_checks = 0; // the latest existence check: older answers are dropped
 
-    piedrop::FileOperations m_operations; // waits for copies under way when it goes
+    piedrop::FileOperations* m_operations;
+    Notify m_notify;
     ComWorker m_worker; // last: its tasks use the members above
 };
 

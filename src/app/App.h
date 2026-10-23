@@ -39,6 +39,10 @@ class QWinEventNotifier;
 
 namespace ws {
 
+namespace piedrop {
+class FileOperations;
+}
+
 class AppCatalog;
 class ClipImportJob;
 class ClipStore;
@@ -458,6 +462,9 @@ private:
     // the setting's key, for the answer to change_settings.
     void noteApplyProblem(const QString& key, const QString& problem);
 
+    // The drop pie's copies and moves: first, so it goes last, waiting for
+    // one under way (never cut off halfway); the pie itself may go any time.
+    std::unique_ptr<piedrop::FileOperations> m_fileOperations;
     Settings m_settings;
     std::unique_ptr<History> m_history;
     std::unique_ptr<Favorites> m_favorites; // the launcher's and the dialog bar's

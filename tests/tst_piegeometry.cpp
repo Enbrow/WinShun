@@ -64,26 +64,29 @@ private slots:
 
     void latch()
     {
+        const Allowed both;
+        const Keys none;
         Latch l;
-        QCOMPARE(l.effective(false, false, true, true), Mode::None);
-        QCOMPARE(l.effective(false, false, true, true, true), Mode::Move); // a drop falls back to what is allowed
-        l.update({Zone::Inner, Mode::Copy}, true, true);
+        QCOMPARE(l.effective(none, both), Mode::None);
+        QCOMPARE(l.effective(none, both, Purpose::Drop), Mode::Move); // a drop falls back to what is allowed
+        l.update({Zone::Inner, Mode::Copy}, both);
         QCOMPARE(l.latched(), Mode::Copy);
-        l.update({Zone::Outer, Mode::None, 3}, true, true); // along the outer ring: kept
-        l.update({Zone::Dead}, true, true);
+        l.update({Zone::Outer, Mode::None, 3}, both); // along the outer ring: kept
+        l.update({Zone::Dead}, both);
         QCOMPARE(l.latched(), Mode::Copy);
-        l.update({Zone::Inner, Mode::Move}, true, true);
+        l.update({Zone::Inner, Mode::Move}, both);
         QCOMPARE(l.latched(), Mode::Move);
         // Keys override while held; both held is neither.
-        QCOMPARE(l.effective(true, false, true, true), Mode::Copy);
-        QCOMPARE(l.effective(false, true, true, true), Mode::Move);
-        QCOMPARE(l.effective(true, true, true, true), Mode::Move);
+        QCOMPARE(l.effective({.ctrl = true}, both), Mode::Copy);
+        QCOMPARE(l.effective({.shift = true}, both), Mode::Move);
+        QCOMPARE(l.effective({.ctrl = true, .shift = true}, both), Mode::Move);
         // A half the source does not allow is passed over.
-        Latch copyOnly;
-        copyOnly.update({Zone::Inner, Mode::Move}, false, true);
-        QCOMPARE(copyOnly.latched(), Mode::None);
-        QCOMPARE(copyOnly.effective(false, false, false, true, true), Mode::Copy);
-        QCOMPARE(copyOnly.effective(false, true, false, true, true), Mode::Copy); // Shift cannot move
+        const Allowed copyOnly {.move = false, .copy = true};
+        Latch c;
+        c.update({Zone::Inner, Mode::Move}, copyOnly);
+        QCOMPARE(c.latched(), Mode::None);
+        QCOMPARE(c.effective(none, copyOnly, Purpose::Drop), Mode::Copy);
+        QCOMPARE(c.effective({.shift = true}, copyOnly, Purpose::Drop), Mode::Copy); // Shift cannot move
     }
 
     void placement()

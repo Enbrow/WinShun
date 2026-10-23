@@ -66,26 +66,26 @@ Hit hitTest(QPointF offset, int sectors, const Radii& radii) noexcept
     return {Zone::Outside};
 }
 
-void Latch::update(const Hit& hit, bool moveAllowed, bool copyAllowed) noexcept
+void Latch::update(const Hit& hit, Allowed allowed) noexcept
 {
     if (hit.zone != Zone::Inner)
         return;
-    if ((hit.half == Mode::Move && moveAllowed) || (hit.half == Mode::Copy && copyAllowed))
+    if ((hit.half == Mode::Move && allowed.move) || (hit.half == Mode::Copy && allowed.copy))
         m_latched = hit.half;
 }
 
-Mode Latch::effective(bool ctrl, bool shift, bool moveAllowed, bool copyAllowed, bool forDrop) const noexcept
+Mode Latch::effective(Keys keys, Allowed allowed, Purpose purpose) const noexcept
 {
     // Both held is Windows' "create a shortcut": neither.
-    if (ctrl && !shift && copyAllowed)
+    if (keys.ctrl && !keys.shift && allowed.copy)
         return Mode::Copy;
-    if (shift && !ctrl && moveAllowed)
+    if (keys.shift && !keys.ctrl && allowed.move)
         return Mode::Move;
     Mode mode = m_latched;
-    if ((mode == Mode::Move && !moveAllowed) || (mode == Mode::Copy && !copyAllowed))
+    if ((mode == Mode::Move && !allowed.move) || (mode == Mode::Copy && !allowed.copy))
         mode = Mode::None;
-    if (mode == Mode::None && forDrop)
-        mode = moveAllowed ? Mode::Move : copyAllowed ? Mode::Copy : Mode::None;
+    if (mode == Mode::None && purpose == Purpose::Drop)
+        mode = allowed.move ? Mode::Move : allowed.copy ? Mode::Copy : Mode::None;
     return mode;
 }
 
