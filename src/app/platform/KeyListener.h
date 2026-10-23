@@ -2,6 +2,7 @@
 
 #include "DoubleClickDetector.h"
 #include "DoubleTapDetector.h"
+#include "ShakeDetector.h"
 
 #include <windows.h>
 
@@ -26,7 +27,9 @@ namespace ws {
 // With `doubleClicks`, the mouse is listened to all the time, for double
 // clicks of the left button (the folder menu, GitHub #22). Windows keeps one
 // mouse registration per process: this is the only one, or the next Ctrl
-// press here would replace another's and take it away again.
+// press here would replace another's and take it away again. Likewise with
+// `dragShake` (the drop pie), which follows the pointer while the primary
+// button is held.
 class KeyListener {
 public:
     struct Tap {
@@ -44,6 +47,14 @@ public:
         // under the pointer and where (physical pixels). None: the mouse only
         // around a press of the key.
         std::function<void(HWND window, POINT pt)> doubleClick;
+        // The mouse shaken left and right while an OLE drag is under way
+        // (ShakeDetector; the drag told by its source thread's capture
+        // window): where the pointer is (physical pixels), the source's
+        // capture window and process. With it the mouse is listened to all
+        // the time, as for doubleClick.
+        std::function<void(POINT pt, HWND captureWindow, DWORD sourcePid)> dragShake;
+        // The primary button let go (with dragShake): the drag is over.
+        std::function<void()> leftButtonUp;
         // Lines for the log (on the listener thread): that double Alt over
         // administrator windows needs the service updated, once; with
         // WINSHUN_KEYLOG=1 also every key event and what came of it, the
@@ -80,7 +91,9 @@ private:
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     void onInput(HRAWINPUT input);
     void onMouse(const RAWMOUSE& mouse);
+    void onDrag(const RAWMOUSE& mouse);
     void listenToMouse(bool on);
+    bool mouseWanted() const noexcept { return m_callbacks.doubleClick || m_callbacks.dragShake; }
     bool serviceTells() const noexcept;
     void followService();
     bool keyHeld() const;
@@ -101,6 +114,8 @@ private:
     Callbacks m_callbacks;
     std::array<DoubleTapDetector, 3> m_detectors; // Ctrl's, Alt's, Shift's; only touched on the listener thread
     DoubleClickDetector m_clicks; // likewise
+    ShakeDetector m_shake; // likewise
+    POINT m_pressedAt {}; // where the primary button went down (physical pixels)
     bool m_mouseOn = false; // listener thread only
     std::array<Recent, 10> m_recent {}; // listener thread only; a ring
     std::size_t m_recentNext = 0;

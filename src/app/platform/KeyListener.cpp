@@ -2,10 +2,13 @@
 #include "KeyListenerProtocol.h"
 #include "OwnInput.h"
 
+#include <shellscalingapi.h>
+
 #include <algorithm>
 #include <format>
 #include <latch>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 namespace ws {
@@ -213,7 +216,7 @@ KeyListener::KeyListener(Callbacks callbacks)
             const RAWINPUTDEVICE keyboard {kGenericDesktop, kKeyboard, RIDEV_INPUTSINK, hwnd};
             active = ::RegisterRawInputDevices(&keyboard, 1, sizeof keyboard);
         }
-        if (hwnd && m_callbacks.doubleClick) {
+        if (hwnd && mouseWanted()) {
             listenToMouse(true);
             active = active && m_mouseOn;
         }
@@ -292,6 +295,8 @@ LRESULT CALLBACK KeyListener::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         }
         if (self) {
             self->m_callbacks.doubleClick = nullptr; // so the mouse goes too
+            self->m_callbacks.dragShake = nullptr;
+            self->m_callbacks.leftButtonUp = nullptr;
             self->listenToMouse(false);
             self->m_active = false;
         }
@@ -312,7 +317,9 @@ void KeyListener::onInput(HRAWINPUT input)
     UINT size = sizeof raw;
     if (::GetRawInputData(input, RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER)) == static_cast<UINT>(-1))
         return;
-    if (raw.header.dwType == RIM_TYPEMOUSE) { // mostly moves, which tell nothing
+    if (raw.header.dwType == RIM_TYPEMOUSE) { // mostly moves, which tell nothing but a shake
+        if (m_callbacks.dragShake)
+            onDrag(raw.data.mouse);
         if (raw.data.mouse.usButtonFlags & (kAnyButtonDown | kWheel))
             onMouse(raw.data.mouse);
         return;
@@ -547,6 +554,73 @@ void KeyListener::onMouse(const RAWMOUSE& mouse)
     m_callbacks.doubleClick(window, pt);
 }
 
+// The primary button and the pointer while it is held, for a shake during a
+// drag (the drop pie). Kept apart from onMouse: a move or a release there
+// would spoil a double tap (mouseUsed) or the double click's pair.
+void KeyListener::onDrag(const RAWMOUSE& mouse)
+{
+    const USHORT flags = mouse.usButtonFlags;
+    const auto time = static_cast<std::uint32_t>(::GetMessageTime());
+    if (flags != 0) {
+        // The device's buttons: swapped (left-handed), its right one drags.
+        const bool swapped = ::GetSystemMetrics(SM_SWAPBUTTON) != 0;
+        const USHORT down = swapped ? RI_MOUSE_RIGHT_BUTTON_DOWN : RI_MOUSE_LEFT_BUTTON_DOWN;
+        const USHORT up = swapped ? RI_MOUSE_RIGHT_BUTTON_UP : RI_MOUSE_LEFT_BUTTON_UP;
+        if (flags & down) {
+            POINT pt {};
+            ::GetPhysicalCursorPos(&pt);
+            // The drag rectangle and the scale of the monitor pressed on.
+            UINT dpiX = 96;
+            UINT dpiY = 96;
+            if (FAILED(::GetDpiForMonitor(::MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST), MDT_EFFECTIVE_DPI, &dpiX, &dpiY)))
+                dpiX = dpiY = 96;
+            m_shake.press(pt.x, pt.y, time, ::GetSystemMetricsForDpi(SM_CXDRAG, dpiX),
+                ::GetSystemMetricsForDpi(SM_CYDRAG, dpiY), dpiX / 96.0);
+            m_pressedAt = pt;
+        } else if (flags & (kAnyButtonDown & ~down)) {
+            m_shake.release(); // another button too: not a plain drag
+        }
+        if (flags & up) {
+            const bool dragged = m_shake.pressed() && m_shake.dragging();
+            m_shake.release();
+            if (dragged && m_callbacks.leftButtonUp)
+                m_callbacks.leftButtonUp();
+        }
+        return;
+    }
+    if (!m_shake.pressed())
+        return;
+    POINT pt {};
+    ::GetPhysicalCursorPos(&pt);
+    if (!m_shake.move(pt.x, pt.y, time))
+        return;
+    // A drag of files is an OLE drag: while DoDragDrop runs, the source's
+    // thread has captured the mouse with OLE's own window. Its thread is the
+    // one of the window pressed on; else the one in front. A window dragged
+    // by its title bar (Aero Shake), a selection rectangle, a slider: no.
+    // (Safe here: this thread has no window that WindowFromPoint would ask.)
+    const auto oleCapture = [](DWORD thread) -> HWND {
+        GUITHREADINFO info {sizeof info};
+        if (!::GetGUIThreadInfo(thread, &info) || !info.hwndCapture)
+            return nullptr;
+        wchar_t name[32] {};
+        ::GetClassNameW(info.hwndCapture, name, 32);
+        return std::wstring_view(name) == L"CLIPBRDWNDCLASS" ? info.hwndCapture : nullptr;
+    };
+    const HWND pressed = ::WindowFromPoint(m_pressedAt);
+    HWND capture = pressed ? oleCapture(::GetWindowThreadProcessId(pressed, nullptr)) : nullptr;
+    if (!capture)
+        capture = oleCapture(0); // the foreground thread
+    if (!capture) {
+        if (m_keyLog)
+            log("Key log: shaken while the button was held, but no OLE drag is under way");
+        return;
+    }
+    DWORD pid = 0;
+    ::GetWindowThreadProcessId(capture, &pid);
+    m_callbacks.dragShake(pt, capture, pid);
+}
+
 // The mouse only while it can spoil a tap: from a press of the key until a
 // second tap can no longer follow. Listened to all the time, every move wakes this
 // thread, up to thousands of times a second with a gaming mouse: only when
@@ -554,7 +628,7 @@ void KeyListener::onMouse(const RAWMOUSE& mouse)
 // is one look at the button flags).
 void KeyListener::listenToMouse(bool on)
 {
-    if (!on && m_callbacks.doubleClick)
+    if (!on && mouseWanted())
         return;
     if (on == m_mouseOn)
         return;

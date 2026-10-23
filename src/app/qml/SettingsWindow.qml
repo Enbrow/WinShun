@@ -3393,6 +3393,7 @@ Window {
                 page: window.favoritesPage
                 width: parent.width
                 favorites: window.editor.favorites
+                editor: window.editor
             }
 
             SettingsSection {

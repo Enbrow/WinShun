@@ -48,6 +48,7 @@ class DialogBar;
 class DialogJump;
 class Favorites;
 class FilePreview;
+class DropPie;
 class FolderMenu;
 class SystemCatalog;
 class History;
@@ -306,6 +307,7 @@ private:
     void applyDialogs(); // Ctrl+G, the bar and going by themselves in file dialogs
     void applyFolderMenu(); // the menu on a double click in File Explorer (GitHub #22)
     void applyFolderMenuHotkey(); // ... and on its hotkey, anywhere (GitHub #25)
+    void applyDropPie(); // the favorites' ring on a shake while dragging files
     void folderMenuHotkey(); // the hotkey was pressed: the menu, the launcher out of the way first
     // The screen capture (src/capture): made while it is on in the settings,
     // its hotkey and PrtScn (taken from the Snipping Tool and given back).
@@ -570,9 +572,11 @@ private:
     std::vector<std::wstring> m_sharesBuilding; // being read for the first time: told when done
     std::unique_ptr<KeyListener> m_keyListener; // double Ctrl, double clicks for the folder menu
     std::unique_ptr<ServiceKeyListener> m_serviceKeyListener; // destroyed before its target KeyListener
-    int m_keyListenerMode = 0; // what it listens to: 1 double Ctrl, 2 double clicks
+    int m_keyListenerMode = 0; // what it listens to: 1 double Ctrl, 2 double clicks, 4 drag shakes
     std::unique_ptr<FolderMenu> m_folderMenu; // before the window: its view-model
     QPointer<QQuickWindow> m_folderMenuWindow;
+    std::unique_ptr<DropPie> m_dropPie; // before the window: its view-model
+    QPointer<QQuickWindow> m_dropPieWindow;
     QStringList m_doubleCtrlIgnoredLogged; // "program reason", logged once each: a game gets many
     std::unique_ptr<DialogJump> m_dialogJump; // file dialogs: Ctrl+G, the bar; after m_messages, which has the hotkey
     std::unique_ptr<DialogBar> m_dialogBar; // the search bar under file dialogs

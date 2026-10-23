@@ -275,6 +275,9 @@ std::vector<Entry> buildCatalog()
     add(boolean({"Launcher/FolderMenuWindows", QT_TRANSLATE_NOOP("AiSettings", "菜单里列出别的窗口里的文件夹"), "files_and_dialogs", 2,
                     "The folder menu lists the folders open in other file manager windows. At least one of the three groups stays on."},
         &Settings::folderMenuWindows));
+    add(boolean({"Favorites/DropPie", QT_TRANSLATE_NOOP("AiSettings", "拖文件时晃一晃，弹出收藏圆盘"), "favorites", -1,
+                    "While dragging files or folders (File Explorer, the desktop, file managers), shaking the mouse left and right brings up a ring: its inner ring picks move or copy, its outer ring holds the first eight favorite folders to drop them in. Does nothing while Win顺 runs as administrator."},
+        &Settings::dropPie));
     add(hotkey({"Launcher/FolderMenuHotkey", QT_TRANSLATE_NOOP("AiSettings", "用快捷键弹出文件夹菜单"), "files_and_dialogs", 2,
                    "A shortcut that brings up the folder menu in whatever window is in front, like Ctrl+Alt+D. Empty: none."},
         &Settings::folderMenuHotkey));
@@ -1308,6 +1311,7 @@ const std::vector<Section>& sections()
         {u"results"_s, QT_TRANSLATE_NOOP("AiSettings", "结果列表"), 3},
         {u"content"_s, QT_TRANSLATE_NOOP("AiSettings", "文件内容搜索"), 4},
         {u"web"_s, QT_TRANSLATE_NOOP("AiSettings", "网页搜索"), 5},
+        {u"favorites"_s, QT_TRANSLATE_NOOP("AiSettings", "收藏夹"), 6},
         {u"clipboard"_s, QT_TRANSLATE_NOOP("AiSettings", "剪贴板"), 7},
         {u"advanced"_s, QT_TRANSLATE_NOOP("AiSettings", "高级"), 8},
         {u"capture"_s, QT_TRANSLATE_NOOP("AiSettings", "截图"), 10},

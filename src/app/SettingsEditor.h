@@ -86,6 +86,7 @@ class SettingsEditor : public QObject {
     // The hotkey that brings the folder menu up anywhere (GitHub #25); its
     // error as the app found it (taken, not understood), like hotkeyError.
     Q_PROPERTY(QString folderMenuHotkey READ folderMenuHotkey WRITE setFolderMenuHotkey NOTIFY changed FINAL)
+    Q_PROPERTY(bool dropPie READ dropPie WRITE setDropPie NOTIFY changed FINAL) // 拖放圆盘
     Q_PROPERTY(QString folderMenuHotkeyError READ folderMenuHotkeyError NOTIFY hotkeyErrorChanged FINAL)
     // The screen capture's card on the 插件 page ([Capture]): its switch, its
     // hotkey and that hotkey's error (as hotkeyError), PrtScn, and whether
@@ -360,6 +361,8 @@ public:
     bool folderMenuWindows() const { return m_settings.folderMenuWindows; }
     void setFolderMenuWindows(bool on);
     QString folderMenuHotkey() const { return m_settings.folderMenuHotkey; }
+    bool dropPie() const { return m_settings.dropPie; }
+    void setDropPie(bool on);
     void setFolderMenuHotkey(const QString& hotkey);
     QString folderMenuHotkeyError() const { return m_folderMenuHotkeyError; }
     void setFolderMenuHotkeyError(const QString& error);

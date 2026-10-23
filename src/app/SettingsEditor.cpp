@@ -966,6 +966,14 @@ void SettingsEditor::setFolderMenuFavorites(bool on)
     commit();
 }
 
+void SettingsEditor::setDropPie(bool on)
+{
+    if (m_settings.dropPie == on)
+        return;
+    m_settings.dropPie = on;
+    commit();
+}
+
 void SettingsEditor::setFolderMenuRecent(bool on)
 {
     if (m_settings.folderMenuRecent == on || (!on && !m_settings.folderMenuFavorites && !m_settings.folderMenuWindows))

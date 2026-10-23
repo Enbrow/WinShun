@@ -132,6 +132,10 @@ struct Settings {
     // Directory Opus's <event> for a double click on blank space, as it was
     // before Win顺 put its own there (SettingsEditor::setOpusFolderMenu); "": none.
     QString folderMenuOpusBefore;
+    // 拖放圆盘 (DropPie): shaking the mouse while dragging files brings up a
+    // ring of the favorite folders to drop them in. Does nothing while Win顺
+    // runs as administrator (drops cannot reach it then).
+    bool dropPie = true;
 
     // [Results]
     bool foldersFirst = false; // 全部 and 文件 list the folders found before the files (else after)

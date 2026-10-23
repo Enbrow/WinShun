@@ -53,6 +53,8 @@ qt_add_executable(WinShun WIN32
     FileIconProvider.cpp FileIconProvider.h
     McpClients.cpp McpClients.h
     Migration.cpp Migration.h
+    PieGeometry.cpp PieGeometry.h
+    PieLabels.cpp PieLabels.h
     Preview.cpp Preview.h
     RecentFolders.cpp RecentFolders.h
     Settings.cpp Settings.h
@@ -77,6 +79,8 @@ qt_add_executable(WinShun WIN32
     platform/IdleTrim.cpp platform/IdleTrim.h
     platform/Integrity.cpp platform/Integrity.h
     platform/KeyListener.cpp platform/KeyListener.h
+    platform/ShakeDetector.cpp platform/ShakeDetector.h
+    platform/PieDrop.cpp platform/PieDrop.h
     platform/ServiceKeyListener.cpp platform/ServiceKeyListener.h
     platform/KeyRouter.cpp platform/KeyRouter.h
     platform/MessageWindow.cpp platform/MessageWindow.h
@@ -136,6 +140,7 @@ set(qml_files
     qml/DialogBarWindow.qml
     qml/DialogBarRow.qml
     qml/FolderMenuWindow.qml
+    qml/DropPieWindow.qml
     qml/PreviewWindow.qml
     qml/HoverTip.qml
     qml/ShortcutTip.qml
@@ -252,6 +257,9 @@ qt_add_qml_module(WinShun
         FileFacts.cpp FileFacts.h
         FilePreview.cpp FilePreview.h
         FolderMenu.cpp FolderMenu.h
+        DropPie.cpp DropPie.h # the favorites' ring while dragging files (DropPieWindow.qml)
+        DropPieText.cpp DropPieText.h
+        PieRing.cpp PieRing.h
         GleaningScene.cpp GleaningScene.h
         HotkeyRule.h
         IconBadge.cpp IconBadge.h

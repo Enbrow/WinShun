@@ -853,6 +853,7 @@ void Settings::load()
         folderMenuFavorites = folderMenuRecent = folderMenuWindows = true;
     folderMenuHotkey = readOrDefault(s, u"Launcher/FolderMenuHotkey"_s, d.folderMenuHotkey).trimmed();
     folderMenuOpusBefore = readOrDefault(s, u"Launcher/FolderMenuOpusBefore"_s, d.folderMenuOpusBefore);
+    dropPie = readOrDefault(s, u"Favorites/DropPie"_s, d.dropPie);
 
     foldersFirst = readOrDefault(s, u"Results/FoldersFirst"_s, d.foldersFirst);
     // In the file only when changed (save): one never changed follows the
@@ -1132,6 +1133,7 @@ void Settings::save() const
     s.setValue(u"Launcher/FolderMenuWindows"_s, folderMenuWindows);
     s.setValue(u"Launcher/FolderMenuHotkey"_s, folderMenuHotkey);
     s.setValue(u"Launcher/FolderMenuOpusBefore"_s, folderMenuOpusBefore);
+    s.setValue(u"Favorites/DropPie"_s, dropPie);
     s.setValue(u"Results/FoldersFirst"_s, foldersFirst);
     if (preferredTypes == defaultPreferredTypes())
         s.remove(kPreferredTypesKey);

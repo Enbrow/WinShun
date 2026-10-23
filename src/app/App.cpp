@@ -18,6 +18,7 @@
 #include "FileIconProvider.h"
 #include "FilePreview.h"
 #include "ThumbnailProvider.h"
+#include "DropPie.h"
 #include "FolderMenu.h"
 #include "History.h"
 #include "Host.h"
@@ -423,6 +424,8 @@ App::~App()
     closeCaptureOcr(true); // its window, before the QML engine too
     delete m_folderMenuWindow; // before its view-model and the QML engine
     m_folderMenu.reset();
+    delete m_dropPieWindow; // likewise
+    m_dropPie.reset();
     delete m_settingsWindow; // before the QML engine it was created with
     delete m_barWindow;
     delete m_clipWindow;
@@ -1432,11 +1435,12 @@ QString App::doubleCtrlName() const
 void App::applySettings(bool initial)
 {
     applyFolderMenu(); // before the listener, which tells it double clicks
+    applyDropPie(); // likewise shakes
     // Double clicks: for File Explorer and the desktop; Directory Opus says
     // so itself. Not when the menu is there for its hotkey alone.
     const bool doubleClicks = m_folderMenu && m_settings.folderMenu != u"off"
         && (m_settings.folderMenuExplorer || m_settings.folderMenuDesktop);
-    const int listenTo = (m_settings.doubleCtrl ? 1 : 0) | (doubleClicks ? 2 : 0);
+    const int listenTo = (m_settings.doubleCtrl ? 1 : 0) | (doubleClicks ? 2 : 0) | (m_dropPie ? 4 : 0);
     if (listenTo != m_keyListenerMode) {
         m_serviceKeyListener.reset();
         m_keyListener.reset(); // the process's one mouse registration goes with it first
@@ -1455,6 +1459,10 @@ void App::applySettings(bool initial)
                 };
             if (FolderMenu* menu = doubleClicks ? m_folderMenu.get() : nullptr)
                 callbacks.doubleClick = [menu](HWND window, POINT pt) { menu->doubleClicked(window, pt); };
+            if (DropPie* pie = m_dropPie.get()) {
+                callbacks.dragShake = [pie](POINT pt, HWND capture, DWORD pid) { pie->shaken(pt, capture, pid); };
+                callbacks.leftButtonUp = [pie] { pie->buttonReleased(); };
+            }
             callbacks.log = [](const std::string& line) { qWarning().noquote() << QString::fromStdString(line); };
             m_keyListener = std::make_unique<KeyListener>(std::move(callbacks));
             if (m_settings.doubleCtrl && m_keyListener->isActive())
@@ -3314,6 +3322,33 @@ void App::applyFolderMenu()
         m_folderMenu->setOptions(m_settings.folderMenu == u"auto", m_settings.folderMenuExplorer, m_settings.folderMenuDesktop);
         m_folderMenu->setGroups(m_settings.folderMenuFavorites, m_settings.folderMenuRecent, m_settings.folderMenuWindows);
         m_folderMenu->setRecordHistory(m_settings.recordHistory);
+    }
+}
+
+// 拖放圆盘: on unless switched off, and never while Win顺 runs as
+// administrator, where drops from the user's programs cannot reach it (UIPI).
+void App::applyDropPie()
+{
+    const bool on = m_settings.dropPie && !integrity::processElevated();
+    if (!on && m_dropPie) {
+        m_serviceKeyListener.reset();
+        m_keyListener.reset(); // it tells the pie shakes: gone first
+        m_keyListenerMode = 0;
+        delete m_dropPieWindow;
+        m_dropPie.reset();
+    } else if (on && !m_dropPie) {
+        auto pie = std::make_unique<DropPie>(m_favorites.get(), m_places.get());
+        QQmlComponent component(m_qml.get(), u"WinShun"_s, u"DropPieWindow"_s);
+        QObject* object = component.createWithInitialProperties({{u"dropPie"_s, QVariant::fromValue(pie.get())}});
+        auto* window = qobject_cast<QQuickWindow*>(object);
+        if (!window) {
+            qWarning().noquote() << component.errorString();
+            delete object;
+            return;
+        }
+        pie->setWindow(window);
+        m_dropPieWindow = window;
+        m_dropPie = std::move(pie);
     }
 }
 

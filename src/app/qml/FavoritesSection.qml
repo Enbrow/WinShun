@@ -13,6 +13,7 @@ SettingsSection {
     objectName: "favoritesSection"
 
     required property FavoritesSettings favorites
+    required property SettingsEditor editor
     property int editing: -1 // the row whose form is open; -1: none
     // What was typed in the open form and not saved, {path, name, keyword}:
     // kept while the form is made again (moved, the list redone).
@@ -32,6 +33,26 @@ SettingsSection {
     note: qsTr("什么都不输入时，收藏排在最前；只输入关键词再按 Enter 就打开，收藏的文件夹按 Tab 可以进去接着搜。在搜索结果上右键可以加入收藏，也可以把文件或文件夹拖到这里。")
 
     onVisibleChanged: if (!visible) { editing = -1; addingCommand = false; draft = null; favorites.clearMessage() }
+
+    // The drop pie (DropPie): shaking the mouse while dragging files brings
+    // up a ring of 移动 / 复制 and the first eight folders here.
+    SettingRow {
+        id: dropPieRow
+
+        title: qsTr("拖文件时晃一晃，弹出收藏圆盘")
+        keywords: qsTr("拖放;拖动;拖拽;圆盘;晃动;移动;复制;drag;drop;pie").split(";")
+        description: section.editor.isElevated ? qsTr("Win顺 以管理员身份运行时用不了")
+                   : section.editor.dropPie && DropPieText.folderCount > DropPieText.maxFolders
+                     ? qsTr("内圈选移动或复制，外圈是前 8 个文件夹收藏（现有 %1 个，只放得下前 8 个）").arg(DropPieText.folderCount)
+                   : qsTr("内圈选移动或复制，外圈是前 8 个文件夹收藏")
+
+        ToggleSwitch {
+            enabled: !section.editor.isElevated
+            opacity: enabled ? 1 : 0.5
+            checked: section.editor.dropPie && !section.editor.isElevated
+            onToggled: (on) => section.editor.dropPie = on
+        }
+    }
 
     SettingRow {
         id: listRow
@@ -362,6 +383,7 @@ SettingsSection {
                                 index: favRow.index
                                 favorite: favRow.modelData
                                 count: section.favorites.items.length
+                                dropPie: section.editor.dropPie && !section.editor.isElevated
                                 draft: section.draft && section.draft.path === favRow.modelData.path ? section.draft : null
                                 onFinished: {
                                     section.draft = null
