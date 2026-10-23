@@ -1063,6 +1063,7 @@ Window {
                     id: wheelScroll
                     view: boxList
                     animate: SystemTheme.animations
+                    snapRows: true
                 }
                 onContentYChanged: nameTip.dismiss() // scrolled: another row under the pointer
                 onCurrentIndexChanged: {

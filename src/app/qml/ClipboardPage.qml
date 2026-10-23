@@ -708,6 +708,7 @@ Item {
                         view: list
                         animate: SystemTheme.animations
                         logicalPixelSteps: true
+                        snapRows: true
                     }
 
                     delegate: ClipRow {

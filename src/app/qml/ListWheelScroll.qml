@@ -14,6 +14,15 @@ Item {
     // those views integral coordinates leaves no layout fixup to interrupt
     // the glide; ScrollPixelAlignment still aligns the rendered rows.
     property bool logicalPixelSteps: false
+    // A ListView's wheel stops at row edges: the top of the rows (inside the
+    // top margin) comes to rest on the edge of a row, never in the middle of
+    // one. Rows are of any height; the goal is the next edge along the way,
+    // taken once the distance the wheel asked for has covered half of it, and
+    // always one row at least for a whole notch. Smaller deltas (free-spinning
+    // and high-resolution wheels) pile up in `carry` until they do. At the end
+    // it stops at the end (the bottom edge of the last row), never back for
+    // the top's sake.
+    property bool snapRows: false
     readonly property bool running: glide.running
     // A list laid out bottom to top (ListView.BottomToTop: the clipboard
     // turned over) has its first row at the bottom and rests there; content
@@ -34,6 +43,12 @@ Item {
     property int writeDepth: 0
     readonly property bool writing: writeDepth > 0
     property bool boundsMoved: false
+    // Distance the wheel asked for that no row edge has taken yet, signed as
+    // contentY (negative against the way: an edge taken a little early).
+    property real carry: 0
+    // The goal had to be a plain distance, for want of rows made to read edges
+    // from: look for the nearest edge once it has arrived.
+    property bool unsnapped: false
 
     function cancel() {
         glide.stop()
@@ -44,10 +59,32 @@ Item {
         return Math.max(minimumY, Math.min(maximumY, y))
     }
 
+    // The row edge next to where the rows' top is, along `dir`: the contentY
+    // that puts the top of the rows (below the top margin) on it. NaN where
+    // there is no row to read it from (no row there, or not made: the ListView
+    // keeps the ones in view and its cacheBuffer only).
+    function rowEdge(y, dir) {
+        const list = view as ListView
+        const index = list.indexAt(list.contentX + 1, y + list.topMargin + dir * 0.5)
+        const row = index >= 0 ? list.itemAtIndex(index) : null
+        if (!row)
+            return NaN
+        return (dir > 0 ? row.y + row.height : row.y) - list.topMargin
+    }
+
     function aligned(y) {
+        if (snapRows && isFinite(y))
+            return bounded(y) // an edge already (or a distance for want of one: settled later)
         if (logicalPixelSteps)
             return bounded(Math.round(y))
         return bounded(restY + Math.round((y - restY) * dpr) / dpr)
+    }
+
+    // A goal at or past the end it is heading for is that end, whatever the
+    // rows' heights turn out to be (a goal that stays at the end it came
+    // from, as a delta too small for a row, is not the other end).
+    function endGoal(goal, dir) {
+        return dir < 0 && goal <= minimumY ? -Infinity : dir > 0 && goal >= maximumY ? Infinity : goal
     }
 
     function moveTo(y) {
@@ -80,6 +117,7 @@ Item {
         }
         const step = -angle / 120 * (lines > 0 ? lines * 24 : view.height)
         const nextDirection = Math.sign(step)
+        const whole = Math.abs(angle) >= 120
         // Accumulate a burst, but discard its untravelled distance on reversal.
         // Keep the fractional remainder after arrival too: tiny deltas must
         // accumulate even when animations are disabled or events are sparse.
@@ -88,12 +126,65 @@ Item {
         const base = continuing ? requestedY : view.contentY
         cancel()
         view.cancelFlick()
+        if (!continuing) {
+            carry = 0
+            unsnapped = false
+        }
         direction = nextDirection
-        const goal = base + step
+        const goal = snapRows ? rowGoal(base, step, whole) : base + step
         // Keep an endpoint's intent when variable-height rows change the
         // view's estimate of the range during the glide.
-        requestedY = goal <= minimumY ? -Infinity : goal >= maximumY ? Infinity : goal
+        requestedY = endGoal(goal, nextDirection)
         moveTo(requestedY)
+    }
+
+    // Where `step` more takes the goal from `from`, on the row edges: see snapRows.
+    function rowGoal(from, step, whole) {
+        if (!isFinite(from))
+            return from // at an end, and meant to stay there
+        const dir = Math.sign(step)
+        let y = from
+        carry += step
+        for (let i = 0; i < 400 && carry * dir > 0; ++i) {
+            const edge = rowEdge(y, dir)
+            if (isNaN(edge)) {
+                y += carry
+                carry = 0
+                unsnapped = true
+                break
+            }
+            const distance = edge - y
+            if (carry * dir < Math.abs(distance) / 2)
+                break
+            y = edge
+            carry -= distance
+        }
+        if (y === from && whole) { // a notch never goes unanswered
+            const edge = rowEdge(y, dir)
+            y = isNaN(edge) ? y + step : edge
+            unsnapped = unsnapped || isNaN(edge)
+            carry = 0
+        }
+        // Past an end is the end, and stays so while the rows' heights are re-estimated.
+        return y
+    }
+
+    // The glide has come to a goal that is a distance (rows it could not read
+    // were not made): now they are, so rest on the nearest edge.
+    function settleOnEdge() {
+        if (!snapRows || !unsnapped || Math.abs(view.contentY - glide.to) > 0.000001)
+            return
+        unsnapped = false
+        const y = view.contentY
+        const up = rowEdge(y, -1)
+        const down = rowEdge(y, 1)
+        if (isNaN(up) || isNaN(down))
+            return
+        const edge = y - up <= down - y ? up : down
+        if (Math.abs(edge - y) > 0.000001) {
+            requestedY = endGoal(edge, Math.sign(edge - y))
+            moveTo(requestedY)
+        }
     }
 
     function writePosition(y) {
@@ -160,6 +251,7 @@ Item {
         property: "position"
         duration: 200
         easing.type: Easing.OutCubic
+        onFinished: scroll.settleOnEdge()
     }
 
     Connections {
