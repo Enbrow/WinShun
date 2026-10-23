@@ -75,7 +75,6 @@ class DropPie : public QObject, private piedrop::Handler {
     Q_PROPERTY(QString statusName READ statusName NOTIFY stateChanged FINAL)
     Q_PROPERTY(QString statusDetail READ statusDetail NOTIFY stateChanged FINAL) // the path, shortened
     Q_PROPERTY(qreal statusWidth READ statusWidth NOTIFY layoutChanged FINAL)
-    Q_PROPERTY(QString hint READ hint NOTIFY hintChanged FINAL) // only a note by the pointer (see shaken())
 
 public:
     DropPie(Favorites* favorites, SystemCatalog* places, QObject* parent = nullptr);
@@ -112,7 +111,6 @@ public:
     QString statusName() const { return m_statusName; }
     QString statusDetail() const { return m_statusDetail; }
     qreal statusWidth() const noexcept { return m_statusWidth; }
-    QString hint() const { return m_hint; }
 
 signals:
     void sectorsChanged();
@@ -120,7 +118,6 @@ signals:
     void revealedChanged();
     void pointerChanged();
     void stateChanged();
-    void hintChanged();
 
 private:
     struct Folder {
@@ -138,7 +135,6 @@ private:
 
     void onShaken(POINT pt, HWND captureWindow, DWORD sourcePid);
     void open(POINT pt);
-    void showHint(POINT pt, const QString& text);
     void hide(const char* why);
     void takeDropSite();
     void prewarm();
@@ -187,13 +183,11 @@ private:
     QString m_statusVerb;
     QString m_statusName;
     QString m_statusDetail;
-    QString m_hint;
     POINT m_shownAt {};
     QElapsedTimer m_shownClock;
     QTimer m_revealWait; // no DragEnter yet: the drag is elsewhere, or the pointer is still
     QTimer m_releaseWait; // the button let go without a Drop or a DragLeave
     QTimer m_confirmTimer; // the dropped-on sector shown a moment
-    QTimer m_hintTimer;
     int m_checks = 0; // the latest existence check: older answers are dropped
 
     piedrop::FileOperations m_operations; // waits for copies under way when it goes

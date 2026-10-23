@@ -9,7 +9,6 @@ import WinShun
 // pointer and a line under the ring say what letting go would do. The
 // window is see-through and never takes the focus; DropPie places it, is
 // its drop target, and hides it the moment the pointer leaves the ring.
-// With `hint` set it is only that note, beside the pointer.
 Window {
     id: pie
 
@@ -24,7 +23,6 @@ Window {
     readonly property real cy: Theme.snap(dropPie.centre.y, dpr)
     readonly property int labelSize: dropPie.labelPixelSize
     readonly property int smallSize: Math.max(12, labelSize - 1)
-    readonly property bool noteOnly: dropPie.hint.length > 0
     property real reveal: 0 // 0 → 1 as it appears; 0 at once when it goes
 
     flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus
@@ -52,34 +50,10 @@ Window {
         easing.type: Easing.OutCubic
     }
 
-    // A note by the pointer and nothing else (the drag comes from a program
-    // run as administrator).
-    Rectangle {
-        visible: pie.noteOnly
-        x: Theme.snap(4, pie.dpr)
-        y: Theme.snap(4, pie.dpr)
-        width: Theme.snapUp(noteText.implicitWidth + 24, pie.dpr)
-        height: Theme.snapUp(noteText.implicitHeight + 14, pie.dpr)
-        radius: Theme.controlRadius
-        color: Theme.menuBackground
-        border.width: Theme.edge(pie.dpr)
-        border.color: Theme.windowEdge
-
-        Text {
-            id: noteText
-            anchors.centerIn: parent
-            text: pie.dropPie.hint
-            textFormat: Text.PlainText
-            color: Theme.text
-            font.pixelSize: Theme.fontCaption
-        }
-    }
-
     Item {
         id: content
 
         anchors.fill: parent
-        visible: !pie.noteOnly
         opacity: pie.reveal
         transform: Scale {
             origin.x: pie.cx

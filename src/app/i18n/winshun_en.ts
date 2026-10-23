@@ -7702,10 +7702,6 @@
 <context>
     <name>ws::DropPie</name>
     <message>
-        <source>这个程序以管理员身份运行，拖出来的文件 Win顺 接不到</source>
-        <translation>This program runs as administrator, so WinShun cannot take files dragged from it</translation>
-    </message>
-    <message>
         <source>复制到</source>
         <translation>Copy to</translation>
     </message>

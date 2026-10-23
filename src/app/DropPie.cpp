@@ -132,8 +132,6 @@ DropPie::DropPie(Favorites* favorites, SystemCatalog* places, QObject* parent)
     });
     m_confirmTimer.setSingleShot(true);
     connect(&m_confirmTimer, &QTimer::timeout, this, [this] { hide("dropped"); });
-    m_hintTimer.setSingleShot(true);
-    connect(&m_hintTimer, &QTimer::timeout, this, [this] { hide("note shown"); });
     if (m_favorites)
         connect(m_favorites, &Favorites::changed, this, &DropPie::gatherFolders);
     if (m_places)
@@ -217,9 +215,7 @@ void DropPie::shaken(POINT pt, HWND captureWindow, DWORD sourcePid)
 void DropPie::buttonReleased()
 {
     QMetaObject::invokeMethod(this, [this] {
-        if (!m_hint.isEmpty())
-            hide("the button was let go");
-        else if (m_open && !m_confirming && !m_releaseWait.isActive())
+        if (m_open && !m_confirming && !m_releaseWait.isActive())
             m_releaseWait.start(300ms); // the Drop or DragLeave is on its way
     }, Qt::QueuedConnection);
 }
@@ -234,13 +230,10 @@ void DropPie::onShaken(POINT pt, HWND captureWindow, DWORD sourcePid)
         qInfo() << "Drop pie: shaken while dragging out of Win顺 itself; not shown";
         return;
     }
-    if (integrity::higherThanOurs(captureWindow)) {
-        // UIPI: its drops never reach a window of ours.
-        qInfo() << "Drop pie: shaken, but the drag comes from an administrator's program";
-        showHint(pt, tr("这个程序以管理员身份运行，拖出来的文件 Win顺 接不到"));
-        return;
-    }
-    qInfo().noquote() << u"Drop pie: shaken at %1,%2"_s.arg(pt.x).arg(pt.y);
+    // A drag from a program run as administrator is shown too: UIPI lets
+    // its drops reach us (pitfalls, "管理员进程往普通程序拖文件，UIPI 不挡").
+    qInfo().noquote() << u"Drop pie: shaken at %1,%2%3"_s.arg(pt.x).arg(pt.y).arg(
+        integrity::higherThanOurs(captureWindow) ? u", from an administrator's program"_s : QString());
     open(pt);
 }
 
@@ -287,30 +280,6 @@ void DropPie::open(POINT pt)
     checkFolders();
 }
 
-void DropPie::showHint(POINT pt, const QString& text)
-{
-    QScreen* screen = screenAt(pt);
-    if (!screen || !m_window)
-        return;
-    m_hint = text;
-    emit hintChanged();
-    // Beside the pointer, never under it: the window would stand in the
-    // drag's way there.
-    const QPointF cursor = logicalOf(pt, screen);
-    const QRect area = screen->availableGeometry();
-    QRect rect(QPoint(qRound(cursor.x()) + 16, qRound(cursor.y()) + 20), QSize(440, 48));
-    if (rect.right() > area.right())
-        rect.moveRight(qRound(cursor.x()) - 16);
-    if (rect.bottom() > area.bottom())
-        rect.moveBottom(qRound(cursor.y()) - 20);
-    m_open = true;
-    m_window->setGeometry(rect.intersected(screen->geometry()));
-    takeDropSite();
-    m_window->show();
-    m_window->raise();
-    m_hintTimer.start(3s);
-}
-
 void DropPie::hide(const char* why)
 {
     const bool shown = m_open || (m_window && m_window->isVisible());
@@ -321,7 +290,6 @@ void DropPie::hide(const char* why)
     m_revealWait.stop();
     m_releaseWait.stop();
     m_confirmTimer.stop();
-    m_hintTimer.stop();
     m_open = false;
     m_entered = false;
     m_confirming = false;
@@ -329,10 +297,6 @@ void DropPie::hide(const char* why)
     m_hovered = m_picked = -1;
     m_hit = {};
     setRevealed(false);
-    if (!m_hint.isEmpty()) {
-        m_hint.clear();
-        emit hintChanged();
-    }
     emit stateChanged();
     if (shown)
         qInfo() << "Drop pie: hidden," << why;
@@ -350,10 +314,8 @@ void DropPie::setRevealed(bool revealed)
 
 DWORD DropPie::dragEnter(IDataObject* data, DWORD keys, POINT pt, DWORD allowed)
 {
-    if (!m_open || !m_hint.isEmpty()) {
-        hide("the drag came over the note");
+    if (!m_open)
         return DROPEFFECT_NONE;
-    }
     m_entered = true;
     m_revealWait.stop();
     const bool files = piedrop::hasFiles(data);
