@@ -271,21 +271,24 @@ Window {
         readonly property int cells: 15 // CaptureScreen::kLoupeCells
         readonly property int cell: Math.max(1, Math.round(11 * overlay.dpr)) // screen pixels per picture pixel
         readonly property point place: overlay.screenModel.placeMagnifier(overlay.screenModel.cursor, width, height)
+        // The edge in whole screen pixels, the picture just inside it: at 150% a
+        // 1 px edge is 1.5 pixels, and the picture covered half of the right one.
+        readonly property real edge: Math.max(1, Math.round(overlay.dpr)) / overlay.dpr
 
         visible: overlay.screenModel.cursorHere && overlay.screenModel.hasImage
         x: Math.round(place.x * overlay.dpr) / overlay.dpr
         y: Math.round(place.y * overlay.dpr) / overlay.dpr
         // As wide as the picture, which fills it to the edges (a wider box left an empty strip at the right); the lines below elide
-        width: loupe.width + 2
-        height: loupe.height + 2 + info.implicitHeight + 10
+        width: loupe.width + 2 * edge
+        height: loupe.height + 2 * edge + info.implicitHeight + 10
         color: Theme.background
-        border.width: 1
+        border.width: edge
         border.color: Theme.windowEdge
 
         CaptureImage {
             id: loupe
-            x: 1
-            y: 1
+            x: magnifier.edge
+            y: magnifier.edge
             width: overlay.px(magnifier.cells * magnifier.cell)
             height: overlay.py(magnifier.cells * magnifier.cell)
             image: overlay.screenModel.loupe
