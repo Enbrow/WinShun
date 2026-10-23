@@ -8,7 +8,7 @@
 allow ApplicationFrameHost
 cover on dawn
 cover raise
-calc start
+calc start 200 120 1400 850
 front Calculator
 sleep 800
 # the 9 key: 560,538 from the frame

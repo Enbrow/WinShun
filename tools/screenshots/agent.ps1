@@ -120,6 +120,7 @@ public static class A {
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int hh, uint flags);
     // to the top of the (not topmost) windows, without activating it
     public static void Raise(IntPtr h) { SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010); }
+    public static int[] WinRect(IntPtr h) { RECT r; GetWindowRect(h, out r); return new int[] { r.L, r.T, r.R - r.L, r.B - r.T }; }
     // how many visible windows of this class there are (SysDragImage: the picture of a file in the air)
     public static int CountClass(string cls) {
         int n = 0;
@@ -518,21 +519,28 @@ function RunLines($lines) {
                 StartWs @('--profile', "`"$profileDir`"") $exe $script:unelevatedRun
             }
             'unelevated' { $script:unelevatedRun = ($arg -eq 'on') } # programs the agent opens (Explorer) not elevated, as WinShun's own is
-            'calc' { # start | end: a Calculator window to point at (the one that is open, left where it is; else one opened here and closed again)
-                if ($arg -eq 'start') {
+            'calc' { # start [<x> <y> <w> <h>] | end: a Calculator window to point at (the one that is open, put where asked and back again afterwards; else one opened here and closed again)
+                if ($arg -like 'start*') {
+                    $q = @($arg -split '\s+' | Select-Object -Skip 1)
                     $script:allowed += 'ApplicationFrameHost'
                     $h = [A]::FindTitle('Calculator'); if ($h -eq [IntPtr]::Zero) { $h = [A]::FindTitle([string][char]0x8BA1 + [char]0x7B97 + [char]0x5668) }
                     $script:calcStarted = ($h -eq [IntPtr]::Zero)
+                    $script:calcWas = $null
                     if ($script:calcStarted) {
                         Start-Process -FilePath 'calc.exe'
                         $sw = [Diagnostics.Stopwatch]::StartNew()
                         while ($h -eq [IntPtr]::Zero -and $sw.Elapsed.TotalSeconds -lt 10) { Start-Sleep -Milliseconds 300; $h = [A]::FindTitle('Calculator') }
                         if ($h -eq [IntPtr]::Zero) { throw 'calc: no Calculator window' }
-                    }
+                    } else { $script:calcWas = [A]::WinRect($h) }
+                    if ($q.Count -ge 4) { [A]::ShowWindow($h, 9) | Out-Null; [A]::MoveWindow($h, [int]$q[0], [int]$q[1], [int]$q[2], [int]$q[3], $true) | Out-Null; Start-Sleep -Milliseconds 600 }
                     [A]::Front($h); [A]::Raise($h); Start-Sleep -Milliseconds 600; Guard
-                } elseif ($script:calcStarted) {
-                    $h = [A]::FindTitle('Calculator'); if ($h -ne [IntPtr]::Zero) { [A]::PostMessageW($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }
-                    $script:calcStarted = $false; Start-Sleep -Milliseconds 700
+                } else {
+                    $h = [A]::FindTitle('Calculator')
+                    if ($h -ne [IntPtr]::Zero) {
+                        if ($script:calcStarted) { [A]::PostMessageW($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }
+                        elseif ($script:calcWas) { [A]::MoveWindow($h, $script:calcWas[0], $script:calcWas[1], $script:calcWas[2], $script:calcWas[3], $true) | Out-Null }
+                    }
+                    $script:calcStarted = $false; $script:calcWas = $null; Start-Sleep -Milliseconds 700
                 }
             }
             'cover' { # on [paper] | off: the wallpaper in a window over the whole screen, under whatever is shown after

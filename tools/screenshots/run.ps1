@@ -41,11 +41,20 @@ try {
     # the cover window, if the agent died with it up (its stop file ends it)
     New-Item -ItemType File (Join-Path $here 'work\cover.stop') -Force | Out-Null; Start-Sleep -Seconds 2
     Remove-Item (Join-Path $here 'work\cover.stop') -ErrorAction SilentlyContinue
+    # the copy under test, on the profile the agent made (a bare --quit would ask the user's own copy), gone first
+    $profileDir = Join-Path $here 'work\profile'
+    if ($Exe -and $Exe -ne $userExe) {
+        if (Get-Process WinShun -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $Exe }) {
+            Start-Process $Exe -ArgumentList '--profile', "`"$profileDir`"", '--quit' -WindowStyle Normal
+            $sw.Restart()
+            while ((Get-Process WinShun -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $Exe }) -and $sw.Elapsed.TotalSeconds -lt 30) { Start-Sleep -Milliseconds 300 }
+            foreach ($left in @(Get-Process WinShun -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $Exe })) { Stop-Process -Id $left.Id -Force }
+        }
+    }
     # the user's own copy, from this (not elevated) shell, never from a .bak
-    if ($Exe) { Start-Process $Exe -ArgumentList '--quit' -WindowStyle Normal; Start-Sleep -Seconds 4 }
     if (-not (Get-Process WinShun -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $userExe })) {
         Start-Process $userExe -ArgumentList '--background' -WindowStyle Normal
-        Start-Sleep -Seconds 5
+        Start-Sleep -Seconds 6
     }
     Write-Host ("the user's WinShun running: " + [bool](Get-Process WinShun -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $userExe }))
     if (Test-Path $lock) { [IO.File]::Delete($lock) }
