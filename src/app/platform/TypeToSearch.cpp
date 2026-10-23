@@ -7,6 +7,7 @@
 
 #include <cwchar>
 #include <latch>
+#include <utility>
 
 namespace ws {
 
@@ -157,6 +158,15 @@ bool TypeToSearch::typingExplorer(HWND window) const
         && !integrity::higherThanOurs(window);
 }
 
+// Still the active window of its thread while not in front: brought forward
+// now, it comes with no foreground event. No message sent.
+bool TypeToSearch::activeBehind(HWND window)
+{
+    GUITHREADINFO info {sizeof info};
+    const DWORD thread = ::GetWindowThreadProcessId(window, nullptr);
+    return thread && ::GetGUIThreadInfo(thread, &info) && info.hwndActive == window;
+}
+
 void TypeToSearch::foregroundChanged(HWND window, HWND named)
 {
     m_startInFront = m_surfaces.startMenu && isStartMenu(window);
@@ -169,14 +179,20 @@ void TypeToSearch::foregroundChanged(HWND window, HWND named)
     // (opened by a program that may not take the front) is kept apart: it
     // comes to the front later, when clicked, with no event (measured), so
     // the hook stays and the key looks at what is in front then
-    // (searchtyping::typingWindow).
+    // (searchtyping::typingWindow). It stays kept through later events
+    // (the launcher up and away, another program) while it is still the
+    // active window of its own thread: that is what makes its coming to
+    // the front silent, and it ends when it really comes forward or closes.
+    const HWND behind = m_explorerBehind;
     m_explorer = nullptr;
     m_explorerBehind = nullptr;
     if (!m_startInFront) {
         if (typingExplorer(window))
             m_explorer = window;
-        else if (named != window && typingExplorer(named))
-            m_explorerBehind = named;
+        if (named != window && typingExplorer(named))
+            m_explorerBehind = named; // behind another window, Explorer's own too
+        else if (behind && behind != window && activeBehind(behind))
+            m_explorerBehind = behind;
     }
     setHooked(m_startInFront || m_explorer || m_explorerBehind || m_holding);
 }
@@ -242,8 +258,8 @@ bool TypeToSearch::handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event)
             const HWND front = searchtyping::typingWindow(::GetForegroundWindow(), m_explorer, m_explorerBehind);
             if (!front)
                 return false;
-            m_explorer = front; // the window left behind is in front now
-            m_explorerBehind = nullptr;
+            if (front != m_explorer)
+                std::swap(m_explorer, m_explorerBehind); // the one left behind is in front now, the other may come back
             if (!explorerFocused(tab))
                 return false;
         } else {

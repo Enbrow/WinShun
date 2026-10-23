@@ -9337,6 +9337,8 @@ private slots:
         QCOMPARE(typingWindow(1, 1, 0), 1); // in front at the event, still
         QCOMPARE(typingWindow(2, 0, 2), 2); // opened behind, clicked to the front since
         QCOMPARE(typingWindow(3, 0, 2), 0); // opened behind, still behind (Chrome in front)
+        QCOMPARE(typingWindow(2, 1, 2), 2); // opened behind another Explorer window, clicked forward
+        QCOMPARE(typingWindow(1, 1, 2), 1); // ... that one still in front
         QCOMPARE(typingWindow(3, 1, 0), 0); // another window came forward silently
         QCOMPARE(typingWindow(0, 1, 2), 0); // nothing in front (switching)
         QCOMPARE(typingWindow(0, 0, 0), 0); // no Explorer window: the hook is not there

@@ -91,6 +91,7 @@ private:
     bool explorerFocused(HWND& tab) const; // the view of m_explorer's folder has the focus: its tab
     void foregroundChanged(HWND window, HWND named); // window: in front now; named: the event's
     bool typingExplorer(HWND window) const; // an Explorer folder window, typing there on, not elevated
+    static bool activeBehind(HWND window); // the active window of its thread (not in front: it comes silently)
     void setHooked(bool hooked);
     void typeHeld(); // deliver(), on the hook's thread
     void returnHeld(); // giveBack(), on the hook's thread
@@ -111,7 +112,8 @@ private:
     bool m_startInFront = false;
     HWND m_explorer = nullptr; // the Explorer folder window in front, when typing there counts
     // ... one that said it came forward while another stayed in front: it
-    // gets there later with no event (a click), the key checks
+    // gets there later with no event (a click), the key checks; kept through
+    // later events while it is still its thread's active window (activeBehind)
     HWND m_explorerBehind = nullptr;
     bool m_windowsSearch = false; // Left Alt in the Start menu: its own search this time
     bool m_holding = false; // keys are held back for the launcher
