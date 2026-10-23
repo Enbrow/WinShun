@@ -3529,3 +3529,9 @@
 
 - **担心**：放下时我们自己用 `IFileOperation` 移动了文件，如果还向来源报告 `DROPEFFECT_MOVE`，没有做“优化移动”的来源会在 `DoDragDrop` 返回后自己去删原文件，和还在进行的文件操作撞上。
 - **做法**：真实文件由我们的 `IFileOperation` 在自己的线程上完成，`Drop` 一律返回 `DROPEFFECT_NONE`；只有转给文件夹放下目标的虚拟项目才返回它给的效果。
+
+### 测试：临时副本用新的 `--profile` 启动，把开机自启的 Run 值改成了自己
+
+- **现象**：用 `F:\wsstage\pie\WinShun.exe --profile <新文件夹>` 测完，`HKCU\...\Run` 的 `WinShun` 变成了 `"F:\wsstage\pie\WinShun.exe" --background`；重启用户那份并不会改回来。
+- **原因**：新配置的开机自启默认开着；普通权限注册不了计划任务（0x80070005），就退回写 Run 值，写的是自己的路径（`Shell.cpp` 的 `writeRunValue`）。
+- **做法**：测完把 Run 值改回 `"F:\电脑便捷工具\dist\WinShun\WinShun.exe" --background`（和资源管理器右键菜单一样要检查）；或者测试配置里先关掉开机自启。
