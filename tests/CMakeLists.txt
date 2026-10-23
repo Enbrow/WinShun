@@ -312,6 +312,26 @@ target_compile_definitions(tst_clipimport PRIVATE WINSHUN_TEST_DATA="${CMAKE_CUR
 add_test(NAME tst_clipimport COMMAND tst_clipimport)
 set_tests_properties(tst_clipimport PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+# A native file picker, enabled explicitly with WINSHUN_TEST_NATIVE_DIALOG=1.
+qt_add_executable(tst_filepaste tst_filepaste.cpp ${PROJECT_SOURCE_DIR}/src/app/ClipFiles.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/FileDialog.cpp)
+target_include_directories(tst_filepaste PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_link_libraries(tst_filepaste PRIVATE wscore Qt6::Test)
+set_target_properties(tst_filepaste PROPERTIES WIN32_EXECUTABLE FALSE)
+add_test(NAME tst_filepaste COMMAND tst_filepaste)
+set_tests_properties(tst_filepaste PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
+# Image exports and upload file names, with a real store and Shell data object.
+qt_add_executable(tst_clipfiles tst_clipfiles.cpp ${PROJECT_SOURCE_DIR}/src/app/ClipFiles.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/DragOut.cpp)
+target_include_directories(tst_clipfiles PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_link_libraries(tst_clipfiles PRIVATE wscore Qt6::Gui Qt6::Test)
+set_target_properties(tst_clipfiles PROPERTIES WIN32_EXECUTABLE FALSE)
+add_test(NAME tst_clipfiles COMMAND tst_clipfiles)
+set_tests_properties(tst_clipfiles PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
 # Picking the whole clipboard list (Ctrl+A, delete all): ClipModel with a real store.
 qt_add_executable(tst_clipselect tst_clipselect.cpp ${PROJECT_SOURCE_DIR}/src/app/ClipModel.cpp
     ${PROJECT_SOURCE_DIR}/src/app/ColorText.cpp)

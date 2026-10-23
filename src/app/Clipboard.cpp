@@ -1,9 +1,13 @@
 #include "Clipboard.h"
 
+#include "ClipFiles.h"
 #include "ColorText.h"
 #include "FileIconProvider.h"
 #include "TextField.h"
+#include "platform/ComWorker.h"
 #include "platform/DragOut.h"
+#include "platform/FileDialog.h"
+#include "platform/FileManagers.h"
 #include "platform/Integrity.h"
 #include "platform/Paster.h"
 #include "platform/Shell.h"
@@ -152,6 +156,30 @@ Clipboard::Clipboard(ClipStore* store, ClipboardWatcher* watcher, QObject* paren
                   : m_pasteClock.elapsed() < kFocusWaitMs)
             return;
         m_focusTimer.stop();
+        // File lists go into an upload dialog's name field, even if its folder
+        // list held focus. Never send Ctrl+V there: it could copy files into
+        // that folder. Leave Open to the user, as a normal paste would (#57).
+        const auto dialogKind
+            = front && !m_write.files.isEmpty() ? filedialog::kind(m_pasteWindow) : filedialog::Kind::None;
+        if (dialogKind == filedialog::Kind::Open || dialogKind == filedialog::Kind::Legacy) {
+            const HWND target = m_pasteWindow;
+            const QString names = clipfiles::fileNames(m_write.files);
+            if (!m_filePasteWorker)
+                m_filePasteWorker = std::make_unique<ComWorker>();
+            m_filePasteWorker->post([this, target, names] {
+                const bool ok = !names.isEmpty() && paste::isForeground(target)
+                    && filedialog::setFileName(target, names.toStdWString());
+                QMetaObject::invokeMethod(
+                    this,
+                    [this, ok] {
+                        m_pasting = false;
+                        if (!ok)
+                            flash(tr("已复制文件，但未能填写上传窗口的文件名，请重试"));
+                    },
+                    Qt::QueuedConnection);
+            });
+            return;
+        }
         m_pasting = false;
         if (front) {
             if (!paste::sendPasteKeys(m_pasteWindow) && m_into == Into::CurrentProgram)
@@ -523,9 +551,20 @@ void Clipboard::cycleSeparator()
     emit separatorChanged();
 }
 
-ClipWrite Clipboard::writeFor(const std::vector<const Clip*>& clips, bool plainText, QString* problem) const
+ClipWrite Clipboard::writeFor(
+    const std::vector<const Clip*>& clips, bool plainText, QString* problem, HWND target) const
 {
     ClipWrite write;
+    if (!clips.empty() && !plainText && filemanager::kindOf(target) == filemanager::Kind::Explorer
+        && std::ranges::all_of(clips, [](const Clip* clip) { return clip->kind == ClipKind::Image; })) {
+        const auto exported = clipfiles::images(*m_store, clips, m_dragFolder, tr("剪贴板图片"));
+        write.files = exported.paths;
+        if (clips.size() == 1)
+            write.id = clips.front()->id;
+        if (write.empty())
+            *problem = tr("无法准备要粘贴的图片文件");
+        return write;
+    }
     if (clips.size() == 1) {
         const Clip& c = *clips.front();
         write.id = c.id;
@@ -758,7 +797,7 @@ void Clipboard::paste(int row, bool plainText)
         startPaste(std::move(write), Into::Field, std::move(touched), {});
         return;
     }
-    ClipWrite write = writeFor(clips, plainText, &problem);
+    ClipWrite write = writeFor(clips, plainText, &problem, m_target);
     if (write.empty()) {
         flash(problem);
         return;
@@ -799,6 +838,7 @@ void Clipboard::copy(int row)
 
 Clipboard::~Clipboard()
 {
+    m_filePasteWorker.reset();
     QDir(m_dragFolder).removeRecursively();
 }
 
@@ -809,21 +849,15 @@ void Clipboard::dragOut(int row)
     const Clip* clip = m_model.at(row);
     if (!clip || clip->kind != ClipKind::Image)
         return;
-    const qint64 id = clip->id;
-    // Wait for a newly captured image, then stage a copy outside the history,
-    // named for when it was copied: "剪贴板图片 2026-10-12 14.32.05.png".
-    const QString original = m_store->payload(id).imagePath;
-    const QString folder = m_dragFolder + u'/' + QString::number(id);
-    const QString exported = folder + u'/' + tr("剪贴板图片") + u' '
-        + QDateTime::fromMSecsSinceEpoch(clip->created).toString(u"yyyy-MM-dd HH.mm.ss"_s) + u".png"_s;
-    if (!QFile::exists(exported) && (!QDir().mkpath(folder) || !QFile::copy(original, exported))) {
-        flash(tr("无法准备要拖出的图片"));
+    const auto exported = clipfiles::images(*m_store, targets(row), m_dragFolder, tr("剪贴板图片"));
+    if (exported.error != clipfiles::Error::None) {
+        flash(exported.error == clipfiles::Error::NotImages ? tr("请只选择图片后再拖出") : tr("无法准备要拖出的图片"));
         return;
     }
     const auto hwnd = reinterpret_cast<HWND>(m_window->winId());
     m_dragging = true;
     emit focusNeeded(); // stop key routing so OLE receives Escape and Ctrl
-    const auto outcome = dragout::drag({exported}, hwnd, false);
+    const auto outcome = dragout::drag(exported.paths, hwnd, false);
     // OLE consumes the release; clear Qt's pressed state without pasting.
     POINT p {};
     ::GetCursorPos(&p);
@@ -936,7 +970,7 @@ void Clipboard::pasteDirect(qint64 id, HWND target)
     if (!window || !paste::isForeground(window))
         return;
     QString problem;
-    ClipWrite write = writeFor({clip}, false, &problem);
+    ClipWrite write = writeFor({clip}, false, &problem, window);
     if (write.empty()) {
         emit quickPasteFailed(problem);
         return;
@@ -953,7 +987,7 @@ bool Clipboard::pasteEntry(qint64 id, HWND target)
     if (m_pasting)
         return true; // one under way: this key is late, not wrong
     QString problem;
-    ClipWrite write = writeFor({clip}, false, &problem);
+    ClipWrite write = writeFor({clip}, false, &problem, paste::usableTarget(target));
     if (write.empty()) {
         flash(problem);
         return true;

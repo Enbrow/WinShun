@@ -240,6 +240,7 @@ qt_add_qml_module(WinShun
         AuthorMark.cpp AuthorMark.h
         BoxSide.h
         ClipImage.cpp ClipImage.h
+        ClipFiles.cpp ClipFiles.h
         ClipImport.cpp ClipImport.h
         ClipImportJob.cpp ClipImportJob.h
         ClipModel.cpp ClipModel.h

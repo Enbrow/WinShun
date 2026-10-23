@@ -7456,6 +7456,18 @@
         <source>这一条还没有内容，可以先复制内容，或打开剪贴板面板查看</source>
         <translation>This slot is empty. Copy something first, or open clipboard history to check.</translation>
     </message>
+    <message>
+        <source>已复制文件，但未能填写上传窗口的文件名，请重试</source>
+        <translation>Files copied, but the upload dialog’s file name could not be filled in. Please try again.</translation>
+    </message>
+    <message>
+        <source>无法准备要粘贴的图片文件</source>
+        <translation>Could not prepare the image files to paste</translation>
+    </message>
+    <message>
+        <source>请只选择图片后再拖出</source>
+        <translation>Select only pictures to drag them out</translation>
+    </message>
 </context>
 <context>
     <name>ws::DialogBar</name>

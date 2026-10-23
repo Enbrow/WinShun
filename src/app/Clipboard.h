@@ -21,10 +21,13 @@
 #include <windows.h>
 
 #include <optional>
+#include <memory>
 #include <thread>
 #include <vector>
 
 namespace ws {
+
+class ComWorker;
 
 // The view-model of the clipboard window (Win+V, ClipboardWindow.qml): the
 // history listed by category or group and searched, a preview of an entry,
@@ -328,7 +331,8 @@ private:
     void flash(const QString& message);
     void failPaste(const QString& message);
     std::vector<const Clip*> targets(int row) const; // the row, or the picked ones it is one of
-    ClipWrite writeFor(const std::vector<const Clip*>& clips, bool plainText, QString* problem) const;
+    ClipWrite writeFor(
+        const std::vector<const Clip*>& clips, bool plainText, QString* problem, HWND target = nullptr) const;
     void startPaste(ClipWrite write, Into into, std::vector<qint64> touched, QString done);
     void encodeImage(const QImage& image, bool remember, bool screenshot, QByteArray project, bool toClipboard);
     // copyImage's (and recordImage's), encoded
@@ -397,6 +401,7 @@ private:
     QString m_returnText;
     QElapsedTimer m_returnClock;
     QTimer m_returnTimer; // waits for the field to have the keyboard
+    std::unique_ptr<ComWorker> m_filePasteWorker;
     std::jthread m_imageEncoder; // copyImage's PNG; last, so joined first
 };
 
