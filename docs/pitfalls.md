@@ -3486,3 +3486,46 @@
 - PowerShell 的 `@(a + b, c)` 逗号比加号结合得紧，加括号。
 - 自绘菜单里“全部置顶”会把贴图落到测试窗（也是置顶的）后面，之后点不到它：测这一项时让贴图有一部分在测试窗外面。
 - 翻译：`lupdate` 看不到包了一层的 `tr`（`say("...")` 之类），直接写 `QCoreApplication::translate("上下文", "...")`；`wscapture` 库里的文件要加进 `src/app/CMakeLists.txt` 的 `qt_add_lupdate(... SOURCES ...)`。
+
+## 拖放圆盘（2026-10-23）
+
+### 怎么知道“正在拖文件”：看来源线程的捕获窗口是不是 `CLIPBRDWNDCLASS`
+
+- **现象**：只看“按住左键在动”，框选、拖窗口、拖滑块、在文字里拖选也都算，晃一晃就会误弹。
+- **原因**：`DoDragDrop` 期间 OLE 在来源线程上建一个 `CLIPBRDWNDCLASS` 类的隐藏窗口并用它捕获鼠标；别的左键拖动捕获的是程序自己的窗口，或者没有捕获。
+- **做法**：晃动成立时取按下点 `WindowFromPoint` 的线程（取不到用前台线程，`GetGUIThreadInfo(0)`）的 `GetGUIThreadInfo().hwndCapture`，类名是 `CLIPBRDWNDCLASS` 才弹。它只说明“有 OLE 拖动”，拖的是不是文件要等 `DragEnter` 看数据。
+
+### Qt 的窗口已经注册了放下目标，自己的 `RegisterDragDrop` 失败
+
+- **现象**：`RegisterDragDrop` 返回 `DRAGDROP_E_ALREADYREGISTERED`，拖过来时进的是 Qt 的 `QWindowsOleDropTarget`。
+- **原因**：Qt 建平台窗口时自己注册一个放下目标；以后只有窗口重建（句柄变了）才会再注册。
+- **做法**：`RevokeDragDrop` 掉 Qt 的再注册自己的（`DropPie::takeDropSite`）；每次显示前比一下 `winId()`，变了就重新接管。析构时窗口还在就 `RevokeDragDrop`，并让放下目标与控制器断开（`detach`），晚到的回调什么也不做。
+
+### 透明窗口的透明像素照样接鼠标和拖放
+
+- **现象**：圆盘窗口比圆环大（四周留着提示和底栏的地方），拖到圆环外面的透明区域，放下还是落到我们窗口上，下面的资源管理器收不到。
+- **原因**：Qt Quick 的透明窗口是整块矩形参与命中测试的，不按像素的透明度。
+- **做法**：指针一离开圆环（外圈外 12 像素）就立刻藏起窗口并返回 `DROPEFFECT_NONE`，OLE 下一次移动就会找到下面的窗口；窗口本身也只占这一台显示器上必要的大小。只显示说明（管理员程序拖出）时，窗口放在指针旁边，拖动一碰到它也收起。
+
+### 拖动图像是 `IDropTargetHelper` 的 SysDragImage 窗口画的
+
+- **现象**：自己实现 `IDropTarget` 后，拖到圆盘上文件的缩略图不见了，或者圆盘收起后缩略图停在原地。
+- **原因**：拖动图像由 `CLSID_DragDropHelper` 管的一个 SysDragImage 窗口画；目标不把 `DragEnter`、`DragOver`、`DragLeave`、`Drop` 转给它，它就不画或不收。我们提前收起（指针离开圆环、`Esc`）时 OLE 还没发 `DragLeave`。
+- **做法**：四个回调都在处理完后转给 helper；提前收起时自己先给 helper 一次 `DragLeave`（`DropTarget::leaveEarly`），之后 OLE 真的 `DragLeave` 来了不再转（不然重复）。
+
+### 窗口出现在不动的指针下面，OLE 不会对它 `DragEnter`
+
+- **现象**：晃完手停住，圆盘窗口已经在指针下面，可是一直等不到 `DragEnter`，300 ms 后圆盘以为拖动没过来就收起了。
+- **原因**：`DoDragDrop` 只在有鼠标或键盘输入时重新找指针下的目标。
+- **做法**：显示后 300 ms 没有 `DragEnter`：指针没动（4 像素内）就接着等，每 100 ms 看一次，最多 1.5 秒；动了还没来才收起。
+
+### 管理员程序在前台时收不到 Raw Input
+
+- **现象**：从管理员身份运行的程序里拖文件出来晃，什么也没发生，连“接不到”的说明也没有。
+- **原因**：UIPI：完整性级别高的窗口在前台时，普通权限进程的 `RIDEV_INPUTSINK` 收不到鼠标输入；就算收到，它的拖放也到不了我们的窗口。
+- **做法**：收到了（前台不是那个程序时）就用 `integrity::higherThanOurs(捕获窗口)` 判断，只在指针旁显示一句说明；收不到就什么也不做。这条说明很少能出现，属于正常。
+
+### 移动时对来源返回 `DROPEFFECT_MOVE`，来源会自己删掉原文件
+
+- **现象**：（设计时避开的）放下时我们用 `IFileOperation` 移动了文件，如果还向来源报告 `DROPEFFECT_MOVE`，有的来源会在 `DoDragDrop` 返回后自己删原文件（“优化移动”之外的老式做法），文件操作还在进行就被删。
+- **做法**：真实文件由我们的 `IFileOperation` 在自己的线程上完成，`Drop` 一律返回 `DROPEFFECT_NONE`；只有转给文件夹放下目标的虚拟项目才返回它给的效果。

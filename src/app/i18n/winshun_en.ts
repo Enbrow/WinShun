@@ -381,6 +381,10 @@
         <translation>Right</translation>
     </message>
     <message>
+        <source>拖文件时晃一晃，弹出收藏圆盘</source>
+        <translation>Shake while dragging files to bring up the favorites pie</translation>
+    </message>
+    <message>
         <source>搜索框的位置</source>
         <translation>Where the search bar goes</translation>
     </message>
@@ -713,10 +717,6 @@
         <translation>Another shortcut</translation>
     </message>
     <message>
-        <source>用数字键直接粘贴</source>
-        <translation>Paste with number keys</translation>
-    </message>
-    <message>
         <source>最多保留</source>
         <translation>Keep at most</translation>
     </message>
@@ -783,6 +783,10 @@
     <message>
         <source>无</source>
         <translation>Nothing</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>Off</translation>
     </message>
     <message>
         <source>复制并关闭</source>
@@ -874,6 +878,10 @@
     <message>
         <source>网页搜索</source>
         <translation>Web search</translation>
+    </message>
+    <message>
+        <source>收藏夹</source>
+        <translation>Favorites</translation>
     </message>
     <message>
         <source>剪贴板</source>
@@ -1105,7 +1113,7 @@
     </message>
     <message>
         <source>找出图里的手机号、证件号、银行卡、邮箱、密钥和本机用户名，一次全部打码</source>
-        <translation>Finds the phone numbers, ID numbers, bank cards, e-mail addresses, keys and this computer's user name in the picture and redacts them all at once</translation>
+        <translation>Finds the phone numbers, ID numbers, bank cards, e-mail addresses, keys and this computer&apos;s user name in the picture and redacts them all at once</translation>
     </message>
 </context>
 <context>
@@ -1265,10 +1273,6 @@
     <message>
         <source>隐藏 / 显示工具条</source>
         <translation>Hide / show the toolbar</translation>
-    </message>
-    <message>
-        <source>复制颜色</source>
-        <translation>Copy the colour</translation>
     </message>
     <message>
         <source>Esc、右键</source>
@@ -1666,7 +1670,7 @@
     </message>
     <message>
         <source>在打码工具里点“智能打码”（或按 Shift+B），自动找出图里的手机号、身份证号、银行卡号、邮箱、密钥和密码、本机用户名，一次全部盖住，Ctrl+Z 一次撤销。识别在本机完成，图和文字都不会发出去；自动找的可能有漏，发出去前再看一眼</source>
-        <translation>In the redact tool click "Smart redact" (or press Shift+B) to find the phone numbers, ID numbers, bank card numbers, e-mail addresses, keys, passwords and this computer's user name in the picture and cover them all at once; Ctrl+Z undoes it in one go. Reading happens on this computer: neither the picture nor its text is sent anywhere. What is found automatically can miss some, so take a look before you send it</translation>
+        <translation>In the redact tool click &quot;Smart redact&quot; (or press Shift+B) to find the phone numbers, ID numbers, bank card numbers, e-mail addresses, keys, passwords and this computer&apos;s user name in the picture and cover them all at once; Ctrl+Z undoes it in one go. Reading happens on this computer: neither the picture nor its text is sent anywhere. What is found automatically can miss some, so take a look before you send it</translation>
     </message>
     <message>
         <source>框选后自动识别</source>
@@ -1674,7 +1678,7 @@
     </message>
     <message>
         <source>选好区域停一会儿，就在后台找要打码的内容，找到了在工具条边上提示“发现 N 处”。关掉后，点“智能打码”时才识别</source>
-        <translation>Once the selection has held still for a moment, the picture is searched in the background and the toolbar says "N found". Turned off, it is read only when you click "Smart redact"</translation>
+        <translation>Once the selection has held still for a moment, the picture is searched in the background and the toolbar says &quot;N found&quot;. Turned off, it is read only when you click &quot;Smart redact&quot;</translation>
     </message>
     <message>
         <source>也打码 IP 和 MAC 地址</source>
@@ -1686,7 +1690,7 @@
     </message>
     <message>
         <source>点“智能打码”就盖住图里每一行字</source>
-        <translation>"Smart redact" then covers every line of text in the picture</translation>
+        <translation>&quot;Smart redact&quot; then covers every line of text in the picture</translation>
     </message>
     <message>
         <source>我自己的词</source>
@@ -1778,7 +1782,7 @@
     </message>
     <message>
         <source>复制时同步贴到屏幕，也适用于“选好就复制”。只想偶尔使用，可在“鼠标”分类设置“复制并贴图”。</source>
-        <translation>Pin the picture whenever you copy it, including instant copying. For occasional use, assign "Copy and pin" in the Mouse category.</translation>
+        <translation>Pin the picture whenever you copy it, including instant copying. For occasional use, assign &quot;Copy and pin&quot; in the Mouse category.</translation>
     </message>
     <message>
         <source>在图片中保留截图那一刻的鼠标指针，复制、保存、贴图均生效。</source>
@@ -1822,10 +1826,6 @@
     <message>
         <source>位置 %1, %2</source>
         <translation>Position %1, %2</translation>
-    </message>
-    <message>
-        <source>按 C 复制颜色</source>
-        <translation>Press C to copy the colour</translation>
     </message>
 </context>
 <context>
@@ -2179,6 +2179,25 @@
     </message>
 </context>
 <context>
+    <name>DropPieWindow</name>
+    <message>
+        <source>移动</source>
+        <translation>Move</translation>
+    </message>
+    <message>
+        <source>复制</source>
+        <translation>Copy</translation>
+    </message>
+    <message>
+        <source>松开</source>
+        <translation>Release to</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+</context>
+<context>
     <name>EditWindow</name>
     <message>
         <source>编辑图片</source>
@@ -2210,6 +2229,14 @@
     <message>
         <source>只输入它，按 Enter 就打开</source>
         <translation>Type just this and press Enter to open it</translation>
+    </message>
+    <message>
+        <source>圆盘里显示为：%1 / %2。名字太长时可以起个短名</source>
+        <translation>In the pie: %1 / %2. Give it a short name if it is too long</translation>
+    </message>
+    <message>
+        <source>可选，例如 D:\Projects</source>
+        <translation>Optional, e.g. D:\Projects</translation>
     </message>
     <message>
         <source>保存</source>
@@ -2256,10 +2283,6 @@
         <translation>Working folder</translation>
     </message>
     <message>
-        <source>可选，例如 D:\Projects</source>
-        <translation>Optional, e.g. D:\Projects</translation>
-    </message>
-    <message>
         <source>不填则由 Windows 决定；路径不用加引号</source>
         <translation>Leave blank to let Windows choose. Do not quote the path.</translation>
     </message>
@@ -2273,10 +2296,6 @@
     <message>
         <source>收藏</source>
         <translation>Favorites</translation>
-    </message>
-    <message>
-        <source>收藏;常用;书签;固定;关键词;favorites;bookmark;pin</source>
-        <translation>favorites;favourites;bookmark;pin;keyword;frequent</translation>
     </message>
     <message numerus="yes">
         <source>%n 项，拖动把手排序</source>
@@ -2312,6 +2331,26 @@
     <message>
         <source>在搜索结果上右键“加入收藏夹”，或点“添加文件夹”，或把文件、文件夹拖到这里</source>
         <translation>Right-click a search result → Add to favorites, click “Add folder”, or drop files and folders here</translation>
+    </message>
+    <message>
+        <source>拖文件时晃一晃，弹出收藏圆盘</source>
+        <translation>Shake while dragging files to bring up the favorites pie</translation>
+    </message>
+    <message>
+        <source>拖放;拖动;拖拽;圆盘;晃动;移动;复制;drag;drop;pie</source>
+        <translation>drag;drop;drag and drop;pie;shake;move;copy</translation>
+    </message>
+    <message>
+        <source>Win顺 以管理员身份运行时用不了</source>
+        <translation>Not available while WinShun runs as administrator</translation>
+    </message>
+    <message>
+        <source>内圈选移动或复制，外圈是前 8 个文件夹收藏（现有 %1 个，只放得下前 8 个）</source>
+        <translation>The inner ring picks move or copy, the outer ring holds the first 8 favorite folders (you have %1; only the first 8 fit)</translation>
+    </message>
+    <message>
+        <source>内圈选移动或复制，外圈是前 8 个文件夹收藏</source>
+        <translation>The inner ring picks move or copy, the outer ring holds the first 8 favorite folders</translation>
     </message>
     <message>
         <source>已不存在 · %1</source>
@@ -4725,10 +4764,6 @@
         <translation>shortcut;hotkey;key combination</translation>
     </message>
     <message>
-        <source>用数字键直接粘贴</source>
-        <translation>Paste with number keys</translation>
-    </message>
-    <message>
         <source>快捷键;数字键;序号;Alt+1;Ctrl+1;冲突;hotkey</source>
         <translation>shortcut;number keys;numbers;Alt+1;Ctrl+1;conflict;hotkey</translation>
     </message>
@@ -5189,7 +5224,7 @@
     </message>
     <message>
         <source>排除;忽略;扩展名;后缀;格式;exclude</source>
-        <translation type="unfinished"></translation>
+        <translation>exclude;ignore;extension;suffix;format;skip</translation>
     </message>
     <message>
         <source>预览;快速查看;看一眼;QuickLook;Seer;空格;Alt+P;preview</source>
@@ -5785,10 +5820,6 @@
     <message>
         <source>可不填：就打开文件所在的文件夹</source>
         <translation>Optional: without it, the file’s folder opens</translation>
-    </message>
-    <message>
-        <source>按 %1+1 粘贴第一条，依此类推到第九条，加按 Shift 粘贴为纯文本</source>
-        <translation>%1+1 pastes the first entry, up to the ninth; add Shift to paste as plain text</translation>
     </message>
     <message>
         <source>按扩展名列出；Word、PDF 等文档由“搜索文档”负责</source>
@@ -6678,6 +6709,10 @@
     <message>
         <source>正在等索引服务启动…</source>
         <translation>Waiting for the index service to start…</translation>
+    </message>
+    <message>
+        <source>、</source>
+        <translation>, </translation>
     </message>
     <message>
         <source>索引服务在运行，但连不上（%1），现在按文件夹遍历。</source>
@@ -7662,6 +7697,61 @@
     <message>
         <source>收藏所在的文件夹</source>
         <translation>Add its folder to favorites</translation>
+    </message>
+</context>
+<context>
+    <name>ws::DropPie</name>
+    <message>
+        <source>这个程序以管理员身份运行，拖出来的文件 Win顺 接不到</source>
+        <translation>This program runs as administrator, so WinShun cannot take files dragged from it</translation>
+    </message>
+    <message>
+        <source>复制到</source>
+        <translation>Copy to</translation>
+    </message>
+    <message>
+        <source>移动到</source>
+        <translation>Move to</translation>
+    </message>
+    <message>
+        <source>还没有收藏文件夹</source>
+        <translation>No favorite folders yet</translation>
+    </message>
+    <message>
+        <source>在 设置 → 收藏夹 里添加</source>
+        <translation>Add some in Settings → Favorites</translation>
+    </message>
+    <message>
+        <source>这里只能复制</source>
+        <translation>These can only be copied</translation>
+    </message>
+    <message>
+        <source>这里只能移动</source>
+        <translation>These can only be moved</translation>
+    </message>
+    <message>
+        <source>穿过内圈选移动或复制 · 松开在中间或按 Esc 取消</source>
+        <translation>Cross the inner ring to pick move or copy · Release in the middle or press Esc to cancel</translation>
+    </message>
+    <message>
+        <source>这个文件夹已不存在</source>
+        <translation>This folder no longer exists</translation>
+    </message>
+    <message>
+        <source>就是它们所在的文件夹</source>
+        <translation>They are already in this folder</translation>
+    </message>
+    <message>
+        <source>不能放进它自己里面</source>
+        <translation>A folder cannot go inside itself</translation>
+    </message>
+    <message>
+        <source>这类项目只能放进本机的文件夹</source>
+        <translation>Items like these can only go into folders on this computer</translation>
+    </message>
+    <message>
+        <source>在 %1</source>
+        <translation>in %1</translation>
     </message>
 </context>
 <context>
@@ -10503,6 +10593,15 @@
     </message>
 </context>
 <context>
+    <name>ws::capture::CountdownWindow</name>
+    <message>
+        <source>秒后截图
+点这里取消</source>
+        <translation>seconds to capture
+click here to cancel</translation>
+    </message>
+</context>
+<context>
     <name>ws::capture::LongCapture</name>
     <message>
         <source>正在自动滚动。Enter 完成，Esc 取消</source>
@@ -10653,26 +10752,6 @@
     </message>
 </context>
 <context>
-    <name>ws::diagnostics</name>
-    <message>
-        <source>生成诊断包失败</source>
-        <translation>Could not create the diagnostic archive</translation>
-    </message>
-    <message>
-        <source>写入诊断包失败，请检查文件夹权限和剩余空间</source>
-        <translation>Could not save the diagnostic archive. Check folder permissions and available space.</translation>
-    </message>
-</context>
-<context>
-    <name>ws::capture::CountdownWindow</name>
-    <message>
-        <source>秒后截图
-点这里取消</source>
-        <translation>seconds to capture
-click here to cancel</translation>
-    </message>
-</context>
-<context>
     <name>ws::capture::PinWindow</name>
     <message>
         <source>已复制文字 · Esc 退出</source>
@@ -10685,6 +10764,17 @@ click here to cancel</translation>
     <message>
         <source>识别文字中…</source>
         <translation>Reading text…</translation>
+    </message>
+</context>
+<context>
+    <name>ws::diagnostics</name>
+    <message>
+        <source>生成诊断包失败</source>
+        <translation>Could not create the diagnostic archive</translation>
+    </message>
+    <message>
+        <source>写入诊断包失败，请检查文件夹权限和剩余空间</source>
+        <translation>Could not save the diagnostic archive. Check folder permissions and available space.</translation>
     </message>
 </context>
 </TS>
