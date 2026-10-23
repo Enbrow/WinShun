@@ -33,6 +33,7 @@
 #include <QStyleHints>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QTranslator>
 #include <QUuid>
 
 #include <cmath>
@@ -328,6 +329,18 @@ QObject* named(QQuickWindow* window, const char* id)
     return object;
 }
 
+// Repeater delegates belong to their model as QObjects; follow visual parents.
+QQuickItem* visualNamed(QQuickItem* root, const QString& name)
+{
+    if (root->objectName() == name)
+        return root;
+    for (QQuickItem* child : root->childItems()) {
+        if (QQuickItem* found = visualNamed(child, name))
+            return found;
+    }
+    return nullptr;
+}
+
 // Exercise the real add/edit actions and form on the preview's temporary
 // profile. In particular, a whole-page screenshot cannot detect a form
 // appended below the viewport, or a Loader whose contents failed to appear.
@@ -493,6 +506,9 @@ int runSettings(const QStringList& args)
     siteicons::setFolder(Settings::dataDir() + u"/icons/web"_s);
     const bool dark = args.contains(u"--dark"_s);
     const bool tree = args.contains(u"--tree"_s);
+    QTranslator translator;
+    if (args.contains(u"--english"_s) && translator.load(u":/i18n/winshun_en.qm"_s))
+        QCoreApplication::installTranslator(&translator);
     say(u"starting (dark %1, scale %2)"_s.arg(dark).arg(qEnvironmentVariable("QT_SCALE_FACTOR")));
     // Where Qt came from and what the text is set in: two runs of the same
     // build can differ in line heights when they resolve these differently.
@@ -516,6 +532,7 @@ int runSettings(const QStringList& args)
     settings.mcp = true;
     settings.mcpPlugins = true;
     settings.taskbarSearchBox = true; // its style row
+    settings.captureEnabled = true; // show the screenshot's options too; no Capture is created in this preview
     const QString shareOnline = u"\\\\192.168.1.10\\资料"_s;
     const QString shareSignIn = u"\\\\nas\\photos"_s;
     settings.shares = {{shareOnline, u"公司资料"_s}, {shareSignIn, {}}};
@@ -596,11 +613,11 @@ int runSettings(const QStringList& args)
     say(u"pages %1, pageKeywords %2, pageTabs %3"_s.arg(pages.size()).arg(keywords.size()).arg(tabs.size()));
     if (pages.size() != keywords.size() || pages.size() != tabs.size())
         qWarning("preview: pages, pageKeywords and pageTabs differ in length");
-    if (pages.value(aiPage).toMap().value(u"title"_s).toString() != u"AI 助手")
+    if (pages.value(aiPage).toMap().value(u"title"_s).toString() != QCoreApplication::translate("SettingsWindow", "AI 助手"))
         qWarning("preview: aiPage is not the AI 助手 page");
-    if (pages.value(pluginsPage).toMap().value(u"title"_s).toString() != u"插件")
+    if (pages.value(pluginsPage).toMap().value(u"title"_s).toString() != QCoreApplication::translate("SettingsWindow", "插件"))
         qWarning("preview: pluginsPage is not the 插件 page");
-    if (pages.value(favoritesPage).toMap().value(u"title"_s).toString() != u"收藏夹")
+    if (pages.value(favoritesPage).toMap().value(u"title"_s).toString() != QCoreApplication::translate("SettingsWindow", "收藏夹"))
         qWarning("preview: favoritesPage is not the 收藏夹 page");
     if (!pages.value(gleaningPage).toMap().value(u"gleaning"_s).toBool() || gleaningPage != pages.size() - 1)
         qWarning("preview: gleaningPage is not the last page, or not marked gleaning");
@@ -624,6 +641,112 @@ int runSettings(const QStringList& args)
         if (args.contains(u"--compact"_s))
             window->resize(760, 420); // the supported minimum, also used on high-DPI screens
         return finish(window, previewWebForms(window, editor, out, tree));
+    }
+
+    if (args.contains(u"--plugin-layout"_s)) {
+        if (args.contains(u"--compact"_s))
+            window->resize(760, 420);
+        QMetaObject::invokeMethod(window, "showPage", Q_ARG(QVariant, QVariant(pluginsPage)), Q_ARG(QVariant, QVariant(0)));
+        settle(window);
+        auto* card = window->findChild<QQuickItem*>(u"captureSettingsCard"_s);
+        auto* expand = window->findChild<QQuickItem*>(u"captureExpandButton"_s);
+        if (!card || !expand) {
+            qWarning("plugin layout: missing capture card or settings button");
+            return finish(window, false);
+        }
+        bool saved = true;
+        const auto grab = [&](const QString& name) {
+            settle(window);
+            if (tree)
+                writeTree(window, out.filePath(name + u".tree.txt"_s));
+            saved = saveGrab(window, out.filePath(name + u".png"_s)) && saved;
+        };
+        const auto check = [](bool condition, const char* message) {
+            if (!condition)
+                qWarning("plugin layout: %s", message);
+        };
+        const auto key = [&](int code) {
+            QKeyEvent press(QEvent::KeyPress, code, Qt::NoModifier);
+            QCoreApplication::sendEvent(window, &press);
+            QKeyEvent release(QEvent::KeyRelease, code, Qt::NoModifier);
+            QCoreApplication::sendEvent(window, &release);
+        };
+        check(!card->property("expanded").toBool(), "capture options must start folded");
+        say(u"plugins folded: card %1, page content %2"_s.arg(card->height()).arg(flick->property("contentHeight").toReal()));
+        grab(u"plugins-folded"_s);
+        expand->forceActiveFocus(Qt::TabFocusReason);
+        key(Qt::Key_Space);
+        settle(window);
+        check(card->property("expanded").toBool(), "Space did not expand the capture card");
+        auto* first = visualNamed(card, u"captureGroup0"_s);
+        if (!first) {
+            qWarning("plugin layout: missing category buttons");
+            return finish(window, false);
+        }
+        first->forceActiveFocus(Qt::TabFocusReason);
+        for (int group = 0; group < 6; ++group) {
+            if (group > 0)
+                key(Qt::Key_Right);
+            settle(window);
+            check(card->property("currentGroup").toInt() == group, "arrow key did not switch category");
+            int visible = 0;
+            for (int i = 0; i < 6; ++i) {
+                auto* panel = window->findChild<QQuickItem*>(u"capturePanel%1"_s.arg(i));
+                if (panel && panel->isVisible())
+                    ++visible;
+            }
+            check(visible == 1, "more or fewer than one category visible");
+            say(u"capture group %1: card %2, page content %3"_s.arg(group).arg(card->height()).arg(flick->property("contentHeight").toReal()));
+            // Full content for inspecting every control; folded.png above stays at the actual viewport.
+            const int viewport = window->height();
+            window->setHeight(std::max(viewport, static_cast<int>(std::ceil(flick->property("contentHeight").toReal() + flick->property("y").toReal()))));
+            grab(u"capture-group-%1"_s.arg(group));
+            window->setHeight(viewport);
+            settle(window);
+        }
+        key(Qt::Key_Right);
+        check(card->property("currentGroup").toInt() == 0, "category navigation did not wrap");
+        expand->forceActiveFocus(Qt::TabFocusReason);
+        key(Qt::Key_Return);
+        check(!card->property("expanded").toBool(), "Enter did not fold the capture card");
+        QMetaObject::invokeMethod(card, "revealGroup", Q_ARG(QVariant, QVariant(4)));
+        settle(window);
+        auto* words = visualNamed(card, u"captureSmartWords"_s);
+        auto* screenshotGroup = visualNamed(card, u"captureGroup1"_s);
+        auto* delay = visualNamed(card, u"captureDelay3"_s);
+        if (!words || !screenshotGroup || !delay) {
+            qWarning("plugin layout: missing screenshot settings controls");
+            return finish(window, false);
+        }
+        // Switching groups must commit a focused text editor and preserve changed values.
+        QMetaObject::invokeMethod(words, "takeFocus");
+        words->setProperty("text", u"preview-project,测试客户"_s);
+        QMetaObject::invokeMethod(screenshotGroup, "clicked");
+        settle(window);
+        check(editor->captureSmartWords() == u"preview-project,测试客户", "switching category lost the text edit");
+        QMetaObject::invokeMethod(delay, "clicked");
+        QMetaObject::invokeMethod(expand, "clicked");
+        QMetaObject::invokeMethod(expand, "clicked");
+        check(editor->captureDelay() == 3 && card->property("currentGroup").toInt() == 1,
+              "folding lost the setting or selected category");
+        // Search must reveal the category, and Enter must retain it after clearing the query.
+        const char* queries[] = {"PrtScn", "复制截图时同时贴图", "中键", "双击贴图", "智能打码", "工具条"};
+        for (int group = 0; group < 6; ++group) {
+            const QString query = QCoreApplication::translate("CaptureCard", queries[group]);
+            input->setProperty("text", query);
+            settle(window);
+            say(u"capture search '%1': group %2 (wanted %3)"_s.arg(query).arg(card->property("currentGroup").toInt()).arg(group));
+            check(card->property("expanded").toBool(), "search did not expand the capture card");
+            check(card->property("currentGroup").toInt() == group, "search showed the wrong category");
+            QMetaObject::invokeMethod(window, "goToCurrent");
+            settle(window);
+            check(window->property("currentPage").toInt() == pluginsPage && window->property("currentTab").toInt() == 0,
+                  "search did not land on installed plugins");
+            check(!window->property("searching").toBool(), "Enter did not leave search");
+            check(card->property("currentGroup").toInt() == group, "leaving search lost the selected category");
+        }
+        grab(u"capture-search-landed"_s);
+        return finish(window, saved);
     }
 
     // Every page, every tab: the window as tall as the page, so the

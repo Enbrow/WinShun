@@ -232,6 +232,7 @@ Window {
     // Leaves the search for the row's page, the row in view and its switch,
     // if it has one, given the keyboard.
     function goTo(row) {
+        row.revealRequested()
         showPage(row.section.page, row.section.tab)
         layoutNow()
         // From the top of the page while the row shows there whole; else

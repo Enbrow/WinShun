@@ -24,6 +24,8 @@ Item {
     // Rows that show only while this one is on: found while it is off, they
     // bring this one up instead.
     property list<Item> unlocks
+    // Let nested settings reveal the matching group before search is cleared.
+    signal revealRequested()
 
     readonly property SettingsSection section: parent && parent.section !== undefined ? parent.section : null
     readonly property SettingsSearch search: section ? section.search : null
