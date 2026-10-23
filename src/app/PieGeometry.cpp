@@ -89,20 +89,17 @@ Mode Latch::effective(bool ctrl, bool shift, bool moveAllowed, bool copyAllowed,
     return mode;
 }
 
-QPointF placeCentre(QPointF cursor, const QRectF& workArea, double ringRadius, double maxShift) noexcept
+Placement placeCentre(QPointF cursor, const QRectF& workArea, double ringRadius, double safeShift) noexcept
 {
     // Each axis into the band where the ring fits; a work area too small for
     // it: its middle.
     const auto fit = [ringRadius](double v, double low, double high) {
         return high - low < 2 * ringRadius ? (low + high) / 2 : std::clamp(v, low + ringRadius, high - ringRadius);
     };
-    const QPointF wanted(fit(cursor.x(), workArea.left(), workArea.right()),
+    const QPointF centre(fit(cursor.x(), workArea.left(), workArea.right()),
         fit(cursor.y(), workArea.top(), workArea.bottom()));
-    QPointF shift = wanted - cursor;
-    const double length = std::hypot(shift.x(), shift.y());
-    if (length > maxShift && length > 0)
-        shift *= maxShift / length;
-    return cursor + shift;
+    const QPointF shift = centre - cursor;
+    return {centre, std::hypot(shift.x(), shift.y()) > safeShift};
 }
 
 QRect windowRect(QPointF centre, double ringRadius, const QRect& monitor, const Margins& margins) noexcept

@@ -611,6 +611,17 @@ void KeyListener::onDrag(const RAWMOUSE& mouse)
     HWND capture = pressed ? oleCapture(::GetWindowThreadProcessId(pressed, nullptr)) : nullptr;
     if (!capture)
         capture = oleCapture(0); // the foreground thread
+    if (!capture && pressed) {
+        // Total Commander drags files inside its own window by itself, its
+        // main window holding the capture, and starts an OLE drag only once
+        // the pointer is over another program's window: such as the pie,
+        // which is shown (unseen until DragEnter) all the same.
+        GUITHREADINFO info {sizeof info};
+        wchar_t name[32] {};
+        if (::GetGUIThreadInfo(::GetWindowThreadProcessId(pressed, nullptr), &info) && info.hwndCapture
+            && ::GetClassNameW(info.hwndCapture, name, 32) && std::wstring_view(name) == L"TTOTAL_CMD")
+            capture = info.hwndCapture;
+    }
     if (!capture) {
         if (m_keyLog)
             log("Key log: shaken while the button was held, but no OLE drag is under way");

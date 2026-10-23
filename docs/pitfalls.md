@@ -3493,7 +3493,13 @@
 
 - **现象**：只看“按住左键在动”，框选、拖窗口、拖滑块、在文字里拖选也都算，晃一晃就会误弹。
 - **原因**：`DoDragDrop` 期间 OLE 在来源线程上建一个 `CLIPBRDWNDCLASS` 类的隐藏窗口并用它捕获鼠标；别的左键拖动捕获的是程序自己的窗口，或者没有捕获。
-- **做法**：晃动成立时取按下点 `WindowFromPoint` 的线程（取不到用前台线程，`GetGUIThreadInfo(0)`）的 `GetGUIThreadInfo().hwndCapture`，类名是 `CLIPBRDWNDCLASS` 才弹。它只说明“有 OLE 拖动”，拖的是不是文件要等 `DragEnter` 看数据。
+- **做法**：晃动成立时取按下点 `WindowFromPoint` 的线程（取不到用前台线程，`GetGUIThreadInfo(0)`）的 `GetGUIThreadInfo().hwndCapture`，类名是 `CLIPBRDWNDCLASS` 才弹。它只说明“有 OLE 拖动”，拖的是不是文件要等 `DragEnter` 看数据。Total Commander 是例外，见下一条。
+
+### Total Commander 在自己窗口里拖文件不是 OLE 拖放，晃了不弹
+
+- **现象**（2026-10-23 实测，TC 11.58）：在 TC 的文件列表里按住文件、就在 TC 窗口里晃，圆盘不出来；拖出窗口再晃才出来。资源管理器、Directory Opus、XYplorer 没有这个问题。
+- **原因**：TC 在自己窗口里拖时是自己捕获鼠标（捕获窗口是主窗口，类名 `TTOTAL_CMD`）、自己画、自己判断放在哪个面板；指针到了别的程序的窗口上才调 `DoDragDrop`，捕获才变成 `CLIPBRDWNDCLASS`。
+- **做法**：按下点那个线程的捕获是 `TTOTAL_CMD` 时也当作候选（`KeyListener` 的 `onDrag`，通用的 `CLIPBRDWNDCLASS` 判断不动），照常建圆盘。圆盘窗口就在指针下面，TC 下一次鼠标移动就转成 OLE 拖放，`DragEnter` 随后就到（实测在显示后 30 ms 内），复制、移动都成功。等不到 `DragEnter`（比如 TC 拖的是按钮栏上的按钮）就按上一条“不动的指针”的规则收起，什么也不做。
 
 ### Qt 的窗口已经注册了放下目标，自己的 `RegisterDragDrop` 失败
 
@@ -3535,3 +3541,9 @@
 - **现象**：用 `F:\wsstage\pie\WinShun.exe --profile <新文件夹>` 测完，`HKCU\...\Run` 的 `WinShun` 变成了 `"F:\wsstage\pie\WinShun.exe" --background`；重启用户那份并不会改回来。
 - **原因**：新配置的开机自启默认开着；普通权限注册不了计划任务（0x80070005），就退回写 Run 值，写的是自己的路径（`Shell.cpp` 的 `writeRunValue`）。
 - **做法**：测完把 Run 值改回 `"F:\电脑便捷工具\dist\WinShun\WinShun.exe" --background`（和资源管理器右键菜单一样要检查）；或者测试配置里先关掉开机自启。
+
+### 靠屏幕边弹出时圆环被切掉；把指针移到圆心，拖放跟得上
+
+- **现象**（2026-10-23 实测，150%）：离工作区右边 60 逻辑像素晃，圆环右边被切掉约 53 像素。原先 `placeCentre` 只许圆心离指针不超过内圈半径，好让指针落在中间或内圈。
+- **做法**：整个圆环放进指针所在显示器的工作区；圆心离指针超过“内圈外沿 − 6”时用 `SetCursorPos` 把指针移到圆心（`DropPie::open`）。实测：OLE 的拖放循环跟着新位置走，拖动图像（SysDragImage）立刻跟过去，后面的 `DragOver`、放下都按新位置算，复制成功；`SetCursorPos` 不产生 Raw Input，不会被当成又一次晃动。
+- **测试时的坑**：测试脚本用绝对坐标的 `SendInput`（`MOUSEEVENTF_ABSOLUTE`）晃，晃动成立时后面几步还在输入队列里，它们把指针又放回脚本以为的位置，看起来像“没有移过去”。真鼠标和触摸板发的是相对移动，从圆心接着走；测这件事要用相对移动晃（`pielive\ex-cases.ps1` 的 `c14r`）。数位板、远程桌面这类发绝对坐标的，晃完手还在动时指针会回到手的位置，那时就是原来的效果。

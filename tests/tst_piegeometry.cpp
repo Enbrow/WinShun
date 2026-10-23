@@ -91,15 +91,30 @@ private slots:
         const QRectF area(0, 0, 1920, 1040);
         const double ring = 228;
         // Room all round: on the pointer.
-        QCOMPARE(placeCentre({900, 500}, area, ring, 106), QPointF(900, 500));
-        // Near the right edge: moved in just enough.
-        QCOMPARE(placeCentre({1750, 500}, area, ring, 106), QPointF(1920 - ring, 500));
-        // In a corner: as far as allowed, never beyond the inner ring.
-        const QPointF corner = placeCentre({10, 10}, area, ring, 106);
-        QVERIFY(std::hypot(corner.x() - 10, corner.y() - 10) <= 106 + 1e-9);
-        QVERIFY(corner.x() > 10 && corner.y() > 10);
-        // A work area that does not hold the ring: its middle, if near enough.
-        QCOMPARE(placeCentre({200, 200}, QRectF(0, 0, 400, 400), ring, 106), QPointF(200, 200));
+        Placement p = placeCentre({900, 500}, area, ring, 106);
+        QCOMPARE(p.centre, QPointF(900, 500));
+        QVERIFY(!p.warp);
+        // Near the right edge: moved in just enough, the pointer still on
+        // the inner ring.
+        p = placeCentre({1750, 500}, area, ring, 106);
+        QCOMPARE(p.centre, QPointF(1920 - ring, 500));
+        QVERIFY(!p.warp);
+        // 60 px from it (live test, 2026-10-23): the whole ring inside all
+        // the same, 168 px from the pointer, which goes to its middle.
+        p = placeCentre({1860, 500}, area, ring, 106);
+        QCOMPARE(p.centre, QPointF(1920 - ring, 500));
+        QVERIFY(p.warp);
+        // In a corner: the whole ring inside.
+        p = placeCentre({10, 1030}, area, ring, 106);
+        QCOMPARE(p.centre, QPointF(ring, 1040 - ring));
+        QVERIFY(p.warp);
+        // A work area on a monitor to the left (negative coordinates).
+        p = placeCentre({-1910, 20}, QRectF(-1920, 0, 1920, 1040), ring, 106);
+        QCOMPARE(p.centre, QPointF(-1920 + ring, ring));
+        // A work area that does not hold the ring: its middle.
+        p = placeCentre({150, 200}, QRectF(0, 0, 400, 400), ring, 106);
+        QCOMPARE(p.centre, QPointF(200, 200));
+        QVERIFY(!p.warp);
     }
 
     void window()

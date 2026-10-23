@@ -245,8 +245,11 @@ void DropPie::open(POINT pt)
     updateSectors(); // the size may have changed (界面大小)
     const QPointF cursor = logicalOf(pt, screen);
     const double ringRadius = m_radii.outerOut + 2; // with its edge
-    const QPointF centre = pie::placeCentre(cursor, QRectF(screen->availableGeometry()), ringRadius,
+    // The whole ring inside the work area of the pointer's monitor; moved
+    // beyond the inner ring from the pointer, the pointer goes to its middle.
+    const pie::Placement placement = pie::placeCentre(cursor, QRectF(screen->availableGeometry()), ringRadius,
         m_radii.innerOut - 6 * m_scale);
+    const QPointF centre = placement.centre;
     const pie::Margins margins {150 * m_scale, 48 * m_scale, 84 * m_scale};
     const QRect rect = pie::windowRect(centre, ringRadius, screen->geometry(), margins);
     m_centre = centre - rect.topLeft();
@@ -273,6 +276,23 @@ void DropPie::open(POINT pt)
     m_window->show();
     m_window->raise();
     m_shownAt = pt;
+    if (placement.warp) {
+        // The centre's device pixel, as the window lies (DropPieWindow
+        // snaps it to one). The drag follows: OLE takes the move that
+        // SetCursorPos makes for the window under it, the pie.
+        RECT window {};
+        ::GetWindowRect(m_hwnd, &window);
+        const qreal dpr = m_window->devicePixelRatio();
+        const POINT to {window.left + static_cast<LONG>(std::lround(m_centre.x() * dpr)),
+            window.top + static_cast<LONG>(std::lround(m_centre.y() * dpr))};
+        if (::SetCursorPos(to.x, to.y)) {
+            m_shownAt = to;
+            qInfo().noquote() << u"Drop pie: by the screen's edge; the pointer moved from %1,%2 to the middle at %3,%4"_s
+                                     .arg(pt.x).arg(pt.y).arg(to.x).arg(to.y);
+        } else {
+            qWarning().noquote() << u"Drop pie: could not move the pointer to the middle (%1)"_s.arg(::GetLastError());
+        }
+    }
     m_shownClock.start();
     m_revealWait.start(300ms);
     checkFolders();

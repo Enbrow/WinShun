@@ -67,11 +67,17 @@ private:
     Mode m_latched = Mode::None;
 };
 
-// The ring's centre for a pointer at `cursor`: the whole ring of radius
-// `ringRadius` inside `workArea` if it can be, but never more than
-// `maxShift` from the pointer (so that it starts inside the inner ring, never
-// on a folder).
-QPointF placeCentre(QPointF cursor, const QRectF& workArea, double ringRadius, double maxShift) noexcept;
+// Where the ring goes for a pointer at `cursor`: centred on it, moved in
+// just enough for the whole ring of radius `ringRadius` to be inside
+// `workArea` (the middle of one too small for it). Moved more than
+// `safeShift`, the pointer would start on the ring's outer part, beside a
+// folder: `warp` says to move the pointer to the centre then (the middle,
+// where letting go does nothing), as pie menus do by a screen's edge.
+struct Placement {
+    QPointF centre;
+    bool warp = false;
+};
+Placement placeCentre(QPointF cursor, const QRectF& workArea, double ringRadius, double safeShift) noexcept;
 
 // Room around the ring in the window: for the tip beside the pointer and
 // the line under the ring.
