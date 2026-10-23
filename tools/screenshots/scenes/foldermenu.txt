@@ -4,9 +4,13 @@
 # the middle of this 2560x1600 screen; maximized again before it closes, as
 # Explorer remembers that for the next window.
 allow explorer
+# the user's own Calculator (if open) is in the way and takes the front back: minimized for the shot
+minwin Calculator
 explorer open F:\Win顺演示\会议纪要
 sleep 1500
 explorer place 560 230 1440 1000
+explorer front
+sleep 600
 clickb 700 420
 sleep 600
 dblclickb 700 420
@@ -17,3 +21,4 @@ sleep 500
 chord 5B 26
 sleep 500
 explorer close
+restorewins

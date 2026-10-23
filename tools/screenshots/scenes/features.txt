@@ -33,5 +33,5 @@ sleep 2500
 matte L-preview beside
 tap 1B
 sleep 600
-tap 1B
+tapopt 1B
 sleep 600

@@ -218,7 +218,7 @@ function RunUnelevated($program, $arguments, $show = 1) {
 }
 function StartWs($more, $program = $exe, [bool]$unelevated = $false) {
     if ($unelevated) { # through cmd, which hands the environment on (WINSHUN_RECENT=own, the log's info lines) to the program
-        $envs = @(); if ($program -ne $userExe) { $envs += 'set "WINSHUN_LOG_INFO=1"' }; if ($env:WINSHUN_RECENT -and $program -ne $userExe) { $envs += 'set "WINSHUN_RECENT=' + $env:WINSHUN_RECENT + '"' }
+        $envs = @(); if ($program -ne $userExe) { $envs += 'set "WINSHUN_LOG_INFO=1"' }; if ($env:WINSHUN_RECENT) { $envs += 'set "WINSHUN_RECENT=' + $env:WINSHUN_RECENT + '"' }
         $line = '/c ' + (($envs + @('ver>nul')) -join '&& ') + '&& start "" "' + $program + '" ' + ((@('--background') + $more) -join ' ')
         RunUnelevated (Join-Path $env:windir 'System32\cmd.exe') $line 0
     }
@@ -372,6 +372,11 @@ function RunLines($lines) {
             'settings' { Start-Process -FilePath $exe -ArgumentList '--settings' -WindowStyle Normal; WaitFront; Start-Sleep -Milliseconds 800 }
             'allow' { $script:allowed += $arg }
             'tap' { Guard; $k = Vk $arg; [A]::Key($k, $false); [A]::Key($k, $true) }
+            'ifseed' { # <command>: only when WinShun took the system clipboard's content into the demo history at its start (a row that isn't the demo's own): that is what the Delete after it is for; with nothing seeded the Delete would take the demo's picture
+                $n = & $python -I (Join-Path $here 'seedrows.py') (Join-Path $profileDir 'clipboard\clipboard.db')
+                if ([int]$n -gt 0) { RunLines @($arg) } else { Note "ifseed: no seed row in the history, '$arg' skipped" }
+            }
+            'tapopt' { if (InFront) { $k = Vk $arg; [A]::Key($k, $false); [A]::Key($k, $true) } else { Note "tapopt $arg skipped: not in front" } } # a key only when WinShun's still in front (the Esc that closes what a first Esc may have closed already)
             'down' { Guard; [A]::Key((Vk $arg), $false) }
             'up' { [A]::Key((Vk $arg), $true) }
             'chord' {
@@ -483,9 +488,9 @@ function RunLines($lines) {
                 $more = @($arg -split '\s+' | Select-Object -Skip 1 | Where-Object { $_ })
                 $arg = ($arg -split '\s+')[0]
                 if ($arg -eq 'start') {
-                    $un = $more -contains '--unelevated'
+                    $un = -not ($more -contains '--elevated') # WinShun as the user runs it now: not elevated (--elevated: as before 0.8.0)
                     $script:unelevatedRun = $un
-                    $more = @($more | Where-Object { $_ -ne '--unelevated' })
+                    $more = @($more | Where-Object { $_ -ne '--unelevated' -and $_ -ne '--elevated' })
                     # made again each time: the demo dates counted from now, the clipboard history filled in
                     Shots profile $profileDir @more
                     # the recent folders of the profile's history only, not Windows' (this user's); the shell can't hand an environment over
@@ -511,6 +516,10 @@ function RunLines($lines) {
                     # an elevated Explorer window is not seen by a WinShun that isn't (UIPI): then the shell opens it
                     if ($script:unelevatedRun) { RunUnelevated 'explorer.exe' "`"$($p[1])`"" } else { Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$($p[1])`"" }
                     Start-Sleep -Milliseconds 2000
+                } elseif ($p[0] -eq 'front') { # the demo's Explorer window to the front (by its handle, not by a title another window may share)
+                    $h = ExplorerOfDemo
+                    if ($h -eq [IntPtr]::Zero) { throw 'explorer front: no Explorer window on the demo folder' }
+                    [A]::Front($h); [A]::Raise($h); Start-Sleep -Milliseconds 600; Guard
                 } elseif ($p[0] -eq 'place') { # <x> <y> <w> <h>, physical px: the demo's Explorer windows, not maximized
                     $q = $p[1] -split '\s+'
                     foreach ($w in @((New-Object -ComObject Shell.Application).Windows())) {
@@ -557,6 +566,14 @@ function RunLines($lines) {
                     $script:calcStarted = $false; $script:calcWas = $null; Start-Sleep -Milliseconds 700
                 }
             }
+            'minwin' { # <title part>: a window of the user's that stands in the way, minimized (restored by `restorewins`)
+                $h = [A]::FindTitle($arg)
+                if ($h -ne [IntPtr]::Zero) {
+                    if (-not $script:minimized) { $script:minimized = @() }
+                    $script:minimized += $h; [A]::ShowWindow($h, 6) | Out-Null; Start-Sleep -Milliseconds 500
+                }
+            }
+            'restorewins' { foreach ($h in @($script:minimized)) { [A]::ShowWindow($h, 9) | Out-Null }; $script:minimized = @(); Start-Sleep -Milliseconds 500 }
             'winstate' { # save|restore <title part>: where a window was, and maximized or not, put back afterwards (a program remembers the window it closes with)
                 $q = $arg -split '\s+', 2
                 $h = [A]::FindTitle($q[1])

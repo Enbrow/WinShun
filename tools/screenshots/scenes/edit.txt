@@ -24,7 +24,7 @@ tap 56
 up 12
 up 5B
 sleep 900
-tap 2E
+ifseed tap 2E
 sleep 6000
 clickfg 400 170
 sleep 300

@@ -100,9 +100,9 @@ README_ONLY = (
     ("switches", "L-switch1+L-switch2+L-switch3", "系统开关，[打字就切]", "行尾就是现在的状态，回车就地切换，窗口不关"),
     ("edit", "L-edit", "截图标完，[还能再改]", "箭头、方框、文字：从剪贴板历史打开，随时再编辑"),
     # 0.13.0 (scenes/release013.txt): "screen" = a piece of the screen, not a window with its own transparency
-    ("droppie", "L-droppie", "拖文件时，[晃一晃]", "弹出圆盘：内圈选移动或复制，外圈是常用文件夹，松手就到"),
+    ("droppie", "L-droppie", "拖文件时，[晃一晃]", "内圈选移动或复制，外圈是常用文件夹，松手就到"),
     ("longshot", "L-longshot", "比屏幕还长，[一键拼成长图]", "Ctrl+L 自动滚动、自动拼接：网页、聊天记录、文档都行"),
-    ("redact", "L-redact", "截图里的隐私，[一键打码]", "手机号、身份证、银行卡、邮箱：本机识别，一次 Ctrl+Z 全撤", "screen"),
+    ("redact", "L-redact", "截图里的隐私，[一键打码]", "手机号、身份证、银行卡、邮箱，本机识别可撤销", "screen"),
     ("pins", "L-pins", "截图，[贴在屏幕上]", "F3 贴图：悬在所有窗口上，拖到哪放哪，滚轮缩放", "screen"),
     ("capture", "L-capture", "框选截图，[先认出控件]", "指到哪框到哪，色块按钮也认；放大镜看颜色，C 复制", "screen"),
     ("typing", "L-typing", "资源管理器里，[直接打字就搜]", "在文件夹里随便打字，只搜这个文件夹（设置里打开）"),

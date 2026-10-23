@@ -47,16 +47,22 @@
   <img src="docs/images/folder.jpg" width="49%" alt="只搜一个文件夹里的字：第三季度销售额 财务/ / content search in one folder: words, then folder/">
   <img src="docs/images/semantic.jpg" width="49%" alt="按意思找：? 去年报销的规定 找到差旅费用管理办法 / search by meaning: find documents by what they are about">
   <img src="docs/images/foldermenu.jpg" width="49%" alt="资源管理器里双击空白处：收藏、最近、开着的文件夹 / double-click empty space in Explorer for favorite, recent and open folders">
+  <img src="docs/images/typing.jpg" width="49%" alt="资源管理器里直接打字就搜：只搜这个文件夹 / type in an Explorer folder and Win顺 searches just that folder">
   <img src="docs/images/apps.jpg" width="49%" alt="拼音搜应用：guanliqi 找到任务管理器 / launch apps by pinyin">
   <img src="docs/images/places.jpg" width="49%" alt="直达 Windows 设置：shipeiqi 找到网络连接 / open Windows settings and Control Panel items">
   <img src="docs/images/switches.jpg" width="49%" alt="系统开关：行尾显示现在的状态，回车就地切换；音量 30、保持唤醒 1小时一步到位 / system switches: the live state on the row, Enter flips it; set the volume or keep awake in one step">
   <img src="docs/images/web.jpg" width="49%" alt="网页搜索：zhihu 显卡、bilibili、京东一步到位 / web search keywords">
   <img src="docs/images/favorites.jpg" width="49%" alt="收藏夹：常去的文件夹排在最前，关键词直达 / favorites with keywords">
+  <img src="docs/images/droppie.jpg" width="49%" alt="拖文件时晃一晃，弹出圆盘：内圈选移动或复制，外圈是常用文件夹 / shake while dragging files for a ring menu: Move or Copy inside, favorite folders around it">
   <img src="docs/images/plugins.jpg" width="49%" alt="插件：计算器、单位换算、颜色 / plugins: calculator, unit conversion, colors">
   <img src="docs/images/dialog.jpg" width="49%" alt="打开、另存为对话框旁的搜索框，Ctrl+G 转到资源管理器的文件夹 / search bar for Open and Save dialogs">
   <img src="docs/images/clipboard.jpg" width="49%" alt="剪贴板历史，代替 Win+V，拼音搜索、图片预览 / clipboard history replacing Win+V">
   <img src="docs/images/clipocr.jpg" width="49%" alt="剪贴板 OCR：搜图片里的文字 / clipboard OCR: search words in copied pictures">
   <img src="docs/images/edit.jpg" width="49%" alt="截图标完还能再改：方框、箭头、文字，从剪贴板历史打开接着编辑 / edit a screenshot again: boxes, arrows and text, reopened from the clipboard history">
+  <img src="docs/images/capture.jpg" width="49%" alt="框选截图：指到哪框到哪，色块按钮也认，放大镜看颜色 / capture overlay: the control under the pointer is framed, the magnifier shows pixels and color">
+  <img src="docs/images/redact.jpg" width="49%" alt="截图里的隐私一键打码：手机号、身份证、银行卡、邮箱 / smart redaction: phone numbers, ID, bank card and email covered in one click">
+  <img src="docs/images/longshot.jpg" width="49%" alt="长截图：Ctrl+L 自动滚动、自动拼接 / long screenshot: Ctrl+L scrolls and stitches by itself">
+  <img src="docs/images/pins.jpg" width="49%" alt="F3 贴图：截图悬在所有窗口上，拖到哪放哪，滚轮缩放 / pin a screenshot on top of every window, move and zoom it">
   <img src="docs/images/taskbar.jpg" width="49%" alt="Win顺 任务栏搜索框 / WinShun’s search box on the taskbar">
   <img src="docs/images/ai.jpg" width="49%" alt="AI 助手 MCP：Claude、Cursor、VS Code 一键连接 / MCP server for Claude, Cursor and VS Code">
   <img src="docs/images/settings.jpg" width="49%" alt="设置可搜索：kjj 找到快捷键 / searchable settings">
