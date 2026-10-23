@@ -153,6 +153,15 @@
 - **原因**：快捷键工具用低级键盘钩子吞掉 \`，Raw Input 看不到它；Alt 按着时它还会自己补发 Ctrl 的按下和抬起，免得 Alt 一松开就激活窗口的菜单栏（AutoHotkey 的 `#MenuMaskKey`，默认左 Ctrl `vk11sc01D`；它的 `Send` 在 Alt 按着时要先放开 Alt，也会这样补发）。连按两次快捷键补发两次，两次靠得近，就成了“双击 Ctrl”。用户没说是哪个工具，这是按现象推出来的最常见的一类；`KeyListener` 现在会在“有一次是程序发出来的（`hDevice` 为 NULL）双击 Ctrl”时往日志写一行最近的按键（只记修饰键和 Ctrl 的名字，别的键只记“key”，不记打了什么），下次有人报告可以直接看。
 - **做法**：Ctrl 按下时 Shift、Alt、Win 有一个按着，这次就不算敲击（`DoubleTapDetector`）。修饰键是否按着，按事件流本身的先后记，不能在处理 `WM_INPUT` 时问 `GetAsyncKeyState`：消息是事后才处理的，工具一口气发完“Ctrl 按下、Alt 抬起、Ctrl 抬起”，轮到处理 Ctrl 时 Alt 可能已经是抬起状态。只在修饰键安静超过 1.5 秒时才问 `GetAsyncKeyState`，用来清掉收不到抬起的情况（Win+L、Ctrl+Alt+Del 的抬起去了安全桌面）。同时两次敲击必须是同一个 Ctrl，左右各按一下不算。
 
+### 双击 Shift：大写字母、输入法、JetBrains
+
+- **做法**（2026-10-23，论坛有人要“双击 Shift 呼出搜索”，沿用双击 Alt 的做法，`DoubleTapKey=shift`）：
+  - 打大写字母是 Shift 按下、字母按下、字母抬起、Shift 抬起：中间有别的键，`DoubleTapDetector` 不算敲击，`tst_core` 的 `doubleTapShift` 里有“Hello World”的例子。Ctrl、Alt、Win 按着时的 Shift（Ctrl+Shift+Esc、Alt+Shift 换输入法、Win+Shift+S）也不算；Shift+点击、Shift+滚轮由鼠标监听排除。
+  - 中文输入法常把单独一下 Shift 当作中/英切换。双击会切换两次，回到原来的状态，不去屏蔽按键；设置里的说明写了这一点。
+  - JetBrains 的 IDE 自己用双击 Shift（Search Everywhere）。想两边都用的人把它们加到“在这些程序里不响应双击”里，不用额外代码。
+  - 剪贴板浮在别的程序上时，`KeyRouter` 对单独按的 Shift 也补发 `kOwnMask` 的 E8 再放开 Shift，`KeyListener` 跳过它们，按代码读应该照常双击（剪贴板窗口开着时没实测，怕动用户的 Windows 剪贴板历史）；单击 Shift 的拼音提示会闪两次，无害。
+  - 旧版服务的 UIAccess 监听进程只报 Ctrl 和 Alt：`kReady` 带 `kReportsShift` 才把 Shift 交给它，否则 Shift 用本进程的 Raw Input（管理员窗口在前台时收不到，升级服务后就好）。
+
 ### 双击 Alt：别的程序自己也会连按两下 Alt
 
 - **现象**：2026-10-21 做双击 Alt（GitHub #53）时查资料推出来的，没实测：用 AutoHotkey 脚本切换窗口，Win顺 的搜索框会自己弹出来。

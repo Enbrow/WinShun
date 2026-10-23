@@ -1406,10 +1406,10 @@ QString App::trayTooltip() const
                                  : tr("%1 · 保持唤醒").arg(name);
 }
 
-// "双击 Ctrl", "双击左 Alt": the key as set.
+// "双击 Ctrl", "双击左 Alt", "双击 Shift": the key as set.
 QString App::doubleCtrlName() const
 {
-    const QString key = m_settings.doubleTapKey == u"alt" ? u"Alt"_s : u"Ctrl"_s;
+    const QString key = m_settings.doubleTapKey == u"alt" ? u"Alt"_s : m_settings.doubleTapKey == u"shift" ? u"Shift"_s : u"Ctrl"_s;
     if (m_settings.doubleCtrlKey == u"left")
         return tr("双击左 %1").arg(key);
     if (m_settings.doubleCtrlKey == u"right")
@@ -1451,7 +1451,9 @@ void App::applySettings(bool initial)
         }
     }
     if (m_keyListener) {
-        m_keyListener->setKeys(m_settings.doubleTapKey == u"alt" ? KeyListener::Keys::Alt : KeyListener::Keys::Ctrl);
+        m_keyListener->setKeys(m_settings.doubleTapKey == u"alt"     ? KeyListener::Keys::Alt
+                : m_settings.doubleTapKey == u"shift"                ? KeyListener::Keys::Shift
+                                                                      : KeyListener::Keys::Ctrl);
         m_keyListener->setSide(m_settings.doubleCtrlKey == u"left" ? DoubleTapDetector::Side::Left
                 : m_settings.doubleCtrlKey == u"right"            ? DoubleTapDetector::Side::Right
                                                                   : DoubleTapDetector::Side::Both);

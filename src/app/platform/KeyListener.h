@@ -14,7 +14,7 @@
 
 namespace ws {
 
-// Global "double-tap Ctrl" (or Alt) detection through Raw Input. The mouse is
+// Global "double-tap Ctrl" (or Alt, or Shift) detection through Raw Input. The mouse is
 // listened to as well, from a press of the key until a second tap can no
 // longer follow: a key held for a click, a drag or the wheel is not a tap.
 //
@@ -31,12 +31,12 @@ class KeyListener {
 public:
     struct Tap {
         std::string sent;
-        std::uint32_t key = 0; // VK_LCONTROL, VK_RCONTROL, VK_LMENU or VK_RMENU
+        std::uint32_t key = 0; // VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU, VK_LSHIFT or VK_RSHIFT
         std::uint32_t time = 0; // the input's clock, shared by both listeners
     };
     struct Callbacks {
-        // None: keyboards not listened to. A double Ctrl or Alt (setKeys;
-        // the name is from before Alt). `sent` describes the last keys when
+        // None: keyboards not listened to. A double Ctrl, Alt or Shift
+        // (setKeys; the name is from before Alt). `sent` describes the last keys when
         // a program made some of the taps (SendInput), for the log: which
         // modifier keys, how far apart; empty otherwise.
         std::function<void(const Tap&)> doubleCtrl;
@@ -51,9 +51,9 @@ public:
         std::function<void(const std::string&)> log;
     };
 
-    // Whose double taps count: the key set, or both for the UIAccess
+    // Whose double taps count: the key set, or all for the UIAccess
     // listener, whose GUI keeps the one set.
-    enum class Keys : std::uint8_t { Ctrl, Alt, CtrlAndAlt };
+    enum class Keys : std::uint8_t { Ctrl, Alt, Shift, All };
 
     // The callbacks run on the listener thread: post to the GUI thread from them.
     explicit KeyListener(Callbacks callbacks);
@@ -99,7 +99,7 @@ private:
     };
 
     Callbacks m_callbacks;
-    std::array<DoubleTapDetector, 2> m_detectors; // Ctrl's, Alt's; only touched on the listener thread
+    std::array<DoubleTapDetector, 3> m_detectors; // Ctrl's, Alt's, Shift's; only touched on the listener thread
     DoubleClickDetector m_clicks; // likewise
     bool m_mouseOn = false; // listener thread only
     std::array<Recent, 10> m_recent {}; // listener thread only; a ring
@@ -111,7 +111,7 @@ private:
     std::atomic<bool> m_active {false};
     std::atomic<DWORD> m_servicePid {0};
     std::atomic<DWORD> m_readyPid {0};
-    std::atomic<bool> m_serviceAlt {false}; // it tells of Alt's taps too (keyproto::kReportsAlt)
+    std::atomic<LPARAM> m_serviceReports {0}; // the taps it tells of besides Ctrl's (keyproto::kReportsAlt, kReportsShift)
     std::atomic<ULONGLONG> m_heartbeat {0};
     bool m_usingService = false; // listener thread only
     bool m_keyLog = false; // WINSHUN_KEYLOG=1

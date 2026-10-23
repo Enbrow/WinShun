@@ -5,19 +5,20 @@
 
 namespace ws {
 
-// Recognises "tap Ctrl twice", or Alt, from raw key events. Pure logic (no
+// Recognises "tap Ctrl twice", or Alt or Shift, from raw key events. Pure logic (no
 // Win32), so it is unit-tested; KeyListener feeds it events.
 //
 // A tap is a press and release of the key with no other key, mouse button
 // or wheel in between, shorter than maxPressMs, and with no other modifier
-// held at the press: Shift, Win, and Alt for Ctrl or Ctrl for Alt. Two taps
+// held at the press: Shift, Win, and Alt for Ctrl or Ctrl for Alt (for Shift:
+// Ctrl, Alt and Win; Shift with a letter is a capital, not a tap). Two taps
 // of the same key, the same one of its two, within maxGapMs trigger, unless
 // the mouse moved in between. The exceptions are the key used with the
 // mouse, not a double tap: Ctrl+click multi-selection (the same spot twice,
 // or one row and the next), Ctrl+wheel zooming, and a touchpad pinch, which
 // Windows sends as Ctrl+wheel; Alt+click and Alt+drag alike.
 //
-// Alt has one more: a tap a program sent whole (press and release together,
+// Alt (and Shift) have one more: a tap a program sent whole (press and release together,
 // SendInput) is none. Programs tap Alt to be allowed to bring a window to
 // the front, AutoHotkey's WinActivate even twice ({Alt 2}). A key remapped
 // to Alt goes down and up with the finger, and counts.
@@ -32,6 +33,7 @@ public:
     enum class Key : std::uint8_t {
         Ctrl,
         Alt,
+        Shift,
     };
 
     enum class Side : std::uint8_t {
@@ -63,8 +65,15 @@ public:
 
     static constexpr bool isKey(Key key, std::uint32_t vk) noexcept
     {
-        return key == Key::Alt ? vk == kAlt || vk == kLeftAlt || vk == kRightAlt
-                               : vk == kCtrl || vk == kLeftCtrl || vk == kRightCtrl;
+        switch (key) {
+        case Key::Alt:
+            return vk == kAlt || vk == kLeftAlt || vk == kRightAlt;
+        case Key::Shift:
+            return vk == kShift || vk == kLeftShift || vk == kRightShift;
+        case Key::Ctrl:
+            break;
+        }
+        return vk == kCtrl || vk == kLeftCtrl || vk == kRightCtrl;
     }
     // Whether `vk` is the key tapped here, either one of its two.
     bool isKey(std::uint32_t vk) const noexcept { return isKey(m_config.key, vk); }
@@ -119,7 +128,7 @@ public:
             return false;
         m_down = false;
         const bool sentWhole = sent && m_downSent && timeMs - m_downTime < kSentWholeMs;
-        const bool tap = m_clean && !(sentWhole && m_config.key == Key::Alt)
+        const bool tap = m_clean && !(sentWhole && m_config.key != Key::Ctrl)
             && timeMs - m_downTime <= m_config.maxPressMs && closeTo(x, y, m_downX, m_downY);
         if (!tap) {
             m_armed = false;
@@ -160,6 +169,7 @@ public:
 private:
     static constexpr std::uint32_t kCtrl = 0x11, kLeftCtrl = 0xA2, kRightCtrl = 0xA3;
     static constexpr std::uint32_t kAlt = 0x12, kLeftAlt = 0xA4, kRightAlt = 0xA5;
+    static constexpr std::uint32_t kShift = 0x10, kLeftShift = 0xA0, kRightShift = 0xA1;
     // A program's press and release, one right after the other: on the same
     // tick of the input's clock, or the next (it moves in steps of about
     // 16 ms). A finger holds a key down longer, a key remapped to Alt too.
@@ -167,16 +177,16 @@ private:
 
     static constexpr std::uint32_t leftOrRight(std::uint32_t vk) noexcept
     {
-        return vk == kCtrl ? kLeftCtrl : vk == kAlt ? kLeftAlt : vk;
+        return vk == kCtrl ? kLeftCtrl : vk == kAlt ? kLeftAlt : vk == kShift ? kLeftShift : vk;
     }
 
     // 0 Shift, 1 Ctrl, 2 Alt, 3 Win; -1 any other key.
     static constexpr int modifierOf(std::uint32_t vk) noexcept
     {
         switch (vk) {
-        case 0x10: // VK_SHIFT
-        case 0xA0: // VK_LSHIFT
-        case 0xA1: // VK_RSHIFT
+        case kShift:
+        case kLeftShift:
+        case kRightShift:
             return 0;
         case kCtrl:
         case kLeftCtrl:
@@ -197,12 +207,14 @@ private:
     // The keys this listens to; any other is "another key".
     bool counts(std::uint32_t vk) const noexcept
     {
-        const bool alt = m_config.key == Key::Alt;
+        const Key key = m_config.key;
         switch (m_config.side) {
         case Side::Left:
-            return alt ? vk == kAlt || vk == kLeftAlt : vk == kCtrl || vk == kLeftCtrl;
+            return key == Key::Alt ? vk == kAlt || vk == kLeftAlt
+                : key == Key::Shift ? vk == kShift || vk == kLeftShift
+                                    : vk == kCtrl || vk == kLeftCtrl;
         case Side::Right:
-            return vk == (alt ? kRightAlt : kRightCtrl);
+            return vk == (key == Key::Alt ? kRightAlt : key == Key::Shift ? kRightShift : kRightCtrl);
         case Side::Both:
             break;
         }
@@ -216,8 +228,8 @@ private:
     // a while and is up.
     bool modifierHeld(std::uint32_t timeMs) noexcept
     {
-        static constexpr std::uint32_t kQueryKey[] {0x10, kCtrl, kAlt, 0x5B};
-        const int own = m_config.key == Key::Alt ? 2 : 1;
+        static constexpr std::uint32_t kQueryKey[] {kShift, kCtrl, kAlt, 0x5B};
+        const int own = m_config.key == Key::Alt ? 2 : m_config.key == Key::Shift ? 0 : 1;
         bool held = false;
         for (int m = 0; m < 4; ++m) {
             if (m == own || !m_modifierDown[m])

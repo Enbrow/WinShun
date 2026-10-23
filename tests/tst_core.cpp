@@ -9097,6 +9097,121 @@ private slots:
         }
     }
 
+    void doubleTapShift()
+    {
+        using Key = DoubleTapDetector::Key;
+        using Side = DoubleTapDetector::Side;
+        constexpr std::uint32_t shift = 0xA0, rightShift = 0xA1, ctrl = 0xA2, alt = 0xA4, win = 0x5B, letter = 0x48 /*H*/;
+        const auto shiftDetector = [](Side side = Side::Both) {
+            return DoubleTapDetector({.key = Key::Shift, .side = side});
+        };
+        const auto tap = [](DoubleTapDetector& d, std::uint32_t vk, std::uint32_t t, std::uint32_t press = 50,
+                             bool sent = false) {
+            d.keyDown(vk, t, 0, 0, sent);
+            return d.keyUp(vk, t + press, 0, 0, sent);
+        };
+        const auto tapTwice = [&](DoubleTapDetector& d, std::uint32_t vk, std::uint32_t t) {
+            tap(d, vk, t);
+            return tap(d, vk, t + 150);
+        };
+        { // VK_SHIFT is the left one; either side, the same one twice
+            DoubleTapDetector d = shiftDetector();
+            QVERIFY(d.key() == Key::Shift && d.isKey(shift) && d.isKey(rightShift) && d.isKey(0x10) && !d.isKey(ctrl));
+            QVERIFY(tapTwice(d, shift, 0));
+            QVERIFY(tapTwice(d, 0x10, 1'000));
+            QVERIFY(tapTwice(d, rightShift, 2'000));
+            DoubleTapDetector mixed = shiftDetector();
+            tap(mixed, shift, 0);
+            QVERIFY(!tap(mixed, rightShift, 150));
+        }
+        { // a capital letter (Shift down, letter, Shift up) is no tap, nor is the next Shift one half of a double
+            DoubleTapDetector d = shiftDetector();
+            d.keyDown(shift, 0, 0, 0);
+            d.keyDown(letter, 20, 0, 0);
+            d.keyUp(letter, 60, 0, 0);
+            QVERIFY(!d.keyUp(shift, 90, 0, 0));
+            QVERIFY(!tap(d, shift, 150)); // first tap of a possible double, the capital did not arm one
+            QVERIFY(tap(d, shift, 300)); // a real double after it
+        }
+        { // typing "Hello" and "World" with a Shift each: never a double
+            DoubleTapDetector d = shiftDetector();
+            std::uint32_t t = 0;
+            for (int word = 0; word < 2; ++word) {
+                d.keyDown(shift, t, 0, 0);
+                d.keyDown(letter, t + 30, 0, 0);
+                d.keyUp(letter, t + 80, 0, 0);
+                QVERIFY(!d.keyUp(shift, t + 100, 0, 0));
+                for (const std::uint32_t lower : {0x45u, 0x4Cu, 0x4Cu, 0x4Fu}) {
+                    t += 120;
+                    d.keyDown(lower, t, 0, 0);
+                    d.keyUp(lower, t + 40, 0, 0);
+                }
+                t += 150;
+            }
+        }
+        { // Shift with Ctrl, Alt or Win held at the press (Ctrl+Shift+Esc, Alt+Shift, Win+Shift+S): no tap
+            for (const std::uint32_t modifier : {ctrl, alt, win, 0x11u /*VK_CONTROL*/, 0x12u /*VK_MENU*/}) {
+                DoubleTapDetector d = shiftDetector();
+                d.keyDown(modifier, 0, 0, 0);
+                QVERIFY(!tapTwice(d, shift, 300));
+                d.keyUp(modifier, 700, 0, 0);
+                QVERIFY(tapTwice(d, shift, 800)); // and after it is let go, it works
+            }
+        }
+        { // the other Shift held: both at once is no tap
+            DoubleTapDetector d = shiftDetector();
+            d.keyDown(shift, 0, 0, 0);
+            d.keyDown(rightShift, 20, 0, 0);
+            d.keyUp(rightShift, 40, 0, 0);
+            d.keyUp(shift, 50, 0, 0);
+            QVERIFY(!tap(d, shift, 150));
+        }
+        { // left only, right only
+            DoubleTapDetector leftOnly = shiftDetector(Side::Left);
+            QVERIFY(!tapTwice(leftOnly, rightShift, 0));
+            QVERIFY(tapTwice(leftOnly, shift, 1'000));
+            QVERIFY(tapTwice(leftOnly, 0x10, 2'000));
+            tap(leftOnly, shift, 3'000);
+            tap(leftOnly, rightShift, 3'100); // between the two
+            QVERIFY(!tap(leftOnly, shift, 3'200));
+            DoubleTapDetector rightOnly = shiftDetector(Side::Right);
+            QVERIFY(!tapTwice(rightOnly, shift, 0));
+            QVERIFY(tapTwice(rightOnly, rightShift, 1'000));
+        }
+        { // Shift+click (selecting a range) and Shift+wheel: the mouse was used
+            DoubleTapDetector d = shiftDetector();
+            d.keyDown(shift, 0, 0, 0);
+            d.mouseUsed();
+            d.keyUp(shift, 50, 0, 0);
+            QVERIFY(!tap(d, shift, 150));
+        }
+        { // held long, or repeating: not a tap; another key between the two taps cancels the first
+            DoubleTapDetector d = shiftDetector();
+            QVERIFY(!tap(d, shift, 0, 600));
+            d.keyDown(shift, 2'000, 0, 0);
+            for (std::uint32_t t = 2'500; t <= 4'000; t += 33)
+                d.keyDown(shift, t, 0, 0);
+            QVERIFY(!d.keyUp(shift, 4'010, 0, 0));
+            tap(d, shift, 5'000);
+            d.keyDown(letter, 5'100, 0, 0);
+            d.keyUp(letter, 5'120, 0, 0);
+            QVERIFY(!tap(d, shift, 5'200));
+        }
+        { // a tap a program sent whole is none; a Shift typed or remapped counts
+            DoubleTapDetector d = shiftDetector();
+            tap(d, shift, 0, 0, true);
+            QVERIFY(!tap(d, shift, 30, 1, true));
+            tap(d, shift, 1'000, 50, true);
+            QVERIFY(tap(d, shift, 1'150, 50, true));
+        }
+        { // Ctrl's and Alt's detectors do not take a Shift tap
+            DoubleTapDetector ctrlOnly;
+            QVERIFY(!tapTwice(ctrlOnly, shift, 0));
+            DoubleTapDetector altOnly({.key = Key::Alt});
+            QVERIFY(!tapTwice(altOnly, shift, 0));
+        }
+    }
+
     void doubleClick()
     {
         constexpr std::uintptr_t view = 0x1234;

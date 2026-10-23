@@ -809,7 +809,7 @@ void Settings::load()
 
     doubleCtrl = readOrDefault(s, u"Launcher/DoubleCtrl"_s, d.doubleCtrl);
     doubleTapKey = readOrDefault(s, u"Launcher/DoubleTapKey"_s, d.doubleTapKey).trimmed().toLower();
-    if (doubleTapKey != u"alt")
+    if (doubleTapKey != u"alt" && doubleTapKey != u"shift")
         doubleTapKey = d.doubleTapKey;
     doubleCtrlKey = readOrDefault(s, u"Launcher/DoubleCtrlKey"_s, d.doubleCtrlKey).trimmed().toLower();
     if (doubleCtrlKey != u"left" && doubleCtrlKey != u"right")

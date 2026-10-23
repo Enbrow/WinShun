@@ -24,8 +24,8 @@ using namespace ws::volproto;
 class KeyListenerTest : public QObject {
     Q_OBJECT
 
-    // `reports`: 0 for a listener from before double Alt.
-    static void ready(KeyListener& listener, DWORD pid, LPARAM reports = keyproto::kReportsAlt)
+    // `reports`: 0 for a listener from before double Alt, kReportsAlt for one from before double Shift.
+    static void ready(KeyListener& listener, DWORD pid, LPARAM reports = keyproto::kReportsAlt | keyproto::kReportsShift)
     {
         listener.setServiceProcess(pid);
         ::SendMessageW(listener.window(), keyproto::kReady, pid, reports);
@@ -96,7 +96,7 @@ private slots:
         // One from before double Alt: Alt's are this process's own Raw Input's
         // to tell of, Ctrl's still its. The log says so, once.
         const auto oldService = [&] {
-            return std::ranges::count_if(lines, [](const std::string& l) { return l.starts_with("Double Alt:"); });
+            return std::ranges::count_if(lines, [](const std::string& l) { return l.starts_with("Double Alt or Shift:"); });
         };
         QCOMPARE(oldService(), 0);
         ready(listener, pid, 0);
@@ -108,6 +108,47 @@ private slots:
         listener.setKeys(KeyListener::Keys::Ctrl);
         listener.setSide(DoubleTapDetector::Side::Both);
         tap(listener, pid, VK_LCONTROL, ++time);
+        QCOMPARE(count.load(), 3);
+    }
+
+    void shiftTaps()
+    {
+        std::atomic<int> count {0};
+        std::vector<std::string> lines;
+        KeyListener listener({.doubleCtrl = [&](const KeyListener::Tap&) { ++count; },
+            .log = [&](const std::string& line) { lines.push_back(line); }});
+        constexpr DWORD pid = 12345;
+        DWORD time = ::GetTickCount() - 100;
+        ready(listener, pid);
+        tap(listener, pid, VK_LSHIFT, ++time);
+        QCOMPARE(count.load(), 0); // Ctrl is the key set
+        listener.setKeys(KeyListener::Keys::Shift);
+        tap(listener, pid, VK_LCONTROL, ++time);
+        QCOMPARE(count.load(), 0);
+        tap(listener, pid, VK_LMENU, ++time);
+        QCOMPARE(count.load(), 0);
+        tap(listener, pid, VK_LSHIFT, ++time);
+        QCOMPARE(count.load(), 1);
+        listener.setSide(DoubleTapDetector::Side::Right);
+        tap(listener, pid, VK_LSHIFT, ++time);
+        QCOMPARE(count.load(), 1);
+        tap(listener, pid, VK_RSHIFT, ++time);
+        QCOMPARE(count.load(), 2);
+        // One from before double Shift (it tells of Ctrl and Alt): Shift's are
+        // this process's own Raw Input's to tell of; the log says so, once.
+        const auto oldService = [&] {
+            return std::ranges::count_if(lines, [](const std::string& l) { return l.starts_with("Double Alt or Shift:"); });
+        };
+        QCOMPARE(oldService(), 0);
+        ready(listener, pid, keyproto::kReportsAlt);
+        ready(listener, pid, keyproto::kReportsAlt);
+        QCOMPARE(oldService(), 1);
+        QVERIFY(listener.serviceActive());
+        tap(listener, pid, VK_RSHIFT, ++time);
+        QCOMPARE(count.load(), 2);
+        listener.setKeys(KeyListener::Keys::Alt); // Alt's it still tells of
+        listener.setSide(DoubleTapDetector::Side::Both);
+        tap(listener, pid, VK_LMENU, ++time);
         QCOMPARE(count.load(), 3);
     }
 

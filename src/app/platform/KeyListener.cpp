@@ -66,7 +66,17 @@ DoubleTapDetector detectorFor(Key key)
 
 bool takes(KeyListener::Keys keys, Key key)
 {
-    return keys == KeyListener::Keys::CtrlAndAlt || (keys == KeyListener::Keys::Alt) == (key == Key::Alt);
+    switch (keys) {
+    case KeyListener::Keys::All:
+        return true;
+    case KeyListener::Keys::Ctrl:
+        return key == Key::Ctrl;
+    case KeyListener::Keys::Alt:
+        return key == Key::Alt;
+    case KeyListener::Keys::Shift:
+        return key == Key::Shift;
+    }
+    return false;
 }
 
 bool keyboardRegistered(HWND window)
@@ -137,7 +147,17 @@ bool keyLogWanted()
 
 const char* keysName(KeyListener::Keys keys)
 {
-    return keys == KeyListener::Keys::Alt ? "Alt" : keys == KeyListener::Keys::Ctrl ? "Ctrl" : "Ctrl and Alt";
+    switch (keys) {
+    case KeyListener::Keys::Ctrl:
+        return "Ctrl";
+    case KeyListener::Keys::Alt:
+        return "Alt";
+    case KeyListener::Keys::Shift:
+        return "Shift";
+    case KeyListener::Keys::All:
+        break;
+    }
+    return "Ctrl, Alt and Shift";
 }
 
 const char* sideName(DoubleTapDetector::Side side)
@@ -171,7 +191,7 @@ std::string describeKey(const RAWKEYBOARD& key, std::uint32_t vk, bool up, bool 
 
 KeyListener::KeyListener(Callbacks callbacks)
     : m_callbacks(std::move(callbacks))
-    , m_detectors {detectorFor(Key::Ctrl), detectorFor(Key::Alt)}
+    , m_detectors {detectorFor(Key::Ctrl), detectorFor(Key::Alt), detectorFor(Key::Shift)}
     , m_keyLog(m_callbacks.log && keyLogWanted())
 {
     std::latch ready(1);
@@ -229,12 +249,12 @@ LRESULT CALLBACK KeyListener::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     switch (msg) {
     case keyproto::kReady:
         if (self && wParam != 0 && wParam == self->m_servicePid.load()) {
-            const bool alt = (lParam & keyproto::kReportsAlt) != 0;
-            if (self->m_keyLog && (self->m_readyPid.load() != wParam || self->m_serviceAlt.load() != alt))
-                self->log(std::format("Key log: UIAccess listener {} ready, it tells of {}", wParam,
-                    alt ? "Ctrl and Alt" : "Ctrl only"));
+            const LPARAM reports = lParam & (keyproto::kReportsAlt | keyproto::kReportsShift);
+            if (self->m_keyLog && (self->m_readyPid.load() != wParam || self->m_serviceReports.load() != reports))
+                self->log(std::format("Key log: UIAccess listener {} ready, it tells of Ctrl{}{}", wParam,
+                    (reports & keyproto::kReportsAlt) ? ", Alt" : "", (reports & keyproto::kReportsShift) ? ", Shift" : ""));
             self->m_readyPid = static_cast<DWORD>(wParam);
-            self->m_serviceAlt = alt;
+            self->m_serviceReports = reports;
             self->m_heartbeat = ::GetTickCount64();
             self->followService();
         }
@@ -347,7 +367,7 @@ void KeyListener::onInput(HRAWINPUT input)
         if (fire && !m_usingService)
             tap = Tap {sentTrace(d.key()), vk, time};
         if (m_keyLog)
-            states += std::format("; {} {}{}{}", d.key() == Key::Alt ? "Alt" : "Ctrl", d.clean() ? "clean" : "not clean",
+            states += std::format("; {} {}{}{}", d.key() == Key::Alt ? "Alt" : d.key() == Key::Shift ? "Shift" : "Ctrl", d.clean() ? "clean" : "not clean",
                 d.armed() ? ", armed" : "", fire ? ", DOUBLE TAP" : "");
     }
     if (m_keyLog)
@@ -365,11 +385,22 @@ bool KeyListener::serviceActive() const noexcept
 }
 
 // The UIAccess listener tells of the key's taps, and then only it, so that
-// none comes twice. One from before double Alt never tells of Alt's: they
-// are left to this one.
+// none comes twice. One from before double Alt (or Shift) never tells of
+// that key's: they are left to this one.
 bool KeyListener::serviceTells() const noexcept
 {
-    return serviceActive() && (m_keys.load() != Keys::Alt || m_serviceAlt.load());
+    if (!serviceActive())
+        return false;
+    switch (m_keys.load()) {
+    case Keys::Alt:
+        return (m_serviceReports.load() & keyproto::kReportsAlt) != 0;
+    case Keys::Shift:
+        return (m_serviceReports.load() & keyproto::kReportsShift) != 0;
+    case Keys::Ctrl:
+    case Keys::All:
+        break;
+    }
+    return true;
 }
 
 // Never joins half a gesture seen here to one from before the service came
@@ -378,10 +409,11 @@ void KeyListener::followService()
 {
     // Said once: Alt is then this process's own, and over administrator
     // windows its Raw Input brings nothing (UIPI, docs/pitfalls.md).
-    if (!m_oldServiceLogged && m_keys.load() == Keys::Alt && serviceActive() && !m_serviceAlt.load()) {
+    if (!m_oldServiceLogged && (m_keys.load() == Keys::Alt || m_keys.load() == Keys::Shift) && serviceActive()
+        && !serviceTells()) {
         m_oldServiceLogged = true;
-        log("Double Alt: the service's UIAccess listener is from before double Alt and tells of Ctrl only. "
-            "Over administrator windows double Alt does nothing until the service is updated.");
+        log("Double Alt or Shift: the service's UIAccess listener is from before that key and does not tell of it. "
+            "Over administrator windows it does nothing until the service is updated.");
     }
     const bool external = serviceTells();
     if (external == m_usingService)
@@ -398,20 +430,23 @@ void KeyListener::followService()
 bool KeyListener::keyHeld() const
 {
     const Keys keys = m_keys.load();
-    return (takes(keys, Key::Ctrl) && held(VK_CONTROL)) || (takes(keys, Key::Alt) && held(VK_MENU));
+    return (takes(keys, Key::Ctrl) && held(VK_CONTROL)) || (takes(keys, Key::Alt) && held(VK_MENU))
+        || (takes(keys, Key::Shift) && held(VK_SHIFT));
 }
 
 // A double tap of the key and side set. The UIAccess listener tells of all.
 bool KeyListener::wanted(std::uint32_t key) const noexcept
 {
     const bool alt = key == VK_LMENU || key == VK_RMENU;
-    if ((!alt && key != VK_LCONTROL && key != VK_RCONTROL) || !takes(m_keys.load(), alt ? Key::Alt : Key::Ctrl))
+    const bool shift = key == VK_LSHIFT || key == VK_RSHIFT;
+    if ((!alt && !shift && key != VK_LCONTROL && key != VK_RCONTROL)
+        || !takes(m_keys.load(), alt ? Key::Alt : shift ? Key::Shift : Key::Ctrl))
         return false;
     switch (m_side.load()) {
     case DoubleTapDetector::Side::Left:
-        return key == VK_LCONTROL || key == VK_LMENU;
+        return key == VK_LCONTROL || key == VK_LMENU || key == VK_LSHIFT;
     case DoubleTapDetector::Side::Right:
-        return key == VK_RCONTROL || key == VK_RMENU;
+        return key == VK_RCONTROL || key == VK_RMENU || key == VK_RSHIFT;
     case DoubleTapDetector::Side::Both:
         break;
     }
@@ -452,7 +487,7 @@ void KeyListener::log(const std::string& line) const
 // taps were all typed.
 std::string KeyListener::sentTrace(Key key) const
 {
-    const int left = key == Key::Alt ? 5 : 1; // its left one among the names, the right one next
+    const int left = key == Key::Alt ? 5 : key == Key::Shift ? 3 : 1; // its left one among the names, the right one next
     bool sent = false;
     int events = 0;
     for (std::size_t i = 0; i < m_recent.size() && events < 4; ++i) {

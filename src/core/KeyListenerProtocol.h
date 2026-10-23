@@ -15,9 +15,11 @@ constexpr DWORD kLeaseMs = 3000;
 // Ready's lParam: which taps the listener tells of besides Ctrl's. One from
 // before double Alt sends 0: the GUI's own Raw Input then tells of Alt's.
 constexpr LPARAM kReportsAlt = 1;
+// Likewise for double Shift: an older one tells of Ctrl and Alt only.
+constexpr LPARAM kReportsShift = 2;
 
 // WinShun is x64. The sender PID is in the upper half; the lower half is
-// VK_LCONTROL / VK_RCONTROL / VK_LMENU / VK_RMENU, plus whether any tap
+// VK_LCONTROL / VK_RCONTROL / VK_LMENU / VK_RMENU / VK_LSHIFT / VK_RSHIFT, plus whether any tap
 // came from SendInput.
 constexpr WPARAM tapWord(DWORD pid, DWORD key, bool sent) noexcept
 {

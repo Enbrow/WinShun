@@ -16,9 +16,9 @@
 
 ```ini
 [Launcher]
-DoubleCtrl=true          ; 双击 Ctrl（或 Alt，见 DoubleTapKey）呼出
-DoubleTapKey=ctrl        ; 双击哪个键：ctrl | alt
-DoubleCtrlKey=both       ; 用哪一边：both | left | right，Ctrl 和 Alt 都按它
+DoubleCtrl=true          ; 双击 Ctrl（或 Alt、Shift，见 DoubleTapKey）呼出
+DoubleTapKey=ctrl        ; 双击哪个键：ctrl | alt | shift
+DoubleCtrlKey=both       ; 用哪一边：both | left | right，Ctrl、Alt 和 Shift 都按它
 DoubleCtrlPauseInGames=true       ; 前台程序独占全屏、或藏起并锁住鼠标（转视角）时不响应双击 Ctrl
 DoubleCtrlPauseInFullScreen=false ; 任何程序铺满显示器时都不响应（视频、幻灯片、F11 网页）
 DoubleCtrlExcludedApps=  ; 不响应双击 Ctrl 的程序，如 TheFinals.exe，逗号分隔

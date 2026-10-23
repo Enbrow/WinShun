@@ -229,8 +229,8 @@
         <translation>Either</translation>
     </message>
     <message>
-        <source>双击 Ctrl 或 Alt 打开</source>
-        <translation>Press Ctrl or Alt twice to open</translation>
+        <source>双击 Ctrl、Alt 或 Shift 打开</source>
+        <translation>Press Ctrl, Alt or Shift twice to open</translation>
     </message>
     <message>
         <source>双击哪个键</source>
@@ -241,16 +241,16 @@
         <translation>Which side</translation>
     </message>
     <message>
-        <source>玩游戏时不响应双击 Ctrl 或 Alt</source>
-        <translation>Ignore Ctrl or Alt twice while gaming</translation>
+        <source>玩游戏时不响应双击 Ctrl、Alt 或 Shift</source>
+        <translation>Ignore Ctrl, Alt or Shift twice while gaming</translation>
     </message>
     <message>
-        <source>任何程序全屏时都不响应双击 Ctrl 或 Alt</source>
-        <translation>Ignore Ctrl or Alt twice over any full-screen program</translation>
+        <source>任何程序全屏时都不响应双击 Ctrl、Alt 或 Shift</source>
+        <translation>Ignore Ctrl, Alt or Shift twice over any full-screen program</translation>
     </message>
     <message>
-        <source>在这些程序里不响应双击 Ctrl 或 Alt</source>
-        <translation>Ignore Ctrl or Alt twice in these programs</translation>
+        <source>在这些程序里不响应双击 Ctrl、Alt 或 Shift</source>
+        <translation>Ignore Ctrl, Alt or Shift twice in these programs</translation>
     </message>
     <message>
         <source>快捷键</source>
@@ -844,8 +844,8 @@
         <translation>Home %1</translation>
     </message>
     <message>
-        <source>快捷键与双击 Ctrl 或 Alt</source>
-        <translation>Shortcuts and Ctrl or Alt twice</translation>
+        <source>快捷键与双击 Ctrl、Alt 或 Shift</source>
+        <translation>Shortcuts and Ctrl, Alt or Shift twice</translation>
     </message>
     <message>
         <source>任务栏</source>
@@ -3873,12 +3873,16 @@
         <translation>fullscreen;video;slideshow;by accident</translation>
     </message>
     <message>
-        <source>双击 Ctrl 或 Alt 打开</source>
-        <translation>Press Ctrl or Alt twice to open</translation>
+        <source>双击 Ctrl、Alt 或 Shift 打开</source>
+        <translation>Press Ctrl, Alt or Shift twice to open</translation>
     </message>
     <message>
-        <source>双击;连按;呼出;唤出;double ctrl;double alt</source>
-        <translation>double tap;double press;summon;ctrl;alt</translation>
+        <source>双击;连按;呼出;唤出;double ctrl;double alt;double shift</source>
+        <translation>double tap;double press;summon;ctrl;alt;shift</translation>
+    </message>
+    <message>
+        <source>连按两下 %1，打开或关闭搜索框。输入法用 %1 切换中英文时，双击会切换两次，最后回到原来的状态。管理员或部分输入法窗口中需要 Win顺 服务支持</source>
+        <translation>Press %1 twice quickly to open or close the search box. If your input method switches between Chinese and English on %1, a double tap switches twice and ends where it started. Elevated windows and some input methods require the WinShun service.</translation>
     </message>
     <message>
         <source>连按两下 %1，打开或关闭搜索框。管理员或部分输入法窗口中需要 Win顺 服务支持</source>
@@ -3889,8 +3893,8 @@
         <translation>Which %1</translation>
     </message>
     <message>
-        <source>左 Ctrl;右 Ctrl;左 Alt;右 Alt;左边;右边;冲突;PowerToys;查找鼠标;left ctrl;right ctrl;left alt;right alt</source>
-        <translation>left ctrl;right ctrl;left alt;right alt;left;right;conflict;PowerToys;Find My Mouse;both ctrl;both alt</translation>
+        <source>左 Ctrl;右 Ctrl;左 Alt;右 Alt;左 Shift;右 Shift;左边;右边;冲突;PowerToys;查找鼠标;left ctrl;right ctrl;left alt;right alt;left shift;right shift</source>
+        <translation>left ctrl;right ctrl;left alt;right alt;left shift;right shift;left;right;conflict;PowerToys;Find My Mouse;both ctrl;both alt;both shift</translation>
     </message>
     <message>
         <source>同一个 %1 连按两下才算。和别的软件撞了时，可以只用一边</source>

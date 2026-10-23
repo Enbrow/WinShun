@@ -69,7 +69,7 @@ Window {
     readonly property int advancedPage: 8 // where the updates are
     readonly property int aiPage: 9 // AI 助手: the MCP server (AiAccessSection, AiClientsSection, AiPrivacySection)
     readonly property int pluginsPage: 10 // 插件: 已安装 (PluginsSection), 插件库 (PluginGallerySection), 开发者 (PluginDevSection)
-    readonly property string tapKey: editor.doubleTapKey === "alt" ? "Alt" : "Ctrl" // the key tapped twice to open Win顺
+    readonly property string tapKey: editor.doubleTapKey === "alt" ? "Alt" : editor.doubleTapKey === "shift" ? "Shift" : "Ctrl" // the key tapped twice to open Win顺
     property int currentPage: 0
     property int currentTab: 0
     property var lastTabs: [] // by page: the tab it was left on, to come back to
@@ -931,19 +931,21 @@ Window {
                 width: parent.width
 
                 SettingRow {
-                    title: qsTr("双击 Ctrl 或 Alt 打开")
-                    keywords: qsTr("双击;连按;呼出;唤出;double ctrl;double alt").split(";")
+                    title: qsTr("双击 Ctrl、Alt 或 Shift 打开")
+                    keywords: qsTr("双击;连按;呼出;唤出;double ctrl;double alt;double shift").split(";")
                     unlocks: [doubleCtrlKeyRow, gamesRow, fullScreenRow, doubleCtrlAppsRow]
-                    description: qsTr("连按两下 %1，打开或关闭搜索框。管理员或部分输入法窗口中需要 Win顺 服务支持")
+                    description: window.tapKey === "Shift"
+                                 ? qsTr("连按两下 %1，打开或关闭搜索框。输入法用 %1 切换中英文时，双击会切换两次，最后回到原来的状态。管理员或部分输入法窗口中需要 Win顺 服务支持").arg(window.tapKey)
+                                 : qsTr("连按两下 %1，打开或关闭搜索框。管理员或部分输入法窗口中需要 Win顺 服务支持")
                                  .arg(window.tapKey)
 
                     ScopeTabs {
-                        labels: ["Ctrl", "Alt", qsTr("关闭")]
-                        current: !window.editor.doubleCtrl ? 2 : window.editor.doubleTapKey === "alt" ? 1 : 0
+                        labels: ["Ctrl", "Alt", "Shift", qsTr("关闭")]
+                        current: !window.editor.doubleCtrl ? 3 : Math.max(0, ["ctrl", "alt", "shift"].indexOf(window.editor.doubleTapKey))
                         onActivated: (index) => {
-                            if (index < 2)
-                                window.editor.doubleTapKey = ["ctrl", "alt"][index]
-                            window.editor.doubleCtrl = index < 2
+                            if (index < 3)
+                                window.editor.doubleTapKey = ["ctrl", "alt", "shift"][index]
+                            window.editor.doubleCtrl = index < 3
                         }
                     }
                 }
@@ -952,7 +954,7 @@ Window {
                     id: doubleCtrlKeyRow
                     shown: window.editor.doubleCtrl
                     title: qsTr("用哪个 %1").arg(window.tapKey)
-                    keywords: qsTr("左 Ctrl;右 Ctrl;左 Alt;右 Alt;左边;右边;冲突;PowerToys;查找鼠标;left ctrl;right ctrl;left alt;right alt").split(";")
+                    keywords: qsTr("左 Ctrl;右 Ctrl;左 Alt;右 Alt;左 Shift;右 Shift;左边;右边;冲突;PowerToys;查找鼠标;left ctrl;right ctrl;left alt;right alt;left shift;right shift").split(";")
                     description: qsTr("同一个 %1 连按两下才算。和别的软件撞了时，可以只用一边").arg(window.tapKey)
                     bodyShown: window.editor.doubleCtrlClash.length > 0
 
@@ -993,7 +995,7 @@ Window {
                     shown: window.editor.doubleCtrl
                     title: qsTr("玩游戏时不响应双击 %1").arg(window.tapKey)
                     keywords: qsTr("游戏;蹲下;误触;game").split(";")
-                    description: window.tapKey === "Alt" ? qsTr("游戏全屏或藏起鼠标时不打开，免得误触")
+                    description: window.tapKey !== "Ctrl" ? qsTr("游戏全屏或藏起鼠标时不打开，免得误触")
                                                          : qsTr("游戏全屏或藏起鼠标时不打开，免得蹲下时误触")
 
                     ToggleSwitch {

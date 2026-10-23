@@ -338,7 +338,7 @@ void SettingsEditor::setDoubleCtrl(bool on)
 
 void SettingsEditor::setDoubleTapKey(const QString& key)
 {
-    if (m_settings.doubleTapKey == key || (key != u"ctrl" && key != u"alt"))
+    if (m_settings.doubleTapKey == key || (key != u"ctrl" && key != u"alt" && key != u"shift"))
         return;
     m_settings.doubleTapKey = key;
     commit();
