@@ -7133,12 +7133,12 @@
         <translation>Clipboard history is off</translation>
     </message>
     <message>
-        <source>已钉住：双击一条，粘贴到正在用的程序</source>
-        <translation>Pinned: double-click to paste into the active program</translation>
+        <source>%1 · 双击粘贴</source>
+        <translation>%1 · double-click to paste</translation>
     </message>
     <message>
-        <source>已钉住：点一条，粘贴到正在用的程序</source>
-        <translation>Pinned: click to paste into the active program</translation>
+        <source>%1 · 单击粘贴</source>
+        <translation>%1 · click to paste</translation>
     </message>
     <message numerus="yes">
         <source>%Ln 条</source>
@@ -8361,8 +8361,8 @@
         <translation>Search apps and files</translation>
     </message>
     <message>
-        <source>已钉住：点别处、打开文件后都不收起，按 Esc 关闭</source>
-        <translation>Pinned: stays up through clicks elsewhere and opened files; Esc closes it</translation>
+        <source>已钉住</source>
+        <translation>Pinned</translation>
     </message>
     <message>
         <source>已取消钉住</source>

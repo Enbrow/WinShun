@@ -1760,9 +1760,10 @@ void Launcher::setPinned(bool on)
         return;
     m_pinned = on;
     emit pinnedChanged();
-    // Said in the footer as well: Ctrl+T leaves no other trace near the keys.
+    // Said in the footer as well: Ctrl+T leaves no other trace near the keys (short,
+    // so the key hints keep their room).
     if (m_window && m_window->isVisible())
-        flash(on ? tr("已钉住：点别处、打开文件后都不收起，按 Esc 关闭") : tr("已取消钉住"));
+        flash(on ? tr("已钉住") : tr("已取消钉住")); // what pinning means is in the pin button's tip
 }
 
 bool Launcher::filtersActive() const
@@ -2095,11 +2096,7 @@ void Launcher::refreshKeyHints()
     QString tabKeys = u"Tab"_s; // the volume's row: its place is Alt+←→'s (Tab still does the same)
     const SearchResult* r = m_results.at(m_currentRow);
     if (!r) {
-        if (!m_keyword) {
-            enter = tr("打开");
-            secondKeys = u"Ctrl+Enter"_s;
-            second = tr("打开位置");
-        }
+        // No row, nothing to open: only Tab (it still switches the scope) is offered.
     } else if (r->isPlugin()) {
         const PluginRow& p = *r->plugin;
         if (p.valid) {

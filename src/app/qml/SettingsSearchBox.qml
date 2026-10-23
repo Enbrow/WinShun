@@ -130,15 +130,13 @@ Rectangle {
     Rectangle { // the key that gets here, while nothing is typed
         id: keyHint
         visible: box.empty && !input.activeFocus && !box.warm
-        // On whole device pixels: a keycap's border on a half one is soft on its sides.
+        // On whole device pixels: a keycap on a half one is soft on its sides.
         x: Theme.snap(parent.width - 7 - width, Screen.devicePixelRatio)
         y: Theme.snap((parent.height - height) / 2, Screen.devicePixelRatio)
         width: Theme.snapUp(keyText.implicitWidth + 10, Screen.devicePixelRatio)
         height: 22
         radius: Theme.controlRadius
         color: Theme.keycap
-        border.width: 1
-        border.color: Theme.keycapBorder
 
         Text {
             id: keyText

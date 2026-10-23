@@ -414,12 +414,12 @@ void Clipboard::refreshStatus()
         status = tr("已暂停记录，在托盘菜单里可以继续");
     else if (!m_recording)
         status = tr("没有在记录剪贴板");
-    else if (m_pinned && !m_keysRouted)
-        status = m_clickToPaste ? tr("已钉住：点一条，粘贴到正在用的程序") : tr("已钉住：双击一条，粘贴到正在用的程序");
-    else if (!m_query.trimmed().isEmpty() || m_category != 0)
-        status = tr("%Ln 条", nullptr, m_model.count());
-    else
-        status = tr("共 %Ln 条", nullptr, total());
+    else {
+        status = !m_query.trimmed().isEmpty() || m_category != 0 ? tr("%Ln 条", nullptr, m_model.count()) : tr("共 %Ln 条", nullptr, total());
+        // Pinned and the keys not coming here: a click is how an entry gets pasted.
+        if (m_pinned && !m_keysRouted)
+            status = (m_clickToPaste ? tr("%1 · 单击粘贴") : tr("%1 · 双击粘贴")).arg(status);
+    }
     if (status != m_status) {
         m_status = status;
         emit statusChanged();

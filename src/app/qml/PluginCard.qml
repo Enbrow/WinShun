@@ -229,8 +229,6 @@ Rectangle {
                             height: 24
                             radius: Theme.controlRadius
                             color: Theme.keycap
-                            border.width: 1
-                            border.color: Theme.keycapBorder
 
                             Text {
                                 id: keycapText

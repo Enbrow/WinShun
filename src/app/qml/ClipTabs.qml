@@ -170,9 +170,10 @@ Item {
                 color: addArea.containsMouse ? Theme.chipHover : "transparent"
 
                 Glyph {
-                    anchors.centerIn: parent
+                    x: Theme.snap((parent.width - width) / 2, Screen.devicePixelRatio) // on whole device pixels
+                    y: Theme.snap((parent.height - height) / 2, Screen.devicePixelRatio)
                     glyph: "" // Add
-                    size: 24
+                    size: 64 / 3 // as the header's pin button (RowAction): 32 device pixels at 150%
                     color: addArea.containsMouse ? Theme.text : Theme.subtext
                 }
 
@@ -202,9 +203,10 @@ Item {
         border.color: Theme.chipBorder
 
         Glyph {
-            anchors.centerIn: parent
+            x: Theme.snap((parent.width - width) / 2, Screen.devicePixelRatio) // on whole device pixels
+            y: Theme.snap((parent.height - height) / 2, Screen.devicePixelRatio)
             glyph: "" // Sort
-            size: 24
+            size: 64 / 3 // as the header's pin button (RowAction): 32 device pixels at 150%
             color: tabs.clipboard.pinnedFirst ? Theme.accent : orderArea.containsMouse ? Theme.text : Theme.subtext
         }
 

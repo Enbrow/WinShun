@@ -62,8 +62,10 @@ QtObject {
     readonly property color chipActive: dark ? "#3A3A3A" : "#FFFFFF"
     readonly property color chipHover: dark ? "#333333" : "#E4E4E4"
     readonly property color chipBorder: dark ? "#454545" : "#DCDCDC"
-    readonly property color keycap: dark ? "#2A2A2A" : "#FFFFFF"
-    readonly property color keycapBorder: dark ? "#3C3C3C" : "#DADADA"
+    // A key cap is a plain light-grey fill with no border (a border would be a
+    // second edge to keep on whole pixels); translucent so it reads on a card,
+    // on Mica and on the plain footer alike. Subtext on it stays above 4.5:1.
+    readonly property color keycap: dark ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(0, 0, 0, 0.06)
     // The checkerboard under a translucent colour: light in both themes, as in
     // design tools, so that dark and light translucent colours both show.
     readonly property color checker: dark ? "#D0D0D0" : "#FFFFFF"

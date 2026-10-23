@@ -355,8 +355,6 @@ Window {
                         height: Theme.keycapHeight - 2
                         radius: Theme.controlRadius
                         color: Theme.keycap
-                        border.width: 1
-                        border.color: Theme.keycapBorder
 
                         Text {
                             id: keyText

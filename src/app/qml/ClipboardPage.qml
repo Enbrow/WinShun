@@ -1009,7 +1009,7 @@ Item {
                 // where there is room beside them and the status (beside the
                 // list alone there often is not). The rest: the info button.
                 readonly property real alwaysWidth: {
-                    const widths = [enterHint, numberHint, backHint].filter(h => h.visible).map(h => h.fullWidth)
+                    const widths = [enterHint, backHint].filter(h => h.visible).map(h => h.fullWidth)
                     return widths.reduce((sum, w) => sum + w, 0) + Math.max(0, widths.length - 1) * spacing
                 }
                 readonly property real free: footer.width - reserved - statusLabel.implicitWidth - alwaysWidth
@@ -1018,12 +1018,6 @@ Item {
                     && (tabFits ? spacing + tabHint.fullWidth : 0) + spacing + previewHint.fullWidth <= free
 
                 KeyHint { id: enterHint; keys: "Enter"; label: page.pasteLabel }
-                KeyHint { // the numbers on the rows' icons
-                    id: numberHint
-                    visible: page.numberKey >= 0 && hints.roomy
-                    keys: (page.numberKey === Qt.Key_Alt ? "Alt" : "Ctrl") + "+1…9"
-                    label: qsTr("粘贴第几条")
-                }
                 KeyHint { id: backHint; keys: "Esc"; label: qsTr("返回"); visible: page.intoField && hints.roomy }
                 KeyHint { id: tabHint; keys: "Tab"; label: qsTr("分类"); visible: hints.tabFits }
                 KeyHint {
@@ -1066,7 +1060,8 @@ Item {
                 anchors.right: parent.right
                 anchors.rightMargin: 6
                 anchors.verticalCenter: parent.verticalCenter
-                shortcuts: (page.intoField ? [] : [["Shift+Enter", qsTr("粘贴为纯文本")]])
+                shortcuts: (page.numberKey < 0 ? [] : [[modifier + "+1…9", qsTr("粘贴第几条")]]) // the numbers on the rows' icons
+                    .concat(page.intoField ? [] : [["Shift+Enter", qsTr("粘贴为纯文本")]])
                     .concat(page.numberKey < 0 ? []
                             : [[modifier + "+Shift+1…9", qsTr("第几条粘贴为纯文本")]])
                     .concat([
