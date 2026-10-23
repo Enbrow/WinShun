@@ -89,6 +89,7 @@ Window {
             hoverFill: Theme.ringHover
             accentFill: Theme.accentFill
             edge: Theme.windowEdge
+            gapFill: Theme.ringGap
             shadowColor: Qt.rgba(0, 0, 0, Theme.dark ? 0.4 : 0.16)
         }
 
@@ -196,9 +197,9 @@ Window {
             Text {
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
-                text: parent.sector ? parent.sector.name : qsTr("取消")
+                // Shortened as the labels are ("…" in the middle), not by Text's elide.
+                text: parent.sector ? pie.dropPie.elide(parent.sector.name, pie.labelSize + 1, true, width) : qsTr("取消")
                 textFormat: Text.PlainText
-                elide: Text.ElideMiddle
                 color: Theme.text
                 font.pixelSize: pie.labelSize + 1
                 font.weight: Font.DemiBold
@@ -242,13 +243,13 @@ Window {
                         font.pixelSize: pie.labelSize + 1
                     }
                     Text {
-                        width: Math.min(implicitWidth, parent.width - (statusVerb.visible ? statusVerb.width + parent.spacing : 0))
-                        text: pie.dropPie.statusName
+                        readonly property bool bold: pie.dropPie.hovered >= 0
+                        text: pie.dropPie.elide(pie.dropPie.statusName, pie.labelSize + 1, bold,
+                                                parent.width - (statusVerb.visible ? statusVerb.width + parent.spacing : 0))
                         textFormat: Text.PlainText
-                        elide: Text.ElideMiddle
                         color: Theme.text
                         font.pixelSize: pie.labelSize + 1
-                        font.weight: pie.dropPie.hovered >= 0 ? Font.DemiBold : Font.Normal
+                        font.weight: bold ? Font.DemiBold : Font.Normal
                     }
                 }
                 Text {
@@ -262,22 +263,36 @@ Window {
             }
         }
 
-        // Beside the pointer, on the side away from the ring's centre, kept
-        // inside the window.
+        // Outside the ring, beyond the sector (or the half) under the pointer:
+        // starting there on the right, ending there on the left, centred
+        // above or below; so it covers no label. Where it does not fit in
+        // the window, or would cover the line under the ring, there is none
+        // (that line says the same).
         Rectangle {
             id: tip
 
-            readonly property real maxWidth: 300 * pie.k
-            readonly property real towardsX: pie.dropPie.pointer.x - pie.cx
-            readonly property real towardsY: pie.dropPie.pointer.y - pie.cy
-            readonly property real wantedX: towardsX >= 0 ? pie.dropPie.pointer.x + 16 : pie.dropPie.pointer.x - 16 - width
-            readonly property real wantedY: towardsY >= 0 ? pie.dropPie.pointer.y + 20 : pie.dropPie.pointer.y - 12 - height
+            readonly property int count: Math.max(1, pie.dropPie.sectors.length)
+            readonly property real angle: pie.dropPie.hovered >= 0 ? pie.dropPie.hovered * 360 / count
+                                        : pie.dropPie.innerHover === "move" ? 270 : 90
+            readonly property real sine: Math.sin(angle * Math.PI / 180)
+            readonly property real cosine: Math.cos(angle * Math.PI / 180)
+            readonly property real anchorX: pie.cx + sine * (pie.outerRadius + 8)
+            readonly property real anchorY: pie.cy - cosine * (pie.outerRadius + 8)
+            readonly property int side: sine > 0.3 ? 1 : sine < -0.3 ? -1 : 0
+            readonly property real room: side > 0 ? pie.width - 4 - anchorX : side < 0 ? anchorX - 4 : pie.width - 8
+            readonly property real maxWidth: Math.min(300 * pie.k, room)
+            readonly property real wantedX: side > 0 ? anchorX : side < 0 ? anchorX - width : anchorX - width / 2
+            readonly property real wantedY: cosine > 0.3 ? anchorY - height : cosine < -0.3 ? anchorY : anchorY - height / 2
+            readonly property bool fits: wantedX >= 4 && wantedX + width <= pie.width - 4
+                                         && wantedY >= 4 && wantedY + height <= pie.height - 4
+                                         && !(wantedX < status.x + status.width && wantedX + width > status.x
+                                              && wantedY < status.y + status.height && wantedY + height > status.y)
 
-            visible: pie.dropPie.tip.length > 0
+            visible: pie.dropPie.tip.length > 0 && maxWidth >= 80 && fits
             width: Theme.snapUp(tipRow.width + 20, pie.dpr)
             height: Theme.snapUp(tipName.implicitHeight + 10, pie.dpr)
-            x: Theme.snap(Math.max(4, Math.min(pie.width - width - 4, wantedX)), pie.dpr)
-            y: Theme.snap(Math.max(4, Math.min(pie.height - height - 4, wantedY)), pie.dpr)
+            x: Theme.snap(wantedX, pie.dpr)
+            y: Theme.snap(wantedY, pie.dpr)
             radius: Theme.controlRadius
             color: Theme.menuBackground
             border.width: Theme.edge(pie.dpr)
@@ -299,10 +314,9 @@ Window {
                 }
                 Text {
                     id: tipName
-                    width: Math.min(implicitWidth, tip.maxWidth - (tipVerb.visible ? tipVerb.width + tipRow.spacing : 0))
-                    text: pie.dropPie.tip
+                    text: pie.dropPie.elide(pie.dropPie.tip, pie.smallSize, tipVerb.visible,
+                                            tip.maxWidth - 20 - (tipVerb.visible ? tipVerb.width + tipRow.spacing : 0))
                     textFormat: Text.PlainText
-                    elide: Text.ElideMiddle
                     color: Theme.text
                     font.pixelSize: pie.smallSize
                     font.weight: tipVerb.visible ? Font.DemiBold : Font.Normal

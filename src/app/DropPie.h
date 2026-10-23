@@ -59,7 +59,6 @@ class DropPie : public QObject, private piedrop::Handler {
     Q_PROPERTY(qreal ringScale READ ringScale NOTIFY layoutChanged FINAL)
     Q_PROPERTY(int labelPixelSize READ labelPixelSize NOTIFY layoutChanged FINAL)
     Q_PROPERTY(bool revealed READ revealed NOTIFY revealedChanged FINAL)
-    Q_PROPERTY(QPointF pointer READ pointer NOTIFY pointerChanged FINAL) // in the window
     Q_PROPERTY(int hovered READ hovered NOTIFY stateChanged FINAL) // the outer sector under the pointer, -1
     Q_PROPERTY(int picked READ picked NOTIFY stateChanged FINAL) // ... if it can be dropped on, else -1
     Q_PROPERTY(QString mode READ mode NOTIFY stateChanged FINAL) // "move", "copy" or ""
@@ -67,8 +66,9 @@ class DropPie : public QObject, private piedrop::Handler {
     Q_PROPERTY(bool moveAllowed READ moveAllowed NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool copyAllowed READ copyAllowed NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool confirming READ confirming NOTIFY stateChanged FINAL) // dropped: the sector flashes
-    // Beside the pointer: "移动到" and the folder's whole name, or why it
-    // cannot be dropped on (tipVerb empty); tip empty: none.
+    // Outside the ring by the sector under the pointer: "移动到" and the
+    // folder's whole name, or why it cannot be dropped on (tipVerb empty);
+    // tip empty: none.
     Q_PROPERTY(QString tipVerb READ tipVerb NOTIFY stateChanged FINAL)
     Q_PROPERTY(QString tip READ tip NOTIFY stateChanged FINAL)
     Q_PROPERTY(QString statusVerb READ statusVerb NOTIFY stateChanged FINAL)
@@ -97,11 +97,16 @@ public:
     qreal ringScale() const noexcept { return m_scale; }
     int labelPixelSize() const noexcept { return m_labelPixelSize; }
     bool revealed() const noexcept { return m_revealed; }
-    QPointF pointer() const noexcept { return m_pointer; }
     int hovered() const noexcept { return m_hovered; }
     int picked() const noexcept { return m_picked; }
     QString mode() const;
     QString innerHover() const;
+
+    // `text` shortened in its middle with "…" to `width` logical pixels, in
+    // the application's font at `pixelSize` (DemiBold if `bold`): the same
+    // fitter as the sectors' labels, for the middle, the tip and the line
+    // under the ring.
+    Q_INVOKABLE QString elide(const QString& text, int pixelSize, bool bold, qreal width) const;
     bool moveAllowed() const noexcept { return m_allowed & DROPEFFECT_MOVE; }
     bool copyAllowed() const noexcept { return m_allowed & DROPEFFECT_COPY; }
     bool confirming() const noexcept { return m_confirming; }
@@ -116,7 +121,6 @@ signals:
     void sectorsChanged();
     void layoutChanged();
     void revealedChanged();
-    void pointerChanged();
     void stateChanged();
 
 private:
@@ -161,7 +165,6 @@ private:
     qreal m_scale = 1;
     int m_labelPixelSize = 13;
     QPointF m_centre; // in the window
-    QPointF m_pointer;
     qreal m_statusWidth = 480;
 
     // The drag over the pie

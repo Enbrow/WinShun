@@ -182,7 +182,8 @@ Item {
             visible: form.command
             width: parent.width
             label: qsTr("工作文件夹")
-            placeholder: qsTr("可选，例如 D:\\Projects")
+            // The path outside qsTr: lupdate reads "\\" in QML strings wrongly (docs/pitfalls.md).
+            placeholder: qsTr("可选，例如 %1").arg("D:\\Projects")
             hint: qsTr("不填则由 Windows 决定；路径不用加引号")
             onTextChanged: form.changed()
             onAccepted: form.save()

@@ -8,8 +8,9 @@
 namespace ws {
 
 // The drop pie's rings (DropPieWindow.qml), drawn with QPainter: the
-// centre, 移动 and 复制, and the folders' sectors, with gaps between them
-// and a soft shadow outside. Antialiased arcs at the window's scale, which
+// centre, 移动 and 复制, and the folders' sectors on an opaque disk whose
+// grey shows in the gaps between them (never what is behind the window),
+// a 1 px edge round it and a soft shadow outside. Antialiased arcs at the window's scale, which
 // Qt Quick's own items cannot draw (QtQuick.Shapes is not deployed: see
 // docs/pitfalls.md). The item is the ring's box plus `shadow` on each side;
 // the labels are QML Text on top.
@@ -31,7 +32,8 @@ class PieRing : public QQuickPaintedItem {
     Q_PROPERTY(QColor innerFill MEMBER m_innerFill NOTIFY changed FINAL)
     Q_PROPERTY(QColor hoverFill MEMBER m_hoverFill NOTIFY changed FINAL)
     Q_PROPERTY(QColor accentFill MEMBER m_accentFill NOTIFY changed FINAL)
-    Q_PROPERTY(QColor edge MEMBER m_edge NOTIFY changed FINAL)
+    Q_PROPERTY(QColor edge MEMBER m_edge NOTIFY changed FINAL) // the outer edge
+    Q_PROPERTY(QColor gapFill MEMBER m_gapFill NOTIFY changed FINAL) // between the sectors and the rings
     Q_PROPERTY(QColor shadowColor MEMBER m_shadowColor NOTIFY changed FINAL)
 
 public:
@@ -59,6 +61,7 @@ private:
     QColor m_hoverFill;
     QColor m_accentFill;
     QColor m_edge;
+    QColor m_gapFill;
     QColor m_shadowColor;
 };
 

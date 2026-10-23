@@ -2235,10 +2235,6 @@
         <translation>In the pie: %1 / %2. Give it a short name if it is too long</translation>
     </message>
     <message>
-        <source>可选，例如 D:\Projects</source>
-        <translation>Optional, e.g. D:\Projects</translation>
-    </message>
-    <message>
         <source>保存</source>
         <translation>Save</translation>
     </message>
@@ -2281,6 +2277,10 @@
     <message>
         <source>工作文件夹</source>
         <translation>Working folder</translation>
+    </message>
+    <message>
+        <source>可选，例如 %1</source>
+        <translation>Optional, e.g. %1</translation>
     </message>
     <message>
         <source>不填则由 Windows 决定；路径不用加引号</source>

@@ -250,7 +250,6 @@ void DropPie::open(POINT pt)
     const pie::Margins margins {150 * m_scale, 48 * m_scale, 84 * m_scale};
     const QRect rect = pie::windowRect(centre, ringRadius, screen->geometry(), margins);
     m_centre = centre - rect.topLeft();
-    m_pointer = cursor - rect.topLeft();
     m_statusWidth = std::min<qreal>(2 * m_radii.outerOut + 80 * m_scale, rect.width() - 16);
 
     m_open = true;
@@ -267,7 +266,6 @@ void DropPie::open(POINT pt)
     updateSectors();
     updateTexts();
     emit layoutChanged();
-    emit pointerChanged();
     emit stateChanged();
 
     m_window->setGeometry(rect);
@@ -428,12 +426,6 @@ DWORD DropPie::track(DWORD keys, POINT pt)
         hide("the pointer left the ring");
         return DROPEFFECT_NONE;
     }
-    RECT rect {};
-    ::GetWindowRect(m_hwnd, &rect);
-    const qreal dpr = m_window ? m_window->devicePixelRatio() : 1;
-    m_pointer = QPointF((pt.x - rect.left) / dpr, (pt.y - rect.top) / dpr);
-    emit pointerChanged();
-
     const bool ctrl = keys & MK_CONTROL;
     const bool shift = keys & MK_SHIFT;
     m_latch.update(hit, moveAllowed(), copyAllowed());
@@ -467,6 +459,15 @@ QString DropPie::mode() const
 {
     const pie::Mode mode = m_latch.effective(m_ctrl, m_shift, moveAllowed(), copyAllowed(), m_picked >= 0);
     return mode == pie::Mode::Move ? u"move"_s : mode == pie::Mode::Copy ? u"copy"_s : QString();
+}
+
+QString DropPie::elide(const QString& text, int pixelSize, bool bold, qreal width) const
+{
+    QFont font = QGuiApplication::font();
+    font.setPixelSize(std::max(1, pixelSize));
+    if (bold)
+        font.setWeight(QFont::DemiBold);
+    return pielabels::elideMiddle(text, QFontMetricsF(font), std::max<qreal>(0, width));
 }
 
 QString DropPie::innerHover() const

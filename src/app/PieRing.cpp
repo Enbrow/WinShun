@@ -81,8 +81,12 @@ void PieRing::paint(QPainter* painter)
         painter->fillPath(ring, gradient);
     }
 
-    const auto draw = [&](const QPainterPath& path, const QColor& fill, const QColor& edge) {
-        painter->setPen(QPen(edge, m_edgeWidth));
+    // The disk under it all: the gaps read as grey lines.
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(m_gapFill);
+    painter->drawEllipse(circle(radii.outerOut));
+
+    const auto draw = [&](const QPainterPath& path, const QColor& fill) {
         painter->setBrush(fill);
         painter->drawPath(path);
     };
@@ -95,15 +99,15 @@ void PieRing::paint(QPainter* painter)
         const bool picked = i == m_picked && !disabled;
         const bool hovered = i == m_hovered;
         const QColor fill = picked ? m_accentFill : hovered ? m_hoverFill : m_fill;
-        draw(band(radii.outerIn, radii.outerOut, i * step - step / 2, i * step + step / 2, count > 1 ? radii.gap : 0), fill,
-            picked ? m_accentFill : m_edge);
+        // To the disk's edge: no grey rim outside the folders.
+        draw(band(radii.outerIn, radii.outerOut, i * step - step / 2, i * step + step / 2, count > 1 ? radii.gap : 0), fill);
     }
 
     // 移动 on the left, 复制 on the right
     const auto half = [&](const QString& name, bool allowed, double from) {
         const bool active = allowed && m_mode == name;
         const QColor fill = active ? m_accentFill : m_innerHover == name ? m_hoverFill : m_innerFill;
-        draw(band(radii.innerIn, radii.innerOut, from, from + 180, radii.gap), fill, active ? m_accentFill : m_edge);
+        draw(band(radii.innerIn, radii.innerOut, from, from + 180, radii.gap), fill);
     };
     half(QStringLiteral("copy"), m_copyAllowed, 0);
     half(QStringLiteral("move"), m_moveAllowed, 180);
@@ -111,7 +115,12 @@ void PieRing::paint(QPainter* painter)
     // The middle
     QPainterPath middle;
     middle.addEllipse(circle(radii.dead));
-    draw(middle, m_fill, m_edge);
+    draw(middle, m_fill);
+
+    // The edge round it, its 1 px inside the disk
+    painter->setPen(QPen(m_edge, m_edgeWidth));
+    painter->setBrush(Qt::NoBrush);
+    painter->drawEllipse(circle(radii.outerOut - m_edgeWidth / 2));
 }
 
 } // namespace ws

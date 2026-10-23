@@ -66,6 +66,9 @@ QtObject {
     // menu background, and a sector under the pointer that cannot be taken.
     readonly property color ringInner: dark ? "#353535" : "#EFEFEF"
     readonly property color ringHover: dark ? "#404040" : "#E3E3E3"
+    // Its gaps: a neutral grey a little softer than windowEdge (they are 4 to
+    // 8 px wide), never the window behind showing through.
+    readonly property color ringGap: dark ? "#555555" : "#C6C6C6"
     // A key cap is a plain light-grey fill with no border (a border would be a
     // second edge to keep on whole pixels); translucent so it reads on a card,
     // on Mica and on the plain footer alike. Subtext on it stays above 4.5:1.
