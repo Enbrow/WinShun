@@ -87,7 +87,7 @@ TypeToSearch::TypeToSearch(Surfaces surfaces, Callbacks callbacks)
         const HWINEVENTHOOK foreground = ::SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr,
             &TypeToSearch::foregroundProc, 0, 0, WINEVENT_OUTOFCONTEXT);
         ready.count_down();
-        foregroundChanged(::GetForegroundWindow()); // open already
+        foregroundChanged(::GetForegroundWindow(), nullptr); // open already
         // The hook and the events are called from inside GetMessage.
         while (::GetMessageW(&msg, nullptr, 0, 0) > 0) {
             if (msg.hwnd == nullptr && msg.message == kDeliverMessage)
@@ -140,30 +140,45 @@ LRESULT CALLBACK TypeToSearch::keyboardProc(int code, WPARAM wParam, LPARAM lPar
     return result;
 }
 
-void CALLBACK TypeToSearch::foregroundProc(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD)
+void CALLBACK TypeToSearch::foregroundProc(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LONG, DWORD, DWORD)
 {
     // The window really in front now, not the one the event names: that
-    // can be a part of it, or already gone.
+    // can be a part of it, or already gone. That one counts too when it is
+    // an Explorer window left behind (foregroundChanged).
     if (t_typing)
-        t_typing->foregroundChanged(::GetForegroundWindow());
+        t_typing->foregroundChanged(::GetForegroundWindow(), hwnd);
 }
 
-void TypeToSearch::foregroundChanged(HWND window)
+// An Explorer folder window typing can count in: told by its classes alone;
+// whether it is elevated is asked here, once, not at every key.
+bool TypeToSearch::typingExplorer(HWND window) const
+{
+    return m_surfaces.explorer && window && folderview::classifyWindow(window).surface == folderview::Surface::Explorer
+        && !integrity::higherThanOurs(window);
+}
+
+void TypeToSearch::foregroundChanged(HWND window, HWND named)
 {
     m_startInFront = m_surfaces.startMenu && isStartMenu(window);
     if (!m_startInFront)
         m_windowsSearch = false; // Left Alt counts for one opening
-    // An Explorer folder window: told by its classes alone; whether it is
-    // elevated is asked here, once, not at every key. Explorer raises this
-    // event when it goes to another folder too (docs/pitfalls.md), so a
-    // window that was something else (Home) and now shows a folder is seen
-    // as often as needed; which folder is asked only when typed in.
+    // Explorer raises this event when it goes to another folder too
+    // (docs/pitfalls.md), so a window that was something else (Home) and now
+    // shows a folder is seen as often as needed; which folder is asked only
+    // when typed in. A window that raises it while another stays in front
+    // (opened by a program that may not take the front) is kept apart: it
+    // comes to the front later, when clicked, with no event (measured), so
+    // the hook stays and the key looks at what is in front then
+    // (searchtyping::typingWindow).
     m_explorer = nullptr;
-    if (m_surfaces.explorer && !m_startInFront
-        && folderview::classifyWindow(window).surface == folderview::Surface::Explorer
-        && !integrity::higherThanOurs(window))
-        m_explorer = window;
-    setHooked(m_startInFront || m_explorer || m_holding);
+    m_explorerBehind = nullptr;
+    if (!m_startInFront) {
+        if (typingExplorer(window))
+            m_explorer = window;
+        else if (named != window && typingExplorer(named))
+            m_explorerBehind = named;
+    }
+    setHooked(m_startInFront || m_explorer || m_explorerBehind || m_holding);
 }
 
 void TypeToSearch::setHooked(bool hooked)
@@ -219,11 +234,17 @@ bool TypeToSearch::handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event)
         if (m_startInFront) {
             if (m_windowsSearch || !searchtyping::startsTyping(vk))
                 return false;
-        } else if (m_explorer) {
-            // The key alone first; what has the focus is asked only for one
-            // that would start a search.
-            if (!searchtyping::explorerStarts(vk, press, combination, searchtyping::Focus::ItemsView, false)
-                || !explorerFocused(tab))
+        } else if (m_explorer || m_explorerBehind) {
+            // The key alone first; what is in front and what has the focus
+            // are asked only for one that would start a search.
+            if (!searchtyping::explorerStarts(vk, press, combination, searchtyping::Focus::ItemsView, false))
+                return false;
+            const HWND front = searchtyping::typingWindow(::GetForegroundWindow(), m_explorer, m_explorerBehind);
+            if (!front)
+                return false;
+            m_explorer = front; // the window left behind is in front now
+            m_explorerBehind = nullptr;
+            if (!explorerFocused(tab))
                 return false;
         } else {
             return false;
@@ -362,7 +383,7 @@ void TypeToSearch::endHolding()
     m_retyped.clear();
     ::KillTimer(nullptr, m_timer);
     m_timer = 0;
-    setHooked(m_startInFront || m_explorer); // the launcher is in front: gone
+    setHooked(m_startInFront || m_explorer || m_explorerBehind); // the launcher is in front: gone
 }
 
 } // namespace ws

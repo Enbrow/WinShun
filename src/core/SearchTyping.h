@@ -101,6 +101,23 @@ inline constexpr bool explorerStarts(unsigned vk, bool press, bool combination, 
     return press && !combination && !elevated && focus == Focus::ItemsView && !isModifier(vk) && startsTyping(vk);
 }
 
+// The File Explorer window a key typed now counts in, or none: `front` is the
+// window really in front at the key (GetForegroundWindow), `seen` the Explorer
+// folder window that was in front at the last foreground event, `behind` one
+// that raised that event while another window stayed in front. A folder window
+// opened by a program that may not take the front (a tool in the background,
+// a script) does that: it says it came forward, stays behind, and when a click
+// on it or on its taskbar button brings it to the front later, no event comes
+// at all (measured 2026-10-24, docs/pitfalls.md). So the key decides by what is
+// in front then; that also keeps a key from counting for `seen` should another
+// window have come forward the same silent way. Window: HWND, or a number in
+// the tests.
+template <class Window>
+constexpr Window typingWindow(Window front, Window seen, Window behind) noexcept
+{
+    return front && (front == seen || front == behind) ? front : Window {};
+}
+
 // The keys held back and typed again into the launcher, in the order sent,
 // until each has gone down the hook chain. Until the last has, a key typed
 // meanwhile is held too and follows them: let through, it overtook the ones

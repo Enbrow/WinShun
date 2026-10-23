@@ -9329,6 +9329,17 @@ private slots:
         QCOMPARE(focusOf(0x01, true), Focus::ItemsView); // a caret blinking says nothing of menus
         QVERIFY(!starts('R', true, false, focusOf(0x14, true))); // 属性(R) goes to the menu
         QVERIFY(starts('R', true, false, focusOf(0, true))); // the menu closed (Esc): typing searches again
+        // Which Explorer window a key counts in: the one really in front. A
+        // window opened in the background said it came forward and got to
+        // the front later with no event (a click on it): it counts once it
+        // is in front, not before; the window seen at the last event no
+        // longer does once another is in front.
+        QCOMPARE(typingWindow(1, 1, 0), 1); // in front at the event, still
+        QCOMPARE(typingWindow(2, 0, 2), 2); // opened behind, clicked to the front since
+        QCOMPARE(typingWindow(3, 0, 2), 0); // opened behind, still behind (Chrome in front)
+        QCOMPARE(typingWindow(3, 1, 0), 0); // another window came forward silently
+        QCOMPARE(typingWindow(0, 1, 2), 0); // nothing in front (switching)
+        QCOMPARE(typingWindow(0, 0, 0), 0); // no Explorer window: the hook is not there
         // The keys typed again go by first; the ones typed meanwhile wait
         // behind the last of them (GitHub #39: "qz" came out "zq").
         Retyped retyped;

@@ -37,7 +37,9 @@ namespace ws {
 // A low-level keyboard hook, which every key press in the system waits on
 // (see KeyListener for why that matters): installed only while the Start
 // menu, Windows' search or an Explorer folder window is in front, as an
-// out-of-context event on the foreground tells, and while keys are held
+// out-of-context event on the foreground tells (or an Explorer window raised
+// that event from behind: opened in the background, it comes to the front
+// later with no event, so the key checks what is in front), and while keys are held
 // back; on a thread of its own, deciding at once from the key and the
 // window with the focus alone (core/TypeToSearch.h; no messages sent). Win,
 // Ctrl and Alt combinations stay Windows'. Left Alt pressed in the Start
@@ -87,7 +89,8 @@ private:
     static void CALLBACK foregroundProc(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LONG, DWORD, DWORD);
     bool handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event); // true: taken
     bool explorerFocused(HWND& tab) const; // the view of m_explorer's folder has the focus: its tab
-    void foregroundChanged(HWND window);
+    void foregroundChanged(HWND window, HWND named); // window: in front now; named: the event's
+    bool typingExplorer(HWND window) const; // an Explorer folder window, typing there on, not elevated
     void setHooked(bool hooked);
     void typeHeld(); // deliver(), on the hook's thread
     void returnHeld(); // giveBack(), on the hook's thread
@@ -107,6 +110,9 @@ private:
     HHOOK m_hook = nullptr;
     bool m_startInFront = false;
     HWND m_explorer = nullptr; // the Explorer folder window in front, when typing there counts
+    // ... one that said it came forward while another stayed in front: it
+    // gets there later with no event (a click), the key checks
+    HWND m_explorerBehind = nullptr;
     bool m_windowsSearch = false; // Left Alt in the Start menu: its own search this time
     bool m_holding = false; // keys are held back for the launcher
     bool m_holdingForExplorer = false; // ... typed in Explorer: given back when the launcher does not come
