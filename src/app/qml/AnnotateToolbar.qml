@@ -22,7 +22,7 @@ Rectangle {
     readonly property var hidden: session ? session.hiddenButtons : []
     readonly property bool historyShown: shows("undo") || shows("redo")
     readonly property bool actionsShown: shows("copy") || shows("save") || (pinnable && shows("pin")) || shows("ocr")
-                                         || (!editor && shows("long")) || shows("cancel")
+                                         || (!editor && (shows("long") || shows("qr") || shows("delay"))) || shows("cancel")
     // What the first button says (the editing window: 完成 on a pin) and
     // whether there is a 贴图 button (not when the picture is a pin already).
     property string copyText: qsTr("复制")
@@ -55,7 +55,10 @@ Rectangle {
         qsTr("滚轮"), qsTr("有工具或选中对象时改粗细"),
         qsTr("方向键"), qsTr("挪动选中的对象，按住 Shift 一次 10 像素；没有选中时微调选区"),
         "H", qsTr("隐藏 / 显示工具条"),
-        "C", qsTr("复制颜色"),
+        "C、Shift+C", qsTr("复制颜色；换颜色格式（HEX、RGB、HSL）"),
+        "Shift+R", qsTr("还没选区时：用上一次的选区"),
+        "Q", qsTr("识别选区里的二维码"),
+        "D", qsTr("延时截图：关掉这次，倒计时后再截"),
         "Ctrl+L", qsTr("长截图：选区里的内容一边滚动一边截"),
         qsTr("Esc、右键"), qsTr("退一步：写完文字、放弃标注、关闭截图")
     ]
@@ -253,6 +256,29 @@ Rectangle {
             HoverHandler { onHoveredChanged: bar.hover(longButton, hovered, -1) }
         }
         FlatButton {
+            id: qrButton
+            visible: !bar.editor && bar.shows("qr")
+            flat: true
+            keyboardActivation: false
+            border.width: 0 // no hover border, like the tool buttons beside it
+            width: Math.ceil(implicitWidth / 4) * 4
+            text: qsTr("二维码")
+            onClicked: bar.act(CaptureSession.Qr)
+            HoverHandler { onHoveredChanged: bar.hover(qrButton, hovered, -1) }
+        }
+        FlatButton {
+            id: delayButton
+            visible: !bar.editor && bar.shows("delay")
+            flat: true
+            keyboardActivation: false
+            border.width: 0 // no hover border, like the tool buttons beside it
+            width: Math.ceil(implicitWidth / 4) * 4
+            glyph: String.fromCharCode(0xE916) // Stopwatch
+            text: qsTr("延时")
+            onClicked: bar.act(CaptureSession.Delay)
+            HoverHandler { onHoveredChanged: bar.hover(delayButton, hovered, -1) }
+        }
+        FlatButton {
             visible: bar.shows("cancel")
             flat: true
             keyboardActivation: false
@@ -305,6 +331,10 @@ Rectangle {
                                                 : qsTr("没有安装文字识别模型（Win顺 文件夹里的 ocr 文件夹），无法识别文字")
             if (bar.tipItem === longButton)
                 return qsTr("滚动着截下选区里更长的内容")
+            if (bar.tipItem === qrButton)
+                return qsTr("识别选区里的二维码，可复制文字或打开链接")
+            if (bar.tipItem === delayButton)
+                return qsTr("关掉这次截图，倒计时后重新截（秒数在设置里选）")
             if (bar.tipItem === helpButton)
                 return qsTr("全部按键")
             return ""
@@ -319,6 +349,8 @@ Rectangle {
                  : bar.tipItem === redoButton ? "Ctrl+Y"
                  : bar.tipItem === pinButton ? "F3"
                  : bar.tipItem === longButton ? "Ctrl+L"
+                 : bar.tipItem === qrButton ? "Q"
+                 : bar.tipItem === delayButton ? "D"
                  : ""
         }
     }

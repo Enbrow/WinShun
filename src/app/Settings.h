@@ -350,6 +350,18 @@ struct Settings {
     bool captureSmartIpMac = false;
     bool captureSmartAllText = false;
     QString captureSmartWords;
+    // Stage 7. The mouse cursor drawn into the frozen picture (IncludeCursor);
+    // UI Automation for the controls of Electron, WinUI and the like (ControlsUia);
+    // the delayed capture's seconds, 3 | 5 | 10 (DelaySeconds); the colour
+    // format the magnifier writes, hex | rgb | hsl (ColorFormat, changed with
+    // Shift+C); the hotkeys that hide / show every pin and that give click-through
+    // pins the mouse back (PinsHotkey, PinsRestoreHotkey: recorded, none by default).
+    bool captureCursor = false;
+    bool captureControlsUia = true;
+    int captureDelay = 5;
+    QString captureColorFormat = QStringLiteral("hex");
+    QString capturePinsHotkey;
+    QString capturePinsRestoreHotkey;
 
     // [WebSearch]: keywords the user gives web pages ("gh" opens GitHub, "gh
     // WinShun" searches it; see WebShortcut). At first just one, "winshun".

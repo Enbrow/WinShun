@@ -275,7 +275,8 @@ Window {
         visible: overlay.screenModel.cursorHere && overlay.screenModel.hasImage
         x: Math.round(place.x * overlay.dpr) / overlay.dpr
         y: Math.round(place.y * overlay.dpr) / overlay.dpr
-        width: Math.max(loupe.width + 2, position.implicitWidth + 16 + 2) // the position line can be wider than the picture
+        // The position line, the colour in its format and the hint can be wider than the picture
+        width: Math.max(loupe.width + 2, position.implicitWidth + 16 + 2, colorRow.implicitWidth + 16 + 2, hint.implicitWidth + 16 + 2)
         height: loupe.height + 2 + info.implicitHeight + 10
         color: Theme.background
         border.width: 1
@@ -330,6 +331,7 @@ Window {
                 font.pixelSize: Theme.fontCaption
             }
             Row {
+                id: colorRow
                 spacing: 6
 
                 Rectangle {
@@ -341,14 +343,15 @@ Window {
                     border.color: Theme.windowEdge
                 }
                 Text {
-                    text: overlay.screenModel.color
+                    text: overlay.screenModel.colorText
                     color: Theme.text
                     font.pixelSize: Theme.fontCaption
                 }
             }
             Text {
+                id: hint
                 width: parent.width
-                text: overlay.screenModel.flash.length > 0 ? overlay.screenModel.flash : qsTr("按 C 复制颜色")
+                text: overlay.screenModel.flash.length > 0 ? overlay.screenModel.flash : qsTr("C 复制 · Shift+C 换格式")
                 color: Theme.subtext
                 font.pixelSize: Theme.fontCaption
                 elide: Text.ElideRight

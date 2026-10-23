@@ -2,6 +2,7 @@
 
 #include <dwmapi.h>
 
+#include <algorithm>
 #include <cwchar>
 
 namespace ws::capture {
@@ -114,6 +115,50 @@ HWND WindowSnapshot::windowAt(const QPoint& point) const
         if (m_rects[i].contains(point))
             return m_entries[i].hwnd;
     return nullptr;
+}
+
+HWND WindowSnapshot::handle(std::size_t i) const
+{
+    return i < m_entries.size() ? m_entries[i].hwnd : nullptr;
+}
+
+QString WindowSnapshot::windowClass(std::size_t i) const
+{
+    wchar_t name[256] {};
+    if (i < m_entries.size())
+        ::GetClassNameW(m_entries[i].hwnd, name, static_cast<int>(std::size(name)));
+    return QString::fromWCharArray(name);
+}
+
+int WindowSnapshot::childWindows(std::size_t i) const
+{
+    return static_cast<int>(children(i).size()) - (i < m_entries.size() ? m_entries[i].controls : 0);
+}
+
+bool WindowSnapshot::addControls(std::size_t i, const std::vector<QRect>& controls)
+{
+    if (i >= m_entries.size())
+        return false;
+    children(i); // the child windows first
+    Entry& entry = m_entries[i];
+    bool added = false;
+    for (const QRect& r : controls) {
+        if (std::ranges::find(*entry.children, r) == entry.children->end()) {
+            entry.children->push_back(r);
+            ++entry.controls;
+            added = true;
+        }
+    }
+    return added;
+}
+
+int WindowSnapshot::indexOf(HWND hwnd) const
+{
+    for (std::size_t i = 0; i < m_entries.size(); ++i) {
+        if (m_entries[i].hwnd == hwnd)
+            return static_cast<int>(i);
+    }
+    return -1;
 }
 
 void WindowSnapshot::clear()

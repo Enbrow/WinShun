@@ -57,7 +57,7 @@ Window {
         Text {
             x: window.padding
             y: window.onPixel((header.height - height) / 2)
-            text: qsTr("识别文字")
+            text: window.ocr.title.length > 0 ? window.ocr.title : qsTr("识别文字")
             color: Theme.text
             font.pixelSize: Theme.uiTitle
             font.weight: Font.DemiBold
@@ -174,13 +174,20 @@ Window {
             enabled: !window.ocr.busy && words.text.trim().length > 0
             onClicked: window.ocr.search(words.selectedText.length > 0 ? words.selectedText : words.text)
         }
+        FlatButton { // a QR code that holds a web address: opened only by this click
+            visible: window.ocr.link.length > 0
+            highlighted: true
+            text: qsTr("打开链接")
+            onClicked: window.ocr.openLink(window.ocr.link)
+        }
         FlatButton {
+            visible: window.ocr.link.length === 0
             text: qsTr("网页搜索")
             enabled: !window.ocr.busy && words.text.trim().length > 0
             onClicked: window.ocr.webSearch(words.selectedText.length > 0 ? words.selectedText : words.text)
         }
         FlatButton {
-            highlighted: true
+            highlighted: window.ocr.link.length === 0
             text: qsTr("复制全部")
             enabled: !window.ocr.busy && words.text.length > 0
             onClicked: window.ocr.copyAll(words.text)

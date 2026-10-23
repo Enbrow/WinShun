@@ -40,6 +40,10 @@ class CaptureOcr : public QObject {
     Q_PROPERTY(QString text READ text NOTIFY changed FINAL) // the lines read, one per line
     Q_PROPERTY(QString message READ message NOTIFY changed FINAL) // none found, failed: why
     Q_PROPERTY(int round READ round NOTIFY changed FINAL) // counts up with each picture: the field takes the new text
+    // The window's title when the text is not read from a picture's words (二维码); empty: 识别文字.
+    Q_PROPERTY(QString title READ title NOTIFY changed FINAL)
+    // The text as a web address (http or https) to offer 打开链接 for; empty when it is not one.
+    Q_PROPERTY(QString link READ link NOTIFY changed FINAL)
 
 public:
     explicit CaptureOcr(QObject* parent = nullptr);
@@ -58,10 +62,17 @@ public:
     void scan(const QImage& image, double dpr, std::function<void(QList<RedactLine>)> done);
     void cancelScan();
 
+    // The window shows `texts` (one per line) under `title`, no reading: the QR
+    // codes found in a selection; none found: `none` says so. A link is offered
+    // as 打开链接 and never opened by itself.
+    void showTexts(const QStringList& texts, const QString& title, const QString& none);
+
     bool busy() const { return m_busy; }
     QString text() const { return m_text; }
     QString message() const { return m_message; }
     int round() const { return m_round; }
+    QString title() const { return m_title; }
+    QString link() const { return m_link; }
 
     Q_INVOKABLE void copyAll(const QString& text) { emit copyRequested(text); }
     // The text (the selection, else all of it) as one line, for the search box.
@@ -71,6 +82,7 @@ public:
     // Lines as words, trimmed, cut at what a search box takes; empty when no words.
     static QString oneLine(const QString& text);
     Q_INVOKABLE void close() { emit closeRequested(); }
+    Q_INVOKABLE void openLink(const QString& url) { emit openLinkRequested(url); }
 
 signals:
     void changed();
@@ -78,6 +90,7 @@ signals:
     void searchRequested(const QString& query);
     void webSearchRequested(const QString& query);
     void closeRequested();
+    void openLinkRequested(const QString& url);
 
 private:
     struct Job {
@@ -98,6 +111,8 @@ private:
     bool m_busy = false;
     QString m_text;
     QString m_message;
+    QString m_title;
+    QString m_link;
     int m_round = 0;
 
     std::mutex m_mutex;

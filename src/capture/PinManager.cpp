@@ -22,7 +22,18 @@ enum MenuCommand {
     TopmostCommand,
     ClickThroughCommand,
     CloseCommand,
-    CloseAllCommand
+    CloseAllCommand,
+    PickTextCommand,
+    RotateRightCommand,
+    RotateLeftCommand,
+    FlipHorizontalCommand,
+    FlipVerticalCommand,
+    CollapseTileCommand,
+    CollapseEdgeCommand,
+    ExpandCommand,
+    CloseOthersCommand,
+    HideAllCommand,
+    AllTopmostCommand
 };
 
 } // namespace
@@ -61,6 +72,25 @@ void PinManager::pin(const QImage& image, QPoint origin, bool screenshot, QByteA
             m_callbacks.save(pin->image(), {});
     };
     host.dark = m_callbacks.dark;
+    host.accent = m_callbacks.accent;
+    host.copyText = m_callbacks.copyText;
+    host.readLines = m_callbacks.readLines;
+    host.takenTabs = [this](const PinWindow* self) {
+        std::vector<QRect> tabs;
+        for (const auto& p : m_pins) {
+            if (p.get() != self) {
+                if (const std::optional<QRect> tab = p->edgeTab())
+                    tabs.push_back(*tab);
+            }
+        }
+        return tabs;
+    };
+    host.released = [this](PinWindow*) {
+        if (m_callbacks.closed)
+            m_callbacks.closed(); // its pixels can go back to Windows
+    };
+    if (m_hidden)
+        setAllHidden(false); // a new pin: they are wanted back
     auto pin = std::make_unique<PinWindow>(image, origin, std::move(host));
     pin->setScreenshot(screenshot);
     pin->setProject(std::move(project));
@@ -121,6 +151,35 @@ void PinManager::closeAll()
         p->close();
 }
 
+void PinManager::closeOthers(const PinWindow* keep)
+{
+    std::vector<PinWindow*> others;
+    for (const auto& p : m_pins) {
+        if (p.get() != keep)
+            others.push_back(p.get());
+    }
+    for (PinWindow* p : others)
+        p->close();
+}
+
+void PinManager::setAllHidden(bool hidden)
+{
+    m_hidden = hidden;
+    for (const auto& p : m_pins)
+        p->setAllHidden(hidden);
+}
+
+bool PinManager::allTopmost() const
+{
+    return !m_pins.empty() && std::ranges::all_of(m_pins, [](const auto& p) { return p->topmost(); });
+}
+
+void PinManager::setAllTopmost(bool on)
+{
+    for (const auto& p : m_pins)
+        p->setTopmost(on);
+}
+
 void PinManager::closed(PinWindow* pin)
 {
     // Called from inside its window procedure: deleted once that returns.
@@ -140,20 +199,50 @@ void PinManager::closed(PinWindow* pin)
 void PinManager::showMenu(PinWindow* pin, POINT at)
 {
     const QString ocr = m_callbacks.ocrAvailable ? tr("识别文字") : tr("识别文字（没有安装文字识别模型）");
-    const std::vector<shell::MenuItem> items {
+    const bool full = pin->form() == PinForm::Full;
+    shell::MenuItem turn {0, tr("旋转与翻转")};
+    turn.children = {
+        {RotateRightCommand, tr("向右转 90°") + u"\tR"_s},
+        {RotateLeftCommand, tr("向左转 90°") + u"\tShift+R"_s},
+        {FlipHorizontalCommand, tr("左右翻转") + u"\tH"_s},
+        {FlipVerticalCommand, tr("上下翻转") + u"\tV"_s},
+    };
+    shell::MenuItem collapse {0, tr("收起")};
+    collapse.children = {
+        {CollapseTileCommand, tr("收成小块") + u"\tSpace"_s},
+        {CollapseEdgeCommand, tr("收到屏幕顶边")},
+    };
+    shell::MenuItem all {0, tr("全部贴图")};
+    all.children = {
+        {HideAllCommand, m_hidden ? tr("显示全部贴图") : tr("隐藏全部贴图")},
+        {AllTopmostCommand, tr("全部置顶"), allTopmost()},
+        {CloseAllCommand, tr("关闭全部贴图")},
+    };
+    std::vector<shell::MenuItem> items {
         {CopyCommand, tr("复制") + u"\tCtrl+C"_s},
         {SaveCommand, tr("保存到“屏幕截图”") + u"\tCtrl+S"_s},
         {SaveAsCommand, tr("另存为…")},
         shell::MenuItem::separator(),
-        {EditCommand, tr("编辑")},
-        {OcrCommand, ocr, false, m_callbacks.ocrAvailable},
-        shell::MenuItem::separator(),
-        {TopmostCommand, tr("置顶"), pin->topmost()},
-        {ClickThroughCommand, tr("鼠标穿透（按住 Ctrl 可操作）"), pin->clickThrough()},
-        shell::MenuItem::separator(),
-        {CloseCommand, tr("关闭") + u"\tEsc"_s},
-        {CloseAllCommand, tr("关闭全部贴图")},
     };
+    if (full) {
+        items.push_back({EditCommand, tr("编辑")});
+        items.push_back({OcrCommand, ocr, false, m_callbacks.ocrAvailable});
+        items.push_back({PickTextCommand, tr("选择文字") + u"\tT"_s, pin->textMode(), m_callbacks.ocrAvailable && pin->canPickText()});
+        items.push_back(shell::MenuItem::separator());
+        items.push_back(std::move(turn));
+        items.push_back(std::move(collapse));
+        items.push_back(shell::MenuItem::separator());
+        items.push_back({TopmostCommand, tr("置顶"), pin->topmost()});
+        items.push_back({ClickThroughCommand, tr("鼠标穿透（按住 Ctrl 可操作）"), pin->clickThrough()});
+    } else {
+        items.push_back({ExpandCommand, tr("展开")});
+        items.push_back(shell::MenuItem::separator());
+        items.push_back({TopmostCommand, tr("置顶"), pin->topmost()});
+    }
+    items.push_back(shell::MenuItem::separator());
+    items.push_back({CloseCommand, tr("关闭") + u"\tEsc"_s});
+    items.push_back({CloseOthersCommand, tr("关闭其他")});
+    items.push_back(std::move(all));
     const HWND hwnd = pin->hwnd();
     m_menuPin = pin; // the pin keeps the mouse while its menu is up
     const int chosen = shell::popupMenu(hwnd, items, at);
@@ -185,6 +274,33 @@ void PinManager::showMenu(PinWindow* pin, POINT at)
         if (m_callbacks.ocr)
             m_callbacks.ocr(pin->image(), pin->dpr(), pin->pictureRect());
         break;
+    case PickTextCommand:
+        if (pin->textMode())
+            pin->endTextPick();
+        else
+            pin->beginTextPick();
+        break;
+    case RotateRightCommand:
+        pin->rotate(true);
+        break;
+    case RotateLeftCommand:
+        pin->rotate(false);
+        break;
+    case FlipHorizontalCommand:
+        pin->flip(true);
+        break;
+    case FlipVerticalCommand:
+        pin->flip(false);
+        break;
+    case CollapseTileCommand:
+        pin->collapse(PinForm::Tile);
+        break;
+    case CollapseEdgeCommand:
+        pin->collapse(PinForm::Edge);
+        break;
+    case ExpandCommand:
+        pin->expand();
+        break;
     case TopmostCommand:
         pin->setTopmost(!pin->topmost());
         break;
@@ -195,8 +311,17 @@ void PinManager::showMenu(PinWindow* pin, POINT at)
     case CloseCommand:
         pin->close();
         break;
+    case CloseOthersCommand:
+        closeOthers(pin);
+        break;
     case CloseAllCommand:
         closeAll();
+        break;
+    case HideAllCommand:
+        setAllHidden(!m_hidden);
+        break;
+    case AllTopmostCommand:
+        setAllTopmost(!allTopmost());
         break;
     default:
         break;

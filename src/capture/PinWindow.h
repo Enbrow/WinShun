@@ -1,14 +1,21 @@
 #pragma once
 
 #include "Geometry.h"
+#include "PinTools.h"
+#include "SmartRedact.h"
 
+#include <QColor>
 #include <QImage>
 #include <QPoint>
 #include <QRect>
 
 #include <windows.h>
 
+#include <atomic>
 #include <functional>
+#include <memory>
+#include <optional>
+#include <vector>
 
 namespace ws::capture {
 
@@ -28,11 +35,18 @@ namespace ws::capture {
 // border and shadow follow the DPI (WM_DPICHANGED, per-monitor v2, the
 // suggested rectangle ignored).
 //
-// The mouse drags it; the wheel zooms about the cursor through zoomSteps()
-// (no larger than kZoomBudget pixels of window); Ctrl+wheel changes the
-// opacity; a double click goes back to 100%. Esc closes it at once,
-// Ctrl+C copies, Ctrl+S saves; the right button or the menu key asks the
-// owner for the menu. Not in the taskbar or Alt+Tab (WS_EX_TOOLWINDOW).
+// The mouse drags it; the wheel (and + / -) zooms about the cursor through
+// zoomSteps() (no larger than kZoomBudget pixels of window); a corner dragged
+// zooms freely, the aspect ratio kept; Ctrl+wheel changes the opacity; a
+// double click goes back to 100%; the arrow keys move it a pixel (Shift: ten).
+// R and Shift+R turn it, H and V flip it. T picks text out of it (the words
+// are read once, then a drag takes the lines it touches and copies them).
+// Space, or the middle button, collapses it to a small tile; the menu also
+// collapses it to a tab on the top edge of its monitor's work area. While
+// collapsed only the picture's PNG bytes and a thumbnail are kept; a click
+// opens it again, to the pixel as it was. Esc closes it at once, Ctrl+C
+// copies, Ctrl+S saves; the right button or the menu key asks the owner for
+// the menu. Not in the taskbar or Alt+Tab (WS_EX_TOOLWINDOW).
 class PinWindow {
 public:
     struct Host {
@@ -41,6 +55,15 @@ public:
         std::function<void(PinWindow*)> copy; // Ctrl+C
         std::function<void(PinWindow*)> save; // Ctrl+S
         std::function<bool()> dark; // the border's grey
+        std::function<QColor()> accent; // a fill that carries white words
+        std::function<void(const QString&)> copyText; // the text picked
+        // Reads the lines of the picture (their corners and characters' places,
+        // in its pixels); `done` is called on the GUI thread, once, or never.
+        // Empty: no text recognition.
+        std::function<void(const QImage&, double dpr, std::function<void(QList<RedactLine>)> done)> readLines;
+        // The edge tabs of the other pins on `monitorWork` (physical), so a new one goes beside them.
+        std::function<std::vector<QRect>(const PinWindow* self)> takenTabs;
+        std::function<void(PinWindow*)> released; // its picture was let go of (collapsed): memory can go back
     };
 
     // The largest window a zoom may make, in pixels (~96 MB of DIB).
@@ -54,8 +77,9 @@ public:
     PinWindow& operator=(const PinWindow&) = delete;
 
     HWND hwnd() const { return m_hwnd; }
-    const QImage& image() const { return m_image; }
-    QRect pictureRect() const; // physical, virtual desktop, at the zoom
+    // The whole picture (decoded from its PNG bytes while collapsed: a copy).
+    QImage image() const;
+    QRect pictureRect() const; // physical, virtual desktop, as shown (the tile's while collapsed)
     double dpr() const { return m_dpi / 96.0; }
     double zoom() const { return m_zoom; }
     double opacity() const { return m_opacity; }
@@ -72,15 +96,18 @@ public:
 
     // A new picture where this one is (the editing window's 完成): the top
     // left and the zoom stay, the window follows the new size. A null picture
-    // changes nothing.
+    // changes nothing. A collapsed pin opens first.
     void setPicture(const QImage& image, QByteArray project);
     // Out of sight while it is edited, and back (it keeps its place).
     void setShown(bool shown);
+    // Out of sight for 隐藏全部贴图, and back; independent of setShown.
+    void setAllHidden(bool hidden);
+    bool visibleNow() const { return m_shown && !m_allHidden; }
 
     void setTopmost(bool on);
     // The mouse goes through it to what is under it (WS_EX_TRANSPARENT).
-    // Back by turning it off in its menu, the tray's 取消所有贴图的穿透, or
-    // by holding Ctrl with the cursor over it (updateReachable).
+    // Back by turning it off in its menu, the tray's 取消所有贴图的穿透, the
+    // restore hotkey, or by holding Ctrl with the cursor over it (updateReachable).
     void setClickThrough(bool on);
     // The owner's watcher calls this while any pin is click-through: a pin
     // set to click through takes the mouse while `ctrlDown` with `cursor`
@@ -91,7 +118,33 @@ public:
     bool dragging() const { return m_dragging; }
     void close(); // the window destroyed, its pixels let go of at once
 
+    // ---- turning and flipping (the annotations of a turned picture are gone) ----
+    void rotate(bool clockwise);
+    void flip(bool horizontal);
+
+    // ---- collapsing ----
+    PinForm form() const { return m_form; }
+    void collapse(PinForm to); // Tile or Edge
+    void expand();
+    // The PNG bytes kept while collapsed (empty while they are being made, or when in full).
+    const QByteArray& packed() const { return m_png; }
+    // The tab on the top edge, when it is one.
+    std::optional<QRect> edgeTab() const;
+
+    // ---- picking text ----
+    bool textMode() const { return m_text != Text::Off; }
+    bool canPickText() const { return m_host.readLines != nullptr; }
+    void beginTextPick(); // reads the picture's words, then a drag picks lines
+    void endTextPick();
+    QString pickedText() const; // the lines picked now
+
 private:
+    enum class Text { Off, Reading, Ready };
+    struct EncodeJob {
+        std::atomic<bool> cancelled {false};
+        QByteArray bytes;
+    };
+
     static LRESULT CALLBACK proc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT handle(UINT message, WPARAM wParam, LPARAM lParam);
     void render(); // the whole window: shadow, border, picture
@@ -100,13 +153,24 @@ private:
     void setZoom(double zoom, QPoint cursor);
     void releasePixels();
     void applyClickThrough(); // WS_EX_TRANSPARENT = click-through and not reachable
+    void applyVisibility();
+    void moveTo(QPoint origin); // the picture's top left, window follows
     QRect windowRect() const;
+    QSize fullSize() const;
+    const QImage& shownImage() const; // what the window draws at the zoom shown: the picture, or the thumbnail
+    double shownZoom() const { return m_form == PinForm::Full ? m_zoom : 1.0; }
+    QRect workArea() const; // of the monitor nearest to the picture
+    void drawTextLayer(QImage& canvas, const QRect& picture);
+    void updatePicked(QPoint cursor);
+    void finishEncode(const EncodeJob* job);
+    QPoint toImage(QPoint screen) const; // a screen point in the picture's pixels
 
     HWND m_hwnd = nullptr;
     Host m_host;
-    QImage m_image; // Format_RGB32, alpha forced opaque when drawn
+    QImage m_image; // Format_RGB32, alpha forced opaque when drawn; null while collapsed and packed
     QImage m_scaled; // the picture at m_zoom when that is not 1
-    QPoint m_origin; // the picture's top left, physical
+    QSize m_imageSize; // the picture's size, whether or not m_image is there
+    QPoint m_origin; // the picture's top left, physical (the tile's while collapsed)
     double m_zoom = 1.0;
     double m_opacity = 1.0;
     UINT m_dpi = 96;
@@ -115,10 +179,33 @@ private:
     bool m_clickThrough = false;
     bool m_reachable = false; // click-through, but Ctrl is held over it
     bool m_screenshot = true;
+    bool m_shown = true;
+    bool m_allHidden = false;
     QByteArray m_project;
     bool m_dragging = false;
     QPoint m_grab; // the cursor less m_origin at the press
     int m_wheel = 0; // wheel delta not yet a whole notch (touchpads)
+    // Dragging a corner: which, and the picture as it was at the press.
+    Corner m_corner = Corner::None;
+    QRect m_resizeStart;
+    // Collapsed: its form, the thumbnail, where it was in full, the encode.
+    PinForm m_form = PinForm::Full;
+    QImage m_thumb;
+    QByteArray m_png;
+    QPoint m_savedOrigin;
+    double m_savedZoom = 1.0;
+    QPoint m_tileAtCollapse;
+    QPoint m_press; // where the left button went down (a click on a tile opens it)
+    bool m_moved = false;
+    std::shared_ptr<EncodeJob> m_encode;
+    // Picking text.
+    Text m_text = Text::Off;
+    QList<RedactLine> m_lines;
+    QList<PickedLine> m_picked;
+    bool m_picking = false; // a drag under way
+    QPoint m_pickStart; // screen, physical
+    QRect m_pickBand; // the drag, in picture pixels
+    std::shared_ptr<bool> m_alive = std::make_shared<bool>(true); // the reading's answer finds this pin gone
     // The DIB the window is drawn from, selected into m_dc.
     HDC m_dc = nullptr;
     HBITMAP m_bitmap = nullptr;

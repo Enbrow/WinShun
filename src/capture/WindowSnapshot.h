@@ -29,12 +29,23 @@ public:
     const std::vector<QRect>& children(std::size_t i) const;
     // The window on top at `point` (physical, virtual desktop); null for none.
     HWND windowAt(const QPoint& point) const;
+    HWND handle(std::size_t i) const;
+    // The window's class name and how many child windows it has (its controls
+    // read already, for UI Automation's sake: wantsUia).
+    QString windowClass(std::size_t i) const;
+    int childWindows(std::size_t i) const;
+    // Controls UI Automation found in window i (UiaProbe): they join its
+    // child windows. True when any was not there yet.
+    bool addControls(std::size_t i, const std::vector<QRect>& controls);
+    // The index of the window `hwnd` in the list; -1 for none.
+    int indexOf(HWND hwnd) const;
     void clear();
 
 private:
     struct Entry {
         HWND hwnd = nullptr;
         mutable std::optional<std::vector<QRect>> children;
+        int controls = 0; // of children's last ones, from UI Automation
     };
     std::vector<Entry> m_entries;
     std::vector<QRect> m_rects;

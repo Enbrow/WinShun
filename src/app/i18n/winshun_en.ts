@@ -1103,6 +1103,38 @@
 <context>
     <name>AnnotateToolbar</name>
     <message>
+        <source>关掉这次截图，倒计时后重新截（秒数在设置里选）</source>
+        <translation>Ends this capture and captures again after a countdown (the seconds are set in the settings)</translation>
+    </message>
+    <message>
+        <source>识别选区里的二维码，可复制文字或打开链接</source>
+        <translation>Reads the QR codes in the selection; copy the text or open a link</translation>
+    </message>
+    <message>
+        <source>延时</source>
+        <translation>Delay</translation>
+    </message>
+    <message>
+        <source>二维码</source>
+        <translation>QR code</translation>
+    </message>
+    <message>
+        <source>延时截图：关掉这次，倒计时后再截</source>
+        <translation>Delayed capture: end this one and capture again after a countdown</translation>
+    </message>
+    <message>
+        <source>识别选区里的二维码</source>
+        <translation>Read the QR codes in the selection</translation>
+    </message>
+    <message>
+        <source>还没选区时：用上一次的选区</source>
+        <translation>With no selection yet: use the last selection</translation>
+    </message>
+    <message>
+        <source>复制颜色；换颜色格式（HEX、RGB、HSL）</source>
+        <translation>Copy the colour; change its format (HEX, RGB, HSL)</translation>
+    </message>
+    <message>
         <source>复制</source>
         <translation>Copy</translation>
     </message>
@@ -1421,6 +1453,62 @@
 <context>
     <name>CaptureCard</name>
     <message>
+        <source>点一下显示或隐藏，亮着的就是显示的。隐藏的按钮，快捷键照样能用：撤销 Ctrl+Z、重做 Ctrl+Y、复制 Enter、保存 Ctrl+S、贴图 F3、长截图 Ctrl+L、取消 Esc；二维码 Q、延时 D；识别文字没有快捷键，只能点工具条上的按钮，或设给上面的鼠标键。标注工具一直显示</source>
+        <translation>Click to show or hide; the lit ones are shown. A hidden button’s key still works: undo Ctrl+Z, redo Ctrl+Y, copy Enter, save Ctrl+S, pin F3, long screenshot Ctrl+L, cancel Esc; QR code Q, delay D. Read text has no key: click its toolbar button, or give it to a mouse button above. The annotation tools always show</translation>
+    </message>
+    <message>
+        <source>设成“鼠标穿透”的贴图点不到时，按它让所有贴图都能点；平时按住 Ctrl 把鼠标放上去也行</source>
+        <translation>When pins set to “click through” cannot be clicked, press it to make all pins take the mouse again; or hold Ctrl with the mouse over one</translation>
+    </message>
+    <message>
+        <source>找回穿透贴图的快捷键</source>
+        <translation>Shortcut to get click-through pins back</translation>
+    </message>
+    <message>
+        <source>按一下藏起所有贴图，再按一下放回来；新贴一张图时也会放回来。不设就只能从托盘菜单或贴图的右键菜单操作</source>
+        <translation>Press once to hide every pin and again to bring them back; pinning a new picture brings them back too. Without one, use the tray menu or a pin’s right-click menu</translation>
+    </message>
+    <message>
+        <source>隐藏 / 显示全部贴图的快捷键</source>
+        <translation>Shortcut to hide / show all pins</translation>
+    </message>
+    <message>
+        <source>%1 秒</source>
+        <translation>%1 s</translation>
+    </message>
+    <message>
+        <source>托盘菜单“截图 › 延时截图”开始倒计时，屏幕角上有数字，到点才冻结屏幕，用来截菜单、悬停提示。截图时按 D 或点工具条的“延时”，也是关掉这次、倒计时后再截。再按一次截图快捷键，或点倒计时，取消</source>
+        <translation>The tray menu “Screenshot › Delayed capture” starts a countdown with the number in a corner of the screen; the screen freezes only when it ends, for capturing menus and hover tips. Pressing D, or Delay on the toolbar, while capturing also ends this one and captures again after the countdown. Press the capture shortcut again, or click the countdown, to cancel</translation>
+    </message>
+    <message>
+        <source>延时截图</source>
+        <translation>Delayed capture</translation>
+    </message>
+    <message>
+        <source>鼠标移到 VS Code、微信、设置这类程序的窗口上时，也能框出里面的侧栏、编辑区等控件。查询在后台进行，最多等 150 毫秒，超时就只用普通子窗口，不会拖慢鼠标。提权运行的程序框不到控件</source>
+        <translation>Over a window of VS Code, WeChat, Settings and the like, the sidebar, the editor and other controls inside can be outlined too. The question is asked in the background and waits 150 ms at most; past that only the ordinary child windows are used, so the mouse never slows down. Controls in programs running as administrator cannot be found</translation>
+    </message>
+    <message>
+        <source>识别 Electron、WinUI 等程序里的控件</source>
+        <translation>Find controls in Electron, WinUI and similar programs</translation>
+    </message>
+    <message>
+        <source>冻结的画面里画上截图那一刻的鼠标指针，复制、保存、贴图的图里都有它。关着时图里没有指针</source>
+        <translation>Draws the mouse cursor as it was at that moment into the frozen picture, so it is in what you copy, save or pin. Off: the picture has no cursor</translation>
+    </message>
+    <message>
+        <source>截图带上鼠标指针</source>
+        <translation>Include the mouse cursor</translation>
+    </message>
+    <message>
+        <source>延时</source>
+        <translation>Delay</translation>
+    </message>
+    <message>
+        <source>二维码</source>
+        <translation>QR code</translation>
+    </message>
+    <message>
         <source>截图</source>
         <translation>Screenshot</translation>
     </message>
@@ -1623,6 +1711,10 @@
 </context>
 <context>
     <name>CaptureOverlay</name>
+    <message>
+        <source>C 复制 · Shift+C 换格式</source>
+        <translation>C copies · Shift+C changes the format</translation>
+    </message>
     <message>
         <source>截图</source>
         <translation>Screenshot</translation>
@@ -2613,6 +2705,10 @@
 </context>
 <context>
     <name>OcrPanel</name>
+    <message>
+        <source>打开链接</source>
+        <translation>Open link</translation>
+    </message>
     <message>
         <source>识别文字</source>
         <translation>Read text</translation>
@@ -5961,6 +6057,42 @@
 </context>
 <context>
     <name>ws::App</name>
+    <message>
+        <source>全部置顶</source>
+        <translation>All on top</translation>
+    </message>
+    <message>
+        <source>隐藏全部贴图</source>
+        <translation>Hide all pins</translation>
+    </message>
+    <message>
+        <source>显示全部贴图</source>
+        <translation>Show all pins</translation>
+    </message>
+    <message>
+        <source>10 秒</source>
+        <translation>10 s</translation>
+    </message>
+    <message>
+        <source>5 秒</source>
+        <translation>5 s</translation>
+    </message>
+    <message>
+        <source>3 秒</source>
+        <translation>3 s</translation>
+    </message>
+    <message>
+        <source>延时截图</source>
+        <translation>Delayed capture</translation>
+    </message>
+    <message>
+        <source>选区里没有找到二维码。</source>
+        <translation>No QR code was found in the selection.</translation>
+    </message>
+    <message>
+        <source>二维码</source>
+        <translation>QR code</translation>
+    </message>
     <message>
         <source>没有打开“%1”</source>
         <translation>Didn’t open “%1”</translation>
@@ -9836,6 +9968,14 @@
 <context>
     <name>ws::capture::CaptureSession</name>
     <message>
+        <source>还没有上次的选区</source>
+        <translation>No last selection yet</translation>
+    </message>
+    <message>
+        <source>颜色格式：%1</source>
+        <translation>Colour format: %1</translation>
+    </message>
+    <message>
         <source>已有标注：拖边框调整选区，Esc 放弃标注</source>
         <translation>There are annotations: drag the edge to resize the selection, Esc to give them up</translation>
     </message>
@@ -9898,6 +10038,66 @@
 <context>
     <name>ws::capture::PinManager</name>
     <message>
+        <source>关闭其他</source>
+        <translation>Close the others</translation>
+    </message>
+    <message>
+        <source>展开</source>
+        <translation>Expand</translation>
+    </message>
+    <message>
+        <source>选择文字</source>
+        <translation>Pick text</translation>
+    </message>
+    <message>
+        <source>全部置顶</source>
+        <translation>All on top</translation>
+    </message>
+    <message>
+        <source>隐藏全部贴图</source>
+        <translation>Hide all pins</translation>
+    </message>
+    <message>
+        <source>显示全部贴图</source>
+        <translation>Show all pins</translation>
+    </message>
+    <message>
+        <source>全部贴图</source>
+        <translation>All pins</translation>
+    </message>
+    <message>
+        <source>收到屏幕顶边</source>
+        <translation>To the top edge of the screen</translation>
+    </message>
+    <message>
+        <source>收成小块</source>
+        <translation>To a small tile</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>Collapse</translation>
+    </message>
+    <message>
+        <source>上下翻转</source>
+        <translation>Flip vertically</translation>
+    </message>
+    <message>
+        <source>左右翻转</source>
+        <translation>Flip horizontally</translation>
+    </message>
+    <message>
+        <source>向左转 90°</source>
+        <translation>Rotate left 90°</translation>
+    </message>
+    <message>
+        <source>向右转 90°</source>
+        <translation>Rotate right 90°</translation>
+    </message>
+    <message>
+        <source>旋转与翻转</source>
+        <translation>Rotate and flip</translation>
+    </message>
+    <message>
         <source>识别文字</source>
         <translation>Read text</translation>
     </message>
@@ -9955,6 +10155,30 @@
     <message>
         <source>写入诊断包失败，请检查文件夹权限和剩余空间</source>
         <translation>Could not save the diagnostic archive. Check folder permissions and available space.</translation>
+    </message>
+</context>
+<context>
+    <name>ws::capture::CountdownWindow</name>
+    <message>
+        <source>秒后截图
+点这里取消</source>
+        <translation>seconds to capture
+click here to cancel</translation>
+    </message>
+</context>
+<context>
+    <name>ws::capture::PinWindow</name>
+    <message>
+        <source>已复制文字 · Esc 退出</source>
+        <translation>Text copied · Esc to leave</translation>
+    </message>
+    <message>
+        <source>拖选文字 · Esc 退出</source>
+        <translation>Drag to pick text · Esc to leave</translation>
+    </message>
+    <message>
+        <source>识别文字中…</source>
+        <translation>Reading text…</translation>
     </message>
 </context>
 </TS>

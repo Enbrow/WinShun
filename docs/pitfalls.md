@@ -3375,3 +3375,49 @@
 - **现象**：同样先截一张普通截图，再做一次长截图，commit 比只截普通截图多约 67 MB，一直不回。
 - **原因**：WGC 帧池（两块整屏大小的纹理）和 staging 纹理放掉后，D3D11 的延迟销毁和驱动的缓存还留着；面板窗口隐藏后它的场景图资源也留着。
 - **做法**：流结束时放掉 staging、帧池、session，再 `ClearState` + `Flush` + `IDXGIDevice3::Trim`；面板隐藏后 `releaseResources()`。之后同样的对比只多 11.6 MB（`vm6.ps1` 按分配大小列 private commit）；截 3 万 px 再结束，5 秒内回到开始前 +16.6 MB。另：阶段 5 的“框选后自动识别”在选区时加载 onnxruntime（约 +40 MB 常驻），不是长截图的。
+
+## 截图（阶段 7，2026-10-23）
+
+### 新加第三方目录后 ninja 报 `FindFirstFileExA(../../../??????/…)`（又是从 Bash 编译）
+
+- **现象**：zxing-cpp 放在 `third_party/zxing-cpp/core`，`add_subdirectory(<那个目录> ${CMAKE_BINARY_DIR}/third_party/zxing-cpp)` 之后，ninja 报 `FindFirstFileExA(../../../??????/third_party/zxing-cpp/core/src): 文件名、目录名或卷标语法不正确`，什么也编不了；就算只编 `-n` 也报。
+- **原因**：不是编译目录的问题本身。这是前面写过的那个坑（“从 bash 起的 pwsh 里跑 ninja”）：从 Bash 工具里经 `pwsh` 编译，`cl` 的 `/showIncludes` 路径里的中文和 ninja 的当前目录对不上，`.ninja_deps` 里存成了 `../../../电脑便捷工具/...`，下一次再读就报错。换成 VS 自带的 ninja 1.12.1 也一样（它也没有 UTF-8 清单）。第一个报错的恰好是新加的目录。
+- **做法**：编译只从 PowerShell 工具起；坏了就删 `.ninja_deps`、`.ninja_log`，再把 `CMakeFiles\rules.ninja` 里的 `msvc_deps_prefix` 换成 UTF-8 的“注意: 包含文件: ”（重新生成后会被改回 `??: ????: `，每次编译前检查一次，scratchpad 的 `build.ps1` 做了这一步）。`add_subdirectory` 的编译目录也让它镜像源码目录（`${CMAKE_BINARY_DIR}/third_party/zxing-cpp/core`），这一点本身没有出过问题。
+- **zxing-cpp 另外两处**：它的 CMake 用预编译头和 `AUTOMOC`（我们的 `qt_standard_project_setup` 全局开着），用 `set_target_properties(ZXing PROPERTIES AUTOMOC OFF DISABLE_PRECOMPILE_HEADERS ON ...)` 关掉；`ZXING_WRITERS` 开着只是为了单测里能自己生成二维码（静态库，不用就不链进来）。写二维码要 `setEncoding(CharacterSet::UTF8)` 并传 `std::string`，默认的 Latin-1 遇到汉字直接抛异常。
+
+### 界面自动化：遮罩盖着，`ElementFromPoint` 命中的是我们自己
+
+- **现象**：想用 `IUIAutomation::ElementFromPoint` 取鼠标下的控件，得到的是 Win顺 的遮罩。
+- **做法**：从目标窗口的 `ElementFromHandle` 一层层往下走（`FindAllBuildCache(TreeScope_Children)`，缓存 `BoundingRectangle`、`IsOffscreen`），每层取包含这个点的子元素。
+
+### Chromium（VS Code、Edge、微信）的界面自动化树要有人听事件才会建
+
+- **现象**：另开的 VS Code 里，窗口的 `ElementFromHandle` 往下只有一个窗格，没有侧栏、编辑区；而测试脚本里用 `AutomationElement.FromPoint` 能看到完整的树（`TabItem`、`StatusBar`……）。
+- **原因**：Chromium 只在发现有界面自动化的客户端“在听”（`UiaClientsAreListening`，客户端注册过事件处理）时才建网页内容的辅助功能树；光问不听，只给窗口外壳。
+- **做法**：探针线程注册一个什么也不做的 `IUIAutomationFocusChangedEventHandler`（`UiaProbe.cpp` 的 `FocusSink`），线程结束时 `RemoveAllEventHandlers`。注册后，第一次悬停就拿得到侧栏、编辑区、标签页。
+
+### Chromium 把内容包在十几层同样大小的窗格里，只取“最后一个包含这个点的子元素”会走进死路
+
+- **现象**：能进到 `Document`，往下一层却是 0 个子元素，答案只有一个窗口大小的矩形（日志 “UI Automation gave 1 controls”）。
+- **原因**：窗口下有两个窗格（Win32 的渲染子窗口和网页内容的根），网页内容里又套了七层同样大小的窗格、`Group`、`Document`、`Group`，同一层有两个同样大小的窗格时后一个是死路。
+- **做法**：每个包含这个点的子元素都试，留最深的一条（`UiaProbe.cpp` 的 `dive`：深度 32、最多读 400 个元素、总共 150 ms）。链里同样大小的矩形去重（`uiaControls`），所以日志里“N 个控件”比层数少很多。
+
+### 测超时：把目标进程挂起
+
+- **做法**：`NtSuspendProcess`（`PROCESS_SUSPEND_RESUME` 0x800）挂起测试用的 VS Code，鼠标移上去：界面自动化的调用等满事务超时（150 ms），答案 0 个控件、超出预算，悬停框是子窗口，鼠标移到别的窗口 54 ms 内悬停框就跟上（说明没在界面线程上等）。`finally` 里一定 `NtResumeProcess`。
+
+### 带鼠标指针：句柄不是你读到的那个
+
+- **现象**：测试脚本在按热键前用 `GetCursorInfo` 读到箭头指针（句柄 65539，热点 1,0），存下的 PNG 里的指针却和用这个句柄 `DrawIconEx` 画的差 423 个像素。
+- **原因**：按下热键的那一刻，系统的当前指针是另一个箭头句柄（65561，热点 1,1）；Win顺 画的是那一刻的，没错。
+- **做法**：参照图用日志里写的句柄和位置（`Screen capture: mouse cursor drawn (handle N) at x,y`）来画；整张图 0 像素差。
+
+### 测试脚本
+
+- 原生弹出菜单是自绘的，界面自动化看不到菜单项（一个空的 `Pane`）：用键盘走（第一层从没有选中的状态 `Down` n 次；开子菜单按 `Right`，子菜单里第一项已经选中，再 `Down` n−1 次；`Enter`）。
+- 方向键要带 `KEYEVENTF_EXTENDEDKEY`（`Shift`+方向键否则变成小键盘键，`Shift` 被吃掉）。
+- 启动器和遮罩都是 Qt 窗口：“前台是 WinShun 的 Qt 窗口”不能当成“遮罩出来了”，还要看它是整块屏大小。热键没成功时前台的是启动器，脚本的守卫会挡住后面的键，但要查清为什么。
+- 改 `WinShun.ini` 的 `Hotkey=` 要限定在 `[Capture]` 段里：第一个匹配的是 `[Launcher]` 的，把截图热键设给它，截图键就注册不上、按下去打开了启动器。
+- PowerShell 的 `@(a + b, c)` 逗号比加号结合得紧，加括号。
+- 自绘菜单里“全部置顶”会把贴图落到测试窗（也是置顶的）后面，之后点不到它：测这一项时让贴图有一部分在测试窗外面。
+- 翻译：`lupdate` 看不到包了一层的 `tr`（`say("...")` 之类），直接写 `QCoreApplication::translate("上下文", "...")`；`wscapture` 库里的文件要加进 `src/app/CMakeLists.txt` 的 `qt_add_lupdate(... SOURCES ...)`。

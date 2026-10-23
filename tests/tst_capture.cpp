@@ -10,6 +10,7 @@
 #include <QSignalSpy>
 #include <QTest>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -62,7 +63,11 @@ class TestCapture : public QObject {
     Q_OBJECT
 
 private slots:
-    void initTestCase() { qRegisterMetaType<CaptureSession::Action>(); }
+    void initTestCase()
+    {
+        qRegisterMetaType<CaptureSession::Action>();
+        qRegisterMetaType<ColorFormat>("ws::capture::ColorFormat");
+    }
 
     // ---- geometry --------------------------------------------------------
 
@@ -215,21 +220,27 @@ private slots:
 
     void zoomStepsPassThroughOneAndStopAtTheEnds()
     {
-        QCOMPARE(nextZoom(1.0, 1), 1.25);
+        QCOMPARE(nextZoom(1.0, 1), 1.1); // a notch is 10%
         QCOMPARE(nextZoom(1.0, -1), 0.9);
-        QCOMPARE(nextZoom(1.25, -1), 1.0); // back to exactly 100%
+        QCOMPARE(nextZoom(1.1, -1), 1.0); // back to exactly 100%
         QCOMPARE(nextZoom(0.9, 1), 1.0);
-        QCOMPARE(nextZoom(1.1, -1), 1.0); // between steps: the next one that way
-        QCOMPARE(nextZoom(1.1, 1), 1.25);
+        QCOMPARE(nextZoom(1.05, -1), 1.0); // between steps (a corner drag): the next one that way
+        QCOMPARE(nextZoom(1.05, 1), 1.1);
+        QCOMPARE(nextZoom(1.0, 10), 2.0);
+        QCOMPARE(nextZoom(2.0, 1), 3.0); // past 200% the whole multiples
         QCOMPARE(nextZoom(1.0, 100), 8.0);
         QCOMPARE(nextZoom(1.0, -100), 0.1);
         QCOMPARE(nextZoom(8.0, 1), 8.0);
         QCOMPARE(nextZoom(0.1, -1), 0.1);
-        QCOMPARE(nextZoom(1.0, 3, 2.5), 2.0); // the window budget stops it
+        QCOMPARE(nextZoom(1.0, 30, 2.5), 2.0); // the window budget stops it
         QCOMPARE(nextZoom(2.0, 1, 2.5), 2.0);
-        // Whole multiples above 100%: crisp pixels.
-        for (double z : zoomSteps())
-            QVERIFY(z <= 1.5 || z == std::floor(z));
+        // Every 10% from 10% to 200%, then crisp whole multiples.
+        const std::vector<double>& steps = zoomSteps();
+        for (int tenth = 1; tenth <= 20; ++tenth)
+            QCOMPARE(steps[std::size_t(tenth - 1)], tenth / 10.0);
+        for (double z : steps)
+            QVERIFY(z <= 2.0 || z == std::floor(z));
+        QVERIFY(std::ranges::is_sorted(steps));
     }
 
     void maxZoomKeepsTheWindowInBudget()
@@ -1018,6 +1029,146 @@ private slots:
         rig.session.pointerRelease(0, {150, 150}, Qt::BackButton);
         QCOMPARE(finished.count(), 1);
         QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Save);
+    }
+
+    // ---- stage 7 -----------------------------------------------------------------------------
+
+    void shiftRBringsBackTheLastSelectionOnItsMonitor()
+    {
+        CaptureScreen first {0};
+        CaptureScreen second {1};
+        first.setGeometry(QRect(0, 0, 1000, 800), 1.0, QSize(1000, 800));
+        second.setGeometry(QRect(1000, 0, 1000, 800), 1.0, QSize(1000, 800));
+        QImage image(1000, 800, QImage::Format_RGB32);
+        image.fill(Qt::gray);
+        first.setImage(image);
+        second.setImage(image);
+        CaptureSession session;
+        QSignalSpy selections(&session, &CaptureSession::selectionChanged);
+        // Nothing remembered: a word, no selection.
+        session.begin({&first, &second}, {});
+        session.pointerMove(0, {50, 50});
+        QVERIFY(session.key(Qt::Key_R, Qt::ShiftModifier));
+        QVERIFY(!session.hasSelection());
+        QVERIFY(!first.flash().isEmpty());
+        session.end();
+        // The last capture was on the second monitor, the cursor is on the first.
+        session.setLastSelection(QRect(1100, 100, 300, 200));
+        session.begin({&first, &second}, {});
+        session.pointerMove(0, {50, 50});
+        selections.clear();
+        QVERIFY(session.key(Qt::Key_R, Qt::ShiftModifier));
+        QVERIFY(session.hasSelection());
+        QCOMPARE(session.selectionScreen(), 1);
+        QCOMPARE(session.selectionRect(), QRect(100, 100, 300, 200));
+        QCOMPARE(second.selection(), QRect(100, 100, 300, 200));
+        QVERIFY(first.selection().isNull());
+        QVERIFY(selections.count() >= 1);
+        // With a selection there is nothing to bring back: the key is not taken.
+        QVERIFY(!session.key(Qt::Key_R, Qt::ShiftModifier) || session.selectionRect() == QRect(100, 100, 300, 200));
+        session.end();
+        // Without Shift, R is a tool's key, not this one's.
+        session.begin({&first, &second}, {});
+        QVERIFY(!session.key(Qt::Key_R, Qt::NoModifier));
+        QVERIFY(!session.hasSelection());
+    }
+
+    void shiftCChangesTheColourFormatAndCCopiesIt()
+    {
+        Rig rig;
+        rig.begin();
+        QSignalSpy colors(&rig.session, &CaptureSession::colorCopied);
+        QSignalSpy formats(&rig.session, &CaptureSession::colorFormatChanged);
+        rig.session.pointerMove(0, {10, 10});
+        QCOMPARE(rig.screen.colorText(), u"#ABCDEF"_s);
+        QVERIFY(rig.session.key(Qt::Key_C, Qt::ShiftModifier));
+        QCOMPARE(rig.session.colorFormat(), ColorFormat::Rgb);
+        QCOMPARE(rig.screen.colorText(), u"rgb(171, 205, 239)"_s);
+        QCOMPARE(rig.screen.color(), u"#ABCDEF"_s); // the swatch keeps its hex
+        QVERIFY(rig.screen.flash().contains(u"RGB"_s));
+        QVERIFY(rig.session.key(Qt::Key_C, Qt::NoModifier));
+        QCOMPARE(colors.count(), 1);
+        QCOMPARE(colors[0][0].toString(), u"rgb(171, 205, 239)"_s);
+        QVERIFY(rig.session.key(Qt::Key_C, Qt::ShiftModifier));
+        QCOMPARE(rig.screen.colorText(), u"hsl(210, 68%, 80%)"_s);
+        QVERIFY(rig.session.key(Qt::Key_C, Qt::ShiftModifier));
+        QCOMPARE(rig.screen.colorText(), u"#ABCDEF"_s);
+        QCOMPARE(formats.count(), 3);
+        // The format outlasts the capture (the app keeps it in the settings).
+        rig.session.setColorFormat(ColorFormat::Hsl);
+        rig.session.end();
+        rig.begin();
+        rig.session.pointerMove(0, {10, 10});
+        QCOMPARE(rig.screen.colorText(), u"hsl(210, 68%, 80%)"_s);
+        // Ctrl+C is still the picture's copy, Shift+C's format change does not copy.
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        QVERIFY(rig.session.key(Qt::Key_C, Qt::ControlModifier));
+        QCOMPARE(finished.count(), 1);
+    }
+
+    void qAndDAsk()
+    {
+        Rig rig;
+        rig.begin();
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.drag({100, 100}, {299, 299});
+        QVERIFY(rig.session.key(Qt::Key_Q, Qt::NoModifier));
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Qr);
+        QCOMPARE(finished[0][1].toInt(), 0);
+        QCOMPARE(finished[0][2].toRect(), QRect(100, 100, 200, 200));
+        // Without a selection the window under the cursor is read, as for the other keys.
+        rig.begin();
+        finished.clear();
+        rig.session.pointerMove(0, {400, 400});
+        QVERIFY(rig.session.key(Qt::Key_Q, Qt::NoModifier));
+        QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Qr);
+        // D ends this capture for the delayed one: it needs no selection and takes no picture.
+        rig.begin();
+        finished.clear();
+        QVERIFY(rig.session.key(Qt::Key_D, Qt::NoModifier));
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Delay);
+        QVERIFY(!rig.session.key(Qt::Key_D, Qt::ControlModifier)); // Ctrl+D is the annotation's copy
+        rig.begin();
+        finished.clear();
+        rig.session.act(int(CaptureSession::Action::Delay));
+        QCOMPARE(finished.count(), 1);
+    }
+
+    void controlsFoundLaterJoinTheHover()
+    {
+        Rig rig;
+        rig.tops = {QRect(100, 100, 600, 500)};
+        rig.children = {{}};
+        QList<QPair<std::size_t, QPoint>> asked;
+        CaptureSession::Windows windows;
+        windows.tops = rig.tops;
+        windows.children = [&rig](std::size_t i) { return rig.children[i]; };
+        windows.probe = [&asked](std::size_t i, QPoint p) { asked.append({i, p}); };
+        rig.session.begin({&rig.screen}, std::move(windows));
+        rig.session.pointerMove(0, {250, 250});
+        QCOMPARE(rig.screen.hover(), QRect(100, 100, 600, 500)); // the window: nothing finer known
+        QCOMPARE(asked.size(), 1);
+        QCOMPARE(asked[0].first, std::size_t(0)); // asked about the window the point is in, at that point
+        QCOMPARE(asked[0].second, QPoint(250, 250));
+        // The probe answers: a control; the hover is worked out again at the cursor.
+        rig.children[0] = {QRect(100, 100, 200, 500), QRect(150, 200, 300, 120)};
+        rig.session.refreshHover();
+        QCOMPARE(rig.screen.hover(), QRect(150, 200, 300, 120)); // the smallest holding the point
+        rig.session.pointerMove(0, {110, 400});
+        QCOMPARE(rig.screen.hover(), QRect(100, 100, 200, 500));
+        // Outside every window: no question.
+        asked.clear();
+        rig.session.pointerMove(0, {900, 700});
+        QVERIFY(asked.isEmpty());
+        // Once a selection is made, the hover is not asked about.
+        rig.drag({300, 300}, {399, 399});
+        asked.clear();
+        rig.session.pointerMove(0, {250, 250});
+        QVERIFY(asked.isEmpty());
+        rig.session.refreshHover(); // and refreshing then changes nothing
+        QCOMPARE(rig.session.selectionRect(), QRect(300, 300, 100, 100));
     }
 
     void doubleLeftFollowsTheSetting()

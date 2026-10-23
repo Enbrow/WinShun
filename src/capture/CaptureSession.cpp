@@ -39,6 +39,7 @@ void CaptureScreen::setImage(const QImage& image)
     if (image.isNull()) {
         m_loupe = {};
         m_color.clear();
+        m_colorText.clear();
     }
     emit imageChanged();
 }
@@ -81,11 +82,23 @@ void CaptureScreen::setCursor(bool here, QPoint at, int shape)
             }
         }
         m_loupe = loupe;
-        m_color = at.x() >= 0 && at.y() >= 0 && at.x() < m_image.width() && at.y() < m_image.height()
-            ? colorHex(m_image.pixel(at))
-            : QString();
+        const bool inside = at.x() >= 0 && at.y() >= 0 && at.x() < m_image.width() && at.y() < m_image.height();
+        m_rgb = inside ? m_image.pixel(at) : 0;
+        m_color = inside ? colorHex(m_rgb) : QString();
+        m_colorText = inside ? capture::colorText(m_rgb, m_colorFormat) : QString();
     }
     emit cursorChanged();
+}
+
+void CaptureScreen::setColorFormat(ColorFormat format)
+{
+    if (m_colorFormat == format)
+        return;
+    m_colorFormat = format;
+    if (!m_color.isEmpty()) {
+        m_colorText = capture::colorText(m_rgb, format);
+        emit cursorChanged();
+    }
 }
 
 void CaptureScreen::setFlash(const QString& text)
@@ -244,6 +257,7 @@ void CaptureSession::begin(std::vector<CaptureScreen*> screens, Windows windows)
     for (CaptureScreen* s : m_screens) {
         s->setFlash({});
         s->setNotice({});
+        s->setColorFormat(m_colorFormat);
     }
     const bool was = m_active;
     m_active = true;
@@ -261,6 +275,23 @@ void CaptureSession::setFlyout(const QRect& rect)
         updateHover(m_cursorScreen, m_cursorAt);
         publish();
     }
+}
+
+void CaptureSession::refreshHover()
+{
+    if (m_active && m_phase == Phase::Hover && m_cursorScreen >= 0) {
+        updateHover(m_cursorScreen, m_cursorAt);
+        publish();
+    }
+}
+
+void CaptureSession::setColorFormat(ColorFormat format)
+{
+    if (std::exchange(m_colorFormat, format) == format)
+        return;
+    for (CaptureScreen* s : m_screens)
+        s->setColorFormat(format);
+    emit colorFormatChanged(format);
 }
 
 void CaptureSession::setOcrAvailable(bool on)
@@ -357,6 +388,15 @@ void CaptureSession::updateHover(int screen, QPoint p)
         return list;
     };
     std::vector<QRect> chain = hitChain(tops, children, p, s->bounds());
+    // The window the point is in: UI Automation may know more of it than its child windows.
+    if (m_windows.probe && m_phase == Phase::Hover) {
+        for (std::size_t i = above; i < tops.size(); ++i) {
+            if (tops[i].intersected(s->bounds()).contains(p)) {
+                m_windows.probe(i - above, origin + p);
+                break;
+            }
+        }
+    }
     // Stepped out with the wheel: stays out while that pick is still there.
     std::size_t level = 0;
     if (screen == m_hoverScreen && m_level > 0 && m_level < m_chain.size()) {
@@ -816,11 +856,35 @@ bool CaptureSession::key(int key, Qt::KeyboardModifiers modifiers)
             return true;
         if (ctrl) {
             finish(Action::Copy);
-        } else if (const CaptureScreen* s = screenAt(m_cursorScreen); s && !s->color().isEmpty()) {
-            emit colorCopied(s->color());
+        } else if (shift) {
+            // Shift+C: the next format (HEX, RGB, HSL), kept for the next capture.
+            setColorFormat(nextColorFormat(m_colorFormat));
             if (CaptureScreen* target = screenAt(m_cursorScreen))
-                target->setFlash(tr("已复制 %1").arg(s->color()));
+                target->setFlash(tr("颜色格式：%1").arg(colorFormatName(m_colorFormat).toUpper()));
+        } else if (const CaptureScreen* s = screenAt(m_cursorScreen); s && !s->colorText().isEmpty()) {
+            const QString text = s->colorText();
+            emit colorCopied(text);
+            if (CaptureScreen* target = screenAt(m_cursorScreen))
+                target->setFlash(tr("已复制 %1").arg(text));
         }
+        return true;
+    case Qt::Key_R:
+        // Shift+R before there is a selection: the one of the last capture.
+        if (!shift || ctrl || busy || m_selection.screen >= 0 || m_phase != Phase::Hover)
+            return false;
+        useLastSelection();
+        return true;
+    case Qt::Key_Q:
+        if (ctrl || shift)
+            return false;
+        if (!busy)
+            act(static_cast<int>(Action::Qr));
+        return true;
+    case Qt::Key_D:
+        if (ctrl || shift)
+            return false;
+        if (!busy)
+            act(static_cast<int>(Action::Delay));
         return true;
     case Qt::Key_Left:
     case Qt::Key_Right:
@@ -845,6 +909,26 @@ bool CaptureSession::key(int key, Qt::KeyboardModifiers modifiers)
     default:
         return false;
     }
+}
+
+void CaptureSession::useLastSelection()
+{
+    std::vector<QRect> monitors;
+    for (const CaptureScreen* s : m_screens)
+        monitors.push_back(s->rect());
+    const std::optional<RememberedSelection> last = lastSelectionOn(m_lastSelection, monitors);
+    if (!last) {
+        if (CaptureScreen* target = screenAt(m_cursorScreen))
+            target->setFlash(tr("还没有上次的选区"));
+        return;
+    }
+    m_selection = {m_screens[static_cast<std::size_t>(last->monitor)]->index(), last->rect};
+    m_previous = {};
+    m_phase = Phase::Selected;
+    emit selectionChanged();
+    if (m_cursorScreen >= 0)
+        updateCursor(m_cursorScreen, m_cursorAt);
+    publish();
 }
 
 void CaptureSession::back()
@@ -907,9 +991,9 @@ void CaptureSession::finish(Action action)
     if (m_annot.active())
         m_annot.commitPending(); // the words typed so far are part of the picture
     Pick pick;
-    if (action != Action::Cancel)
+    if (action != Action::Cancel && action != Action::Delay)
         pick = m_selection.screen >= 0 ? m_selection : hovered();
-    if (action != Action::Cancel && (pick.screen < 0 || pick.rect.isEmpty()))
+    if (action != Action::Cancel && action != Action::Delay && (pick.screen < 0 || pick.rect.isEmpty()))
         action = Action::Cancel;
     emit finished(action, pick.screen, pick.rect);
 }
@@ -955,7 +1039,7 @@ bool CaptureSession::keyPressed(int key, int modifiers)
 
 void CaptureSession::act(int action)
 {
-    if (!m_active || action < static_cast<int>(Action::Copy) || action > static_cast<int>(Action::Long))
+    if (!m_active || action < static_cast<int>(Action::Copy) || action > static_cast<int>(Action::Delay))
         return;
     if (action == static_cast<int>(Action::Long)) {
         // Its picture is the screen's, scrolled: annotations would be lost.

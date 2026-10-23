@@ -701,7 +701,7 @@ QString Settings::normalizedHotkey(const QString& shortcut)
 
 QStringList Settings::captureToolbarButtonIds()
 {
-    return {u"undo"_s, u"redo"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"long"_s, u"cancel"_s};
+    return {u"undo"_s, u"redo"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"long"_s, u"qr"_s, u"delay"_s, u"cancel"_s};
 }
 
 QStringList Settings::normalizedSmartWords(const QString& text)
@@ -1051,6 +1051,19 @@ void Settings::load()
             ? wordsRaw.toStringList().join(u',')
             : (wordsRaw.isValid() ? wordsRaw.toString() : d.captureSmartWords)).join(u',');
 
+    captureCursor = readOrDefault(s, u"Capture/IncludeCursor"_s, d.captureCursor);
+    captureControlsUia = readOrDefault(s, u"Capture/ControlsUia"_s, d.captureControlsUia);
+    {
+        const int seconds = readOrDefault(s, u"Capture/DelaySeconds"_s, d.captureDelay);
+        captureDelay = seconds == 3 || seconds == 5 || seconds == 10 ? seconds : d.captureDelay;
+    }
+    {
+        const QString format = readOrDefault(s, u"Capture/ColorFormat"_s, d.captureColorFormat).trimmed().toLower();
+        captureColorFormat = format == u"rgb" || format == u"hsl" ? format : u"hex"_s;
+    }
+    capturePinsHotkey = readOrDefault(s, u"Capture/PinsHotkey"_s, d.capturePinsHotkey).trimmed();
+    capturePinsRestoreHotkey = readOrDefault(s, u"Capture/PinsRestoreHotkey"_s, d.capturePinsRestoreHotkey).trimmed();
+
     // Before the list: writing it (defaults new to the file) rewrites the whole group.
     webSuggestions = readOrDefault(s, u"WebSearch/Suggestions"_s, d.webSuggestions);
     webShortcuts = readWebShortcuts(s, d.webShortcuts, webSuggestions);
@@ -1189,6 +1202,12 @@ void Settings::save() const
     s.setValue(u"Capture/SmartIpMac"_s, captureSmartIpMac);
     s.setValue(u"Capture/SmartAllText"_s, captureSmartAllText);
     s.setValue(u"Capture/SmartWords"_s, captureSmartWords);
+    s.setValue(u"Capture/IncludeCursor"_s, captureCursor);
+    s.setValue(u"Capture/ControlsUia"_s, captureControlsUia);
+    s.setValue(u"Capture/DelaySeconds"_s, captureDelay);
+    s.setValue(u"Capture/ColorFormat"_s, captureColorFormat);
+    s.setValue(u"Capture/PinsHotkey"_s, capturePinsHotkey);
+    s.setValue(u"Capture/PinsRestoreHotkey"_s, capturePinsRestoreHotkey);
     writeWebShortcuts(s, webShortcuts, webSuggestions);
     writeFileTypes(s, fileTypes);
     writeShares(s, shares);

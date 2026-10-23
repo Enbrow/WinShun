@@ -288,6 +288,7 @@ qt_add_lupdate(WinShun
     SOURCES ${PROJECT_SOURCE_DIR}/src/capture/AnnotationCommands.cpp
             ${PROJECT_SOURCE_DIR}/src/capture/AnnotationFormat.cpp
             ${PROJECT_SOURCE_DIR}/src/capture/AnnotationStyles.cpp
+            ${PROJECT_SOURCE_DIR}/src/capture/CountdownWindow.cpp
     OPTIONS -source-language zh_CN -no-obsolete -locations none)
 # lrelease reads its arguments in the ANSI code page, which mangles a Chinese
 # path (this project's folder) unless Windows uses a Chinese one; so not

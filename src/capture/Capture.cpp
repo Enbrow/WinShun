@@ -1,6 +1,7 @@
 #include "Capture.h"
 
 #include "CaptureOcr.h"
+#include "QrCode.h"
 #include "platform/Foreground.h"
 #include "platform/KeyRouter.h" // kOwnInput
 #include "platform/WindowEffects.h"
@@ -11,16 +12,19 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QPointer>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickWindow>
 #include <QScreen>
 
+#include <dwmapi.h>
 #include <knownfolders.h>
 #include <shlobj.h>
 
 #include <algorithm>
 #include <cmath>
+#include <thread>
 
 using namespace Qt::StringLiterals;
 using namespace std::chrono_literals;
@@ -101,6 +105,13 @@ Capture::Capture(QQmlEngine* engine, Callbacks callbacks, QObject* parent)
         if (m_callbacks.copyColor)
             m_callbacks.copyColor(color);
     });
+    connect(&m_session, &CaptureSession::colorFormatChanged, this, [this](ColorFormat format) {
+        if (m_callbacks.colorFormatChanged)
+            m_callbacks.colorFormatChanged(colorFormatName(format));
+    });
+    m_countTimer.setSingleShot(true);
+    m_countTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_countTimer, &QTimer::timeout, this, &Capture::tickCountdown);
     connect(&m_session, &CaptureSession::cursorMoveRequested, this,
         [](const QPoint& global) { ::SetCursorPos(global.x(), global.y()); });
 
@@ -206,6 +217,10 @@ void Capture::destroyOverlays()
 
 void Capture::trigger()
 {
+    if (m_countdown) { // the hotkey again: the wait is over, nothing is taken
+        cancelCountdown();
+        return;
+    }
     if (m_long && m_long->running()) {
         m_long->finish();
         return;
@@ -238,6 +253,8 @@ void Capture::start()
     const HWND foreground = ::GetForegroundWindow();
     const bool flyout = win::isShellFlyout(foreground);
     m_shots = m_grabber.grab(&m_grabReport);
+    if (m_includeCursor)
+        drawCursorInShots();
     m_grabMs = m_clock.elapsed();
     m_snapshot = WindowSnapshot::take();
     m_listMs = m_clock.elapsed();
@@ -285,6 +302,12 @@ void Capture::start()
     windows.children = [this, extra](std::size_t i) {
         return i < extra ? std::vector<QRect> {} : m_snapshot.children(i - extra);
     };
+    if (m_uiaEnabled) {
+        windows.probe = [this, extra](std::size_t i, QPoint point) {
+            if (i >= extra)
+                askUia(i - extra, point);
+        };
+    }
     m_session.begin(byIndex, std::move(windows));
 
     if (flyout) {
@@ -428,18 +451,20 @@ void Capture::finish(CaptureSession::Action action, int screen, const QRect& rec
                 continue;
             const QRect region(overlay.model->rect().topLeft() + rect.topLeft(), rect.size());
             m_longRegion = LongRegion {region, overlay.monitor, overlay.model->dpr()};
+            m_session.setLastSelection(region);
             // The window the region shows goes in front now, while the overlay has the
             // foreground: when the overlay goes, Windows gives it to the window before it,
             // which need not be this one, and the keys and the scrolling are for this one.
             if (const HWND under = m_snapshot.windowAt(region.center()); under && !::SetForegroundWindow(under))
                 qWarning() << "Long screenshot: the window under the region did not come to the front";
         }
-    } else if (action != CaptureSession::Action::Cancel) {
+    } else if (action != CaptureSession::Action::Cancel && action != CaptureSession::Action::Delay) {
         for (const Overlay& overlay : m_overlays) {
             if (overlay.model->index() == screen) {
                 picture = overlay.model->image().copy(rect);
                 origin = overlay.model->rect().topLeft() + rect.topLeft();
                 dpr = overlay.model->dpr();
+                m_session.setLastSelection(QRect(origin, rect.size())); // Shift+R brings it back
             }
         }
         // Annotated: the picture is the composition, and the project goes with
@@ -454,7 +479,7 @@ void Capture::finish(CaptureSession::Action action, int screen, const QRect& rec
             }
         }
     } else if (m_session.hasAnnotations()) {
-        // Ended with annotations on the screen (the hotkey, Esc): kept for a
+        // Ended with annotations on the screen (the hotkey, Esc, D): kept for a
         // while, to be found again from the tray menu.
         const int draftScreen = m_session.annotationScreen();
         for (const Overlay& overlay : m_overlays) {
@@ -472,6 +497,10 @@ void Capture::finish(CaptureSession::Action action, int screen, const QRect& rec
     m_allGestureFrames.clear();
     m_gestureFrames.clear();
     m_gestureFrameOpen = false;
+    m_delayAfter = action == CaptureSession::Action::Delay;
+    m_uia.reset(); // a walk still under way finishes by itself
+    m_uiaGate = {};
+    m_uiaLogged = 0;
     if (m_session.stylesChanged() && m_callbacks.annotateStylesChanged)
         m_callbacks.annotateStylesChanged(m_session.styles().toJson());
     m_state = State::Closing;
@@ -525,7 +554,22 @@ void Capture::finish(CaptureSession::Action action, int screen, const QRect& rec
         if (m_callbacks.ocrThen)
             m_callbacks.ocrThen(picture, dpr, QRect(origin, picture.size()), action);
         break;
+    case CaptureSession::Action::Qr: {
+        // Read off the GUI thread (a whole screen takes a few hundred ms); the
+        // answer comes back through the application object, which outlives this.
+        const QPointer<Capture> self(this);
+        const QRect where(origin, picture.size());
+        std::thread([self, picture, where] {
+            QStringList codes = readQrCodes(picture);
+            QMetaObject::invokeMethod(qApp, [self, where, codes = std::move(codes)] {
+                if (self && self->m_callbacks.qr)
+                    self->m_callbacks.qr(codes, where);
+            }, Qt::QueuedConnection);
+        }).detach();
+        break;
+    }
     case CaptureSession::Action::Cancel:
+    case CaptureSession::Action::Delay:
     case CaptureSession::Action::Long:
         break;
     }
@@ -618,6 +662,8 @@ void Capture::hideAll()
     m_state = State::Idle;
     if (m_callbacks.ended)
         m_callbacks.ended();
+    if (std::exchange(m_delayAfter, false))
+        startDelayed(); // D in the overlay: the wait begins now it is gone
     if (const std::optional<LongRegion> region = std::exchange(m_longRegion, std::nullopt)) {
         if (m_callbacks.longStarting)
             m_callbacks.longStarting();
@@ -644,6 +690,116 @@ LongCapture& Capture::longCapture()
         m_long = std::make_unique<LongCapture>(m_engine, m_grabber, std::move(hooks));
     }
     return *m_long;
+}
+
+void Capture::drawCursorInShots()
+{
+    CURSORINFO info {sizeof info};
+    if (!::GetCursorInfo(&info) || !(info.flags & CURSOR_SHOWING) || !info.hCursor)
+        return;
+    for (Grabber::Shot& shot : m_shots) {
+        if (shot.rect.contains(info.ptScreenPos.x, info.ptScreenPos.y)) {
+            const bool drawn = drawCursor(shot.image, QPoint(info.ptScreenPos.x, info.ptScreenPos.y) - shot.rect.topLeft(), info.hCursor);
+            qInfo().noquote() << u"Screen capture: mouse cursor %1 (handle %2) at %3,%4"_s.arg(drawn ? u"drawn"_s : u"not drawn"_s)
+                                     .arg(reinterpret_cast<quintptr>(info.hCursor))
+                                     .arg(info.ptScreenPos.x)
+                                     .arg(info.ptScreenPos.y);
+        }
+    }
+}
+
+void Capture::askUia(std::size_t window, QPoint point)
+{
+    const HWND hwnd = m_snapshot.handle(window);
+    if (!hwnd || !m_uiaGate.allowed(reinterpret_cast<quintptr>(hwnd)))
+        return; // its answers were slow or empty: the child windows are all it has
+    if (!wantsUia(m_snapshot.windowClass(window), m_snapshot.childWindows(window)))
+        return;
+    if (!m_uia) {
+        m_uia = std::make_unique<UiaProbe>(this, [this](const UiaProbe::Answer& answer) { uiaAnswered(answer); });
+    }
+    m_uia->ask(hwnd, point);
+}
+
+void Capture::uiaAnswered(const UiaProbe::Answer& answer)
+{
+    if (m_state != State::Showing)
+        return;
+    const int window = m_snapshot.indexOf(reinterpret_cast<HWND>(answer.window));
+    if (window < 0)
+        return;
+    const std::vector<QRect> controls = uiaControls(answer.chain, m_snapshot.windows()[static_cast<std::size_t>(window)]);
+    m_uiaGate.record(answer.window, answer.elapsedMs, static_cast<int>(controls.size()));
+    if (m_uiaLogged++ < 40 || answer.elapsedMs > UiaGate::kBudgetMs) {
+        QStringList where; // the controls' rectangles, outermost first (virtual desktop), for a test to read
+        for (const QRect& r : controls)
+            where.append(u"%1,%2 %3x%4"_s.arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height()));
+        qInfo().noquote() << u"Screen capture: UI Automation gave %1 controls in %2 ms%3%4"_s.arg(controls.size())
+                                 .arg(answer.elapsedMs)
+                                 .arg(answer.elapsedMs > UiaGate::kBudgetMs ? u" (over the budget: this window's child windows only)"_s : QString())
+                                 .arg(where.isEmpty() ? QString() : u": "_s + where.join(u" | "_s));
+    }
+    if (!answer.ok || answer.elapsedMs > UiaGate::kBudgetMs)
+        return; // too slow to wait for: the Win32 child windows stand
+    if (m_snapshot.addControls(static_cast<std::size_t>(window), controls))
+        m_session.refreshHover();
+}
+
+void Capture::startDelayed(int seconds)
+{
+    if (m_state != State::Idle || m_countdown || m_overlays.empty() || (m_long && m_long->running()))
+        return;
+    if (seconds > 0)
+        m_delay = normalizedDelay(seconds);
+    POINT cursor {};
+    ::GetCursorPos(&cursor);
+    MONITORINFO info {sizeof info};
+    if (!::GetMonitorInfoW(::MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST), &info))
+        return;
+    const QRect work(info.rcWork.left, info.rcWork.top, info.rcWork.right - info.rcWork.left, info.rcWork.bottom - info.rcWork.top);
+    m_countdown = std::make_unique<CountdownWindow>(work, m_callbacks.accent ? m_callbacks.accent() : QColor(),
+        [this] { QMetaObject::invokeMethod(this, [this] { cancelCountdown(); }, Qt::QueuedConnection); });
+    if (!m_countdown->hwnd()) {
+        m_countdown.reset();
+        return;
+    }
+    m_countTotal = m_delay;
+    m_countClock.start();
+    m_countdown->setSeconds(countdownSeconds(0, m_countTotal));
+    m_countTimer.start(100);
+    qInfo() << "Screen capture: delayed capture," << m_countTotal << "s";
+}
+
+void Capture::tickCountdown()
+{
+    if (!m_countdown)
+        return;
+    const qint64 left = countdownRemaining(m_countClock.elapsed(), m_countTotal);
+    if (left <= 0) {
+        fireCountdown();
+        return;
+    }
+    m_countdown->setSeconds(countdownSeconds(m_countClock.elapsed(), m_countTotal));
+    m_countTimer.start(static_cast<int>(std::min<qint64>(left, 100)));
+}
+
+void Capture::fireCountdown()
+{
+    m_countTimer.stop();
+    m_countdown.reset(); // out of the picture: gone from the screen once DWM has composed twice
+    ::DwmFlush();
+    ::DwmFlush();
+    qInfo() << "Screen capture: the countdown is over after" << m_countClock.elapsed() << "ms";
+    start();
+}
+
+void Capture::cancelCountdown()
+{
+    if (!m_countdown)
+        return;
+    m_countTimer.stop();
+    m_countdown.reset();
+    qInfo() << "Screen capture: delayed capture cancelled";
 }
 
 void Capture::save(const QImage& image, const QString& path)

@@ -85,6 +85,17 @@ add_test(NAME tst_smartredact COMMAND tst_smartredact)
 set_tests_properties(tst_smartredact PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
 
+# Stage 7 (src/capture: PinTools, CaptureTools, QrCode): a pin's turns,
+# collapsed forms, corner drags and picked text, the colour formats, the
+# delayed capture's countdown, Shift+R's monitor, the cursor drawn into a
+# picture, the rules for UI Automation, and QR codes made by zxing-cpp's writer.
+qt_add_executable(tst_stage7 tst_stage7.cpp)
+target_link_libraries(tst_stage7 PRIVATE wscapture ZXing::ZXing Qt6::Test)
+set_target_properties(tst_stage7 PROPERTIES WIN32_EXECUTABLE FALSE)
+add_test(NAME tst_stage7 COMMAND tst_stage7)
+set_tests_properties(tst_stage7 PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
 # The long screenshot's stitching (src/capture/ScrollStitcher) replayed on a
 # made-up long page cut into frames, and its diagnostics' text.
 qt_add_executable(tst_stitch tst_stitch.cpp)

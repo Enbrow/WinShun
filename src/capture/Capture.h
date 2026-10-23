@@ -2,12 +2,16 @@
 
 #include "AnnotationFormat.h"
 #include "CaptureSession.h"
+#include "CaptureTools.h"
+#include "CountdownWindow.h"
 #include "Grabber.h"
 #include "LongCapture.h"
 #include "PinManager.h"
+#include "UiaProbe.h"
 #include "WindowSnapshot.h"
 
 #include <QElapsedTimer>
+#include <QColor>
 #include <QImage>
 #include <QObject>
 #include <QPointer>
@@ -78,6 +82,13 @@ public:
         std::function<void(const QImage&)> longCapture;
         std::function<void(const QString&)> copyText;
         std::function<void()> longStarting;
+        // 二维码: the texts of the QR codes read in the selection (empty: none was
+        // found) and where the selection was (physical, virtual desktop).
+        std::function<void(const QStringList&, const QRect& where)> qr;
+        // The colour format C copies in (hex, rgb, hsl), when Shift+C changes it.
+        std::function<void(const QString&)> colorFormatChanged;
+        // A fill that carries white words (the countdown's).
+        std::function<QColor()> accent;
     };
 
     Capture(QQmlEngine* engine, Callbacks callbacks, QObject* parent = nullptr);
@@ -86,11 +97,24 @@ public:
     void setCopyOnSelect(bool on) { m_session.setCopyOnSelect(on); }
     void setMouseActions(const CaptureSession::MouseActions& actions) { m_session.setMouseActions(actions); }
     void setHiddenButtons(const QStringList& ids) { m_session.setHiddenButtons(ids); }
+    // The mouse cursor drawn into the frozen picture ([Capture] IncludeCursor).
+    void setIncludeCursor(bool on) { m_includeCursor = on; }
+    // UI Automation for the controls that are not child windows ([Capture] ControlsUia).
+    void setControlDetection(bool on) { m_uiaEnabled = on; }
+    void setColorFormat(ColorFormat format) { m_session.setColorFormat(format); }
+    // 延时截图: after 3, 5 or 10 seconds (0: the last one used), a countdown at
+    // the corner of the screen and then the capture as the hotkey starts it.
+    // The hotkey (or a click on the countdown) cancels it.
+    void setDelay(int seconds) { m_delay = normalizedDelay(seconds); }
+    int delay() const { return m_delay; }
+    void startDelayed(int seconds = 0);
+    bool counting() const { return m_countdown != nullptr; }
+    void cancelCountdown();
     // The hotkey, PrtScn, the tray menu: a capture, or the end of the one
     // under way (what a key opened, the same key closes; a long screenshot
     // is finished).
     void trigger();
-    bool busy() const { return m_state != State::Idle || (m_long && m_long->running()); }
+    bool busy() const { return m_state != State::Idle || m_countdown || (m_long && m_long->running()); }
 
     // 贴上最近一次截图 (the tray menu).
     bool hasLast() const { return !m_last.isNull(); }
@@ -127,6 +151,11 @@ private:
     void hideAll(); // once the frames without the pictures are drawn
     void findFlyout(); // the Start menu closed: where it was in the picture
     LongCapture& longCapture(); // made the first time
+    void tickCountdown();
+    void fireCountdown();
+    void drawCursorInShots(); // [Capture] IncludeCursor
+    void askUia(std::size_t window, QPoint point); // the hover is in top-level window `window`
+    void uiaAnswered(const UiaProbe::Answer& answer);
 
     QQmlEngine* m_engine;
     Callbacks m_callbacks;
@@ -145,6 +174,17 @@ private:
     WindowSnapshot m_snapshot;
     State m_state = State::Idle;
     QElapsedTimer m_clock; // since the hotkey
+    bool m_includeCursor = false;
+    bool m_uiaEnabled = true;
+    std::unique_ptr<UiaProbe> m_uia; // made with the first question of a capture
+    UiaGate m_uiaGate;
+    int m_uiaLogged = 0;
+    int m_delay = 5;
+    bool m_delayAfter = false; // D in the overlay: the countdown begins once it is gone
+    std::unique_ptr<CountdownWindow> m_countdown;
+    QElapsedTimer m_countClock;
+    QTimer m_countTimer;
+    int m_countTotal = 0;
     qint64 m_grabMs = 0;
     qint64 m_listMs = 0;
     qint64 m_flyoutMs = -1;

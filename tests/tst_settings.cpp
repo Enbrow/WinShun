@@ -174,7 +174,7 @@ private slots:
         fresh.load();
         QVERIFY(fresh.captureToolbarHidden.isEmpty()); // all shown
         QCOMPARE(ws::Settings::captureToolbarButtonIds(),
-            (QStringList {u"undo"_s, u"redo"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"long"_s, u"cancel"_s}));
+            (QStringList {u"undo"_s, u"redo"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"long"_s, u"qr"_s, u"delay"_s, u"cancel"_s}));
 
         ws::Settings s;
         s.load();
@@ -224,6 +224,41 @@ private slots:
         typed.load();
         QCOMPARE(typed.captureToolbarHidden, u"undo,ocr"_s);
         QCOMPARE(odd.captureMouseRight, u"ocrweb"_s);
+
+        // Stage 7's options: defaults, a round trip, and values it does not know fall back.
+        QVERIFY(!typed.captureCursor && typed.captureControlsUia && typed.captureDelay == 5);
+        QCOMPARE(typed.captureColorFormat, u"hex"_s);
+        QVERIFY(typed.capturePinsHotkey.isEmpty() && typed.capturePinsRestoreHotkey.isEmpty());
+        typed.captureCursor = true;
+        typed.captureControlsUia = false;
+        typed.captureDelay = 10;
+        typed.captureColorFormat = u"hsl"_s;
+        typed.capturePinsHotkey = u"Ctrl+Alt+H"_s;
+        typed.capturePinsRestoreHotkey = u"Ctrl+Alt+J"_s;
+        typed.save();
+        ws::Settings seven;
+        seven.load();
+        QVERIFY(seven.captureCursor && !seven.captureControlsUia);
+        QCOMPARE(seven.captureDelay, 10);
+        QCOMPARE(seven.captureColorFormat, u"hsl"_s);
+        QCOMPARE(seven.capturePinsHotkey, u"Ctrl+Alt+H"_s);
+        QCOMPARE(seven.capturePinsRestoreHotkey, u"Ctrl+Alt+J"_s);
+        {
+            QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+            ini.setValue(u"Capture/DelaySeconds"_s, 7);
+            ini.setValue(u"Capture/ColorFormat"_s, u"cmyk"_s);
+        }
+        ws::Settings odd7;
+        odd7.load();
+        QCOMPARE(odd7.captureDelay, 5);
+        QCOMPARE(odd7.captureColorFormat, u"hex"_s);
+        typed.captureCursor = false;
+        typed.captureControlsUia = true;
+        typed.captureDelay = 5;
+        typed.captureColorFormat = u"hex"_s;
+        typed.capturePinsHotkey.clear();
+        typed.capturePinsRestoreHotkey.clear();
+        typed.save();
 
         // Smart redaction's options: defaults, a round trip, and the words typed by hand with no quotes.
         QVERIFY(typed.captureSmartPrescan && !typed.captureSmartIpMac && !typed.captureSmartAllText);

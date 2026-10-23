@@ -177,7 +177,9 @@ private:
     QQuickWindow* createPreviewWindow(); // FilePreview's, the first time it is wanted
     // 识别文字 from a capture or a pin: the OCR window (OcrPanel.qml), made
     // the first time, beside `where` (physical), reading `image`.
-    void showCaptureOcr(const QImage& image, double dpr, const QRect& where);
+    // `texts`: show these (QR codes, none found when empty) instead of reading `image`.
+    void showCaptureOcr(const QImage& image, double dpr, const QRect& where, const QStringList* texts = nullptr);
+    void showQrResult(const QStringList& codes, const QRect& where);
     void closeCaptureOcr(bool destroy = false); // `destroy`: the capture was turned off
     // The OCR window's reader, made the first time it is wanted: the window's
     // text and smart redaction's scans go through the same thread and model.

@@ -105,6 +105,13 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString captureToolbarHidden READ captureToolbarHidden WRITE setCaptureToolbarHidden NOTIFY changed FINAL)
     Q_PROPERTY(QString captureNote READ captureNote NOTIFY hotkeyErrorChanged FINAL)
     // Smart redaction's options (Settings::captureSmart*).
+    Q_PROPERTY(bool captureCursor READ captureCursor WRITE setCaptureCursor NOTIFY changed FINAL)
+    Q_PROPERTY(bool captureControlsUia READ captureControlsUia WRITE setCaptureControlsUia NOTIFY changed FINAL)
+    Q_PROPERTY(int captureDelay READ captureDelay WRITE setCaptureDelay NOTIFY changed FINAL)
+    Q_PROPERTY(QString capturePinsHotkey READ capturePinsHotkey WRITE setCapturePinsHotkey NOTIFY changed FINAL)
+    Q_PROPERTY(QString capturePinsRestoreHotkey READ capturePinsRestoreHotkey WRITE setCapturePinsRestoreHotkey NOTIFY changed FINAL)
+    Q_PROPERTY(QString capturePinsHotkeyError READ capturePinsHotkeyError NOTIFY hotkeyErrorChanged FINAL)
+    Q_PROPERTY(QString capturePinsRestoreHotkeyError READ capturePinsRestoreHotkeyError NOTIFY hotkeyErrorChanged FINAL)
     Q_PROPERTY(bool captureSmartPrescan READ captureSmartPrescan WRITE setCaptureSmartPrescan NOTIFY changed FINAL)
     Q_PROPERTY(bool captureSmartIpMac READ captureSmartIpMac WRITE setCaptureSmartIpMac NOTIFY changed FINAL)
     Q_PROPERTY(bool captureSmartAllText READ captureSmartAllText WRITE setCaptureSmartAllText NOTIFY changed FINAL)
@@ -375,6 +382,20 @@ public:
     void setCaptureMouseForward(const QString& action) { setCaptureMouse(m_settings.captureMouseForward, action, false); }
     QString captureToolbarHidden() const { return m_settings.captureToolbarHidden; }
     void setCaptureToolbarHidden(const QString& ids);
+    bool captureCursor() const { return m_settings.captureCursor; }
+    void setCaptureCursor(bool on);
+    bool captureControlsUia() const { return m_settings.captureControlsUia; }
+    void setCaptureControlsUia(bool on);
+    int captureDelay() const { return m_settings.captureDelay; }
+    void setCaptureDelay(int seconds);
+    QString capturePinsHotkey() const { return m_settings.capturePinsHotkey; }
+    void setCapturePinsHotkey(const QString& hotkey);
+    QString capturePinsRestoreHotkey() const { return m_settings.capturePinsRestoreHotkey; }
+    void setCapturePinsRestoreHotkey(const QString& hotkey);
+    QString capturePinsHotkeyError() const { return m_capturePinsHotkeyError; }
+    QString capturePinsRestoreHotkeyError() const { return m_capturePinsRestoreHotkeyError; }
+    void setCapturePinsHotkeyError(const QString& error);
+    void setCapturePinsRestoreHotkeyError(const QString& error);
     bool captureSmartPrescan() const { return m_settings.captureSmartPrescan; }
     void setCaptureSmartPrescan(bool on);
     bool captureSmartIpMac() const { return m_settings.captureSmartIpMac; }
@@ -846,6 +867,8 @@ private:
     QString m_doubleCtrlClash;
     QString m_folderMenuHotkeyError;
     QString m_captureHotkeyError;
+    QString m_capturePinsHotkeyError;
+    QString m_capturePinsRestoreHotkeyError;
     QString m_captureNote;
     QString m_opusFolderMenu = QStringLiteral("manual");
     QString m_opusFolderMenuTaken;

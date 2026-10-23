@@ -149,7 +149,9 @@ void SettingsEditor::setSettings(const Settings& settings)
         || settings.clipboardNumberKeys != m_settings.clipboardNumberKeys
         || settings.clipboardHotkey != m_settings.clipboardHotkey
         || settings.folderMenuHotkey != m_settings.folderMenuHotkey
-        || settings.captureHotkey != m_settings.captureHotkey;
+        || settings.captureHotkey != m_settings.captureHotkey
+        || settings.capturePinsHotkey != m_settings.capturePinsHotkey
+        || settings.capturePinsRestoreHotkey != m_settings.capturePinsRestoreHotkey;
     const bool shares = settings.shares != m_settings.shares;
     m_settings = settings;
     emit changed();
@@ -293,7 +295,10 @@ QString describeNumberKeys(const QString& keys, const Settings& settings)
         const bool mine = settings.hotkey.compare(c, Qt::CaseInsensitive) == 0
             || settings.clipboardHotkey.compare(c, Qt::CaseInsensitive) == 0
             || settings.folderMenuHotkey.compare(c, Qt::CaseInsensitive) == 0
-            || (settings.captureEnabled && settings.captureHotkey.compare(c, Qt::CaseInsensitive) == 0);
+            || (settings.captureEnabled
+                && (settings.captureHotkey.compare(c, Qt::CaseInsensitive) == 0
+                    || settings.capturePinsHotkey.compare(c, Qt::CaseInsensitive) == 0
+                    || settings.capturePinsRestoreHotkey.compare(c, Qt::CaseInsensitive) == 0));
         if (mine)
             own.append(c);
         else if (std::find(held.begin(), held.end(), n) != held.end())
@@ -1037,6 +1042,64 @@ void SettingsEditor::setCaptureToolbarHidden(const QString& ids)
         return;
     m_settings.captureToolbarHidden = normal;
     commit();
+}
+
+void SettingsEditor::setCaptureCursor(bool on)
+{
+    if (m_settings.captureCursor == on)
+        return;
+    m_settings.captureCursor = on;
+    commit();
+}
+
+void SettingsEditor::setCaptureControlsUia(bool on)
+{
+    if (m_settings.captureControlsUia == on)
+        return;
+    m_settings.captureControlsUia = on;
+    commit();
+}
+
+void SettingsEditor::setCaptureDelay(int seconds)
+{
+    if ((seconds != 3 && seconds != 5 && seconds != 10) || m_settings.captureDelay == seconds)
+        return;
+    m_settings.captureDelay = seconds;
+    commit();
+}
+
+void SettingsEditor::setCapturePinsHotkey(const QString& hotkey)
+{
+    const QString value = hotkey.trimmed();
+    if (m_settings.capturePinsHotkey == value)
+        return;
+    m_settings.capturePinsHotkey = value;
+    commit(); // the app registers it and says whether that worked (setCapturePinsHotkeyError)
+}
+
+void SettingsEditor::setCapturePinsRestoreHotkey(const QString& hotkey)
+{
+    const QString value = hotkey.trimmed();
+    if (m_settings.capturePinsRestoreHotkey == value)
+        return;
+    m_settings.capturePinsRestoreHotkey = value;
+    commit();
+}
+
+void SettingsEditor::setCapturePinsHotkeyError(const QString& error)
+{
+    if (m_capturePinsHotkeyError == error)
+        return;
+    m_capturePinsHotkeyError = error;
+    emit hotkeyErrorChanged();
+}
+
+void SettingsEditor::setCapturePinsRestoreHotkeyError(const QString& error)
+{
+    if (m_capturePinsRestoreHotkeyError == error)
+        return;
+    m_capturePinsRestoreHotkeyError = error;
+    emit hotkeyErrorChanged();
 }
 
 void SettingsEditor::setCaptureSmartPrescan(bool on)

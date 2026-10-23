@@ -15,7 +15,7 @@ Rectangle {
     required property SettingsEditor editor
     property bool marked: false // what the settings search found
     // The hotkey box records: SettingsWindow's binding stops the app's hotkeys meanwhile.
-    readonly property bool recordingHotkey: hotkeyRecorder.recording
+    readonly property bool recordingHotkey: hotkeyRecorder.recording || pinsHotkeyRow.recording || restoreHotkeyRow.recording
 
     // The mouse buttons' choices (Settings::captureMouse*), the right button's with 后退 besides.
     readonly property var mouseChoices: [
@@ -49,6 +49,8 @@ Rectangle {
         { id: "pin", text: qsTr("贴图") },
         { id: "ocr", text: qsTr("识别文字") },
         { id: "long", text: qsTr("长截图") },
+        { id: "qr", text: qsTr("二维码") },
+        { id: "delay", text: qsTr("延时") },
         { id: "cancel", text: qsTr("取消") }
     ]
     function setButtonShown(id, shown) {
@@ -56,6 +58,70 @@ Rectangle {
         if (!shown)
             left.push(id)
         editor.captureToolbarHidden = left.join(",")
+    }
+
+    // A shortcut the user records (no default: PixPin and Snipaste have the usual ones), with what went wrong registering it.
+    component HotkeyRow: Item {
+        id: row
+
+        property string title
+        property string words
+        property string hotkey
+        property string error
+        readonly property bool recording: recorder.recording
+        signal recorded(string hotkey)
+
+        width: parent.width
+        height: Math.max(rowTexts.implicitHeight, rowControls.implicitHeight)
+
+        Column {
+            id: rowTexts
+            anchors.left: parent.left
+            anchors.right: rowControls.left
+            anchors.rightMargin: 12
+            spacing: 4
+
+            Text {
+                width: parent.width
+                text: row.title
+                color: Theme.text
+                font.pixelSize: Theme.fontBody
+            }
+            Text {
+                width: parent.width
+                text: row.words
+                color: Theme.subtext
+                font.pixelSize: Theme.fontCaption
+                wrapMode: Text.Wrap
+            }
+            Text {
+                visible: row.error.length > 0
+                width: parent.width
+                text: row.error
+                color: Theme.danger
+                font.pixelSize: Theme.fontCaption
+                wrapMode: Text.Wrap
+            }
+        }
+        Row {
+            id: rowControls
+            anchors.right: parent.right
+            spacing: 8
+
+            FlatButton {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: row.hotkey.length > 0 && !recorder.recording
+                flat: true
+                text: qsTr("清除")
+                onClicked: row.recorded("")
+            }
+            HotkeyRecorder {
+                id: recorder
+                anchors.verticalCenter: parent.verticalCenter
+                hotkey: row.hotkey
+                onRecorded: (hotkey) => row.recorded(hotkey)
+            }
+        }
     }
 
     implicitHeight: body.implicitHeight + 24
@@ -323,6 +389,114 @@ Rectangle {
                 }
             }
 
+            Repeater { // what goes into the picture and how controls are found (stage 7)
+                model: [
+                    { key: "captureCursor", title: qsTr("截图带上鼠标指针"),
+                      words: qsTr("冻结的画面里画上截图那一刻的鼠标指针，复制、保存、贴图的图里都有它。关着时图里没有指针") },
+                    { key: "captureControlsUia", title: qsTr("识别 Electron、WinUI 等程序里的控件"),
+                      words: qsTr("鼠标移到 VS Code、微信、设置这类程序的窗口上时，也能框出里面的侧栏、编辑区等控件。查询在后台进行，最多等 150 毫秒，超时就只用普通子窗口，不会拖慢鼠标。提权运行的程序框不到控件") }
+                ]
+                delegate: Item {
+                    id: pictureOption
+
+                    required property var modelData
+
+                    width: parent.width
+                    height: Math.max(pictureTexts.implicitHeight, pictureToggle.implicitHeight)
+
+                    Column {
+                        id: pictureTexts
+                        anchors.left: parent.left
+                        anchors.right: pictureToggle.left
+                        anchors.rightMargin: 12
+                        spacing: 4
+
+                        Text {
+                            width: parent.width
+                            text: pictureOption.modelData.title
+                            color: Theme.text
+                            font.pixelSize: Theme.fontBody
+                        }
+                        Text {
+                            width: parent.width
+                            text: pictureOption.modelData.words
+                            color: Theme.subtext
+                            font.pixelSize: Theme.fontCaption
+                            wrapMode: Text.Wrap
+                        }
+                    }
+                    ToggleSwitch {
+                        id: pictureToggle
+                        anchors.right: parent.right
+                        checked: card.editor[pictureOption.modelData.key]
+                        onToggled: (on) => card.editor[pictureOption.modelData.key] = on
+                    }
+                }
+            }
+
+            Item { // the delayed capture's seconds
+                width: parent.width
+                height: Math.max(delayTexts.implicitHeight, delayChoices.implicitHeight)
+
+                Column {
+                    id: delayTexts
+                    anchors.left: parent.left
+                    anchors.right: delayChoices.left
+                    anchors.rightMargin: 12
+                    spacing: 4
+
+                    Text {
+                        width: parent.width
+                        text: qsTr("延时截图")
+                        color: Theme.text
+                        font.pixelSize: Theme.fontBody
+                    }
+                    Text {
+                        width: parent.width
+                        text: qsTr("托盘菜单“截图 › 延时截图”开始倒计时，屏幕角上有数字，到点才冻结屏幕，用来截菜单、悬停提示。截图时按 D 或点工具条的“延时”，也是关掉这次、倒计时后再截。再按一次截图快捷键，或点倒计时，取消")
+                        color: Theme.subtext
+                        font.pixelSize: Theme.fontCaption
+                        wrapMode: Text.Wrap
+                    }
+                }
+                Row {
+                    id: delayChoices
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 8
+
+                    Repeater {
+                        model: [3, 5, 10]
+
+                        delegate: FlatButton {
+                            required property int modelData
+
+                            highlighted: card.editor.captureDelay === modelData
+                            text: qsTr("%1 秒").arg(modelData)
+                            onClicked: card.editor.captureDelay = modelData
+                        }
+                    }
+                }
+            }
+
+            HotkeyRow {
+                id: pinsHotkeyRow
+                title: qsTr("隐藏 / 显示全部贴图的快捷键")
+                words: qsTr("按一下藏起所有贴图，再按一下放回来；新贴一张图时也会放回来。不设就只能从托盘菜单或贴图的右键菜单操作")
+                hotkey: card.editor.capturePinsHotkey
+                error: card.editor.capturePinsHotkeyError
+                onRecorded: (hotkey) => card.editor.capturePinsHotkey = hotkey
+            }
+
+            HotkeyRow {
+                id: restoreHotkeyRow
+                title: qsTr("找回穿透贴图的快捷键")
+                words: qsTr("设成“鼠标穿透”的贴图点不到时，按它让所有贴图都能点；平时按住 Ctrl 把鼠标放上去也行")
+                hotkey: card.editor.capturePinsRestoreHotkey
+                error: card.editor.capturePinsRestoreHotkeyError
+                onRecorded: (hotkey) => card.editor.capturePinsRestoreHotkey = hotkey
+            }
+
             Column { // what the mouse buttons do after a selection (issue #46)
                 width: parent.width
                 spacing: 4
@@ -514,7 +688,7 @@ Rectangle {
                 }
                 Text {
                     width: parent.width
-                    text: qsTr("点一下显示或隐藏，亮着的就是显示的。隐藏的按钮，快捷键照样能用：撤销 Ctrl+Z、重做 Ctrl+Y、复制 Enter、保存 Ctrl+S、贴图 F3、长截图 Ctrl+L、取消 Esc；识别文字没有快捷键，只能点工具条上的按钮，或设给上面的鼠标键。标注工具一直显示")
+                    text: qsTr("点一下显示或隐藏，亮着的就是显示的。隐藏的按钮，快捷键照样能用：撤销 Ctrl+Z、重做 Ctrl+Y、复制 Enter、保存 Ctrl+S、贴图 F3、长截图 Ctrl+L、取消 Esc；二维码 Q、延时 D；识别文字没有快捷键，只能点工具条上的按钮，或设给上面的鼠标键。标注工具一直显示")
                     color: Theme.subtext
                     font.pixelSize: Theme.fontCaption
                     wrapMode: Text.Wrap

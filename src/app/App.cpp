@@ -75,6 +75,7 @@
 #include <QCursor>
 #include <QDateTime>
 #include <QDebug>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -97,6 +98,7 @@
 #include <QStorageInfo>
 #include <QStyleHints>
 #include <QSurfaceFormat>
+#include <QUrl>
 #include <QWinEventNotifier>
 
 #include <windows.h>
@@ -120,6 +122,8 @@ constexpr int kScreenClipHotkeyId = 6; // Win+Shift+S, which Explorer gives up w
 constexpr int kFolderMenuHotkeyId = 7; // the folder menu in the window in front (GitHub #25)
 constexpr int kCaptureHotkeyId = 8; // the screen capture's own hotkey (src/capture)
 constexpr int kPrintScreenHotkeyId = 9; // PrtScn, once taken over from the Snipping Tool (printscreen::)
+constexpr int kPinsHotkeyId = 10; // hide / show every pin (stage 7)
+constexpr int kPinsRestoreHotkeyId = 11; // click-through pins take the mouse again (stage 7)
 // For another program to tell where its text caret is: longer, and the
 // clipboard would open late; it opens by the mouse pointer then.
 constexpr auto kCaretWait = 100ms;
@@ -165,6 +169,11 @@ enum TrayCommand {
     PinLastCommand, // 截图 › 贴上最近一次截图
     ClickThroughCommand, // 截图 › 取消所有贴图的穿透
     CloseAllPinsCommand, // 截图 › 关闭全部贴图
+    HideAllPinsCommand, // 截图 › 隐藏 / 显示全部贴图
+    AllPinsTopmostCommand, // 截图 › 全部置顶
+    DelayThreeCommand, // 截图 › 延时截图 › 3 秒
+    DelayFiveCommand,
+    DelayTenCommand,
     RestoreDraftCommand, // 截图 › 找回刚放弃的标注
     KeepAwakeCommand // 保持唤醒（到 16:42）: only while it is on; ends it
 };
@@ -705,6 +714,13 @@ bool App::start(const StartOptions& options)
             folderMenuHotkey();
         else if (id == kCaptureHotkeyId || id == kPrintScreenHotkeyId)
             triggerCapture();
+        else if (id == kPinsHotkeyId) {
+            if (m_pins)
+                m_pins->setAllHidden(!m_pins->allHidden());
+        } else if (id == kPinsRestoreHotkeyId) {
+            if (m_pins)
+                m_pins->clearClickThrough();
+        }
         else if (id != kDialogJumpHotkeyId)
             toggleLauncher();
         else if (m_dialogJump && m_settings.dialogJump)
@@ -1075,6 +1091,9 @@ capture::CaptureOcr& App::captureOcr()
         connect(m_captureOcr.get(), &capture::CaptureOcr::webSearchRequested, this,
             [this](const QString& query) { openWebSearch(query); });
         connect(m_captureOcr.get(), &capture::CaptureOcr::closeRequested, this, [this] { closeCaptureOcr(); });
+        connect(m_captureOcr.get(), &capture::CaptureOcr::openLinkRequested, this, [](const QString& url) {
+            QDesktopServices::openUrl(QUrl(url, QUrl::StrictMode)); // only ever from a click on 打开链接
+        });
     }
     return *m_captureOcr;
 }
@@ -1109,7 +1128,7 @@ capture::SmartHooks App::smartHooks()
 
 // 识别文字 (CaptureOcr, OcrPanel.qml): one window, made the first time,
 // styled as the preview but taking the focus (the text can be edited).
-void App::showCaptureOcr(const QImage& image, double dpr, const QRect& where)
+void App::showCaptureOcr(const QImage& image, double dpr, const QRect& where, const QStringList* texts)
 {
     if (!m_ocrWindow) {
         captureOcr();
@@ -1151,11 +1170,21 @@ void App::showCaptureOcr(const QImage& image, double dpr, const QRect& where)
         m_ocrWindow->setScreen(screen);
         m_ocrWindow->setPosition(screen->geometry().topLeft() + (at - monitorOrigin) / ratio);
     }
-    captureOcr().read(image, dpr);
+    if (texts)
+        captureOcr().showTexts(*texts, tr("二维码"), tr("选区里没有找到二维码。"));
+    else
+        captureOcr().read(image, dpr);
     m_ocrWindow->show();
     m_ocrWindow->raise();
     win::bringToFront(m_ocrWindow);
     m_ocrWindow->requestActivate();
+}
+
+// 二维码 (Q, the toolbar): the codes read in the selection in the OCR window,
+// which offers 打开链接 for a web address and never opens one by itself.
+void App::showQrResult(const QStringList& codes, const QRect& where)
+{
+    showCaptureOcr(QImage(), 1.0, where, &codes);
 }
 
 // The mouse buttons' 识别文字并复制 / 搜索 / 网页搜索: the words read on a
@@ -1607,6 +1636,16 @@ void App::applyCapture()
         };
         // A toast of ours ("截图已保存" of the one before) would be in its frames.
         callbacks.longStarting = [this] { m_messages->hideNotification(); };
+        callbacks.qr = [this](const QStringList& codes, const QRect& where) { showQrResult(codes, where); };
+        callbacks.colorFormatChanged = [this](const QString& name) {
+            if (name == m_settings.captureColorFormat)
+                return;
+            m_settings.captureColorFormat = name;
+            m_settings.save();
+            if (m_settingsEditor) // its copy must not bring the old format back with its next change
+                m_settingsEditor->setSettings(m_settings);
+        };
+        callbacks.accent = [] { return SystemTheme::accentColor(); };
         m_capture = std::make_unique<capture::Capture>(m_qml.get(), std::move(callbacks));
     } else if (!m_settings.captureEnabled && m_capture) {
         m_capture.reset();
@@ -1622,6 +1661,10 @@ void App::applyCapture()
         m_capture->setMouseActions({m_settings.captureMouseDoubleLeft, m_settings.captureMouseRight,
             m_settings.captureMouseMiddle, m_settings.captureMouseBack, m_settings.captureMouseForward});
         m_capture->setHiddenButtons(m_settings.captureToolbarHidden.split(u',', Qt::SkipEmptyParts));
+        m_capture->setIncludeCursor(m_settings.captureCursor);
+        m_capture->setControlDetection(m_settings.captureControlsUia);
+        m_capture->setDelay(m_settings.captureDelay);
+        m_capture->setColorFormat(capture::colorFormatFromName(m_settings.captureColorFormat));
     }
     applyScreenshots();
 
@@ -1663,6 +1706,8 @@ void App::applyCaptureHotkeys()
 {
     m_messages->unregisterHotkey(kCaptureHotkeyId);
     m_messages->unregisterHotkey(kPrintScreenHotkeyId);
+    m_messages->unregisterHotkey(kPinsHotkeyId);
+    m_messages->unregisterHotkey(kPinsRestoreHotkeyId);
     if (!m_capture)
         return;
     if (m_settingsEditor && m_settingsEditor->recordingHotkey())
@@ -1683,6 +1728,29 @@ void App::applyCaptureHotkeys()
         m_settingsEditor->setCaptureHotkeyError(hotkeyError); // shown next to the shortcut
     else if (!hotkeyError.isEmpty() && !m_aiApplying)
         m_messages->showNotification(tr("快捷键不可用"), hotkeyError);
+    // The pins' two, recorded by the user as well: none unless set.
+    const auto pinsHotkey = [this](int id, const QString& value, const QString& key, bool restore) {
+        const QString hotkey = value.trimmed();
+        QString error;
+        if (!hotkey.isEmpty() && !m_messages->registerHotkey(id, hotkey)) {
+            UINT modifiers = 0;
+            UINT vk = 0;
+            error = MessageWindow::parseHotkey(hotkey, &modifiers, &vk)
+                ? tr("“%1” 已被其他程序或系统占用，请换一个。").arg(hotkey)
+                : tr("无法识别“%1”，请重新设置。").arg(hotkey);
+        }
+        noteApplyProblem(key, error);
+        if (m_settingsEditor) {
+            if (restore)
+                m_settingsEditor->setCapturePinsRestoreHotkeyError(error);
+            else
+                m_settingsEditor->setCapturePinsHotkeyError(error);
+        } else if (!error.isEmpty() && !m_aiApplying) {
+            m_messages->showNotification(tr("快捷键不可用"), error);
+        }
+    };
+    pinsHotkey(kPinsHotkeyId, m_settings.capturePinsHotkey, u"Capture/PinsHotkey"_s, false);
+    pinsHotkey(kPinsRestoreHotkeyId, m_settings.capturePinsRestoreHotkey, u"Capture/PinsRestoreHotkey"_s, true);
 }
 
 void App::triggerCapture()
@@ -1784,7 +1852,17 @@ capture::PinManager& App::pins()
         callbacks.edit = [this](capture::PinWindow* pin) { editPin(pin); };
         callbacks.closed = [this] { m_idleTrim->poke(); }; // its pixels can go back to Windows
         callbacks.dark = [] { return isDarkMode(); };
+        callbacks.accent = [] { return SystemTheme::accentColor(); };
+        callbacks.copyText = [this](const QString& text) {
+            if (!text.isEmpty())
+                m_clipboard->copyText(text, m_settings.clipboard && !m_clipboardPaused);
+        };
         callbacks.ocrAvailable = capture::CaptureOcr::available();
+        if (callbacks.ocrAvailable) {
+            callbacks.readLines = [this](const QImage& image, double dpr, std::function<void(QList<capture::RedactLine>)> done) {
+                captureOcr().scan(image, dpr, std::move(done));
+            };
+        }
         m_pins = std::make_unique<capture::PinManager>(std::move(callbacks));
     }
     return *m_pins;
@@ -4064,12 +4142,25 @@ void App::showTrayMenu()
         if (m_capture) {
             captureMenu.children = {
                 {CaptureCommand, key.isEmpty() ? tr("开始截图") : tr("开始截图") + u'\t' + key},
+                {0, tr("延时截图"), false, true, false,
+                    {{DelayThreeCommand, tr("3 秒"), m_settings.captureDelay == 3},
+                        {DelayFiveCommand, tr("5 秒"), m_settings.captureDelay == 5},
+                        {DelayTenCommand, tr("10 秒"), m_settings.captureDelay == 10}}},
                 {PinLastCommand, tr("贴上最近一次截图"), false, m_capture->hasLast()},
                 {RestoreDraftCommand, tr("找回刚放弃的标注"), false, m_capture->hasDraft()},
                 shell::MenuItem::separator(),
             };
         }
-        captureMenu.children.push_back({ClickThroughCommand, tr("取消所有贴图的穿透（单个：按住 Ctrl 点它）"), false, m_pins && m_pins->anyClickThrough()});
+        const auto withKey = [](const QString& text, const QString& hotkey) {
+            return hotkey.isEmpty() ? text : text + u'\t' + hotkey;
+        };
+        captureMenu.children.push_back({ClickThroughCommand,
+            withKey(tr("取消所有贴图的穿透（单个：按住 Ctrl 点它）"), m_settings.capturePinsRestoreHotkey), false,
+            m_pins && m_pins->anyClickThrough()});
+        captureMenu.children.push_back({HideAllPinsCommand,
+            withKey(m_pins && m_pins->allHidden() ? tr("显示全部贴图") : tr("隐藏全部贴图"), m_settings.capturePinsHotkey), false,
+            pinCount > 0});
+        captureMenu.children.push_back({AllPinsTopmostCommand, tr("全部置顶"), m_pins && m_pins->allTopmost(), pinCount > 0});
         captureMenu.children.push_back({CloseAllPinsCommand, tr("关闭全部贴图"), false, pinCount > 0});
         items.insert(at + 1, std::move(captureMenu));
     }
@@ -4128,6 +4219,31 @@ void App::showTrayMenu()
         if (m_pins)
             m_pins->closeAll();
         break;
+    case HideAllPinsCommand:
+        if (m_pins)
+            m_pins->setAllHidden(!m_pins->allHidden());
+        break;
+    case AllPinsTopmostCommand:
+        if (m_pins)
+            m_pins->setAllTopmost(!m_pins->allTopmost());
+        break;
+    case DelayThreeCommand:
+    case DelayFiveCommand:
+    case DelayTenCommand: {
+        const int seconds = chosen == DelayThreeCommand ? 3 : chosen == DelayFiveCommand ? 5 : 10;
+        if (m_settings.captureDelay != seconds) { // the choice is remembered (D in the overlay uses it)
+            m_settings.captureDelay = seconds;
+            m_settings.save();
+            if (m_settingsEditor)
+                m_settingsEditor->setSettings(m_settings);
+        }
+        // Once the menu is gone from the screen: the countdown is a window of ours.
+        QTimer::singleShot(200ms, this, [this, seconds] {
+            if (m_capture)
+                m_capture->startDelayed(seconds);
+        });
+        break;
+    }
     case RebuildCommand:
         m_index->rebuild();
         m_messages->showNotification(tr("正在重建索引"), tr("可以照常搜索，完成后结果会自动更新。"));

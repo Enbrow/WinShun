@@ -1,6 +1,10 @@
 #include "PinWindow.h"
 
+#include <QBuffer>
+#include <QCoreApplication>
 #include <QDebug>
+#include <QFont>
+#include <QGuiApplication>
 #include <QPainter>
 
 #include <imm.h>
@@ -9,12 +13,14 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <thread>
 
 namespace ws::capture {
 
 namespace {
 
 const wchar_t* const kClassName = L"WinShun.Pin";
+constexpr UINT kEncoded = WM_APP + 1; // the PNG bytes of a collapsed pin are made (lParam: the job)
 
 void registerClass()
 {
@@ -58,6 +64,7 @@ void copyOpaque(const QImage& picture, QImage& canvas, QPoint at)
 PinWindow::PinWindow(const QImage& image, QPoint origin, Host host)
     : m_host(std::move(host))
     , m_image(image.convertToFormat(QImage::Format_RGB32))
+    , m_imageSize(image.size())
     , m_origin(origin)
 {
     registerClass();
@@ -89,6 +96,9 @@ PinWindow::PinWindow(const QImage& image, QPoint origin, Host host)
 
 PinWindow::~PinWindow()
 {
+    *m_alive = false;
+    if (m_encode)
+        m_encode->cancelled = true;
     if (m_hwnd) {
         ::SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, 0);
         ::DestroyWindow(m_hwnd);
@@ -97,14 +107,53 @@ PinWindow::~PinWindow()
     releasePixels();
 }
 
+QSize PinWindow::fullSize() const
+{
+    return m_image.isNull() ? m_imageSize : m_image.size();
+}
+
+QImage PinWindow::image() const
+{
+    if (!m_image.isNull())
+        return m_image;
+    if (m_png.isEmpty())
+        return {};
+    QImage decoded;
+    if (!decoded.loadFromData(m_png, "PNG"))
+        return {};
+    return decoded.convertToFormat(QImage::Format_RGB32);
+}
+
+const QImage& PinWindow::shownImage() const
+{
+    return m_form == PinForm::Full ? m_image : m_thumb;
+}
+
 QRect PinWindow::pictureRect() const
 {
-    return QRect(m_origin, zoomedSize(m_image.size(), m_zoom));
+    return QRect(m_origin, m_form == PinForm::Full ? zoomedSize(fullSize(), m_zoom) : m_thumb.size());
 }
 
 QRect PinWindow::windowRect() const
 {
     return pinWindowRect(pictureRect(), m_frame);
+}
+
+QRect PinWindow::workArea() const
+{
+    const QRect p = pictureRect();
+    const RECT r {p.left(), p.top(), p.right() + 1, p.bottom() + 1};
+    MONITORINFO info {sizeof info};
+    if (::GetMonitorInfoW(::MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST), &info))
+        return QRect(info.rcWork.left, info.rcWork.top, info.rcWork.right - info.rcWork.left, info.rcWork.bottom - info.rcWork.top);
+    return QRect(0, 0, 1920, 1080);
+}
+
+std::optional<QRect> PinWindow::edgeTab() const
+{
+    if (m_form != PinForm::Edge)
+        return std::nullopt;
+    return pictureRect();
 }
 
 void PinWindow::releasePixels()
@@ -122,11 +171,14 @@ void PinWindow::releasePixels()
     m_dibSize = {};
     m_image = {};
     m_scaled = {};
+    m_thumb = {};
+    m_png = {};
 }
 
 void PinWindow::render()
 {
-    if (!m_hwnd || m_image.isNull())
+    const QImage& source = shownImage();
+    if (!m_hwnd || source.isNull())
         return;
     const QRect window = windowRect();
     if (m_dibSize != window.size()) {
@@ -171,7 +223,10 @@ void PinWindow::render()
             ring(painter, bordered.adjusted(-i - 1, -i - 1, i + 1, i + 1), 1, QColor(0, 0, 0, static_cast<int>(std::lround(70 * f * f))));
         }
     }
-    if (std::abs(m_zoom - 1.0) < 1e-9) {
+    if (m_form != PinForm::Full) {
+        m_scaled = {};
+        copyOpaque(m_thumb, canvas, picture.topLeft());
+    } else if (std::abs(m_zoom - 1.0) < 1e-9) {
         m_scaled = {};
         copyOpaque(m_image, canvas, picture.topLeft()); // its pixels as they are
     } else {
@@ -184,7 +239,56 @@ void PinWindow::render()
         }
         copyOpaque(m_scaled, canvas, picture.topLeft());
     }
+    if (m_text != Text::Off)
+        drawTextLayer(canvas, picture);
     paintBorder();
+}
+
+void PinWindow::drawTextLayer(QImage& canvas, const QRect& picture)
+{
+    QPainter painter(&canvas);
+    painter.setRenderHint(QPainter::Antialiasing, false);
+    const QColor accent = m_host.accent ? m_host.accent() : QColor(0x0F, 0x6C, 0xBD);
+    const double z = m_zoom;
+    // The lines picked: a veil of the accent over them.
+    QColor veil = accent;
+    veil.setAlpha(110);
+    for (const PickedLine& line : std::as_const(m_picked)) {
+        const QRect box(picture.left() + static_cast<int>(std::floor(line.box.left() * z)),
+            picture.top() + static_cast<int>(std::floor(line.box.top() * z)),
+            std::max(1, static_cast<int>(std::ceil(line.box.width() * z))),
+            std::max(1, static_cast<int>(std::ceil(line.box.height() * z))));
+        painter.fillRect(box, veil);
+    }
+    if (m_picking && !m_pickBand.isEmpty()) {
+        const QRect band(picture.left() + static_cast<int>(std::lround(m_pickBand.left() * z)),
+            picture.top() + static_cast<int>(std::lround(m_pickBand.top() * z)),
+            static_cast<int>(std::lround(m_pickBand.width() * z)), static_cast<int>(std::lround(m_pickBand.height() * z)));
+        painter.setPen(QPen(accent, std::max(1, static_cast<int>(std::lround(dpr())))));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRect(band.adjusted(0, 0, -1, -1));
+    }
+    // What the pin is doing, in a pill at the lower left (white on the accent fill).
+    if (picture.width() < 150 * dpr() || picture.height() < 44 * dpr())
+        return;
+    const QString text = m_text == Text::Reading
+        ? QCoreApplication::translate("ws::capture::PinWindow", "识别文字中…")
+        : m_picked.isEmpty() ? QCoreApplication::translate("ws::capture::PinWindow", "拖选文字 · Esc 退出")
+                             : QCoreApplication::translate("ws::capture::PinWindow", "已复制文字 · Esc 退出");
+    QFont font = QGuiApplication::font();
+    font.setPixelSize(static_cast<int>(std::lround(13 * dpr())));
+    painter.setFont(font);
+    const QFontMetrics metrics(font);
+    const int padX = static_cast<int>(std::lround(10 * dpr()));
+    const int padY = static_cast<int>(std::lround(4 * dpr()));
+    const int gap = static_cast<int>(std::lround(8 * dpr()));
+    const QSize size(metrics.horizontalAdvance(text) + 2 * padX, metrics.height() + 2 * padY);
+    const QRect pill(picture.left() + gap, picture.bottom() + 1 - gap - size.height(), size.width(), size.height());
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(accent);
+    painter.drawRoundedRect(pill, 4 * dpr(), 4 * dpr());
+    painter.setPen(Qt::white);
+    painter.drawText(pill, Qt::AlignCenter, text);
 }
 
 void PinWindow::paintBorder()
@@ -221,7 +325,9 @@ void PinWindow::present()
 
 void PinWindow::setZoom(double zoom, QPoint cursor)
 {
-    zoom = std::clamp(zoom, zoomSteps().front(), maxZoom(m_image.size(), kZoomBudget));
+    if (m_form != PinForm::Full)
+        return;
+    zoom = std::clamp(zoom, zoomSteps().front(), maxZoom(fullSize(), kZoomBudget));
     if (std::abs(zoom - m_zoom) < 1e-9)
         return;
     m_origin = zoomAbout(m_origin, cursor, m_zoom, zoom);
@@ -229,11 +335,24 @@ void PinWindow::setZoom(double zoom, QPoint cursor)
     render();
 }
 
+void PinWindow::moveTo(QPoint origin)
+{
+    if (origin == m_origin || !m_hwnd)
+        return;
+    m_origin = origin; // first: a WM_DPICHANGED inside the move draws it there
+    const QRect window = windowRect();
+    ::SetWindowPos(m_hwnd, nullptr, window.x(), window.y(), 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
 void PinWindow::setPicture(const QImage& image, QByteArray project)
 {
     if (!m_hwnd || image.isNull())
         return;
+    if (m_form != PinForm::Full)
+        expand();
+    endTextPick();
     m_image = image.convertToFormat(QImage::Format_RGB32);
+    m_imageSize = m_image.size();
     m_scaled = {};
     m_project = std::move(project);
     render();
@@ -241,8 +360,20 @@ void PinWindow::setPicture(const QImage& image, QByteArray project)
 
 void PinWindow::setShown(bool shown)
 {
+    m_shown = shown;
+    applyVisibility();
+}
+
+void PinWindow::setAllHidden(bool hidden)
+{
+    m_allHidden = hidden;
+    applyVisibility();
+}
+
+void PinWindow::applyVisibility()
+{
     if (m_hwnd)
-        ::ShowWindow(m_hwnd, shown ? SW_SHOWNA : SW_HIDE);
+        ::ShowWindow(m_hwnd, visibleNow() ? SW_SHOWNA : SW_HIDE);
 }
 
 void PinWindow::setTopmost(bool on)
@@ -297,6 +428,172 @@ void PinWindow::close()
         ::DestroyWindow(m_hwnd); // WM_NCDESTROY lets go of the pixels and tells the owner
 }
 
+// ---- turning and flipping ------------------------------------------------------------
+
+void PinWindow::rotate(bool clockwise)
+{
+    if (!m_hwnd || m_form != PinForm::Full || m_image.isNull())
+        return;
+    endTextPick();
+    const QRect before = pictureRect();
+    m_image = turnedImage(m_image, clockwise);
+    m_imageSize = m_image.size();
+    m_scaled = {};
+    m_origin = recenteredOrigin(before, zoomedSize(m_imageSize, m_zoom));
+    m_project.clear(); // the annotations were drawn on the other way up
+    render();
+}
+
+void PinWindow::flip(bool horizontal)
+{
+    if (!m_hwnd || m_form != PinForm::Full || m_image.isNull())
+        return;
+    endTextPick();
+    m_image = flippedImage(m_image, horizontal);
+    m_scaled = {};
+    m_project.clear();
+    render();
+}
+
+// ---- collapsing ------------------------------------------------------------------------------
+
+void PinWindow::collapse(PinForm to)
+{
+    if (!m_hwnd || to == PinForm::Full || m_form != PinForm::Full || m_image.isNull())
+        return;
+    endTextPick();
+    const QRect work = workArea();
+    const QRect before = pictureRect();
+    QRect tab;
+    QImage thumb;
+    if (to == PinForm::Tile) {
+        const QSize size = tileThumbSize(m_imageSize, dpr());
+        thumb = m_image.scaled(size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).convertToFormat(QImage::Format_RGB32);
+        tab = tileRect(before.topLeft(), size, work);
+    } else {
+        const QSize size = edgeTabSize(dpr());
+        const QImage fitted = m_image.scaled(size, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+        thumb = fitted.copy((fitted.width() - size.width()) / 2, (fitted.height() - size.height()) / 2, size.width(), size.height())
+                    .convertToFormat(QImage::Format_RGB32);
+        tab = edgeTabRect(before.center().x(), size, work, m_host.takenTabs ? m_host.takenTabs(this) : std::vector<QRect> {});
+    }
+    m_savedOrigin = m_origin;
+    m_savedZoom = m_zoom;
+    m_form = to;
+    m_thumb = thumb;
+    m_scaled = {};
+    m_origin = tab.topLeft();
+    m_tileAtCollapse = m_origin;
+    render(); // the window shrinks to the thumbnail: the big bitmap goes
+    // The picture itself: its PNG bytes made on a thread of their own; once
+    // they are there the pixels are let go of (kEncoded).
+    auto job = std::make_shared<EncodeJob>();
+    m_encode = job;
+    const HWND hwnd = m_hwnd;
+    std::thread([job, image = m_image, hwnd] {
+        QBuffer buffer(&job->bytes);
+        buffer.open(QIODevice::WriteOnly);
+        // Quality 85 is zlib level 1: fast, and the bytes a fraction of the pixels.
+        if (!image.save(&buffer, "PNG", 85))
+            job->bytes.clear();
+        if (!job->cancelled)
+            ::PostMessageW(hwnd, kEncoded, 0, reinterpret_cast<LPARAM>(job.get()));
+    }).detach();
+}
+
+void PinWindow::finishEncode(const EncodeJob* job)
+{
+    if (!m_encode || m_encode.get() != job || m_encode->cancelled || m_form == PinForm::Full)
+        return;
+    std::shared_ptr<EncodeJob> done = std::move(m_encode);
+    m_encode.reset();
+    if (done->bytes.isEmpty())
+        return; // could not be packed: the pixels stay
+    m_png = std::move(done->bytes);
+    m_image = {};
+    if (m_host.released)
+        m_host.released(this);
+}
+
+void PinWindow::expand()
+{
+    if (!m_hwnd || m_form == PinForm::Full)
+        return;
+    if (m_encode) {
+        m_encode->cancelled = true;
+        m_encode.reset();
+    }
+    QImage full = m_image.isNull() ? image() : m_image;
+    if (full.isNull())
+        return; // the bytes do not decode: the thumbnail stays
+    const QPoint origin = m_form == PinForm::Tile ? expandedOrigin(m_savedOrigin, m_tileAtCollapse, m_origin) : m_savedOrigin;
+    m_image = std::move(full);
+    m_png = {};
+    m_thumb = {};
+    m_form = PinForm::Full;
+    m_origin = origin;
+    m_zoom = m_savedZoom;
+    m_scaled = {};
+    render();
+}
+
+// ---- picking text -----------------------------------------------------------------------------
+
+QPoint PinWindow::toImage(QPoint screen) const
+{
+    const QPointF p = QPointF(screen - m_origin) / m_zoom;
+    return QPoint(static_cast<int>(std::lround(p.x())), static_cast<int>(std::lround(p.y())));
+}
+
+void PinWindow::beginTextPick()
+{
+    if (!m_hwnd || m_form != PinForm::Full || m_text != Text::Off || !m_host.readLines || m_image.isNull())
+        return;
+    m_text = Text::Reading;
+    m_lines.clear();
+    m_picked.clear();
+    render();
+    const std::weak_ptr<bool> alive = m_alive;
+    m_host.readLines(m_image, dpr(), [this, alive](QList<RedactLine> lines) {
+        const auto token = alive.lock();
+        if (!token || !*token || m_text != Text::Reading)
+            return;
+        m_lines = std::move(lines);
+        m_text = Text::Ready;
+        render();
+    });
+}
+
+void PinWindow::endTextPick()
+{
+    if (m_text == Text::Off)
+        return;
+    m_text = Text::Off;
+    m_picking = false;
+    m_lines.clear();
+    m_picked.clear();
+    m_pickBand = {};
+    if (m_hwnd && ::GetCapture() == m_hwnd)
+        ::ReleaseCapture();
+    render();
+}
+
+QString PinWindow::pickedText() const
+{
+    return ws::capture::pickedText(m_picked);
+}
+
+void PinWindow::updatePicked(QPoint cursor)
+{
+    const QPoint a = toImage(m_pickStart);
+    const QPoint b = toImage(cursor);
+    m_pickBand = QRect(QPoint(std::min(a.x(), b.x()), std::min(a.y(), b.y())), QPoint(std::max(a.x(), b.x()), std::max(a.y(), b.y())));
+    m_picked = pickedLines(m_lines, QRectF(m_pickBand));
+    render();
+}
+
+// ---- messages ------------------------------------------------------------------------------
+
 LRESULT CALLBACK PinWindow::proc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     auto* self = reinterpret_cast<PinWindow*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -308,43 +605,120 @@ LRESULT CALLBACK PinWindow::proc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 LRESULT PinWindow::handle(UINT message, WPARAM wParam, LPARAM lParam)
 {
     const HWND hwnd = m_hwnd;
+    const auto cursorNow = [] {
+        POINT cursor {};
+        ::GetCursorPos(&cursor);
+        return QPoint(cursor.x, cursor.y);
+    };
+    const int reach = std::max(4, static_cast<int>(std::lround(10 * dpr())));
     switch (message) {
     case WM_ACTIVATE:
         return 0;
+    case kEncoded:
+        finishEncode(reinterpret_cast<const EncodeJob*>(lParam));
+        return 0;
+    case WM_SETCURSOR: {
+        if (LOWORD(lParam) != HTCLIENT)
+            break;
+        const QPoint at = cursorNow();
+        LPCWSTR shape = nullptr;
+        if (m_form != PinForm::Full) {
+            shape = IDC_HAND;
+        } else if (m_text == Text::Ready) {
+            shape = IDC_IBEAM;
+        } else if (m_text == Text::Off || m_corner != Corner::None) {
+            const Corner corner = m_corner != Corner::None ? m_corner : cornerAt(pictureRect(), at, reach);
+            if (corner == Corner::TopLeft || corner == Corner::BottomRight)
+                shape = IDC_SIZENWSE;
+            else if (corner == Corner::TopRight || corner == Corner::BottomLeft)
+                shape = IDC_SIZENESW;
+        }
+        if (!shape)
+            break;
+        ::SetCursor(::LoadCursorW(nullptr, shape));
+        return TRUE;
+    }
     case WM_LBUTTONDOWN: {
-        POINT cursor {};
-        ::GetCursorPos(&cursor);
-        m_grab = QPoint(cursor.x, cursor.y) - m_origin;
+        const QPoint at = cursorNow();
+        m_press = at;
+        m_moved = false;
+        if (m_form == PinForm::Full && m_text == Text::Ready) {
+            m_picking = true;
+            m_pickStart = at;
+            m_picked.clear();
+            updatePicked(at);
+            ::SetCapture(hwnd);
+            return 0;
+        }
+        if (m_form == PinForm::Full) {
+            m_corner = cornerAt(pictureRect(), at, reach);
+            m_resizeStart = pictureRect();
+        }
+        m_grab = at - m_origin;
         m_dragging = true;
         ::SetCapture(hwnd);
         return 0;
     }
     case WM_MOUSEMOVE:
-        if (m_dragging && ::GetCapture() == hwnd) {
-            POINT cursor {};
-            ::GetCursorPos(&cursor);
-            const QPoint origin = QPoint(cursor.x, cursor.y) - m_grab;
-            if (origin != m_origin) {
-                m_origin = origin; // first: a WM_DPICHANGED inside the move draws it there
-                const QRect window = windowRect();
-                ::SetWindowPos(hwnd, nullptr, window.x(), window.y(), 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        if (m_picking && ::GetCapture() == hwnd) {
+            updatePicked(cursorNow());
+        } else if (m_dragging && ::GetCapture() == hwnd) {
+            const QPoint at = cursorNow();
+            if (!m_moved && (at - m_press).manhattanLength() > std::max(3, static_cast<int>(std::lround(3 * dpr()))))
+                m_moved = true;
+            if (m_form == PinForm::Edge) {
+                // A tab sits on the edge: a click opens it.
+            } else if (m_form == PinForm::Tile) {
+                if (m_moved)
+                    moveTo(at - m_grab);
+            } else if (m_corner != Corner::None) {
+                const Resized r = resizeFromCorner(m_corner, m_resizeStart, fullSize(), at, zoomSteps().front(),
+                    maxZoom(fullSize(), kZoomBudget));
+                if (r.origin != m_origin || std::abs(r.zoom - m_zoom) > 1e-9) {
+                    m_origin = r.origin;
+                    m_zoom = r.zoom;
+                    render();
+                }
+            } else {
+                moveTo(at - m_grab);
             }
         }
         return 0;
     case WM_LBUTTONUP:
+        if (m_picking) {
+            m_picking = false;
+            m_pickBand = {};
+            const QString text = pickedText();
+            if (!text.isEmpty() && m_host.copyText)
+                m_host.copyText(text);
+            render();
+        }
         m_dragging = false;
+        m_corner = Corner::None;
         if (::GetCapture() == hwnd)
             ::ReleaseCapture();
+        if (m_form != PinForm::Full && !m_moved)
+            expand();
+        return 0;
+    case WM_MBUTTONUP:
+        if (m_form == PinForm::Full)
+            collapse(PinForm::Tile);
+        else
+            expand();
         return 0;
     case WM_CAPTURECHANGED:
         m_dragging = false;
+        m_corner = Corner::None;
+        if (m_picking) {
+            m_picking = false;
+            m_pickBand = {};
+            render();
+        }
         return 0;
-    case WM_LBUTTONDBLCLK: {
-        POINT cursor {};
-        ::GetCursorPos(&cursor);
-        setZoom(1.0, QPoint(cursor.x, cursor.y));
+    case WM_LBUTTONDBLCLK:
+        if (m_form == PinForm::Full && m_text == Text::Off)
+            setZoom(1.0, cursorNow());
         return 0;
-    }
     case WM_MOUSEWHEEL: {
         m_wheel += GET_WHEEL_DELTA_WPARAM(wParam);
         const int steps = m_wheel / WHEEL_DELTA;
@@ -354,25 +728,82 @@ LRESULT PinWindow::handle(UINT message, WPARAM wParam, LPARAM lParam)
         if (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) {
             m_opacity = nextOpacity(m_opacity, steps);
             present();
-        } else {
+        } else if (m_form == PinForm::Full) {
             const QPoint cursor(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)); // screen, physical
-            setZoom(nextZoom(m_zoom, steps, maxZoom(m_image.size(), kZoomBudget)), cursor);
+            setZoom(nextZoom(m_zoom, steps, maxZoom(fullSize(), kZoomBudget)), cursor);
         }
         return 0;
     }
     case WM_KEYDOWN: {
         const bool ctrl = ::GetKeyState(VK_CONTROL) < 0;
+        const bool shift = ::GetKeyState(VK_SHIFT) < 0;
         if (wParam == VK_ESCAPE) {
-            close();
+            if (m_text != Text::Off)
+                endTextPick();
+            else
+                close();
             return 0;
         }
-        if (ctrl && wParam == 'C' && m_host.copy) {
-            m_host.copy(this);
+        if (ctrl && wParam == 'C') {
+            if (m_text == Text::Ready && !m_picked.isEmpty() && m_host.copyText)
+                m_host.copyText(pickedText());
+            else if (m_host.copy)
+                m_host.copy(this);
             return 0;
         }
         if (ctrl && wParam == 'S' && m_host.save) {
             m_host.save(this);
             return 0;
+        }
+        if (ctrl)
+            break;
+        const int step = shift ? 10 : 1;
+        switch (wParam) {
+        case VK_LEFT:
+            moveTo(m_origin + QPoint(-step, 0));
+            return 0;
+        case VK_RIGHT:
+            moveTo(m_origin + QPoint(step, 0));
+            return 0;
+        case VK_UP:
+            moveTo(m_origin + QPoint(0, -step));
+            return 0;
+        case VK_DOWN:
+            moveTo(m_origin + QPoint(0, step));
+            return 0;
+        case VK_OEM_PLUS:
+        case VK_ADD:
+            if (m_form == PinForm::Full)
+                setZoom(nextZoom(m_zoom, 1, maxZoom(fullSize(), kZoomBudget)), pictureRect().center());
+            return 0;
+        case VK_OEM_MINUS:
+        case VK_SUBTRACT:
+            if (m_form == PinForm::Full)
+                setZoom(nextZoom(m_zoom, -1, maxZoom(fullSize(), kZoomBudget)), pictureRect().center());
+            return 0;
+        case 'R':
+            rotate(!shift);
+            return 0;
+        case 'H':
+            flip(true);
+            return 0;
+        case 'V':
+            flip(false);
+            return 0;
+        case 'T':
+            if (m_text == Text::Off)
+                beginTextPick();
+            else
+                endTextPick();
+            return 0;
+        case VK_SPACE:
+            if (m_form == PinForm::Full)
+                collapse(PinForm::Tile);
+            else
+                expand();
+            return 0;
+        default:
+            break;
         }
         break;
     }
@@ -396,6 +827,11 @@ LRESULT PinWindow::handle(UINT message, WPARAM wParam, LPARAM lParam)
     case WM_NCDESTROY: {
         ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
         m_hwnd = nullptr;
+        *m_alive = false;
+        if (m_encode) {
+            m_encode->cancelled = true;
+            m_encode.reset();
+        }
         releasePixels(); // at once: the memory goes back now
         if (m_host.closed)
             m_host.closed(this);

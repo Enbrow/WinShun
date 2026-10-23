@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AnnotationModel.h"
+#include "CaptureTools.h"
 #include "Geometry.h"
 
 #include <QImage>
@@ -43,6 +44,7 @@ class CaptureScreen : public QObject {
     Q_PROPERTY(QPoint cursor READ cursor NOTIFY cursorChanged FINAL)
     Q_PROPERTY(QImage loupe READ loupe NOTIFY cursorChanged FINAL) // the pixels around the cursor, kLoupeCells square
     Q_PROPERTY(QString color READ color NOTIFY cursorChanged FINAL) // "#RRGGBB" under the cursor
+    Q_PROPERTY(QString colorText READ colorText NOTIFY cursorChanged FINAL) // the same in the chosen format (HEX, RGB, HSL)
     Q_PROPERTY(int cursorShape READ cursorShape NOTIFY cursorChanged FINAL)
     Q_PROPERTY(QString flash READ flash NOTIFY flashChanged FINAL) // a word by the magnifier ("已复制 #…")
     // A word for the user by the selection ("已放弃这次的标注 · Ctrl+Z 恢复"); empty when none.
@@ -71,6 +73,7 @@ public:
     QPoint cursor() const { return m_cursor; }
     QImage loupe() const { return m_loupe; }
     QString color() const { return m_color; }
+    QString colorText() const { return m_colorText; }
     int cursorShape() const { return m_cursorShape; }
     QString flash() const { return m_flash; }
     QString notice() const { return m_notice; }
@@ -79,6 +82,8 @@ public:
     // window's logical size, which the scale follows.
     void setGeometry(const QRect& rect, qreal dpr, QSize logicalWindow);
     void setImage(const QImage& image);
+    // The format the colour is written in; the magnifier shows it at once.
+    void setColorFormat(ColorFormat format);
 
     // Kept for QML's sake: the selection's toolbar, size label and the
     // magnifier, placed by Geometry.h from sizes QML measured (logical),
@@ -118,6 +123,9 @@ private:
     QPoint m_cursor {-1, -1};
     QImage m_loupe;
     QString m_color;
+    QString m_colorText;
+    QRgb m_rgb = 0;
+    ColorFormat m_colorFormat = ColorFormat::Hex;
     int m_cursorShape = Qt::CrossCursor;
     QString m_flash;
     QString m_notice;
@@ -162,8 +170,9 @@ public:
     // OcrCopy, OcrSearch and OcrWeb read them and go on at once: to the clipboard,
     // the launcher's search box, the default web search (the mouse buttons' choices).
     // Long: the selection scrolls into a long screenshot (Ctrl+L; LongCapture),
-    // one at least kLongMinimum px each way.
-    enum class Action { Copy, Save, Cancel, Pin, Ocr, OcrCopy, OcrSearch, OcrWeb, Long };
+    // one at least kLongMinimum px each way. Qr: the QR codes in it are read
+    // (Q); Delay: this capture ends and the next begins after the countdown (D).
+    enum class Action { Copy, Save, Cancel, Pin, Ocr, OcrCopy, OcrSearch, OcrWeb, Long, Qr, Delay };
     Q_ENUM(Action)
     static constexpr int kLongMinimum = 48;
 
@@ -172,6 +181,11 @@ public:
     struct Windows {
         std::vector<QRect> tops;
         std::function<std::vector<QRect>(std::size_t)> children;
+        // The mouse is at `point` (physical, virtual desktop) over top-level
+        // window i: UI Automation may be asked about the controls there
+        // (UiaProbe); what it finds is joined to children(i) and refreshHover()
+        // called. Optional.
+        std::function<void(std::size_t i, QPoint point)> probe;
     };
 
 
@@ -183,10 +197,20 @@ public:
     // does not list it (another band of the Z order); found from the
     // picture once it closed (changedRegion).
     void setFlyout(const QRect& rect);
+    // The windows' controls changed (UI Automation answered): the hover is
+    // worked out again at the cursor.
+    void refreshHover();
     void end();
     bool ocrAvailable() const { return m_ocrAvailable; }
     void setSmartHooks(SmartHooks hooks) { m_annot.setSmartHooks(std::move(hooks)); }
     void setOcrAvailable(bool on);
+    // The colour's format (C copies it, Shift+C changes it): kept between captures.
+    void setColorFormat(ColorFormat format);
+    ColorFormat colorFormat() const { return m_colorFormat; }
+    // The last selection a capture ended with (virtual desktop, physical), for
+    // Shift+R before there is one; set by the capture, kept between captures.
+    void setLastSelection(const QRect& rect) { m_lastSelection = rect; }
+    QRect lastSelection() const { return m_lastSelection; }
     QStringList hiddenButtons() const { return m_hiddenButtons; }
     void setHiddenButtons(const QStringList& ids);
     bool active() const { return m_active; }
@@ -247,6 +271,7 @@ signals:
     // coordinates); nothing for Cancel.
     void finished(ws::capture::CaptureSession::Action action, int screen, const QRect& rect);
     void colorCopied(const QString& color);
+    void colorFormatChanged(ws::capture::ColorFormat format);
     void cursorMoveRequested(const QPoint& global); // the arrow keys with no selection: a pixel at a time
     void selectionChanged();
     void activeChanged();
@@ -270,6 +295,7 @@ private:
     void updateCursor(int screen, QPoint p);
     void publish(); // the state onto the screens
     void finish(Action action);
+    void useLastSelection(); // Shift+R: the selection of the capture before
     void back(); // Esc, right click
     enum class MouseAct { None, Copy, Save, Pin, Ocr, Cancel, Back, OcrCopy, OcrSearch, OcrWeb };
     static MouseAct parseMouseAct(const QString& name, MouseAct fallback);
@@ -327,6 +353,8 @@ private:
     Pick m_parkedSelection;
     bool m_toolbarHidden = false;
     bool m_toolHintSeen = false;
+    ColorFormat m_colorFormat = ColorFormat::Hex;
+    QRect m_lastSelection;
     QTimer m_noticeTimer;
 };
 

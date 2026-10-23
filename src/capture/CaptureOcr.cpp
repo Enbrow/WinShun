@@ -1,6 +1,7 @@
 #include "CaptureOcr.h"
 
 #include "Geometry.h"
+#include "QrCode.h"
 #include "platform/PaddleOcr.h"
 
 #include <QCoreApplication>
@@ -51,6 +52,8 @@ void CaptureOcr::read(const QImage& image, double dpr)
     ++m_round;
     m_text.clear();
     m_message.clear();
+    m_title.clear();
+    m_link.clear();
     if (image.isNull()) {
         m_busy = false;
         m_message = tr("没有图片可以识别。");
@@ -70,6 +73,17 @@ void CaptureOcr::read(const QImage& image, double dpr)
         m_job = Job {m_round, image, ocrUpscale(image.size(), dpr)}; // an older one not started yet is dropped
     }
     m_wake.notify_all();
+}
+
+void CaptureOcr::showTexts(const QStringList& texts, const QString& title, const QString& none)
+{
+    ++m_round; // a reading still under way is for a picture no longer shown
+    m_busy = false;
+    m_title = title;
+    m_text = texts.join(u'\n');
+    m_message = texts.isEmpty() ? none : QString();
+    m_link = texts.size() == 1 ? qrLink(texts.first()) : QString();
+    emit changed();
 }
 
 void CaptureOcr::scan(const QImage& image, double dpr, std::function<void(QList<RedactLine>)> done)
