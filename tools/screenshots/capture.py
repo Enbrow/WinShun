@@ -63,6 +63,7 @@ class Desktop:
         u.GetWindowThreadProcessId.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD)]
         u.IsWindowVisible.argtypes = [wt.HWND]
         u.GetClassNameW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
+        u.GetWindowTextW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
         u.EnumWindows.argtypes = [self.ENUMPROC, wt.LPARAM]
         u.CreateWindowExW.restype = wt.HWND
         u.CreateWindowExW.argtypes = [wt.DWORD, wt.LPCWSTR, wt.LPCWSTR, wt.DWORD, ctypes.c_int, ctypes.c_int,
@@ -104,6 +105,11 @@ class Desktop:
         r = wt.RECT()
         self.dwmapi.DwmGetWindowAttribute(hwnd, 9, ctypes.byref(r), ctypes.sizeof(r))  # extended frame bounds
         return r.left, r.top, r.right, r.bottom
+
+    def title(self, hwnd):
+        text = ctypes.create_unicode_buffer(512)
+        self.user32.GetWindowTextW(hwnd, text, 512)
+        return text.value
 
     def class_name(self, hwnd):
         name = ctypes.create_unicode_buffer(256)
@@ -218,7 +224,7 @@ def shoot(delay=0.0, winshun=False, margin=64, tries=12, beside=False, hold=Fals
     beside the launcher), with transparency. `hold`: the pointer stays where it
     is (a drag in progress, the pie under it). `with_class`: and the visible
     windows of that class (CabinetWClass: an Explorer window) that lie against
-    the main one, which is then WinShun's frontmost (the launcher over Explorer)."""
+    the main one (class, or class:part of the title), which is then WinShun's frontmost (the launcher over Explorer)."""
     d = Desktop()
     time.sleep(delay)
     order = d.windows()
@@ -245,8 +251,9 @@ def shoot(delay=0.0, winshun=False, margin=64, tries=12, beside=False, hold=Fals
     else:
         targets += [h for h in ours if not logo(h) and near(d.frame(h), d.frame(main), 24)]
     if with_class:
-        targets += [h for h in order if h not in ours and h not in targets and d.class_name(h) == with_class
-                    and overlap(d.frame(h), d.frame(main)) > 0.02 and min(size(h)) > 100]
+        cls, _, part = with_class.partition(":")  # "CabinetWClass" or "CabinetWClass:part of its title"
+        targets += [h for h in order if h not in ours and h not in targets and d.class_name(h) == cls
+                    and part in d.title(h) and overlap(d.frame(h), d.frame(main)) > 0.02 and min(size(h)) > 100]
     targets += [h for h in ours if logo(h) and any(near(d.frame(h), d.frame(t), 160) for t in targets)]
     frames = [d.frame(h) for h in targets]
     screen = (d.user32.GetSystemMetrics(76), d.user32.GetSystemMetrics(77))  # virtual screen origin

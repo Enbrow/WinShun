@@ -41,7 +41,7 @@ tap 32
 sleep 70
 tap 36
 sleep 1800
-matte L-typing winshun with CabinetWClass
+matte L-typing winshun with CabinetWClass:Win顺演示
 tap 1B
 sleep 800
 explorer close
