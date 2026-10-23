@@ -269,14 +269,14 @@ Window {
         id: magnifier
 
         readonly property int cells: 15 // CaptureScreen::kLoupeCells
-        readonly property int cell: Math.max(1, Math.round(8 * overlay.dpr)) // screen pixels per picture pixel
+        readonly property int cell: Math.max(1, Math.round(11 * overlay.dpr)) // screen pixels per picture pixel
         readonly property point place: overlay.screenModel.placeMagnifier(overlay.screenModel.cursor, width, height)
 
         visible: overlay.screenModel.cursorHere && overlay.screenModel.hasImage
         x: Math.round(place.x * overlay.dpr) / overlay.dpr
         y: Math.round(place.y * overlay.dpr) / overlay.dpr
-        // The position line, the colour in its format and the hint can be wider than the picture
-        width: Math.max(loupe.width + 2, position.implicitWidth + 16 + 2, colorRow.implicitWidth + 16 + 2, hint.implicitWidth + 16 + 2)
+        // As wide as the picture, which fills it to the edges (a wider box left an empty strip at the right); the lines below elide
+        width: loupe.width + 2
         height: loupe.height + 2 + info.implicitHeight + 10
         color: Theme.background
         border.width: 1
@@ -325,6 +325,8 @@ Window {
 
             Text { // the screen pixel, in the virtual desktop's coordinates
                 id: position
+                width: parent.width
+                elide: Text.ElideRight
                 text: qsTr("位置 %1, %2").arg(overlay.screenModel.cursor.x + overlay.screenModel.origin.x)
                                           .arg(overlay.screenModel.cursor.y + overlay.screenModel.origin.y)
                 color: Theme.text
@@ -343,6 +345,8 @@ Window {
                     border.color: Theme.windowEdge
                 }
                 Text {
+                    width: Math.min(implicitWidth, info.width - 18)
+                    elide: Text.ElideRight
                     text: overlay.screenModel.colorText
                     color: Theme.text
                     font.pixelSize: Theme.fontCaption

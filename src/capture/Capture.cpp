@@ -256,7 +256,11 @@ void Capture::start()
     if (m_includeCursor)
         drawCursorInShots();
     m_grabMs = m_clock.elapsed();
-    m_snapshot = WindowSnapshot::take();
+    std::vector<HWND> overlayWindows;
+    for (const Overlay& overlay : m_overlays)
+        if (overlay.window)
+            overlayWindows.push_back(reinterpret_cast<HWND>(overlay.window->winId()));
+    m_snapshot = WindowSnapshot::take(overlayWindows);
     m_listMs = m_clock.elapsed();
 
     std::vector<CaptureScreen*> screens;

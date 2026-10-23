@@ -6,6 +6,7 @@
 #include "Geometry.h"
 #include "Hdr.h"
 #include "PrintScreen.h"
+#include "WindowSnapshot.h"
 
 #include <QSignalSpy>
 #include <QTest>
@@ -175,6 +176,31 @@ private slots:
         QCOMPARE(placeSizeLabel(QRect(100, 0, 50, 50), QSize(80, 20), screen, 6), QPoint(100, 6)); // no room above
         QCOMPARE(placeMagnifier({100, 100}, QSize(150, 200), screen, 20), QPoint(121, 121));
         QCOMPARE(placeMagnifier({990, 790}, QSize(150, 200), screen, 20), QPoint(820, 570)); // flipped
+    }
+
+    // Only the capture's own surfaces (pins, countdown) stay out of the window
+    // list; Win顺's settings window and other windows are picked like any app's.
+    void ownWindowsAreDetectedExceptCaptureSurfaces()
+    {
+        QVERIFY(WindowSnapshot::isCaptureSurfaceClass(L"WinShun.Pin"));
+        QVERIFY(WindowSnapshot::isCaptureSurfaceClass(L"WinShun.Countdown"));
+        QVERIFY(!WindowSnapshot::isCaptureSurfaceClass(L"Qt6120QWindowIcon")); // the settings window
+        QVERIFY(!WindowSnapshot::isCaptureSurfaceClass(L"Notepad"));
+        QVERIFY(!WindowSnapshot::isCaptureSurfaceClass(L""));
+    }
+
+    void magnifierAtEveryScaleStaysWhole()
+    {
+        // The magnifier is as wide as its picture: 15 cells of round(11 * dpr) screen pixels, never clipped by an edge.
+        const QRect screen(0, 0, 2560, 1600);
+        for (double dpr : {1.0, 1.25, 1.5, 1.75}) {
+            const int cell = std::max(1, int(std::lround(11 * dpr)));
+            const QSize box(15 * cell + 2, 15 * cell + 70);
+            for (QPoint c : {QPoint(1280, 800), QPoint(2559, 1599), QPoint(0, 0), QPoint(2500, 10)}) {
+                const QPoint p = placeMagnifier(c, box, screen, int(std::lround(20 * dpr)));
+                QVERIFY(screen.contains(QRect(p, box)));
+            }
+        }
     }
 
     void hitChainPicksTopmost()

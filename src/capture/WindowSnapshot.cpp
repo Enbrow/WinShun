@@ -14,13 +14,13 @@ QRect toRect(const RECT& r)
     return QRect(r.left, r.top, r.right - r.left, r.bottom - r.top);
 }
 
-bool skipped(HWND hwnd, DWORD ownProcess)
+bool skipped(HWND hwnd, const std::vector<HWND>& overlays)
 {
     if (!::IsWindowVisible(hwnd) || ::IsIconic(hwnd))
         return true;
-    DWORD process = 0;
-    ::GetWindowThreadProcessId(hwnd, &process);
-    if (process == ownProcess)
+    // Only the capture's own surfaces are left out, not every window of the
+    // process: Win顺's settings window is picked like any other app's.
+    if (std::ranges::find(overlays, hwnd) != overlays.end())
         return true;
     DWORD cloaked = 0;
     if (SUCCEEDED(::DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof cloaked)) && cloaked != 0)
@@ -40,7 +40,7 @@ bool skipped(HWND hwnd, DWORD ownProcess)
     // window, ours included; it is not a window anyone means to capture.
     if (std::wcscmp(className, L"CursorVisualClass") == 0)
         return true;
-    return false;
+    return WindowSnapshot::isCaptureSurfaceClass(className);
 }
 
 QRect boundsOf(HWND hwnd)
@@ -72,17 +72,23 @@ BOOL CALLBACK addChild(HWND hwnd, LPARAM param)
 
 } // namespace
 
-WindowSnapshot WindowSnapshot::take()
+bool WindowSnapshot::isCaptureSurfaceClass(std::wstring_view className)
+{
+    // The pins and the delayed capture's countdown (the overlays are passed by handle).
+    return className == L"WinShun.Pin" || className == L"WinShun.Countdown";
+}
+
+WindowSnapshot WindowSnapshot::take(const std::vector<HWND>& overlays)
 {
     WindowSnapshot snapshot;
     struct Walk {
         WindowSnapshot* snapshot;
-        DWORD self;
-    } walk {&snapshot, ::GetCurrentProcessId()};
+        const std::vector<HWND>* overlays;
+    } walk {&snapshot, &overlays};
     ::EnumWindows(
         [](HWND hwnd, LPARAM param) -> BOOL {
             auto* w = reinterpret_cast<Walk*>(param);
-            if (skipped(hwnd, w->self))
+            if (skipped(hwnd, *w->overlays))
                 return TRUE;
             const QRect rect = boundsOf(hwnd);
             if (rect.isEmpty())

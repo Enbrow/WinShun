@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include <optional>
+#include <string_view>
 #include <vector>
 
 namespace ws::capture {
@@ -16,13 +17,17 @@ namespace ws::capture {
 // minimised, cloaked (other virtual desktops, suspended UWP windows),
 // empty, click-through (WS_EX_TRANSPARENT, invisible layered) windows, the
 // text cursor indicator (CursorVisualClass, drawn over everything), and
-// Win顺's own.
+// the capture's own overlays, pins and countdown (not Win顺's other windows).
 //
 // The child windows are read only for a window the mouse goes over, and
 // once: a window like Explorer has dozens, and nobody points at most windows.
 class WindowSnapshot {
 public:
-    static WindowSnapshot take();
+    // `overlays`: the capture's own overlay windows, never listed.
+    static WindowSnapshot take(const std::vector<HWND>& overlays = {});
+    // The class of a Win顺 window that is part of the capture (a pin, the
+    // countdown) and never a target; other Win顺 windows are listed.
+    static bool isCaptureSurfaceClass(std::wstring_view className);
 
     const std::vector<QRect>& windows() const { return m_rects; }
     // Window i's visible child windows, cut to it.
