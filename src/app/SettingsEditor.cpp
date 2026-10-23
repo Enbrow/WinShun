@@ -1068,6 +1068,15 @@ void SettingsEditor::setCaptureDelay(int seconds)
     commit();
 }
 
+void SettingsEditor::setCapturePinDoubleClick(const QString& action)
+{
+    if ((action != u"reset" && action != u"close" && action != u"collapse" && action != u"none")
+        || m_settings.capturePinDoubleClick == action)
+        return;
+    m_settings.capturePinDoubleClick = action;
+    commit();
+}
+
 void SettingsEditor::setCapturePinsHotkey(const QString& hotkey)
 {
     const QString value = hotkey.trimmed();

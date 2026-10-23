@@ -479,6 +479,56 @@ Rectangle {
                 }
             }
 
+            Item { // what a double click on a pin does
+                width: parent.width
+                height: Math.max(pinClickTexts.implicitHeight, pinClickChoices.implicitHeight)
+
+                Column {
+                    id: pinClickTexts
+                    anchors.left: parent.left
+                    anchors.right: pinClickChoices.left
+                    anchors.rightMargin: 12
+                    spacing: 4
+
+                    Text {
+                        width: parent.width
+                        text: qsTr("双击贴图")
+                        color: Theme.text
+                        font.pixelSize: Theme.fontBody
+                    }
+                    Text {
+                        width: parent.width
+                        text: qsTr("复位：回到原来的大小；关闭：贴图不要了；收起：缩成小方块，点一下再展开。按 Esc 总是关闭")
+                        color: Theme.subtext
+                        font.pixelSize: Theme.fontCaption
+                        wrapMode: Text.Wrap
+                    }
+                }
+                Row {
+                    id: pinClickChoices
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 8
+
+                    Repeater {
+                        model: [
+                            { value: "reset", label: qsTr("复位") },
+                            { value: "close", label: qsTr("关闭") },
+                            { value: "collapse", label: qsTr("收起") },
+                            { value: "none", label: qsTr("不做") }
+                        ]
+
+                        delegate: FlatButton {
+                            required property var modelData
+
+                            highlighted: card.editor.capturePinDoubleClick === modelData.value
+                            text: modelData.label
+                            onClicked: card.editor.capturePinDoubleClick = modelData.value
+                        }
+                    }
+                }
+            }
+
             HotkeyRow {
                 id: pinsHotkeyRow
                 title: qsTr("隐藏 / 显示全部贴图的快捷键")

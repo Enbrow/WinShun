@@ -109,6 +109,8 @@ public:
     // Back by turning it off in its menu, the tray's 取消所有贴图的穿透, the
     // restore hotkey, or by holding Ctrl with the cursor over it (updateReachable).
     void setClickThrough(bool on);
+    // What a double click does while it is in full and no text is picked.
+    void setDoubleClick(PinDoubleClick action) { m_doubleClick = action; }
     // The owner's watcher calls this while any pin is click-through: a pin
     // set to click through takes the mouse while `ctrlDown` with `cursor`
     // (physical) over its picture, and lets it go again after (not while it
@@ -190,6 +192,9 @@ private:
     QRect m_resizeStart;
     // Collapsed: its form, the thumbnail, where it was in full, the encode.
     PinForm m_form = PinForm::Full;
+    PinDoubleClick m_doubleClick = PinDoubleClick::Reset;
+    bool m_clickOpened = false; // this click opened a tile or tab: its double click does nothing more
+    bool m_swallowUp = false; // a double click collapsed it: its button up must not open it again
     QImage m_thumb;
     QByteArray m_png;
     QPoint m_savedOrigin;

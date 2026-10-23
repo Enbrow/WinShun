@@ -642,6 +642,8 @@ LRESULT PinWindow::handle(UINT message, WPARAM wParam, LPARAM lParam)
         const QPoint at = cursorNow();
         m_press = at;
         m_moved = false;
+        m_clickOpened = false;
+        m_swallowUp = false;
         if (m_form == PinForm::Full && m_text == Text::Ready) {
             m_picking = true;
             m_pickStart = at;
@@ -697,8 +699,12 @@ LRESULT PinWindow::handle(UINT message, WPARAM wParam, LPARAM lParam)
         m_corner = Corner::None;
         if (::GetCapture() == hwnd)
             ::ReleaseCapture();
-        if (m_form != PinForm::Full && !m_moved)
+        if (m_swallowUp) { // the double click's own button up: it collapsed the pin
+            m_swallowUp = false;
+        } else if (m_form != PinForm::Full && !m_moved) {
             expand();
+            m_clickOpened = true;
+        }
         return 0;
     case WM_MBUTTONUP:
         if (m_form == PinForm::Full)
@@ -716,8 +722,18 @@ LRESULT PinWindow::handle(UINT message, WPARAM wParam, LPARAM lParam)
         }
         return 0;
     case WM_LBUTTONDBLCLK:
-        if (m_form == PinForm::Full && m_text == Text::Off)
-            setZoom(1.0, cursorNow());
+        // A tile double-clicked opened on the first click: that is all it does.
+        if (m_form != PinForm::Full || m_text != Text::Off || m_clickOpened)
+            return 0;
+        switch (m_doubleClick) {
+        case PinDoubleClick::Reset: setZoom(1.0, cursorNow()); break;
+        case PinDoubleClick::Close: close(); break;
+        case PinDoubleClick::Collapse:
+            collapse(PinForm::Tile);
+            m_swallowUp = true;
+            break;
+        case PinDoubleClick::None: break;
+        }
         return 0;
     case WM_MOUSEWHEEL: {
         m_wheel += GET_WHEEL_DELTA_WPARAM(wParam);

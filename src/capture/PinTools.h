@@ -37,6 +37,11 @@ QPoint recenteredOrigin(const QRect& before, QSize after);
 // kept while it is not in full.
 enum class PinForm { Full, Tile, Edge };
 
+// What a double click on a pin in full does ([Capture] PinDoubleClick):
+// back to 100% (the default), close it, collapse it to a tile, or nothing.
+enum class PinDoubleClick { Reset, Close, Collapse, None };
+PinDoubleClick pinDoubleClickFromName(const QString& name); // unknown: Reset
+
 // The thumbnail's size: the picture fitted in a box of `box` logical pixels
 // at `dpr`, never larger than the picture itself, at least 1x1.
 QSize tileThumbSize(QSize image, double dpr, int box = 96);

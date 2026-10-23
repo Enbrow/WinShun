@@ -28,6 +28,17 @@ QPoint recenteredOrigin(const QRect& before, QSize after)
     return QPoint(before.x() + (before.width() - after.width()) / 2, before.y() + (before.height() - after.height()) / 2);
 }
 
+PinDoubleClick pinDoubleClickFromName(const QString& name)
+{
+    if (name == u"close")
+        return PinDoubleClick::Close;
+    if (name == u"collapse")
+        return PinDoubleClick::Collapse;
+    if (name == u"none")
+        return PinDoubleClick::None;
+    return PinDoubleClick::Reset;
+}
+
 QSize tileThumbSize(QSize image, double dpr, int box)
 {
     if (image.isEmpty())

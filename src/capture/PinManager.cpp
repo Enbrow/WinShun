@@ -94,6 +94,7 @@ void PinManager::pin(const QImage& image, QPoint origin, bool screenshot, QByteA
     auto pin = std::make_unique<PinWindow>(image, origin, std::move(host));
     pin->setScreenshot(screenshot);
     pin->setProject(std::move(project));
+    pin->setDoubleClick(m_doubleClick);
     if (pin->hwnd())
         m_pins.push_back(std::move(pin));
 }
@@ -178,6 +179,13 @@ void PinManager::setAllTopmost(bool on)
 {
     for (const auto& p : m_pins)
         p->setTopmost(on);
+}
+
+void PinManager::setDoubleClick(PinDoubleClick action)
+{
+    m_doubleClick = action;
+    for (const auto& p : m_pins)
+        p->setDoubleClick(action);
 }
 
 void PinManager::closed(PinWindow* pin)

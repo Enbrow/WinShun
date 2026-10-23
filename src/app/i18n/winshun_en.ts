@@ -1485,6 +1485,30 @@
         <translation>Delayed capture</translation>
     </message>
     <message>
+        <source>双击贴图</source>
+        <translation>Double-clicking a pin</translation>
+    </message>
+    <message>
+        <source>复位：回到原来的大小；关闭：贴图不要了；收起：缩成小方块，点一下再展开。按 Esc 总是关闭</source>
+        <translation>Reset: back to its original size. Close: the pin goes away. Collapse: it shrinks to a small tile; click it to open it again. Esc always closes it</translation>
+    </message>
+    <message>
+        <source>复位</source>
+        <translation>Reset</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>Collapse</translation>
+    </message>
+    <message>
+        <source>不做</source>
+        <translation>Nothing</translation>
+    </message>
+    <message>
         <source>鼠标移到 VS Code、微信、设置这类程序的窗口上时，也能框出里面的侧栏、编辑区等控件。查询在后台进行，最多等 150 毫秒，超时就只用普通子窗口，不会拖慢鼠标。提权运行的程序框不到控件</source>
         <translation>Over a window of VS Code, WeChat, Settings and the like, the sidebar, the editor and other controls inside can be outlined too. The question is asked in the background and waits 150 ms at most; past that only the ordinary child windows are used, so the mouse never slows down. Controls in programs running as administrator cannot be found</translation>
     </message>

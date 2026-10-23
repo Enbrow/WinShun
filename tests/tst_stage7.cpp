@@ -161,6 +161,15 @@ private slots:
 
     // ---- collapsing ----------------------------------------------------------------------
 
+    void theDoubleClickSettingIsReadByName()
+    {
+        QCOMPARE(pinDoubleClickFromName(u"reset"_s), PinDoubleClick::Reset);
+        QCOMPARE(pinDoubleClickFromName(u"close"_s), PinDoubleClick::Close);
+        QCOMPARE(pinDoubleClickFromName(u"collapse"_s), PinDoubleClick::Collapse);
+        QCOMPARE(pinDoubleClickFromName(u"none"_s), PinDoubleClick::None);
+        QCOMPARE(pinDoubleClickFromName(u"what"_s), PinDoubleClick::Reset);
+    }
+
     void theThumbnailFitsTheBoxAndNeverGrows()
     {
         QCOMPARE(tileThumbSize({1000, 500}, 1.0), QSize(96, 48));

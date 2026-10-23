@@ -1063,6 +1063,10 @@ void Settings::load()
     }
     capturePinsHotkey = readOrDefault(s, u"Capture/PinsHotkey"_s, d.capturePinsHotkey).trimmed();
     capturePinsRestoreHotkey = readOrDefault(s, u"Capture/PinsRestoreHotkey"_s, d.capturePinsRestoreHotkey).trimmed();
+    {
+        const QString action = readOrDefault(s, u"Capture/PinDoubleClick"_s, d.capturePinDoubleClick).trimmed().toLower();
+        capturePinDoubleClick = action == u"close" || action == u"collapse" || action == u"none" ? action : u"reset"_s;
+    }
 
     // Before the list: writing it (defaults new to the file) rewrites the whole group.
     webSuggestions = readOrDefault(s, u"WebSearch/Suggestions"_s, d.webSuggestions);
@@ -1208,6 +1212,7 @@ void Settings::save() const
     s.setValue(u"Capture/ColorFormat"_s, captureColorFormat);
     s.setValue(u"Capture/PinsHotkey"_s, capturePinsHotkey);
     s.setValue(u"Capture/PinsRestoreHotkey"_s, capturePinsRestoreHotkey);
+    s.setValue(u"Capture/PinDoubleClick"_s, capturePinDoubleClick);
     writeWebShortcuts(s, webShortcuts, webSuggestions);
     writeFileTypes(s, fileTypes);
     writeShares(s, shares);

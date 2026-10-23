@@ -108,6 +108,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool captureCursor READ captureCursor WRITE setCaptureCursor NOTIFY changed FINAL)
     Q_PROPERTY(bool captureControlsUia READ captureControlsUia WRITE setCaptureControlsUia NOTIFY changed FINAL)
     Q_PROPERTY(int captureDelay READ captureDelay WRITE setCaptureDelay NOTIFY changed FINAL)
+    Q_PROPERTY(QString capturePinDoubleClick READ capturePinDoubleClick WRITE setCapturePinDoubleClick NOTIFY changed FINAL)
     Q_PROPERTY(QString capturePinsHotkey READ capturePinsHotkey WRITE setCapturePinsHotkey NOTIFY changed FINAL)
     Q_PROPERTY(QString capturePinsRestoreHotkey READ capturePinsRestoreHotkey WRITE setCapturePinsRestoreHotkey NOTIFY changed FINAL)
     Q_PROPERTY(QString capturePinsHotkeyError READ capturePinsHotkeyError NOTIFY hotkeyErrorChanged FINAL)
@@ -388,6 +389,8 @@ public:
     void setCaptureControlsUia(bool on);
     int captureDelay() const { return m_settings.captureDelay; }
     void setCaptureDelay(int seconds);
+    QString capturePinDoubleClick() const { return m_settings.capturePinDoubleClick; }
+    void setCapturePinDoubleClick(const QString& action);
     QString capturePinsHotkey() const { return m_settings.capturePinsHotkey; }
     void setCapturePinsHotkey(const QString& hotkey);
     QString capturePinsRestoreHotkey() const { return m_settings.capturePinsRestoreHotkey; }

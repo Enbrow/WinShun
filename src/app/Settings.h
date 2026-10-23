@@ -362,6 +362,9 @@ struct Settings {
     QString captureColorFormat = QStringLiteral("hex");
     QString capturePinsHotkey;
     QString capturePinsRestoreHotkey;
+    // What a double click on a pin does: reset (back to 100%) | close |
+    // collapse (to a tile) | none (PinDoubleClick).
+    QString capturePinDoubleClick = QStringLiteral("reset");
 
     // [WebSearch]: keywords the user gives web pages ("gh" opens GitHub, "gh
     // WinShun" searches it; see WebShortcut). At first just one, "winshun".

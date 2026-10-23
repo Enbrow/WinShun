@@ -1668,6 +1668,8 @@ void App::applyCapture()
     }
     applyScreenshots();
 
+    if (m_pins)
+        m_pins->setDoubleClick(capture::pinDoubleClickFromName(m_settings.capturePinDoubleClick));
     // PrtScn: taken from the Snipping Tool while it is wanted, the value
     // found then kept in [Capture] PrintScreenBefore and put back after.
     const bool takeOver = m_settings.captureEnabled && m_settings.capturePrintScreen;
@@ -1866,6 +1868,7 @@ capture::PinManager& App::pins()
         m_pins = std::make_unique<capture::PinManager>(std::move(callbacks));
     }
     return *m_pins;
+        m_pins->setDoubleClick(capture::pinDoubleClickFromName(m_settings.capturePinDoubleClick));
 }
 
 namespace {
