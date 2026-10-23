@@ -85,7 +85,7 @@ Window {
         Rectangle {
             anchors.bottom: parent.bottom
             width: parent.width
-            height: 1
+            height: Theme.edge(Screen.devicePixelRatio)
             color: Theme.divider
         }
     }

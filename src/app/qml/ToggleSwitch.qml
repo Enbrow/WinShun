@@ -64,7 +64,7 @@ Item {
 
     Row {
         id: row
-        anchors.verticalCenter: parent.verticalCenter
+        y: Theme.snap((parent.height - height) / 2, Screen.devicePixelRatio) // whole device pixels, so that the track's edges are crisp
         spacing: 10
 
         Text { // as wide as the longest word, so the switch stays put ("On" / "Off")
@@ -84,7 +84,7 @@ Item {
         Rectangle {
             id: track
             readonly property bool lit: toggle.checked && !toggle.mixed && !toggle.unknown
-            anchors.verticalCenter: parent.verticalCenter
+            y: Theme.snap((parent.height - height) / 2, Screen.devicePixelRatio)
             width: 40
             height: 20
             radius: 10

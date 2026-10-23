@@ -150,7 +150,7 @@ SettingsSection {
                             visible: favRow.index > 0 && !favRow.dragged
                             x: 12
                             width: parent.width - 24
-                            height: 1
+                            height: Theme.edge(Screen.devicePixelRatio)
                             color: Theme.divider
                         }
                         MouseArea {

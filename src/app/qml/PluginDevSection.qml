@@ -109,7 +109,7 @@ SettingsSection {
             },
             Rectangle {
                 width: parent.width
-                height: Math.max(40, Math.min(logList.contentHeight + 2, 360))
+                height: Math.max(40, Math.min(logList.contentHeight + 2 * Theme.edge(Screen.devicePixelRatio), 360))
                 radius: Theme.controlRadius
                 color: "transparent"
                 border.width: 1
@@ -127,7 +127,7 @@ SettingsSection {
                 ListView {
                     id: logList
                     anchors.fill: parent
-                    anchors.margins: 1
+                    anchors.margins: Theme.edge(Screen.devicePixelRatio) // inside the border
                     model: devSection.plugins.log
                     boundsBehavior: Flickable.StopAtBounds
                     onCountChanged: positionViewAtEnd()
@@ -156,7 +156,7 @@ SettingsSection {
                             visible: logLine.index > 0
                             x: 8
                             width: parent.width - 16
-                            height: 1
+                            height: Theme.edge(Screen.devicePixelRatio)
                             color: Theme.divider
                         }
                         Row {

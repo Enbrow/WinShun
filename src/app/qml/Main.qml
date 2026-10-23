@@ -906,7 +906,7 @@ Window {
 
         Rectangle {
             width: parent.width
-            height: 1
+            height: Theme.edge(Screen.devicePixelRatio)
             color: Theme.divider
             visible: !window.clipboardBelow && (window.listRows > 0 || window.showEmptyState)
         }

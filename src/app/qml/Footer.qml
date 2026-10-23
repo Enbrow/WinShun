@@ -67,7 +67,7 @@ Item {
         onFractionChanged: update()
 
         width: parent.width
-        height: 1
+        height: Theme.edge(Screen.devicePixelRatio) // the divider line and the progress on it, whole device pixels
         clip: true
 
         Rectangle {

@@ -108,7 +108,7 @@ Window {
             Rectangle {
                 anchors.bottom: parent.bottom
                 width: parent.width
-                height: 1
+                height: Theme.edge(Screen.devicePixelRatio)
                 color: Theme.divider
             }
         }
@@ -168,7 +168,7 @@ Window {
                 }
                 Rectangle {
                     width: parent.width
-                    height: Math.min(list.contentHeight, 4.5 * Theme.rowHeight) + 2
+                    height: Math.min(list.contentHeight, 4.5 * Theme.rowHeight) + 2 * Theme.edge(Screen.devicePixelRatio)
                     radius: Theme.cardRadius
                     color: Theme.card
                     border.width: 1
@@ -177,7 +177,7 @@ Window {
                     Flickable {
                         id: list
                         anchors.fill: parent
-                        anchors.margins: 1
+                        anchors.margins: Theme.edge(Screen.devicePixelRatio) // inside the card's border
                         clip: contentHeight > height
                         contentWidth: width
                         contentHeight: rows.implicitHeight
@@ -273,7 +273,7 @@ Window {
                                         anchors.bottom: parent.bottom
                                         x: 12
                                         width: parent.width - 24
-                                        height: 1
+                                        height: Theme.edge(Screen.devicePixelRatio)
                                         color: Theme.divider
                                     }
                                 }

@@ -76,9 +76,9 @@ Item {
         x: 16
         // On the edge toward those: the bottom one in a list laid out bottom
         // to top (the clipboard turned over, GitHub #38).
-        y: row.ListView.view?.verticalLayoutDirection === ListView.BottomToTop ? parent.height - 1 : 0
+        y: row.ListView.view?.verticalLayoutDirection === ListView.BottomToTop ? parent.height - height : 0
         width: parent.width - 32
-        height: 1
+        height: Theme.edge(Screen.devicePixelRatio)
         color: Theme.divider
     }
 

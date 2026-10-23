@@ -860,9 +860,9 @@ Window {
                                 }
                                 Rectangle {
                                     visible: windowsRow.index > 0
-                                    x: 1
-                                    width: parent.width - 2
-                                    height: 1
+                                    x: Theme.edge(Screen.devicePixelRatio) // inside the card's border
+                                    width: parent.width - 2 * x
+                                    height: Theme.edge(Screen.devicePixelRatio)
                                     color: Theme.cardBorder
                                 }
                                 Item {
@@ -2150,7 +2150,7 @@ Window {
                                         visible: pathRow.index > 0
                                         x: 12
                                         width: parent.width - 24
-                                        height: 1
+                                        height: Theme.edge(Screen.devicePixelRatio)
                                         color: Theme.divider
                                     }
                                     MouseArea {
@@ -3254,7 +3254,7 @@ Window {
                                         visible: webRow.index > 0
                                         x: 12
                                         width: parent.width - 24
-                                        height: 1
+                                        height: Theme.edge(Screen.devicePixelRatio)
                                         color: Theme.divider
                                     }
                                     MouseArea {

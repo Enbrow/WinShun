@@ -52,6 +52,7 @@ constexpr auto kResultsFlag = u"--preview-results";
 constexpr auto kAiCardsFlag = u"--preview-ai-cards";
 
 int g_warnings = 0;
+bool g_edges = false; // --edges (or --tree): every grab also writes <png>.edges.txt
 QtMessageHandler g_previous = nullptr;
 QString g_logPath; // the run is elevated, its console cannot be read
 
@@ -127,9 +128,50 @@ void writeTree(QQuickWindow* window, const QString& path)
     walk(window->contentItem(), 0);
 }
 
+// Every visible Rectangle with an edge that is not on a whole device pixel
+// (what a 1 px line, a border or a child inset by a border looks like at 150 %),
+// in device pixels: "<png>.edges.txt". Thin ones (a separator) and ones with a
+// border or a radius are the ones that show.
+void writeEdges(QQuickWindow* window, const QString& path)
+{
+    QFile out(path);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
+        return;
+    const qreal dpr = window->effectiveDevicePixelRatio();
+    const auto fraction = [](qreal v) { return std::abs(v - std::round(v)); };
+    std::function<void(QQuickItem*, int, const QString&)> walk = [&](QQuickItem* item, int depth, const QString& trail) {
+        if (!item->isVisible() || item->opacity() <= 0 || depth > 40)
+            return;
+        const QString name = QString::fromLatin1(item->metaObject()->className()).section(u'_', 0, 0);
+        const QString here = trail + u"/"_s + (item->objectName().isEmpty() ? name : item->objectName());
+        if (name == u"QQuickRectangle" && item->width() > 0 && item->height() > 0) {
+            const QRectF r = item->mapRectToScene(QRectF(0, 0, item->width(), item->height()));
+            const qreal l = r.left() * dpr, t = r.top() * dpr, rt = r.right() * dpr, b = r.bottom() * dpr;
+            qreal bw = 0;
+            if (QObject* pen = item->property("border").value<QObject*>())
+                bw = pen->property("width").toReal();
+            const qreal alpha = item->property("color").value<QColor>().alphaF();
+            const bool edge = fraction(l) > 0.02 || fraction(t) > 0.02 || fraction(rt) > 0.02 || fraction(b) > 0.02;
+            if (edge && (alpha > 0.02 || bw > 0)) {
+                out.write(u"l=%1 t=%2 r=%3 b=%4 | %5x%6 dev | border %7 radius %8 alpha %9 | %10 (qml y=%11 h=%12)"_s
+                              .arg(l, 0, 'f', 2).arg(t, 0, 'f', 2).arg(rt, 0, 'f', 2).arg(b, 0, 'f', 2)
+                              .arg(rt - l, 0, 'f', 2).arg(b - t, 0, 'f', 2).arg(bw, 0, 'f', 2)
+                              .arg(item->property("radius").toReal()).arg(alpha, 0, 'f', 2).arg(here)
+                              .arg(item->y(), 0, 'f', 3).arg(item->height(), 0, 'f', 3)
+                              .toUtf8() + '\n');
+            }
+        }
+        for (QQuickItem* child : item->childItems())
+            walk(child, depth + 1, here);
+    };
+    walk(window->contentItem(), 0, QString());
+}
+
 bool saveGrab(QQuickWindow* window, const QString& path)
 {
     const QImage image = window->grabWindow();
+    if (g_edges)
+        writeEdges(window, path + u".edges.txt"_s);
     const bool saved = !image.isNull() && image.save(path, "PNG");
     say(u"%1 %2 %3x%4"_s.arg(saved ? u"saved"_s : u"NOT saved"_s, path).arg(image.width()).arg(image.height()));
     return saved;
@@ -932,7 +974,8 @@ void prepare(const QStringList& args)
     qputenv("QT_ENABLE_HIGHDPI_SCALING", "0");
     qputenv("QT_SCALE_FACTOR", valueAfter(args, u"--scale", u"1"_s).toLatin1());
     const bool webForm = args.contains(u"--web-form"_s);
-    const bool nativeWeb = webForm && valueAfter(args, u"--renderer") == u"d3d11";
+    // --renderer d3d11: the window as the desktop shows it (for counting edge pixels), not the software renderer's.
+    const bool nativeWeb = (webForm || args.contains(QString(kSettingsFlag))) && valueAfter(args, u"--renderer") == u"d3d11";
     if (nativeWeb)
         qputenv("QSG_RHI_BACKEND", "d3d11");
     if (resultsMode || nativeWeb)
@@ -951,10 +994,11 @@ int run(const QStringList& args)
     const bool cardsMode = args.contains(kAiCardsFlag);
     if (valueAfter(args, resultsMode ? kResultsFlag : cardsMode ? kAiCardsFlag : settingsMode ? kSettingsFlag : kFlag).isEmpty()) {
         std::fprintf(stderr, "usage: WinShun --preview-plugins <file.png> [--dark] [--scale 1.5] [--dialog] [--page ai]\n"
-                             "       WinShun --preview-settings <folder> [--dark] [--scale 1.5] [--tree]\n");
+                             "       WinShun --preview-settings <folder> [--dark] [--scale 1.5] [--tree] [--edges] [--renderer d3d11]\n");
         return 2;
     }
     g_previous = qInstallMessageHandler(countWarnings);
+    g_edges = args.contains(u"--edges"_s) || args.contains(u"--tree"_s);
     QGuiApplication::styleHints()->setColorScheme(args.contains(u"--dark"_s) ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
     SystemTheme::setBackdropAvailable(false); // plain colours, as a window without Mica
     return resultsMode ? runResults(args) : cardsMode ? runAiCards(args) : settingsMode ? runSettings(args) : runPlugins(args);

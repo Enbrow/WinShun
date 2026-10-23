@@ -130,10 +130,10 @@ Rectangle {
     Rectangle { // the key that gets here, while nothing is typed
         id: keyHint
         visible: box.empty && !input.activeFocus && !box.warm
-        anchors.right: parent.right
-        anchors.rightMargin: 7
-        anchors.verticalCenter: parent.verticalCenter
-        width: keyText.implicitWidth + 10
+        // On whole device pixels: a keycap's border on a half one is soft on its sides.
+        x: Theme.snap(parent.width - 7 - width, Screen.devicePixelRatio)
+        y: Theme.snap((parent.height - height) / 2, Screen.devicePixelRatio)
+        width: Theme.snapUp(keyText.implicitWidth + 10, Screen.devicePixelRatio)
         height: 22
         radius: Theme.controlRadius
         color: Theme.keycap
@@ -152,9 +152,9 @@ Rectangle {
     Rectangle { // the accent line of the field being typed into
         visible: input.activeFocus
         anchors.bottom: parent.bottom
-        x: 1
-        width: parent.width - 2
-        height: 2
+        x: Theme.edge(Screen.devicePixelRatio) // inside the field's border
+        width: parent.width - 2 * x
+        height: Theme.snap(2, Screen.devicePixelRatio) // 2.5 device pixels at 125 %
         radius: Theme.lineRadius
         color: box.warm ? WarmPalette.accent : Theme.accent
     }

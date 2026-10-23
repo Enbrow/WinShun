@@ -321,8 +321,7 @@ Window {
         Column {
             id: info
             x: 8
-            anchors.top: loupe.bottom
-            anchors.topMargin: 5
+            y: Theme.snap(loupe.y + loupe.height + 5, overlay.dpr) // 5 px is 7.5 device pixels: the lines of text on a half one
             width: parent.width - 16
             spacing: 2
 

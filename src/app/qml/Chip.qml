@@ -9,7 +9,7 @@ Rectangle {
     property bool marked: false // has the words the settings are searched for
     signal removeClicked()
 
-    implicitWidth: label.implicitWidth + 40
+    implicitWidth: Theme.snapUp(label.implicitWidth + 40, Screen.devicePixelRatio) // whole device pixels: the next chip's edge in a Flow
     implicitHeight: 32
     radius: Theme.controlRadius
     color: marked ? Theme.selection : Theme.control
@@ -29,7 +29,7 @@ Rectangle {
     Rectangle {
         anchors.right: parent.right
         anchors.rightMargin: 4
-        anchors.verticalCenter: parent.verticalCenter
+        y: Theme.snap((parent.height - height) / 2, Screen.devicePixelRatio)
         width: 22
         height: 22
         radius: Theme.smallControlRadius

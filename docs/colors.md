@@ -47,3 +47,4 @@ Win顺 所有颜色都在 `src/app/qml/Theme.qml`（强调色的实心底在 `Sy
 
 - 改了颜色后用离屏渲染看两套主题：`WinShun.exe --preview-settings <文件夹> --dark --scale 1.5`、`--scale 1.25`（浅色），见 architecture.md。
 - 量像素而不是凭眼睛：从截图里取底色和字色（PIL `Counter(crop.getdata())`），按 WCAG 公式算对比度，`relative luminance = 0.2126 R + 0.7152 G + 0.0722 B`（各通道先做 sRGB 线性化）。
+- 改了边框、分隔线、卡片或任何尺寸后，边缘有没有落在整像素上，按 pitfalls.md 的“改完界面查像素”过一遍（150%、125%、175% 各数一次四边的粗细）。

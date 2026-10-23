@@ -72,8 +72,8 @@ Rectangle {
                 readonly property bool hasPlugin: index === 0 && tabs.pluginLabel.length > 0
                 readonly property bool pluginOpen: hasPlugin && tabs.current === 0
                 readonly property bool off: tabs.disabled.length > 0 && tabs.disabled.indexOf(index) >= 0
-                // Whole pixels: a half one would leave the labels to its right blurred.
-                readonly property int labelWidth: Math.ceil(label.implicitWidth) + 24
+                // Whole device pixels (at 150 % a whole logical one can still be half): a half one would leave the labels to its right blurred.
+                readonly property real labelWidth: Theme.snapUp(label.implicitWidth + 24, Screen.devicePixelRatio)
 
                 width: labelWidth + (open ? sub.fullWidth : 0) + (pluginOpen ? pluginSub.fullWidth : 0)
                 height: tabs.tabHeight

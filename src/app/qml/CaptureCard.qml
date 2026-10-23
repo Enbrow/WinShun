@@ -207,7 +207,7 @@ Rectangle {
 
             Rectangle { // between the header and the options
                 width: parent.width
-                height: 1
+                height: Theme.edge(Screen.devicePixelRatio)
                 color: Theme.cardBorder
             }
 

@@ -616,9 +616,9 @@ Item {
         }
 
         Rectangle { // between the categories and the history
-            y: page.placed(page.lineFrom, 1)
+            y: page.placed(page.lineFrom, Theme.edge(Screen.devicePixelRatio))
             width: parent.width
-            height: 1
+            height: Theme.edge(Screen.devicePixelRatio)
             color: Theme.divider
         }
 
@@ -832,7 +832,7 @@ Item {
             Rectangle {
                 visible: page.previewOpen
                 x: listArea.width
-                width: 1
+                width: Theme.edge(Screen.devicePixelRatio)
                 height: parent.height
                 color: Theme.divider
             }
@@ -913,9 +913,9 @@ Item {
             }
 
             Rectangle { // on its inner edge
-                y: page.flipped ? parent.height - 1 : 0
+                y: page.flipped ? parent.height - height : 0
                 width: parent.width
-                height: 1
+                height: Theme.edge(Screen.devicePixelRatio)
                 color: Theme.divider
             }
 

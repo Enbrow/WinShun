@@ -124,21 +124,23 @@ Item {
     onScoreChanged: if (search) search.report(row, section, section.page, score)
 
     width: parent ? parent.width : 0
-    implicitHeight: content.implicitHeight + 28
+    // On whole device pixels, so that the rows below, and the card's bottom edge, stay on them.
+    readonly property real edge: Theme.edge(Screen.devicePixelRatio)
+    implicitHeight: Theme.snap(content.implicitHeight + 28, Screen.devicePixelRatio)
     visible: shown && (!searching || score >= 0)
 
     Rectangle { // separates rows inside a card
         visible: row.y > 0
-        x: 1
-        width: parent.width - 2
-        height: 1
+        x: row.edge // inside the card's border, not over it
+        width: parent.width - 2 * row.edge
+        height: row.edge
         color: Theme.cardBorder
     }
 
     Rectangle { // the option Enter goes to, while searching
         visible: row.searching && row.search.current === row
         anchors.fill: parent
-        anchors.margins: 1
+        anchors.margins: row.edge
         radius: Theme.insetCardRadius
         color: Theme.selection
 
@@ -155,7 +157,7 @@ Item {
     Rectangle { // see flash()
         id: flashMark
         anchors.fill: parent
-        anchors.margins: 1
+        anchors.margins: row.edge
         radius: Theme.insetCardRadius
         color: Theme.accent
         opacity: 0
@@ -185,14 +187,14 @@ Item {
         Item {
             id: header
             width: parent.width
-            height: Math.max(texts.implicitHeight, trailingRow.implicitHeight)
+            height: Theme.snapUp(Math.max(texts.implicitHeight, trailingRow.implicitHeight), Screen.devicePixelRatio)
 
             Column {
                 id: texts
                 anchors.left: parent.left
                 anchors.right: trailingRow.left
                 anchors.rightMargin: 16
-                anchors.verticalCenter: parent.verticalCenter
+                y: Theme.snap((parent.height - height) / 2, Screen.devicePixelRatio) // on a whole device pixel, not the middle
                 spacing: 3
 
                 Text {
@@ -227,7 +229,7 @@ Item {
             Row {
                 id: trailingRow
                 anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
+                y: Theme.snap((parent.height - height) / 2, Screen.devicePixelRatio)
                 spacing: 8
             }
         }

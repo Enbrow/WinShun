@@ -143,7 +143,7 @@ Window {
                     anchors.verticalCenter: parent.verticalCenter
                     x: -menu.padding
                     width: menu.width
-                    height: 1
+                    height: Theme.edge(Screen.devicePixelRatio)
                     color: Theme.divider
                 }
 

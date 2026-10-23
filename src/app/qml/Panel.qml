@@ -61,7 +61,7 @@ Item {
         id: topDivider
         anchors.top: bar.bottom
         width: parent.width
-        height: 1
+        height: Theme.edge(Screen.devicePixelRatio)
         color: Theme.divider
     }
 
@@ -439,7 +439,7 @@ Item {
         anchors.left: sidebar.right
         anchors.top: topDivider.bottom
         anchors.bottom: footer.top
-        width: 1
+        width: Theme.edge(Screen.devicePixelRatio)
         color: Theme.divider
     }
 
@@ -513,7 +513,7 @@ Item {
             anchors.bottom: parent.bottom
             x: 8
             width: parent.width - 16
-            height: 1
+            height: Theme.edge(Screen.devicePixelRatio)
             color: Theme.divider
         }
     }

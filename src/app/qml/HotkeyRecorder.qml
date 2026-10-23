@@ -158,9 +158,9 @@ Rectangle {
     Rectangle {
         visible: recorder.recording
         anchors.bottom: parent.bottom
-        x: 1
-        width: parent.width - 2
-        height: 2
+        x: Theme.edge(Screen.devicePixelRatio) // inside the field's border
+        width: parent.width - 2 * x
+        height: Theme.snap(2, Screen.devicePixelRatio) // 2.5 device pixels at 125 %
         radius: Theme.lineRadius
         color: Theme.accent
     }

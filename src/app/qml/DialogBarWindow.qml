@@ -426,9 +426,9 @@ Window {
 
     Rectangle {
         visible: window.bar.rows > 0 || window.asking
-        y: window.bar.listAbove ? window.extraHeight - 1 : window.bar.barHeight
+        y: window.bar.listAbove ? window.extraHeight - height : window.bar.barHeight
         width: window.width
-        height: 1
+        height: Theme.edge(Screen.devicePixelRatio)
         color: Theme.divider
     }
 

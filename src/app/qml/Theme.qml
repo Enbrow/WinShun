@@ -33,6 +33,16 @@ QtObject {
     readonly property int cardFocusRadius: SystemTheme.roundedCorners ? 11 : 0
     // Chips and scrollbars keep their existing proportions in rounded mode.
     function pillRadius(size: real): real { return SystemTheme.roundedCorners ? size / 2 : 0 }
+    // Edges on whole device pixels (docs/pitfalls.md, "边框 1 px 在 150% 下一边粗一边细").
+    // dpr is the window's: Screen.devicePixelRatio from the item that asks, so
+    // a window moved to another screen asks again.
+    // edge(): a 1 px line or border, as many device pixels as Qt draws a border
+    // of 1 px with (1.5 at 150 % becomes 2). A line of plain 1 is 1 or 2 pixels
+    // by where it lies, and a child inset by 1 covers half of a border.
+    function edge(dpr: real): real { return Math.max(1, Math.round(dpr)) / dpr }
+    // snap(): the nearest device pixel; snapUp(): the next one up (a size that must not shrink).
+    function snap(v: real, dpr: real): real { return Math.round(v * dpr) / dpr }
+    function snapUp(v: real, dpr: real): real { return Math.ceil(v * dpr - 1e-6) / dpr }
     readonly property color windowEdge: dark ? "#6A6A6A" : "#B4B4B4"
     readonly property color divider: backdrop ? (dark ? Qt.rgba(1, 1, 1, 0.084) : Qt.rgba(0, 0, 0, 0.058))
                                               : dark ? "#2E2E2E" : "#EAEAEA"

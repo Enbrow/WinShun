@@ -117,7 +117,7 @@ Column {
 
     Rectangle {
         width: parent.width
-        height: card.implicitHeight
+        height: Theme.snap(card.implicitHeight, Screen.devicePixelRatio) // whole device pixels: the bottom edge as crisp as the top
         radius: Theme.cardRadius
         color: Theme.card
         border.width: 1

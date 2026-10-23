@@ -379,7 +379,7 @@ Item {
 
         Rectangle {
             width: parent.width
-            height: 1
+            height: Theme.edge(Screen.devicePixelRatio)
             color: Theme.divider
         }
 
