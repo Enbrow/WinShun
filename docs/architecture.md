@@ -141,7 +141,8 @@ Hotkey=                  ; 截图的快捷键，没有默认值（PixPin、Snipa
 PrintScreen=false        ; PrtScn 也截图：把 HKCU\Control Panel\Keyboard\PrintScreenKeyForSnippingEnabled 设成 0 并广播，再注册 PrtScn
 PrintScreenBefore=       ; 接管前那个值（absent 或数字），关掉时写回去；空 = 没有接管。程序自己写，别手改
 CopyOnSelect=false       ; 选好就复制：松开拖动或点选窗口就复制并关闭，不再调整
-MouseDoubleLeft=copy     ; 选好区域之后各个鼠标键做什么（GitHub #46）：none | copy | save | pin | ocr | cancel；MouseRight 还多一个 back（默认，退回重新框选）
+PinOnCopy=false          ; 复制截图时同时贴图（GitHub #59），也作用于 CopyOnSelect；只调用一次 copy 回调记录历史
+MouseDoubleLeft=copy     ; 选好区域之后各个鼠标键做什么（GitHub #46）：none | copy | copypin | save | pin | ocr | cancel；MouseRight 还多一个 back（默认，退回重新框选）
 MouseRight=back          ; MouseMiddle、MouseBack（侧键后退）、MouseForward（侧键前进）默认 none；正在标注时右键只撤回当前一笔，不走这里
 Keyword=jt               ; 截图历史的关键词：搜索框里打它加空格，列出 Win顺 截过的图；插件的同名关键词让给它，网页搜索和收藏的同名关键词设置时就拒绝
 ```
@@ -793,3 +794,13 @@ build\asan\wsfuzz.exe -max_total_time=300      # 用随机数据测 5 分钟
 `WindowEffects::setWindowCorners()` 用 HWND 属性记住普通窗口的 DWM 偏好 2（ROUND）或预览处理器页的 3（ROUNDSMALL）。切换时枚举本进程已登记的顶层窗口（包括隐藏菜单、设置、提示和非 Qt 的预览页），统一改成 1（DONOTROUND）或恢复原值；新窗口也读取同一偏好。登记和切换用锁串行化，避免预览工作线程创建窗口时漏掉切换。
 
 `Theme.qml` 的圆角令牌控制窗口边框、卡片、控件、指示条和胶囊标签；直角时均为 0，圆角时保留原有半径。`WindowEdge` 仍用 1 逻辑像素的 `Theme.windowEdge`，半径为 0 时不抗锯齿。`ColorSwatch` 同样跳过圆角裁剪并画直角边框。任务栏搜索框通过现有 `Look` 消息把偏好送到自己的线程并立即重画；Direct2D 的框、按钮及外扩轮廓在直角时半径均为 0，框边不抗锯齿，颜色仍取任务栏主题。开关、状态圆点、单选圈及图标本身保留原来的形状。
+
+## GitHub #57 / #59：粘贴、图片导出与截图动作（2026-10-23）
+
+- `Clipboard` 写好剪贴板并等原窗口恢复前台后，文件列表遇到 `filedialog::Kind::Open/Legacy` 时，在延迟创建的 `ComWorker` 上调用现有 `setFileName`。`clipfiles::fileNames` 生成带引号的完整路径列表；不代按“打开”，也不给文件列表发送会复制文件的 Ctrl+V。普通程序、保存对话框和纯文本粘贴沿用原来的路径。自绘对话框只能按已有 `filedialog` 支持情况识别。
+- `ClipFiles` 统一准备图片拖出和资源管理器图片粘贴的 PNG 副本。拖出按 `Clipboard::targets` 的选择顺序处理整批；任何一张失败都不给目标部分文件，混入文字时明确提示只选图片。导出路径带历史 ID，文件名也带 ID，避免同秒截图落在同一文件夹时重名。导出副本跟随现有 `dragged` 缓存生命周期，不移动历史原图；普通应用仍收到图片和公式的原有格式。面板粘贴、面板数字快捷键和全局快速粘贴共用 `writeFor` 的目标判断。
+- `CaptureScreen::dimmed` 表示截图会话中的遮罩。`CaptureOverlay` 在当前悬停框或正式选区外画四块遮罩，其余显示器全部变暗；退出会话时清空。仍未正式选区时不显示调整手柄或工具条。
+- `copypin` 是独立鼠标动作；`PinOnCopy` 则把原本的 `Copy` 转成 `CopyPin`，涵盖 Enter、工具条和选好就复制。`Capture::finish` 使用同一张合成图及标注项目创建贴图，再调用原有 copy 回调，只记录一次历史。
+- UI Automation 重叠分支优先保留最小的可选控件，再以链深度比较相同大小的目标。较深的 Chromium 包装窗格不再盖过浅层的小按钮。读取子元素时同样执行既有元素数量及时间预算；已经缓存的候选仍能比较。未提供辅助功能节点的网页图形仍需手动框选。
+
+验证入口：`tst_clipfiles`（真实存储、同秒多图、整批失败、Shell CF_HDROP 与路径顺序）、`tst_capture`（悬停/多屏、复制并贴图动作）、`tst_stage7`（UIA 分支选择）、`tst_settings`（设置往返）。`WINSHUN_TEST_NATIVE_DIALOG=1 tst_filepaste` 另外打开测试自身的 Windows 文件选择框，验证中文空格路径和跨文件夹多选；默认 CTest 跳过这个需要桌面的项目。设置预览现在启用截图卡片的全部选项，但不会启动截屏器或注册热键。

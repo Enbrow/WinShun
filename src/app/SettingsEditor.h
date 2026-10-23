@@ -96,6 +96,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString captureHotkeyError READ captureHotkeyError NOTIFY hotkeyErrorChanged FINAL)
     Q_PROPERTY(bool capturePrintScreen READ capturePrintScreen WRITE setCapturePrintScreen NOTIFY changed FINAL)
     Q_PROPERTY(bool captureCopyOnSelect READ captureCopyOnSelect WRITE setCaptureCopyOnSelect NOTIFY changed FINAL)
+    Q_PROPERTY(bool capturePinOnCopy READ capturePinOnCopy WRITE setCapturePinOnCopy NOTIFY changed FINAL)
     Q_PROPERTY(QString captureMouseDoubleLeft READ captureMouseDoubleLeft WRITE setCaptureMouseDoubleLeft NOTIFY changed FINAL)
     Q_PROPERTY(QString captureMouseRight READ captureMouseRight WRITE setCaptureMouseRight NOTIFY changed FINAL)
     Q_PROPERTY(QString captureMouseMiddle READ captureMouseMiddle WRITE setCaptureMouseMiddle NOTIFY changed FINAL)
@@ -372,6 +373,8 @@ public:
     void setCapturePrintScreen(bool on);
     bool captureCopyOnSelect() const { return m_settings.captureCopyOnSelect; }
     void setCaptureCopyOnSelect(bool on);
+    bool capturePinOnCopy() const { return m_settings.capturePinOnCopy; }
+    void setCapturePinOnCopy(bool on);
     // What the mouse buttons do after a selection (Settings::captureMouse*).
     QString captureMouseDoubleLeft() const { return m_settings.captureMouseDoubleLeft; }
     void setCaptureMouseDoubleLeft(const QString& action) { setCaptureMouse(m_settings.captureMouseDoubleLeft, action, false); }

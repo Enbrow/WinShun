@@ -533,6 +533,10 @@ void Capture::finish(CaptureSession::Action action, int screen, const QRect& rec
     m_lastOrigin = origin;
     m_lastProject = project;
     switch (action) {
+    case CaptureSession::Action::CopyPin:
+        if (PinManager* pins = m_callbacks.pins ? m_callbacks.pins() : nullptr)
+            pins->pin(picture, origin, true, project);
+        [[fallthrough]]; // copying records the picture once, including its editable project
     case CaptureSession::Action::Copy:
         if (m_callbacks.copy)
             m_callbacks.copy(picture, project);

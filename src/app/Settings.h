@@ -322,8 +322,9 @@ struct Settings {
     // ("absent" or the number), to put back when given up; empty while not taken.
     QString capturePrintScreenBefore;
     bool captureCopyOnSelect = false; // letting go of a drag or a click on a window copies at once
+    bool capturePinOnCopy = false; // copying a screenshot also pins it (#59)
     // What a mouse button does once a selection is there (and no annotation
-    // tool, stroke or text is under way): none | copy | save | pin | ocr |
+    // tool, stroke or text is under way): none | copy | copypin | save | pin | ocr |
     // ocrcopy | ocrsearch | ocrweb | cancel, the right button also back (Esc's
     // step back). Issue #46; the ocr... ones (#57) read the picture and go on
     // at once: to the clipboard, the search box, the web search.

@@ -1461,10 +1461,6 @@
 <context>
     <name>CaptureCard</name>
     <message>
-        <source>点一下显示或隐藏，亮着的就是显示的。隐藏的按钮，快捷键照样能用：撤销 Ctrl+Z、重做 Ctrl+Y、复制 Enter、保存 Ctrl+S、贴图 F3、长截图 Ctrl+L、取消 Esc；二维码 Q、延时 D；识别文字没有快捷键，只能点工具条上的按钮，或设给上面的鼠标键。标注工具一直显示</source>
-        <translation>Click to show or hide; the lit ones are shown. A hidden button’s key still works: undo Ctrl+Z, redo Ctrl+Y, copy Enter, save Ctrl+S, pin F3, long screenshot Ctrl+L, cancel Esc; QR code Q, delay D. Read text has no key: click its toolbar button, or give it to a mouse button above. The annotation tools always show</translation>
-    </message>
-    <message>
         <source>设成“鼠标穿透”的贴图点不到时，按它让所有贴图都能点；平时按住 Ctrl 把鼠标放上去也行</source>
         <translation>When pins set to “click through” cannot be clicked, press it to make all pins take the mouse again; or hold Ctrl with the mouse over one</translation>
     </message>
@@ -1483,10 +1479,6 @@
     <message>
         <source>%1 秒</source>
         <translation>%1 s</translation>
-    </message>
-    <message>
-        <source>托盘菜单“截图 › 延时截图”开始倒计时，屏幕角上有数字，到点才冻结屏幕，用来截菜单、悬停提示。截图时按 D 或点工具条的“延时”，也是关掉这次、倒计时后再截。再按一次截图快捷键，或点倒计时，取消</source>
-        <translation>The tray menu “Screenshot › Delayed capture” starts a countdown with the number in a corner of the screen; the screen freezes only when it ends, for capturing menus and hover tips. Pressing D, or Delay on the toolbar, while capturing also ends this one and captures again after the countdown. Press the capture shortcut again, or click the countdown, to cancel</translation>
     </message>
     <message>
         <source>延时截图</source>
@@ -1517,16 +1509,8 @@
         <translation>Nothing</translation>
     </message>
     <message>
-        <source>鼠标移到 VS Code、微信、设置这类程序的窗口上时，也能框出里面的侧栏、编辑区等控件。查询在后台进行，最多等 150 毫秒，超时就只用普通子窗口，不会拖慢鼠标。提权运行的程序框不到控件</source>
-        <translation>Over a window of VS Code, WeChat, Settings and the like, the sidebar, the editor and other controls inside can be outlined too. The question is asked in the background and waits 150 ms at most; past that only the ordinary child windows are used, so the mouse never slows down. Controls in programs running as administrator cannot be found</translation>
-    </message>
-    <message>
         <source>识别 Electron、WinUI 等程序里的控件</source>
         <translation>Find controls in Electron, WinUI and similar programs</translation>
-    </message>
-    <message>
-        <source>冻结的画面里画上截图那一刻的鼠标指针，复制、保存、贴图的图里都有它。关着时图里没有指针</source>
-        <translation>Draws the mouse cursor as it was at that moment into the frozen picture, so it is in what you copy, save or pin. Off: the picture has no cursor</translation>
     </message>
     <message>
         <source>截图带上鼠标指针</source>
@@ -1549,10 +1533,6 @@
         <translation>Built in</translation>
     </message>
     <message>
-        <source>冻结屏幕，框选区域或点选窗口、控件，复制或保存；放大镜看像素和颜色</source>
-        <translation>Freezes the screen; drag out an area or click a window or control, then copy or save it. A magnifier shows the pixels and their colour</translation>
-    </message>
-    <message>
         <source>关着</source>
         <translation>Off</translation>
     </message>
@@ -1563,10 +1543,6 @@
     <message>
         <source>开着：按 PrtScn，或从托盘菜单截图</source>
         <translation>On: press PrtScn, or use the tray menu</translation>
-    </message>
-    <message>
-        <source>开着：从托盘菜单截图，或在下面录一个快捷键</source>
-        <translation>On: use the tray menu, or record a shortcut below</translation>
     </message>
     <message>
         <source>快捷键</source>
@@ -1601,16 +1577,8 @@
         <translation>Copy as soon as it is picked</translation>
     </message>
     <message>
-        <source>松开鼠标或点选窗口后马上复制并关闭，不再调整。关着时：按 Enter 复制并关闭，Ctrl+S 保存到“图片 › 屏幕截图”，Esc 先取消选区、再退出；鼠标按键做什么在下面“框选后的鼠标操作”里设</source>
-        <translation>Letting go of the mouse or clicking a window copies and closes at once, with no adjusting. Off: Enter copies and closes, Ctrl+S saves to Pictures › Screenshots, Esc first clears the selection, then exits; what the mouse buttons do is set under “Mouse buttons after a selection” below</translation>
-    </message>
-    <message>
         <source>框选后的鼠标操作</source>
         <translation>Mouse buttons after a selection</translation>
-    </message>
-    <message>
-        <source>选好区域之后，每个键按下去做什么。正在标注（选了标注工具、正在画或写字）时，右键用来撤回当前笔画，其他键不动作，不执行这里的设置；Esc 随时可以后退、重新框选</source>
-        <translation>What each button does once an area is selected. While annotating (a tool is on, or a stroke or text is under way) the right button undoes the current stroke and the others do nothing; these settings do not apply. Esc always steps back to select again</translation>
     </message>
     <message>
         <source>双击左键</source>
@@ -1673,10 +1641,6 @@
         <translation>Read text and search the web</translation>
     </message>
     <message>
-        <source>“识别文字并复制”读出图里的字放进剪贴板，“识别文字并搜索”把字送进 Win顺 的搜索框，“识别文字并网页搜索”用网页搜索列表里排第一的网站搜</source>
-        <translation>“Read text and copy” puts the words found in the picture on the clipboard, “Read text and search” sends them to Win顺’s search box, “Read text and search the web” searches them on the first site of the web search list</translation>
-    </message>
-    <message>
         <source>撤销</source>
         <translation>Undo</translation>
     </message>
@@ -1695,10 +1659,6 @@
     <message>
         <source>工具条上的按钮</source>
         <translation>Toolbar buttons</translation>
-    </message>
-    <message>
-        <source>点一下显示或隐藏，亮着的就是显示的。隐藏的按钮，快捷键照样能用：撤销 Ctrl+Z、重做 Ctrl+Y、复制 Enter、保存 Ctrl+S、贴图 F3、长截图 Ctrl+L、取消 Esc；识别文字没有快捷键，只能点工具条上的按钮，或设给上面的鼠标键。标注工具一直显示</source>
-        <translation>Click to show or hide a button; a lit one is shown. A hidden button’s key still works: Undo Ctrl+Z, Redo Ctrl+Y, Copy Enter, Save Ctrl+S, Pin F3, Long screenshot Ctrl+L, Cancel Esc. Read text has no key: use its toolbar button, or give it to a mouse button above. The annotation tools always show</translation>
     </message>
     <message>
         <source>智能打码</source>
@@ -1739,6 +1699,110 @@
     <message>
         <source>长截图</source>
         <translation>Long screenshot</translation>
+    </message>
+    <message>
+        <source>复制并贴图</source>
+        <translation>Copy and pin</translation>
+    </message>
+    <message>
+        <source>复制截图时同时贴图</source>
+        <translation>Pin screenshots when copying</translation>
+    </message>
+    <message>
+        <source>双击贴图;隐藏 / 显示全部贴图的快捷键;找回穿透贴图的快捷键</source>
+        <translation>Double-clicking a pin;Shortcut to hide / show all pins;Shortcut to get click-through pins back</translation>
+    </message>
+    <message>
+        <source>展开截图设置</source>
+        <translation>Expand screenshot settings</translation>
+    </message>
+    <message>
+        <source>工具条</source>
+        <translation>Toolbar</translation>
+    </message>
+    <message>
+        <source>工具条上的按钮;撤销;重做;长截图;二维码;显示按钮;隐藏按钮</source>
+        <translation>Toolbar buttons;Undo;Redo;Long screenshot;QR code;Show buttons;Hide buttons</translation>
+    </message>
+    <message>
+        <source>开着：从托盘菜单截图，也可以在设置里录一个快捷键</source>
+        <translation>On: use the tray menu, or record a shortcut in Settings</translation>
+    </message>
+    <message>
+        <source>截图快捷键;截图历史关键词;PrtScn;Print Screen</source>
+        <translation>Screenshot shortcut;Screenshot history keyword;PrtScn;Print Screen</translation>
+    </message>
+    <message>
+        <source>截图设置分类</source>
+        <translation>Screenshot settings categories</translation>
+    </message>
+    <message>
+        <source>打码</source>
+        <translation>Redaction</translation>
+    </message>
+    <message>
+        <source>收起截图设置</source>
+        <translation>Collapse screenshot settings</translation>
+    </message>
+    <message>
+        <source>收起设置</source>
+        <translation>Collapse settings</translation>
+    </message>
+    <message>
+        <source>智能打码;框选后自动识别;IP;MAC;把所有文字都打码;我自己的词</source>
+        <translation>Smart redaction;Look for it as soon as a selection is made;IP;MAC;Redact all text;My own words</translation>
+    </message>
+    <message>
+        <source>框选后的鼠标操作;双击左键;右键;中键;侧键;复制并贴图;识别文字并复制;识别文字并搜索;识别文字并网页搜索</source>
+        <translation>Mouse buttons after a selection;Double click;Right button;Middle button;Side button;Copy and pin;Read text and copy;Read text and search;Read text and search the web</translation>
+    </message>
+    <message>
+        <source>设置</source>
+        <translation>Settings</translation>
+    </message>
+    <message>
+        <source>选好就复制;复制截图时同时贴图;鼠标指针;识别控件;Electron;WinUI;延时截图</source>
+        <translation>Copy as soon as it is picked;Pin screenshots when copying;Mouse cursor;Detect controls;Electron;WinUI;Delayed capture</translation>
+    </message>
+    <message>
+        <source>鼠标</source>
+        <translation>Mouse</translation>
+    </message>
+    <message>
+        <source>框选窗口或区域，标注、识别文字、复制和贴图</source>
+        <translation>Select a window or area, annotate, recognize text, copy or pin it.</translation>
+    </message>
+    <message>
+        <source>松开鼠标或点选窗口后立即复制，跳过标注和调整。关闭时可继续编辑，再按 Enter 复制或 Ctrl+S 保存。鼠标动作在“鼠标”分类设置。</source>
+        <translation>Copy immediately after selecting, skipping annotation and adjustments. When off, edit first, then Enter to copy or Ctrl+S to save. Set button actions in the Mouse category.</translation>
+    </message>
+    <message>
+        <source>复制时同步贴到屏幕，也适用于“选好就复制”。只想偶尔使用，可在“鼠标”分类设置“复制并贴图”。</source>
+        <translation>Pin the picture whenever you copy it, including instant copying. For occasional use, assign "Copy and pin" in the Mouse category.</translation>
+    </message>
+    <message>
+        <source>在图片中保留截图那一刻的鼠标指针，复制、保存、贴图均生效。</source>
+        <translation>Include the cursor as it appeared when the screen was captured. Applies to copied, saved and pinned pictures.</translation>
+    </message>
+    <message>
+        <source>自动框选 VS Code、微信等程序中的按钮、侧栏和编辑区。无法识别时可手动框选；管理员权限程序中的控件可能不可用。</source>
+        <translation>Detect buttons, sidebars and editors in apps such as VS Code and WeChat. Select manually if detection fails. Controls in administrator apps may be unavailable.</translation>
+    </message>
+    <message>
+        <source>从托盘菜单“截图 › 延时截图”开始，或截图时按 D，适合截菜单和悬停提示。再次按截图快捷键或点击倒计时可取消。</source>
+        <translation>Start from the tray menu’s Screenshot › Delayed capture, or press D during capture. Useful for menus and tooltips. Press the capture shortcut again or click the countdown to cancel.</translation>
+    </message>
+    <message>
+        <source>选好区域后使用以下动作。标注时右键撤回当前笔画，其他鼠标动作暂停；Esc 可取消选区、重新框选。</source>
+        <translation>These actions apply after selection. While annotating, right-click cancels the current stroke and other mouse actions are paused. Esc clears the selection so you can select again.</translation>
+    </message>
+    <message>
+        <source>识别出的文字可直接复制、送到 Win顺 搜索，或用网页搜索列表中的第一个网站查询。</source>
+        <translation>Recognized text can be copied, sent to WinShun search, or searched using the first site in your Web search list.</translation>
+    </message>
+    <message>
+        <source>亮起的按钮会显示，点一下切换。隐藏后快捷键仍可使用；标注工具始终显示。识别文字没有快捷键，隐藏后可在“鼠标”分类设置动作。</source>
+        <translation>Highlighted buttons are visible; click to toggle. Shortcuts still work when buttons are hidden. Annotation tools always stay visible. Text recognition has no shortcut; assign a mouse action if you hide its button.</translation>
     </message>
 </context>
 <context>

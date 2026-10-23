@@ -568,7 +568,7 @@ private slots:
         rig.drag({100, 100}, {199, 199});
         rig.session.key(Qt::Key_Escape, Qt::NoModifier);
         QVERIFY(!rig.session.hasSelection());
-        QVERIFY(!rig.screen.dimmed());
+        QVERIFY(rig.screen.dimmed()); // back to hover: outside the prospective selection stays dim
         QCOMPARE(finished.count(), 0);
         rig.session.pointerPress(0, {50, 50}, Qt::RightButton); // right click: the same
         QCOMPARE(finished.count(), 1);
@@ -1195,6 +1195,52 @@ private slots:
         QVERIFY(asked.isEmpty());
         rig.session.refreshHover(); // and refreshing then changes nothing
         QCOMPARE(rig.session.selectionRect(), QRect(300, 300, 100, 100));
+    }
+
+    void hoverDimsEveryMonitorWithoutMakingASelection()
+    {
+        Rig rig;
+        rig.tops = {QRect(100, 100, 600, 500)};
+        CaptureScreen other(1);
+        other.setGeometry(QRect(1000, 0, 1000, 800), 1.0, QSize(1000, 800));
+        rig.session.begin({&rig.screen, &other}, {rig.tops, {}, {}});
+        rig.session.pointerMove(0, {200, 200});
+        QVERIFY(rig.screen.dimmed());
+        QVERIFY(other.dimmed());
+        QVERIFY(other.hover().isEmpty());
+        QCOMPARE(rig.screen.hover(), QRect(100, 100, 600, 500));
+        QVERIFY(!rig.session.hasSelection());
+        QVERIFY(rig.screen.selection().isEmpty());
+        rig.session.end();
+        QVERIFY(!rig.screen.dimmed());
+        QVERIFY(!other.dimmed());
+    }
+
+    void copyAndPinActions()
+    {
+        for (int way = 0; way < 4; ++way) {
+            Rig rig;
+            rig.session.setPinOnCopy(way != 3);
+            rig.session.setCopyOnSelect(way == 1);
+            CaptureSession::MouseActions actions;
+            actions.middle = u"copypin"_s;
+            rig.session.setMouseActions(actions);
+            rig.begin();
+            QSignalSpy finished(&rig.session, &CaptureSession::finished);
+            rig.drag({100, 100}, {199, 199});
+            if (way == 0)
+                rig.session.key(Qt::Key_Return, Qt::NoModifier);
+            else if (way == 2)
+                rig.session.act(static_cast<int>(CaptureSession::Action::Copy));
+            else if (way == 3) {
+                rig.session.pointerPress(0, {150, 150}, Qt::MiddleButton);
+                QCOMPARE(finished.count(), 0); // act on release, not on the window underneath
+                rig.session.pointerRelease(0, {150, 150}, Qt::MiddleButton);
+            }
+            QCOMPARE(finished.count(), 1);
+            QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::CopyPin);
+            QCOMPARE(finished[0][2].toRect(), QRect(100, 100, 100, 100));
+        }
     }
 
     void doubleLeftFollowsTheSetting()

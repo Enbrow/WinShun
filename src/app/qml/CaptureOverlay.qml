@@ -58,39 +58,40 @@ Window {
         height: overlay.py(overlay.screenModel.pixels.height)
     }
 
-    Item { // outside the selection, darker; all of this monitor when the selection is on another
+    Item { // outside the hover or selection; all of the other monitors
         id: shade
 
         readonly property color tint: Qt.rgba(0, 0, 0, 0.45)
-        readonly property real edgeLeft: overlay.px(overlay.selection.x)
-        readonly property real edgeTop: overlay.py(overlay.selection.y)
-        readonly property real edgeRight: overlay.px(overlay.selection.x + overlay.selection.width)
-        readonly property real edgeBottom: overlay.py(overlay.selection.y + overlay.selection.height)
+        readonly property bool clearHere: overlay.selectedHere || overlay.hoverHere
+        readonly property real edgeLeft: overlay.px(overlay.shown.x)
+        readonly property real edgeTop: overlay.py(overlay.shown.y)
+        readonly property real edgeRight: overlay.px(overlay.shown.x + overlay.shown.width)
+        readonly property real edgeBottom: overlay.py(overlay.shown.y + overlay.shown.height)
 
         anchors.fill: parent
         visible: overlay.screenModel.dimmed
 
         Rectangle {
             width: parent.width
-            height: overlay.selectedHere ? shade.edgeTop : parent.height
+            height: shade.clearHere ? shade.edgeTop : parent.height
             color: shade.tint
         }
         Rectangle {
-            visible: overlay.selectedHere
+            visible: shade.clearHere
             y: shade.edgeBottom
             width: parent.width
             height: parent.height - shade.edgeBottom
             color: shade.tint
         }
         Rectangle {
-            visible: overlay.selectedHere
+            visible: shade.clearHere
             y: shade.edgeTop
             width: shade.edgeLeft
             height: shade.edgeBottom - shade.edgeTop
             color: shade.tint
         }
         Rectangle {
-            visible: overlay.selectedHere
+            visible: shade.clearHere
             x: shade.edgeRight
             y: shade.edgeTop
             width: parent.width - shade.edgeRight

@@ -38,7 +38,7 @@ class CaptureScreen : public QObject {
     Q_PROPERTY(QPoint origin READ origin NOTIFY geometryChanged FINAL) // its top left, physical, virtual desktop
     Q_PROPERTY(QRect hover READ hover NOTIFY changed FINAL) // what a click would pick; null when none here
     Q_PROPERTY(QRect selection READ selection NOTIFY changed FINAL) // null when none here
-    Q_PROPERTY(bool dimmed READ dimmed NOTIFY changed FINAL) // a selection exists, here or on another monitor
+    Q_PROPERTY(bool dimmed READ dimmed NOTIFY changed FINAL) // dim outside the hover/selection on every monitor
     Q_PROPERTY(bool adjusting READ adjusting NOTIFY changed FINAL) // being drawn, moved or resized: no toolbar
     Q_PROPERTY(bool cursorHere READ cursorHere NOTIFY cursorChanged FINAL)
     Q_PROPERTY(QPoint cursor READ cursor NOTIFY cursorChanged FINAL)
@@ -172,7 +172,7 @@ public:
     // Long: the selection scrolls into a long screenshot (Ctrl+L; LongCapture),
     // one at least kLongMinimum px each way. Qr: the QR codes in it are read
     // (Q); Delay: this capture ends and the next begins after the countdown (D).
-    enum class Action { Copy, Save, Cancel, Pin, Ocr, OcrCopy, OcrSearch, OcrWeb, Long, Qr, Delay };
+    enum class Action { Copy, Save, Cancel, Pin, Ocr, OcrCopy, OcrSearch, OcrWeb, Long, Qr, Delay, CopyPin };
     Q_ENUM(Action)
     static constexpr int kLongMinimum = 48;
 
@@ -219,6 +219,7 @@ public:
     QRect selectionRect() const { return m_selection.rect; } // physical, that monitor's own
     QRect hoverRect() const;
     void setCopyOnSelect(bool on) { m_copyOnSelect = on; } // a drag or a click on a window copies at once
+    void setPinOnCopy(bool on) { m_pinOnCopy = on; }
 
     // What the mouse buttons do once a selection is there (issue #46), as
     // Settings keeps them: none | copy | save | pin | ocr | ocrcopy | ocrsearch |
@@ -297,7 +298,7 @@ private:
     void finish(Action action);
     void useLastSelection(); // Shift+R: the selection of the capture before
     void back(); // Esc, right click
-    enum class MouseAct { None, Copy, Save, Pin, Ocr, Cancel, Back, OcrCopy, OcrSearch, OcrWeb };
+    enum class MouseAct { None, Copy, Save, Pin, Ocr, Cancel, Back, OcrCopy, OcrSearch, OcrWeb, CopyPin };
     static MouseAct parseMouseAct(const QString& name, MouseAct fallback);
     bool annotationBusy() const; // a tool on, a gesture or a text under way
     void mouseButton(Qt::MouseButton button, int screen, QPoint p); // right, middle, X1, X2
@@ -318,6 +319,7 @@ private:
     bool m_ocrAvailable = false;
     QStringList m_hiddenButtons;
     bool m_copyOnSelect = false;
+    bool m_pinOnCopy = false;
     MouseAct m_actDoubleLeft = MouseAct::Copy;
     MouseAct m_actRight = MouseAct::Back;
     MouseAct m_actMiddle = MouseAct::None;

@@ -451,7 +451,7 @@ void CaptureSession::publish()
     for (CaptureScreen* s : m_screens) {
         const QRect hover = hovering && s->index() == m_hoverScreen ? hoverRect() : QRect();
         const QRect selection = s->index() == shown.screen ? shown.rect : QRect();
-        s->setState(hover, selection, shown.screen >= 0, adjusting);
+        s->setState(hover, selection, m_active, adjusting);
     }
 }
 
@@ -691,7 +691,7 @@ CaptureSession::MouseAct CaptureSession::parseMouseAct(const QString& name, Mous
     static const std::pair<const char16_t*, MouseAct> names[] {{u"none", MouseAct::None}, {u"copy", MouseAct::Copy},
         {u"save", MouseAct::Save}, {u"pin", MouseAct::Pin}, {u"ocr", MouseAct::Ocr}, {u"cancel", MouseAct::Cancel},
         {u"back", MouseAct::Back}, {u"ocrcopy", MouseAct::OcrCopy}, {u"ocrsearch", MouseAct::OcrSearch},
-        {u"ocrweb", MouseAct::OcrWeb}};
+        {u"ocrweb", MouseAct::OcrWeb}, {u"copypin", MouseAct::CopyPin}};
     for (const auto& [text, act] : names) {
         if (name == QStringView(text))
             return act;
@@ -735,6 +735,9 @@ void CaptureSession::perform(MouseAct act)
     switch (act) {
     case MouseAct::Copy:
         finish(Action::Copy);
+        break;
+    case MouseAct::CopyPin:
+        finish(Action::CopyPin);
         break;
     case MouseAct::Save:
         finish(Action::Save);
@@ -988,6 +991,8 @@ void CaptureSession::back()
 
 void CaptureSession::finish(Action action)
 {
+    if (action == Action::Copy && m_pinOnCopy)
+        action = Action::CopyPin;
     if (m_annot.active())
         m_annot.commitPending(); // the words typed so far are part of the picture
     Pick pick;
@@ -1039,7 +1044,7 @@ bool CaptureSession::keyPressed(int key, int modifiers)
 
 void CaptureSession::act(int action)
 {
-    if (!m_active || action < static_cast<int>(Action::Copy) || action > static_cast<int>(Action::Delay))
+    if (!m_active || action < static_cast<int>(Action::Copy) || action > static_cast<int>(Action::CopyPin))
         return;
     if (action == static_cast<int>(Action::Long)) {
         // Its picture is the screen's, scrolled: annotations would be lost.

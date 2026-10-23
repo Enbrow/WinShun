@@ -519,6 +519,18 @@ private slots:
         QVERIFY(!wantsUia(u"CabinetWClass"_s, 12));
     }
 
+    void smallToolbarButtonBeatsDeepWrapperPanes()
+    {
+        const QRect window(0, 0, 1200, 800);
+        const std::vector<QRect> wrappers(20, window);
+        const std::vector<QRect> button {window, QRect(30, 20, 32, 32)};
+        QVERIFY(preferUiaChain(button, wrappers));
+        QVERIFY(!preferUiaChain(wrappers, button));
+        QVERIFY(!preferUiaChain({window, QRect(30, 20, 1, 1)}, button));
+        QVERIFY(preferUiaChain({window, window, QRect(30, 20, 32, 32)}, button));
+        QVERIFY(!preferUiaChain({}, button));
+    }
+
     void uiaControlsAreCutAndFiltered()
     {
         const QRect window(100, 100, 800, 600);

@@ -95,6 +95,7 @@ public:
     ~Capture() override;
 
     void setCopyOnSelect(bool on) { m_session.setCopyOnSelect(on); }
+    void setPinOnCopy(bool on) { m_session.setPinOnCopy(on); }
     void setMouseActions(const CaptureSession::MouseActions& actions) { m_session.setMouseActions(actions); }
     void setHiddenButtons(const QStringList& ids) { m_session.setHiddenButtons(ids); }
     // The mouse cursor drawn into the frozen picture ([Capture] IncludeCursor).

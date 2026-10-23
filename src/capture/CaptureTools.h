@@ -67,6 +67,9 @@ bool wantsUia(const QString& windowClass, int childWindows);
 // its ancestors): each cut to `window`, left out when under 8 pixels either
 // way, empty, or the window's own rectangle; the same one only once.
 std::vector<QRect> uiaControls(const std::vector<QRect>& chain, const QRect& window);
+// Overlapping UIA branches: prefer the smallest usable target, then the
+// deeper chain. Wrapper panes must not outweigh a small toolbar button.
+bool preferUiaChain(const std::vector<QRect>& candidate, const std::vector<QRect>& current);
 
 // Which windows may still be asked: a window whose answer took longer than
 // the budget is not asked again in this capture (its controls stay the child

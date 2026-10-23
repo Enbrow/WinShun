@@ -54,7 +54,7 @@ struct UiaProbe::Shared {
 
 namespace {
 
-// Where the walk is: the deadline, the elements still to be read, the longest chain found.
+// Where the walk is: the deadline, the elements still to be read, the finest target found.
 struct Dive {
     IUIAutomationCacheRequest* cache = nullptr;
     IUIAutomationCondition* all = nullptr;
@@ -62,11 +62,11 @@ struct Dive {
     std::chrono::steady_clock::time_point deadline;
     int budget = 400; // elements read at most
     std::vector<QRect> chain; // the one being walked
-    std::vector<QRect> best; // the deepest so far
+    std::vector<QRect> best; // the smallest usable target so far
 };
 
 // The children holding the point, the last (the one on top) first; Chromium wraps its content in a dozen
-// panes of one size, some of them leading nowhere, so every one is tried and the deepest chain kept.
+// panes of one size, some leading nowhere. Prefer a small control over a deeper branch of wrappers.
 void dive(Dive& d, IUIAutomationElement* element, int depth)
 {
     if (depth >= kMaxDepth || d.budget <= 0 || std::chrono::steady_clock::now() >= d.deadline)
@@ -81,7 +81,7 @@ void dive(Dive& d, IUIAutomationElement* element, int depth)
         RECT rect;
     };
     std::vector<Held> holding;
-    for (int i = count - 1; i >= 0; --i) {
+    for (int i = count - 1; i >= 0 && d.budget > 0 && std::chrono::steady_clock::now() < d.deadline; --i) {
         --d.budget;
         ComPtr<IUIAutomationElement> child;
         RECT rect {};
@@ -94,12 +94,12 @@ void dive(Dive& d, IUIAutomationElement* element, int depth)
     }
     for (Held& h : holding) {
         d.chain.push_back(QRect(h.rect.left, h.rect.top, h.rect.right - h.rect.left, h.rect.bottom - h.rect.top));
-        if (d.chain.size() > d.best.size())
+        if (preferUiaChain(d.chain, d.best))
             d.best = d.chain;
         dive(d, h.element.Get(), depth + 1);
         d.chain.pop_back();
-        if (d.budget <= 0 || std::chrono::steady_clock::now() >= d.deadline)
-            return;
+        // Still compare the siblings already cached if the walk ran out of
+        // budget; dive() itself refuses further calls into the other process.
     }
 }
 

@@ -134,12 +134,14 @@ private slots:
         QCOMPARE(fresh.captureMouseMiddle, u"none"_s);
         QCOMPARE(fresh.captureMouseBack, u"none"_s);
         QCOMPARE(fresh.captureMouseForward, u"none"_s);
+        QVERIFY(!fresh.capturePinOnCopy);
 
         ws::Settings s;
         s.load();
         s.captureMouseDoubleLeft = u"save"_s;
         s.captureMouseRight = u"cancel"_s;
-        s.captureMouseMiddle = u"pin"_s;
+        s.captureMouseMiddle = u"copypin"_s;
+        s.capturePinOnCopy = true;
         s.captureMouseBack = u"ocr"_s;
         s.captureMouseForward = u"copy"_s;
         s.save();
@@ -147,7 +149,8 @@ private slots:
         back.load();
         QCOMPARE(back.captureMouseDoubleLeft, u"save"_s);
         QCOMPARE(back.captureMouseRight, u"cancel"_s);
-        QCOMPARE(back.captureMouseMiddle, u"pin"_s);
+        QCOMPARE(back.captureMouseMiddle, u"copypin"_s);
+        QVERIFY(back.capturePinOnCopy);
         QCOMPARE(back.captureMouseBack, u"ocr"_s);
         QCOMPARE(back.captureMouseForward, u"copy"_s);
 

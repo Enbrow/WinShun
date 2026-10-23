@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 
 namespace ws::capture {
 
@@ -219,6 +220,21 @@ std::vector<QRect> uiaControls(const std::vector<QRect>& chain, const QRect& win
             out.push_back(cut);
     }
     return out;
+}
+
+bool preferUiaChain(const std::vector<QRect>& candidate, const std::vector<QRect>& current)
+{
+    const auto smallest = [](const std::vector<QRect>& chain) {
+        qint64 area = std::numeric_limits<qint64>::max();
+        for (const QRect& rect : chain) {
+            if (rect.width() >= 8 && rect.height() >= 8)
+                area = std::min(area, qint64(rect.width()) * rect.height());
+        }
+        return area;
+    };
+    const qint64 next = smallest(candidate);
+    const qint64 previous = smallest(current);
+    return next < previous || (next == previous && candidate.size() > current.size());
 }
 
 bool UiaGate::allowed(quintptr window) const

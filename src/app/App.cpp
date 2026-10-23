@@ -1672,6 +1672,7 @@ void App::applyCapture()
     }
     if (m_capture) {
         m_capture->setCopyOnSelect(m_settings.captureCopyOnSelect);
+        m_capture->setPinOnCopy(m_settings.capturePinOnCopy);
         m_capture->setMouseActions({m_settings.captureMouseDoubleLeft, m_settings.captureMouseRight,
             m_settings.captureMouseMiddle, m_settings.captureMouseBack, m_settings.captureMouseForward});
         m_capture->setHiddenButtons(m_settings.captureToolbarHidden.split(u',', Qt::SkipEmptyParts));

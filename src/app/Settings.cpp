@@ -1027,10 +1027,11 @@ void Settings::load()
     capturePrintScreen = readOrDefault(s, u"Capture/PrintScreen"_s, d.capturePrintScreen);
     capturePrintScreenBefore = readOrDefault(s, u"Capture/PrintScreenBefore"_s, d.capturePrintScreenBefore).trimmed();
     captureCopyOnSelect = readOrDefault(s, u"Capture/CopyOnSelect"_s, d.captureCopyOnSelect);
+    capturePinOnCopy = readOrDefault(s, u"Capture/PinOnCopy"_s, d.capturePinOnCopy);
     const auto mouseAction = [&](const QString& key, const QString& fallback, bool allowBack) {
         const QString v = readOrDefault(s, key, fallback).trimmed().toLower();
-        static const QStringList known {u"none"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"ocrcopy"_s, u"ocrsearch"_s,
-            u"ocrweb"_s, u"cancel"_s};
+        static const QStringList known {u"none"_s, u"copy"_s, u"copypin"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"ocrcopy"_s,
+            u"ocrsearch"_s, u"ocrweb"_s, u"cancel"_s};
         return known.contains(v) || (allowBack && v == u"back") ? v : fallback;
     };
     captureMouseDoubleLeft = mouseAction(u"Capture/MouseDoubleLeft"_s, d.captureMouseDoubleLeft, false);
@@ -1198,6 +1199,7 @@ void Settings::save() const
     s.setValue(u"Capture/PrintScreen"_s, capturePrintScreen);
     s.setValue(u"Capture/PrintScreenBefore"_s, capturePrintScreenBefore);
     s.setValue(u"Capture/CopyOnSelect"_s, captureCopyOnSelect);
+    s.setValue(u"Capture/PinOnCopy"_s, capturePinOnCopy);
     s.setValue(u"Capture/MouseDoubleLeft"_s, captureMouseDoubleLeft);
     s.setValue(u"Capture/MouseRight"_s, captureMouseRight);
     s.setValue(u"Capture/MouseMiddle"_s, captureMouseMiddle);
