@@ -34,6 +34,8 @@
 #include <miniz.h>
 
 #include <windows.h>
+#include <aclapi.h>
+#include <sddl.h>
 
 #include <algorithm>
 #include <memory>
@@ -2154,6 +2156,34 @@ private slots:
         const QJsonObject runner = f.host->runnerFacts();
         QVERIFY(runner.value(u"extensionPointsDisabled"_s).toBool());
         QVERIFY(runner.value(u"inJob"_s).toBool());
+    }
+
+    // A strict plugin's data folder on a second disk: Windows' default root
+    // ACL there gives Authenticated Users Modify, which lacks WRITE_OWNER, so
+    // an unelevated copy (a portable one, a --profile) could not label the
+    // folder it made, and the plugin could not write in it ("数据文件夹不能用").
+    void labelLowWithoutWriteOwner()
+    {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const QString folder = QDir::toNativeSeparators(temp.filePath(u"x.data"_s));
+        QVERIFY(QDir().mkpath(folder));
+        PSECURITY_DESCRIPTOR descriptor = nullptr;
+        QVERIFY(::ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            L"D:P(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)(A;OICI;0x1301bf;;;AU)(A;OICI;0x1200a9;;;BU)", SDDL_REVISION_1,
+            &descriptor, nullptr));
+        PACL dacl = nullptr;
+        BOOL present = FALSE, defaulted = FALSE;
+        QVERIFY(::GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted) && present);
+        std::wstring native = folder.toStdWString();
+        const DWORD set = ::SetNamedSecurityInfoW(native.data(), SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, nullptr, nullptr, dacl, nullptr);
+        ::LocalFree(descriptor);
+        QCOMPARE(set, DWORD(ERROR_SUCCESS));
+
+        QVERIFY(!ws::plugin::isLabelledLow(folder));
+        QVERIFY(ws::plugin::labelLow(folder));
+        QVERIFY(ws::plugin::isLabelledLow(folder));
     }
 };
 

@@ -42,6 +42,14 @@ struct ToolBridge {
 };
 ToolBridge toolBridge(mcp::ToolHost* host);
 
+// A strict plugin's data folder: a low integrity label (inherited by what is
+// made in it), the only place of the user's such a plugin may write to.
+// labelLow also works where the user lacks WRITE_OWNER (an unelevated copy's
+// folder on a second disk): it grants the user, the folder's owner, full
+// control first.
+bool labelLow(const QString& path);
+bool isLabelledLow(const QString& path); // an inherited low (or lower) label
+
 inline constexpr int kToolFailed = -32002; // winshun/tool: the tool ran and failed (message says how)
 
 class Host : public QObject {

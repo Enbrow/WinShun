@@ -3564,3 +3564,9 @@
 
 - **现象**（代码审查，2026-10-24）：复制正等着“替换还是跳过”时在设置里关掉圆盘，`~FileOperations` 在界面线程上等那条线程，Win顺 一直卡到对话框被回答。
 - **做法**：`FileOperations` 归 `App`，活到进程结束；圆盘随时可删。回调不碰圆盘（只写日志、经 `App` 弹通知）。
+
+### 不提权的 Win顺 在第二块盘上给严格插件的数据文件夹打不上低完整性标签（“数据文件夹不能用”）
+
+- **现象**（2026-10-24，0.13.0 截图）：截图配置在 `F:\电脑便捷工具\tools\screenshots\work\profile`，按意思找显示“语义索引停下了：数据文件夹不能用”；`plugins.log` 里有“无法给 …\winshun.semantic.data 打低完整性标签”，`winshun.tools` 也一样。0.12.0 的截图没事，是因为那时截图工具用提权的 Win顺。
+- **原因**：设置强制完整性标签要 `WRITE_OWNER`。Windows 给新格式化的盘根目录的默认 ACL 是 Authenticated Users“修改”（没有 `WRITE_OWNER`），Administrators、SYSTEM 完全控制；不提权的进程在那里建的文件夹虽然归自己，也打不上标签（`icacls /setintegritylevel` 同样“拒绝访问”）。`%LOCALAPPDATA%` 里用户自己是完全控制，所以装好的 Win顺 一直没事；便携版放在 D:、F: 这类盘上（不提权是默认）、或 `--profile` 指向那里时就会中。标签没打上，低完整性的插件写不进去（不能往上写），`Store::open` 建不了 `semantic` 子文件夹。另外 `dataDirFor` 只在新建文件夹时打标签，失败一次以后永远不再试。
+- **做法**：`labelLow` 遇到拒绝访问时先给当前用户加一条可继承的完全控制（文件夹的主人隐含 `WRITE_DAC`，能改 DACL），再打一次标签；`dataDirFor` 对已有但没有低标签的严格插件文件夹也补打（先用 `isLabelledLow` 读，不每次都重打——重打会把标签传到里面每个文件）。`tst_plugin::labelLowWithoutWriteOwner` 用复刻盘根默认 ACL 的文件夹测。

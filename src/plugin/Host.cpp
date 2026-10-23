@@ -17,6 +17,7 @@
 #include <sddl.h>
 
 #include <algorithm>
+#include <vector>
 
 using namespace Qt::StringLiterals;
 
@@ -57,8 +58,79 @@ std::optional<Permission> permissionFor(const QString& tool)
     return Permission::WinshunHistory; // unknown names: the strictest, and the bridge says "unknown" anyway
 }
 
-// A low integrity label on a folder (and what is made in it): a strict
-// plugin may write there and nowhere else of the user's.
+} // namespace
+
+bool isLabelledLow(const QString& path)
+{
+    std::wstring native = QDir::toNativeSeparators(path).toStdWString();
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    PACL sacl = nullptr;
+    if (::GetNamedSecurityInfoW(native.data(), SE_FILE_OBJECT, LABEL_SECURITY_INFORMATION, nullptr, nullptr, nullptr,
+                                &sacl, &descriptor)
+        != ERROR_SUCCESS)
+        return false;
+    bool low = false;
+    for (DWORD i = 0; sacl && i < sacl->AceCount && !low; ++i) {
+        void* ace = nullptr;
+        if (!::GetAce(sacl, i, &ace) || static_cast<ACE_HEADER*>(ace)->AceType != SYSTEM_MANDATORY_LABEL_ACE_TYPE)
+            continue;
+        const auto* label = static_cast<SYSTEM_MANDATORY_LABEL_ACE*>(ace);
+        const PSID sid = const_cast<DWORD*>(&label->SidStart);
+        const DWORD rid = *::GetSidSubAuthority(sid, *::GetSidSubAuthorityCount(sid) - 1);
+        constexpr BYTE kInherits = OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE;
+        low = rid <= SECURITY_MANDATORY_LOW_RID && (label->Header.AceFlags & kInherits) == kInherits;
+    }
+    ::LocalFree(descriptor);
+    return low;
+}
+
+namespace {
+
+// Full control on `path` (and what is in it) for the user this runs as. A
+// folder made by an unelevated process on a drive with Windows' default
+// root ACL (Authenticated Users: Modify, as on a second disk) is the user's
+// own, but the user lacks WRITE_OWNER on it, which a label needs; as its
+// owner the user may still change its DACL (implicit WRITE_DAC).
+bool grantSelfFullControl(const std::wstring& path)
+{
+    HANDLE token = nullptr;
+    if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token))
+        return false;
+    DWORD size = 0;
+    ::GetTokenInformation(token, TokenUser, nullptr, 0, &size);
+    std::vector<std::byte> buffer(size);
+    const bool haveUser = size && ::GetTokenInformation(token, TokenUser, buffer.data(), size, &size);
+    ::CloseHandle(token);
+    if (!haveUser)
+        return false;
+    const PSID user = reinterpret_cast<TOKEN_USER*>(buffer.data())->User.Sid;
+
+    std::wstring native = path;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    PACL dacl = nullptr;
+    if (::GetNamedSecurityInfoW(native.data(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr, nullptr, &dacl, nullptr,
+                                &descriptor)
+        != ERROR_SUCCESS)
+        return false;
+    EXPLICIT_ACCESS_W access {};
+    access.grfAccessPermissions = FILE_ALL_ACCESS;
+    access.grfAccessMode = GRANT_ACCESS;
+    access.grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+    access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    access.Trustee.TrusteeType = TRUSTEE_IS_USER;
+    access.Trustee.ptstrName = static_cast<LPWSTR>(user);
+    PACL updated = nullptr;
+    bool ok = ::SetEntriesInAclW(1, &access, dacl, &updated) == ERROR_SUCCESS;
+    if (ok)
+        ok = ::SetNamedSecurityInfoW(native.data(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr, nullptr, updated, nullptr)
+            == ERROR_SUCCESS;
+    ::LocalFree(updated);
+    ::LocalFree(descriptor);
+    return ok;
+}
+
+} // namespace
+
 bool labelLow(const QString& path)
 {
     PSECURITY_DESCRIPTOR descriptor = nullptr;
@@ -69,14 +141,18 @@ bool labelLow(const QString& path)
     bool ok = ::GetSecurityDescriptorSacl(descriptor, &present, &sacl, &defaulted) && present;
     if (ok) {
         std::wstring native = QDir::toNativeSeparators(path).toStdWString();
-        ok = ::SetNamedSecurityInfoW(native.data(), SE_FILE_OBJECT, LABEL_SECURITY_INFORMATION, nullptr, nullptr, nullptr, sacl)
-            == ERROR_SUCCESS;
+        const auto label = [&] {
+            return ::SetNamedSecurityInfoW(native.data(), SE_FILE_OBJECT, LABEL_SECURITY_INFORMATION, nullptr, nullptr, nullptr,
+                                           sacl);
+        };
+        DWORD result = label();
+        if (result == ERROR_ACCESS_DENIED && grantSelfFullControl(native))
+            result = label();
+        ok = result == ERROR_SUCCESS;
     }
     ::LocalFree(descriptor);
     return ok;
 }
-
-} // namespace
 
 ToolBridge toolBridge(mcp::ToolHost* host)
 {
@@ -453,11 +529,12 @@ void Host::setPluginSettings(const QString& id, const QJsonObject& settings)
 QString Host::dataDirFor(const Entry& e)
 {
     const QString dir = QDir::toNativeSeparators(QDir(m_options.dataRoot).filePath(e.id + u".data"_s));
-    if (!QFileInfo::exists(dir)) {
-        QDir().mkpath(dir);
-        if (e.manifest->runtime && e.manifest->runtime->sandbox == SandboxLevel::Strict && !labelLow(dir))
-            log(u"%1: 无法给 %2 打低完整性标签"_s.arg(e.id, dir));
-    }
+    const bool made = !QFileInfo::exists(dir) && QDir().mkpath(dir);
+    // An existing folder too: one a failed label left behind (before labelLow
+    // could grant itself the right) would stay unwritable for good.
+    if (e.manifest->runtime && e.manifest->runtime->sandbox == SandboxLevel::Strict && (made || !isLabelledLow(dir))
+        && !labelLow(dir))
+        log(u"%1: 无法给 %2 打低完整性标签"_s.arg(e.id, dir));
     return dir;
 }
 
