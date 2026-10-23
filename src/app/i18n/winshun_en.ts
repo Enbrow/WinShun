@@ -1103,12 +1103,12 @@
 <context>
     <name>AnnotateToolbar</name>
     <message>
-        <source>关掉这次截图，倒计时后重新截（秒数在设置里选）</source>
-        <translation>Ends this capture and captures again after a countdown (the seconds are set in the settings)</translation>
+        <source>延时：关掉这次截图，倒计时后重新截（秒数在设置里选）</source>
+        <translation>Delay: ends this capture and captures again after a countdown (the seconds are set in the settings)</translation>
     </message>
     <message>
-        <source>识别选区里的二维码，可复制文字或打开链接</source>
-        <translation>Reads the QR codes in the selection; copy the text or open a link</translation>
+        <source>二维码：识别选区里的二维码，可复制文字或打开链接</source>
+        <translation>QR code: reads the QR codes in the selection; copy the text or open a link</translation>
     </message>
     <message>
         <source>延时</source>
@@ -1175,16 +1175,16 @@
         <translation>Redo</translation>
     </message>
     <message>
-        <source>留在屏幕上，可拖动、缩放</source>
-        <translation>Stays on the screen; drag it, zoom it</translation>
+        <source>贴图：留在屏幕上，可拖动、缩放</source>
+        <translation>Pin: stays on the screen; drag it, zoom it</translation>
     </message>
     <message>
-        <source>识别图里的文字，可复制或拿去搜索</source>
-        <translation>Reads the words in the picture; copy them or search with them</translation>
+        <source>识别文字：识别图里的文字，可复制或拿去搜索</source>
+        <translation>Recognise text: reads the words in the picture; copy them or search with them</translation>
     </message>
     <message>
-        <source>没有安装文字识别模型（Win顺 文件夹里的 ocr 文件夹），无法识别文字</source>
-        <translation>The text recognition models are not installed (the ocr folder in the WinShun folder), so no text can be read</translation>
+        <source>识别文字：没有安装文字识别模型（Win顺 文件夹里的 ocr 文件夹），无法识别文字</source>
+        <translation>Recognise text: the text recognition models are not installed (the ocr folder in the WinShun folder), so no text can be read</translation>
     </message>
     <message>
         <source>按键</source>
@@ -1335,8 +1335,8 @@
         <translation>Long screenshot</translation>
     </message>
     <message>
-        <source>滚动着截下选区里更长的内容</source>
-        <translation>Scroll and capture more of what is in the selection</translation>
+        <source>长截图：滚动着截下选区里更长的内容</source>
+        <translation>Long screenshot: scroll and capture more of what is in the selection</translation>
     </message>
     <message>
         <source>长截图：选区里的内容一边滚动一边截</source>

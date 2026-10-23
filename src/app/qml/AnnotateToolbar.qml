@@ -4,8 +4,9 @@ import WinShun
 
 // The capture toolbar's first row (docs/design-capture-roadmap.md, 3.5): the
 // nine annotation tools in AnnotationModel.tools' order, undo and redo, then
-// the capture's own actions in their old order (copy, save, pin, OCR,
-// cancel), and a "?" that lists every key. A card of its own: CaptureOverlay
+// the capture's own actions as icons (long, delay, QR, OCR; pin, save), a "?"
+// that lists every key, and at the right end cancel and copy (the check mark,
+// the primary one). A card of its own: CaptureOverlay
 // places it and the style panel (AnnotateStylePanel) beside it. The editing
 // window (EditWindow) uses it too, without a session: its buttons then say
 // what they want through action(), and the key list has the editor's keys.
@@ -21,10 +22,12 @@ Rectangle {
     // editing window shows them all): their keys work all the same.
     readonly property var hidden: session ? session.hiddenButtons : []
     readonly property bool historyShown: shows("undo") || shows("redo")
-    readonly property bool actionsShown: shows("copy") || shows("save") || (pinnable && shows("pin")) || shows("ocr")
-                                         || (!editor && (shows("long") || shows("qr") || shows("delay"))) || shows("cancel")
-    // What the first button says (the editing window: 完成 on a pin) and
-    // whether there is a 贴图 button (not when the picture is a pin already).
+    // The groups after the tools: undo and redo; long, delay, QR, OCR; pin and save; cancel and copy.
+    readonly property bool toolsShown: shows("ocr") || (!editor && (shows("long") || shows("qr") || shows("delay")))
+    readonly property bool outputShown: shows("save") || (pinnable && shows("pin"))
+    readonly property bool finishShown: shows("copy") || shows("cancel")
+    // What the last button, the check mark, says in its tip (the editing
+    // window: 完成 on a pin) and whether there is a 贴图 button (not when the picture is a pin already).
     property string copyText: qsTr("复制")
     property bool pinnable: true
     // The toolbar's rows on the screen now (this one, and the style panel
@@ -79,7 +82,7 @@ Rectangle {
     readonly property int pad: 4 // card edge to the buttons
     readonly property int spacing: 4 // between buttons
     readonly property int buttonHeight: 36 // as FlatButton
-    readonly property int toolWidth: 32 // a tool, undo, redo
+    readonly property int toolWidth: 32 // a tool, an action
     readonly property int helpWidth: 24 // the "?"
     readonly property int iconSize: 16 // drawn tool icons and glyphs
     readonly property int separatorWidth: 8 // a 1 device px line in the middle
@@ -117,7 +120,7 @@ Rectangle {
     }
 
     // The tool or button the mouse is on, for the one HoverTip.
-    property Item tipItem: null
+    property var tipItem: null
     property int tipTool: -1
     property bool keysOpen: false
 
@@ -168,129 +171,97 @@ Rectangle {
             delegate: ToolButton {}
         }
 
-        Separator { visible: bar.historyShown || bar.actionsShown }
+        Separator { visible: bar.historyShown }
 
-        FlatButton {
+        ActionButton {
             id: undoButton
             visible: bar.shows("undo")
-            flat: true
-            keyboardActivation: false
-            border.width: 0 // no hover border, like the tool buttons beside it
-            width: bar.toolWidth
             glyph: String.fromCharCode(0xE7A7) // Undo
+            name: qsTr("撤销")
+            tipText: bar.annot && bar.annot.undoLabel.length > 0 ? qsTr("撤销 %1").arg(bar.annot.undoLabel) : qsTr("撤销")
+            tipKeys: "Ctrl+Z"
             enabled: bar.annot !== null && bar.annot.canUndo
             onClicked: bar.annot.undo()
-            HoverHandler { onHoveredChanged: bar.hover(undoButton, hovered, -1) }
         }
-        FlatButton {
+        ActionButton {
             id: redoButton
             visible: bar.shows("redo")
-            flat: true
-            keyboardActivation: false
-            border.width: 0 // no hover border, like the tool buttons beside it
-            width: bar.toolWidth
             glyph: String.fromCharCode(0xE7A6) // Redo
+            name: qsTr("重做")
+            tipText: bar.annot && bar.annot.redoLabel.length > 0 ? qsTr("重做 %1").arg(bar.annot.redoLabel) : qsTr("重做")
+            tipKeys: "Ctrl+Y"
             enabled: bar.annot !== null && bar.annot.canRedo
             onClicked: bar.annot.redo()
-            HoverHandler { onHoveredChanged: bar.hover(redoButton, hovered, -1) }
         }
 
-        Separator { visible: bar.historyShown && bar.actionsShown }
+        Separator { visible: bar.toolsShown }
 
-        FlatButton {
-            visible: bar.shows("copy")
-            flat: true
-            keyboardActivation: false
-            border.width: 0 // no hover border, like the tool buttons beside it
-            width: Math.ceil(implicitWidth / 4) * 4
-            glyph: String.fromCharCode(0xE8C8) // Copy
-            text: bar.copyText
-            onClicked: bar.act(CaptureSession.Copy)
+        ActionButton {
+            id: longButton
+            visible: !bar.editor && bar.shows("long")
+            glyph: String.fromCharCode(0xEC8F)
+            name: qsTr("长截图")
+            tipText: qsTr("长截图：滚动着截下选区里更长的内容")
+            tipKeys: "Ctrl+L"
+            onClicked: bar.act(CaptureSession.Long)
         }
-        FlatButton {
-            visible: bar.shows("save")
-            flat: true
-            keyboardActivation: false
-            border.width: 0 // no hover border, like the tool buttons beside it
-            width: Math.ceil(implicitWidth / 4) * 4
-            glyph: String.fromCharCode(0xE74E) // Save
-            text: qsTr("保存")
-            onClicked: bar.act(CaptureSession.Save)
+        ActionButton {
+            id: delayButton
+            visible: !bar.editor && bar.shows("delay")
+            glyph: String.fromCharCode(0xE916) // Stopwatch
+            name: qsTr("延时")
+            tipText: qsTr("延时：关掉这次截图，倒计时后重新截（秒数在设置里选）")
+            tipKeys: "D"
+            onClicked: bar.act(CaptureSession.Delay)
         }
-        FlatButton {
-            id: pinButton
-            visible: bar.pinnable && bar.shows("pin")
-            flat: true
-            keyboardActivation: false
-            border.width: 0 // no hover border, like the tool buttons beside it
-            width: Math.ceil(implicitWidth / 4) * 4
-            glyph: String.fromCharCode(0xE718) // Pin
-            text: qsTr("贴图")
-            onClicked: bar.act(CaptureSession.Pin)
-            HoverHandler { onHoveredChanged: bar.hover(pinButton, hovered, -1) }
+        ActionButton {
+            id: qrButton
+            visible: !bar.editor && bar.shows("qr")
+            glyph: String.fromCharCode(0xED14) // QRCode
+            name: qsTr("二维码")
+            tipText: qsTr("二维码：识别选区里的二维码，可复制文字或打开链接")
+            tipKeys: "Q"
+            onClicked: bar.act(CaptureSession.Qr)
         }
-        FlatButton {
+        ActionButton {
             id: ocrButton
             visible: bar.shows("ocr")
-            flat: true
-            keyboardActivation: false
-            border.width: 0 // no hover border, like the tool buttons beside it
-            width: Math.ceil(implicitWidth / 4) * 4
             // Without the models it still says why, in its tip and the OCR window.
             opacity: bar.ocrAvailable ? 1 : 0.45
             glyph: String.fromCharCode(0xE8D2) // Font
-            text: qsTr("识别文字")
+            name: qsTr("识别文字")
+            tipText: bar.ocrAvailable ? qsTr("识别文字：识别图里的文字，可复制或拿去搜索")
+                                      : qsTr("识别文字：没有安装文字识别模型（Win顺 文件夹里的 ocr 文件夹），无法识别文字")
             onClicked: bar.act(CaptureSession.Ocr)
-            HoverHandler { onHoveredChanged: bar.hover(ocrButton, hovered, -1) }
         }
-        FlatButton {
-            id: longButton
-            visible: !bar.editor && bar.shows("long")
-            flat: true
-            keyboardActivation: false
-            border.width: 0 // no hover border, like the tool buttons beside it
-            width: Math.ceil(implicitWidth / 4) * 4
-            glyph: String.fromCharCode(0xEC8F)
-            text: qsTr("长截图")
-            onClicked: bar.act(CaptureSession.Long)
-            HoverHandler { onHoveredChanged: bar.hover(longButton, hovered, -1) }
+
+        Separator { visible: bar.outputShown }
+
+        ActionButton {
+            id: pinButton
+            visible: bar.pinnable && bar.shows("pin")
+            glyph: String.fromCharCode(0xE718) // Pin
+            name: qsTr("贴图")
+            tipText: qsTr("贴图：留在屏幕上，可拖动、缩放")
+            tipKeys: "F3"
+            onClicked: bar.act(CaptureSession.Pin)
         }
-        FlatButton {
-            id: qrButton
-            visible: !bar.editor && bar.shows("qr")
-            flat: true
-            keyboardActivation: false
-            border.width: 0 // no hover border, like the tool buttons beside it
-            width: Math.ceil(implicitWidth / 4) * 4
-            text: qsTr("二维码")
-            onClicked: bar.act(CaptureSession.Qr)
-            HoverHandler { onHoveredChanged: bar.hover(qrButton, hovered, -1) }
+        ActionButton {
+            id: saveButton
+            visible: bar.shows("save")
+            glyph: String.fromCharCode(0xE74E) // Save
+            name: qsTr("保存")
+            tipText: qsTr("保存")
+            tipKeys: "Ctrl+S"
+            onClicked: bar.act(CaptureSession.Save)
         }
-        FlatButton {
-            id: delayButton
-            visible: !bar.editor && bar.shows("delay")
-            flat: true
-            keyboardActivation: false
-            border.width: 0 // no hover border, like the tool buttons beside it
-            width: Math.ceil(implicitWidth / 4) * 4
-            glyph: String.fromCharCode(0xE916) // Stopwatch
-            text: qsTr("延时")
-            onClicked: bar.act(CaptureSession.Delay)
-            HoverHandler { onHoveredChanged: bar.hover(delayButton, hovered, -1) }
-        }
-        FlatButton {
-            visible: bar.shows("cancel")
-            flat: true
-            keyboardActivation: false
-            border.width: 0 // no hover border, like the tool buttons beside it
-            width: Math.ceil(implicitWidth / 4) * 4
-            glyph: String.fromCharCode(0xE711) // Cancel
-            text: qsTr("取消")
-            onClicked: bar.act(CaptureSession.Cancel)
-        }
+
+        Separator {}
 
         Rectangle { // "?": every key, in a list by the toolbar
             id: helpButton
+            property string tipText: qsTr("全部按键")
+            property string tipKeys: ""
             width: bar.helpWidth
             height: bar.buttonHeight
             radius: Theme.controlRadius
@@ -312,6 +283,28 @@ Rectangle {
                 onContainsMouseChanged: bar.hover(helpButton, containsMouse, -1)
             }
         }
+
+        Separator { visible: bar.finishShown }
+
+        ActionButton {
+            id: cancelButton
+            visible: bar.shows("cancel")
+            glyph: String.fromCharCode(0xE711) // Cancel
+            name: qsTr("取消")
+            tipText: qsTr("取消")
+            tipKeys: "Esc"
+            onClicked: bar.act(CaptureSession.Cancel)
+        }
+        ActionButton { // the way out that matters: accentFill, a white check
+            id: copyButton
+            visible: bar.shows("copy")
+            primary: true
+            glyph: String.fromCharCode(0xE73E) // CheckMark
+            name: bar.copyText
+            tipText: bar.copyText
+            tipKeys: "Enter"
+            onClicked: bar.act(CaptureSession.Copy)
+        }
     }
 
     HoverTip {
@@ -320,24 +313,7 @@ Rectangle {
             const a = bar.annot
             if (bar.tipTool >= 0 && a)
                 return a.tools[bar.tipTool].name
-            if (bar.tipItem === undoButton)
-                return a && a.undoLabel.length > 0 ? qsTr("撤销 %1").arg(a.undoLabel) : qsTr("撤销")
-            if (bar.tipItem === redoButton)
-                return a && a.redoLabel.length > 0 ? qsTr("重做 %1").arg(a.redoLabel) : qsTr("重做")
-            if (bar.tipItem === pinButton)
-                return qsTr("留在屏幕上，可拖动、缩放")
-            if (bar.tipItem === ocrButton)
-                return bar.ocrAvailable ? qsTr("识别图里的文字，可复制或拿去搜索")
-                                                : qsTr("没有安装文字识别模型（Win顺 文件夹里的 ocr 文件夹），无法识别文字")
-            if (bar.tipItem === longButton)
-                return qsTr("滚动着截下选区里更长的内容")
-            if (bar.tipItem === qrButton)
-                return qsTr("识别选区里的二维码，可复制文字或打开链接")
-            if (bar.tipItem === delayButton)
-                return qsTr("关掉这次截图，倒计时后重新截（秒数在设置里选）")
-            if (bar.tipItem === helpButton)
-                return qsTr("全部按键")
-            return ""
+            return bar.tipItem ? bar.tipItem.tipText : ""
         }
         shortcut: {
             const a = bar.annot
@@ -345,13 +321,7 @@ Rectangle {
                 const t = a.tools[bar.tipTool]
                 return t.letter + " / " + t.digit
             }
-            return bar.tipItem === undoButton ? "Ctrl+Z"
-                 : bar.tipItem === redoButton ? "Ctrl+Y"
-                 : bar.tipItem === pinButton ? "F3"
-                 : bar.tipItem === longButton ? "Ctrl+L"
-                 : bar.tipItem === qrButton ? "Q"
-                 : bar.tipItem === delayButton ? "D"
-                 : ""
+            return bar.tipItem ? bar.tipItem.tipKeys : ""
         }
     }
 
@@ -445,6 +415,48 @@ Rectangle {
             width: Math.max(1, Math.round(bar.dpr)) / bar.dpr
             height: bar.separatorHeight
             color: Theme.controlBorder
+        }
+    }
+
+    // An icon-only action: flat, as wide as a tool; primary: accentFill and a
+    // white mark. The tip (name, keys) is read by the one HoverTip.
+    component ActionButton: Rectangle {
+        id: action
+
+        property string glyph
+        property string name
+        property string tipText
+        property string tipKeys
+        property bool primary: false
+        signal clicked()
+
+        width: bar.toolWidth
+        height: bar.buttonHeight
+        radius: Theme.controlRadius
+        color: primary
+               ? (actionArea.pressed ? Qt.darker(Theme.accentFill, 1.15) : actionArea.containsMouse ? Qt.lighter(Theme.accentFill, 1.08) : Theme.accentFill)
+               : (actionArea.pressed ? Theme.controlPressed : actionArea.containsMouse ? Theme.controlHover : "transparent")
+        opacity: enabled ? 1 : 0.45
+        Accessible.role: Accessible.Button
+        Accessible.name: name
+        Accessible.onPressAction: if (enabled) action.clicked()
+
+        Glyph {
+            x: bar.snap((bar.toolWidth - bar.iconSize) / 2)
+            y: bar.snap((bar.buttonHeight - bar.iconSize) / 2)
+            width: bar.iconSize
+            height: bar.iconSize
+            glyph: action.glyph
+            size: bar.iconSize
+            color: action.primary ? Theme.accentText : Theme.text
+        }
+
+        MouseArea {
+            id: actionArea
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: action.clicked()
+            onContainsMouseChanged: bar.hover(action, containsMouse, -1)
         }
     }
 

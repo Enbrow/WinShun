@@ -44,14 +44,14 @@ Rectangle {
     readonly property var toolbarButtons: [
         { id: "undo", text: qsTr("撤销") },
         { id: "redo", text: qsTr("重做") },
-        { id: "copy", text: qsTr("复制") },
-        { id: "save", text: qsTr("保存") },
-        { id: "pin", text: qsTr("贴图") },
-        { id: "ocr", text: qsTr("识别文字") },
         { id: "long", text: qsTr("长截图") },
-        { id: "qr", text: qsTr("二维码") },
         { id: "delay", text: qsTr("延时") },
-        { id: "cancel", text: qsTr("取消") }
+        { id: "qr", text: qsTr("二维码") },
+        { id: "ocr", text: qsTr("识别文字") },
+        { id: "pin", text: qsTr("贴图") },
+        { id: "save", text: qsTr("保存") },
+        { id: "cancel", text: qsTr("取消") },
+        { id: "copy", text: qsTr("复制") }
     ]
     function setButtonShown(id, shown) {
         const left = hiddenButtons.filter(h => h.length > 0 && h !== id)
