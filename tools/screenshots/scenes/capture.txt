@@ -1,18 +1,21 @@
-# The capture overlay (README_ONLY "capture", L-capture), light: Calculator under it, the pointer on a key of it, so the
-# key is framed and the magnifier shows the pixels and the colour. The profile has the capture on, hotkey Ctrl+Alt+F10
-# (stage.CAPTURE_HOTKEY). A window of this screen over the cover (the wallpaper in a window of its own), so nothing of
-# the user's shows in the frozen screen; Calculator is the open one if there is one (left where it is), else one opened
-# here and closed again. The overlay is shot whole and cut to the Calculator and the magnifier (the taskbar stays out).
-# WinShun on the profile already, the light theme set (release013.txt does both). Needs Calculator's own UI Automation
-# (not a Chromium program, not Paint: Paint gave the whole window only).
+# The capture overlay (README_ONLY "capture", L-capture), light: Windows' Settings on 个性化 > 颜色 (a Chinese-UI WinUI app
+# whose small controls UI Automation gives the capture: the swatch under the pointer is framed, the magnifier shows its
+# pixels and colour; Calculator is English here and Paint/Control Panel give the whole window only). The profile has the
+# capture on, hotkey Ctrl+Alt+F10 (stage.CAPTURE_HOTKEY). A window of this screen over the cover (the wallpaper in a window
+# of its own), so nothing of the user's shows in the frozen screen. The window is narrow, so Settings folds its sidebar
+# away (with the account's name and e-mail in it). Settings remembers the window it closed with: where it was and whether
+# maximized is noted first and put back at the end. The overlay is shot whole and cut to the window and the magnifier
+# (the taskbar stays out). WinShun on the profile already, the light theme set (release013.txt does both).
 allow ApplicationFrameHost
 cover on dawn
+settingsapp colors
+winstate save 设置
+place 设置 840 60 900 1100
 cover raise
-calc start 200 120 1400 850
-front Calculator
-sleep 800
-# the 9 key: 560,538 from the frame
-hoverwin Calculator 560 538
+front 设置
+sleep 1200
+# the first swatch of 最近使用的颜色 (blue): from the window's frame
+hoverwin 设置 165 1009
 sleep 500
 down 11
 down 12
@@ -20,10 +23,11 @@ tap 79
 up 12
 up 11
 sleep 2200
-hoverwin Calculator 564 540
+hoverwin 设置 169 1011
 sleep 1000
-shotabs L-capture 150 70 1570 1120
+shotabs L-capture 560 20 1500 1480
 tap 1B
 sleep 800
-calc end
 cover off
+winstate restore 设置
+closewin 设置

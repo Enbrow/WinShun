@@ -103,11 +103,11 @@ README_ONLY = (
     ("droppie", "L-droppie", "拖文件时，[晃一晃]", "弹出圆盘：内圈选移动或复制，外圈是常用文件夹，松手就到"),
     ("longshot", "L-longshot", "比屏幕还长，[一键拼成长图]", "Ctrl+L 自动滚动、自动拼接：网页、聊天记录、文档都行"),
     ("redact", "L-redact", "截图里的隐私，[一键打码]", "手机号、身份证、银行卡、邮箱：本机识别，一次 Ctrl+Z 全撤", "screen"),
-    ("pluginlib", "L-pluginlib", "插件库，[点一下就装]", "设置 › 插件 › 插件库：先看它要什么权限，核对后再安装"),
-    ("capture", "L-capture", "框选截图，[先认出控件]", "鼠标指到哪框到哪；放大镜看像素和颜色，C 复制色值", "screen"),
+    ("pins", "L-pins", "截图，[贴在屏幕上]", "F3 贴图：悬在所有窗口上，拖到哪放哪，滚轮缩放", "screen"),
+    ("capture", "L-capture", "框选截图，[先认出控件]", "指到哪框到哪，色块按钮也认；放大镜看颜色，C 复制", "screen"),
     ("typing", "L-typing", "资源管理器里，[直接打字就搜]", "在文件夹里随便打字，只搜这个文件夹（设置里打开）"),
 )
-PENDING = {"L-droppie", "L-longshot", "L-redact", "L-pluginlib", "L-capture", "L-typing"}  # shot by scenes/release013.txt;
+PENDING = {"L-droppie", "L-longshot", "L-redact", "L-pins", "L-capture", "L-typing"}  # shot by scenes/release013.txt;
 # render leaves them out while there is no shot yet (so the other pictures can be made again meanwhile)
 ENDING_PAGE = "17-follow"  # who made it, where to get it, follow
 

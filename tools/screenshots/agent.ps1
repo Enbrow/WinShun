@@ -120,6 +120,7 @@ public static class A {
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int hh, uint flags);
     // to the top of the (not topmost) windows, without activating it
     public static void Raise(IntPtr h) { SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010); }
+    [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr h);
     public static int[] WinRect(IntPtr h) { RECT r; GetWindowRect(h, out r); return new int[] { r.L, r.T, r.R - r.L, r.B - r.T }; }
     // how many visible windows of this class there are (SysDragImage: the picture of a file in the air)
     public static int CountClass(string cls) {
@@ -407,6 +408,19 @@ function RunLines($lines) {
                 }
                 [A]::Button($true)
             }
+            'dragpin' { # <x1> <y1> <x2> <y2>: a pin moved: down on a window of WinShun's, up anywhere (the pin goes with it)
+                $p = $arg -split '\s+'; $x1 = [int]$p[0]; $y1 = [int]$p[1]; $x2 = [int]$p[2]; $y2 = [int]$p[3]
+                if ([A]::Pid([A]::RootAt($x1, $y1)) -ne (WsPid)) { throw "dragpin at $x1,$y1 is not on a window of WinShun's" }
+                [A]::SetCursorPos($x1, $y1) | Out-Null; Start-Sleep -Milliseconds 150
+                [A]::Button($false)
+                try {
+                    for ($k = 1; $k -le 16; $k++) {
+                        [A]::SetCursorPos([int]($x1 + ($x2 - $x1) * $k / 16), [int]($y1 + ($y2 - $y1) * $k / 16)) | Out-Null
+                        Start-Sleep -Milliseconds 25
+                    }
+                    Start-Sleep -Milliseconds 100
+                } finally { [A]::Button($true) }
+            }
             'dragfg' { # <dx1> <dy1> <dx2> <dy2>: physical px from the front window's frame (a shape drawn in the edit window)
                 Guard
                 $p = $arg -split '\s+'; $h = [A]::GetForegroundWindow(); $r = [A]::Frame($h)
@@ -542,6 +556,26 @@ function RunLines($lines) {
                     }
                     $script:calcStarted = $false; $script:calcWas = $null; Start-Sleep -Milliseconds 700
                 }
+            }
+            'winstate' { # save|restore <title part>: where a window was, and maximized or not, put back afterwards (a program remembers the window it closes with)
+                $q = $arg -split '\s+', 2
+                $h = [A]::FindTitle($q[1])
+                if ($q[0] -eq 'save') {
+                    if ($h -eq [IntPtr]::Zero) { throw "winstate: no window '$($q[1])'" }
+                    if (-not $script:winStates) { $script:winStates = @{} }
+                    $script:winStates[$q[1]] = @{ rect = [A]::WinRect($h); zoomed = [A]::IsZoomed($h) }
+                } elseif ($script:winStates -and $script:winStates.ContainsKey($q[1]) -and $h -ne [IntPtr]::Zero) {
+                    $st = $script:winStates[$q[1]]
+                    [A]::ShowWindow($h, 9) | Out-Null
+                    [A]::MoveWindow($h, $st.rect[0], $st.rect[1], $st.rect[2], $st.rect[3], $true) | Out-Null
+                    if ($st.zoomed) { [A]::ShowWindow($h, 3) | Out-Null }
+                    Start-Sleep -Milliseconds 800
+                }
+            }
+            'controlpanel' { # the Control Panel (a window of Explorer's, Chinese, with controls UI Automation knows), not elevated
+                $script:allowed += 'explorer'
+                if ($script:unelevatedRun) { RunUnelevated (Join-Path $env:windir 'System32\control.exe') '' } else { Start-Process -FilePath 'control.exe' }
+                Start-Sleep -Milliseconds 3500
             }
             'cover' { # on [paper] | off: the wallpaper in a window over the whole screen, under whatever is shown after
                 $p = $arg -split '\s+'

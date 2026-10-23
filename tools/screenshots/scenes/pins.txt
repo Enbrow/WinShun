@@ -1,0 +1,39 @@
+# Pins (README_ONLY "pins", L-pins), light: a screenshot of the report's four number cards (the page in Edge, guest app
+# window, on the left) pinned and moved over the demo folder's Explorer window on the right, so it floats over both.
+# The area is dragged out in the capture overlay (dragws on the overlay: its window is WinShun's) and pinned with F3; the
+# pin is then dragged (dragpin: pressed on the pin, let go over another program's window: it only moves the pin). Pins
+# are pictures at 1:1 with a thin frame, always on top. A window of this screen over the cover, so nothing of the user's
+# shows; the shot is cut to the three windows (taskbar out). The pin goes with the next restart of WinShun (profile stop).
+# WinShun on the profile (capture on), light theme (release013.txt does both).
+unelevated on
+allow explorer
+explorer open F:\Win顺演示
+sleep 5000
+explorer place 1250 330 1200 900
+sleep 800
+cover on dawn
+edge scenes\季度经营简报.html
+place 经营简报 120 100 1300 1300
+cover raise
+front Win顺演示
+sleep 700
+front 经营简报
+sleep 800
+hoverwin 经营简报 700 500
+sleep 400
+down 11
+down 12
+tap 79
+up 12
+up 11
+sleep 2000
+dragws 180 630 1340 960
+sleep 800
+tap 72
+sleep 1500
+dragpin 700 800 1380 700
+sleep 1000
+shotabs L-pins 100 60 2380 1380
+closewin 经营简报
+explorer close
+cover off

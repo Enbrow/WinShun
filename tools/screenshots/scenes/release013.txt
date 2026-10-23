@@ -1,4 +1,4 @@
-# The six pictures new in 0.13.0 (shots.py README_ONLY: droppie, longshot, redact, pluginlib, capture, typing), one run,
+# The six pictures new in 0.13.0 (shots.py README_ONLY: droppie, longshot, redact, pins, capture, typing), one run,
 # light. Start it with tools\screenshots\run.ps1 (the lock for other sessions, the idle wait, the elevated agent, the
 # user's own WinShun back afterwards, unelevated). Before it:
 #  - PixPin and the like quit (their hotkeys show struck through in the launcher; the capture and the pie are shot over
@@ -13,11 +13,12 @@ profile start --unelevated --pie-favorites --capture --explorer-typing
 sleep 15000
 scene --theme light --wallpaper dawn
 sleep 2500
-run scenes\pluginlib.txt
 run scenes\typing.txt
 run scenes\capture.txt
 run scenes\redact.txt
 run scenes\longshot.txt
 run scenes\droppie.txt
+# last: the pin stays on top until WinShun restarts (profile stop)
+run scenes\pins.txt
 restore
 profile stop
