@@ -1,5 +1,7 @@
 #include "ShellMenu.h"
 
+#include "AutostartRun.h" // runCommandProgram: the program a command line starts
+
 #include <QCoreApplication>
 #include <QDir>
 
@@ -63,8 +65,13 @@ void apply(bool on, const QString& title)
         const std::wstring commandKey = std::wstring(key) + L"\\command";
         if (!on) {
             // Only ours: a portable copy elsewhere may have set them since.
+            // A copy that is gone (a portable folder deleted) left a verb
+            // that does nothing: that goes too.
             const std::wstring current = readString(HKEY_CURRENT_USER, commandKey, nullptr);
-            if (!current.empty() && current == command)
+            const std::wstring program = autostart::runCommandProgram(current);
+            if (!current.empty()
+                && (current == command
+                    || (!program.empty() && ::GetFileAttributesW(program.c_str()) == INVALID_FILE_ATTRIBUTES)))
                 changed |= ::RegDeleteTreeW(HKEY_CURRENT_USER, key) == ERROR_SUCCESS;
             continue;
         }
