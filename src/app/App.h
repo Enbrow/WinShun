@@ -332,6 +332,9 @@ private:
     // Rewrites the task (`task`: whether it runs Win顺 elevated, as read)
     // when that is not the mode's level, where this process may.
     void reconcileAutostart(const std::optional<bool>& task);
+    void setAutostart(bool on); // the settings' switch and the tray menu's item
+    void readAutostart(); // the task read again in the background, then shown
+    void showAutostart(); // in the settings window, as it is now
     void applyIndexAccess(); // the setting changed: restart with other rights, or switch in place
     void startServiceRetry(); // every 2 s for 30 s after start, then every 5 min
     void probeService(); // on a thread of its own; serviceProbed() on the GUI thread

@@ -496,9 +496,11 @@ bool SettingsEditor::autostart() const
 
 void SettingsEditor::setAutostart(bool on)
 {
-    if (autostart::isEnabled() == on)
-        return;
-    autostart::setEnabled(on);
+    emit autostartRequested(on); // App writes it: removing it may take UAC (GitHub #67)
+}
+
+void SettingsEditor::refreshAutostart()
+{
     emit autostartChanged();
 }
 

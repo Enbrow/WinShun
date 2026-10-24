@@ -2675,6 +2675,7 @@ void App::showSettings()
         connect(editor, &SettingsEditor::recordingHotkeyChanged, this, &App::applyFolderMenuHotkey);
         connect(editor, &SettingsEditor::recordingHotkeyChanged, this, &App::applyCaptureHotkeys);
         connect(editor, &SettingsEditor::explorerRestartRequested, this, &App::restartExplorer);
+        connect(editor, &SettingsEditor::autostartRequested, this, &App::setAutostart);
         connect(editor, &SettingsEditor::clipboardClearRequested, this, [this, editor] {
             m_clipStore->clearHistory();
             m_clipboard->historyChanged();
@@ -2856,6 +2857,7 @@ void App::showSettings()
     refreshShareStatuses();
     refreshFolderStatuses();
     refreshIndexFolder(true);
+    readAutostart(); // changed outside WinShun since it was last read?
     m_settingsEditor->setHistoryCount(static_cast<int>(m_history->items().size()));
     m_settingsEditor->setClipboardCount(static_cast<int>(m_clipStore->clips().size()));
     m_contentStatusTimer.start();
@@ -4307,7 +4309,7 @@ void App::showTrayMenu()
                                  << " ms to build, " << shown - built << " ms for Windows to show it";
     });
     if (chosen != QuitCommand && chosen != RestartCommand)
-        autostart::refresh(); // changed outside WinShun? Ready for the next time
+        readAutostart(); // changed outside WinShun? Ready for the next time
     switch (chosen) {
     case ShowCommand:
         showLauncher();
@@ -4368,7 +4370,7 @@ void App::showTrayMenu()
         m_messages->showNotification(tr("正在重建索引"), tr("可以照常搜索，完成后结果会自动更新。"));
         break;
     case AutostartCommand:
-        autostart::setEnabled(!autostart::isEnabled());
+        setAutostart(!autostart::isEnabled());
         break;
     case SettingsCommand:
         showSettings();
@@ -4445,6 +4447,41 @@ void App::reconcileAutostart(const std::optional<bool>& task)
         return;
     qWarning("WinShun: the autostart task now starts Win顺 %s", want ? "as administrator" : "with normal rights");
     autostart::setEnabled(true);
+}
+
+void App::setAutostart(bool on)
+{
+    autostart::setEnabled(on);
+    // Windows refuses a process with normal rights to remove a task that
+    // starts Win顺 elevated (管理员直读; GitHub #67: the switch would not
+    // move): removed as administrator then, UAC asks.
+    if (!on && autostart::isEnabled() && !integrity::processElevated()) {
+        autostart::removeAsAdministrator([this](bool ran) {
+            QMetaObject::invokeMethod(
+                this,
+                [this, ran] {
+                    showAutostart();
+                    if (autostart::isEnabled()) {
+                        m_messages->showNotification(tr("开机自启没有关闭"),
+                            ran ? tr("Windows 没有让 Win顺 删除它。")
+                                : tr("它是以管理员身份设置的，关闭时要在 Windows 的提示里点“是”。"));
+                    }
+                },
+                Qt::QueuedConnection);
+        });
+    }
+    showAutostart(); // what it is now, written or not
+}
+
+void App::readAutostart()
+{
+    autostart::refresh([this] { QMetaObject::invokeMethod(this, [this] { showAutostart(); }, Qt::QueuedConnection); });
+}
+
+void App::showAutostart()
+{
+    if (m_settingsEditor)
+        m_settingsEditor->refreshAutostart();
 }
 
 void App::applyIndexAccess()
@@ -5306,10 +5343,8 @@ App::AiApplyReport App::applyAiState(const aisettings::State& wanted,
     if (m_settingsEditor)
         m_settingsEditor->setSettings(m_settings);
     if (wanted.autostart != autostartBefore) {
-        if (m_settingsEditor)
-            m_settingsEditor->setAutostart(wanted.autostart); // tells the window too
-        else
-            autostart::setEnabled(wanted.autostart);
+        autostart::setEnabled(wanted.autostart); // no UAC for an assistant's change: told below if it did not take
+        showAutostart();
     }
 
     // What did not take is put back: a shortcut another program holds, a

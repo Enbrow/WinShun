@@ -271,8 +271,8 @@ bool executeUnelevated(const std::wstring& file, const std::wstring& args, const
 // `process`, when wanted, gets a handle to wait on (null if the shell made
 // no process of its own for it). False when it did not start: the prompt
 // declined (ERROR_CANCELLED), or the file missing.
-bool executeAsAdministrator(
-    const std::wstring& file, const std::wstring& args, const std::wstring& dir, win32::UniqueHandle* process = nullptr)
+bool executeAsAdministrator(const std::wstring& file, const std::wstring& args, const std::wstring& dir,
+    win32::UniqueHandle* process = nullptr, int show = SW_SHOWNORMAL)
 {
     SHELLEXECUTEINFOW sei {sizeof(SHELLEXECUTEINFOW)};
     sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_LOG_USAGE | (process ? SEE_MASK_NOCLOSEPROCESS : 0);
@@ -280,7 +280,7 @@ bool executeAsAdministrator(
     sei.lpFile = file.c_str();
     sei.lpParameters = args.empty() ? nullptr : args.c_str();
     sei.lpDirectory = dir.empty() ? nullptr : dir.c_str();
-    sei.nShow = SW_SHOWNORMAL;
+    sei.nShow = show;
     if (!::ShellExecuteExW(&sei))
         return false;
     if (process)
@@ -382,12 +382,12 @@ bool startElevated(const std::wstring& program, const std::wstring& args, const 
 }
 
 void runElevated(const std::wstring& program, const std::wstring& args,
-    std::function<void(std::optional<unsigned long>)> done)
+    std::function<void(std::optional<unsigned long>)> done, int show)
 {
-    runOnShellThread([program, args, done = std::move(done)] {
+    runOnShellThread([program, args, done = std::move(done), show] {
         win32::UniqueHandle process;
         std::optional<unsigned long> code;
-        if (executeAsAdministrator(program, args, {}, &process)) {
+        if (executeAsAdministrator(program, args, {}, &process, show)) {
             DWORD exitCode = 0;
             // Long enough for the user to answer UAC and the service to start.
             if (process.valid() && ::WaitForSingleObject(process.get(), 120'000) == WAIT_OBJECT_0
@@ -901,9 +901,13 @@ bool isEnabled()
     return known >= 0 ? known != 0 : queryEnabled();
 }
 
-void refresh()
+void refresh(std::function<void()> done)
 {
-    std::thread([] { queryEnabled(); }).detach(); // taskPath() initialises COM
+    std::thread([done = std::move(done)] {
+        queryEnabled(); // taskPath() initialises COM
+        if (done)
+            done();
+    }).detach();
 }
 
 bool isSetUp()
@@ -950,7 +954,14 @@ bool writeTask(bool enabled)
     if (!folder)
         return false;
     if (!enabled) {
-        folder->DeleteTask(Bstr(kTaskName), 0);
+        // Refused (E_ACCESSDENIED) for a task that starts Win顺 elevated to a
+        // process with normal rights (removeAsAdministrator), and for another
+        // user's; none at all is fine.
+        const HRESULT hr = folder->DeleteTask(Bstr(kTaskName), 0);
+        if (FAILED(hr) && hr != HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) {
+            qWarning("WinShun: cannot remove the autostart task (0x%08lx)", static_cast<unsigned long>(hr));
+            return false;
+        }
         return true;
     }
 
@@ -1014,13 +1025,28 @@ void setEnabled(bool enabled)
     if (!enabled) {
         writeTask(false);
         writeRunValue(false);
-    } else if (writeTask(true)) {
+    } else if (writeTask(true) || startsThisCopy(taskPath())) {
+        // Refused over this copy's task that starts it elevated (GitHub #67):
+        // that one starts it already, a Run value would start it twice.
         writeRunValue(false);
     } else {
         qWarning("WinShun: autostart through the Run key instead");
         writeRunValue(true);
     }
     queryEnabled(); // what the task says now, written or not
+}
+
+void removeAsAdministrator(std::function<void(bool)> done)
+{
+    wchar_t system[MAX_PATH] {};
+    ::GetSystemDirectoryW(system, MAX_PATH);
+    ++g_changes;
+    shell::runElevated(std::wstring(system) + L"\\schtasks.exe", L"/Delete /TN " + std::wstring(kTaskName) + L" /F",
+        [done = std::move(done)](std::optional<unsigned long> code) {
+            queryEnabled(); // what the task says now
+            done(code.has_value());
+        },
+        SW_HIDE);
 }
 
 void migrateFromQuickFind()

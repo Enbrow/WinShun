@@ -45,8 +45,9 @@ win32::UniqueHandle startUnelevated(const std::wstring& program, const std::wstr
 bool startElevated(const std::wstring& program, const std::wstring& args, const std::wstring& cwd = {});
 // The same, waited for on a worker thread: `done` runs there with its exit
 // code, or nothing when it did not start (WinShunService.exe --install).
+// `show`: SW_HIDE for a console program that has nothing to show.
 void runElevated(const std::wstring& program, const std::wstring& args,
-    std::function<void(std::optional<unsigned long>)> done);
+    std::function<void(std::optional<unsigned long>)> done, int show = SW_SHOWNORMAL);
 void openUrl(const QString& url); // https:, mailto: ...
 // A command prompt (cmd.exe; in Windows Terminal when that is the default)
 // in `folder`, with the user's normal rights. On a network share, pushd
@@ -107,9 +108,16 @@ namespace ws::autostart {
 
 // From what was last read: at once, without asking Task Scheduler again.
 bool isEnabled();
-void refresh(); // reads the task again, in the background (changed outside WinShun?)
+// Reads the task again, in the background (changed outside WinShun?); `done`
+// runs there afterwards.
+void refresh(std::function<void()> done = {});
 bool isSetUp(); // enabled for any copy of WinShun, this one or another
 void setEnabled(bool enabled);
+// Removes the task as administrator (schtasks, UAC asks): Windows refuses a
+// process with normal rights to remove one that starts Win顺 elevated (the
+// 管理员直读 mode; GitHub #67). `done` runs on a worker thread once the task
+// is read again; false when it did not run (the prompt declined).
+void removeAsAdministrator(std::function<void(bool ran)> done);
 // Whether the task written from now on starts Win顺 elevated (the 管理员直读
 // mode on an administrator's account, GitHub #21) or with the user's normal
 // rights (at first). Only an elevated process can register the former:

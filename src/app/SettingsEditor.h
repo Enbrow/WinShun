@@ -316,6 +316,7 @@ public:
     void setRecordingHotkey(bool recording);
     bool autostart() const;
     void setAutostart(bool on);
+    void refreshAutostart(); // changed or read again elsewhere (the tray menu, the task itself)
     bool recordHistory() const { return m_settings.recordHistory; }
     void setRecordHistory(bool on);
     int historyCount() const { return m_historyCount; }
@@ -827,6 +828,7 @@ signals:
     void indexFolderChanged();
     void recordingHotkeyChanged(); // the app suspends its hotkeys meanwhile
     void autostartChanged();
+    void autostartRequested(bool on); // the switch: App writes it, then refreshAutostart()
     void winVStateChanged();
     void winSStateChanged();
     void searchBoxShownChanged();

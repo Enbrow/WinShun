@@ -2191,6 +2191,13 @@
 - **现象**：界面改成 `asInvoker` 后，自启动任务的运行级别要按模式写（管理员直读 `HIGHEST`，其余 `LUA`）；普通权限的进程写 `HIGHEST` 被拒，连把提权时注册的旧任务改成 `LUA` 或删掉也被拒（都是 `E_ACCESSDENIED`，2026-10-14 用 `Register-ScheduledTask`/`Unregister-ScheduledTask` 实测）。读得到（`RunLevel=Highest`）。普通进程给自己注册交互式、只在自己登录时触发的 `LUA` 任务可以，删自己注册的也可以。另外 `schtasks /Create /SC ONLOGON` 不带 `/RU` 时对普通进程连 `LIMITED` 都拒绝（任何人登录都触发，算管理员的事），COM 的 `ILogonTrigger::put_UserId` 指定自己就行。
 - **做法**：运行级别只由提权的那份写（`App::reconcileAutostart`：不提权就不碰，提权的那份启动时按模式改，登录时正是旧的 `HIGHEST` 任务把它提权起来，改完下次登录就是普通权限）。安装程序 `PrepareToInstall`（提权）先删掉指向本安装目录的旧任务——报告者的场景里它是答 UAC 的那个管理员注册的，普通用户读不了也盖不掉——再以原始用户（`runasoriginaluser`）跑 `--take-autostart --had-autostart` 重新注册一个普通权限的。
 
+### 开机自启关不掉：设置里的开关点不动，托盘菜单也没反应（GitHub #67）
+
+- **现象**：“管理员直读”模式下（任务以最高权限运行），Win顺 以普通权限运行时（双击、开始菜单、升级后由安装程序启动），设置里的“开机时自动启动”点了弹回“开”，托盘那一项也一直打勾。另外两种不一致：设置窗口开着时从托盘关掉，窗口还显示“开”，再点也不动；新打开的设置窗口显示的是缓存，任务在外面改过就不对。
+- **原因**：上一条的删除被拒，而 `writeTask(false)` 不看 `DeleteTask` 的结果，任务还在，读回来还是“开”。显示不一致是因为 `SettingsEditor::setAutostart` 拿缓存（`autostart::isEnabled`）和想要的值比，相同就直接返回、不发 `autostartChanged`；`ToggleSwitch` 自己从不改 `checked`，不发通知它就停在原处。托盘和 AI 设置直接调 `autostart::setEnabled`，设置窗口不知道。还有：任务在、但普通权限盖不掉时，打开开关会走 #52 的退路多写一个 Run 值，登录时启动两次。
+- **验证时的坑**：用 `Register-ScheduledTask -Xml … -Force` 把已有任务改成 `HighestAvailable` 复现不出来——覆盖已有任务时保留了原来的安全描述，普通权限照样删得掉。要像 Win顺 那样用 COM `RegisterTaskDefinition`（用户名 `DOMAIN\user`、`TASK_LOGON_INTERACTIVE_TOKEN`、`TASK_RUNLEVEL_HIGHEST`）由提权进程新注册，普通权限删除才会 `E_ACCESSDENIED`。
+- **做法**：开关只发 `autostartRequested`，由 `App::setAutostart` 写；关闭后仍是“开”且自己没提权，就用 `autostart::removeAsAdministrator` 以管理员身份跑 `schtasks /Delete /TN WinShun /F`（UAC 问一次，窗口隐藏），拒绝了就发通知说明。写完、托盘菜单读过、每次打开设置窗口都在后台重读一次，然后 `showAutostart()` 通知窗口。`setEnabled(true)` 被拒但本副本的任务已在时不写 Run 值。
+
 ### 启动 pass 还没存下卷列表就被打断，所有盘的条目都会被删
 
 - **现象**：`IndexService` 加载完快照、还在规划（现在还要等索引服务最多 30 秒）时来了一次 `Pass::Volumes`（插 U 盘、改设置、服务连上），新 pass 从 `m_volumes`（空）算 `known`，`dropStaleRoots` 把快照里每个盘的根都当成“已拔掉的盘”删掉，整个索引重建。以前这个窗口只有加载快照的那一秒，等服务之后有 30 秒，撞上的概率大得多。

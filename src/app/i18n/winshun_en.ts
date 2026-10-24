@@ -6715,6 +6715,18 @@
         <translation>, </translation>
     </message>
     <message>
+        <source>开机自启没有关闭</source>
+        <translation>Start with Windows is still on</translation>
+    </message>
+    <message>
+        <source>Windows 没有让 Win顺 删除它。</source>
+        <translation>Windows did not let WinShun remove it.</translation>
+    </message>
+    <message>
+        <source>它是以管理员身份设置的，关闭时要在 Windows 的提示里点“是”。</source>
+        <translation>It was set up as administrator: to turn it off, choose Yes when Windows asks.</translation>
+    </message>
+    <message>
         <source>索引服务在运行，但连不上（%1），现在按文件夹遍历。</source>
         <translation>The index service is running but cannot be reached (%1), so the folders are walked.</translation>
     </message>
