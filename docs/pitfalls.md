@@ -1291,6 +1291,12 @@
 - **原因**：小程序先用开机任务 `\WinShun` 免 UAC 启动，而这台机器的任务指向 `C:\Program Files\WinShun` 里装的旧版，旧版没有 `WinShun.SearchHere` 窗口。便携版和安装版同时在时，用户也会遇到同样的事。
 - **做法**：`runAutostartTask` 先读任务的操作，只有启动的正是小程序旁边的 WinShun.exe 才用它，否则直接启动旁边那份（弹一次 UAC）。测试 dist 里的版本时，留意别把装好的旧版启动起来留在那里跑。
 
+### WinShun.exe 设了“以管理员身份运行”，安装卡在替换文件上（GitHub #68）
+
+- **现象**：每个版本安装都卡住：替换 `fonts\AlibabaPuHuiTi-3-55-Regular.ttf`（或 `msvcp140.dll` 等）时“MoveFile/DeleteFile 失败；错误代码 5”；跳过后最后启动 Win顺 报 `CreateProcess 失败；错误代码 740`（请求的操作需要提升）。
+- **原因**：exe 的兼容性里有 `RUNASADMIN`（`HKCU`/`HKLM\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers`，值名是 exe 全路径；用户勾的，或程序兼容性助手加的）。这时普通权限的 `CreateProcess` 一律 740（2026-10-24 实测；提权进程启动不受影响）。“只为我安装”的安装程序没提权：`--quit` 起不来，`taskkill` 杀不掉以管理员身份运行的 Win顺，`CloseWinShun` 又不报错，Win顺 一直占着它加载的字体和 DLL。`[Run]` 的 `runasoriginaluser` 启动、开机任务（普通权限）也都 740。
+- **做法**：`PrepareToInstall` 先 `RemoveRunAsAdmin`（只去掉 `RUNASADMIN` 这个词，别的兼容性设置保留；只剩 `~`/`$` 标记就删值），再关 Win顺；还关不掉就弹窗让用户从托盘退出后重试，取消则停在准备页，不再装到一半。实测：去掉标记后，普通权限的 `--quit` 能让以管理员身份运行的 Win顺 退出。测试安装程序要换一个 AppId（复制 .iss 改 GUID 编译），不然“只为我安装”会被已有的全员安装挡住，或者覆盖装好的那份。
+
 ## 读文档（WinShunExtract.exe）
 
 ### 大 PDF 在沙箱里读到一半退出，退出码 0xE0000008

@@ -110,6 +110,10 @@ english.AllUsersInstalled=WinShun is already installed for all users on this com
 chinesesimplified.AllUsersInstalled=这台电脑已经为所有用户装了 Win顺，直接用它即可，不用再装一份。
 english.RemoveData=Also delete WinShun's settings, file index and search history?%n%nKeep them if you are going to install WinShun again.
 chinesesimplified.RemoveData=要同时删除 Win顺 的设置、文件索引和搜索记录吗？%n%n如果还会再装 Win顺，可以保留它们。
+english.StillRunning=WinShun is still running, probably as administrator, and Setup cannot close it.%n%nRight-click WinShun in the notification area and choose Exit, then click Retry.
+chinesesimplified.StillRunning=Win顺 还在运行（可能是以管理员身份运行的），安装程序关不掉它。%n%n请在任务栏右下角右键 Win顺，点“退出”，然后点“重试”。
+english.NotClosed=WinShun is still running, so its files cannot be replaced. Exit WinShun and run Setup again.
+chinesesimplified.NotClosed=Win顺 还在运行，它的文件换不了。请先退出 Win顺，再运行安装程序。
 ; The Start menu shortcut users pin to the taskbar (WinShunSearch.exe).
 english.SearchShortcut=WinShun Search
 chinesesimplified.SearchShortcut=Win顺 搜索
@@ -175,10 +179,15 @@ end;
 // msvcp140.dll from the install folder loaded, so those could not be
 // replaced (DeleteFile, code 5). Ended before WinShun, too: one would start
 // WinShun again through its autostart task when a tool is called.
-procedure CloseWinShun(Exe: String);
+// False when one is still running: as administrator, from a Setup without
+// those rights (GitHub #68), neither --quit nor taskkill can end it, and its
+// files (the fonts, the DLLs) could not be replaced. The user is asked to
+// quit it then.
+function CloseWinShun(Exe: String): Boolean;
 var
   ResultCode, Waited: Integer;
 begin
+  Result := True;
   if Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM WinShunMcp.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
     Sleep(500); // for the files to be let go
   if not WinShunRunning() then
@@ -198,6 +207,49 @@ begin
     Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#AppExe}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Sleep(1000);
   end;
+  while WinShunRunning() do
+    if SuppressibleMsgBox(CustomMessage('StillRunning'), mbError, MB_RETRYCANCEL, IDCANCEL) <> IDRETRY then
+    begin
+      Result := False;
+      exit;
+    end;
+end;
+
+// "Run this program as an administrator" on WinShun.exe (GitHub #68), set
+// in its Properties > Compatibility or by the Program Compatibility
+// Assistant. WinShun starts with normal rights since 0.8.0 (管理员直读 is
+// the way to elevated reads); with it, every start with those rights fails
+// (CreateProcess 740: [Run], the autostart task, --quit from a Setup without
+// them). Only that word goes; other compatibility settings stay.
+procedure RemoveRunAsAdmin(RootKey: Integer);
+var
+  Key, Exe, Value, Word, Kept: String;
+  Space: Integer;
+  HasLayer: Boolean;
+begin
+  Key := 'Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers';
+  Exe := ExpandConstant('{app}\{#AppExe}');
+  if not RegQueryStringValue(RootKey, Key, Exe, Value) then
+    exit;
+  Kept := '';
+  HasLayer := False;
+  Value := Trim(Value) + ' ';
+  while Value <> '' do
+  begin
+    Space := Pos(' ', Value);
+    Word := Copy(Value, 1, Space - 1);
+    Delete(Value, 1, Space);
+    if (Word = '') or (CompareText(Word, 'RUNASADMIN') = 0) then
+      continue;
+    if Kept <> '' then
+      Kept := Kept + ' ';
+    Kept := Kept + Word;
+    HasLayer := HasLayer or (Length(Word) > 1); // "~", "$": markers, no setting
+  end;
+  if not HasLayer then
+    RegDeleteValue(RootKey, Key, Exe)
+  else
+    RegWriteStringValue(RootKey, Key, Exe, Kept);
 end;
 
 // MoveFileExW: with no new name and MOVEFILE_DELAY_UNTIL_REBOOT, the file
@@ -374,8 +426,16 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
+  // First, so that --quit through the installed copy can start (GitHub #68).
+  RemoveRunAsAdmin(HKCU);
+  if IsAdminInstallMode then
+    RemoveRunAsAdmin(HKLM64);
   // The installed copy if there is one; a portable copy is ended.
-  CloseWinShun(ExpandConstant('{app}\{#AppExe}'));
+  if not CloseWinShun(ExpandConstant('{app}\{#AppExe}')) then
+  begin
+    Result := CustomMessage('NotClosed');
+    exit;
+  end;
   if IsAdminInstallMode then
     StopIndexService(); // there is no service when installed for the user alone
   // This copy's autostart task of old (GitHub #21): registered elevated by
