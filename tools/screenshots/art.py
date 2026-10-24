@@ -81,7 +81,7 @@ GRADIENT = {True: ("#86DFFF", "#7C8DFF", "#B98BFF"), False: ("#FF7A45", "#F0436F
 
 # What a cover says unless told otherwise (from the top of the README).
 TITLE = "Win顺\n让你的电脑更好用"
-BADGES = ("11 合 1|双击 Ctrl 全搞定", "免费开源|GitHub")  # 11: the README's feature sections
+BADGES = ("13 合 1|双击 Ctrl 全搞定", "免费开源|GitHub")  # 13: files, contents, apps, system settings, web, favorites, plugins, dialogs, Explorer, clipboard, screenshots, taskbar box, AI
 SAY = "关注我，看更多效率神器"  # the maker speaking, on the cover
 REPOSITORY = "WinShun"  # by GitHub's mark
 

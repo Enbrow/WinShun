@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/cover.jpg" width="640" alt="Win顺 WinShun：让你的电脑更好用，11 合 1，双击 Ctrl 全搞定，免费开源 / a free Windows search launcher, eleven tools in one, press Ctrl twice">
+  <img src="docs/images/cover.jpg" width="640" alt="Win顺 WinShun：让你的电脑更好用，13 合 1，双击 Ctrl 全搞定，免费开源 / a free Windows search launcher, thirteen tools in one, press Ctrl twice">
 </p>
 
 <p align="center">
