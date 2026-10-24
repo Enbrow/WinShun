@@ -118,6 +118,35 @@ constexpr Window typingWindow(Window front, Window seen, Window behind) noexcept
     return front && (front == seen || front == behind) ? front : Window {};
 }
 
+// What to do with the keys held back once the launcher says it has the
+// keyboard (or the next batch of them is due). They go out only while a window
+// of Win顺's is really in front: Qt can call the launcher active while the
+// Start menu still is, or takes the front back a few milliseconds later (it was
+// still opening when its Esc came, or Windows was slow to start it), and keys
+// typed then went into Windows' search instead (GitHub #66). With the Start menu
+// in front again, the launcher is asked for once more (its Esc closes it), not
+// sooner than kAskAgainMs after the last ask, which may still be closing it, and
+// at most kMaxAsksAgain times; otherwise the keys wait, until the hold runs out.
+// Not once some have been typed into it in this hold: shown again, it selects
+// its words, and the next keys would replace them.
+enum class Delivery {
+    Type, // Win顺 is in front: type them
+    Wait, // not yet: hold on, look again shortly
+    AskAgain, // the Start menu is back in front: ask for the launcher again, then wait
+};
+inline constexpr unsigned kAskAgainMs = 600; // closing the Start menu for the launcher takes up to 500 ms
+inline constexpr int kMaxAsksAgain = 2;
+
+inline constexpr Delivery delivery(bool oursInFront, bool startMenuInFront, bool forStartMenu, bool typedAlready,
+    int asksAgain, unsigned msSinceAsked) noexcept
+{
+    if (oursInFront)
+        return Delivery::Type;
+    if (startMenuInFront && forStartMenu && !typedAlready && asksAgain < kMaxAsksAgain && msSinceAsked >= kAskAgainMs)
+        return Delivery::AskAgain;
+    return Delivery::Wait;
+}
+
 // The keys held back and typed again into the launcher, in the order sent,
 // until each has gone down the hook chain. Until the last has, a key typed
 // meanwhile is held too and follows them: let through, it overtook the ones

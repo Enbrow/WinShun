@@ -23,6 +23,9 @@ constexpr UINT kHoldTimeoutMs = 3000; // the launcher comes in well under a seco
 // The keys typed again go by within milliseconds; should some never (a hook
 // before this one took them), the hold ends after this all the same.
 constexpr UINT kPassTimeoutMs = 1000;
+// Keys for the launcher wait while Win顺 is not in front (GitHub #66): how often
+// to look again, besides at each foreground event.
+constexpr UINT kFrontPollMs = 20;
 
 bool held(int vk)
 {
@@ -97,6 +100,8 @@ TypeToSearch::TypeToSearch(Surfaces surfaces, Callbacks callbacks)
                 returnHeld();
             else if (msg.hwnd == nullptr && msg.message == kPassedMessage)
                 heldPassed();
+            else if (msg.hwnd == nullptr && msg.message == WM_TIMER && m_frontTimer && msg.wParam == m_frontTimer)
+                heldPassed(); // looks again whether Win顺 is in front
             else if (msg.hwnd == nullptr && msg.message == WM_TIMER && msg.wParam == m_timer)
                 dropHeld();
             else
@@ -195,6 +200,8 @@ void TypeToSearch::foregroundChanged(HWND window, HWND named)
             m_explorerBehind = behind;
     }
     setHooked(m_startInFront || m_explorer || m_explorerBehind || m_holding);
+    if (m_frontTimer)
+        heldPassed(); // keys waiting for Win顺 to come to the front: maybe now
 }
 
 void TypeToSearch::setHooked(bool hooked)
@@ -268,6 +275,10 @@ bool TypeToSearch::handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event)
         m_holding = true;
         m_holdingForExplorer = m_explorer != nullptr;
         m_held.clear();
+        m_toLauncher = false;
+        m_askedAt = ::GetTickCount();
+        m_asksAgain = 0;
+        m_typedAlready = false;
         m_timer = ::SetTimer(nullptr, 0, kHoldTimeoutMs, nullptr);
         if (m_holdingForExplorer) {
             if (m_callbacks.typedInExplorer)
@@ -285,9 +296,11 @@ bool TypeToSearch::handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event)
 
 void TypeToSearch::typeHeld()
 {
-    if (!m_holding || m_retyped.pending())
-        return; // nothing held, or on its way already (what is typed meanwhile follows it)
-    sendHeld();
+    if (!m_holding)
+        return; // nothing held
+    m_toLauncher = true;
+    if (!m_retyped.pending()) // on its way already: what is typed meanwhile follows it
+        sendHeld();
 }
 
 // The keys held, as input to send: in order, with Shift around the keys
@@ -316,6 +329,8 @@ std::vector<INPUT> TypeToSearch::takeHeld()
 // (q down, z down, z up, q up) and "qz" came out "zq" (GitHub #39).
 void TypeToSearch::sendHeld()
 {
+    if (m_toLauncher && !m_held.empty() && waitForFront())
+        return; // held on: not into the window in front, which is not Win顺's
     std::vector<INPUT> inputs = takeHeld();
     if (inputs.empty()) {
         endHolding();
@@ -326,11 +341,47 @@ void TypeToSearch::sendHeld()
     for (const INPUT& input : inputs)
         keys.push_back({input.ki.wVk, (input.ki.dwFlags & KEYEVENTF_KEYUP) != 0});
     m_retyped.sent(std::move(keys));
+    m_typedAlready = true;
     restartTimer(kPassTimeoutMs);
     if (::SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT)) != inputs.size()) {
         m_retyped.clear(); // not all went in (blocked): none to wait for
         heldPassed();
     }
+}
+
+// The keys are for the launcher, which said it has the keyboard: whether a
+// window of Win顺's really is in front. Qt can call the launcher active while
+// the Start menu still is in front (its Esc came while it was still opening),
+// and the Start menu can take the front back a few milliseconds after the
+// launcher got it (Windows slow to start it): typed then, the keys went into
+// Windows' search (GitHub #66). So they wait, looked at again at each foreground
+// event and every kFrontPollMs, and with the Start menu in front again the
+// launcher is asked for once more (searchtyping::delivery), until the hold runs
+// out (dropHeld). True: wait.
+bool TypeToSearch::waitForFront()
+{
+    const HWND front = ::GetForegroundWindow();
+    DWORD pid = 0;
+    ::GetWindowThreadProcessId(front, &pid);
+    const DWORD now = ::GetTickCount();
+    switch (searchtyping::delivery(front && pid == ::GetCurrentProcessId(), isStartMenu(front), !m_holdingForExplorer,
+        m_typedAlready, m_asksAgain, now - m_askedAt)) {
+    case searchtyping::Delivery::Type:
+        ::KillTimer(nullptr, m_frontTimer);
+        m_frontTimer = 0;
+        return false;
+    case searchtyping::Delivery::AskAgain:
+        ++m_asksAgain;
+        m_askedAt = now;
+        if (m_callbacks.typed)
+            m_callbacks.typed(); // over the taskbar again; its Esc closes the Start menu
+        break;
+    case searchtyping::Delivery::Wait:
+        break;
+    }
+    if (!m_frontTimer)
+        m_frontTimer = ::SetTimer(nullptr, 0, kFrontPollMs, nullptr);
+    return true;
 }
 
 // One of Win顺's own keys went down the chain (keyboardProc): the last of
@@ -358,7 +409,9 @@ void TypeToSearch::returnHeld()
 {
     if (!m_holding)
         return;
-    typeHeld();
+    m_toLauncher = false; // to Explorer, in front
+    if (!m_retyped.pending())
+        sendHeld();
 }
 
 void TypeToSearch::dropHeld()
@@ -397,8 +450,11 @@ void TypeToSearch::endHolding()
     m_holding = false;
     m_holdingForExplorer = false;
     m_retyped.clear();
+    m_toLauncher = false;
     ::KillTimer(nullptr, m_timer);
     m_timer = 0;
+    ::KillTimer(nullptr, m_frontTimer);
+    m_frontTimer = 0;
     setHooked(m_startInFront || m_explorer || m_explorerBehind); // the launcher is in front: gone
 }
 

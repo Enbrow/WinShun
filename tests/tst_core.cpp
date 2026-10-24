@@ -9362,6 +9362,21 @@ private slots:
         retyped.clear(); // the hold ended (it waited too long)
         QVERIFY(!retyped.pending());
         QVERIFY(!retyped.passed('A', false));
+        // The keys go to the launcher only while Win顺 is in front (GitHub
+        // #66): Qt called it active with the Start menu still in front, or
+        // the Start menu took the front back, and they went into Windows'
+        // search.
+        QCOMPARE(delivery(true, false, true, false, 0, 0), Delivery::Type);
+        QCOMPARE(delivery(true, true, true, true, 0, 5000), Delivery::Type); // ours in front: whatever else
+        QCOMPARE(delivery(false, true, true, false, 0, 300), Delivery::Wait); // its Esc may still be closing it
+        QCOMPARE(delivery(false, true, true, false, 0, kAskAgainMs), Delivery::AskAgain); // back in front: ask again
+        QCOMPARE(delivery(false, true, true, false, kMaxAsksAgain - 1, 900), Delivery::AskAgain);
+        QCOMPARE(delivery(false, true, true, false, kMaxAsksAgain, 5000), Delivery::Wait); // asked enough: the hold runs out
+        // Some typed into it already: shown again it would select them, and
+        // the rest would replace them.
+        QCOMPARE(delivery(false, true, true, true, 0, 5000), Delivery::Wait);
+        QCOMPARE(delivery(false, false, true, false, 0, 5000), Delivery::Wait); // another window (the one before, coming and going)
+        QCOMPARE(delivery(false, true, false, false, 0, 5000), Delivery::Wait); // typed in Explorer: not the Start menu's to ask for
     }
 
     // The folder menu's hotkey (GitHub #25): a press opens, closes or

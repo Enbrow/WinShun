@@ -28,7 +28,10 @@ namespace ws {
 // key and the ones typed after it are held back until the launcher has the
 // keyboard (deliver), then typed again in order (SendInput, marked as
 // Win顺's own): they go through the input method as if typed into the search
-// box. The hold lasts until those have gone down the hook chain: a key typed
+// box. Only while a window of Win顺's is really in front: the Start menu can
+// take the front back from the launcher, and the keys then wait (and the
+// launcher is asked for again) rather than go into Windows' search (GitHub
+// #66). The hold lasts until those have gone down the hook chain: a key typed
 // in the meantime follows them instead of slipping in among them (GitHub
 // #39). When the folder turns out to be none (This PC, Home, the Recycle
 // Bin), the keys are given back to Explorer instead (giveBack), which then
@@ -98,6 +101,7 @@ private:
     void dropHeld(); // the launcher never came, or the keys typed again never went by
     std::vector<INPUT> takeHeld(); // m_held as input to send; emptied
     void sendHeld(); // types m_held again; held on until those have gone by
+    bool waitForFront(); // for the launcher, not in front yet: hold on (asking for it again); true: wait
     void ownKeyPassed(WPARAM message, const KBDLLHOOKSTRUCT& event); // a key of Win顺's went down the chain
     void heldPassed(); // ... the last of those typed again
     void restartTimer(UINT ms);
@@ -121,6 +125,13 @@ private:
     std::vector<Held> m_held;
     searchtyping::Retyped m_retyped; // typed again, not all gone by: what is typed now waits behind them
     UINT_PTR m_timer = 0; // while holding: gives up on the launcher (on those typed again, once sent)
+    // The launcher said it has the keyboard: the keys held go to it, and only
+    // while Win顺 is in front (GitHub #66); not when given back to Explorer.
+    bool m_toLauncher = false;
+    UINT_PTR m_frontTimer = 0; // ... while it is not: looks again
+    DWORD m_askedAt = 0; // when the launcher was asked for (GetTickCount)
+    int m_asksAgain = 0; // ... asked for again since the hold began
+    bool m_typedAlready = false; // some typed again in this hold (not asked for again then)
 
     std::jthread m_thread; // last: joined before the members above go
 };
