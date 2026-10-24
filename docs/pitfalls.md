@@ -1341,7 +1341,12 @@
 
 - **现象**：脚本里 `cmake --build … | Where-Object {…} | Select-Object -First 60`，打出一串警告后报“built: WinShun 7,124,992 bytes”，看着编译完了；再编译一次，ninja 又链接出一个 7,411,200 字节的（2026-10-10）。
 - **原因**：pwsh 7 里 `Select-Object -First` 拿够条数就叫停整条管道，前面的 cmake 进程也被结束。Qt 头文件的 C4702 警告很多，60 行早早就满了。
-- **做法**：先把编译的输出整个收进变量（`$out = cmake --build … 2>&1`），看 `$LASTEXITCODE`，再从变量里筛。拿不准时再编译一次，看到 `ninja: no work to do` 才算完。
+- **做法**：先把编译的输出整个收进变量（`$out = cmake --build … 2>&1`），看 `$LASTEXITCODE`，再从变量里筛。拿不准时再编译一次，看到 `ninja: no work to do` 才算完。2026-10-24 又踩了一次：先确认 exe 真的生成了、时间对，再说“编译通过”。
+
+### 编译目录放在 scratchpad 里，报 C1083 “Permission denied”
+- **现象**：`cmake -B <scratchpad>\build` 编译到 `qmlcache\WinShun_qml_CaptureOverlay_qml.cpp.obj` 报 `fatal error C1083: 无法打开编译器生成的文件 … Permission denied`（2026-10-24）。
+- **原因**：scratchpad 在 `%LOCALAPPDATA%\Temp\claude\<项目>\<会话 id>\scratchpad` 下，再加上 `src\app\CMakeFiles\WinShun.dir\.rcc\qmlcache\…` 超过 260 个字符，cl 写不了这个 .obj。
+- **做法**：另开的编译目录放在短路径（如 `F:\wsb67`），并用 `-DWINSHUN_BUILD_TESTS=OFF` 只编 WinShun；要跑单测再对同一目录 `-DWINSHUN_BUILD_TESTS=ON`。
 
 ### 从 Bash 里编译，新头文件的路径变成问号
 
@@ -3138,6 +3143,11 @@
 - **做法**：用提权的 pwsh（UAC 在最低，不弹窗）跑测试脚本，里面 `AttachThreadInput` 把测试窗口调到前台；测试窗口放在不被它盖的地方（它在 433,264 到 2126,1462，把测试页排成一条横幅放在上面 y < 264 处）；每个键、每次点击前仍然检查前台。
 - **测试窗口别用 Edge**：`msedge --user-data-dir=<新目录>` 会登上系统账号、同步扩展，弹出 Tampermonkey、Distill 的页面抢前台；要用就加 `--disable-sync --disable-extensions`。WinForms 的测试窗口由 `powershell.exe` 开，控制台窗口要在脚本里 `ShowWindow(GetConsoleWindow(), 0)` 藏掉，否则它盖在窗口上被一起截进去。
 - **Windows 剪贴板历史**：测试只用 Ctrl+S（只记 Win顺 自己的历史，不动系统剪贴板），Windows 的历史 25 条前后 id 一样。
+
+### 测试里编的密钥被 GitHub 当成泄露的真密钥
+- **现象**：推送后 GitHub 的密钥扫描（secret scanning）报警 #1：`tests/tst_smartredact.cpp` 里有 Google API Key（2026-10-24 用户看到后以为把密钥传上去了）。
+- **原因**：识别密钥的单测要用各家格式的样例，`AIzaSyA-AbCdEf…`、`ghp_…`、`AKIA…`、`-----BEGIN RSA PRIVATE KEY-----` 完整写在源码里，格式对得上就报，扫描器不管值是不是编的。查过全部历史（`git log -p --all` 按各家格式 grep），只有这些编的样例，没有真密钥；`tests/data/ditto-real.db` 里也只是专门复制的 5 条测试内容（文件路径里带用户名 `young`）。
+- **做法**：样例在前缀处断开拼接（`u"AIza"_s + u"SyA-…"_s`），源码里没有完整格式，测试的文本不变。GitHub 上的警报用 API 关成“仅用于测试”：`gh api -X PATCH repos/LingCore/WinShun/secret-scanning/alerts/<n> -f state=resolved -f resolution=used_in_tests`。以后写这类样例照此办理；真密钥（语义搜索的 SiliconFlow 等）只在 `%APPDATA%` 的设置里，从不进仓库。
 
 ## 系统开关（docs/design-system-switches.md，2026-10-19）
 
