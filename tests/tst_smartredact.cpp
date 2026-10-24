@@ -166,18 +166,20 @@ private slots:
     {
         QTest::addColumn<QString>("text");
         QTest::addColumn<bool>("found");
-        QTest::addRow("openai") << u"key: sk-proj-AbCdEfGhIjKlMnOpQrStUvWxYz012345"_s << true;
-        QTest::addRow("anthropic") << u"sk-ant-api03-AbCdEfGhIjKlMnOpQrSt"_s << true;
-        QTest::addRow("github") << u"token ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"_s << true;
-        QTest::addRow("github oauth") << u"gho_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"_s << true;
-        QTest::addRow("github pat") << u"github_pat_11AAAAAAA0AbCdEfGhIjKl_mnopqrstuvwxyz"_s << true;
-        QTest::addRow("gitlab") << u"glpat-AbCdEfGhIjKlMnOpQrSt"_s << true;
-        QTest::addRow("slack bot") << u"xoxb-1234567890-AbCdEfGhIj"_s << true;
-        QTest::addRow("slack user") << u"xoxp-1234567890-AbCdEfGhIj"_s << true;
-        QTest::addRow("aws") << u"AKIAIOSFODNN7EXAMPLE"_s << true;
-        QTest::addRow("google") << u"AIzaSyA-AbCdEfGhIjKlMnOpQrStUvWxYz01234"_s << true;
-        QTest::addRow("jwt") << u"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r"_s << true;
-        QTest::addRow("private key") << u"-----BEGIN RSA PRIVATE KEY-----"_s << true;
+        // Made-up keys, each split where it starts: whole, secret scanners
+        // (GitHub's) take them for real ones that leaked.
+        QTest::addRow("openai") << u"key: sk-"_s + u"proj-AbCdEfGhIjKlMnOpQrStUvWxYz012345"_s << true;
+        QTest::addRow("anthropic") << u"sk-"_s + u"ant-api03-AbCdEfGhIjKlMnOpQrSt"_s << true;
+        QTest::addRow("github") << u"token ghp_"_s + u"AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"_s << true;
+        QTest::addRow("github oauth") << u"gho_"_s + u"AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"_s << true;
+        QTest::addRow("github pat") << u"github_"_s + u"pat_11AAAAAAA0AbCdEfGhIjKl_mnopqrstuvwxyz"_s << true;
+        QTest::addRow("gitlab") << u"glpat-"_s + u"AbCdEfGhIjKlMnOpQrSt"_s << true;
+        QTest::addRow("slack bot") << u"xoxb-"_s + u"1234567890-AbCdEfGhIj"_s << true;
+        QTest::addRow("slack user") << u"xoxp-"_s + u"1234567890-AbCdEfGhIj"_s << true;
+        QTest::addRow("aws") << u"AKIA"_s + u"IOSFODNN7EXAMPLE"_s << true;
+        QTest::addRow("google") << u"AIza"_s + u"SyA-AbCdEfGhIjKlMnOpQrStUvWxYz01234"_s << true;
+        QTest::addRow("jwt") << u"eyJ"_s + u"hbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r"_s << true;
+        QTest::addRow("private key") << u"-----BEGIN RSA PRIVATE"_s + u" KEY-----"_s << true;
         QTest::addRow("password=") << u"password=hunter2"_s << true;
         QTest::addRow("Password: ") << u"Password: Tr0ub4dor&3"_s << true;
         QTest::addRow("password json") << u"\"password\": \"hunter2\","_s << true;
@@ -217,7 +219,7 @@ private slots:
     // A key is covered to the end of the line, not just where it was recognised.
     void secretsCoverTheRestOfTheLine()
     {
-        const QString text = u"export API_KEY=sk-AbCdEfGhIjKlMnOpQrStUv and more"_s;
+        const QString text = u"export API_KEY=sk-"_s + u"AbCdEfGhIjKlMnOpQrStUv and more"_s;
         const QList<RedactHit> hits = find(text);
         QCOMPARE(hits.size(), 1);
         const int from = int(text.indexOf(u"sk-"_s));
