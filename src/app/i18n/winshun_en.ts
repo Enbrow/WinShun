@@ -381,8 +381,8 @@
         <translation>Right</translation>
     </message>
     <message>
-        <source>拖文件时晃一晃，弹出收藏圆盘</source>
-        <translation>Shake while dragging files to bring up the favorites pie</translation>
+        <source>拖文件时按 ` 键，弹出收藏圆盘</source>
+        <translation>Press ` while dragging files to bring up the favorites pie</translation>
     </message>
     <message>
         <source>搜索框的位置</source>
@@ -817,6 +817,18 @@
         <translation>Keyword for the screenshot history</translation>
     </message>
     <message>
+        <source>粘贴为文件</source>
+        <translation>Paste as file</translation>
+    </message>
+    <message>
+        <source>在资源管理器和桌面按 Ctrl+V</source>
+        <translation>Ctrl+V in File Explorer and on the desktop</translation>
+    </message>
+    <message>
+        <source>右键菜单里的“粘贴为文件”</source>
+        <translation>“Paste as file” in the right-click menu</translation>
+    </message>
+    <message>
         <source>自动检查更新</source>
         <translation>Check for updates automatically</translation>
     </message>
@@ -1115,6 +1127,42 @@
         <source>找出图里的手机号、证件号、银行卡、邮箱、密钥和本机用户名，一次全部打码</source>
         <translation>Finds the phone numbers, ID numbers, bank cards, e-mail addresses, keys and this computer&apos;s user name in the picture and redacts them all at once</translation>
     </message>
+    <message>
+        <source>直线</source>
+        <translation>Straight</translation>
+    </message>
+    <message>
+        <source>折线</source>
+        <translation>Polyline</translation>
+    </message>
+    <message>
+        <source>曲线</source>
+        <translation>Curve</translation>
+    </message>
+    <message>
+        <source>单击加点，点击起点闭合；双击/回车结束，退格撤回节点</source>
+        <translation>Click to add points, click the start to close; double-click or Enter to finish, Backspace to remove a point</translation>
+    </message>
+    <message>
+        <source>拖出曲线，再拖动两个圆形控制点调整弧度</source>
+        <translation>Drag a curve, then move its two round control points to adjust the bend</translation>
+    </message>
+    <message>
+        <source>拖动绘制直线，Shift 吸附角度</source>
+        <translation>Drag a straight line; hold Shift to snap the angle</translation>
+    </message>
+    <message>
+        <source>涂画</source>
+        <translation>Freehand</translation>
+    </message>
+    <message>
+        <source>矩形</source>
+        <translation>Rectangle</translation>
+    </message>
+    <message>
+        <source>新荧光笔标注的绘制方式；叠在文字上仍可读</source>
+        <translation>Shape of new highlights; text stays readable underneath</translation>
+    </message>
 </context>
 <context>
     <name>AnnotateToolbar</name>
@@ -1147,8 +1195,12 @@
         <translation>With no selection yet: use the last selection</translation>
     </message>
     <message>
-        <source>复制颜色；换颜色格式（HEX、RGB、HSL）</source>
-        <translation>Copy the colour; change its format (HEX, RGB, HSL)</translation>
+        <source>复制颜色；单按 Shift 换颜色格式（HEX、RGB、HSL）</source>
+        <translation>Copy the colour; Shift alone changes its format (HEX, RGB, HSL)</translation>
+    </message>
+    <message>
+        <source>识别选区里的文字并复制</source>
+        <translation>Read the words in the selection and copy them</translation>
     </message>
     <message>
         <source>复制</source>
@@ -1460,6 +1512,29 @@
     <message>
         <source>智能打码</source>
         <translation>Smart redaction</translation>
+    </message>
+</context>
+<context>
+    <name>BuiltinCard</name>
+    <message>
+        <source>内置</source>
+        <translation>Built-in</translation>
+    </message>
+    <message>
+        <source>收起设置</source>
+        <translation>Collapse settings</translation>
+    </message>
+    <message>
+        <source>设置</source>
+        <translation>Settings</translation>
+    </message>
+    <message>
+        <source>收起%1设置</source>
+        <translation>Collapse the %1 settings</translation>
+    </message>
+    <message>
+        <source>展开%1设置</source>
+        <translation>Expand the %1 settings</translation>
     </message>
 </context>
 <context>
@@ -1812,8 +1887,8 @@
 <context>
     <name>CaptureOverlay</name>
     <message>
-        <source>C 复制 · Shift+C 换格式</source>
-        <translation>C copies · Shift+C changes the format</translation>
+        <source>C 复制 · Shift 换格式</source>
+        <translation>C copies · Shift changes the format</translation>
     </message>
     <message>
         <source>截图</source>
@@ -2179,25 +2254,6 @@
     </message>
 </context>
 <context>
-    <name>DropPieWindow</name>
-    <message>
-        <source>移动</source>
-        <translation>Move</translation>
-    </message>
-    <message>
-        <source>复制</source>
-        <translation>Copy</translation>
-    </message>
-    <message>
-        <source>松开</source>
-        <translation>Release to</translation>
-    </message>
-    <message>
-        <source>取消</source>
-        <translation>Cancel</translation>
-    </message>
-</context>
-<context>
     <name>EditWindow</name>
     <message>
         <source>编辑图片</source>
@@ -2231,8 +2287,8 @@
         <translation>Type just this and press Enter to open it</translation>
     </message>
     <message>
-        <source>圆盘里显示为：%1 / %2。名字太长时可以起个短名</source>
-        <translation>In the pie: %1 / %2. Give it a short name if it is too long</translation>
+        <source>圆盘里显示为：%1。名字太长时可以起个短名</source>
+        <translation>In the pie: %1. Give it a short name if it is too long</translation>
     </message>
     <message>
         <source>保存</source>
@@ -2333,24 +2389,24 @@
         <translation>Right-click a search result → Add to favorites, click “Add folder”, or drop files and folders here</translation>
     </message>
     <message>
-        <source>拖文件时晃一晃，弹出收藏圆盘</source>
-        <translation>Shake while dragging files to bring up the favorites pie</translation>
+        <source>在文件上按住左键（不用拖动），再按 Esc 下面那个键（中文输入法下是 ·）。朝文件夹的方向拖，松开就放进去：同一个盘里移动，到别的盘复制，按住 Ctrl 复制、按住 Shift 移动</source>
+        <translation>Hold the left button on files (no need to drag), then press the key below Esc. Drag toward a folder and let go to drop the files there: within a drive they move, to another drive they are copied; hold Ctrl to copy, Shift to move</translation>
     </message>
     <message>
-        <source>拖放;拖动;拖拽;圆盘;晃动;移动;复制;drag;drop;pie</source>
-        <translation>drag;drop;drag and drop;pie;shake;move;copy</translation>
+        <source>拖文件时按 ` 键，弹出收藏圆盘</source>
+        <translation>Press ` while dragging files to bring up the favorites pie</translation>
+    </message>
+    <message>
+        <source>拖放;拖动;拖拽;圆盘;按键;移动;复制;drag;drop;pie;key</source>
+        <translation>drag;drop;drag and drop;pie;key;move;copy</translation>
     </message>
     <message>
         <source>Win顺 以管理员身份运行时用不了</source>
         <translation>Not available while WinShun runs as administrator</translation>
     </message>
     <message>
-        <source>内圈选移动或复制，外圈是前 8 个文件夹收藏（现有 %1 个，只放得下前 8 个）</source>
-        <translation>The inner ring picks move or copy, the outer ring holds the first 8 favorite folders (you have %1; only the first 8 fit)</translation>
-    </message>
-    <message>
-        <source>内圈选移动或复制，外圈是前 8 个文件夹收藏</source>
-        <translation>The inner ring picks move or copy, the outer ring holds the first 8 favorite folders</translation>
+        <source>%1。只放得下前 8 个文件夹收藏（现有 %2 个）</source>
+        <translation>%1. Only the first 8 favorite folders fit (you have %2)</translation>
     </message>
     <message>
         <source>已不存在 · %1</source>
@@ -3084,6 +3140,61 @@
     </message>
 </context>
 <context>
+    <name>PasteFileCard</name>
+    <message>
+        <source>粘贴为文件;PasteEx;Paste As File;剪贴板;新建文本文档;保存图片;另存为文件;txt;png;Ctrl+V;右键菜单</source>
+        <translation>paste as file;PasteEx;clipboard;new text document;save picture;save as file;txt;png;Ctrl+V;right-click menu</translation>
+    </message>
+    <message>
+        <source>粘贴为文件</source>
+        <translation>Paste as file</translation>
+    </message>
+    <message>
+        <source>把剪贴板里的文字或图片直接存成文件，不用先新建一个文本文档再粘贴</source>
+        <translation>Saves the words or the picture on the clipboard straight as a file, with no text document to make first</translation>
+    </message>
+    <message>
+        <source>关着</source>
+        <translation>Off</translation>
+    </message>
+    <message>
+        <source>开着：在资源管理器或桌面按 Ctrl+V，或右键空白处选“粘贴为文件”</source>
+        <translation>On: press Ctrl+V in File Explorer or on the desktop, or right-click empty space and choose “Paste as file”</translation>
+    </message>
+    <message>
+        <source>开着：在资源管理器或桌面按 Ctrl+V</source>
+        <translation>On: press Ctrl+V in File Explorer or on the desktop</translation>
+    </message>
+    <message>
+        <source>开着：在文件夹或桌面的空白处右键，选“粘贴为文件”</source>
+        <translation>On: right-click the empty space of a folder or the desktop and choose “Paste as file”</translation>
+    </message>
+    <message>
+        <source>在资源管理器和桌面按 Ctrl+V</source>
+        <translation>Ctrl+V in File Explorer and on the desktop</translation>
+    </message>
+    <message>
+        <source>剪贴板里是文字或图片时存成文件；复制的文件照旧由资源管理器粘贴，改名和地址栏里的 Ctrl+V 也不受影响</source>
+        <translation>Words or a picture on the clipboard become a file; copied files are pasted by File Explorer as before, and Ctrl+V while renaming or in the address bar is left alone</translation>
+    </message>
+    <message>
+        <source>右键菜单里的“粘贴为文件”</source>
+        <translation>“Paste as file” in the right-click menu</translation>
+    </message>
+    <message>
+        <source>在文件夹或桌面的空白处右键；Windows 11 在“显示更多选项”里</source>
+        <translation>Right-click the empty space of a folder or the desktop; on Windows 11 it is under “Show more options”</translation>
+    </message>
+    <message>
+        <source>两种方式至少留一种；都不用时关掉上面的开关。</source>
+        <translation>One of the two stays on; to use neither, turn the switch above off. </translation>
+    </message>
+    <message>
+        <source>文字按内容存成 .txt、.csv（表格）、.json、.html 等，图片存成 .png；文件名取第一行或当前时间，存好后直接改名。</source>
+        <translation>Words are saved as .txt, .csv (cells), .json, .html and so on, as they read; pictures as .png. The name comes from the first line or the time, ready to be changed.</translation>
+    </message>
+</context>
+<context>
     <name>PluginCard</name>
     <message>
         <source>随包</source>
@@ -3234,6 +3345,10 @@
     <message>
         <source>创建</source>
         <translation>Create</translation>
+    </message>
+    <message>
+        <source>复制 AI 开发提示</source>
+        <translation>Copy AI instructions</translation>
     </message>
 </context>
 <context>
@@ -3420,6 +3535,26 @@
         <source>看看怎么投稿</source>
         <translation>How to submit</translation>
     </message>
+    <message>
+        <source>做一个自己的插件</source>
+        <translation>Create your own plugin</translation>
+    </message>
+    <message>
+        <source>AI;开发;模板;创建;贡献;Python;PowerShell</source>
+        <translation>AI;develop;template;create;contribute;Python;PowerShell</translation>
+    </message>
+    <message>
+        <source>从能运行的模板开始，也可以把开发提示和模板一起交给 AI。创建后仍由你决定是否启用插件。</source>
+        <translation>Start with a working template, or give the template and instructions to an AI assistant. You choose when to enable the plugin.</translation>
+    </message>
+    <message>
+        <source>复制 AI 开发提示</source>
+        <translation>Copy AI instructions</translation>
+    </message>
+    <message>
+        <source>创建插件</source>
+        <translation>Create plugin</translation>
+    </message>
 </context>
 <context>
     <name>PluginsPreview</name>
@@ -3465,6 +3600,74 @@
     <message>
         <source>网络;共享;NAS;登录;令牌;plugin;network</source>
         <translation>network;share;NAS;sign in;token;plugin</translation>
+    </message>
+    <message>
+        <source>文件夹菜单</source>
+        <translation>Folder menu</translation>
+    </message>
+    <message>
+        <source>双击空白处;收藏的文件夹;最近的文件夹;Listary;folder menu</source>
+        <translation>double-click empty space;favorite folders;recent folders;Listary;folder menu</translation>
+    </message>
+    <message>
+        <source>对话框搜索框</source>
+        <translation>Dialog search bar</translation>
+    </message>
+    <message>
+        <source>对话框;另存为;打开文件;dialog</source>
+        <translation>dialog;save as;open file</translation>
+    </message>
+    <message>
+        <source>资源管理器里打字搜索</source>
+        <translation>Type to search in File Explorer</translation>
+    </message>
+    <message>
+        <source>直接打字;type to search</source>
+        <translation>just type;type to search</translation>
+    </message>
+    <message>
+        <source>收藏圆盘</source>
+        <translation>Favorites pie</translation>
+    </message>
+    <message>
+        <source>拖放;拖文件;drag;drop;pie</source>
+        <translation>drag;drop;drag files;pie</translation>
+    </message>
+    <message>
+        <source>截图</source>
+        <translation>Screenshot</translation>
+    </message>
+    <message>
+        <source>粘贴为文件</source>
+        <translation>Paste as file</translation>
+    </message>
+    <message>
+        <source>随 Win顺 一起提供，用到哪个开哪个；关着的不占内存，不听按键，也不加右键菜单</source>
+        <translation>They come with WinShun; turn on the ones you want. One that is off takes no memory, watches no keys and adds nothing to menus</translation>
+    </message>
+    <message>
+        <source>在资源管理器或桌面的空白处双击，弹出收藏的、最近的和别的窗口里的文件夹</source>
+        <translation>Double-click empty space in File Explorer or on the desktop for your favorite and recent folders and those open in other windows</translation>
+    </message>
+    <message>
+        <source>更多设置</source>
+        <translation>More settings</translation>
+    </message>
+    <message>
+        <source>在“打开”“另存为”对话框旁搜文件夹和文件，选中后直接转过去</source>
+        <translation>Search folders and files beside Open and Save As dialogs and go straight to the one chosen</translation>
+    </message>
+    <message>
+        <source>文件列表有焦点时直接打字，就在这个文件夹里搜，代替资源管理器的“按首字母跳到文件”</source>
+        <translation>Typing while the file list has the focus searches that folder, in place of Explorer’s jump to a name by its first letters</translation>
+    </message>
+    <message>
+        <source>Win顺 以管理员身份运行时用不了</source>
+        <translation>Not available while WinShun runs as administrator</translation>
+    </message>
+    <message>
+        <source>按住文件时按 Esc 下面那个键，收藏的文件夹围着指针弹出，朝哪个拖就放进哪个</source>
+        <translation>While holding files, press the key below Esc: your favorite folders come up round the pointer, and the files go into the one you drag toward</translation>
     </message>
     <message>
         <source>已安装的插件</source>
@@ -3546,12 +3749,16 @@
         <translation>screenshot;screen capture;snip;PrtScn;Print Screen;magnifier;colour picker;color picker;mouse;middle button;right button;side button;double click;pin;recognize text;OCR;select</translation>
     </message>
     <message>
-        <source>随 Win顺 一起提供，默认关着；关着时不占内存，也不注册快捷键</source>
-        <translation>Come with WinShun, off by default; while off they use no memory and register no shortcut</translation>
-    </message>
-    <message>
         <source>从插件库挑选</source>
         <translation>From the plugin library</translation>
+    </message>
+    <message>
+        <source>随 Win顺 一起提供，用到哪个开哪个；关闭后停止对应功能，暂不支持单独卸载</source>
+        <translation>Included with WinShun. Enable what you need; disabling stops the feature. Separate uninstall is not supported yet.</translation>
+    </message>
+    <message>
+        <source>收起设置</source>
+        <translation>Collapse settings</translation>
     </message>
 </context>
 <context>
@@ -3934,10 +4141,6 @@
     <message>
         <source>MCP;人工智能;大模型;Claude;Cursor;ai</source>
         <translation>MCP;AI;LLM;Claude;Cursor;assistant</translation>
-    </message>
-    <message>
-        <source>扩展;脚本;PowerShell;Python;plugin;extension</source>
-        <translation>extension;script;PowerShell;Python;plugin</translation>
     </message>
     <message>
         <source>网络共享</source>
@@ -5223,6 +5426,10 @@
         <translation>Preview files (Alt+P)</translation>
     </message>
     <message>
+        <source>扩展;脚本;PowerShell;Python;内置功能;模块;plugin;extension;module</source>
+        <translation>extension;script;PowerShell;Python;built-in features;module;plugin</translation>
+    </message>
+    <message>
         <source>排除;忽略;扩展名;后缀;格式;exclude</source>
         <translation>exclude;ignore;extension;suffix;format;skip</translation>
     </message>
@@ -5995,12 +6202,12 @@
         <translation>Diagnostic logs</translation>
     </message>
     <message>
-        <source>诊断;日志;索引慢;排查;反馈;diagnostics;log</source>
-        <translation>diagnostics;log;slow indexing;troubleshooting;feedback</translation>
+        <source>诊断;日志;索引慢;排查;反馈;显示;字体;错字;乱码;diagnostics;log</source>
+        <translation>diagnostics;log;slow indexing;troubleshooting;feedback;display;font;wrong characters;garbled text</translation>
     </message>
     <message>
-        <source>导出后会打开文件夹，把 WinShun-diagnostics.zip 发给开发者即可。包含索引耗时和错误，可能含文件路径；不含设置、剪贴板或文档正文。诊断记录最多 3 MB，过期自动清理；诊断包只保留一份</source>
-        <translation>Export opens the folder: send WinShun-diagnostics.zip to the developer. It includes indexing times and errors, and may contain file paths. Settings, clipboard and document text are excluded. Diagnostic records are capped at 3 MB; files untouched for 7 days are removed. Only the latest archive is kept</translation>
+        <source>导出后会打开文件夹，把 WinShun-diagnostics.zip 发给开发者即可。包含索引耗时和错误、界面显示和字体的状态，可能含文件路径；不含设置、剪贴板或文档正文。界面显示不对时先导出再重启，重启后就查不到了。诊断记录最多 3 MB，过期自动清理；诊断包只保留一份</source>
+        <translation>Export opens the folder: send WinShun-diagnostics.zip to the developer. It includes indexing times and errors and the state of the display and fonts, and may contain file paths. Settings, clipboard and document text are excluded. If something on screen looks wrong, export before restarting: a restart clears what shows the cause. Diagnostic records are capped at 3 MB; files untouched for 7 days are removed. Only the latest archive is kept</translation>
     </message>
     <message>
         <source>正在导出…</source>
@@ -6145,6 +6352,106 @@
         <source>按“全部”列表的前九条粘贴，沿用“固定优先”顺序，不受搜索和分组影响。启用后会占用其他程序的同名快捷键，例如浏览器切换标签页。</source>
         <translation>Paste the first nine entries of All, keeping pinned-first order, regardless of searches or groups. When enabled, these shortcuts override the same shortcuts in other programs, such as switching browser tabs.</translation>
     </message>
+    <message>
+        <source>网络与 WSL</source>
+        <translation>Network &amp; WSL</translation>
+    </message>
+    <message>
+        <source>只收录文件名和文件夹名，不读取文件内容。服务器离线或 WSL 停止时，收录过的照样能搜到；恢复后自动更新。</source>
+        <translation>Index file and folder names only. Previously indexed items remain searchable when the server is offline or WSL is stopped, and update automatically when it returns.</translation>
+    </message>
+    <message>
+        <source>网络与 WSL 文件夹</source>
+        <translation>Network and WSL folders</translation>
+    </message>
+    <message>
+        <source>网络;共享;局域网;内网;NAS;服务器;SMB;映射;网络驱动器;WSL;Linux;Ubuntu;子系统;network;share</source>
+        <translation>network;share;LAN;NAS;server;SMB;mapped;network drive;WSL;Linux;Ubuntu;subsystem</translation>
+    </message>
+    <message>
+        <source>添加 NAS、共享文件夹或 WSL 中的项目、用户目录，和本机文件一起搜索</source>
+        <translation>Add a NAS, shared folder, or WSL project or home folder to search alongside local files</translation>
+    </message>
+    <message>
+        <source>粘贴网络或 WSL 文件夹路径</source>
+        <translation>Paste a network or WSL folder path</translation>
+    </message>
+    <message>
+        <source>查看 WSL 发行版</source>
+        <translation>View WSL distributions</translation>
+    </message>
+    <message>
+        <source>选择文件夹…</source>
+        <translation>Choose folder…</translation>
+    </message>
+    <message>
+        <source>选择要搜索的网络或 WSL 文件夹</source>
+        <translation>Choose a network or WSL folder to search</translation>
+    </message>
+    <message>
+        <source>已安装的 WSL 发行版，点一下收录 Linux 文件：</source>
+        <translation>Installed WSL distributions. Click to index their Linux files:</translation>
+    </message>
+    <message>
+        <source>检测到 WSL，点一下添加用户目录；也可以选择具体的项目文件夹：</source>
+        <translation>WSL detected. Add a home folder below, or choose a specific project folder:</translation>
+    </message>
+    <message>
+        <source>显示在名字右边；按大小排序时显示文件大小</source>
+        <translation>Shown beside the name; shows file size when sorting by size</translation>
+    </message>
+    <message>
+        <source>较早的日期也显示时间</source>
+        <translation>Include the time for older dates</translation>
+    </message>
+    <message>
+        <source>普通文件夹已包含在整盘索引中；mklink 创建的链接文件夹可在这里额外添加，管理员和索引服务模式也能用。</source>
+        <translation>Regular folders are already covered by whole-drive indexing. Add mklink directory links here to include their contents, including when running as administrator or using the index service.</translation>
+    </message>
+    <message>
+        <source>索引哪些磁盘</source>
+        <translation>Drives to index</translation>
+    </message>
+    <message>
+        <source>磁盘;硬盘;盘符;选择磁盘;索引范围;drive;disk;volume</source>
+        <translation>drive;disk;volume;drive letter;select drives;index scope</translation>
+    </message>
+    <message>
+        <source>自动索引所有符合条件的本机磁盘</source>
+        <translation>Automatically index all eligible local drives</translation>
+    </message>
+    <message>
+        <source>只索引勾选的磁盘；取消勾选后，该盘的文件会从结果中移除。新接入的磁盘需要手动勾选。</source>
+        <translation>Index only selected drives. Deselecting a drive removes its files from results. Select newly connected drives manually.</translation>
+    </message>
+    <message>
+        <source>全部磁盘</source>
+        <translation>All drives</translation>
+    </message>
+    <message>
+        <source>自己选择</source>
+        <translation>Choose drives</translation>
+    </message>
+    <message>
+        <source>索引 %1 盘</source>
+        <translation>Index drive %1</translation>
+    </message>
+    <message>
+        <source>没有选择本机磁盘，只搜索你添加的网络和 WSL 位置</source>
+        <translation>No local drives selected. Only your added network and WSL locations will be searched.</translation>
+    </message>
+    <message>
+        <source>刷新磁盘列表</source>
+        <translation>Refresh drives</translation>
+    </message>
+    <message>
+        <source>关闭后停止监听并释放历史缓存，已有记录保留在本机。密码管理器复制的密码不会被记录</source>
+        <translation>Disabling stops monitoring and releases the history cache. Saved entries stay on this PC. Passwords copied by password managers are excluded.</translation>
+    </message>
+    <message>
+        <source>已关闭，历史记录保留在本机；开启后显示条数</source>
+        <translation>Disabled. Saved history stays on this PC; enable to see the entry count.</translation>
+    </message>
 </context>
 <context>
     <name>ShareCard</name>
@@ -6163,6 +6470,10 @@
     <message>
         <source>移除</source>
         <translation>Remove</translation>
+    </message>
+    <message>
+        <source>启动并索引</source>
+        <translation>Start and index</translation>
     </message>
 </context>
 <context>
@@ -6709,6 +7020,10 @@
     <message>
         <source>正在等索引服务启动…</source>
         <translation>Waiting for the index service to start…</translation>
+    </message>
+    <message>
+        <source>粘贴为文件</source>
+        <translation>Paste as file</translation>
     </message>
     <message>
         <source>、</source>
@@ -7726,14 +8041,6 @@
         <translation>This folder does not take these items.</translation>
     </message>
     <message>
-        <source>复制到</source>
-        <translation>Copy to</translation>
-    </message>
-    <message>
-        <source>移动到</source>
-        <translation>Move to</translation>
-    </message>
-    <message>
         <source>还没有收藏文件夹</source>
         <translation>No favorite folders yet</translation>
     </message>
@@ -7742,16 +8049,42 @@
         <translation>Add some in Settings → Favorites</translation>
     </message>
     <message>
-        <source>这里只能复制</source>
-        <translation>These can only be copied</translation>
+        <source>朝文件夹拖，松开就放进去</source>
+        <translation>Drag toward a folder and let go to drop them there</translation>
     </message>
     <message>
-        <source>这里只能移动</source>
-        <translation>These can only be moved</translation>
+        <source>在中间松开或按 Esc 取消</source>
+        <translation>Let go in the middle or press Esc to cancel</translation>
+    </message>
+    <message numerus="yes">
+        <source>复制 %n 项到</source>
+        <translation>
+            <numerusform>Copy %n item to</numerusform>
+            <numerusform>Copy %n items to</numerusform>
+        </translation>
     </message>
     <message>
-        <source>穿过内圈选移动或复制 · 松开在中间或按 Esc 取消</source>
-        <translation>Cross the inner ring to pick move or copy · Release in the middle or press Esc to cancel</translation>
+        <source>复制到</source>
+        <translation>Copy to</translation>
+    </message>
+    <message>
+        <source>按住 Shift 移动</source>
+        <translation>Hold Shift to move</translation>
+    </message>
+    <message numerus="yes">
+        <source>移动 %n 项到</source>
+        <translation>
+            <numerusform>Move %n item to</numerusform>
+            <numerusform>Move %n items to</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>移动到</source>
+        <translation>Move to</translation>
+    </message>
+    <message>
+        <source>按住 Ctrl 复制</source>
+        <translation>Hold Ctrl to copy</translation>
     </message>
     <message>
         <source>这个文件夹已不存在</source>
@@ -7768,10 +8101,6 @@
     <message>
         <source>这类项目只能放进本机的文件夹</source>
         <translation>Items like these can only go into folders on this computer</translation>
-    </message>
-    <message>
-        <source>在 %1</source>
-        <translation>in %1</translation>
     </message>
 </context>
 <context>
@@ -8899,6 +9228,22 @@
         <source>编辑</source>
         <translation>Edit</translation>
     </message>
+    <message>
+        <source>WSL：请先启动 %1，再重试；也可以在设置的“网络与 WSL”中启动</source>
+        <translation>WSL: start %1 and try again. You can also start it under Network &amp; WSL in Settings.</translation>
+    </message>
+    <message>
+        <source>正在连接 WSL…</source>
+        <translation>Connecting to WSL…</translation>
+    </message>
+    <message>
+        <source>暂时无法连接这个 WSL 发行版，请在终端检查后重试</source>
+        <translation>Cannot connect to this WSL distribution right now. Check it in a terminal and try again.</translation>
+    </message>
+    <message>
+        <source>“%1” 已不存在，或当前 Linux 用户没有访问权限</source>
+        <translation>“%1” no longer exists, or the current Linux user cannot access it.</translation>
+    </message>
 </context>
 <context>
     <name>ws::PluginGallery</name>
@@ -9396,6 +9741,14 @@
     <message>
         <source>没有安装 %1：下载来的是另一个插件（%2）</source>
         <translation>%1 wasn’t installed: the download is a different plugin (%2)</translation>
+    </message>
+    <message>
+        <source>读不了插件开发指南</source>
+        <translation>Could not read the plugin development guide</translation>
+    </message>
+    <message>
+        <source>已复制开发提示；把它和创建好的模板交给 AI，再补上你想做的功能</source>
+        <translation>Instructions copied. Give them and the new template to your AI assistant, then describe the feature you want.</translation>
     </message>
 </context>
 <context>
@@ -10257,6 +10610,86 @@
         <source>只能添加文件夹</source>
         <translation>Only folders can be added</translation>
     </message>
+    <message>
+        <source>找不到这个 WSL 文件夹，请检查路径是否已改名或删除</source>
+        <translation>WSL folder not found. Check whether it was renamed or deleted.</translation>
+    </message>
+    <message>
+        <source>没有权限读取这个 WSL 文件夹，请选择当前 Linux 用户有权限的文件夹</source>
+        <translation>Access denied. Choose a folder accessible to the current Linux user.</translation>
+    </message>
+    <message>
+        <source>%1 未运行；启动后会自动继续收录</source>
+        <translation>%1 is stopped. Indexing resumes automatically when it starts.</translation>
+    </message>
+    <message>
+        <source>找不到 WSL 发行版 %1，请检查是否已卸载或改名</source>
+        <translation>WSL distribution %1 was not found. Check whether it was removed or renamed.</translation>
+    </message>
+    <message>
+        <source>暂时无法读取 WSL 状态，稍后自动重试；也可在终端检查 WSL 是否正常</source>
+        <translation>Cannot read the WSL status right now. Retrying automatically; you can also check WSL in a terminal.</translation>
+    </message>
+    <message>
+        <source>自动核对变化</source>
+        <translation>Checking for changes automatically</translation>
+    </message>
+    <message>
+        <source>正在启动 %1…</source>
+        <translation>Starting %1…</translation>
+    </message>
+    <message>
+        <source>没能启动 WSL，请先在终端启动这个发行版，再点“立即核对”</source>
+        <translation>Could not start WSL. Start this distribution in a terminal, then click Verify now.</translation>
+    </message>
+    <message>
+        <source>这台电脑还没有安装 WSL 发行版</source>
+        <translation>No WSL distributions are installed on this PC.</translation>
+    </message>
+    <message>
+        <source>请使用带发行版名的 WSL 路径，例如 %1；可以从资源管理器复制文件夹路径</source>
+        <translation>Include the distribution name in the WSL path, for example %1. You can copy the folder path from File Explorer.</translation>
+    </message>
+    <message>
+        <source>这是网络或 WSL 位置，请在“网络与 WSL”里添加</source>
+        <translation>Add this network or WSL location under Network &amp; WSL.</translation>
+    </message>
+    <message>
+        <source>类型已不存在</source>
+        <translation>This file type no longer exists</translation>
+    </message>
+    <message>
+        <source>前缀最多 32 个字符，只能包含文字、数字、下划线和连字符</source>
+        <translation>Use up to 32 letters, numbers, underscores or hyphens</translation>
+    </message>
+    <message>
+        <source>这个前缀已用于文件夹</source>
+        <translation>This prefix is already used for folders</translation>
+    </message>
+    <message>
+        <source>已有类型使用这个前缀</source>
+        <translation>Another file type already uses this prefix</translation>
+    </message>
+    <message>
+        <source>暂时无法访问 %1 中的这个文件夹，稍后自动重试；可先在资源管理器中检查路径</source>
+        <translation>Cannot access this folder in %1 right now. Retrying automatically; you can also check the path in File Explorer.</translation>
+    </message>
+    <message>
+        <source>先打开“包括 U 盘和移动硬盘”</source>
+        <translation>Enable “Include USB drives and external hard drives” first</translation>
+    </message>
+    <message>
+        <source>未连接，选择会保留</source>
+        <translation>Disconnected; selection is saved</translation>
+    </message>
+    <message>
+        <source>所在的磁盘未勾选，不会索引</source>
+        <translation>Not indexed: its drive is not selected</translation>
+    </message>
+    <message>
+        <source>已包含在整盘索引中，无需重复扫描</source>
+        <translation>Already covered by whole-drive indexing; no extra scan needed</translation>
+    </message>
 </context>
 <context>
     <name>ws::SwitchAudio</name>
@@ -10527,6 +10960,14 @@
         <source> · 自动找的可能有漏，发出去前再看一眼</source>
         <translation> · What is found automatically can miss some: take a look before you send it</translation>
     </message>
+    <message>
+        <source>撤回节点</source>
+        <translation>Remove point</translation>
+    </message>
+    <message>
+        <source>单击添加节点 · 点击起点闭合 · 双击/回车结束 · 退格撤回 · Esc 取消</source>
+        <translation>Click to add points · Click the start to close · Double-click/Enter to finish · Backspace to remove · Esc to cancel</translation>
+    </message>
 </context>
 <context>
     <name>ws::capture::Capture</name>
@@ -10795,6 +11236,97 @@ click here to cancel</translation>
     <message>
         <source>写入诊断包失败，请检查文件夹权限和剩余空间</source>
         <translation>Could not save the diagnostic archive. Check folder permissions and available space.</translation>
+    </message>
+</context>
+<context>
+    <name>FileTypesSection</name>
+    <message>
+        <source>文件类型</source>
+        <translation>File types</translation>
+    </message>
+    <message>
+        <source>类型;扩展名;后缀;筛选;前缀;快捷键;folder;filter;type;extension</source>
+        <translation>type;extension;suffix;filter;prefix;shortcut;folder</translation>
+    </message>
+    <message>
+        <source>输入“:folder 报告”只找文件夹；类型前缀可自定义，不区分大小写。留空可停用，Ctrl+Tab 仍可切换。</source>
+        <translation>Type “:folder report” to find folders. Prefixes are customizable and case-insensitive. Leave blank to disable; Ctrl+Tab still switches types.</translation>
+    </message>
+    <message>
+        <source>恢复默认</source>
+        <translation>Restore defaults</translation>
+    </message>
+    <message>
+        <source>名称</source>
+        <translation>Name</translation>
+    </message>
+    <message>
+        <source>扩展名</source>
+        <translation>Extensions</translation>
+    </message>
+    <message>
+        <source>搜索前缀（:）</source>
+        <translation>Prefix (:)</translation>
+    </message>
+    <message>
+        <source>文件夹</source>
+        <translation>Folders</translation>
+    </message>
+    <message>
+        <source>只搜索文件夹</source>
+        <translation>Search folders only</translation>
+    </message>
+    <message>
+        <source>文件夹搜索前缀</source>
+        <translation>Folder search prefix</translation>
+    </message>
+    <message>
+        <source>类型名称</source>
+        <translation>Type name</translation>
+    </message>
+    <message>
+        <source>%1的扩展名</source>
+        <translation>Extensions for %1</translation>
+    </message>
+    <message>
+        <source>未设置</source>
+        <translation>Not set</translation>
+    </message>
+    <message>
+        <source>%1的搜索前缀</source>
+        <translation>Search prefix for %1</translation>
+    </message>
+    <message>
+        <source>上移</source>
+        <translation>Move up</translation>
+    </message>
+    <message>
+        <source>下移</source>
+        <translation>Move down</translation>
+    </message>
+    <message>
+        <source>删除</source>
+        <translation>Remove</translation>
+    </message>
+    <message>
+        <source>新类型</source>
+        <translation>New type</translation>
+    </message>
+    <message>
+        <source>新类型名称</source>
+        <translation>New type name</translation>
+    </message>
+    <message>
+        <source>扩展名，例如 dwg dxf</source>
+        <translation>Extensions, e.g. dwg dxf</translation>
+    </message>
+    <message>
+        <source>新类型扩展名</source>
+        <translation>New type extensions</translation>
+    </message>
+    <message>
+        <source>添加</source>
+        <translation>Add</translation>
     </message>
 </context>
 </TS>

@@ -53,7 +53,7 @@
   <img src="docs/images/switches.jpg" width="49%" alt="系统开关：行尾显示现在的状态，回车就地切换；音量 30、保持唤醒 1小时一步到位 / system switches: the live state on the row, Enter flips it; set the volume or keep awake in one step">
   <img src="docs/images/web.jpg" width="49%" alt="网页搜索：zhihu 显卡、bilibili、京东一步到位 / web search keywords">
   <img src="docs/images/favorites.jpg" width="49%" alt="收藏夹：常去的文件夹排在最前，关键词直达 / favorites with keywords">
-  <img src="docs/images/droppie.jpg" width="49%" alt="拖文件时晃一晃，弹出圆盘：内圈选移动或复制，外圈是常用文件夹 / shake while dragging files for a ring menu: Move or Copy inside, favorite folders around it">
+  <img src="docs/images/droppie.jpg" width="49%" alt="拖文件时按 ` 键，常用文件夹围在指针周围，朝哪个拖就放进哪个 / press ` while dragging files: favorite folders round the pointer, drag toward one to drop there">
   <img src="docs/images/plugins.jpg" width="49%" alt="插件：计算器、单位换算、颜色 / plugins: calculator, unit conversion, colors">
   <img src="docs/images/dialog.jpg" width="49%" alt="打开、另存为对话框旁的搜索框，Ctrl+G 转到资源管理器的文件夹 / search bar for Open and Save dialogs">
   <img src="docs/images/clipboard.jpg" width="49%" alt="剪贴板历史，代替 Win+V，拼音搜索、图片预览 / clipboard history replacing Win+V">
@@ -85,6 +85,8 @@
 ### 功能
 
 #### 🔍 文件搜索
+
+- **WSL 文件搜索**：在设置 › 搜索范围 › 网络与 WSL 中添加 Linux 项目或用户目录；自动列出已安装的发行版，支持用户目录快捷添加、选择文件夹或粘贴路径。文件名、拼音和首字母一起搜，发行版停止时保留已收录结果，恢复运行后自动更新。
 
 - **双击 Ctrl** 打开（也可以改成双击 Alt 或 Shift），再按一次或 `Esc` 关闭；三百多万个文件里搜一次只要几毫秒。
 - **拼音和首字母**：`ndbg` → 年度报告，`baog` → 报告；多音字按常用读音。打错了同音字（年度报高）找不到时，自动按读音再找一遍。
@@ -142,7 +144,7 @@
   - 起个关键词，一打就开；
   - 收藏的文件夹按 `Tab` 进去接着搜；
   - **自定义命令**：设置 › 收藏夹 › 添加命令，起个关键词，命令里写 `{query}`，关键词后面打的字就替换到那里。比如关键词 `code`、命令 `"C:\Tools\Code.exe" {query}`，输入 `code D:\我的项目` 回车，就把这个文件夹交给编辑器；不经命令提示符，搜索和导入都不会自己运行命令；
-  - **拖文件时晃一晃**：按住左键拖着文件或文件夹（资源管理器、桌面、别的程序都行），左右快速晃几下鼠标，指针处弹出一个圆盘：内圈选移动或复制，外圈是前 8 个文件夹收藏，名字长的分两行写。拖到哪个文件夹上松开，就移动或复制到哪里，进度和重名提示都是 Windows 自己的，在资源管理器里按 `Ctrl+Z` 能撤销。在中间松开或按 `Esc` 什么也不做，拖出圆盘它就收起，接着拖到别处照常放。默认开，在设置 › 收藏夹 里关；Win顺 以管理员身份运行时用不了。
+  - **拖文件时按 `` ` `` 键**：在文件或文件夹上按住左键（不用先拖动；资源管理器、桌面、Total Commander 等别的程序都行），按一下 `Esc` 下面那个键（中文输入法下是 `·`，拖动时不会打出字），指针周围弹出前 8 个文件夹收藏；朝哪个文件夹的方向拖就选中哪个，松开就放进去：和资源管理器一样，同一个盘里移动、到别的盘复制，按住 `Ctrl` 复制、`Shift` 移动，进度和重名提示都是 Windows 自己的，在资源管理器里按 `Ctrl+Z` 能撤销。在中间松开或按 `Esc` 什么也不做，再按一次那个键或拖远一点它就收起，接着拖到别处照常放。默认开，在设置 › 收藏夹 里关；Win顺 以管理员身份运行时用不了。
 - **插件**：
   - 随包的小工具：`= 1+2*3` 计算器、`12 inch to cm` 单位换算、`#ff8800` 颜色，还有时间戳、UUID、Base64、哈希；
   - `kill` 结束进程，`bm` 搜浏览器书签，`tr` 翻译；
@@ -184,7 +186,8 @@
 - **隐私**：密码管理器复制的密码不记录，历史只存在本机。
 - **截图**（默认关，在设置 › 插件里打开；快捷键自己录，想用 `PrtScn` 也在那里打开）：
   - **框选**：鼠标移到窗口、按钮上就把它框出来，框外变暗，点一下选中，也可以拖出一块；滚轮扩大或缩小框。设置、计算器这类程序里的侧栏和按钮也能框出来（Chrome、Edge、VS Code、微信这类 Chromium 程序里面不识别，只框整个窗口，需要时手动拖选）。`Shift+R` 回到上一次的那一块。
-  - **放大镜和取色**：跟着鼠标放大像素，`C` 复制鼠标下的颜色，`Shift+C` 在 `#RRGGBB`、`rgb()`、`hsl()` 三种写法之间换。
+  - **放大镜和取色**：跟着鼠标放大像素，`C` 复制鼠标下的颜色，单按 `Shift` 在 `#RRGGBB`、`rgb()`、`hsl()` 三种写法之间换。选好区域后放大镜只在选区里出现。
+  - **识别文字并复制**：`Shift+C` 把选区里的文字识别出来，直接复制。
   - **延时**：`D` 或工具条的“延时”，倒计时（秒数在设置里选）到点才定住屏幕，用来截菜单、悬停提示。设置里可以让截图带上鼠标指针（默认关）。
   - **二维码**：`Q` 读选区里的二维码，文字显示在小窗口里可以复制；是网址时多一个“打开链接”，点了才打开。
   - **标注**：矩形、椭圆、箭头、直线、画笔、荧光笔、文字、序号和打码。序号可以选 `1 2 3`、`A B C`、`a b c`、罗马数字、圈里的数字，序号旁边还能直接写字。打码有马赛克、模糊、纯色和抹平（用四周的底色盖住，像擦掉了一样），可以框也可以涂抹，打码的地方还原不出来。
@@ -271,7 +274,7 @@ Listary、PowerToys 的“查找鼠标”默认也用双击 Ctrl，关掉其中�
 - **索引位置**：在设置 → 高级 → 索引位置里，可以移到其他内置硬盘。
 
 **索引很慢，或者出了问题？**
-到 **设置 › 高级 › 诊断日志** 点“导出诊断日志”，把打开的文件夹里的 `WinShun-diagnostics.zip` 发到 GitHub Issues 或论坛。诊断包记的是版本、系统、磁盘、索引进度和错误，不含设置、剪贴板、搜索历史和文档正文。
+到 **设置 › 高级 › 诊断日志** 点“导出诊断日志”，把打开的文件夹里的 `WinShun-diagnostics.zip` 发到 GitHub Issues 或论坛。诊断包记的是版本、系统、磁盘、索引进度和错误，以及界面显示和字体的状态（字显示不对时先导出再重启），不含设置、剪贴板、搜索历史和文档正文。
 
 **收费吗？会上传数据吗？**
 完全免费，MIT 开源。只在这些时候联网：到 GitHub 检查新版本（可以关掉）；第一次显示某个网页搜索或书签时取一次那个网站的图标；打开设置里的“插件库”这一页、点“刷新”或安装插件时，到插件库取列表和插件；在网站关键词后打字时，把这些字发给那个网站取搜索建议（不打关键词时一个字也不发，可以在设置里关掉）；你自己打开“按意思找”插件并选了云服务时，把文档的文字发给你选的服务商。索引和历史只存在本机（`%LOCALAPPDATA%\WinShun`）。
@@ -311,6 +314,8 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 
 ### Features
 
+- **WSL file search**: add a Linux project or home folder under Settings › Search scope › Network & WSL. Installed distributions appear automatically. Search file and folder names alongside local files, including pinyin; indexed results remain available while WSL is stopped and update automatically when it runs again.
+
 - 🔍 **File search**
   - **Speed**: press Ctrl twice (or Alt or Shift twice, if you prefer); a search over three million files takes milliseconds.
   - **Pinyin**: `ndbg` finds 年度报告; a mistyped homophone (年度报高) is retried by sound.
@@ -342,7 +347,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 - ⭐ **Favorites**
   - Right-click → Add to favorites. They come first when the box is empty; give one a keyword to open it, and `Tab` searches inside a favorite folder.
   - **Your own commands**: Settings › Favorites › Add command. Give it a keyword and put `{query}` in the command; what you type after the keyword goes there. With the keyword `code` and the command `"C:\Tools\Code.exe" {query}`, typing `code D:\my-project` and Enter hands that folder to the editor. No command prompt is involved, and searching or importing never runs a command.
-  - **Shake while dragging**: drag files or folders with the left button (from File Explorer, the desktop or another program) and shake the mouse left and right a few times: a round menu opens at the pointer. The inner ring picks Move or Copy; the outer ring is your first 8 favorite folders, a long name written on two lines. Release on a folder to move or copy there; the progress and name-conflict windows are Windows' own, and `Ctrl+Z` in File Explorer undoes it. Release in the middle or press `Esc` and nothing happens; drag out of the menu and it closes, and the drag goes on as usual. On by default; turn it off in Settings › Favorites (“Shake while dragging files to bring up the favorites pie”). It does not work while WinShun itself runs as administrator.
+  - **Press `` ` `` while dragging**: hold the left button on files or folders (no need to drag yet; File Explorer, the desktop, Total Commander or another program) and press the key below `Esc` (it types nothing during the drag): your first 8 favorite folders appear round the pointer. Drag toward a folder to pick it, as in a marking menu, and let go to drop there: as in File Explorer, within a drive it moves and to another drive it copies, `Ctrl` copies and `Shift` moves. The progress and name-conflict windows are Windows' own, and `Ctrl+Z` in File Explorer undoes it. Let go in the middle or press `Esc` and nothing happens; press the key again or drag further away and it closes, and the drag goes on as usual. On by default; turn it off in Settings › Favorites (“Press ` while dragging files to bring up the favorites pie”). It does not work while WinShun itself runs as administrator.
 - 🧩 **Plugins**
   - **Bundled**: `= 1+2*3`, `12 inch to cm`, `#ff8800`, timestamps, UUID, Base64, hashes; `kill` processes, `bm` browser bookmarks, `tr` translation.
   - **Search by meaning** (off by default): `? last year's expense rules` finds a document that says “travel cost requests”. It uses the model you pick: Ollama or LM Studio on your PC uploads nothing; for SiliconFlow, Model Studio, OpenAI and others you enter your own key, and before the first run it says how much text would be sent and waits for your Enter. See [plugins/winshun.semantic](plugins/winshun.semantic/README.md).
@@ -375,7 +380,8 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Privacy**: passwords from password managers are not kept, and the history stays on your PC.
   - **Screenshots** (off by default; turn it on in Settings › Plugins, record your own shortcut there, and turn on `PrtScn` too if you want it):
     - **Choosing**: rest the pointer on a window or a button and it is outlined, with everything outside it dimmed; click to take it, or drag an area; the wheel makes the outline larger or smaller. Side panels and buttons in apps that draw their own interface, such as Settings and Calculator, are outlined too (not inside Chromium apps such as Chrome, Edge, VS Code and WeChat, where only the whole window is outlined; drag an area there). `Shift+R` goes back to the area of the last screenshot.
-    - **Magnifier and color**: the pixels under the pointer, enlarged; `C` copies the color under it and `Shift+C` switches between `#RRGGBB`, `rgb()` and `hsl()`.
+    - **Magnifier and color**: the pixels under the pointer, enlarged; `C` copies the color under it and `Shift` alone switches between `#RRGGBB`, `rgb()` and `hsl()`. Once an area is chosen, the magnifier shows only inside it.
+    - **Copy the words**: `Shift+C` reads the words in the area and copies them.
     - **Delay**: `D`, or Delay on the toolbar, counts down (the seconds are a setting) and freezes the screen only at the end, for menus and tooltips. “Include the mouse cursor” in the settings puts the pointer in the picture (off by default).
     - **QR codes**: `Q` reads a QR code in the area and shows its text to copy; for a web address there is an Open link button, and nothing opens until you click it.
     - **Marking up**: rectangle, ellipse, arrow, line, pen, highlighter, text, numbers and redaction. Numbers can be `1 2 3`, `A B C`, `a b c`, Roman numerals or numbers in circles, and a few words can be typed beside one. Redaction is mosaic, blur, solid or Smooth (covered with the surrounding background, as if wiped away), as a box or a stroke; what is under it cannot be worked back out.

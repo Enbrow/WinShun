@@ -10,6 +10,10 @@
 
 设置 › 高级的诊断按钮通过 `SettingsEditor::diagnosticsExportRequested` 触发后台 `std::jthread`，采集即时索引状态和磁盘信息；UI 不等压缩或读盘。`Diagnostics::exportArchive` 只打包诊断记录、白名单中的程序/服务错误日志及 `summary.json`，每份旧错误日志最多取末尾 1 MiB。设置、剪贴板、索引原件、搜索历史和 MCP/插件对话不进包。使用 `QSaveFile` 原子替换固定的 `WinShun-diagnostics.zip`，出错保留上次成功的包；不自动导出、不生成带日期的副本。读取不到服务日志时在摘要中列出缺失项，已有记录仍可导出。
 
+界面显示（GitHub #70：运行很久后结果行高亮的字变成别的字，重启就好，证据随重启消失）由 `DisplayDiagnostics` 记：启动时 UI 字体怎么加载的（按文件还是按数据、字体引擎 `QT_QPA_PLATFORM`，事件 `ui-font`）、屏幕的每次变化（分辨率、缩放、DPI、刷新率，不记显示器名，`screens`）、启动器窗口的图形接口和显卡名（`graphics`，场景图再次启动只计数，出错记 `graphics-error`）、睡眠与唤醒（`power`）、Windows 的字体增删（`WM_FONTCHANGE`，2 秒内只记一次，`fonts-changed`；Qt 6.12 对它什么也不做），以及 Qt 自己清空字体缓存的每一次（`QGuiApplication::fontDatabaseChanged`，加或删应用字体时才有，从加载完 UI 字体以后算起，`font-database-changed`）。结果行每次画高亮时调 `watchHighlightFont`：先记下这个字体（最近用过的 6 个），每 10 分钟最多一次用 `TextCheck` 把记下的都自检一遍：把一段固定样例（`textcheck::sample()`，没有字体替换规则会动的字）按高亮、全粗、全细排版，每个字形号对比那一段所用字体自己给这个字的字形号（字和字形按横坐标对应，不用 `stringIndexes`，见 pitfalls.md）；对不上就是 #70 那种“甲字体的字形号拿乙字体画”。第一次结果和每次变化记 `text-check`（精简到一条 8 KiB 以内，出错时也写进 `WinShun.log`）。导出时在 GUI 线程（Qt 的字体缓存按线程分）取 `display` 放进 `summary.json`：渲染器、毛玻璃、字体的实际匹配、区域与界面语言、代码页、ClearType、屏幕、显卡、运行时长、睡眠和字体变化次数，以及当场再做一次的自检全文。
+
+自检“正常”说明的是 GUI 线程上的排版：新排的，和排好以后 Qt 清过字体缓存再取字形的（`tst_textcheck` 两种都测了，DirectWrite、FreeType、GDI 三种字体引擎各一遍）都对得上。字形画到屏幕上那一步（渲染线程自己的字体缓存和字形纹理）不在其内：诊断包里自检正常而屏幕上字是错的，说明问题出在画的那一层；这时看 `font-database-changed`、`power`、`screens`、`graphics` 这些事件和出错时间的先后。
+
 ## 设置文件
 
 设置窗口里的每一项都存在 `%APPDATA%\WinShun\WinShun.ini`，直接改这个文件也会立即生效：
@@ -24,11 +28,11 @@ DoubleCtrlPauseInFullScreen=false ; 任何程序铺满显示器时都不响应�
 DoubleCtrlExcludedApps=  ; 不响应双击 Ctrl 的程序，如 TheFinals.exe，逗号分隔
 Hotkey=                  ; 额外的全局快捷键，例如 Alt+Space、Ctrl+Shift+F
 DialogJump=true          ; “打开”“另存为”对话框里按 Ctrl+G，转到文件管理器（资源管理器、Total Commander、Directory Opus、XYplorer、Pulse）正在显示的文件夹
-DialogBar=true           ; “打开”“另存为”对话框下方的搜索框
+DialogBar=false          ; “打开”“另存为”对话框下方的搜索框；新装默认关，以前的设置文件里没有这一项时当开（升级不变）
 DialogAutoJump=false     ; 对话框出现时（以及从文件管理器换了文件夹再切回来时）自动转到文件管理器的文件夹
 DialogBarExcludedApps=   ; 不显示搜索框的程序，如 notepad.exe，逗号分隔；搜索框“更多”菜单里加，设置里删
 ExplorerTyping=false     ; 在资源管理器的文件列表里直接打字，就用 Win顺 在这个窗口的文件夹里搜（和 Listary 一样）；代替资源管理器自己的按首字母跳到文件，所以默认关
-FolderMenu=auto          ; auto | on | off：在资源管理器或桌面的空白处双击弹出文件夹菜单（GitHub #22）；auto 时 Listary 在运行就不弹
+FolderMenu=off           ; auto | on | off：在资源管理器或桌面的空白处双击弹出文件夹菜单（GitHub #22）；auto 时 Listary 在运行就不弹；新装默认 off，以前的设置文件里没有这一项时当 auto（升级不变）
 FolderMenuExplorer=true  ; 资源管理器里
 FolderMenuDesktop=true   ; 桌面上
 FolderMenuFavorites=true ; 菜单里列出收藏的文件夹（GitHub #51）；三项至少留一项，全关的手改文件读回来当全开
@@ -54,6 +58,7 @@ Automatic=true           ; 启动时和之后每 12 小时到 GitHub 检查新�
 ExcludedPaths=...        ; 不建索引的文件夹，支持 %WINDIR% 这类环境变量，逗号分隔
 ExcludedNames=...        ; 任意位置的同名文件夹，也可写尾部路径，如 .svn/pristine
 IncludeRemovableDrives=false
+Drives=C:,D:             ; 缺省（无此键）索引全部允许的本机磁盘；显式空值是不索引任何本机磁盘。先按盘符筛选再查询卷，未选中的盘不打开；网络/WSL 位置单独管理（#76）
 RescanOnStartup=true     ; 启动 15 秒后在后台核对一次磁盘，补上程序未运行期间的变化
 Folder=                  ; 索引文件放在哪个文件夹，如 D:/WinShun；空 = %LOCALAPPDATA%\WinShun
 Scope=auto               ; auto | drives | folders：索引整个磁盘，还是只索引下面选中的文件夹（GitHub #52）。只对按文件夹遍历的磁盘起作用：用索引服务或管理员直读时总是整个磁盘；索引服务装着、没被停用时也总是整个磁盘，它暂时没在运行（登录时还没起来、正在更新）也一样，免得每次登录先删掉别的盘、等服务来了再整盘重读；auto 时没有索引服务（没装或被停用）、也没以管理员身份运行，或“索引方式”选了遍历，就只索引选中的文件夹。新装写 auto；旧版的设置文件里没有这一项的当作 drives 并写进去（升级的人照旧索引整个磁盘）
@@ -145,6 +150,11 @@ PinOnCopy=false          ; 复制截图时同时贴图（GitHub #59），也作�
 MouseDoubleLeft=copy     ; 选好区域之后各个鼠标键做什么（GitHub #46）：none | copy | copypin | save | pin | ocr | cancel；MouseRight 还多一个 back（默认，退回重新框选）
 MouseRight=back          ; MouseMiddle、MouseBack（侧键后退）、MouseForward（侧键前进）默认 none；正在标注时右键只撤回当前一笔，不走这里
 Keyword=jt               ; 截图历史的关键词：搜索框里打它加空格，列出 Win顺 截过的图；插件的同名关键词让给它，网页搜索和收藏的同名关键词设置时就拒绝
+
+[PasteFile]              ; 粘贴为文件（见下文“粘贴为文件”）；设置 → 插件 的“粘贴为文件”卡片
+Enabled=false            ; 关着时不为它装键盘钩子，右键菜单里也没有它
+CtrlV=true               ; 资源管理器的文件列表、桌面上按 Ctrl+V，剪贴板里是文字或图片（没有文件）时存成文件
+Menu=true                ; 文件夹和桌面空白处的右键菜单里加“粘贴为文件”；CtrlV 和 Menu 至少留一个，两个都关的手改文件读回来当都开
 ```
 
 修改“不搜索的文件夹”后不需要重建索引：新排除的文件夹直接从索引里去掉，取消排除的文件夹单独补读一遍。只有取消排除“文件夹名称”（它可能出现在任何位置）时才会重新读取所有磁盘。
@@ -163,6 +173,14 @@ Keyword=jt               ; 截图历史的关键词：搜索框里打它加空�
   - 内容查询不在文件索引的读锁里做（先 `pinIds` 保证编号不变）：读盘慢的那几秒，索引更新和文件名搜索都不用等。
 
 本程序原名“快搜”（QuickFind）。第一次以 Win顺 启动时，会先让还在运行的快搜退出，再把 `%APPDATA%\QuickFind`、`%LOCALAPPDATA%\QuickFind` 搬到新位置，开机自启（计划任务“QuickFind”）也换成“WinShun”，设置、索引和最近使用记录都保留。
+
+## #76 / #78 / #79：磁盘范围、目录链接与关闭后的资源（2026-10-25）
+
+- `selectedDrives` 用 optional 区分“全部允许的磁盘”和“一个都不选”；卷枚举在读取类型和卷信息之前筛选，撤掉的卷走已有快照、内容索引、监视器的移除流程。已保存但离线的盘符仍留在设置列表，移动盘总开关仍生效。
+- 整盘 MFT/遍历不跟随目录重解析点。`IndexService::Scope` 额外保留用户明确添加、路径中含目录链接的根；普通文件夹不重复走。整盘刷新后补走这些路径，给链接单独建变更监视，并保留独立核对状态。删除补充范围只移除其索引子项；磁盘选择、路径排除规则仍优先。链接子项不用目标文件的 NTFS 记录号，避免把原路径与别名混在同一个映射中。
+- `ClipStore` 构造不启动线程、不打开数据库；开启记录才加载。关闭时先让 `Clipboard` 停止排队识别、销毁历史窗口及预览，再冲完写库队列并释放连接和内存列表。历史文件及分组不删除。显式导入期间延后关闭，完成后再释放。
+- `ClipboardWatcher` 未启用时不创建线程或监听窗口；独立复制任务按需启动写入线程，完成后空闲退出，且不开启监听。`TextRecognizer` 首次识别才创建线程，一批结束后释放模型并退出；停用会清空待识别队列，当前图片允许完成。
+- 保留现有 Qt 和内置模块结构；关闭功能不等于从进程卸载共享库，也不等于独立卸载组件。参考 SnowAir、ClipLite 的按需使用思路，未引入它们的代码；ClipLite 当前仓库采用 PolyForm Noncommercial，SnowAir 的公开源码仍缺少私有 Ling 依赖。内存数字不能直接跨产品比较。
 
 ## 性能（实测）
 
@@ -230,7 +248,8 @@ src/core/            搜索引擎和剪贴板历史，只依赖 Qt Core、Qt Sql
   ChangeWatcher      ReadDirectoryChangesW 监听遍历的磁盘（U 盘、没有服务时的 NTFS 盘）、网络共享和插件目录的增删改名；卷根 1 MB 缓冲（读失败就退回 64 KB），最多 62 个，根打不开时改看其中的文件夹（GitHub #52）
   IndexService       加载快照 → 追上变更日志 → 实时跟踪 → 定期保存
   ShareIndexer       网络共享：每个共享一条线程，探测 → 第一次全读 → 实时跟踪 + 定期核对；整轮成功才删除，少得可疑时先不删
-  ShareLister        读共享上的文件夹（FileFullDirectoryInfo）、探测服务器是否用 SMB 回答、把错误归类（离线、要登录、来宾被挡……）、列服务器上的共享
+  ShareLister        按来源读目录：SMB 用 FileFullDirectoryInfo，WSL 用 FindFirstFileEx；按完整路径检查来源可用性，保留 SMB 探测及错误归类
+  Wsl                从用户注册表发现发行版；后台有界调用 wsl --list --running --quiet，跨目录共享运行状态缓存，界面只读缓存
   Unc                网络路径：整理写法、取服务器和共享、映射的盘符换成共享、这台电脑用过哪些共享（只读注册表）
   Snapshot           索引的磁盘格式（流式写入，原子替换）
   Query / NameSearch 查询解析、打分、多线程扫描（SSE2 加速）
@@ -273,7 +292,7 @@ src/app/             界面与 Windows 集成
   App                组装各部分，管理窗口、托盘、热键
   platform/          双击 Ctrl（Raw Input）、托盘、Shell 操作、驱动器插拔、窗口效果、跟踪文件对话框、Ctrl+G 和自动转过去（DialogJump）、从外面操作文件对话框（FileDialog）、问文件管理器开着哪些文件夹并叫它们打开文件夹、让资源管理器的某个标签页转到别的文件夹（FileManagers）、双击落在资源管理器或桌面的哪里（FolderViewHit）、带 COM 的后台线程（ComWorker）、录快捷键时的键盘钩子（ShortcutCapture）、读写剪贴板（ClipboardWatcher）、把按键送回原窗口（Paster）、剪贴板不抢焦点时把按键转给它（KeyRouter）、找别的程序的输入光标（TextCaret）、接管 Win+V 和 Win+S（WinV）、任务栏搜索入口和可选的搜索接管（TaskbarSearch）、任务栏上 Win顺 自己的搜索框（TaskbarSearchBox）、登录网络服务器（Credentials）、网络变化（NetworkNotifier）、取网站的图标（SiteIcons）、把结果拖出去（DragOut）
   qml/               界面：Main / SearchBar / ResultRow / Footer / ClipboardPage / SettingsWindow …
-src/stub/            WinShunSearch.exe：用户固定到任务栏的按钮，不带 Qt、不提权，点一下通知 Win顺；也替它以普通权限打开截图
+src/stub/            WinShunSearch.exe：用户固定到任务栏的按钮，不带 Qt、不提权，点一下通知 Win顺；也替它以普通权限打开截图；粘贴为文件也是它做（PasteAsFile，见下文）
 src/service/         WinShunService.exe：索引服务（Windows 服务 "WinShun"，LocalSystem，不带 Qt、静态 C 运行库），替普通权限的 Win顺 读 NTFS 的 MFT 和变更日志，见下文“权限分离”；Server（接受连接、每连接一线程、握手、限额、让出磁盘）、Volumes（OpenMft / QueryJournal / FollowJournal / CloseVolume 的服务端）、Log、InputListener（按客户端会话启动 UIAccess 双击 Ctrl 监听子进程，连接拥有其生命周期）、main（SERVICE_MAIN、--install / --uninstall / --console / --listen-keys）
 src/mcp/             AI 助手：Win顺 作为 MCP 服务器（见下文“AI 助手”）
   JsonRpc / Pipe     每行一条 JSON-RPC 消息的解析和拼装；命名管道的名字、安全描述符和客户端一端（只依赖 Qt Core，中继也用）
@@ -647,6 +666,16 @@ Win顺 是一个 MCP（Model Context Protocol）服务器：Claude Desktop、Cla
 
 ## 截图
 
+### #71：路径与荧光笔（2026-10-25）
+
+`annot::Style` 的 `lineMode` 区分直线、连续折线、三次贝塞尔，`markerMode` 区分涂画、直线和矩形。折线沿用顶点顺序，`Item::closed` 表示闭合；贝塞尔保存起点、终点、第一控制点、第二控制点。渲染、命中、边界和手柄共用路径几何。连续加点只提交一个 `AddItems`，未落定的预览段不进入项目文件；截图会话的悬停、双击第二次按下和右键都交给同一个模型处理。
+
+新项目格式为 **v2**，读取时将 v1 迁移为默认直线和涂画；旧版程序应拒绝新版本，不能悄悄丢失曲线或把矩形荧光笔当作自由笔迹。下面阶段记录中的“版本仍为 1”是当时的历史状态。
+
+### #74：显示配置变化后的窗口尺寸（2026-10-25）
+
+`Placement` 保存独立的逻辑 `contentSize`，由启动器和剪贴板布局提供；面板只在用户操作结束时保存偏好尺寸。屏幕、DPI、工作区或休眠唤醒消息到达后，等待 Qt 处理原生消息，再按内容尺寸或面板偏好恢复并限制到工作区；系统重连中的临时小窗口不能写成下次的偏好。`tst_displaygeometry` 使用隐藏原生窗口反复模拟缩小和 DPR 事件；真实混合 DPI 多屏休眠仍待硬件验证。
+
 内置模块，代码在 `src/capture/`（设计和取舍见 `docs/design-capture.md`，阶段 0 的实测在它的 §6）。设置 → 插件 的“截图”卡片（`CaptureCard.qml`，放在 `PluginsSection` 的“内置功能”行里）开关；`[Capture]` 见上面的设置文件。
 
 - **只在开着时存在。** `App::applyCapture` 在 `Enabled` 打开时建 `capture::Capture`，关掉时整个销毁：遮罩窗口、D3D 设备、WGC 的 capture item、热键都随之释放，再 `IdleTrim::poke`。`m_capture` 声明在 `m_qml` 之后、`~App` 里先 reset（遮罩是那个引擎建的）。
@@ -722,7 +751,7 @@ Win顺 是一个 MCP（Model Context Protocol）服务器：Claude Desktop、Cla
   - **控件识别（界面自动化，`UiaProbe`、`WindowSnapshot::addControls`）：** `CaptureSession::Windows::probe` 在悬停时把“第 i 个窗口、这个点”交给 `Capture::askUia`；`Capture::askUia` 先挡掉 Chromium（`WindowSnapshot::hostsChromium`：顶层窗口或任何子窗口、含隐藏的，类名是 `Chrome_WidgetWin_*`、`Chrome_RenderWidgetHostHWND`、`Intermediate D3D Window`、`CefBrowserWindow`，即 Chrome、Edge、VS Code 等 Electron 程序、CEF、WebView2、Qt WebEngine；每个窗口记一行日志 “UI Automation skipped for a Chromium window”），这些窗口只用 Win32 子窗口；再要 `wantsUia(窗口类名, 子窗口数)` 通过（Firefox、XAML、WinUI，或没有子窗口；它自己也拒绝 Chromium 类名）、`UiaGate` 没拉黑这个窗口，才交给探针线程（第一次问时才建，截图结束就放；`MTA`，`CUIAutomation8`，连接和事务超时各 150 ms）。因为遮罩盖在整块屏上，`ElementFromPoint` 会命中我们自己，所以从窗口的元素一层层往下走：每层 `FindAllBuildCache(子元素)` 一次（缓存矩形和是否在屏外），取包含这个点的子元素，Chromium 在内容外包了十来层同样大小的窗格、有的是死路，所以每个都试、留最深的一条（深度 32、最多读 400 个元素、总共 150 ms）。链上的矩形去掉太小的、和窗口一样大的、重复的，并进这个窗口的子窗口列表，`refreshHover` 重算悬停框。答案超过 150 ms 的整条丢掉并拉黑这个窗口（本次截图只用子窗口），连续 6 次没有控件也不再问。**不注册任何事件处理，也绝不问 Chromium 的窗口**：Chromium 一被界面自动化问到（或发现有客户端在听）就打开整套无障碍模式、直到重启都不关，VS Code 随之切到“已为屏幕阅读器优化”、改变编辑器行为（pitfalls“Chromium 的界面自动化会让 VS Code 进入屏幕阅读器模式”）。长截图 `ScrollInput` 的 `Uia` 一级同理：区域中心的窗口链上有 Chromium 窗口就直接返回 `ScrollNoPattern`（滚轮两级在这些程序里本来就管用）。代价：Electron 程序里的小按钮不再被识别，悬停框是它的子窗口或整个窗口，需要时手动框选。日志一行 “UI Automation gave N controls in X ms: 矩形 | 矩形”，每次截图最多记 40 行。
   - **二维码：** `Q`（`Action::Qr`）把选区取出来，在工作线程里 `readQrCodes`（zxing-cpp 2.3.0，只开 QRCode、MicroQRCode，`tryHarder`、旋转、反色，最多 8 个），结果经 `qApp` 回到界面线程，`App::showQrResult` 用识别文字的窗口（`CaptureOcr::showTexts`）显示；一个结果且是 http(s) 网址（`qrLink`）时多一个“打开链接”按钮，点了才 `QDesktopServices::openUrl`。zxing-cpp 整个 `core/`（不带 libzint）放在 `third_party/zxing-cpp/`，`src/capture/CMakeLists.txt` 里 `add_subdirectory(... EXCLUDE_FROM_ALL)`（它的安装规则不进我们的），静态链接，许可证随安装包放到 `licenses\zxing-cpp.txt`。
   - **测试。** `tst_stage7`（35：转四次一像素不差和转的方向、翻转、转的中心、小块和顶边小条的位置、拖角缩放、选字的行和字、颜色三种写法、倒计时的数字、`Shift+R` 的显示器、指针画进图和 `DrawIconEx` 一样、界面自动化的规则和拉黑、zxing-cpp 自己生成的二维码读回原文（汉字、长文本、反色、转过的、一张图里两个、没有码的图、文字页不是码）、什么算链接），`tst_capture`（缩放档、`Shift+R`、`Shift+C`、`Q` `D`、悬停里界面自动化的答案并进来），`tst_settings`（新设置的存读和不认识的值）。
-  - **设置（`[Capture]`）：** `IncludeCursor`、`ControlsUia`（默认开）、`DelaySeconds`（3、5、10）、`ColorFormat`（hex、rgb、hsl，`Shift+C` 换了就存）、`PinsHotkey`、`PinsRestoreHotkey`；工具条按钮 id 多了 `qr`、`delay`。
+  - **设置（`[Capture]`）：** `IncludeCursor`、`ControlsUia`（默认开）、`DelaySeconds`（3、5、10）、`ColorFormat`（hex、rgb、hsl，单按 `Shift` 换了就存）、`PinsHotkey`、`PinsRestoreHotkey`；工具条按钮 id 多了 `qr`、`delay`。
   - **实测（阶段 7，2026-10-23，同一台机器 2560×1600、150%、SDR，dist 版真实输入，WINSHUN_TEST_NO_CLIP_HISTORY）：** 热键到遮罩 29–102 ms（59 次，中位 50），比阶段 6 之前的 54–96 ms 没有变慢。贴图转四次（右、左各一遍）窗口和像素 0 差；翻转两次 0 差；收起成小块、顶边小条再展开窗口和像素 0 差；20 张 800×500 的贴图私有字节 529 → 613 MB，全部收起后 536 MB（42 秒后 535 MB），全部关掉后 518 MB。在贴图上拖选第 2、3 行得到 “Second row 987654 / Third row WinShun OK”，和识别文字窗口读出的同一张图的这两行一样；关闭其他只留中间那张；`Shift+R` 后 F3 贴出的图和上一次的窗口矩形完全一样。延时 3 秒：倒计时的数字在变，3007 ms 后拍照，拍到的图里 2.3 秒时变色的块是新色、4.2 秒时变色的块还是旧色，倒计时窗口的位置在拍到的图里和倒计时之前 0 像素差；取消（再按热键）后 4 秒内没有遮罩。带指针时存下的 PNG 和 `DrawIconEx` 在同一底色上用日志里写的那个句柄画的 0 像素差（不带时 0 个像素不是底色）。二维码：测试用的两个码读出 `https://example.com/wsqr7?x=1` 和 `WinShun QR text 7 hello`，“复制全部”进剪贴板，没有浏览器进程被启动；选区里没有码时窗口说没找到。VS Code（另开的实例）里悬停：活动栏的按钮、侧栏、编辑区的文字块、标签页都框到了，和从外面用界面自动化读到的矩形一致，每次问 12–29 ms；把 VS Code 挂起（`NtSuspendProcess`）后，答案 150 ms 超时、丢掉，悬停框是子窗口（1311,40 1228×1469），鼠标移到别的窗口 54 ms 内悬停框就跟上。穿透的三张贴图按“找回穿透贴图的快捷键”后全部能点；隐藏 / 显示、全部置顶的开关都对。只有一块屏，**多块屏上的 `Shift+R`（回到上次那块屏）和顶边小条在别的屏上没有实测**。
 
 
@@ -807,16 +836,33 @@ build\asan\wsfuzz.exe -max_total_time=300      # 用随机数据测 5 分钟
 
 验证入口：`tst_clipfiles`（真实存储、同秒多图、整批失败、Shell CF_HDROP 与路径顺序）、`tst_capture`（悬停/多屏、复制并贴图动作）、`tst_stage7`（UIA 分支选择）、`tst_settings`（设置往返）。`WINSHUN_TEST_NATIVE_DIALOG=1 tst_filepaste` 另外打开测试自身的 Windows 文件选择框，验证中文空格路径和跨文件夹多选；默认 CTest 跳过这个需要桌面的项目。设置预览现在启用截图卡片的全部选项，但不会启动截屏器或注册热键。
 
-## 拖放圆盘（DropPie，2026-10-23）
+## 拖放圆盘（DropPie，2026-10-23，2026-10-24 重做）
 
-拖着文件左右晃一晃鼠标，指针处弹出一个圆盘：中间松开是取消，内圈左半“移动”、右半“复制”（最后穿过的那半记住，`Ctrl` 复制、`Shift` 移动，两个都按着都不算），外圈是前 8 个文件夹收藏（Place 能解析成文件系统文件夹的也算），0 号在正上方、顺时针排。松开在外圈就移动或复制到那里；指针离开圆环圆盘就收起、拖动照常继续；`Esc` 取消。开关是 `[Favorites] DropPie`（默认开，`Settings::dropPie`、`SettingsEditor::dropPie`、AI 设置里的 `Favorites/DropPie`）；Win顺 以管理员身份运行时不建（`integrity::processElevated()`），设置里的开关也灰掉。
+按住文件（不用先拖动）或拖着文件时按一下 `Esc` 下面那个键（美式和中文键盘上是 `` ` ``，中文输入法下打出来是 `·`，德语键盘是 `^`：按位置认，扫描码 0x29），指针周围弹出最多 8 个文件夹收藏的名字胶囊（Place 能解析成文件系统文件夹的也算）：0 号在正上方、顺时针排，像 Maya/Blender 的 marking menu，**朝哪个方向拖就是哪个**，不用拖到胶囊上。松开就放进那个文件夹：和资源管理器一样，同一个盘里移动、到别的盘复制，按住 `Ctrl` 复制、按住 `Shift` 移动（两个都按着都不算）；在中间松开、按 `Esc` 什么也不做；指针离开胶囊外围就收起、拖动照常继续；再按一次那个键也收起。开关是 `[Favorites] DropPie`（默认开，`Settings::dropPie`、`SettingsEditor::dropPie`、AI 设置里的 `Favorites/DropPie`）；Win顺 以管理员身份运行时不建（`integrity::processElevated()`），设置里的开关也灰掉。
 
-- **晃动的识别**（`platform/ShakeDetector.{h,cpp}`，纯函数，`tst_shake`）：鼠标的 Raw Input 还是 `KeyListener` 那一份（一个进程只能注册一次；文件夹菜单默认开着，本来就注册了），`KeyListener::onDrag` 在原来的 `onMouse` 之前把主键（照 `SM_SWAPBUTTON`）的按下、移动、松开喂给它，位置用 `GetPhysicalCursorPos`、时间用 `GetMessageTime`。按下时按那台显示器的 DPI 取 `SM_CXDRAG/SM_CYDRAG` 和缩放：超出拖动矩形才算开始拖，每一摆至少 16 逻辑像素、横向是纵向的 1.5 倍以上，回拉 6 像素算转向，两次转向间隔不超过 350 ms，三摆在 900 ms 内；第一摆从它最后 16 像素的那段算起（拖了一路再晃也认）。触发一次后 600 ms 内开始的摆不再算，换一次按下重新来。时间是 32 位的毫秒，按回绕处理。
-- **是不是 OLE 拖放**：晃动成立时，看按下点 `WindowFromPoint` 那个线程（取不到就是前台线程）的 `GetGUIThreadInfo().hwndCapture`，类名是 `CLIPBRDWNDCLASS` 才是 `DoDragDrop` 正在进行（框选、拖窗口、拖滑块都不是）。例外是 Total Commander：在它自己窗口里拖文件时，捕获在它的主窗口（类名 `TTOTAL_CMD`）上，它自己画、自己判断，指针到了别的程序的窗口上才开始 OLE 拖放；所以按下点那个线程的捕获是 `TTOTAL_CMD` 时也算（`GetGUIThreadInfo` 的 `flags` 有 `GUI_INMOVESIZE` 或菜单模式时两种都不算：那是拖标题栏、改大小，Windows 自己的“晃动窗口”），圆盘照样建（`DropPie` 在 `DragEnter` 之前不显示），指针就在圆盘窗口上，TC 随即转成 OLE 拖放。这些连同来源进程号交给 `Callbacks::dragShake(POINT, HWND, DWORD)`；主键松开时 `leftButtonUp()`。两者都在监听线程上，`DropPie::shaken` / `buttonReleased` 用 `QueuedConnection` 转回界面线程。
-- **几何**（`PieGeometry.{h,cpp}`，`tst_piegeometry`）：半径 50（中间）、58–112（内圈）、120–226（外圈），扇区之间 4 像素，都乘界面大小的比例（标签 12/13/14 px ÷ 13）。环与环之间的缝归近的那一圈；外圈外面再留 12 像素才算离开。`placeCentre` 让整个圆环都落在指针所在显示器的工作区里（2026-10-23 起；之前圆心离指针不超过内圈半径，离右边 60 逻辑像素时圆环被切掉约 53 像素）：圆心照着指针，只往里挪到刚好放下；挪得比“内圈外沿 − 6”还远时（指针会落在外圈、某个文件夹上）返回 `warp`，和别的圆盘菜单在屏幕边的做法一样把指针移到圆心：等 `DragEnter` 确认拖的是文件之后才移（`DropPie::dragEnter`，`SetCursorPos`；拖文字时只是过了晃动这一关，指针不能乱跳），这一次的命中按圆心算；移过之后 300 ms 内还在路上的旧位置算作在中间，不当成离开。物理像素由窗口位置加圆心乘**这台显示器**的缩放算出（`m_dpr`，取自 `QScreen`；窗口第一次出现在另一台缩放不同的显示器上时，它自己的 `devicePixelRatio` 可能还是旧的），命中测试也用它。窗口总包含晃动时的指针，`DragEnter` 才会来。`SetCursorPos` 不产生 Raw Input，所以不会再算成晃动；它产生的鼠标移动 OLE 的拖放循环照样收到，`DragOver` 和拖动图像跟到新位置（实测见 pitfalls）。工作区放不下整个圆环时放在工作区正中。窗口只占这台显示器（两台缩放可能不同），四周留出提示和底栏的地方。
-- **名字**（`PieLabels.{h,cpp}`，`tst_pielabels`）：用画标签的字体量（`QFontMetricsF`），一行放不下就两行，优先在 `_ - 空格 ·` 之后或 `（ ( 【 [` 之前断，否则找最平均的断点；两行也放不下就前半 + “…” + 结尾（结尾常是“终版”、日期、版本号）。宽度是扇区在标签半径处的弦长减去边距，最多 96。收藏起了名字就用名字；两个一样的名字第二行写“在 上级文件夹”，上级也同名就写上级的完整路径。底栏的路径从中间省略，保留盘符（或 `\\server\share\`）和最后一层。设置里收藏表单的预览用同一个函数（`DropPieText.fit`，QML 单例，不经 `FavoritesSettings`）。
-- **控制器**（`DropPie.{h,cpp}`）：窗口（`DropPieWindow.qml`）启动后就建好，2 秒后以 1 像素大小显示一次等到第一帧再藏起来（预热图形，第一次晃动马上能画）。它是透明、不抢焦点的置顶工具窗（`_q_showWithoutActivating`），不用 `win::styleFramelessWindow`（会加 DWM 阴影框）。晃动后先放好窗口、显示，但**还不画**；只有 OLE 对它 `DragEnter`、数据里有 `CF_HDROP` 或 `CFSTR_SHELLIDLIST`、来源允许移动或复制，才淡入（`revealed`）。300 ms 内没有 `DragEnter` 就收起；指针一直不动时 OLE 不会重新判断目标，所以不动就一直等，最多 1.5 秒。主键松开后 300 ms 还没收到 `Drop` 或 `DragLeave` 也收起。来源是 Win顺 自己（从启动器拖出结果）时不弹：`DoDragDrop` 就在界面线程上。来源是以管理员身份运行的程序时照常弹：管理员进程拖给普通程序 UIPI 不挡（pitfalls“管理员进程往普通程序拖文件，UIPI 不挡”），日志里记一笔。
-- **放下**：`IDropTarget` 是 WRL 的 `piedrop::DropTarget`（`platform/PieDrop.{h,cpp}`），把 Qt 自己注册的那个 `RevokeDragDrop` 掉再 `RegisterDragDrop`；每次显示前看一眼 `winId` 变没变，变了重新接管。拖动图像交给 `IDropTargetHelper`（`CLSID_DragDropHelper`），提前收起时先替它 `DragLeave`（`leaveEarly`），之后 OLE 的那次 `DragLeave` 不再转给它。拖的是什么在 `DragEnter` 时读一次（`piedrop::readItems`）：来源给了 `CFSTR_SHELLIDLIST` 就只读它（父文件夹 + 各项的 ID 列表，取 `SFGAO_FILESYSTEM` 和文件系统路径），这时**不碰** `CF_HDROP`（压缩软件可能在这次调用里才解压，卡在我们的界面线程上）；没有才读 `CF_HDROP`。每一项都是“长久的文件”（有文件系统路径，父文件夹不是回收站、路径里没有 `\$Recycle.Bin\`，不在 `GetTempPath` 下面，长短两种写法都比）才走我们自己的复制：`IFileOperation`（`FOF_ALLOWUNDO | FOF_NOCONFIRMMKDIR | FOFX_ADDUNDORECORD`，资源管理器里能撤销），每次一条自己的 STA 线程，然后对来源返回 `DROPEFFECT_NONE`：来源不会以为“移动”已经完成而自己去删。来源的数据对象是异步的（`IDataObjectAsyncCapability::GetAsyncMode` 为真，资源管理器就是）时先 `StartOperation`，用 `RoGetAgileReference` 交给复制线程，做完 `EndOperation(结果, nullptr, DROPEFFECT_NONE)`，来源在那之前一直留着数据。其余的（手机、ZIP 里面等虚拟项目，回收站里的项目——`CF_HDROP` 给的是 `$R…` 名字，压缩软件解压到临时文件夹的副本——拖动一结束它就删）趁来源还拿着，转给目标文件夹自己的放下目标（`BindToHandler(BHID_SFUIObject, IID_IDropTarget)`），在界面线程上同步做，和放进资源管理器的文件夹一样（回收站的项目还原成原来的名字）；网络文件夹对这些灰掉。`piedrop::FileOperations` 归 `App`（`m_fileOperations`，第一个成员，最后析构），不归圆盘：关掉开关（设置或 MCP）时圆盘立刻删掉，正在问“替换还是跳过”的复制不挡界面；退出时等它做完（不半途中断）。复制线程的回调不碰圆盘，只写日志，失败（不是用户取消）时经 `App` 在界面线程上弹托盘通知（“没能复制到‘名字’”加 Windows 的错误说明）。放下时再查一次本机文件夹在不在（圆盘打开后被删了）：不在就不做，扇区灰掉、提示“这个文件夹已不存在”停 1.2 秒。在 `drop()` 里（文件夹的放下目标可能弹对话框、跑消息循环）关开关，`App::applyDropPie` 等它返回再删。放下后选中的扇区亮 150 ms 再收起。
-- **灰掉的扇区**（原因写在提示里）：文件夹已经不存在（只查本机路径，`GetFileAttributesW` 在 `ComWorker` 上做，网络路径不查，免得卡在掉线的服务器上）、就是这些文件所在的文件夹、拖的文件夹本身或它里面的文件夹、虚拟项目对网络文件夹。来源不允许移动时内圈左半灰掉（“这里只能复制”），复制同理。没有文件夹收藏时外圈只有一个灰的“还没有收藏文件夹”，底栏写去哪里添加。
-- **画**：`PieRing`（C++ 的 `QQuickPaintedItem`）画圆环、扇区、内圈两半和中间：`QtQuick.Shapes` 部署里没有（见 pitfalls“`import QtQuick.Shapes` 编译通过，部署后程序起不来”）。扇区和内外圈都画在一块不透明的圆盘上，扇区之间、圈与圈之间的缝露出的是它的灰色（`Theme.ringGap`），不是窗口后面的东西（透明的缝看起来像一圈彩色的环）；圆心放在整设备像素上、尺寸是偶数个设备像素，外沿是 `Theme.edge` 的 1 逻辑像素 `windowEdge` 灰边，选中的扇区和当前那半是 `accentFill` 配白字。提示（“移动到 名字”或灰掉的原因）放在圆环外面、指针所在扇区的方向上：右边的左对齐、左边的右对齐、正上下的居中，所以不会盖住任何标签；那里放不下（窗口边、底栏）就不显示，底栏说的是同一件事。中间、提示和底栏的名字都用 `PieLabels::elideMiddle` 从中间省略（`DropPie::elide`，“…”），不用 Text 自己的 elide。出现 120 ms（`OutCubic`，缩放 0.94→1 加透明度，动画关掉时直接出现），收起立刻。
-- **测试**：`tst_shake`（真晃、先左后右、拖了一路再晃、慢晃、竖着之字、直拖、抖动、高缩放下的小摆、拖动矩形内、没按下、触发一次后的冷却、重新按下、停顿、时钟回绕）、`tst_piegeometry`、`tst_pielabels`（汉字、拉丁字母、混排、超长、分隔符、括号、代理对、路径省略、同名）。OLE 拖放本身不进 CTest。2026-10-23 真机试过一轮（临时副本、自己的配置，拖动来源是测试脚本自己的窗口和 `F:\wspietest` 里的文件，不对资源管理器模拟拖动）：晃动弹出、经复制半圈放进第一个收藏、经移动半圈绕外圈放进第二个、拖出圆环收起、中间松开、灰掉的扇区和 `Esc` 都对，文件夹里的结果逐项核对过。
+2026-10-24 之前是两圈的圆环（内圈左半移动、右半复制，外圈 8 个扇区、名字写两行，直径约 450 逻辑像素），只能晃出来。用户反馈“菜单太大、不好触发”，“晃了完全没反应”：晃动是在手还在晃的时候认出来的，圆盘一出现就已经偏离指针、某个扇区已被选中，或者手还没停就松开了。现在只用按键（用户定：按住文件、不用拖动就按；晃动连同 `ShakeDetector`、`tst_shake` 都删了）；胶囊布局 8 个收藏约 330×200 逻辑像素；移动/复制按 Windows 自己的规则，不再占一圈。
+
+- **按键**（`KeyListener::onDragKey`、`guardDragKey`、`onDragKeyPressed`）：键盘的 Raw Input 也是 `KeyListener` 那一份。按下（不算自动重复，`E0/E1` 前缀的不算）时如果有 OLE 拖放在进行（见下）就交给 `Callbacks::dragMenu(POINT, HWND, DWORD, DragGesture::Key)`，没有就不管，照常打字。拖动一开始（主键按着、超出拖动矩形、`oleDrag()` 找到捕获窗口，每 30 ms 看一次直到找到），这个键按前台程序的键盘布局（`MapVirtualKeyExW`）注册成监听窗口的热键，单独、`Shift`、`Ctrl`、`Ctrl+Shift` 四种（`MOD_NOREPEAT`），主键松开或按下别的鼠标键就注销：热键在输入法和前台程序之前被 Windows 拿走，拖动来源不会收到它。OLE 自己的拖放循环本来就不把键交给程序，但 Total Commander 自己画的拖动会，`·` 打进了它的命令行（pitfalls）。注册成热键之后 Raw Input 不再看到这个键，所以拖动期间由 `WM_HOTKEY` 触发，平时由 Raw Input 触发；某个组合被别的程序注册了就留给它（日志里写注册了哪几种，`WINSHUN_KEYLOG=1`）。**按住文件不动就按键**（用户 2026-10-24 要的用法）：主键按在列文件的窗口上（`listsFiles`：`DirectUIHWND`、`SysListView32`、`SysTreeView32`、TC 的 `LCLListBox`/`TMyListBox`）时，按下那一刻就注册热键；键来了而还没有拖动，`startDrag` 用 `SendInput` 把指针分 4 步往右挪 6 个拖动矩形（Total Commander 要挪过约 4 个才开始它自己的拖动，`SetCursorPos` 它不认；标 `kOwnInput`），每 20 ms 看一次 `oleDrag()`，拖动开始了就 `SetCursorPos` 放回按下的地方、叫出圆盘（实测资源管理器 40 ms）；300 ms 还没开始（按在空白处、按住的不是能拖的东西）就放回指针、注销热键，把这个键用 `SendInput` 补发出去（`replayDragKey`，标 `kOwnInput`，`onDragKey` 不再理它），字照常打出来。
+- **按下和拖动**（`KeyListener::onDrag`）：鼠标的 Raw Input 还是 `KeyListener` 那一份（一个进程只能注册一次；文件夹菜单默认开着，本来就注册了），在原来的 `onMouse` 之前看主键（照 `SM_SWAPBUTTON`）的按下、移动、松开，位置用 `GetPhysicalCursorPos`。按下时记下位置和那台显示器 DPI 下的 `SM_CXDRAG/SM_CYDRAG`；指针离开以按下点为中心的拖动矩形才算开始拖（`m_dragging`，和 `DragDetect` 一样）。按别的键或松开就结束。
+- **是不是 OLE 拖放**（`KeyListener::oleDrag`）：看按下点 `WindowFromPoint` 那个线程（取不到就是前台线程）的 `GetGUIThreadInfo().hwndCapture`，类名是 `CLIPBRDWNDCLASS` 才是 `DoDragDrop` 正在进行（框选、拖窗口、拖滑块都不是）。例外是 Total Commander：在它自己窗口里拖文件时，捕获在它的主窗口（类名 `TTOTAL_CMD`）上，它自己画、自己判断，指针到了别的程序的窗口上才开始 OLE 拖放；所以按下点那个线程的捕获是 `TTOTAL_CMD` 时也算（`GetGUIThreadInfo` 的 `flags` 有 `GUI_INMOVESIZE` 或菜单模式时两种都不算：那是拖标题栏、改大小，Windows 自己的“晃动窗口”），圆盘照样建（`DropPie` 在 `DragEnter` 之前不显示），指针就在圆盘窗口上，TC 随即转成 OLE 拖放。这些连同来源进程号、是按键还是晃动交给 `Callbacks::dragMenu`；主键松开时 `leftButtonUp()`。两者都在监听线程上，`DropPie::summoned` / `buttonReleased` 用 `QueuedConnection` 转回界面线程。
+- **几何**（`PieGeometry.{h,cpp}`，`tst_piegeometry`）：逻辑像素，乘界面大小的比例（标签 12/13/14 px ÷ 13）。中间半径 20，中间 26 以内松开什么也不做（`dead`），胶囊高 32，胶囊之间、胶囊和中间至少隔 8，胶囊外再留 36 才算离开（`reach`）。`layOut`：每个胶囊在自己方向（`sectorCentre`）的圆上，两侧的从圆上那点开始往外（右边的左端、左边的右端在圆上，上下居中），名字长只让圆盘变宽、不让圆变大；正上、正下的（`|sin| < 0.2`）居中，靠中间那条边在圆上，会碰到两侧胶囊时再往外推（`clearUpright`）。圆的半径从 44 起一次加 1，直到没有胶囊互相靠得太近或碰到中间（8 个时约 57）。`hitTest`：中间 → `Dead`；超出所有胶囊外扩 `reach` 的矩形 → `Outside`；在某个胶囊上（外扩半个间距）→ 就是它；其余按方向落在哪个等分扇区就是哪个（指针刚离开中间一点就有了选择，长胶囊的远端可能跨进别的扇区，所以“在胶囊上”优先）。`modeFor`：同一个盘（盘符或 `\\server\share`，所有项目都在同一个盘上才算）移动，否则复制，`Ctrl`/`Shift` 改，来源不允许就换另一种。`placeCentre` 让胶囊和底下那行说明都落在指针所在显示器的工作区里：中心照着指针，只往里挪到刚好放下；说明行放在胶囊下面，屏幕底下放不下时放上面（哪边挪得少用哪边）。挪得比 `dead − 4` 还远时返回 `warp`，等 `DragEnter` 确认拖的是文件之后用 `SetCursorPos` 把指针移到中心（拖文字时只是过了检测那一关，指针不能乱跳），移过之后 300 ms 内还在路上的旧位置算作在中间。`windowRect` 把窗口放在**整设备像素**上：从显示器左上角量，每条边取逻辑值乘缩放是整数的那个（150% 是偶数逻辑像素，125%/175% 是 4 的倍数），往外取，所以范围都在里面；显示器本身也按整设备像素算（`DropPie` 的 `wholeOf`：Qt 把 2560 设备像素在 150% 下报成 1707 逻辑像素，最后一个有一半在屏幕外）。窗口大小乘缩放不是整数时，Qt 把整个画面拉伸到窗口上，所有边都发虚（pitfalls）。窗口总包含指针，`DragEnter` 才会来。物理像素由窗口位置加中心乘**这台显示器**的缩放算出（`m_dpr`，取自 `QScreen`），命中测试也用它。
+- **名字**（`PieLabels.{h,cpp}`，`tst_pielabels`；`DropPieText`）：胶囊里一行：文件夹图标 + 名字，名字用画它的字体量（`QFontMetricsF`），超过 104 × 比例就从中间省略（`elideMiddle`：前面约五分之二，后面留得多，结尾常是“终版”、日期、版本号）。收藏起了名字就用名字；两个一样的名字在后面用小字写上级文件夹名（`parentHints`，最宽 56），上级也同名就写上级的完整路径。说明行：没指着文件夹时是“朝文件夹拖，松开就放进去 / 在中间松开或按 Esc 取消”；指着时是“移动到 / 复制 N 项到 + 名字”，下一行是从中间省略的路径（`elidePath`，保留盘符或 `\\server\share\` 和最后一层）和“按住 Ctrl 复制 / 按住 Shift 移动”。设置里收藏表单的预览用同一个省略（`DropPieText.label`，QML 单例，不经 `FavoritesSettings`）。
+- **控制器**（`DropPie.{h,cpp}`）：窗口（`DropPieWindow.qml`）启动后就建好，2 秒后以 1 像素大小显示一次等到第一帧再藏起来（预热图形）。它是透明、不抢焦点的置顶工具窗（`_q_showWithoutActivating`），不用 `win::styleFramelessWindow`（会加 DWM 阴影框）。被叫出来后先放好窗口、显示，但**还不画**，并在原地 `SetCursorPos` 一下（`nudge`：指针不动时 OLE 不会重新看指针下面是谁；实测 `DragEnter` 在按键后 13–87 ms 到）；只有 OLE 对它 `DragEnter`、数据里有 `CF_HDROP` 或 `CFSTR_SHELLIDLIST`、来源允许移动或复制，才淡入（`revealed`）。`DragEnter` 时按指针现在的位置再放一次（`follow`，按键后手可能已经动了），马上淡入。150 ms 内没有 `DragEnter` 就再 `nudge`，指针动过或过了 1 秒还没有就收起。主键松开后 300 ms 还没收到 `Drop` 或 `DragLeave` 也收起。来源是 Win顺 自己（从启动器拖出结果）时不弹：`DoDragDrop` 就在界面线程上。来源是以管理员身份运行的程序时照常弹：管理员进程拖给普通程序 UIPI 不挡（pitfalls“管理员进程往普通程序拖文件，UIPI 不挡”），日志里记一笔。
+- **放下**：`IDropTarget` 是 WRL 的 `piedrop::DropTarget`（`platform/PieDrop.{h,cpp}`），把 Qt 自己注册的那个 `RevokeDragDrop` 掉再 `RegisterDragDrop`；每次显示前看一眼 `winId` 变没变，变了重新接管。**不用** `IDropTargetHelper`：拖动图像（SysDragImage）不画在圆盘上面，指针照常显示；离开圆盘后下一个窗口（资源管理器）的放下目标自己把图像画回来（pitfalls）。拖的是什么在 `DragEnter` 时读一次（`piedrop::readItems`）：来源给了 `CFSTR_SHELLIDLIST` 就只读它（父文件夹 + 各项的 ID 列表，取 `SFGAO_FILESYSTEM` 和文件系统路径），这时**不碰** `CF_HDROP`（压缩软件可能在这次调用里才解压，卡在我们的界面线程上）；没有才读 `CF_HDROP`。每一项都是“长久的文件”（有文件系统路径，父文件夹不是回收站、路径里没有 `\$Recycle.Bin\`，不在 `GetTempPath` 下面，长短两种写法都比）才走我们自己的复制：`IFileOperation`（`FOF_ALLOWUNDO | FOF_NOCONFIRMMKDIR | FOFX_ADDUNDORECORD`，资源管理器里能撤销），每次一条自己的 STA 线程，然后对来源返回 `DROPEFFECT_NONE`：来源不会以为“移动”已经完成而自己去删。来源的数据对象是异步的（`IDataObjectAsyncCapability::GetAsyncMode` 为真，资源管理器就是）时先 `StartOperation`，用 `RoGetAgileReference` 交给复制线程，做完 `EndOperation(结果, nullptr, DROPEFFECT_NONE)`，来源在那之前一直留着数据。其余的（手机、ZIP 里面等虚拟项目，回收站里的项目——`CF_HDROP` 给的是 `$R…` 名字，压缩软件解压到临时文件夹的副本——拖动一结束它就删）趁来源还拿着，转给目标文件夹自己的放下目标（`BindToHandler(BHID_SFUIObject, IID_IDropTarget)`），在界面线程上同步做，和放进资源管理器的文件夹一样（回收站的项目还原成原来的名字）；网络文件夹对这些灰掉。`piedrop::FileOperations` 归 `App`（`m_fileOperations`，第一个成员，最后析构），不归圆盘：关掉开关（设置或 MCP）时圆盘立刻删掉，正在问“替换还是跳过”的复制不挡界面；退出时等它做完（不半途中断）。复制线程的回调不碰圆盘，只写日志，失败（不是用户取消）时经 `App` 在界面线程上弹托盘通知（“没能复制到‘名字’”加 Windows 的错误说明）。放下时再查一次本机文件夹在不在（圆盘打开后被删了）：不在就不做，胶囊灰掉、说明行写“这个文件夹已不存在”停 1.2 秒。在 `drop()` 里（文件夹的放下目标可能弹对话框、跑消息循环）关开关，`App::applyDropPie` 等它返回再删。放下后选中的胶囊亮 150 ms 再收起。
+- **灰掉的胶囊**（原因写在说明行里）：文件夹已经不存在（只查本机路径，`GetFileAttributesW` 在 `ComWorker` 上做，网络路径不查，免得卡在掉线的服务器上）、就是这些文件所在的文件夹、拖的文件夹本身或它里面的文件夹、虚拟项目对网络文件夹。指着灰的胶囊松开什么也不做。没有文件夹收藏时只有一个灰的“还没有收藏文件夹”，说明行写去哪里添加。
+- **画**（`DropPieWindow.qml`、`SoftShadow.qml`）：全是 QML 的 `Rectangle`，`PieRing`（C++ 画的圆环）已删。胶囊是 `menuBackground` 底、1 逻辑像素 `windowEdge` 灰边（`Theme.edge`），系统开着圆角时是两头圆的；指着的是 `pieHover`，选中的是 `accentFill` 配白字、没有边。中间是个小圆，里面一个灰的 ✕（Cancel 图标），指针在中间时是 `pieHover`；中间边上一个小点指向当前方向（选中时 `accentFill`）。阴影是 `SoftShadow`：在盒子后面一圈圈每次大 1 逻辑像素、颜色是 `pieShadow` 的几分之一叠出来的，往下偏 1 像素；不用 `QtQuick.Effects`（部署里没有）。阴影先全画再画胶囊，免得落在相邻胶囊上。中心、胶囊位置和大小都 `Theme.snap` 到设备像素。出现 140 ms（`OutCubic`，透明度 0→1，胶囊从离中心 80% 的位置走到原位，正好停在整像素上；动画关掉时直接出现），收起立刻。
+- **测试**：`tst_piegeometry`（胶囊围着中间、不重叠、不碰中间；圆只按需要变大；1–8 个、窄的宽的混的每个都能选到，从中间朝胶囊的射线一路都选它；按方向选和长胶囊的远端；`modeFor`；放进工作区和 `warp`；整设备像素的窗口在 125%/150%/175%）、`tst_pielabels`（超长的名字留住结尾、代理对不拆开、从中间省略、路径省略、同名、最后一层的名字）。OLE 拖放本身不进 CTest。2026-10-24 真机试过（临时副本、自己的配置，`F:\wspietest` 里的文件，150% 缩放）：资源管理器 41 项（按住文件不动就按键：弹出、移动、键不进资源管理器；单击松开后再按键照常打字；拖着按键、指针不动就弹出并移动；再按一次收起、拖动继续、资源管理器的选择不变；晃动不再弹出；按键 + `Ctrl` 复制；到别的盘复制；拖出外围收起、拖动图像回来；中间松开；屏幕角落放得下、指针移到中心；圆盘上没有拖动图像、指针在），Total Commander 按住不动和拖着两种各 5 项（弹出、按键不进 TC 的命令行、移动成功）；150% 下所有边都是清楚的 1 逻辑像素。
+
+## 粘贴为文件和“内置功能”（PasteEx 的需求，2026-10-24）
+
+用户要两件事：功能模块像插件一样按需打开，新装不要一股脑全开；还有 PasteEx 那样的“粘贴为文件”：剪贴板里的文字、图片直接存成文件，不用先新建 txt 或图片。
+
+- **内置功能卡片**：设置 › 插件 › 已安装 的“内置功能”一行里，每个可选的内置功能一张卡片（`BuiltinCard.qml`，截图仍是自己的 `CaptureCard.qml`）：截图、粘贴为文件，再加文件夹菜单、对话框搜索框、资源管理器里打字搜索、收藏圆盘。后四个的开关和它们原来那页的是同一个设置，“更多设置”跳到原来那一行（`PluginsSection.settingRequested` → `SettingsWindow.goTo`）。设置搜索按每张卡片自己的词标出命中的卡片，别的卡片暂时让开；卡片的全名不放进这一行的关键词，所以按原标题搜（`open_settings` 也是这样跳）时，原来那页的行排在前面。
+- **新装默认关**：用户点名的文件夹菜单（`[Launcher] FolderMenu=off`）和对话框搜索框（`DialogBar=false`），加上新的粘贴为文件（`[PasteFile] Enabled=false`）。升级不变：设置文件已经有别的项、只是没有这两项时，按以前的默认值（`auto`、`true`）读（`Settings::load` 的 `firstRun`）。收藏圆盘、右键“用 Win顺 搜索此处”的默认值没动。
+- **谁来做**：`WinShunSearch.exe`（`src/stub/PasteAsFile.cpp`，不带 Qt、普通权限；判断文件类型、起名的纯逻辑在 `core/PasteFile`，有单测 `tst_pastefile`）。两条路：
+  - 右键菜单 `HKCU\Software\Classes\Directory\Background\shell\WinShun.PasteFile`，命令 `"…\WinShunSearch.exe" --paste-file [--en] "%V"`（`shellmenu::applyPasteFile`；`%V` 在桌面空白处是桌面文件夹）。Win顺 没运行时也能用。关掉、卸载时只删指向这一份或指向已不存在的程序的动词。
+  - `Ctrl+V`：`TypeToSearch` 的钩子线程在资源管理器文件夹窗口或桌面在前台时装着（`Surfaces.pasteFile`），按下 `V` 时只按着 `Ctrl`（没有 `Shift`、`Alt`、`Win`），焦点在文件列表（`SHELLDLL_DefView` 下的 `DirectUIHWND`，桌面是 `SysListView32`），没开着菜单，而且剪贴板有文字或图片、没有文件（`pastefile::takesCtrlV(clipboardOffer())`，只看格式，`IsClipboardFormatAvailable` 不打开剪贴板、不问别的程序），才截下这一下、它的自动重复和松开，Win顺 以普通权限启动 `--paste-file-in [--en] <标签页或桌面窗口>`。Win顺 自己发的 `Ctrl+V`（剪贴板面板选了一条，`paste::sendPasteKeys`，带 `kOwnInput`）也走这一段，在“自己的按键不管”之前：面板从不拿前台，选文字或图片时资源管理器还在前面，原本什么也粘不进去。实测资源管理器的放置目标对文字、图片、HTML、RTF、CSV、URL 都回 `DROPEFFECT_NONE`，所以截下的这些 `Ctrl+V` 原本什么也不做；有文件时不截，照旧是资源管理器自己粘贴。改名框、地址栏、搜索框里焦点不对，不截。
+- **存成什么**：文字按内容分 `.txt`、`.csv`（Excel、WPS 复制的单元格：剪贴板里另有 `Csv` 格式，按系统的列表分隔符写）、`.html`（整页）、`.svg`、`.xml`、`.json`（合法的对象或数组）、`.reg`、`.bat`、`.sh`、`.py`；编码按类型（UTF-8；`.csv` 带 BOM，Excel 才不按 ANSI 读；`.reg` 是带 BOM 的 UTF-16；`.bat` 用 OEM 代码页，写不下时退回 UTF-8）。图片优先用剪贴板里的 `PNG` 原样存，否则把 `CF_DIB` 用 WIC 编成 PNG（全透明的 32 位图当不透明，没有透明的存 24 位）。普通文字的名字取第一行有意义的话（去掉 `#`、`-`），网页取 `<title>`，取不到就和别的类型一样用类别词加时间（“表格 2026-10-24 163015”“图片 2026-10-24 163015”；表格的第一行多是表头，不拿来起名）；不合法的字符、设备名（CON 等）处理掉，路径不超过 MAX_PATH，同名在后面加 ` (2)`。
+- **放进去之后**：普通文件夹直接 `CREATE_NEW` 写（约 75 ms），再 `SHChangeNotify(SHCNE_CREATE, SHCNF_FLUSHNOWAIT)`；没有权限（Program Files）时改用 `IFileOperation`（`FOF_SILENT`），由 Windows 请求管理员确认；没有磁盘路径、但能放文件的存储（手机、库：`SFGAO_STORAGE`）也走 `IFileOperation`（没实测）。压缩包（.zip、.cab 既是文件夹又是文件：带 `SFGAO_STREAM`）和此电脑、主文件夹、搜索结果不放，右键时说“这里放不了文件”（`holdsFiles`）。然后在那个窗口里选中新文件，资源管理器还在前台时进入改名（`IShellView::SelectItem`，等它真的有了焦点再加 `SVSI_EDIT`，见 docs/pitfalls.md），和“新建”一样直接打名字；从按键到改名框出现约 230–260 ms。资源管理器的 `Ctrl+Z` 撤销不了这一步（它只撤销自己进程里的操作）。
+- **说话**：右键时剪贴板是空的、是文件、被占用、这里放不了，弹一个 TaskDialog 说明；`Ctrl+V` 时这些情况本来就该什么都不发生，不弹（失败时仍会说）。文字跟着 Win顺 的界面语言（`--en`）。
+- **测试**：`tst_pastefile`（哪些剪贴板截 `Ctrl+V`、类型判断、JSON、CSV、编码、起名、截短、MAX_PATH、UTF-8）。2026-10-24 真机：19 种内容（文字、表格、JSON、注册表、批处理、网页、SVG、设备名、PNG+DIB、全透明 DIB、24 位 DIB、网址加图片、英文、文件、空白、此电脑、压缩包、Program Files）逐个核对了文件名、大小、头几个字节和图片格式；资源管理器里右键和 `Ctrl+V` 都选中并进入改名，资源管理器在后面时只选中；测试前后 Win+V 历史条数不变，剪贴板换回原来的内容。同日装进 dist 用真实按键：设置卡片开关加上、删掉右键动词；资源管理器里 `Ctrl+V` 文字（约 50–100 ms 出文件，打字改名成功）、图片（.png 160×90）、Excel 样的单元格（.csv）都成；剪贴板是文件时照旧由资源管理器复制；改名框和地址栏里的 `Ctrl+V` 不截；右键 › 显示更多选项 › 粘贴为文件成；桌面（Win+D 后）`Ctrl+V` 文字和图片成并能改名；剪贴板面板选一条回车，54 ms 出文件。腾讯桌面整理（`DesktopMgr64.exe` 的 `TXMiniSkin` 铺满桌面）在时，点桌面后前台和焦点都是它的窗口，`Ctrl+V` 不截（pitfalls）。桌面 7 次里有 1 次没截到（紧接在三次“最小化全部”之后，之后同样的步骤没再重现）；没测：手机、Ctrl+V 在“资源管理器里打字搜索”也开着时。
