@@ -17,7 +17,14 @@
 
 namespace ws {
 
-std::vector<VolumeInfo> listLocalVolumes(bool includeRemovable, const std::vector<std::wstring>& untouched)
+bool volumeSelected(std::wstring_view root, const std::optional<std::vector<std::wstring>>& selected)
+{
+    return !selected || std::any_of(selected->begin(), selected->end(),
+        [&](const std::wstring& wanted) { return win32::equalsIgnoreCase(root, wanted); });
+}
+
+std::vector<VolumeInfo> listLocalVolumes(bool includeRemovable, const std::vector<std::wstring>& untouched,
+    const std::optional<std::vector<std::wstring>>& selected)
 {
     std::vector<VolumeInfo> volumes;
     const DWORD mask = ::GetLogicalDrives();
@@ -25,6 +32,8 @@ std::vector<VolumeInfo> listLocalVolumes(bool includeRemovable, const std::vecto
         if (!(mask & (1u << i)))
             continue;
         const wchar_t root[] = {static_cast<wchar_t>(L'A' + i), L':', L'\\', 0};
+        if (!volumeSelected(std::wstring_view(root, 2), selected))
+            continue; // do not open or wake a disk the user left out
         if (std::any_of(untouched.begin(), untouched.end(),
                 [&](const std::wstring& u) { return win32::equalsIgnoreCase(u, std::wstring_view(root, 2)); }))
             continue;
@@ -46,6 +55,30 @@ bool driveLetterExists(std::wstring_view root)
         return false;
     const auto letter = static_cast<wchar_t>(std::towupper(root[0]));
     return letter >= L'A' && letter <= L'Z' && (::GetLogicalDrives() & (1u << (letter - L'A')));
+}
+
+bool hasDirectoryLink(std::wstring_view path, std::wstring_view ancestor)
+{
+    if (path.size() < 3 || path[1] != L':' || path[2] != L'\\')
+        return false;
+    std::size_t at = std::max<std::size_t>(2, ancestor.size());
+    while (at < path.size()) {
+        const auto slash = path.find(L'\\', at + 1);
+        const auto end = slash == std::wstring_view::npos ? path.size() : slash;
+        WIN32_FIND_DATAW data{};
+        const std::wstring part(path.substr(0, end));
+        const HANDLE found = ::FindFirstFileW(win32::longPath(part).c_str(), &data);
+        if (found == INVALID_HANDLE_VALUE)
+            return false;
+        ::FindClose(found);
+        if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+            && IsReparseTagNameSurrogate(data.dwReserved0))
+            return true;
+        if (slash == std::wstring_view::npos)
+            break;
+        at = slash;
+    }
+    return false;
 }
 
 VolumePlacement placementOf(std::wstring_view root)
@@ -300,8 +333,9 @@ bool foldedLess(std::string_view a, std::string_view b) noexcept
 // folders) each keep their own entry.
 class ChildMap {
 public:
-    void assign(const FileIndex& index, EntryId dir)
+    void assign(const FileIndex& index, EntryId dir, bool exactCase)
     {
+        m_exactCase = exactCase;
         m_children.clear();
         for (EntryId c = index.entry(dir).firstChild; c != kNoEntry; c = index.entry(c).nextSibling)
             m_children.push_back({index.name(c), c});
@@ -321,7 +355,7 @@ public:
                 pick = it;
                 break;
             }
-            if (pick == last)
+            if (!m_exactCase && pick == last)
                 pick = it;
         }
         return pick == last ? kNoEntry : std::exchange(pick->id, kNoEntry);
@@ -343,6 +377,7 @@ private:
     static bool byName(const Child& a, const Child& b) noexcept { return foldedLess(a.name, b.name); }
 
     std::vector<Child> m_children;
+    bool m_exactCase = false;
 };
 
 // Takes items out of the index, or only notes them in `deferred` (see sync()).
@@ -374,7 +409,7 @@ void reconcile(FileIndex& index, const Crawler::Root& dir, const DirListing& lis
 {
     if (dir.id >= index.slotCount() || index.entry(dir.id).isDeleted())
         return;
-    existing.assign(index, dir.id);
+    existing.assign(index, dir.id, !unc::wslDistribution(dir.path).empty());
 
     for (const auto& item : listing.items) {
         const std::string_view name = listing.name(item);
@@ -562,7 +597,7 @@ void applyChanges(FileIndex& index, const std::vector<FsChange>& changes, const 
                 if (parent == kNoEntry || name.empty())
                     return;
                 const std::string utf8 = wtf8::fromUtf16(wtf8::view(name));
-                if (index.childForUpdate(parent, utf8, false) != kNoEntry)
+                if (index.childForUpdate(parent, utf8, !unc::wslDistribution(path).empty()) != kNoEntry)
                     return;
                 auto flags = static_cast<std::uint8_t>(
                     Crawler::attributeFlags(p.attributes) | (index.entry(parent).flags & EntryFlag::Inherited));
@@ -584,7 +619,7 @@ void applyChanges(FileIndex& index, const std::vector<FsChange>& changes, const 
                 if (parent == kNoEntry || name.empty())
                     return false;
                 const std::string utf8 = wtf8::fromUtf16(wtf8::view(name));
-                const EntryId existing = index.childForUpdate(parent, utf8, false);
+                const EntryId existing = index.childForUpdate(parent, utf8, !unc::wslDistribution(to).empty());
                 if (existing != kNoEntry && existing != id)
                     index.remove(existing); // replaced an existing item
                 return index.move(id, parent, utf8);

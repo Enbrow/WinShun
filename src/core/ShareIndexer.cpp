@@ -2,6 +2,7 @@
 
 #include "Unc.h"
 #include "Win32Util.h"
+#include "Wsl.h"
 #include "Wtf8.h"
 
 #include <QtGlobal>
@@ -21,6 +22,8 @@ constexpr auto kNetworkQuiet = 5s; // after the network changed, before servers 
 constexpr auto kFirstRetry = 1min; // an offline server, tried again; doubling up to
 constexpr auto kLastRetry = 10min;
 constexpr auto kProblemRetry = 30min; // signing in and the like: until the user does something
+constexpr auto kWslPoll = 10s; // notice a started/stopped distro without accessing it
+constexpr auto kWslVerify = 30s; // Linux changes are reconciled even without notifications
 constexpr auto kSuspectRetry = 30min; // a share that came back nearly empty, read again
 constexpr auto kForever = std::chrono::hours(24 * 365);
 constexpr int kPassShare = 60; // verified at most every this many times as long as a pass takes
@@ -90,7 +93,9 @@ std::vector<ShareConfig> distinct(std::vector<ShareConfig> shares)
 
 bool unreachable(share::Problem p)
 {
-    return p == share::Problem::Offline || p == share::Problem::Dropped;
+    return p == share::Problem::Offline || p == share::Problem::Dropped
+        || p == share::Problem::WslStopped || p == share::Problem::WslNotRegistered
+        || p == share::Problem::WslUnavailable;
 }
 
 } // namespace
@@ -190,7 +195,7 @@ void ShareIndexer::setOptions(Options options)
         // Shares no longer wanted: their threads end and take their entries with them.
         for (auto it = m_shares.begin(); it != m_shares.end();) {
             const auto kept = std::find_if(options.shares.begin(), options.shares.end(),
-                [&](const ShareConfig& c) { return win32::equalsIgnoreCase(c.path, (*it)->config.path); });
+                [&](const ShareConfig& c) { return unc::equal(c.path, (*it)->config.path); });
             if (kept == options.shares.end()) {
                 (*it)->removed = true;
                 (*it)->thread.request_stop();
@@ -211,7 +216,7 @@ void ShareIndexer::setOptions(Options options)
         // New ones.
         for (const ShareConfig& c : options.shares) {
             const bool known = std::any_of(m_shares.begin(), m_shares.end(),
-                [&](const auto& s) { return win32::equalsIgnoreCase(s->config.path, c.path); });
+                [&](const auto& s) { return unc::equal(s->config.path, c.path); });
             if (known)
                 continue;
             auto s = std::make_unique<Share>();
@@ -226,7 +231,7 @@ void ShareIndexer::setOptions(Options options)
         std::stable_sort(m_shares.begin(), m_shares.end(), [&](const auto& a, const auto& b) {
             const auto at = [&](const Share& s) {
                 return std::find_if(options.shares.begin(), options.shares.end(),
-                           [&](const ShareConfig& c) { return win32::equalsIgnoreCase(c.path, s.config.path); })
+                           [&](const ShareConfig& c) { return unc::equal(c.path, s.config.path); })
                     - options.shares.begin();
             };
             return at(*a) < at(*b);
@@ -249,7 +254,7 @@ void ShareIndexer::verifyNow(const std::wstring& path)
 {
     std::lock_guard lock(m_mutex);
     for (auto& s : m_shares) {
-        if (win32::equalsIgnoreCase(s->config.path, path)) {
+        if (unc::equal(s->config.path, path)) {
             s->verifyRequested = true;
             s->wake = true;
             s->cv.notify_all();
@@ -271,7 +276,7 @@ void ShareIndexer::acceptMissing(const std::wstring& path)
 {
     std::lock_guard lock(m_mutex);
     for (auto& s : m_shares) {
-        if (win32::equalsIgnoreCase(s->config.path, path)) {
+        if (unc::equal(s->config.path, path)) {
             s->acceptMissing = true;
             s->verifyRequested = true;
             s->wake = true;
@@ -322,7 +327,7 @@ std::size_t ShareIndexer::dropUnknownRoots(FileIndex& index, const std::vector<S
             continue;
         const std::wstring name = wideName(index, r);
         const bool wanted = std::any_of(
-            shares.begin(), shares.end(), [&](const ShareConfig& c) { return win32::equalsIgnoreCase(c.path, name); });
+            shares.begin(), shares.end(), [&](const ShareConfig& c) { return unc::equal(c.path, name); });
         if (!wanted)
             removed += index.remove(r);
     }
@@ -333,13 +338,13 @@ EntryId ShareIndexer::ensureRoot(FileIndex& index, const std::wstring& path)
 {
     EntryId root = kNoEntry;
     for (const EntryId r : index.roots()) {
-        if (index.name(r).starts_with("\\\\") && win32::equalsIgnoreCase(wideName(index, r), path)) {
+        if (index.name(r).starts_with("\\\\") && unc::equal(wideName(index, r), path)) {
             root = r;
             break;
         }
     }
     if (root == kNoEntry)
-        root = index.addRoot(toUtf8(path));
+        root = index.addRoot(toUtf8(unc::wslDistribution(path).empty() ? path : unc::normalize(path)));
     // Not kept in the snapshot for roots (FileIndex::addStored): set every time.
     index.setFlags(root, EntryFlag::Remote);
     return root;
@@ -371,6 +376,19 @@ void ShareIndexer::run(std::stop_token stop, Share& share)
 {
     const std::wstring path = share.config.path;
     const std::wstring host(unc::host(path));
+    const bool isWsl = !unc::wslDistribution(path).empty();
+    const auto availability = [&](bool fresh) {
+        using P = share::Problem;
+        if (!isWsl)
+            return share::reachable(host, 1500ms, fresh) ? P::None : P::Offline;
+        switch (wsl::probe(path, fresh)) {
+        case wsl::State::Running: return P::None;
+        case wsl::State::Stopped: return P::WslStopped;
+        case wsl::State::NotRegistered: return P::WslNotRegistered;
+        case wsl::State::Unknown: return P::WslUnavailable;
+        }
+        return P::WslUnavailable;
+    };
     const auto end = [&] {
         bool removed = false;
         {
@@ -383,7 +401,7 @@ void ShareIndexer::run(std::stop_token stop, Share& share)
         if (const auto index = m_source.index()) {
             auto lock = index->writeLock();
             for (const EntryId r : std::vector<EntryId>(index->roots())) {
-                if (index->name(r).starts_with("\\\\") && win32::equalsIgnoreCase(wideName(*index, r), path))
+                if (index->name(r).starts_with("\\\\") && unc::equal(wideName(*index, r), path))
                     index->remove(r);
             }
         }
@@ -422,19 +440,24 @@ void ShareIndexer::run(std::stop_token stop, Share& share)
             std::lock_guard lock(m_mutex);
             changedAt = m_networkChangedAt;
         }
-        const bool justChanged = Clock::now() - changedAt < kNetworkQuiet;
+        const bool justChanged = !isWsl && Clock::now() - changedAt < kNetworkQuiet;
         if (justChanged && !wait(stop, share, changedAt + kNetworkQuiet - Clock::now()))
             break;
 
-        if (!share::reachable(host, 1500ms, justChanged)) {
-            setStatus(share, [](Status& s) {
+        bool requested = false;
+        {
+            std::lock_guard lock(m_mutex);
+            requested = share.verifyRequested;
+        }
+        if (const auto problem = availability(justChanged || requested); problem != share::Problem::None) {
+            setStatus(share, [&](Status& s) {
                 s.state = State::Problem;
-                s.problem = share::Problem::Offline;
-                s.error = ERROR_BAD_NETPATH;
+                s.problem = problem;
+                s.error = isWsl ? ERROR_NOT_READY : ERROR_BAD_NETPATH;
                 s.watching = false;
             });
             updateWatches();
-            if (!wait(stop, share, retry))
+            if (!wait(stop, share, isWsl ? Clock::duration(kWslPoll) : retry))
                 break;
             retry = std::min<Clock::duration>(retry * 2, kLastRetry);
             continue;
@@ -463,13 +486,19 @@ void ShareIndexer::run(std::stop_token stop, Share& share)
             }
             if (read) {
                 retry = kFirstRetry;
-                const auto every = st.watching ? o.verifyEvery : o.verifyEveryUnwatched;
+                const Clock::duration every = isWsl ? Clock::duration(kWslVerify)
+                    : st.watching ? o.verifyEvery : o.verifyEveryUnwatched;
                 // A share that takes long to read is not read most of the time.
                 nextPass = Clock::now()
                     + (every.count() > 0 ? std::max<Clock::duration>(every, passTime * kPassShare) : kForever);
             } else if (st.state == State::Suspect) {
                 nextPass = Clock::now() + kSuspectRetry;
             } else if (st.state == State::Problem) {
+                if (isWsl) {
+                    if (!wait(stop, share, kWslPoll))
+                        break;
+                    continue;
+                }
                 const bool away = unreachable(st.problem);
                 if (away && !share::reachable(host, 1500ms, true))
                     continue; // gone: the probe says when it is back
@@ -486,7 +515,8 @@ void ShareIndexer::run(std::stop_token stop, Share& share)
         applyPending(stop, share);
 
         // Until the next pass, or something to do (live changes, asked to).
-        if (!wait(stop, share, nextPass - Clock::now()))
+        const auto untilPass = nextPass - Clock::now();
+        if (!wait(stop, share, isWsl ? std::min<Clock::duration>(untilPass, kWslPoll) : untilPass))
             break;
     }
     end();
@@ -537,7 +567,10 @@ bool ShareIndexer::pass(std::stop_token stop, Share& share, bool building)
         unsigned long error = lister.firstError();
         // Windows hangs up on an SMB 1 server (64, "no longer available")
         // unless SMB 1 was installed again: the probe knows why.
-        if ((unreachable(problem) || problem == share::Problem::Other)
+        const bool isWsl = !unc::wslDistribution(path).empty();
+        if (isWsl && problem == share::Problem::NeedsSignIn)
+            problem = share::Problem::Denied;
+        if (!isWsl && (unreachable(problem) || problem == share::Problem::Other)
             && share::probe(unc::host(path), 1500ms, true) == share::Answer::Smb1Only) {
             problem = share::Problem::Smb1Only;
             error = ERROR_SMB1_NOT_AVAILABLE;
@@ -662,7 +695,8 @@ void ShareIndexer::updateWatches()
         if (m_stopped)
             return;
         for (const auto& s : m_shares) {
-            const bool read = s->status.lastVerified != 0 && m_options.watch;
+            const bool read = s->status.lastVerified != 0 && m_options.watch
+                && unc::wslDistribution(s->config.path).empty();
             if (read && (s->status.state == State::Online || s->status.state == State::Verifying))
                 roots.push_back(s->config.path);
         }

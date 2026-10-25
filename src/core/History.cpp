@@ -1,6 +1,7 @@
 #include "History.h"
 
 #include "Query.h"
+#include "PathText.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -34,6 +35,11 @@ History::History(QString filePath, int capacity)
     : m_filePath(std::move(filePath))
     , m_capacity(capacity)
 {
+}
+
+QString History::key(const QString& path)
+{
+    return pathtext::pathKey(path);
 }
 
 void History::load()
@@ -101,7 +107,7 @@ void History::record(const QString& path, const QString& query, qint64 now)
 {
     if (path.isEmpty())
         return;
-    m_items.removeIf([&](const QString& p) { return p.compare(path, Qt::CaseInsensitive) == 0; });
+    m_items.removeIf([&](const QString& p) { return pathtext::samePath(p, path); });
     m_items.prepend(path);
     Entry& entry = m_uses[key(path)];
     entry.weight = decayed(entry.weight, entry.use.last, now) + 1;
@@ -142,7 +148,7 @@ void History::record(const QString& path, const QString& query, qint64 now)
 
 void History::remove(const QString& path)
 {
-    if (m_items.removeIf([&](const QString& p) { return p.compare(path, Qt::CaseInsensitive) == 0; }) > 0) {
+    if (m_items.removeIf([&](const QString& p) { return pathtext::samePath(p, path); }) > 0) {
         m_uses.remove(key(path));
         save();
     }

@@ -16,6 +16,45 @@ using namespace Qt::StringLiterals;
 
 namespace ws {
 
+std::optional<QString> normalizedTypeKeyword(QStringView text)
+{
+    text = text.trimmed();
+    if (text.startsWith(u':'))
+        text = text.mid(1);
+    if (text.size() > 32 || std::ranges::any_of(text, [](QChar c) {
+            return !c.isLetterOrNumber() && c != u'_' && c != u'-';
+        }))
+        return std::nullopt;
+    return text.toString().toLower();
+}
+
+FileTypeQuery splitFileTypeQuery(const QString& text, const FileTypes& types, QStringView folderKeyword)
+{
+    const QStringView trimmed = QStringView(text).trimmed();
+    FileTypeQuery result{trimmed.toString(), std::nullopt};
+    if (!trimmed.startsWith(u':'))
+        return result;
+    qsizetype end = 1;
+    while (end < trimmed.size() && !trimmed[end].isSpace())
+        ++end;
+    const QStringView keyword = trimmed.mid(1, end - 1);
+    if (keyword.isEmpty())
+        return result;
+    if (!folderKeyword.isEmpty() && keyword.compare(folderKeyword, Qt::CaseInsensitive) == 0)
+        result.type = -2;
+    else {
+        for (qsizetype i = 0; i < types.size(); ++i) {
+            if (!types[i].keyword.isEmpty() && keyword.compare(types[i].keyword, Qt::CaseInsensitive) == 0) {
+                result.type = int(i);
+                break;
+            }
+        }
+    }
+    if (result.type)
+        result.words = trimmed.mid(end).trimmed().toString();
+    return result;
+}
+
 namespace {
 
 std::string foldedUtf8(const QString& s)

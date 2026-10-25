@@ -14,6 +14,11 @@
 // typed into the search bar under file dialogs (and what it names on disk).
 namespace ws::pathtext {
 
+// Identity for stored paths: Windows/SMB ignore case; WSL preserves Linux
+// component case while treating its two host aliases as the same source.
+QString pathKey(QStringView path);
+bool samePath(QStringView a, QStringView b);
+
 // A path copied as text: the first line, maybe in quotes (Explorer's "Copy
 // as path"), maybe a file:/// URL or with %VARIABLES%. An absolute path on a
 // drive ("C:\…") or a share ("\\server\share\…"), with backslashes and

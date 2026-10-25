@@ -290,7 +290,7 @@ public:
     const std::vector<EntryId>& roots() const noexcept { return m_roots; }
 
     // Names compare ignoring ASCII case, as NTFS does for most names.
-    EntryId findChild(EntryId parent, std::string_view name) const;
+    EntryId findChild(EntryId parent, std::string_view name, bool exactCase = false) const;
     EntryId findPath(std::wstring_view path) const; // "C:\dir\file.txt", "\\host\share\dir\file.txt"
     std::u16string path16(EntryId id) const;
     void appendPath16(EntryId id, std::u16string& out) const;

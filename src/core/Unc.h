@@ -9,6 +9,9 @@
 namespace ws::unc {
 
 bool isUnc(std::wstring_view path) noexcept;
+bool isWslHost(std::wstring_view host) noexcept;
+// The registered distribution name in a WSL UNC path; empty for SMB paths.
+std::wstring_view wslDistribution(std::wstring_view path) noexcept;
 
 // "\\Host\Share\a\" -> "\\Host\Share\a": backslashes only, one between names,
 // none at the end. Empty unless it names at least a share ("\\host\share").
@@ -17,8 +20,11 @@ std::wstring normalize(std::wstring_view path);
 std::wstring_view host(std::wstring_view path) noexcept; // "\\host\share\a" -> "host"
 std::wstring_view shareRoot(std::wstring_view path) noexcept; // -> "\\host\share"
 
-// Whether `path` is `folder` or lies inside it, ignoring case.
+// Whether `path` is `folder` or lies inside it. Linux components in WSL
+// are case sensitive; SMB paths and WSL host/distribution names are not.
 bool contains(std::wstring_view folder, std::wstring_view path) noexcept;
+// WSL's Linux components are case sensitive; hosts/distributions and SMB are not.
+bool equal(std::wstring_view a, std::wstring_view b) noexcept;
 
 // The network folder a drive letter is mapped to, as Windows remembers it for
 // the user ("Z:" -> "\\nas\docs"): the persistent mappings in HKCU\Network,

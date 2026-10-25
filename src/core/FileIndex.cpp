@@ -1,4 +1,5 @@
 #include "FileIndex.h"
+#include "Unc.h"
 
 #include "Pinyin.h"
 #include "TextUtil.h"
@@ -678,14 +679,14 @@ FileIndex::ChildTable& FileIndex::buildTable(EntryId parent)
     return table;
 }
 
-EntryId FileIndex::findChild(EntryId parent, std::string_view childName) const
+EntryId FileIndex::findChild(EntryId parent, std::string_view childName, bool exactCase) const
 {
     if (parent >= m_count)
         return kNoEntry;
     if (const auto it = m_childTables.find(parent); it != m_childTables.end())
-        return tableFind(it->second, childName, false);
+        return tableFind(it->second, childName, exactCase);
     for (EntryId c = entry(parent).firstChild; c != kNoEntry; c = entry(c).nextSibling) {
-        if (text::equalsIgnoreAsciiCase(name(c), childName))
+        if (exactCase ? name(c) == childName : text::equalsIgnoreAsciiCase(name(c), childName))
             return c;
     }
     return kNoEntry;
@@ -709,13 +710,13 @@ EntryId FileIndex::childForUpdate(EntryId parent, std::string_view childName, bo
 
 EntryId FileIndex::findPath(std::wstring_view path) const
 {
-    return walkPath(path, [this](EntryId parent, std::string_view name) { return findChild(parent, name); });
+    return walkPath(path, [this](EntryId parent, std::string_view name, bool exact) { return findChild(parent, name, exact); });
 }
 
 EntryId FileIndex::pathForUpdate(std::wstring_view path)
 {
     return walkPath(
-        path, [this](EntryId parent, std::string_view name) { return childForUpdate(parent, name, false); });
+        path, [this](EntryId parent, std::string_view name, bool exact) { return childForUpdate(parent, name, exact); });
 }
 
 // The share root `path` is in ("\\host\share" or a folder in it), and where
@@ -734,7 +735,9 @@ std::pair<EntryId, std::size_t> FileIndex::shareRootOf(std::wstring_view path) c
         if (wide.size() <= best.second || path.size() < wide.size()
             || (path.size() > wide.size() && path[wide.size()] != L'\\' && path[wide.size()] != L'/'))
             continue;
-        const bool same = std::equal(wide.begin(), wide.end(), path.begin(), [](char16_t a, wchar_t b) {
+        const bool same = !unc::wslDistribution(wtf8::wview(wide)).empty()
+            ? unc::contains(wtf8::wview(wide), path)
+            : std::equal(wide.begin(), wide.end(), path.begin(), [](char16_t a, wchar_t b) {
             return a == b || (b == L'/' && a == u'\\')
                 || std::towupper(static_cast<wint_t>(a)) == std::towupper(static_cast<wint_t>(b));
         });
@@ -746,6 +749,10 @@ std::pair<EntryId, std::size_t> FileIndex::shareRootOf(std::wstring_view path) c
 
 template <typename Lookup> EntryId FileIndex::walkPath(std::wstring_view path, Lookup&& lookup) const
 {
+    const bool exact = !unc::wslDistribution(path).empty();
+    const std::wstring canonical = exact ? unc::normalize(path) : std::wstring();
+    if (exact)
+        path = canonical;
     EntryId cur = kNoEntry;
     std::size_t i = 2;
     if (path.starts_with(L"\\\\")) {
@@ -776,7 +783,7 @@ template <typename Lookup> EntryId FileIndex::walkPath(std::wstring_view path, L
             break;
         component.clear();
         wtf8::append(component, wtf8::view(path.substr(i, j - i)));
-        cur = lookup(cur, component);
+        cur = lookup(cur, component, exact);
         if (cur == kNoEntry)
             return kNoEntry;
         i = j;

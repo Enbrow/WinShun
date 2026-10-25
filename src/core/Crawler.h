@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -44,8 +45,14 @@ struct JournalPosition {
 // Local volumes worth indexing (fixed disks, optionally removable ones).
 // Drives in `untouched` are left out without being looked at: they may be
 // in the middle of being ejected.
-std::vector<VolumeInfo> listLocalVolumes(bool includeRemovable, const std::vector<std::wstring>& untouched = {});
+// Unset: all eligible disks. An empty selection means no local disks.
+bool volumeSelected(std::wstring_view root, const std::optional<std::vector<std::wstring>>& selected);
+std::vector<VolumeInfo> listLocalVolumes(bool includeRemovable, const std::vector<std::wstring>& untouched = {},
+    const std::optional<std::vector<std::wstring>>& selected = {});
 bool driveLetterExists(std::wstring_view root); // "E:"
+// A junction/symlink/mount point on the way to `path`, after `ancestor`.
+// Cloud placeholders are not directory links. No link is followed while probing.
+bool hasDirectoryLink(std::wstring_view path, std::wstring_view ancestor = {});
 
 // Which disk a volume is on, and whether it is a hard disk.
 struct VolumePlacement {

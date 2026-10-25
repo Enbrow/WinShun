@@ -53,6 +53,7 @@ qt_add_library(wscore STATIC
     WebSuggest.cpp WebSuggest.h
     Win32Util.cpp Win32Util.h
     WorkerPool.cpp WorkerPool.h
+    Wsl.cpp Wsl.h
     Wtf8.cpp Wtf8.h
 )
 

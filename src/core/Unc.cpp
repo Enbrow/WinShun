@@ -14,6 +14,22 @@ bool isUnc(std::wstring_view path) noexcept
     return path.size() > 2 && path.starts_with(L"\\\\") && path[2] != L'?' && path[2] != L'.' && path[2] != L'\\';
 }
 
+bool isWslHost(std::wstring_view name) noexcept
+{
+    return win32::equalsIgnoreCase(name, L"wsl.localhost") || win32::equalsIgnoreCase(name, L"wsl$");
+}
+
+std::wstring_view wslDistribution(std::wstring_view path) noexcept
+{
+    if (!isWslHost(host(path)))
+        return {};
+    const std::size_t slash = path.find(L'\\', 2);
+    if (slash == std::wstring_view::npos)
+        return {};
+    const auto end = path.find(L'\\', slash + 1);
+    return path.substr(slash + 1, end == std::wstring_view::npos ? end : end - slash - 1);
+}
+
 std::wstring normalize(std::wstring_view path)
 {
     std::wstring out;
@@ -33,6 +49,8 @@ std::wstring normalize(std::wstring_view path)
         return {}; // no share
     if (std::any_of(out.begin(), out.end(), [](wchar_t c) { return c < 32 || std::wstring_view(L"<>\"|?*").find(c) != std::wstring_view::npos; }))
         return {};
+    if (isWslHost(host(out)))
+        out.replace(2, slash - 2, L"wsl.localhost");
     return out;
 }
 
@@ -56,9 +74,24 @@ std::wstring_view shareRoot(std::wstring_view path) noexcept
 
 bool contains(std::wstring_view folder, std::wstring_view path) noexcept
 {
+    const auto distro = wslDistribution(folder);
+    if (!distro.empty()) {
+        const auto other = wslDistribution(path);
+        if (!win32::equalsIgnoreCase(distro, other))
+            return false;
+        folder.remove_prefix(static_cast<std::size_t>(distro.data() - folder.data()) + distro.size());
+        path.remove_prefix(static_cast<std::size_t>(other.data() - path.data()) + other.size());
+        return path.starts_with(folder)
+            && (path.size() == folder.size() || path[folder.size()] == L'\\');
+    }
     if (path.size() < folder.size() || (path.size() > folder.size() && path[folder.size()] != L'\\'))
         return false;
     return win32::equalsIgnoreCase(path.substr(0, folder.size()), folder);
+}
+
+bool equal(std::wstring_view a, std::wstring_view b) noexcept
+{
+    return contains(a, b) && contains(b, a);
 }
 
 namespace {

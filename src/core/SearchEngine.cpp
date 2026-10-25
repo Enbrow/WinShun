@@ -1,4 +1,5 @@
 #include "SearchEngine.h"
+#include "Wsl.h"
 
 #include "AppCatalog.h"
 #include "ContentIndex.h"
@@ -194,14 +195,16 @@ private:
             std::optional<Item> item;
             bool gone = false;
             WIN32_FILE_ATTRIBUTE_DATA data {};
-            if (::GetFileAttributesExW(longPath(path).c_str(), GetFileExInfoStandard, &data)) {
+            const auto wide = path.toStdWString();
+            const bool canRead = unc::wslDistribution(wide).empty() || wsl::probe(wide) == wsl::State::Running;
+            if (canRead && ::GetFileAttributesExW(longPath(path).c_str(), GetFileExInfoStandard, &data)) {
                 const auto written = (static_cast<std::uint64_t>(data.ftLastWriteTime.dwHighDateTime) << 32) | data.ftLastWriteTime.dwLowDateTime;
                 const auto seconds = static_cast<qint64>(written / 10'000'000) - 11'644'473'600; // since 1601 → since 1970
                 const bool isDir = data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
                 item = Item {isDir,
                     static_cast<std::uint32_t>(std::clamp<qint64>(seconds, 0, std::numeric_limits<std::uint32_t>::max())),
                     isDir ? -1 : static_cast<std::int64_t>((static_cast<std::uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow)};
-            } else {
+            } else if (canRead) {
                 // Not "the server is not there" (ERROR_BAD_NETPATH and the like), "access denied", "no disk".
                 const DWORD error = ::GetLastError();
                 gone = error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
@@ -663,10 +666,10 @@ qsizetype promoteHistory(
             const QString& path = request.history[next++];
             if (isAppLaunchPath(path) || isPlacePath(path))
                 continue; // apps and places rank by their own rules (searchApps, searchPlaces)
-            if (!within.isEmpty() && !path.startsWith(within, Qt::CaseInsensitive))
+            if (!within.isEmpty() && !unc::contains(within.chopped(1).toStdWString(), path.toStdWString()))
                 continue;
             const auto it = std::find_if(results.begin(), results.end(),
-                [&](const SearchResult& r) { return r.path.compare(path, Qt::CaseInsensitive) == 0; });
+                [&](const SearchResult& r) { return pathtext::samePath(r.path, path); });
             if (it != results.end()) {
                 SearchResult r = *it;
                 r.recent = true;
@@ -705,7 +708,7 @@ void markRecent(SearchResults& results, const QStringList& history)
 {
     for (SearchResult& r : results) {
         r.recent = std::any_of(history.cbegin(), history.cend(),
-            [&](const QString& path) { return r.path.compare(path, Qt::CaseInsensitive) == 0; });
+            [&](const QString& path) { return pathtext::samePath(r.path, path); });
     }
 }
 
@@ -958,7 +961,7 @@ void promoteFavorites(SearchResults& results, qint64& total, const SearchEngine:
         if (i == keyword || !favoriteShown(request.scope, f, types))
             continue;
         const bool found = std::any_of(results.cbegin(), results.cend(),
-            [&](const SearchResult& r) { return r.favorite && r.path.compare(f.path, Qt::CaseInsensitive) == 0; });
+            [&](const SearchResult& r) { return r.favorite && pathtext::samePath(r.path, f.path); });
         if (found || nameMatches(f.name)
             || (f.isFileOrFolder() && matcher.matchPath(f.path, f.kind == Favorite::Kind::Folder) >= 0)) {
             wanted.push_back(&f);
@@ -973,7 +976,7 @@ void promoteFavorites(SearchResults& results, qint64& total, const SearchEngine:
     std::vector<qsizetype> unfoundAt;
     for (const Favorite* f : std::as_const(wanted)) {
         const auto it = std::find_if(results.begin(), results.end(),
-            [&](const SearchResult& r) { return r.favorite && r.path.compare(f->path, Qt::CaseInsensitive) == 0; });
+            [&](const SearchResult& r) { return r.favorite && pathtext::samePath(r.path, f->path); });
         if (it != results.end()) {
             rows.push_back(std::move(*it));
             results.erase(it);
@@ -1244,7 +1247,7 @@ void SearchEngine::runNameSearch(const Job& job)
         // waits. Known to be away (a share searched), or not answering now.
         const bool listable = !unc::isUnc(typedPath.folder.toStdWString())
             || (!m_index->shares().offline(typedPath.folder.toStdWString())
-                && share::reachable(unc::host(typedPath.folder.toStdWString())));
+                && share::reachablePath(typedPath.folder.toStdWString()));
         if (!typedPath.folder.isEmpty() && listable && !filtered) {
             // The ones named just so first; with nothing more typed than the
             // folder, the folder itself (listTyped puts it first).
@@ -1259,7 +1262,7 @@ void SearchEngine::runNameSearch(const Job& job)
                 exactFirst(rows.begin(), rows.end(), matcher, PreferredTypes(foldedExtensions(request.preferredTypes)));
             total -= results.removeIf([&](const SearchResult& deeper) {
                 return std::any_of(rows.cbegin(), rows.cend(),
-                    [&](const SearchResult& r) { return r.path.compare(deeper.path, Qt::CaseInsensitive) == 0; });
+                    [&](const SearchResult& r) { return pathtext::samePath(r.path, deeper.path); });
             });
             total += rows.size();
             if (byChoice) {

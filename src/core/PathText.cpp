@@ -1,6 +1,7 @@
 #include "PathText.h"
 
 #include "Query.h"
+#include "Unc.h"
 #include "Wtf8.h"
 
 #include <QCollator>
@@ -19,6 +20,29 @@
 using namespace Qt::StringLiterals;
 
 namespace ws::pathtext {
+
+QString pathKey(QStringView path)
+{
+    if (path.startsWith(u"\\\\")) {
+        const std::wstring wide = path.toString().toStdWString();
+        const auto distro = unc::wslDistribution(wide);
+        if (!distro.empty()) {
+            const auto offset = static_cast<std::size_t>(distro.data() - wide.data()) + distro.size();
+            return u"\\\\wsl.localhost\\"_s + QString::fromStdWString(std::wstring(distro)).toCaseFolded()
+                + QString::fromStdWString(wide.substr(offset));
+        }
+    }
+    return path.toString().toCaseFolded();
+}
+
+bool samePath(QStringView a, QStringView b)
+{
+    if (a == b)
+        return true;
+    if (a.startsWith(u"\\\\") || b.startsWith(u"\\\\"))
+        return pathKey(a) == pathKey(b);
+    return a.compare(b, Qt::CaseInsensitive) == 0;
+}
 
 namespace {
 
@@ -62,6 +86,8 @@ QString normalized(QString path)
     }
     while (out.endsWith(u'\\') && !(out.size() == 3 && out[1] == u':'))
         out.chop(1);
+    if (!unc::wslDistribution(out.toStdWString()).empty())
+        return QString::fromStdWString(unc::normalize(out.toStdWString()));
     return out;
 }
 

@@ -2,6 +2,7 @@
 
 #include "Unc.h"
 #include "Win32Util.h"
+#include "Wsl.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -345,11 +346,55 @@ bool Lister::fail(unsigned long error, bool atRoot)
     return false;
 }
 
+bool reachablePath(std::wstring_view path, bool fresh)
+{
+    if (!unc::wslDistribution(path).empty())
+        return wsl::probe(path, fresh) == wsl::State::Running;
+    return !unc::isUnc(path) || reachable(unc::host(path), std::chrono::milliseconds(1500), fresh);
+}
+
+bool Lister::listWslDirectory(const Crawler::Root& dir, DirListing& out)
+{
+    // The 9P provider need not implement the SMB directory information classes.
+    // FindFirstFile also supplies reparse tags, so Linux symlink loops are not followed.
+    const bool atRoot = unc::equal(dir.path, m_root);
+    WIN32_FIND_DATAW data {};
+    const win32::UniqueFind find(::FindFirstFileExW((win32::longPath(dir.path) + L"\\*").c_str(),
+        FindExInfoBasic, &data, FindExSearchNameMatch, nullptr, 0));
+    if (!find.valid()) {
+        const auto error = ::GetLastError();
+        return error == ERROR_FILE_NOT_FOUND || fail(error, atRoot);
+    }
+    do {
+        if (m_stopPass.stop_requested())
+            return false;
+        const std::wstring_view name(data.cFileName);
+        const bool isDir = data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
+        if (name != L"." && name != L".." && (isDir || !excludedFile(name))) {
+            const bool systemMount = unc::equal(dir.path, unc::shareRoot(dir.path))
+                && (name == L"proc" || name == L"sys" || name == L"dev" || name == L"run" || name == L"mnt");
+            m_crawler.addToListing(out, dir, {}, name, Crawler::attributeFlags(data.dwFileAttributes),
+                !systemMount && Crawler::shouldDescend(data.dwFileAttributes, data.dwReserved0), 0,
+                fileTimeOf(win32::ticks(data.ftLastWriteTime)),
+                packSize((std::uint64_t {data.nFileSizeHigh} << 32) | data.nFileSizeLow));
+        }
+    } while (::FindNextFileW(find.get(), &data));
+    if (const auto error = ::GetLastError(); error != ERROR_NO_MORE_FILES)
+        return fail(error, atRoot);
+    m_inARow = 0;
+    m_items.fetch_add(out.items.size(), std::memory_order_relaxed);
+    if (m_options.progress)
+        m_options.progress->fetch_add(out.items.size(), std::memory_order_relaxed);
+    return true;
+}
+
 bool Lister::operator()(const Crawler::Root& dir, DirListing& out)
 {
     out.clear();
     if (m_stopPass.stop_requested())
         return false; // no new wait on the server once the pass is stopped (WinShun quitting)
+    if (!unc::wslDistribution(m_root).empty())
+        return listWslDirectory(dir, out);
     const bool atRoot = win32::equalsIgnoreCase(dir.path, m_root);
     std::wstring path = win32::longPath(dir.path);
     if (atRoot)

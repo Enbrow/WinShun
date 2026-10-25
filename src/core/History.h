@@ -63,7 +63,7 @@ private:
     };
 
     void save() const;
-    static QString key(const QString& path) { return path.toCaseFolded(); }
+    static QString key(const QString& path);
 
     QString m_filePath;
     int m_capacity;

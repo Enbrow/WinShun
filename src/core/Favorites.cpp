@@ -186,7 +186,7 @@ QString commandArguments(QStringView arguments, QStringView words)
 qsizetype indexOfFavorite(const FavoriteList& favorites, QStringView path)
 {
     for (qsizetype i = 0; i < favorites.size(); ++i) {
-        if (path.compare(favorites[i].path, Qt::CaseInsensitive) == 0)
+        if (pathtext::samePath(path, favorites[i].path))
             return i;
     }
     return -1;
@@ -406,7 +406,9 @@ bool Favorites::remove(QStringView path)
 
 int Favorites::removeAll(const QStringList& paths)
 {
-    const qsizetype removed = m_items.removeIf([&](const Favorite& f) { return paths.contains(f.path, Qt::CaseInsensitive); });
+    const qsizetype removed = m_items.removeIf([&](const Favorite& f) {
+        return std::ranges::any_of(paths, [&](const QString& path) { return pathtext::samePath(path, f.path); });
+    });
     if (removed > 0) {
         save();
         emit changed();

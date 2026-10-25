@@ -27,6 +27,9 @@ enum class Problem : std::uint8_t {
     Smb1Only, // an old device that speaks only SMB 1, which Windows no longer does
     Denied, // a folder this user may not read: skipped, not a problem with the share
     Other,
+    WslStopped,
+    WslNotRegistered,
+    WslUnavailable,
 };
 
 // `atRoot`: the share itself (or the folder added) could not be opened;
@@ -53,6 +56,10 @@ inline bool reachable(std::wstring_view host, std::chrono::milliseconds timeout 
 {
     return probe(host, timeout, fresh) != Answer::None;
 }
+
+// Background only: WSL checks its running state without touching its filesystem;
+// SMB checks its server. Unlike reachable(), this takes the complete path.
+bool reachablePath(std::wstring_view path, bool fresh = false);
 
 // The folders `host` shares (NetShareEnum): disk shares only, without the
 // hidden ones ("C$"). Slow when the server is: call after reachable().
@@ -85,6 +92,7 @@ public:
     std::size_t deniedFolders() const noexcept { return m_denied.load(std::memory_order_relaxed); }
 
 private:
+    bool listWslDirectory(const Crawler::Root& dir, DirListing& out);
     bool fail(unsigned long error, bool atRoot);
     bool excludedFile(std::wstring_view name) const noexcept;
 

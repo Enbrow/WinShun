@@ -50,6 +50,7 @@ struct FileType {
     QString name; // empty for a built-in one not renamed: named in the language shown (by id)
     QList<QString> extensions; // without the dot, lower case
     QString id; // a built-in one's ("pictures"); empty for its user's own
+    QString keyword; // :keyword narrows a query to this type; empty disables it
     bool operator==(const FileType&) const = default;
 };
 using FileTypes = QList<FileType>;

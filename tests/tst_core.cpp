@@ -43,6 +43,8 @@
 #include "WebShortcut.h"
 #include "WebSuggest.h"
 #include "Win32Util.h"
+
+#include <QRegularExpression>
 #include "Writer.h"
 #include "Wtf8.h"
 #include "Xml.h"
@@ -661,7 +663,8 @@ IndexService::Options walkedOptions(std::optional<std::vector<std::wstring>> fol
 // The index service, there but not answering (it is being updated, say).
 class ServiceDown final : public ntfs::VolumeAccess {
 public:
-    Kind kind() const noexcept override { return Kind::Service; }
+    explicit ServiceDown(Kind kind = Kind::Service) : m_kind(kind) { }
+    Kind kind() const noexcept override { return m_kind; }
     std::unique_ptr<ntfs::RecordSource> openMft(std::wstring_view, std::uint32_t, bool) override { return nullptr; }
     std::optional<ntfs::JournalInfo> queryJournal(std::wstring_view, std::uint32_t) override { return std::nullopt; }
     std::unique_ptr<ntfs::JournalSource> openJournal(std::wstring_view, std::uint32_t, std::uint64_t) override
@@ -670,7 +673,43 @@ public:
     }
     void closeVolume(std::wstring_view) override { }
     std::unique_ptr<ntfs::BulkSource> openBulkRead(std::wstring_view, std::uint32_t, bool) override { return nullptr; }
+private:
+    Kind m_kind;
 };
+
+// Junctions need no elevation; every path and target belongs to the test.
+bool makeJunction(const QString& link, const QString& target)
+{
+    if (!QDir().mkpath(link))
+        return false;
+    const auto linkPath = QDir::toNativeSeparators(link).toStdWString();
+    const auto targetPath = QDir::toNativeSeparators(target).toStdWString();
+    const std::wstring substitute = L"\\??\\" + targetPath;
+    struct JunctionData {
+        DWORD tag;
+        WORD bytes;
+        WORD reserved;
+        WORD substituteOffset;
+        WORD substituteLength;
+        WORD printOffset;
+        WORD printLength;
+        wchar_t names[1];
+    };
+    const auto nameBytes = (substitute.size() + 1 + targetPath.size() + 1) * sizeof(wchar_t);
+    std::vector<std::byte> buffer(offsetof(JunctionData, names) + nameBytes);
+    auto* data = reinterpret_cast<JunctionData*>(buffer.data());
+    data->tag = IO_REPARSE_TAG_MOUNT_POINT;
+    data->bytes = WORD(buffer.size() - 8);
+    data->substituteLength = WORD(substitute.size() * sizeof(wchar_t));
+    data->printOffset = WORD((substitute.size() + 1) * sizeof(wchar_t));
+    data->printLength = WORD(targetPath.size() * sizeof(wchar_t));
+    std::memcpy(data->names, substitute.c_str(), (substitute.size() + 1) * sizeof(wchar_t));
+    std::memcpy(reinterpret_cast<std::byte*>(data->names) + data->printOffset, targetPath.c_str(), (targetPath.size() + 1) * sizeof(wchar_t));
+    win32::UniqueHandle handle(::CreateFileW(linkPath.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr));
+    DWORD returned = 0;
+    return handle.valid() && ::DeviceIoControl(handle.get(), FSCTL_SET_REPARSE_POINT, data, DWORD(buffer.size()), nullptr, 0, &returned, nullptr);
+}
 
 using FolderState = IndexService::FolderStatus::State;
 
@@ -2507,6 +2546,152 @@ private slots:
     // With no way to the journals and folders chosen, only they are indexed,
     // with the folders on the way to them by name; nothing else of their
     // disk, and no other disk.
+    void selectedDrivesRespectAnEmptySelection()
+    {
+        QVERIFY(volumeSelected(L"C:", std::nullopt));
+        QVERIFY(!volumeSelected(L"C:", std::vector<std::wstring>{}));
+        QVERIFY(volumeSelected(L"C:", std::vector<std::wstring>{L"c:"}));
+        QVERIFY(!volumeSelected(L"D:", std::vector<std::wstring>{L"c:"}));
+        QVERIFY(listLocalVolumes(true, {}, std::vector<std::wstring>{}).empty());
+        QTemporaryDir tree;
+        QTemporaryDir store;
+        QVERIFY(makeScopeTree(tree.path()));
+        const QString t = QDir::toNativeSeparators(tree.path());
+        auto options = walkedOptions(std::vector{t.toStdWString()});
+        options.selectedDrives = std::vector<std::wstring>{t.left(2).toStdWString()};
+        IndexService service(store.path(), options);
+        service.start();
+        QTRY_VERIFY_WITH_TIMEOUT(allReady(service), 30'000);
+        QVERIFY(indexedIn(service, t + u"\\docs\\a.txt"_s));
+        options.selectedDrives = std::vector<std::wstring>{};
+        service.setOptions(options);
+        QTRY_VERIFY_WITH_TIMEOUT(service.volumeRoots().empty() && !indexedIn(service, t), 30'000);
+        options.selectedDrives = std::vector<std::wstring>{t.left(2).toStdWString()};
+        service.setOptions(options);
+        QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, t + u"\\docs\\a.txt"_s) && allReady(service), 30'000);
+    }
+
+    void explicitDirectoryLinksInEveryAccessMode()
+    {
+        for (const auto access : {ntfs::VolumeAccess::Kind::None, ntfs::VolumeAccess::Kind::Direct, ntfs::VolumeAccess::Kind::Service}) {
+            QTemporaryDir tree;
+            QTemporaryDir store;
+            QVERIFY(makeScopeTree(tree.path()));
+            const QString t = QDir::toNativeSeparators(tree.path());
+            const QString target = t + u"\\other"_s;
+            const QString alias = t + u"\\docs\\工作链接"_s;
+            QVERIFY2(makeJunction(alias, target), qPrintable(QString::number(::GetLastError())));
+            QVERIFY(hasDirectoryLink(alias.toStdWString()));
+            QVERIFY(hasDirectoryLink((alias + u"\\o.txt"_s).toStdWString()));
+            QVERIFY(!hasDirectoryLink(target.toStdWString()));
+            auto rules = branchRules(t);
+            rules.excludedPaths.push_back(target.toStdWString()); // only reachable through the explicit alias
+            auto options = walkedOptions(std::nullopt, rules);
+            options.selectedDrives = std::vector<std::wstring>{t.left(2).toStdWString()};
+            if (access != ntfs::VolumeAccess::Kind::None)
+                options.volumeAccess = std::make_shared<ServiceDown>(access);
+            options.extraFolders = {alias.toStdWString()};
+            IndexService service(store.path(), options);
+            service.start();
+            QTRY_VERIFY_WITH_TIMEOUT(allReady(service), 30'000);
+            QVERIFY(!service.foldersOnly());
+            QVERIFY(indexedIn(service, alias + u"\\o.txt"_s));
+            QVERIFY(!indexedIn(service, target + u"\\o.txt"_s));
+            QFile added(target + u"\\new.txt"_s);
+            QVERIFY(added.open(QIODevice::WriteOnly));
+            added.write("new");
+            added.close();
+            QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, alias + u"\\new.txt"_s), 30'000);
+            QVERIFY(QFile::rename(target + u"\\new.txt"_s, target + u"\\renamed.txt"_s));
+            QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, alias + u"\\renamed.txt"_s)
+                    && !indexedIn(service, alias + u"\\new.txt"_s), 10'000);
+            QVERIFY(QFile::remove(target + u"\\renamed.txt"_s));
+            QTRY_VERIFY_WITH_TIMEOUT(!indexedIn(service, alias + u"\\renamed.txt"_s), 10'000);
+            options.extraFolders.clear();
+            service.setOptions(options);
+            QTRY_VERIFY_WITH_TIMEOUT(!indexedIn(service, alias + u"\\o.txt"_s), 30'000);
+            QVERIFY(indexedIn(service, t + u"\\docs\\a.txt"_s));
+            options.extraFolders = {alias.toStdWString()};
+            service.setOptions(options);
+            QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, alias + u"\\o.txt"_s) && allReady(service), 30'000);
+            service.shutdown();
+            // The target's real contents survive removing the alias from the index.
+            QVERIFY(QFileInfo::exists(target + u"\\o.txt"_s));
+        }
+    }
+
+    void explicitDirectoryLinksWithLiveMft()
+    {
+        if (!qEnvironmentVariableIsSet("WINSHUN_TEST_REAL_VOLUMES"))
+            QSKIP("Opt in to reading the real MFT with WINSHUN_TEST_REAL_VOLUMES=1");
+        QTemporaryDir tree;
+        QTemporaryDir store;
+        QVERIFY(makeScopeTree(tree.path()));
+        const QString t = QDir::toNativeSeparators(tree.path());
+        const std::wstring root = t.left(2).toStdWString();
+        const QString pipe = qEnvironmentVariable("WINSHUN_TEST_LINK_PIPE");
+        std::shared_ptr<ntfs::VolumeAccess> access;
+        if (pipe.isEmpty()) {
+            access = std::make_shared<ntfs::DirectVolumeAccess>();
+        } else {
+            auto throughService = std::make_shared<ntfs::ServiceVolumeAccess>(pipe.toStdWString());
+            QVERIFY2(throughService->probe(), qPrintable(QString::fromStdWString(throughService->lastError())));
+            access = std::move(throughService);
+        }
+        const auto volumes = listLocalVolumes(false, {}, std::vector<std::wstring>{root});
+        QVERIFY(!volumes.empty() && volumes.front().ntfs);
+        const auto journal = access->queryJournal(root, volumes.front().serial);
+        if (!journal && pipe.isEmpty())
+            QSKIP("Direct NTFS journal access requires an elevated test process");
+        QVERIFY(journal);
+        qInfo("Live %s access to %ls, journal %llu", pipe.isEmpty() ? "direct" : "service", root.c_str(), journal->id);
+        // A fallback walk would otherwise make a broken MFT path look successful.
+        QTest::failOnWarning(QRegularExpression(u"^WinShun: cannot read the MFT.*"_s));
+        const QString target = t + u"\\other"_s;
+        const QString alias = t + u"\\docs\\MFT链接"_s;
+        QVERIFY(makeJunction(alias, target));
+        auto rules = branchRules(t);
+        rules.excludedPaths.push_back(target.toStdWString());
+        auto options = walkedOptions(std::nullopt, rules);
+        options.selectedDrives = std::vector<std::wstring>{root};
+        options.volumeAccess = access;
+        options.extraFolders = {alias.toStdWString()};
+        IndexService service(store.path(), options);
+        service.start();
+        QTRY_VERIFY_WITH_TIMEOUT(allReady(service), 180'000);
+        QCOMPARE(service.volumeAccessKind(), access->kind());
+        QCOMPARE(service.volumeRoots(), std::vector<std::wstring>{root});
+        QVERIFY(indexedIn(service, alias + u"\\o.txt"_s));
+        QVERIFY(!indexedIn(service, target + u"\\o.txt"_s));
+        QFile added(target + u"\\mft-new.txt"_s);
+        QVERIFY(added.open(QIODevice::WriteOnly));
+        added.write("new");
+        added.close();
+        QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, alias + u"\\mft-new.txt"_s), 10'000);
+        QVERIFY(QFile::rename(target + u"\\mft-new.txt"_s, target + u"\\mft-renamed.txt"_s));
+        QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, alias + u"\\mft-renamed.txt"_s)
+                && !indexedIn(service, alias + u"\\mft-new.txt"_s), 10'000);
+        QVERIFY(QFile::remove(target + u"\\mft-renamed.txt"_s));
+        QTRY_VERIFY_WITH_TIMEOUT(!indexedIn(service, alias + u"\\mft-renamed.txt"_s), 10'000);
+        options.extraFolders.clear();
+        service.setOptions(options);
+        QTRY_VERIFY_WITH_TIMEOUT(!indexedIn(service, alias + u"\\o.txt"_s) && allReady(service), 30'000);
+        QVERIFY(QFileInfo::exists(target + u"\\o.txt"_s));
+        options.extraFolders = {alias.toStdWString()};
+        service.setOptions(options);
+        QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, alias + u"\\o.txt"_s) && allReady(service), 30'000);
+        options.selectedDrives = std::vector<std::wstring>{};
+        service.setOptions(options);
+        QTRY_VERIFY_WITH_TIMEOUT(service.volumeRoots().empty() && service.itemCount() == 0, 30'000);
+        options.selectedDrives = std::vector<std::wstring>{root};
+        service.setOptions(options);
+        QTRY_VERIFY_WITH_TIMEOUT(indexedIn(service, alias + u"\\o.txt"_s) && allReady(service), 180'000);
+        qInfo("Live %s: initial MFT, add/rename/delete, link removal/readd, drive deselection/reselection passed",
+            pipe.isEmpty() ? "direct" : "service");
+        service.shutdown();
+        QVERIFY(QFileInfo::exists(target + u"\\o.txt"_s));
+    }
+
     void chosenFoldersOnly()
     {
         QTemporaryDir tree;

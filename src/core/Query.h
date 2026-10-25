@@ -2,6 +2,7 @@
 
 #include "FileIndex.h"
 #include "Pinyin.h"
+#include "SearchTypes.h"
 
 #include <QDateTime>
 #include <QString>
@@ -12,6 +13,14 @@
 #include <vector>
 
 namespace ws {
+
+// A leading :keyword, outside quotes. Unknown prefixes remain ordinary words.
+struct FileTypeQuery {
+    QString words;
+    std::optional<int> type; // -2: folders; otherwise an index in FileTypes
+};
+std::optional<QString> normalizedTypeKeyword(QStringView text);
+FileTypeQuery splitFileTypeQuery(const QString& text, const FileTypes& types, QStringView folderKeyword);
 
 // One whitespace-separated piece of the query.
 //

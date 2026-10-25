@@ -117,6 +117,7 @@ public:
     struct Options {
         CrawlRules rules;
         bool includeRemovable = false;
+        std::optional<std::vector<std::wstring>> selectedDrives; // unset: all; empty: no local disks
         bool rescanOnStartup = true; // walked volumes only: NTFS always catches up
         int rescanDelayMs = 15000;
         ContentIndexer::Options content;
@@ -143,6 +144,9 @@ public:
         // that drive whole. Unset: whole disks, as before. Only while there is
         // no way to the journals (NoVolumeAccess), when every volume is walked.
         std::optional<std::vector<std::wstring>> folders;
+        // Explicit directory links are walked in addition to whole-disk indexing,
+        // also when the MFT and journals are read by the service or administrator.
+        std::vector<std::wstring> extraFolders;
         // Each chosen folder is walked again this often (folderVerifyDue).
         // 0: only at startup, as rescanOnStartup says.
         std::chrono::hours folderVerifyEvery {24};
@@ -269,8 +273,9 @@ private:
     // GitHub #52: Options::folders, by volume; replaced whole when they change.
     class Scope {
     public:
-        explicit Scope(std::optional<std::vector<std::wstring>> folders = {});
+        explicit Scope(std::optional<std::vector<std::wstring>> folders = {}, const std::vector<std::wstring>& extra = {});
         bool set() const noexcept { return m_set; } // Options::folders has a value (maybe none)
+        bool supplemental() const noexcept { return !m_set && !m_all.empty(); }
         // The chosen folders on the volume `root` ("C:"); none when it is
         // chosen whole (its root), or nothing on it is.
         const std::vector<std::wstring>& on(std::wstring_view root) const;
@@ -292,6 +297,7 @@ private:
 
     std::shared_ptr<const Crawler> crawler() const { return m_crawler.load(); }
     std::shared_ptr<const Scope> scope() const { return m_scope.load(); }
+    void replaceScope(); // the worker is stopped; keeps track of removed supplemental roots
     // Only the chosen folders now (foldersOnly()), as `scope` has them.
     bool foldersOnly(const Scope& scope) const;
     void launch(Pass pass);
@@ -310,7 +316,8 @@ private:
     // those whose last walk did not finish (or found them unreadable);
     // nothing, and nothing done, when stopped while it looks at the disk.
     std::vector<std::wstring> prepareScope(std::stop_token stop, const Scope& scope,
-        const std::vector<std::wstring>& roots, const Crawler& crawler);
+        const std::vector<std::wstring>& roots, const Crawler& crawler, bool prune = true,
+        const std::vector<std::wstring>& renewed = {});
     bool walkFolders(std::stop_token stop, FileIndex& index, const Crawler& crawler, std::vector<std::wstring> folders,
         bool firstBuild);
     void setFolderStates(const std::vector<std::pair<std::wstring, FolderStatus::State>>& states,
@@ -400,6 +407,7 @@ private:
     // GitHub #52: volumes whose entries are their chosen folders' only (walked
     // whole again once they are not chosen any more); kept in scope.json.
     std::vector<std::wstring> m_scopedVolumes;
+    std::vector<std::wstring> m_removedExtra; // descendants to discard when an explicit link is removed
     std::vector<std::wstring> m_verifyOwed; // chosen folders owed a walk as soon as can be
     std::vector<std::wstring> m_overflowed; // ... whose watcher lost events: walked a moment later (resyncFoldersSoon)
 
