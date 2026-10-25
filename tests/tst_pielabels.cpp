@@ -1,8 +1,7 @@
-// The drop pie's folder names (PieLabels): one line if it fits, else two
-// broken at a separator or bracket, else the start and "…" with the end;
-// paths shortened keeping the drive and the last folder; a parent's name
-// for names shown twice. Measured with a real font, so the checks are on
-// widths and kept parts rather than exact strings.
+// The drop pie's folder names (PieLabels): shortened in the middle, the end
+// kept; paths shortened keeping the drive and the last folder; a parent's
+// name for names shown twice. Measured with a real font, so the checks are
+// on widths and kept parts rather than exact strings.
 #include "PieLabels.h"
 
 #include <QFontMetricsF>
@@ -29,11 +28,6 @@ class TestPieLabels : public QObject {
     Q_OBJECT
 
 private slots:
-    void fits(); // every line within the width, nothing lost unless elided
-    void fits_data();
-    void shortStaysOneLine();
-    void breaksAtSeparator();
-    void breaksBeforeBracket();
     void veryLongKeepsItsEnd();
     void surrogatesNotSplit();
     void middleElision();
@@ -42,73 +36,16 @@ private slots:
     void lastNames();
 };
 
-void TestPieLabels::fits_data()
-{
-    QTest::addColumn<QString>("name");
-    QTest::newRow("cjk") << u"二〇二六年第三季度财务报告终版"_s;
-    QTest::newRow("latin") << u"Quarterly Financial Reports Final"_s;
-    QTest::newRow("mixed") << u"项目资料_ProjectAlpha_2026"_s;
-    QTest::newRow("no breaks") << u"Supercalifragilisticexpialidocious"_s;
-    QTest::newRow("very long") << u"这是一个非常非常非常非常非常非常非常非常长的文件夹名字终版v3"_s;
-    QTest::newRow("brackets") << u"客户资料（2026 年归档）"_s;
-    QTest::newRow("dots") << u"工作·资料·归档·二〇二六"_s;
-}
-
-void TestPieLabels::fits()
-{
-    QFETCH(QString, name);
-    const QFontMetricsF metrics(labelFont());
-    const Fitted f = fitTwoLines(name, metrics, kWidth);
-    QVERIFY2(metrics.horizontalAdvance(f.line1) <= kWidth, qPrintable(f.line1));
-    QVERIFY2(metrics.horizontalAdvance(f.line2) <= kWidth, qPrintable(f.line2));
-    QVERIFY(!f.line1.isEmpty());
-    if (f.elided) {
-        QVERIFY(f.line2.startsWith(u"…"_s));
-        QVERIFY(name.startsWith(f.line1));
-        QVERIFY(name.endsWith(f.line2.mid(1)));
-    } else {
-        // Only spaces dropped at the break.
-        QCOMPARE(QString(f.line1 + f.line2).remove(u' '), QString(name).remove(u' '));
-    }
-}
-
-void TestPieLabels::shortStaysOneLine()
-{
-    const QFontMetricsF metrics(labelFont());
-    const Fitted f = fitTwoLines(u"  下载  "_s, metrics, kWidth);
-    QCOMPARE(f.line1, u"下载"_s);
-    QVERIFY(!f.twoLines());
-    QVERIFY(!f.elided);
-}
-
-void TestPieLabels::breaksAtSeparator()
-{
-    const QFontMetricsF metrics(labelFont());
-    // The even break would be inside a word; the underscore wins.
-    const Fitted f = fitTwoLines(u"季度报告_最终审定版本"_s, metrics, kWidth);
-    QCOMPARE(f.line1, u"季度报告_"_s);
-    QCOMPARE(f.line2, u"最终审定版本"_s);
-    const Fitted spaced = fitTwoLines(u"Project Alpha Archive"_s, metrics, kWidth);
-    QVERIFY(spaced.twoLines());
-    QVERIFY(!spaced.line1.endsWith(u' ') && !spaced.line2.startsWith(u' '));
-}
-
-void TestPieLabels::breaksBeforeBracket()
-{
-    const QFontMetricsF metrics(labelFont());
-    const Fitted f = fitTwoLines(u"客户资料（已归档）"_s, metrics, 80);
-    QVERIFY(f.twoLines());
-    QVERIFY2(f.line2.startsWith(u'（'), qPrintable(f.line2));
-}
-
 void TestPieLabels::veryLongKeepsItsEnd()
 {
     const QFontMetricsF metrics(labelFont());
     const QString name = u"非常非常非常非常非常非常非常非常非常非常长的名字终版"_s;
-    const Fitted f = fitTwoLines(name, metrics, kWidth);
-    QVERIFY(f.elided);
-    QVERIFY(f.line2.endsWith(u"终版"_s));
-    QVERIFY(f.line1.startsWith(u"非常"_s));
+    const QString shown = elideMiddle(name, metrics, kWidth);
+    QVERIFY2(metrics.horizontalAdvance(shown) <= kWidth, qPrintable(shown));
+    QVERIFY(shown.contains(u"…"_s));
+    QVERIFY(shown.endsWith(u"终版"_s));
+    QVERIFY(shown.startsWith(u"非常"_s));
+    QCOMPARE(elideMiddle(u"下载"_s, metrics, kWidth), u"下载"_s);
 }
 
 void TestPieLabels::surrogatesNotSplit()
@@ -117,10 +54,12 @@ void TestPieLabels::surrogatesNotSplit()
     QString name;
     for (int i = 0; i < 30; ++i)
         name += u"😀"_s;
-    const Fitted f = fitTwoLines(name, metrics, kWidth);
-    for (const QString& line : {f.line1, f.line2}) {
-        QVERIFY(line.isEmpty() || !line.front().isLowSurrogate());
-        QVERIFY(line.isEmpty() || !line.back().isHighSurrogate());
+    const QString shown = elideMiddle(name, metrics, kWidth);
+    for (qsizetype i = 0; i < shown.size(); ++i) {
+        if (shown.at(i).isHighSurrogate())
+            QVERIFY(i + 1 < shown.size() && shown.at(i + 1).isLowSurrogate());
+        if (shown.at(i).isLowSurrogate())
+            QVERIFY(i > 0 && shown.at(i - 1).isHighSurrogate());
     }
 }
 

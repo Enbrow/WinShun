@@ -101,25 +101,165 @@ SettingsSection {
         }
     }
 
-    SettingRow { // what comes with Win顺 but stays off until wanted: the screen capture
+    // 内置功能 asks for one of the settings of a feature drawn here whose
+    // options are on another page: SettingsWindow goes to that row.
+    signal settingRequested(string which)
+
+    // What comes with Win顺 and stays out of the way until wanted, each a
+    // card: the screen capture, 粘贴为文件, and features of other pages
+    // whose switch is here too (the same setting). The search finds the
+    // row by any card's words, marks the cards they fit and leaves the
+    // others out meanwhile (all stay when only the row's own words fit).
+    // A card's full name is not among the row's words: searched for (as
+    // open_settings does), the row on the feature's own page comes first.
+    SettingRow {
         id: builtinRow
 
-        title: qsTr("内置功能")
-        keywords: qsTr("截图;截屏;屏幕截图;PrtScn;Print Screen;放大镜;取色;鼠标;中键;右键;侧键;双击;贴图;识别文字;框选;screenshot;capture;mouse").split(";")
-                  .concat(captureCard.item ? captureCard.item.searchTerms : [])
-        values: pluginsSection.editor ? [pluginsSection.editor.captureHotkey] : []
-        description: qsTr("随 Win顺 一起提供，默认关着；关着时不占内存，也不注册快捷键")
-        shown: pluginsSection.editor !== null
-        onRevealRequested: if (captureCard.item) captureCard.item.revealGroup(captureCard.item.matchedGroup)
+        // The names and words of the cards, and whether the words searched fit each.
+        readonly property var captureTerms: qsTr("截图;截屏;屏幕截图;PrtScn;Print Screen;放大镜;取色;鼠标;中键;右键;侧键;双击;贴图;识别文字;框选;screenshot;capture;mouse").split(";")
+                                            .concat(captureCard.item ? captureCard.item.searchTerms : [])
+        readonly property var pasteTerms: pasteCard.item ? pasteCard.item.searchTerms : []
+        readonly property string folderMenuTitle: qsTr("文件夹菜单")
+        readonly property var folderMenuTerms: qsTr("双击空白处;收藏的文件夹;最近的文件夹;Listary;folder menu").split(";")
+        readonly property string dialogBarTitle: qsTr("对话框搜索框")
+        readonly property var dialogBarTerms: qsTr("对话框;另存为;打开文件;dialog").split(";")
+        readonly property string explorerTypingTitle: qsTr("资源管理器里打字搜索")
+        readonly property var explorerTypingTerms: qsTr("直接打字;type to search").split(";")
+        readonly property string dropPieTitle: qsTr("收藏圆盘")
+        readonly property var dropPieTerms: qsTr("拖放;拖文件;drag;drop;pie").split(";")
+        readonly property bool captureFound: fits(qsTr("截图"), captureTerms)
+        readonly property bool pasteFound: fits(qsTr("粘贴为文件"), pasteTerms)
+        readonly property bool folderMenuFound: fits(folderMenuTitle, folderMenuTerms)
+        readonly property bool dialogBarFound: fits(dialogBarTitle, dialogBarTerms)
+        readonly property bool explorerTypingFound: fits(explorerTypingTitle, explorerTypingTerms)
+        readonly property bool dropPieFound: fits(dropPieTitle, dropPieTerms)
+        readonly property bool anyFound: captureFound || pasteFound || folderMenuFound || dialogBarFound
+                                         || explorerTypingFound || dropPieFound
+        function fits(name, terms) {
+            return searching && !!search.match(search.revision, { title: name, keywords: terms })
+        }
+        // While searching, a card the words do not fit steps aside, unless none fits.
+        function kept(found) { return !searching || found || !anyFound }
+        // Room for the widest of the cards' buttons (BuiltinCard.buttonSlot), measured on unseen ones.
+        readonly property real buttonSlot: Math.max(foldMeasure.implicitWidth, linkMeasure.implicitWidth)
 
-        body: Loader {
-            id: captureCard
+        title: qsTr("内置功能")
+        keywords: captureTerms.concat(pasteTerms, [folderMenuTitle, dialogBarTitle, explorerTypingTitle, dropPieTitle],
+                                      folderMenuTerms, dialogBarTerms, explorerTypingTerms, dropPieTerms)
+        values: pluginsSection.editor ? [pluginsSection.editor.captureHotkey] : []
+        description: qsTr("随 Win顺 一起提供，用到哪个开哪个；关闭后停止对应功能，暂不支持单独卸载")
+        shown: pluginsSection.editor !== null
+        onRevealRequested: {
+            if (captureFound && captureCard.item)
+                captureCard.item.revealGroup(captureCard.item.matchedGroup)
+            if (pasteFound && pasteCard.item && pluginsSection.editor.pasteFileEnabled)
+                pasteCard.item.expanded = true
+        }
+
+        body: Column {
             width: parent.width
-            active: pluginsSection.editor !== null
-            sourceComponent: CaptureCard {
-                editor: pluginsSection.editor
-                marked: builtinRow.searching && builtinRow.found
-                search: builtinRow.search
+            spacing: 8
+
+            FlatButton {
+                id: foldMeasure
+                visible: false
+                text: qsTr("收起设置")
+                trailingGlyph: String.fromCharCode(0xE70E)
+            }
+            FlatButton {
+                id: linkMeasure
+                visible: false
+                text: qsTr("更多设置")
+                trailingGlyph: String.fromCharCode(0xE76C)
+            }
+
+            Loader {
+                id: captureCard
+                width: parent.width
+                active: pluginsSection.editor !== null
+                visible: builtinRow.kept(builtinRow.captureFound)
+                sourceComponent: CaptureCard {
+                    editor: pluginsSection.editor
+                    marked: builtinRow.captureFound
+                    search: builtinRow.search
+                    buttonSlot: builtinRow.buttonSlot
+                }
+            }
+
+            Loader {
+                id: pasteCard
+                width: parent.width
+                active: pluginsSection.editor !== null
+                visible: builtinRow.kept(builtinRow.pasteFound)
+                sourceComponent: PasteFileCard {
+                    editor: pluginsSection.editor
+                    marked: builtinRow.pasteFound
+                    buttonSlot: builtinRow.buttonSlot
+                }
+            }
+
+            // The others: their switch here, the rest of their settings on their own page.
+            Loader {
+                width: parent.width
+                active: pluginsSection.editor !== null
+                visible: builtinRow.kept(builtinRow.folderMenuFound)
+                sourceComponent: BuiltinCard {
+                    buttonSlot: builtinRow.buttonSlot
+                    glyph: String.fromCharCode(0xE838) // FolderOpen
+                    title: builtinRow.folderMenuTitle
+                    description: qsTr("在资源管理器或桌面的空白处双击，弹出收藏的、最近的和别的窗口里的文件夹")
+                    checked: pluginsSection.editor.folderMenu
+                    linkText: qsTr("更多设置")
+                    marked: builtinRow.folderMenuFound
+                    onToggled: (on) => pluginsSection.editor.folderMenu = on
+                    onLinkActivated: pluginsSection.settingRequested("folderMenu")
+                }
+            }
+            Loader {
+                width: parent.width
+                active: pluginsSection.editor !== null
+                visible: builtinRow.kept(builtinRow.dialogBarFound)
+                sourceComponent: BuiltinCard {
+                    buttonSlot: builtinRow.buttonSlot
+                    glyph: String.fromCharCode(0xE721) // Search
+                    title: builtinRow.dialogBarTitle
+                    description: qsTr("在“打开”“另存为”对话框旁搜文件夹和文件，选中后直接转过去")
+                    checked: pluginsSection.editor.dialogBar
+                    linkText: qsTr("更多设置")
+                    marked: builtinRow.dialogBarFound
+                    onToggled: (on) => pluginsSection.editor.dialogBar = on
+                    onLinkActivated: pluginsSection.settingRequested("dialogBar")
+                }
+            }
+            Loader {
+                width: parent.width
+                active: pluginsSection.editor !== null
+                visible: builtinRow.kept(builtinRow.explorerTypingFound)
+                sourceComponent: BuiltinCard {
+                    buttonSlot: builtinRow.buttonSlot
+                    glyph: String.fromCharCode(0xE765) // KeyboardClassic
+                    title: builtinRow.explorerTypingTitle
+                    description: qsTr("文件列表有焦点时直接打字，就在这个文件夹里搜，代替资源管理器的“按首字母跳到文件”")
+                    checked: pluginsSection.editor.explorerTyping
+                    marked: builtinRow.explorerTypingFound
+                    onToggled: (on) => pluginsSection.editor.explorerTyping = on
+                }
+            }
+            Loader {
+                width: parent.width
+                active: pluginsSection.editor !== null
+                visible: builtinRow.kept(builtinRow.dropPieFound)
+                sourceComponent: BuiltinCard {
+                    buttonSlot: builtinRow.buttonSlot
+                    glyph: String.fromCharCode(0xE734) // FavoriteStar
+                    title: builtinRow.dropPieTitle
+                    description: pluginsSection.editor.isElevated ? qsTr("Win顺 以管理员身份运行时用不了")
+                                 : qsTr("按住文件时按 Esc 下面那个键，收藏的文件夹围着指针弹出，朝哪个拖就放进哪个")
+                    checked: pluginsSection.editor.dropPie && !pluginsSection.editor.isElevated
+                    available: !pluginsSection.editor.isElevated
+                    marked: builtinRow.dropPieFound
+                    onToggled: (on) => pluginsSection.editor.dropPie = on
+                }
             }
         }
     }

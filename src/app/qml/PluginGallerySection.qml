@@ -15,6 +15,7 @@ SettingsSection {
     readonly property PluginGallery gallery: plugins.gallery
 
     signal showInstalled(string pluginId) // 查看: its card on the 已安装 tab
+    signal showDeveloper()
 
     note: qsTr("Win顺 插件库里的插件，下载后先核对文件再安装。装好的插件默认关着，打开时会先列出它要的权限。")
 
@@ -99,6 +100,21 @@ SettingsSection {
             text: qsTr("看看怎么投稿")
             glyph: "" // Link
             onClicked: gallerySection.gallery.openRepository()
+        }
+    }
+
+    SettingRow {
+        title: qsTr("做一个自己的插件")
+        keywords: qsTr("AI;开发;模板;创建;贡献;Python;PowerShell").split(";")
+        description: qsTr("从能运行的模板开始，也可以把开发提示和模板一起交给 AI。创建后仍由你决定是否启用插件。")
+        FlatButton {
+            text: qsTr("复制 AI 开发提示")
+            onClicked: gallerySection.plugins.copyDevelopmentPrompt()
+        }
+        FlatButton {
+            text: qsTr("创建插件")
+            highlighted: true
+            onClicked: gallerySection.showDeveloper()
         }
     }
 }

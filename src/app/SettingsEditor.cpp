@@ -33,7 +33,10 @@
 #include <QJsonObject>
 #include <QKeyEvent>
 #include <QRegularExpression>
+#include <QProcess>
+#include <QTimer>
 #include <QSaveFile>
+#include <QSet>
 #include <QStyleHints>
 #include <QUrl>
 #include <QVariantMap>
@@ -93,6 +96,7 @@ SettingsEditor::SettingsEditor(const Settings& settings, const QString& runningR
     , m_settings(settings)
     , m_runningRenderer(runningRenderer)
     , m_knownShares(unc::knownShares())
+    , m_knownWsl(wsl::distributions())
     , m_knownFolders(Settings::knownFolders())
     , m_foldersAnnounced(settings.indexFolders)
     , m_sharesAnnounced(settings.shares)
@@ -100,6 +104,7 @@ SettingsEditor::SettingsEditor(const Settings& settings, const QString& runningR
     , m_plugins(new PluginSettings(this, this))
     , m_favorites(new FavoritesSettings(this, this))
 {
+    connect(this, &SettingsEditor::changed, this, &SettingsEditor::drivesChanged);
     connect(siteicons::notifier(), &siteicons::Notifier::fetched, this, [this] {
         ++m_siteIconsArrived;
         emit siteIconArrived();
@@ -153,10 +158,13 @@ void SettingsEditor::setSettings(const Settings& settings)
         || settings.capturePinsHotkey != m_settings.capturePinsHotkey
         || settings.capturePinsRestoreHotkey != m_settings.capturePinsRestoreHotkey;
     const bool shares = settings.shares != m_settings.shares;
+    const bool drives = settings.selectedDrives != m_settings.selectedDrives;
     m_settings = settings;
     emit changed();
     if (shares)
         emit sharesChanged();
+    if (drives)
+        emit foldersChanged(); // drive selection is also shown on each folder's card
     noteFoldersEdited();
     if (keys)
         refreshNumberKeys();
@@ -189,6 +197,14 @@ void SettingsEditor::setShowModified(bool on)
     if (m_settings.showModified == on)
         return;
     m_settings.showModified = on;
+    commit();
+}
+
+void SettingsEditor::setShowModifiedTime(bool on)
+{
+    if (m_settings.showModifiedTime == on)
+        return;
+    m_settings.showModifiedTime = on;
     commit();
 }
 
@@ -532,6 +548,7 @@ void SettingsEditor::setIndexAccess(const QString& mode)
 
 void SettingsEditor::setIndexAccessState(const IndexAccessState& state)
 {
+    emit drivesChanged();
     if (m_indexAccessState == state)
         return;
     const bool scope = state.foldersInEffect != m_indexAccessState.foldersInEffect;
@@ -1180,6 +1197,31 @@ void SettingsEditor::setCaptureSmartWords(const QString& words)
     commit();
 }
 
+void SettingsEditor::setPasteFileEnabled(bool on)
+{
+    if (m_settings.pasteFileEnabled == on)
+        return;
+    m_settings.pasteFileEnabled = on;
+    commit(); // the app adds or takes away the menu's verb and Ctrl+V (App::applyPasteFile)
+}
+
+// One of the two ways to it stays on (Settings::load does the same).
+void SettingsEditor::setPasteFileCtrlV(bool on)
+{
+    if (m_settings.pasteFileCtrlV == on || (!on && !m_settings.pasteFileMenu))
+        return;
+    m_settings.pasteFileCtrlV = on;
+    commit();
+}
+
+void SettingsEditor::setPasteFileMenu(bool on)
+{
+    if (m_settings.pasteFileMenu == on || (!on && !m_settings.pasteFileCtrlV))
+        return;
+    m_settings.pasteFileMenu = on;
+    commit();
+}
+
 void SettingsEditor::setCaptureNote(const QString& note)
 {
     if (m_captureNote == note)
@@ -1581,8 +1623,31 @@ QVariantList SettingsEditor::fileTypes() const
 {
     QVariantList list;
     for (const FileType& type : m_settings.namedFileTypes())
-        list.append(QVariantMap {{u"name"_s, type.name}, {u"extensions"_s, type.extensions}});
+        list.append(QVariantMap {{u"name"_s, type.name}, {u"extensions"_s, type.extensions}, {u"keyword"_s, type.keyword}});
     return list;
+}
+
+QString SettingsEditor::setFileTypeKeyword(int index, const QString& text)
+{
+    if (index < -1 || index >= m_settings.fileTypes.size())
+        return tr("类型已不存在");
+    const auto keyword = normalizedTypeKeyword(text);
+    if (!keyword)
+        return tr("前缀最多 32 个字符，只能包含文字、数字、下划线和连字符");
+    if (!keyword->isEmpty()) {
+        if (index != -1 && *keyword == m_settings.folderKeyword)
+            return tr("这个前缀已用于文件夹");
+        for (qsizetype i = 0; i < m_settings.fileTypes.size(); ++i) {
+            if (i != index && *keyword == m_settings.fileTypes[i].keyword)
+                return tr("已有类型使用这个前缀");
+        }
+    }
+    QString& value = index == -1 ? m_settings.folderKeyword : m_settings.fileTypes[index].keyword;
+    if (value != *keyword) {
+        value = *keyword;
+        commit();
+    }
+    return {};
 }
 
 QString SettingsEditor::addFileType(const QString& name, const QString& extensions)
@@ -1654,6 +1719,7 @@ void SettingsEditor::moveFileType(int index, int delta)
 void SettingsEditor::resetFileTypes()
 {
     m_settings.fileTypes = Settings::defaultFileTypes();
+    m_settings.folderKeyword = Settings{}.folderKeyword;
     commit();
 }
 
@@ -1930,13 +1996,18 @@ QString problemText(const ShareIndexer::Status& s)
 {
     using P = share::Problem;
     const QString host = QString::fromStdWString(std::wstring(unc::host(s.path)));
+    const QString distro = QString::fromStdWString(std::wstring(unc::wslDistribution(s.path)));
     switch (s.problem) {
     case P::None:
     case P::Offline:
+        if (!distro.isEmpty())
+            return SettingsEditor::tr("暂时无法访问 %1 中的这个文件夹，稍后自动重试；可先在资源管理器中检查路径").arg(distro);
         return SettingsEditor::tr("离线：连不上 %1（已关机、不在同一网络，或 VPN 没连）").arg(host);
     case P::Dropped:
         return SettingsEditor::tr("连接中断了，稍后自动重试");
     case P::NotFound:
+        if (!distro.isEmpty())
+            return SettingsEditor::tr("找不到这个 WSL 文件夹，请检查路径是否已改名或删除");
         return SettingsEditor::tr("找不到这个共享文件夹：%1 在线，但上面没有它（改名或删除了？）").arg(host);
     case P::NeedsSignIn:
         return SettingsEditor::tr("需要登录：Windows 还没有 %1 的用户名和密码").arg(host);
@@ -1950,9 +2021,17 @@ QString problemText(const ShareIndexer::Status& s)
     case P::Smb1Only:
         return SettingsEditor::tr("%1 只支持老旧的 SMB1，Windows 不再用它连接：请在 %1 上启用 SMB 2 或 SMB 3").arg(host);
     case P::Denied:
+        if (!distro.isEmpty())
+            return SettingsEditor::tr("没有权限读取这个 WSL 文件夹，请选择当前 Linux 用户有权限的文件夹");
         return SettingsEditor::tr("没有权限读取这个文件夹：换一个有权限的账户登录试试");
     case P::Other:
         break;
+    case P::WslStopped:
+        return SettingsEditor::tr("%1 未运行；启动后会自动继续收录").arg(distro);
+    case P::WslNotRegistered:
+        return SettingsEditor::tr("找不到 WSL 发行版 %1，请检查是否已卸载或改名").arg(distro);
+    case P::WslUnavailable:
+        return SettingsEditor::tr("暂时无法读取 WSL 状态，稍后自动重试；也可在终端检查 WSL 是否正常");
     }
     return SettingsEditor::tr("出错了（错误 %1），稍后自动重试").arg(s.error);
 }
@@ -1964,8 +2043,11 @@ QVariantList SettingsEditor::shares() const
     using State = ShareIndexer::State;
     QVariantList list;
     for (const NetworkShare& share : m_settings.shares) {
+        const std::wstring path = share.path.toStdWString();
+        const auto distro = unc::wslDistribution(path);
+        const bool isWsl = !distro.empty();
         const auto it = std::ranges::find_if(m_shareStatuses, [&](const ShareIndexer::Status& s) {
-            return QString::fromStdWString(s.path).compare(share.path, Qt::CaseInsensitive) == 0;
+            return unc::equal(s.path, path);
         });
         QString tone = u"idle"_s;
         QString status = tr("稍后开始收录");
@@ -1992,15 +2074,17 @@ QVariantList SettingsEditor::shares() const
             case State::Online:
                 tone = u"ok"_s;
                 status = QStringList {tr("在线"), itemsText(s.items), verified,
-                    s.watching ? tr("实时跟踪变化")
+                    isWsl ? tr("自动核对变化")
+                    : s.watching ? tr("实时跟踪变化")
                                : tr("服务器不通知变化，每 %n 小时核对一次", "", m_settings.networkVerifyHoursUnwatched)}
                              .join(u" · "_s);
                 break;
             case State::Problem: {
-                const bool away = s.problem == share::Problem::Offline || s.problem == share::Problem::Dropped;
+                const bool away = s.problem == share::Problem::Offline || s.problem == share::Problem::Dropped
+                    || s.problem == share::Problem::WslStopped || s.problem == share::Problem::WslUnavailable;
                 tone = away ? u"idle"_s : u"error"_s;
-                signIn = s.problem == share::Problem::NeedsSignIn || s.problem == share::Problem::GuestBlocked
-                    || s.problem == share::Problem::Denied;
+                signIn = !isWsl && (s.problem == share::Problem::NeedsSignIn || s.problem == share::Problem::GuestBlocked
+                    || s.problem == share::Problem::Denied);
                 status = problemText(s);
                 if (s.items > 0)
                     status += u"\n"_s + tr("已收录的 %1 照常能搜到").arg(itemsText(s.items))
@@ -2015,9 +2099,27 @@ QVariantList SettingsEditor::shares() const
                 break;
             }
         }
+        const bool starting = m_wslStarting.contains(share.path);
+        if (starting) {
+            tone = u"busy"_s;
+            busy = true;
+            status = tr("正在启动 %1…").arg(QString::fromStdWString(std::wstring(distro)));
+        } else if (const auto error = m_wslStartProblems.constFind(share.path); error != m_wslStartProblems.cend()) {
+            tone = u"error"_s;
+            status = error.value();
+        }
+        QString name = share.name.isEmpty() ? share.path : share.name;
+        if (isWsl && share.name.isEmpty()) {
+            QString folder = QString::fromStdWString(path.substr(static_cast<std::size_t>(distro.data() - path.data()) + distro.size()));
+            folder.replace(u'\\', u'/');
+            name = QString::fromStdWString(std::wstring(distro)) + u" · "_s + (folder.isEmpty() ? u"/"_s : folder);
+        }
         list.append(QVariantMap {
             {u"path"_s, share.path},
-            {u"name"_s, share.name.isEmpty() ? share.path : share.name},
+            {u"name"_s, name},
+            {u"wsl"_s, isWsl},
+            {u"startable"_s, isWsl && !starting && it != m_shareStatuses.end()
+                && (it->problem == share::Problem::WslStopped || m_wslStartProblems.contains(share.path))},
             {u"tone"_s, tone},
             {u"status"_s, status},
             {u"signIn"_s, signIn},
@@ -2034,17 +2136,87 @@ QVariantList SettingsEditor::knownShares() const
     for (const unc::Known& known : m_knownShares) {
         const QString path = QString::fromStdWString(known.path);
         if (std::ranges::any_of(m_settings.shares,
-                [&](const NetworkShare& s) { return s.path.compare(path, Qt::CaseInsensitive) == 0; }))
+                [&](const NetworkShare& s) { return unc::equal(s.path.toStdWString(), known.path); }))
             continue;
         list.append(QVariantMap {{u"path"_s, path}, {u"drive"_s, QString::fromStdWString(known.drive)}});
     }
     return list;
 }
 
+QVariantList SettingsEditor::wslFolders() const
+{
+    QVariantList list;
+    for (const auto& distro : m_knownWsl) {
+        const std::wstring path = L"\\\\wsl.localhost\\" + distro.name + (distro.rootUser ? L"\\root" : L"\\home");
+        if (std::ranges::any_of(m_settings.shares, [&](const NetworkShare& s) {
+                return unc::contains(s.path.toStdWString(), path);
+            }))
+            continue;
+        list.append(QVariantMap {
+            {u"path"_s, QString::fromStdWString(path)},
+            {u"name"_s, QString::fromStdWString(distro.name) + (distro.rootUser ? u" · /root"_s : u" · /home"_s)},
+        });
+    }
+    return list;
+}
+
+bool SettingsEditor::isWslPath(const QString& text) const
+{
+    return unc::isWslHost(unc::host(QDir::toNativeSeparators(text.trimmed()).toStdWString()));
+}
+
+void SettingsEditor::startWslShare(int index)
+{
+    if (index < 0 || index >= m_settings.shares.size())
+        return;
+    const QString path = m_settings.shares[index].path;
+    const std::wstring wide = path.toStdWString();
+    const auto distro = unc::wslDistribution(wide);
+    if (distro.empty() || m_wslStarting.contains(path))
+        return;
+    m_wslStarting.append(path);
+    m_wslStartProblems.remove(path);
+    emit sharesChanged();
+    // Only this explicit user action starts WSL. No shell or interpolated command.
+    auto* process = new QProcess(this);
+    process->setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* args) {
+        args->flags |= CREATE_NO_WINDOW;
+    });
+    auto* timeout = new QTimer(process);
+    timeout->setSingleShot(true);
+    connect(timeout, &QTimer::timeout, process, &QProcess::kill);
+    const auto finish = [this, process, timeout, path](bool success) {
+        if (!m_wslStarting.removeOne(path))
+            return;
+        timeout->stop();
+        if (success)
+            emit shareVerifyRequested(path);
+        else
+            m_wslStartProblems.insert(path, tr("没能启动 WSL，请先在终端启动这个发行版，再点“立即核对”"));
+        emit sharesChanged();
+        process->deleteLater();
+    };
+    connect(process, &QProcess::finished, this, [finish](int code, QProcess::ExitStatus status) {
+        finish(status == QProcess::NormalExit && code == 0);
+    });
+    connect(process, &QProcess::errorOccurred, this, [finish](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart)
+            finish(false);
+    });
+    process->start(wsl::executable(), {u"--distribution"_s, QString::fromStdWString(std::wstring(distro)),
+        u"--exec"_s, u"/bin/true"_s});
+    timeout->start(30'000);
+}
+
 void SettingsEditor::setShareStatuses(std::vector<ShareIndexer::Status> statuses)
 {
     // The words of each are what counts ("10 分钟前" moves on by itself).
     const QVariantList before = shares();
+    for (const auto& status : statuses) {
+        if (status.state == ShareIndexer::State::Online || status.state == ShareIndexer::State::Building
+            || status.state == ShareIndexer::State::Verifying)
+            m_wslStartProblems.remove(QString::fromStdWString(status.path));
+    }
     m_shareStatuses = std::move(statuses);
     if (shares() != before)
         emit sharesChanged();
@@ -2068,6 +2240,10 @@ QString SettingsEditor::addShare(const QString& text)
     const QString path = Settings::sharePath(text);
     if (path.isEmpty()) {
         const QString t = text.trimmed();
+        if (t.startsWith(u'/') && !t.startsWith(u"//"_s))
+            return tr("请使用带发行版名的 WSL 路径，例如 %1；可以从资源管理器复制文件夹路径")
+                .arg(u"\\\\wsl.localhost\\"_s
+                    + (m_knownWsl.empty() ? u"Ubuntu"_s : QString::fromStdWString(m_knownWsl.front().name)) + u"\\home"_s);
         if (t.size() >= 2 && t[1] == u':')
             return tr("%1 不是映射的网络驱动器").arg(t.left(2).toUpper());
         if (const QString host = serverOf(t); !host.isEmpty())
@@ -2075,7 +2251,7 @@ QString SettingsEditor::addShare(const QString& text)
         return tr("请输入网络路径，例如 \\\\192.168.1.10\\资料");
     }
     for (const NetworkShare& share : m_settings.shares) {
-        if (share.path.compare(path, Qt::CaseInsensitive) == 0)
+        if (unc::equal(share.path.toStdWString(), path.toStdWString()))
             return tr("已经添加过了");
         if (unc::contains(share.path.toStdWString(), path.toStdWString()))
             return tr("它在已添加的 %1 里面，已经能搜到").arg(share.path);
@@ -2101,8 +2277,11 @@ void SettingsEditor::removeShare(int index)
 
 void SettingsEditor::verifyShare(int index)
 {
-    if (index >= 0 && index < m_settings.shares.size())
+    if (index >= 0 && index < m_settings.shares.size()) {
+        m_wslStartProblems.remove(m_settings.shares[index].path);
         emit shareVerifyRequested(m_settings.shares[index].path);
+        emit sharesChanged();
+    }
 }
 
 void SettingsEditor::signInToShare(int index)
@@ -2188,6 +2367,67 @@ void SettingsEditor::setIndexScope(const QString& scope)
     commit(); // the app prunes the index to the folders, or reads the disks whole again (IndexService::setScope)
 }
 
+QVariantList SettingsEditor::drives() const
+{
+    QVariantList list;
+    QSet<QString> present;
+    const DWORD mask = ::GetLogicalDrives();
+    for (int i = 0; i < 26; ++i) {
+        if (!(mask & (1u << i)))
+            continue;
+        const QString root = QString(QChar(char16_t(u'A' + i))) + u':';
+        const UINT type = ::GetDriveTypeW((root + u'\\').toStdWString().c_str());
+        if (type != DRIVE_FIXED && type != DRIVE_REMOVABLE)
+            continue;
+        present.insert(root);
+        const bool eligible = type == DRIVE_FIXED || m_settings.includeRemovableDrives;
+        list.append(QVariantMap{{u"root"_s, root}, {u"selected"_s, allDrives() ? eligible : m_settings.selectedDrives->contains(root)},
+            {u"enabled"_s, eligible}, {u"status"_s, eligible ? QString() : tr("先打开“包括 U 盘和移动硬盘”")}});
+    }
+    if (m_settings.selectedDrives) {
+        for (const QString& root : *m_settings.selectedDrives) {
+            if (!present.contains(root))
+                list.append(QVariantMap{{u"root"_s, root}, {u"selected"_s, true}, {u"enabled"_s, true}, {u"status"_s, tr("未连接，选择会保留")}});
+        }
+    }
+    return list;
+}
+
+void SettingsEditor::setAllDrives(bool all)
+{
+    if (all == allDrives())
+        return;
+    if (all) {
+        m_settings.selectedDrives.reset();
+    } else {
+        QStringList selected;
+        for (const QVariant& value : drives()) {
+            const QVariantMap drive = value.toMap();
+            if (drive.value(u"enabled"_s).toBool())
+                selected.append(drive.value(u"root"_s).toString());
+        }
+        m_settings.selectedDrives = selected;
+    }
+    commit();
+    emit foldersChanged();
+}
+
+void SettingsEditor::setDriveSelected(const QString& givenRoot, bool selected)
+{
+    const QString root = givenRoot.trimmed().toUpper();
+    if (allDrives() || root.size() != 2 || root[0] < u'A' || root[0] > u'Z' || root[1] != u':')
+        return;
+    QStringList& chosen = *m_settings.selectedDrives;
+    if (chosen.contains(root) == selected)
+        return;
+    if (selected)
+        chosen.append(root);
+    else
+        chosen.removeAll(root);
+    commit();
+    emit foldersChanged();
+}
+
 void SettingsEditor::setFolderVerifyHours(int hours)
 {
     hours = std::clamp(hours, 0, 24 * 7);
@@ -2219,11 +2459,15 @@ QVariantList SettingsEditor::folders() const
         QString status;
         bool busy = false;
         bool verifiable = false;
+        const bool linked = hasDirectoryLink(key);
         const bool network = key.empty() && Settings::isNetworkPath(path);
         if (key.empty()) {
             tone = u"warn"_s;
-            status = network ? tr("这是网络位置，请在“网络共享”里添加") : tr("不是完整的文件夹路径，不会索引");
-        } else if (m_indexAccessState.foldersInEffect) { // else nothing to say: the disks are indexed whole
+            status = network ? tr("这是网络或 WSL 位置，请在“网络与 WSL”里添加") : tr("不是完整的文件夹路径，不会索引");
+        } else if (m_settings.selectedDrives && !m_settings.selectedDrives->contains(QString::fromStdWString(key.substr(0, 2)))) {
+            tone = u"warn"_s;
+            status = tr("所在的磁盘未勾选，不会索引");
+        } else if (m_indexAccessState.foldersInEffect || linked || statusOf(key) != m_folderStatuses.end()) {
             if (const auto it = statusOf(key); it == m_folderStatuses.end()) {
                 // Inside another one: that one has it.
                 const auto outer = std::ranges::find_if(m_folderStatuses, [&](const IndexService::FolderStatus& s) {
@@ -2279,6 +2523,9 @@ QVariantList SettingsEditor::folders() const
                 if (!s.watching && (s.state == State::Ready || s.state == State::Waiting))
                     status += u'\n' + tr("没有实时更新：改动等下次核对时补上");
             }
+        } else {
+            tone = u"ok"_s;
+            status = tr("已包含在整盘索引中，无需重复扫描");
         }
         list.append(QVariantMap {
             {u"path"_s, path},
@@ -2288,6 +2535,7 @@ QVariantList SettingsEditor::folders() const
             {u"busy"_s, busy},
             {u"verifiable"_s, verifiable && !busy},
             {u"network"_s, network},
+            {u"linked"_s, linked},
             {u"signIn"_s, false},
             {u"suspect"_s, false},
         });
@@ -2347,7 +2595,7 @@ QString SettingsEditor::addFolderTo(Settings& settings, const QString& text, boo
     if (folder.isEmpty())
         return {};
     if (Settings::isNetworkPath(folder))
-        return tr("这是网络位置，请在“网络共享”里添加");
+        return tr("这是网络或 WSL 位置，请在“网络与 WSL”里添加");
     const std::wstring key = Settings::indexFolderPath(folder);
     if (key.empty())
         return tr("请选一个完整的文件夹路径");
@@ -2361,13 +2609,13 @@ QString SettingsEditor::addFolderTo(Settings& settings, const QString& text, boo
             continue;
         if (win32::equalsIgnoreCase(keys[i], key))
             return tr("已经添加过了");
-        if (folderHolds(keys[i], key))
+        if (folderHolds(keys[i], key) && !hasDirectoryLink(key, keys[i]))
             return tr("已经包含在 %1 里").arg(displayPath(settings.indexFolders[static_cast<qsizetype>(i)]));
     }
     // One that holds folders added takes their place: none twice.
     QStringList kept;
     for (std::size_t i = 0; i < keys.size(); ++i) {
-        if (keys[i].empty() || !folderHolds(key, keys[i]))
+        if (keys[i].empty() || !folderHolds(key, keys[i]) || hasDirectoryLink(keys[i], key))
             kept.push_back(settings.indexFolders[static_cast<qsizetype>(i)]);
     }
     kept.push_back(folder);
@@ -2423,7 +2671,12 @@ void SettingsEditor::listServerShares(const QString& server)
         QStringList found;
         QString problem;
         bool signIn = false;
-        if (!share::reachable(host.toStdWString(), std::chrono::milliseconds(1500), true)) {
+        if (unc::isWslHost(host.toStdWString())) {
+            for (const auto& d : wsl::distributions())
+                found.append(QString::fromStdWString(d.name));
+            if (found.isEmpty())
+                problem = tr("这台电脑还没有安装 WSL 发行版");
+        } else if (!share::reachable(host.toStdWString(), std::chrono::milliseconds(1500), true)) {
             problem = tr("连不上 %1（已关机、不在同一网络，或 VPN 没连）").arg(host);
         } else {
             unsigned long error = 0;

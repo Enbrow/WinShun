@@ -95,6 +95,7 @@ class Launcher : public QObject {
     Q_PROPERTY(StartList startList READ startList WRITE setStartList NOTIFY startListChanged FINAL)
     // Rows say when each file or folder was last written.
     Q_PROPERTY(bool showModified READ showModified NOTIFY resultOptionsChanged FINAL)
+    Q_PROPERTY(QString folderKeyword READ folderKeyword NOTIFY fileTypesChanged FINAL)
     // A click on a row only selects it; a double click (or Enter) opens it
     // (Settings::doubleClickToOpen, GitHub #44).
     Q_PROPERTY(bool doubleClickToOpen READ doubleClickToOpen NOTIFY resultOptionsChanged FINAL)
@@ -469,6 +470,8 @@ public:
     int fileType() const { return m_fileType; }
     QVariantList fileTypes() const;
     void setFileTypes(const FileTypes& types); // named (Settings::namedFileTypes)
+    void setFolderKeyword(const QString& keyword);
+    QString folderKeyword() const { return m_folderKeyword; }
     // A chip of the strip: kFoldersChip (文件夹), -1 (不限), or a kind
     // (fileTypes); in 文件 (or 文件夹) from any scope.
     static constexpr int kFoldersChip = -2;
@@ -677,7 +680,7 @@ private:
     void onSuggestions(const QString& endpoint, const QString& words, const QStringList& suggestions);
     void placeSuggestions();
     void dropSuggestions();
-    void perform(const SearchResult& result, Action action);
+    void perform(const SearchResult& result, Action action, bool fileChecked = false);
     void performApp(const SearchResult& app, Action action);
     void performPlace(const SearchResult& place, Action action);
     // A system switch's row with a backend: false for any other, which is an
@@ -787,6 +790,7 @@ private:
     // Refresh: content matches kept from the last scan that the running one
     // has not found again yet. Removed if it finishes without them.
     QSet<QString> m_unconfirmed;
+    QSet<QString> m_wslOpening;
     qint64 m_totalMatches = 0;
     qint64 m_elapsedUs = 0;
     bool m_contentRunning = false;
@@ -828,6 +832,13 @@ private:
     int m_currentRow = -1;
     QVariantMap m_keyHints; // see keyHints
     FileTypes m_fileTypes;
+    QString m_folderKeyword = QStringLiteral("folder");
+    struct PrefixScope { Scope scope; int type; bool folders; };
+    std::optional<PrefixScope> m_filePrefix;
+    QString m_prefixWords;
+    QString searchText() const { return m_filePrefix ? m_prefixWords : m_query.trimmed(); }
+    void updateQueryPrefix();
+    bool clearQueryPrefix(); // an explicit scope/type choice replaces the typed prefix
     int m_fileType = -1; // see fileType
     bool m_foldersChosen = false; // 文件夹 was the strip's last choice (fileChoice)
     static QString fileTypeKey(const FileType& type); // as fileChoice names it

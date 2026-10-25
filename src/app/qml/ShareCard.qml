@@ -14,6 +14,7 @@ Rectangle {
     property bool marked: false // what the settings search found
 
     signal verifyClicked()
+    signal startClicked()
     signal signInClicked()
     signal acceptClicked()
     signal removeClicked()
@@ -34,7 +35,7 @@ Rectangle {
         id: icon
         x: 14
         y: 14
-        glyph: card.kind === "folder" ? "\uE8B7" : "\uE8CE" // Folder, MapDrive
+        glyph: card.kind === "folder" ? "\uE8B7" : card.share.wsl === true ? "\uE756" : "\uE8CE"
         size: 20
         color: Theme.subtext
     }
@@ -109,6 +110,13 @@ Rectangle {
         spacing: 4
 
         FlatButton {
+            visible: card.share.startable === true
+            implicitHeight: 32
+            highlighted: true
+            text: qsTr("启动并索引")
+            onClicked: card.startClicked()
+        }
+        FlatButton {
             visible: card.kind === "share" && card.share.signIn
             implicitHeight: 32
             highlighted: true
@@ -122,7 +130,7 @@ Rectangle {
             onClicked: card.acceptClicked()
         }
         FlatButton {
-            visible: card.kind === "share" ? !card.share.signIn : card.share.verifiable === true
+            visible: card.kind === "share" ? !card.share.signIn && card.share.startable !== true : card.share.verifiable === true
             enabled: !card.share.busy
             implicitHeight: 32
             flat: true

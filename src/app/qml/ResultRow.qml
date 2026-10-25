@@ -74,6 +74,7 @@ Item {
     required property string switchError // why the last try failed; the second line in red
     required property bool switchReady // draws its switch (else an ordinary place, with its tag)
     property bool showModified: true
+    property bool showSize: false
     property int hint: 0 // its number for the number keys (Ctrl+1…), on its icon; 0 for none
     property string hintModifier: "Ctrl" // ... with this held
     property bool hintTaken: false // another program holds that chord as a global hotkey: shown struck through
@@ -297,12 +298,12 @@ Item {
     // stop short of it, so the path below the name never runs under it.
     Text {
         id: date
-        visible: row.showModified && row.modified.length > 0
+        visible: row.showSize ? row.size.length > 0 : row.showModified && row.modified.length > 0
         anchors.right: parent.right
         anchors.rightMargin: row.trailingSpace
         y: row.onPixel((row.height - height) / 2)
         width: Math.ceil(implicitWidth)
-        text: row.modified
+        text: row.showSize ? row.size : row.modified
         textFormat: Text.PlainText
         color: Theme.faint
         font.pixelSize: Theme.uiCaption

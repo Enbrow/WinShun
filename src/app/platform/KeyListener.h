@@ -2,7 +2,6 @@
 
 #include "DoubleClickDetector.h"
 #include "DoubleTapDetector.h"
-#include "ShakeDetector.h"
 
 #include <windows.h>
 
@@ -28,7 +27,7 @@ namespace ws {
 // clicks of the left button (the folder menu, GitHub #22). Windows keeps one
 // mouse registration per process: this is the only one, or the next Ctrl
 // press here would replace another's and take it away again. Likewise with
-// `dragShake` (the drop pie), which follows the pointer while the primary
+// `dragMenu` (the drop pie), which follows the pointer while the primary
 // button is held.
 class KeyListener {
 public:
@@ -47,13 +46,16 @@ public:
         // under the pointer and where (physical pixels). None: the mouse only
         // around a press of the key.
         std::function<void(HWND window, POINT pt)> doubleClick;
-        // The mouse shaken left and right while an OLE drag is under way
-        // (ShakeDetector; the drag told by its source thread's capture
-        // window): where the pointer is (physical pixels), the source's
-        // capture window and process. With it the mouse is listened to all
-        // the time, as for doubleClick.
-        std::function<void(POINT pt, HWND captureWindow, DWORD sourcePid)> dragShake;
-        // The primary button let go (with dragShake): the drag is over.
+        // The key under Esc pressed (` on most layouts, · in a Chinese input
+        // method) with a file held or dragged, once an OLE drag is under way
+        // (told by its source thread's capture window; a file held still,
+        // the drag is begun for it): where the pointer is (physical pixels),
+        // the source's capture window and process. With it the mouse is
+        // listened to all the time, as for doubleClick, and keyboards too;
+        // from a press on a list of files or a drag's start until the button
+        // is let go, the key is this listener's hotkey, so nothing types it.
+        std::function<void(POINT pt, HWND captureWindow, DWORD sourcePid)> dragMenu;
+        // The primary button let go (with dragMenu): the drag is over.
         std::function<void()> leftButtonUp;
         // Lines for the log (on the listener thread): that double Alt over
         // administrator windows needs the service updated, once; with
@@ -92,8 +94,22 @@ private:
     void onInput(HRAWINPUT input);
     void onMouse(const RAWMOUSE& mouse);
     void onDrag(const RAWMOUSE& mouse);
+    void onDragKey(const RAWKEYBOARD& key);
+    void onDragKeyPressed();
+    // The window holding the mouse for an OLE drag, and its process; none
+    // when no drag is under way.
+    struct DragSource {
+        HWND capture = nullptr;
+        DWORD pid = 0;
+    };
+    DragSource oleDrag() const;
+    void guardDragKey(bool on);
+    void startDrag();
+    void onStartDragTimer();
+    void replayDragKey();
     void listenToMouse(bool on);
-    bool mouseWanted() const noexcept { return m_callbacks.doubleClick || m_callbacks.dragShake; }
+    bool mouseWanted() const noexcept { return m_callbacks.doubleClick || m_callbacks.dragMenu; }
+    bool keyboardWanted() const noexcept { return m_callbacks.doubleCtrl || m_callbacks.dragMenu; }
     bool serviceTells() const noexcept;
     void followService();
     bool keyHeld() const;
@@ -114,8 +130,21 @@ private:
     Callbacks m_callbacks;
     std::array<DoubleTapDetector, 3> m_detectors; // Ctrl's, Alt's, Shift's; only touched on the listener thread
     DoubleClickDetector m_clicks; // likewise
-    ShakeDetector m_shake; // likewise
+    // The primary button held, and whether the pointer has left the drag
+    // rectangle round the press (a drag has begun); listener thread only.
+    bool m_pressed = false;
+    bool m_dragging = false;
+    SIZE m_dragRect {4, 4}; // SM_CXDRAG, SM_CYDRAG at the monitor pressed on
     POINT m_pressedAt {}; // where the primary button went down (physical pixels)
+    bool m_dragKeyDown = false; // the drop pie's key, listener thread only: its repeats are not presses
+    bool m_dragFound = false; // an OLE drag seen while the button is held; listener thread only
+    std::uint32_t m_dragLooked = 0; // when it was last looked for (message time)
+    bool m_dragKeyGuarded = false; // the drop pie's key held back from the drag's source
+    // The key pressed on a file still held, not dragged yet: the drag being
+    // started for it (startDrag). Listener thread only.
+    bool m_starting = false;
+    int m_startTicks = 0;
+    POINT m_startFrom {};
     bool m_mouseOn = false; // listener thread only
     std::array<Recent, 10> m_recent {}; // listener thread only; a ring
     std::size_t m_recentNext = 0;

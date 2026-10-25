@@ -29,6 +29,21 @@ namespace ws {
 
 namespace {
 
+// A chip's insides at 界面大小 standard (times the scale): the folder's
+// glyph, its name and, for a name shown twice, its parent's.
+constexpr double kChipPadStart = 12;
+constexpr double kChipPadEnd = 14;
+constexpr double kGlyph = 16;
+constexpr double kGlyphGap = 6;
+constexpr double kHintGap = 6;
+constexpr double kHintWidth = 56; // at most
+constexpr double kMinChip = 64;
+// The line under the chips.
+constexpr double kStatusGap = 12;
+constexpr double kStatusPad = 10;
+constexpr double kStatusMin = 280;
+constexpr double kStatusMax = 400;
+
 // The screen a physical point is on, as Qt knows it; the primary when none is.
 QScreen* screenAt(POINT pt)
 {
@@ -40,6 +55,21 @@ QScreen* screenAt(POINT pt)
             screen = candidate;
     }
     return screen;
+}
+
+// The screen in whole pixels (pie::wholePixel) that are all on it: Qt
+// rounds its size (2560 device pixels at 150 % are 1707 logical, the last
+// one half off the screen).
+QRect wholeOf(const QScreen* screen)
+{
+    const QRect logical = screen->geometry();
+    const auto* native = screen->nativeInterface<QNativeInterface::QWindowsScreen>();
+    MONITORINFO info {.cbSize = sizeof info};
+    if (!native || !::GetMonitorInfoW(native->handle(), &info))
+        return logical;
+    const qreal scale = screen->devicePixelRatio();
+    return {logical.topLeft(), QSize(pie::wholePixel((info.rcMonitor.right - info.rcMonitor.left) / scale, scale, -1),
+                                   pie::wholePixel((info.rcMonitor.bottom - info.rcMonitor.top) / scale, scale, -1))};
 }
 
 // A physical point in Qt's pixels on `screen` (the same origin in both).
@@ -73,6 +103,19 @@ QString parentOf(const QString& path)
     if (slash < 0)
         return {};
     return path.left(slash == 2 && path.size() > 1 && path.at(1) == u':' ? 3 : slash);
+}
+
+// The drive a path is on, case-folded: "d:", or "\\server\share"; empty for
+// neither. File Explorer moves within one and copies to another.
+QString driveOf(const QString& path)
+{
+    if (path.size() >= 2 && path.at(1) == u':')
+        return path.left(2).toCaseFolded();
+    if (!path.startsWith(u"\\\\"_s))
+        return {};
+    const qsizetype server = path.indexOf(u'\\', 2);
+    const qsizetype share = server < 0 ? -1 : path.indexOf(u'\\', server + 1);
+    return (share < 0 ? path : path.left(share)).toCaseFolded();
 }
 
 bool isNetworkPath(const std::wstring& path)
@@ -118,6 +161,15 @@ QString errorText(HRESULT hr)
     return text.isEmpty() ? u"0x%1"_s.arg(static_cast<quint32>(hr), 8, 16, u'0') : text;
 }
 
+QFont fontOf(int pixelSize, bool bold = false)
+{
+    QFont font = QGuiApplication::font(); // what a QML Text uses unless told otherwise
+    font.setPixelSize(std::max(1, pixelSize));
+    if (bold)
+        font.setWeight(QFont::DemiBold);
+    return font;
+}
+
 } // namespace
 
 DropPie::DropPie(Favorites* favorites, SystemCatalog* places, piedrop::FileOperations* operations, Notify notify,
@@ -132,15 +184,18 @@ DropPie::DropPie(Favorites* favorites, SystemCatalog* places, piedrop::FileOpera
     connect(&m_revealWait, &QTimer::timeout, this, [this] {
         if (!m_open || m_entered)
             return;
-        // The drag never came over the ring. While the pointer is still,
-        // OLE asks no window (it looks again at the next move): wait on.
+        // The drag has not come over the pie. While the pointer is still,
+        // OLE may ask no window until it moves: asked to look again. Moved
+        // and still nothing, the drag is not over it.
         POINT now {};
         ::GetCursorPos(&now);
         const bool moved = std::abs(now.x - m_shownAt.x) > 4 || std::abs(now.y - m_shownAt.y) > 4;
-        if (moved || m_shownClock.elapsed() > 1500)
+        if (moved || m_shownClock.elapsed() > 1000) {
             hide("the drag did not come over it");
-        else
+        } else {
+            nudge();
             m_revealWait.start(100ms);
+        }
     });
     m_releaseWait.setSingleShot(true);
     connect(&m_releaseWait, &QTimer::timeout, this, [this] {
@@ -153,6 +208,7 @@ DropPie::DropPie(Favorites* favorites, SystemCatalog* places, piedrop::FileOpera
         connect(m_favorites, &Favorites::changed, this, &DropPie::gatherFolders);
     if (m_places)
         connect(m_places, &SystemCatalog::changed, this, &DropPie::gatherFolders);
+    updateSectors();
     gatherFolders();
 }
 
@@ -170,7 +226,7 @@ void DropPie::setWindow(QQuickWindow* window)
     m_window = window;
     if (!m_window)
         return;
-    // See-through around the ring: a window colour that is all transparent
+    // See-through round the chips: a window colour that is all transparent
     // (Theme: never half), and an alpha channel from the start, before the
     // swap chain is made.
     QSurfaceFormat format = m_window->requestedFormat();
@@ -196,7 +252,7 @@ void DropPie::takeDropSite()
     if (m_target)
         m_target->detach();
     ::RevokeDragDrop(hwnd);
-    m_target = Microsoft::WRL::Make<piedrop::DropTarget>(static_cast<piedrop::Handler*>(this), hwnd);
+    m_target = Microsoft::WRL::Make<piedrop::DropTarget>(static_cast<piedrop::Handler*>(this));
     const HRESULT hr = m_target ? ::RegisterDragDrop(hwnd, m_target.Get()) : E_OUTOFMEMORY;
     if (FAILED(hr))
         qWarning().noquote() << u"Drop pie: could not take the window's drops (0x%1)"_s.arg(static_cast<quint32>(hr), 8, 16, u'0');
@@ -204,7 +260,7 @@ void DropPie::takeDropSite()
 }
 
 // Shown once, a pixel big, until its first frame: the graphics are set up
-// now, and the first shake shows the ring at once.
+// now, and the first time it is asked for it shows at once.
 void DropPie::prewarm()
 {
     const QScreen* screen = QGuiApplication::primaryScreen();
@@ -223,10 +279,11 @@ void DropPie::prewarm()
     });
 }
 
-void DropPie::shaken(POINT pt, HWND captureWindow, DWORD sourcePid)
+void DropPie::summoned(POINT pt, HWND captureWindow, DWORD sourcePid)
 {
-    QMetaObject::invokeMethod(this, [this, pt, captureWindow, sourcePid] { onShaken(pt, captureWindow, sourcePid); },
-        Qt::QueuedConnection);
+    QMetaObject::invokeMethod(this, [this, pt, captureWindow, sourcePid] {
+        onSummoned(pt, captureWindow, sourcePid);
+    }, Qt::QueuedConnection);
 }
 
 void DropPie::buttonReleased()
@@ -237,20 +294,28 @@ void DropPie::buttonReleased()
     }, Qt::QueuedConnection);
 }
 
-void DropPie::onShaken(POINT pt, HWND captureWindow, DWORD sourcePid)
+void DropPie::onSummoned(POINT pt, HWND captureWindow, DWORD sourcePid)
 {
-    if (!m_window || m_open)
+    if (!m_window || m_confirming)
         return;
+    if (m_open) {
+        // Its key again: away, the drag going on.
+        hide("its key pressed again");
+        nudge(); // OLE finds what is under the pointer without waiting for a move
+        return;
+    }
     if (sourcePid == ::GetCurrentProcessId()) {
         // Results dragged out of the launcher: DoDragDrop runs on this very
-        // thread, and the ring would be its own drop target from inside it.
-        qInfo() << "Drop pie: shaken while dragging out of Win顺 itself; not shown";
+        // thread, and the pie would be its own drop target from inside it.
+        qInfo() << "Drop pie: asked for while dragging out of Win顺 itself; not shown";
         return;
     }
     // A drag from a program run as administrator is shown too: UIPI lets
     // its drops reach us (pitfalls, "管理员进程往普通程序拖文件，UIPI 不挡").
-    qInfo().noquote() << u"Drop pie: shaken at %1,%2%3"_s.arg(pt.x).arg(pt.y).arg(
-        integrity::higherThanOurs(captureWindow) ? u", from an administrator's program"_s : QString());
+    qInfo().noquote() << u"Drop pie: its key pressed at %1,%2%3"_s.arg(pt.x)
+                             .arg(pt.y)
+                             .arg(integrity::higherThanOurs(captureWindow) ? u", from an administrator's program"_s
+                                                                           : QString());
     open(pt);
 }
 
@@ -260,21 +325,7 @@ void DropPie::open(POINT pt)
     if (!screen || !m_window)
         return;
     updateSectors(); // the size may have changed (界面大小)
-    const QPointF cursor = logicalOf(pt, screen);
-    const double ringRadius = m_radii.outerOut + 2; // with its edge
-    // The whole ring inside the work area of the pointer's monitor; moved
-    // beyond the inner ring from the pointer, the pointer goes to its middle.
-    const pie::Placement placement = pie::placeCentre(cursor, QRectF(screen->availableGeometry()), ringRadius,
-        m_radii.innerOut - 6 * m_scale);
-    const QPointF centre = placement.centre;
-    const pie::Margins margins {150 * m_scale, 48 * m_scale, 84 * m_scale};
-    // The pointer inside the window, wherever the ring went: else the drag
-    // never enters it.
-    const QRect rect = pie::windowRect(centre, ringRadius, screen->geometry(), margins)
-                           .united(QRect(cursor.toPoint(), QSize(1, 1)))
-                           .intersected(screen->geometry());
-    m_centre = centre - rect.topLeft();
-    m_statusWidth = std::min<qreal>(2 * m_radii.outerOut + 80 * m_scale, rect.width() - 16);
+    const QRect rect = place(screen, pt);
 
     m_open = true;
     m_entered = false;
@@ -284,14 +335,14 @@ void DropPie::open(POINT pt)
     m_count = 0;
     m_plain = false;
     m_dpr = screen->devicePixelRatio();
-    m_warp = placement.warp;
     m_warped.invalidate();
     m_blocks.assign(m_folders.size(), Block::None);
     for (std::size_t i = 0; i < m_folders.size(); ++i)
         m_blocks[i] = blockOf(m_folders[i]);
+    m_sameDrive.assign(m_folders.size(), false);
     m_hit = {};
+    m_keys = {};
     m_hovered = m_picked = -1;
-    m_latch.reset();
     updateSectors();
     updateTexts();
     emit layoutChanged();
@@ -303,8 +354,45 @@ void DropPie::open(POINT pt)
     m_window->raise();
     m_shownAt = pt;
     m_shownClock.start();
-    m_revealWait.start(300ms);
+    // The key pressed with the pointer still: OLE would
+    // not look for a target until it moves.
+    QTimer::singleShot(0, this, [this] {
+        if (m_open && !m_entered)
+            nudge();
+    });
+    m_revealWait.start(150ms);
     checkFolders();
+}
+
+// For the pointer at `pt`: the chips and the line under them (above them by
+// a screen's bottom) inside the work area of its monitor. Moved more than
+// the middle's size from the pointer, the pointer is to go to the middle
+// (m_warp). Returns the window's rectangle; the middle and the line are set
+// in it.
+QRect DropPie::place(QScreen* screen, POINT pt)
+{
+    const QPointF cursor = logicalOf(pt, screen);
+    const QRectF chips = m_layout.bounds.adjusted(-8 * m_scale, -8 * m_scale, 8 * m_scale, 8 * m_scale);
+    const QSizeF status = m_statusRect.size();
+    const QRectF below(-status.width() / 2, m_layout.bounds.bottom() + kStatusGap * m_scale, status.width(), status.height());
+    const QRectF above = below.translated(0, m_layout.bounds.top() - kStatusGap * m_scale - status.height() - below.top());
+    const QRectF area(screen->availableGeometry());
+    const double safe = m_metrics.dead - 4 * m_scale;
+    const pie::Placement low = pie::placeCentre(cursor, area, chips.united(below), safe);
+    const pie::Placement high = pie::placeCentre(cursor, area, chips.united(above), safe);
+    const auto shift = [&](const pie::Placement& p) { return std::hypot(p.centre.x() - cursor.x(), p.centre.y() - cursor.y()); };
+    const bool flipped = shift(high) + 0.5 < shift(low);
+    const pie::Placement placement = flipped ? high : low;
+    const QRectF statusBox = flipped ? above : below;
+    // The pointer inside the window, wherever the pie went: else the drag
+    // never enters it.
+    const QRectF pointer(cursor - placement.centre, QSizeF(1, 1));
+    const QRect rect = pie::windowRect(placement.centre, m_layout.reach.united(statusBox).united(pointer), wholeOf(screen),
+        screen->devicePixelRatio());
+    m_centre = placement.centre - rect.topLeft();
+    m_statusRect = statusBox.translated(m_centre);
+    m_warp = placement.warp;
+    return rect;
 }
 
 void DropPie::hide(const char* why)
@@ -330,6 +418,16 @@ void DropPie::hide(const char* why)
     emit stateChanged();
     if (shown)
         qInfo() << "Drop pie: hidden," << why;
+}
+
+// The pointer put where it is: OLE's drag loop takes it for a move and asks
+// the window under it again (a window shown or hidden under a still pointer
+// it does not notice).
+void DropPie::nudge() const
+{
+    POINT at {};
+    if (::GetCursorPos(&at))
+        ::SetCursorPos(at.x, at.y);
 }
 
 void DropPie::setRevealed(bool revealed)
@@ -366,11 +464,42 @@ DWORD DropPie::dragEnter(IDataObject* data, DWORD keys, POINT pt, DWORD allowed)
     m_items = std::move(items.paths);
     m_count = items.count;
     m_plain = items.plain;
-    for (std::size_t i = 0; i < m_folders.size(); ++i)
+    QSet<QString> drives;
+    for (const std::wstring& item : m_items)
+        drives.insert(driveOf(QString::fromStdWString(item)));
+    // Some without a path (a phone's, a zip file's): not on any drive here.
+    const bool oneDrive = drives.size() == 1 && m_items.size() == m_count && !drives.begin()->isEmpty();
+    for (std::size_t i = 0; i < m_folders.size(); ++i) {
         m_blocks[i] = blockOf(m_folders[i]);
+        m_sameDrive[i] = oneDrive && driveOf(m_folders[i].path) == *drives.begin();
+    }
+    qInfo().noquote() << u"Drop pie: %1 %2 over it (read from %3) %4 ms after it was asked for"_s.arg(m_count)
+                             .arg(m_plain ? u"files"_s : u"items that are not lasting files"_s)
+                             .arg(items.fromIdList ? u"the ID list"_s : u"CF_HDROP"_s)
+                             .arg(m_shownClock.elapsed());
+    return reveal(keys, pt);
+}
+
+// The window round the pointer as it is now: placed where the pie was asked
+// for, the hand may have moved since (DragEnter comes a few dozen ms later).
+void DropPie::follow(POINT pt)
+{
+    QScreen* screen = screenAt(pt);
+    if (!screen || !m_window)
+        return;
+    m_dpr = screen->devicePixelRatio();
+    const QRect rect = place(screen, pt);
+    if (rect != m_window->geometry())
+        m_window->setGeometry(rect);
+    emit layoutChanged();
+}
+
+DWORD DropPie::reveal(DWORD keys, POINT pt)
+{
+    follow(pt);
     // Placed off the pointer by a screen's edge: now that it is files, the
     // pointer goes to the middle (never for a drag of text, which only
-    // passed the shake's test). OLE follows the move SetCursorPos makes.
+    // passed the listener's test). OLE follows the move SetCursorPos makes.
     if (std::exchange(m_warp, false)) {
         const POINT to = centreOnScreen();
         if (::SetCursorPos(to.x, to.y)) {
@@ -382,14 +511,7 @@ DWORD DropPie::dragEnter(IDataObject* data, DWORD keys, POINT pt, DWORD allowed)
             qWarning().noquote() << u"Drop pie: could not move the pointer to the middle (%1)"_s.arg(::GetLastError());
         }
     }
-    // Starting on the inner ring (the ring moved off a screen edge): that half.
-    const pie::Hit start = hitAt(pt);
-    m_latch.reset();
-    m_latch.update(start, this->allowed());
     updateSectors();
-    qInfo().noquote() << u"Drop pie: shown for %1 %2 (read from %3)"_s.arg(m_count)
-                             .arg(m_plain ? u"files"_s : u"items that are not lasting files"_s)
-                             .arg(items.fromIdList ? u"the ID list"_s : u"CF_HDROP"_s);
     setRevealed(true);
     return track(keys, pt);
 }
@@ -423,7 +545,7 @@ DWORD DropPie::drop(IDataObject* data, DWORD keys, POINT pt, DWORD /*allowed*/)
         return DROPEFFECT_NONE;
     }
     const Folder folder = m_folders[static_cast<std::size_t>(m_picked)];
-    // Deleted since the ring opened: refused, and why shown a moment.
+    // Deleted since the pie opened: refused, and why shown a moment.
     if (!folder.network) {
         const DWORD attributes = ::GetFileAttributesW(reinterpret_cast<const wchar_t*>(folder.path.utf16()));
         if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY)) {
@@ -441,7 +563,7 @@ DWORD DropPie::drop(IDataObject* data, DWORD keys, POINT pt, DWORD /*allowed*/)
             return DROPEFFECT_NONE;
         }
     }
-    const bool move = m_latch.effective(this->keys(), allowed(), pie::Purpose::Drop) == pie::Mode::Move;
+    const bool move = modeOf(m_picked) == pie::Mode::Move;
     const QString failed = move ? tr("没能移动到“%1”").arg(folder.name) : tr("没能复制到“%1”").arg(folder.name);
     DWORD effect = DROPEFFECT_NONE;
     if (m_plain && m_operations) {
@@ -490,7 +612,7 @@ DWORD DropPie::drop(IDataObject* data, DWORD keys, POINT pt, DWORD /*allowed*/)
             qInfo().noquote() << u"Drop pie: dropped on the folder itself, effect %1"_s.arg(effect);
         }
     }
-    // The folder shown taken a moment, then gone.
+    // The chip shown taken a moment, then gone.
     m_confirming = true;
     m_releaseWait.stop();
     emit stateChanged();
@@ -507,7 +629,7 @@ pie::Hit DropPie::hitAt(POINT pt) const
     RECT rect {};
     ::GetWindowRect(m_hwnd, &rect);
     const QPointF local((pt.x - rect.left) / m_dpr, (pt.y - rect.top) / m_dpr);
-    return pie::hitTest(local - m_centre, std::max<int>(1, static_cast<int>(m_folders.size())), m_radii);
+    return pie::hitTest(local - m_centre, m_layout, m_metrics);
 }
 
 // The centre's device pixel, as the window lies (DropPieWindow snaps it to
@@ -520,6 +642,13 @@ POINT DropPie::centreOnScreen() const
         window.top + static_cast<LONG>(std::lround(m_centre.y() * m_dpr))};
 }
 
+pie::Mode DropPie::modeOf(int sector) const noexcept
+{
+    if (sector < 0 || static_cast<std::size_t>(sector) >= m_sameDrive.size())
+        return pie::Mode::None;
+    return pie::modeFor(m_sameDrive[static_cast<std::size_t>(sector)], m_keys, allowed());
+}
+
 DWORD DropPie::track(DWORD keys, POINT pt)
 {
     pie::Hit hit = hitAt(pt);
@@ -528,28 +657,23 @@ DWORD DropPie::track(DWORD keys, POINT pt)
     if (hit.zone == pie::Zone::Outside && m_warped.isValid() && m_warped.elapsed() < 300)
         hit = {pie::Zone::Dead};
     if (hit.zone == pie::Zone::Outside) {
-        hide("the pointer left the ring");
+        hide("the pointer left it");
         return DROPEFFECT_NONE;
     }
-    const bool ctrl = keys & MK_CONTROL;
-    const bool shift = keys & MK_SHIFT;
-    m_latch.update(hit, allowed());
-    const int hovered = hit.zone == pie::Zone::Outer && !m_folders.empty() ? hit.sector : -1;
+    const pie::Keys held {.ctrl = bool(keys & MK_CONTROL), .shift = bool(keys & MK_SHIFT)};
+    const int hovered = hit.zone == pie::Zone::Sector && !m_folders.empty() ? hit.sector : -1;
     const int picked = hovered >= 0 && m_blocks[static_cast<std::size_t>(hovered)] == Block::None ? hovered : -1;
-    const bool changed = hit.zone != m_hit.zone || hit.half != m_hit.half || hovered != m_hovered || picked != m_picked
-        || ctrl != m_ctrl || shift != m_shift;
+    const bool changed = hit.zone != m_hit.zone || hovered != m_hovered || picked != m_picked || held.ctrl != m_keys.ctrl
+        || held.shift != m_keys.shift;
     m_hit = hit;
     m_hovered = hovered;
     m_picked = picked;
-    m_ctrl = ctrl;
-    m_shift = shift;
+    m_keys = held;
     if (changed) {
         updateTexts();
         emit stateChanged();
     }
-    if (picked < 0)
-        return DROPEFFECT_NONE;
-    switch (m_latch.effective({ctrl, shift}, allowed(), pie::Purpose::Drop)) {
+    switch (modeOf(picked)) {
     case pie::Mode::Move:
         return DROPEFFECT_MOVE & m_allowed;
     case pie::Mode::Copy:
@@ -562,65 +686,51 @@ DWORD DropPie::track(DWORD keys, POINT pt)
 
 QString DropPie::mode() const
 {
-    const pie::Mode mode = m_latch.effective(keys(), allowed(), m_picked >= 0 ? pie::Purpose::Drop : pie::Purpose::Show);
+    const pie::Mode mode = modeOf(m_picked);
     return mode == pie::Mode::Move ? u"move"_s : mode == pie::Mode::Copy ? u"copy"_s : QString();
 }
 
 QString DropPie::elide(const QString& text, int pixelSize, bool bold, qreal width) const
 {
-    QFont font = QGuiApplication::font();
-    font.setPixelSize(std::max(1, pixelSize));
-    if (bold)
-        font.setWeight(QFont::DemiBold);
-    return pielabels::elideMiddle(text, QFontMetricsF(font), std::max<qreal>(0, width));
-}
-
-QString DropPie::innerHover() const
-{
-    if (m_hit.zone != pie::Zone::Inner)
-        return {};
-    return m_hit.half == pie::Mode::Move ? u"move"_s : u"copy"_s;
+    return pielabels::elideMiddle(text, QFontMetricsF(fontOf(pixelSize, bold)), std::max<qreal>(0, width));
 }
 
 void DropPie::updateTexts()
 {
-    const pie::Mode mode = m_latch.effective(keys(), allowed(), pie::Purpose::Drop);
-    const QString verb = mode == pie::Mode::Copy ? tr("复制到") : tr("移动到");
-    QFont font = QGuiApplication::font();
-    font.setPixelSize(std::max(12, m_labelPixelSize - 1));
-    const QFontMetricsF metrics(font);
-    m_tipVerb.clear();
-    m_tip.clear();
+    m_statusVerb.clear();
+    m_statusHint.clear();
+    m_statusDetail.clear();
     if (m_folders.empty()) {
-        m_statusVerb.clear();
         m_statusName = tr("还没有收藏文件夹");
         m_statusDetail = tr("在 设置 → 收藏夹 里添加");
         return;
     }
-    if (m_hovered >= 0) {
-        const Folder& folder = m_folders[static_cast<std::size_t>(m_hovered)];
-        const Block block = m_blocks[static_cast<std::size_t>(m_hovered)];
-        if (block == Block::None) {
-            m_tipVerb = verb;
-            m_tip = folder.name;
-            m_statusVerb = verb;
-        } else {
-            m_tip = reasonOf(block);
-            m_statusVerb = reasonOf(block) + u" ·"_s;
-        }
-        m_statusName = folder.name;
-        m_statusDetail = pielabels::elidePath(folder.path, metrics, m_statusWidth - 32);
+    if (m_hovered < 0) {
+        m_statusName = tr("朝文件夹拖，松开就放进去");
+        m_statusDetail = tr("在中间松开或按 Esc 取消");
         return;
     }
-    if (m_hit.zone == pie::Zone::Inner) {
-        if (m_hit.half == pie::Mode::Move && !moveAllowed())
-            m_tip = tr("这里只能复制");
-        else if (m_hit.half == pie::Mode::Copy && !copyAllowed())
-            m_tip = tr("这里只能移动");
+    const Folder& folder = m_folders[static_cast<std::size_t>(m_hovered)];
+    m_statusName = folder.name;
+    const Block block = m_blocks[static_cast<std::size_t>(m_hovered)];
+    if (block != Block::None) {
+        m_statusDetail = reasonOf(block);
+        return;
     }
-    m_statusVerb.clear();
-    m_statusName = tr("穿过内圈选移动或复制 · 松开在中间或按 Esc 取消");
-    m_statusDetail.clear();
+    const pie::Mode mode = modeOf(m_hovered);
+    const int count = static_cast<int>(m_count);
+    if (mode == pie::Mode::Copy) {
+        m_statusVerb = count > 1 ? tr("复制 %n 项到", "", count) : tr("复制到");
+        if (allowed().move)
+            m_statusHint = tr("按住 Shift 移动");
+    } else {
+        m_statusVerb = count > 1 ? tr("移动 %n 项到", "", count) : tr("移动到");
+        if (allowed().copy)
+            m_statusHint = tr("按住 Ctrl 复制");
+    }
+    const QFontMetricsF fine(fontOf(std::max(12, m_labelPixelSize - 1)));
+    const double hintWidth = m_statusHint.isEmpty() ? 0 : fine.horizontalAdvance(m_statusHint) + 12 * m_scale;
+    m_statusDetail = pielabels::elidePath(folder.path, fine, m_statusRect.width() - 2 * kStatusPad * m_scale - hintWidth);
 }
 
 // ---- the folders -------------------------------------------------------------
@@ -663,14 +773,15 @@ void DropPie::gatherFolders()
                 hide("the favorites changed");
             m_folders = std::move(folders);
             m_blocks.assign(m_folders.size(), Block::None);
+            m_sameDrive.assign(m_folders.size(), false);
             updateSectors();
         }, Qt::QueuedConnection);
     });
 }
 
-// Which local folders are gone, asked again at every shake: a folder may be
-// deleted any time. Network ones never (a server that does not answer would
-// hold this up for half a minute; its folder is taken as there).
+// Which local folders are gone, asked again every time the pie opens: a
+// folder may be deleted any time. Network ones never (a server that does not
+// answer would hold this up for half a minute; its folder is taken as there).
 void DropPie::checkFolders()
 {
     std::vector<std::wstring> local;
@@ -742,6 +853,7 @@ QString DropPie::reasonOf(Block block) const
     return {};
 }
 
+// The chips' labels and sizes, and where they go round the middle.
 void DropPie::updateSectors()
 {
     const int step = DropPieText::uiStep();
@@ -749,25 +861,28 @@ void DropPie::updateSectors()
     if (scale != m_scale) {
         m_scale = scale;
         m_labelPixelSize = pie::labelPixelSize(step);
-        m_radii = pie::Radii {}.scaled(m_scale);
-        emit layoutChanged();
+        m_metrics = pie::Metrics {}.scaled(m_scale);
+        const QFontMetricsF line(fontOf(m_labelPixelSize + 1, true));
+        const QFontMetricsF fine(fontOf(std::max(12, m_labelPixelSize - 1)));
+        m_statusRect.setHeight(std::ceil(2 * kStatusPad * m_scale + line.height() + 3 + fine.height()));
     }
-    const int count = std::max<int>(1, static_cast<int>(m_folders.size()));
-    const QFontMetricsF metrics(DropPieText::labelFont());
-    QFont subFont = DropPieText::labelFont();
-    subFont.setPixelSize(std::max(12, m_labelPixelSize - 1));
-    const QFontMetricsF subMetrics(subFont);
-    const double width = DropPieText::labelWidth(count);
-    const auto item = [&](int index, const QString& name, const QString& path, const QString& sub, Block block) {
-        const pielabels::Fitted fitted = pielabels::fitTwoLines(name, metrics, width);
-        const QPointF at = pie::polar(m_radii.labelRadius(), pie::sectorCentre(index, count));
-        return QVariantMap {{u"name"_s, name}, {u"path"_s, path}, {u"line1"_s, fitted.line1}, {u"line2"_s, fitted.line2},
-            {u"sub"_s, sub.isEmpty() ? QString() : pielabels::elideMiddle(sub, subMetrics, width)},
-            {u"disabled"_s, block != Block::None}, {u"reason"_s, reasonOf(block)}, {u"x"_s, at.x()}, {u"y"_s, at.y()}};
-    };
+    const QFontMetricsF label(DropPieText::labelFont());
+    const QFontMetricsF hintFont(fontOf(std::max(12, m_labelPixelSize - 1)));
+    const double nameWidth = DropPieText::nameWidth();
+    std::vector<double> widths;
     QVariantList items;
+    const auto item = [&](const QString& name, const QString& path, const QString& parent, Block block) {
+        const QString shown = pielabels::elideMiddle(name.simplified(), label, nameWidth);
+        const QString hint = parent.isEmpty() ? QString() : pielabels::elideMiddle(parent, hintFont, kHintWidth * m_scale);
+        double width = (kChipPadStart + kGlyph + kGlyphGap + kChipPadEnd) * m_scale + std::ceil(label.horizontalAdvance(shown));
+        if (!hint.isEmpty())
+            width += kHintGap * m_scale + std::ceil(hintFont.horizontalAdvance(hint));
+        widths.push_back(std::max(width, kMinChip * m_scale));
+        items.append(QVariantMap {{u"name"_s, name}, {u"label"_s, shown}, {u"hint"_s, hint}, {u"path"_s, path},
+            {u"disabled"_s, block != Block::None}, {u"reason"_s, reasonOf(block)}});
+    };
     if (m_folders.empty()) {
-        items.append(item(0, tr("还没有收藏文件夹"), QString(), QString(), Block::Missing));
+        item(tr("还没有收藏文件夹"), QString(), QString(), Block::Missing);
     } else {
         QStringList names;
         QStringList paths;
@@ -777,11 +892,23 @@ void DropPie::updateSectors()
         }
         const QStringList hints = pielabels::parentHints(names, paths);
         for (std::size_t i = 0; i < m_folders.size(); ++i) {
-            const Block block = i < m_blocks.size() ? m_blocks[i] : Block::None;
-            const QString hint = hints.value(static_cast<qsizetype>(i));
-            items.append(item(static_cast<int>(i), m_folders[i].name, m_folders[i].path,
-                hint.isEmpty() ? QString() : tr("在 %1").arg(hint), block));
+            item(m_folders[i].name, m_folders[i].path, hints.value(static_cast<qsizetype>(i)),
+                i < m_blocks.size() ? m_blocks[i] : Block::None);
         }
+    }
+    m_layout = pie::layOut(widths, m_metrics);
+    for (qsizetype i = 0; i < items.size(); ++i) {
+        const QRectF& chip = m_layout.chips[static_cast<std::size_t>(i)];
+        QVariantMap map = items[i].toMap();
+        map.insert(u"x"_s, chip.x());
+        map.insert(u"y"_s, chip.y());
+        map.insert(u"width"_s, chip.width());
+        items[i] = map;
+    }
+    const double statusWidth = std::clamp(m_layout.bounds.width(), kStatusMin * m_scale, kStatusMax * m_scale);
+    if (statusWidth != m_statusRect.width()) {
+        m_statusRect.setWidth(statusWidth);
+        emit layoutChanged();
     }
     if (items == m_sectorItems)
         return;

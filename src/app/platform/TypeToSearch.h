@@ -49,11 +49,22 @@ namespace ws {
 // menu leaves its search alone until it closes: a way to Windows' own search
 // when it is wanted. An elevated Explorer is left alone: Windows would show
 // the hook none of its keys, nor take them back (UIPI).
+//
+// 粘贴为文件 (a third setting, off by default) takes Ctrl+V from the files
+// and folders of an Explorer folder window or the desktop's icons when the
+// clipboard holds words or a picture and no files (pastefile::takesCtrlV:
+// Explorer pastes none of those, so the key did nothing there): the press,
+// its repeats and V's release go to nobody else, and WinShunSearch.exe is
+// started to make the file there (pastedInto). The clipboard panel's own
+// Ctrl+V counts as well. With files on the clipboard, or anything else having
+// the focus, Ctrl+V stays Explorer's.
 class TypeToSearch {
 public:
     struct Surfaces {
         bool startMenu = false;
-        bool explorer = false;
+        bool explorer = false; // typing searches the folder
+        bool pasteFile = false; // Ctrl+V pastes the clipboard as a file
+        bool operator==(const Surfaces&) const = default;
     };
     struct Callbacks {
         // The first key was taken: show the launcher. On the hook's thread.
@@ -62,6 +73,9 @@ public:
         // the window itself on Windows 10) shows the folder to search; `vk`
         // is the key, for the log.
         std::function<void(HWND root, HWND tab, unsigned vk)> typedInExplorer;
+        // Ctrl+V was taken in `view`: the Explorer tab, or the desktop's
+        // window (Progman or WorkerW). On the hook's thread.
+        std::function<void(HWND view)> pastedInto;
     };
 
     TypeToSearch(Surfaces surfaces, Callbacks callbacks);
@@ -91,10 +105,14 @@ private:
     static LRESULT CALLBACK keyboardProc(int code, WPARAM wParam, LPARAM lParam);
     static void CALLBACK foregroundProc(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LONG, DWORD, DWORD);
     bool handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event); // true: taken
+    bool handlePaste(bool press); // V with Ctrl alone held, or let go; true: taken
+    bool explorerInFront(); // m_explorer or m_explorerBehind is in front, m_explorer then
     bool explorerFocused(HWND& tab) const; // the view of m_explorer's folder has the focus: its tab
+    bool desktopFocused() const; // m_desktop is in front, its icons have the focus
     void foregroundChanged(HWND window, HWND named); // window: in front now; named: the event's
-    bool typingExplorer(HWND window) const; // an Explorer folder window, typing there on, not elevated
+    bool watchedExplorer(HWND window) const; // an Explorer folder window, typing or pasting there on, not elevated
     static bool activeBehind(HWND window); // the active window of its thread (not in front: it comes silently)
+    bool wantsHook() const; // something is in front whose keys count, or keys are held
     void setHooked(bool hooked);
     void typeHeld(); // deliver(), on the hook's thread
     void returnHeld(); // giveBack(), on the hook's thread
@@ -119,6 +137,8 @@ private:
     // gets there later with no event (a click), the key checks; kept through
     // later events while it is still its thread's active window (activeBehind)
     HWND m_explorerBehind = nullptr;
+    HWND m_desktop = nullptr; // the desktop in front, when pasting there counts
+    bool m_pasteTaken = false; // Ctrl+V taken, V not let go yet: its repeats and release are taken too
     bool m_windowsSearch = false; // Left Alt in the Start menu: its own search this time
     bool m_holding = false; // keys are held back for the launcher
     bool m_holdingForExplorer = false; // ... typed in Explorer: given back when the launcher does not come

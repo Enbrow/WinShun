@@ -3,7 +3,6 @@
 #include <QHash>
 
 #include <algorithm>
-#include <limits>
 
 using namespace Qt::StringLiterals;
 
@@ -22,16 +21,6 @@ const QString kEllipsis = u"…"_s;
 bool boundary(const QString& text, qsizetype at)
 {
     return at > 0 && at < text.size() && !text.at(at).isLowSurrogate();
-}
-
-bool breaksAfter(QChar c)
-{
-    return c == u'_' || c == u'-' || c == u' ' || c == u'·';
-}
-
-bool breaksBefore(QChar c)
-{
-    return c == u'（' || c == u'(' || c == u'【' || c == u'[';
 }
 
 // The longest start of `text` within `width`.
@@ -63,43 +52,6 @@ QString tailFit(const QString& text, const QFontMetricsF& metrics, double width)
 }
 
 } // namespace
-
-Fitted fitTwoLines(const QString& text, const QFontMetricsF& metrics, double maxWidth)
-{
-    const QString name = text.simplified();
-    const double max = maxWidth - kSlack;
-    if (metrics.horizontalAdvance(name) <= max)
-        return {name};
-    // The most even break of those that fit, a break at a separator over any other.
-    qsizetype best = -1;
-    bool bestAtSeparator = false;
-    double bestWidest = std::numeric_limits<double>::max();
-    for (qsizetype k = 1; k < name.size(); ++k) {
-        if (!boundary(name, k))
-            continue;
-        const QString first = name.left(k).trimmed();
-        const QString second = name.mid(k).trimmed();
-        if (first.isEmpty() || second.isEmpty())
-            continue;
-        const double w1 = metrics.horizontalAdvance(first);
-        const double w2 = metrics.horizontalAdvance(second);
-        if (w1 > max || w2 > max)
-            continue;
-        const bool separator = breaksAfter(name.at(k - 1)) || breaksBefore(name.at(k));
-        const double widest = std::max(w1, w2);
-        if ((separator && !bestAtSeparator) || (separator == bestAtSeparator && widest < bestWidest)) {
-            best = k;
-            bestAtSeparator = separator;
-            bestWidest = widest;
-        }
-    }
-    if (best > 0)
-        return {name.left(best).trimmed(), name.mid(best).trimmed()};
-    // Too long for two lines: the start, and "…" with the end.
-    const QString head = headFit(name, metrics, max);
-    const QString tail = tailFit(name.mid(head.size()), metrics, max - metrics.horizontalAdvance(kEllipsis));
-    return {head, kEllipsis + tail, true};
-}
 
 QString elideMiddle(const QString& text, const QFontMetricsF& metrics, double maxWidth)
 {

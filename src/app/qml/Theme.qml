@@ -62,13 +62,12 @@ QtObject {
     readonly property color chipActive: dark ? "#3A3A3A" : "#FFFFFF"
     readonly property color chipHover: dark ? "#333333" : "#E4E4E4"
     readonly property color chipBorder: dark ? "#454545" : "#DCDCDC"
-    // The drop pie (DropPieWindow): its 移动 / 复制 ring a step off the
-    // menu background, and a sector under the pointer that cannot be taken.
-    readonly property color ringInner: dark ? "#353535" : "#EFEFEF"
-    readonly property color ringHover: dark ? "#404040" : "#E3E3E3"
-    // Its gaps: a neutral grey a little softer than windowEdge (they are 4 to
-    // 8 px wide), never the window behind showing through.
-    readonly property color ringGap: dark ? "#555555" : "#C6C6C6"
+    // The drop pie (DropPieWindow): its middle with the pointer in it (let go
+    // there and nothing happens), and a chip under the pointer that cannot be
+    // taken; a step off the menu background.
+    readonly property color pieHover: dark ? "#404040" : "#E3E3E3"
+    // The soft shadow round its chips, at their edge (SoftShadow).
+    readonly property color pieShadow: dark ? Qt.rgba(0, 0, 0, 0.36) : Qt.rgba(0, 0, 0, 0.12)
     // A key cap is a plain light-grey fill with no border (a border would be a
     // second edge to keep on whole pixels); translucent so it reads on a card,
     // on Mica and on the plain footer alike. Subtext on it stays above 4.5:1.

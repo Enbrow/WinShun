@@ -1,4 +1,6 @@
 #include "Settings.h"
+#include "PathText.h"
+#include "Query.h"
 
 #include "ServiceVolumeAccess.h"
 #include "Unc.h"
@@ -9,6 +11,7 @@
 #include <QFileInfo>
 #include <QOperatingSystemVersion>
 #include <QRegularExpression>
+#include <QSet>
 #include <QSettings>
 #include <QStandardPaths>
 
@@ -290,6 +293,7 @@ void writeFileTypes(QSettings& s, const FileTypes& types)
         if (!types[i].name.isEmpty())
             s.setValue(u"Name"_s, types[i].name);
         s.setValue(u"Extensions"_s, types[i].extensions.join(u' '));
+        s.setValue(u"Keyword"_s, types[i].keyword);
     }
     s.endArray();
 }
@@ -313,6 +317,7 @@ FileTypes readFileTypes(QSettings& s, const FileTypes& fallback)
         const bool builtIn = std::ranges::any_of(kBuiltInFileTypes, [&](const BuiltInFileType& b) { return type.id == QLatin1StringView(b.id); });
         if (!builtIn)
             type.id.clear();
+        type.keyword = normalizedTypeKeyword(s.value(u"Keyword"_s, type.id).toString()).value_or(QString());
         if ((type.name.isEmpty() && !builtIn) || type.extensions.isEmpty())
             continue;
         types.append(type);
@@ -347,7 +352,7 @@ QList<NetworkShare> readShares(QSettings& s)
         s.setArrayIndex(i);
         const QString path = Settings::sharePath(s.value(u"Path"_s).toString());
         if (path.isEmpty()
-            || std::ranges::any_of(shares, [&](const NetworkShare& n) { return n.path.compare(path, Qt::CaseInsensitive) == 0; }))
+            || std::ranges::any_of(shares, [&](const NetworkShare& n) { return unc::equal(n.path.toStdWString(), path.toStdWString()); }))
             continue;
         shares.append({path, s.value(u"Name"_s).toString().trimmed()});
     }
@@ -429,7 +434,8 @@ PluginConfig& Settings::pluginConfig(const QString& id)
 
 QString Settings::sharePath(const QString& text)
 {
-    std::wstring path = QDir::toNativeSeparators(text.trimmed()).toStdWString();
+    const QString parsed = pathtext::pathFromText(text);
+    std::wstring path = (parsed.isEmpty() ? QDir::toNativeSeparators(text.trimmed()) : parsed).toStdWString();
     if (path.size() >= 2 && path[1] == L':')
         path = unc::fromMappedDrive(path);
     return QString::fromStdWString(unc::normalize(path));
@@ -603,7 +609,7 @@ FileTypes Settings::defaultFileTypes()
 {
     FileTypes types;
     for (const BuiltInFileType& b : kBuiltInFileTypes)
-        types.append({{}, QString::fromLatin1(b.extensions).split(u' ', Qt::SkipEmptyParts), QString::fromLatin1(b.id)});
+        types.append({{}, QString::fromLatin1(b.extensions).split(u' ', Qt::SkipEmptyParts), QString::fromLatin1(b.id), QString::fromLatin1(b.id)});
     return types;
 }
 
@@ -822,7 +828,8 @@ void Settings::load()
     renderer = resolveRenderer(readOrDefault(s, u"Launcher/Renderer"_s, d.renderer).trimmed().toLower());
     recordHistory = readOrDefault(s, u"Launcher/History"_s, d.recordHistory);
     dialogJump = readOrDefault(s, u"Launcher/DialogJump"_s, d.dialogJump);
-    dialogBar = readOrDefault(s, u"Launcher/DialogBar"_s, d.dialogBar);
+    // Off for new installs; an ini from before without the key had it on.
+    dialogBar = readOrDefault(s, u"Launcher/DialogBar"_s, firstRun ? d.dialogBar : true);
     dialogBarPlace = readOrDefault(s, u"Launcher/DialogBarPlace"_s, d.dialogBarPlace).trimmed().toLower();
     if (dialogBarPlace != u"below" && dialogBarPlace != u"left" && dialogBarPlace != u"right")
         dialogBarPlace = d.dialogBarPlace;
@@ -841,9 +848,11 @@ void Settings::load()
     fileManagerRevealCommand = readOrDefault(s, u"Launcher/FileManagerRevealCommand"_s, d.fileManagerRevealCommand).trimmed();
     explorerMenu = readOrDefault(s, u"Launcher/ExplorerMenu"_s, d.explorerMenu);
     explorerTyping = readOrDefault(s, u"Launcher/ExplorerTyping"_s, d.explorerTyping);
-    folderMenu = readOrDefault(s, u"Launcher/FolderMenu"_s, d.folderMenu).trimmed().toLower();
-    if (folderMenu != u"on" && folderMenu != u"off")
-        folderMenu = d.folderMenu;
+    // Off for new installs, auto before (as dialogBar).
+    const QString folderMenuBefore = firstRun ? d.folderMenu : u"auto"_s;
+    folderMenu = readOrDefault(s, u"Launcher/FolderMenu"_s, folderMenuBefore).trimmed().toLower();
+    if (folderMenu != u"auto" && folderMenu != u"on" && folderMenu != u"off")
+        folderMenu = folderMenuBefore;
     folderMenuExplorer = readOrDefault(s, u"Launcher/FolderMenuExplorer"_s, d.folderMenuExplorer);
     folderMenuDesktop = readOrDefault(s, u"Launcher/FolderMenuDesktop"_s, d.folderMenuDesktop);
     folderMenuFavorites = readOrDefault(s, u"Launcher/FolderMenuFavorites"_s, d.folderMenuFavorites);
@@ -865,6 +874,8 @@ void Settings::load()
     if (preferredTypes == d.preferredTypes)
         s.remove(kPreferredTypesKey); // as the first build with it wrote it
     showModified = readOrDefault(s, u"Results/ShowModified"_s, d.showModified);
+    showModifiedTime = readOrDefault(s, u"Results/ShowModifiedTime"_s, d.showModifiedTime);
+    folderKeyword = normalizedTypeKeyword(readOrDefault(s, u"Results/FolderKeyword"_s, d.folderKeyword)).value_or(d.folderKeyword);
     doubleClickToOpen = readOrDefault(s, u"Results/DoubleClickToOpen"_s, d.doubleClickToOpen);
     thumbnails = readOrDefault(s, u"Results/Thumbnails"_s, d.thumbnails);
     if (!s.contains(u"Results/Sort"_s) && s.value(u"Results/SortByModified"_s).toBool())
@@ -920,6 +931,17 @@ void Settings::load()
     // As written by hand too: ".WBK; bak" is wbk and bak.
     excludedTypes = fileExtensions(readOrDefault(s, u"Index/ExcludedTypes"_s, d.excludedTypes).join(u' '));
     includeRemovableDrives = readOrDefault(s, u"Index/IncludeRemovableDrives"_s, d.includeRemovableDrives);
+    selectedDrives.reset();
+    if (s.contains(u"Index/Drives"_s)) {
+        selectedDrives = QStringList{};
+        for (QString root : s.value(u"Index/Drives"_s).toStringList()) {
+            root = root.trimmed().toUpper();
+            if (root.size() == 3 && root.endsWith(u'\\'))
+                root.chop(1);
+            if (root.size() == 2 && root[0] >= u'A' && root[0] <= u'Z' && root[1] == u':' && !selectedDrives->contains(root))
+                selectedDrives->append(root);
+        }
+    }
     rescanOnStartup = readOrDefault(s, u"Index/RescanOnStartup"_s, d.rescanOnStartup);
     indexAccess = readOrDefault(s, u"Index/Access"_s, d.indexAccess).trimmed().toLower();
     if (indexAccess != u"service" && indexAccess != u"direct" && indexAccess != u"walk")
@@ -1073,10 +1095,23 @@ void Settings::load()
         capturePinDoubleClick = action == u"close" || action == u"collapse" || action == u"none" ? action : u"reset"_s;
     }
 
+    pasteFileEnabled = readOrDefault(s, u"PasteFile/Enabled"_s, d.pasteFileEnabled);
+    pasteFileCtrlV = readOrDefault(s, u"PasteFile/CtrlV"_s, d.pasteFileCtrlV);
+    pasteFileMenu = readOrDefault(s, u"PasteFile/Menu"_s, d.pasteFileMenu);
+    if (!pasteFileCtrlV && !pasteFileMenu) // on, and no way to it: back to both
+        pasteFileCtrlV = pasteFileMenu = true;
+
     // Before the list: writing it (defaults new to the file) rewrites the whole group.
     webSuggestions = readOrDefault(s, u"WebSearch/Suggestions"_s, d.webSuggestions);
     webShortcuts = readWebShortcuts(s, d.webShortcuts, webSuggestions);
     fileTypes = readFileTypes(s, d.fileTypes);
+    QSet<QString> typeKeywords{folderKeyword};
+    for (FileType& type : fileTypes) {
+        if (typeKeywords.contains(type.keyword))
+            type.keyword.clear();
+        else if (!type.keyword.isEmpty())
+            typeKeywords.insert(type.keyword);
+    }
 
     shares = readShares(s);
     networkVerifyHours = std::clamp(readOrDefault(s, u"Network/VerifyHours"_s, d.networkVerifyHours), 0, 24 * 7);
@@ -1140,6 +1175,8 @@ void Settings::save() const
     else
         s.setValue(kPreferredTypesKey, preferredTypes);
     s.setValue(u"Results/ShowModified"_s, showModified);
+    s.setValue(u"Results/ShowModifiedTime"_s, showModifiedTime);
+    s.setValue(u"Results/FolderKeyword"_s, folderKeyword);
     s.setValue(u"Results/DoubleClickToOpen"_s, doubleClickToOpen);
     s.setValue(u"Results/Thumbnails"_s, thumbnails);
     s.setValue(u"Results/Sort"_s, sort);
@@ -1160,6 +1197,10 @@ void Settings::save() const
     s.setValue(u"Index/ExcludedNames"_s, excludedNames);
     s.setValue(u"Index/ExcludedTypes"_s, excludedTypes);
     s.setValue(u"Index/IncludeRemovableDrives"_s, includeRemovableDrives);
+    if (selectedDrives)
+        s.setValue(u"Index/Drives"_s, *selectedDrives);
+    else
+        s.remove(u"Index/Drives"_s);
     s.setValue(u"Index/RescanOnStartup"_s, rescanOnStartup);
     s.setValue(u"Index/Access"_s, indexAccess);
     s.setValue(u"Index/Scope"_s, indexScope);
@@ -1221,6 +1262,9 @@ void Settings::save() const
     s.setValue(u"Capture/PinsHotkey"_s, capturePinsHotkey);
     s.setValue(u"Capture/PinsRestoreHotkey"_s, capturePinsRestoreHotkey);
     s.setValue(u"Capture/PinDoubleClick"_s, capturePinDoubleClick);
+    s.setValue(u"PasteFile/Enabled"_s, pasteFileEnabled);
+    s.setValue(u"PasteFile/CtrlV"_s, pasteFileCtrlV);
+    s.setValue(u"PasteFile/Menu"_s, pasteFileMenu);
     writeWebShortcuts(s, webShortcuts, webSuggestions);
     writeFileTypes(s, fileTypes);
     writeShares(s, shares);

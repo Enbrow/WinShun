@@ -1,6 +1,11 @@
 #include "Preview.h"
 
 #include "Backup.h"
+#include "AppCatalog.h"
+#include "History.h"
+#include "IndexService.h"
+#include "Launcher.h"
+#include "SystemCatalog.h"
 #include "FavoritesSettings.h"
 #include "FileIconProvider.h"
 #include "PluginSettings.h"
@@ -10,6 +15,7 @@
 #include "SystemTheme.h"
 #include "Updater.h"
 #include "WindowFrame.h"
+#include "AnnotationModel.h"
 #include "platform/SiteIcons.h"
 
 #include <QCoreApplication>
@@ -23,7 +29,9 @@
 #include <QImage>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QLibraryInfo>
+#include <QLocale>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -33,6 +41,7 @@
 #include <QStyleHints>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QTime>
 #include <QTranslator>
 #include <QUuid>
 
@@ -51,6 +60,7 @@ constexpr auto kFlag = u"--preview-plugins";
 constexpr auto kSettingsFlag = u"--preview-settings";
 constexpr auto kResultsFlag = u"--preview-results";
 constexpr auto kAiCardsFlag = u"--preview-ai-cards";
+constexpr auto kCaptureToolsFlag = u"--preview-capture-tools";
 
 int g_warnings = 0;
 bool g_edges = false; // --edges (or --tree): every grab also writes <png>.edges.txt
@@ -533,12 +543,18 @@ int runSettings(const QStringList& args)
     settings.mcpPlugins = true;
     settings.taskbarSearchBox = true; // its style row
     settings.captureEnabled = true; // show the screenshot's options too; no Capture is created in this preview
+    settings.pasteFileEnabled = true; // its card's two ways in
+    settings.dialogBar = true; // off for a new install: the rows they keep away
+    settings.folderMenu = u"auto"_s;
     const QString shareOnline = u"\\\\192.168.1.10\\资料"_s;
     const QString shareSignIn = u"\\\\nas\\photos"_s;
-    settings.shares = {{shareOnline, u"公司资料"_s}, {shareSignIn, {}}};
+    const QString shareWsl = u"\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\项目"_s;
+    settings.shares = {{shareOnline, u"公司资料"_s}, {shareSignIn, {}}, {shareWsl, {}}};
     settings.hotkey = u"Alt+Space"_s;
     settings.doubleCtrlExcludedApps = {u"TheFinals.exe"_s};
     settings.clipboardHotkey = u"Win+Alt+V"_s;
+    if (args.contains(u"--clipboard-disabled"_s))
+        settings.clipboard = false;
     settings.mcpExcludedPaths = {u"%USERPROFILE%\\Documents\\私人"_s};
     // The real view-model and its real neighbours, as App::showSettings makes
     // them; the renderer "running" is the one set, so that no restart is asked for.
@@ -554,6 +570,7 @@ int runSettings(const QStringList& args)
     editor->setShareStatuses({
         shareStatus(shareOnline, ShareIndexer::State::Online, share::Problem::None, 48213),
         shareStatus(shareSignIn, ShareIndexer::State::Problem, share::Problem::NeedsSignIn, 0),
+        shareStatus(shareWsl, ShareIndexer::State::Problem, share::Problem::WslStopped, 1230),
     });
     SettingsEditor::IndexFolderState indexState;
     indexState.folder = u"C:\\Users\\me\\AppData\\Local\\WinShun"_s;
@@ -561,7 +578,7 @@ int runSettings(const QStringList& args)
     editor->setIndexFolderState(indexState);
     editor->setContentIndexStatus(u"已收录 337,215 个文件，其中 5,815 个文档"_s);
     editor->setHistoryCount(128);
-    editor->setClipboardCount(57);
+    editor->setClipboardCount(args.contains(u"--clipboard-disabled"_s) ? -1 : 57);
     editor->setHotkeyError({});
     // What the app reads off this PC, read-only: the file managers
     // installed, the taskbar, the AI clients and their configurations.
@@ -760,6 +777,108 @@ int runSettings(const QStringList& args)
         return finish(window, saved);
     }
 
+    if (args.contains(u"--wsl-folders"_s)) {
+        bool saved = true;
+        const auto check = [](bool condition, const char* message) {
+            if (!condition)
+                qWarning("WSL folders: %s", message);
+        };
+        const int count = editor->shares().size();
+        check(!editor->addShare(u"\"\\\\wsl$\\Ubuntu-24.04\\home\\me\\项目\""_s).isEmpty(),
+            "the second WSL host alias was not recognized as the same folder");
+        check(editor->shares().size() == count, "a duplicate WSL folder was added");
+        check(editor->addShare(u"\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\Case"_s).isEmpty(), "adding Case failed");
+        check(editor->addShare(u"\\\\wsl.localhost\\Ubuntu-24.04\\home\\me\\case"_s).isEmpty(), "adding case failed");
+        check(editor->shares().size() == count + 2, "case-sensitive folders were merged");
+        editor->removeShare(count + 1);
+        editor->removeShare(count);
+        const auto stopped = editor->shares().last().toMap();
+        check(stopped.value(u"startable"_s).toBool() && !stopped.value(u"signIn"_s).toBool(), "a stopped WSL folder must offer Start, never Sign in");
+        QMetaObject::invokeMethod(window, "showPage", Q_ARG(QVariant, QVariant(2)), Q_ARG(QVariant, QVariant(3)));
+        window->setWidth(args.contains(u"--compact"_s) ? 760 : 920);
+        window->setHeight(args.contains(u"--compact"_s) ? 420 : 780);
+        settle(window, 3);
+        saved = saveGrab(window, out.filePath(u"wsl-stopped.png"_s)) && saved;
+        editor->setShareStatuses({
+            shareStatus(shareOnline, ShareIndexer::State::Online, share::Problem::None, 48213),
+            shareStatus(shareSignIn, ShareIndexer::State::Problem, share::Problem::NeedsSignIn, 0),
+            shareStatus(shareWsl, ShareIndexer::State::Online, share::Problem::None, 1234),
+        });
+        check(!editor->shares().last().toMap().value(u"startable"_s).toBool(), "a running WSL folder still offers Start");
+        settle(window, 3);
+        saved = saveGrab(window, out.filePath(u"wsl-online.png"_s)) && saved;
+        if (args.contains(u"--compact"_s)) {
+            flick->setProperty("contentY", std::max(0.0, flick->property("contentHeight").toDouble() - flick->property("height").toDouble()));
+            settle(window, 3);
+            saved = saveGrab(window, out.filePath(u"wsl-bottom.png"_s)) && saved;
+        }
+        return finish(window, saved);
+    }
+
+    if (args.contains(u"--indexing"_s)) {
+        const auto check = [](bool ok, const char* message) {
+            if (!ok)
+                qWarning("indexing: %s", message);
+        };
+        SettingsEditor::IndexAccessState direct;
+        direct.effective = u"direct"_s;
+        direct.elevated = direct.administrator = true;
+        direct.foldersPossible = false;
+        editor->setIndexAccessState(direct);
+        QTemporaryDir folder;
+        check(folder.isValid(), "temporary folder was not created");
+        check(editor->addFolder(folder.path()).isEmpty(), "adding a folder while elevated was rejected");
+        window->resize(args.contains(u"--compact"_s) ? QSize(760, 420) : QSize(920, 720));
+        bool saved = true;
+        const auto grab = [&](int tab, const QString& name) {
+            QMetaObject::invokeMethod(window, "showPage", Q_ARG(QVariant, QVariant(2)), Q_ARG(QVariant, QVariant(tab)));
+            flick->setProperty("contentY", 0);
+            settle(window, 3);
+            saved = saveGrab(window, out.filePath(name + u"-top.png"_s)) && saved;
+            flick->setProperty("contentY", std::max(0.0, flick->property("contentHeight").toDouble() - flick->property("height").toDouble()));
+            settle(window, 3);
+            saved = saveGrab(window, out.filePath(name + u"-bottom.png"_s)) && saved;
+        };
+        grab(0, u"folders-admin"_s);
+        editor->setAllDrives(false);
+        for (const auto& value : editor->drives())
+            editor->setDriveSelected(value.toMap().value(u"root"_s).toString(), false);
+        check(!editor->allDrives(), "empty drive selection was treated as all drives");
+        for (const auto& value : editor->drives())
+            check(!value.toMap().value(u"selected"_s).toBool(), "drive remained selected");
+        grab(2, u"drives-empty"_s);
+        const auto drives = editor->drives();
+        if (!drives.isEmpty())
+            editor->setDriveSelected(drives.front().toMap().value(u"root"_s).toString(), true);
+        editor->setDriveSelected(u"Z:"_s, true); // disconnected selections stay visible and can be removed
+        grab(2, u"drives-selected"_s);
+        editor->setAllDrives(true);
+        check(editor->allDrives(), "restoring all drives failed");
+        return finish(window, saved);
+    }
+
+    if (args.contains(u"--file-types"_s)) {
+        const auto check = [](bool condition, const char* message) {
+            if (!condition)
+                qWarning("file types: %s", message);
+        };
+        check(!editor->setFileTypeKeyword(0, u"folder"_s).isEmpty(), "folder prefix collision was accepted");
+        check(!editor->setFileTypeKeyword(0, u"two words"_s).isEmpty(), "invalid prefix was accepted");
+        check(editor->setFileTypeKeyword(0, u":DOC"_s).isEmpty(), "custom prefix was rejected");
+        check(editor->fileTypes().value(0).toMap().value(u"keyword"_s).toString() == u"doc", "prefix was not normalized");
+        check(!editor->setFileTypeKeyword(-1, u"doc"_s).isEmpty(), "type prefix collision was accepted");
+        check(editor->setFileTypeKeyword(0, {}).isEmpty(), "disabling a prefix failed");
+        editor->resetFileTypes();
+        QMetaObject::invokeMethod(window, "showPage", Q_ARG(QVariant, QVariant(3)), Q_ARG(QVariant, QVariant(3)));
+        window->resize(args.contains(u"--compact"_s) ? QSize(760, 420) : QSize(920, 720));
+        settle(window, 3);
+        bool saved = saveGrab(window, out.filePath(u"file-types-top.png"_s));
+        flick->setProperty("contentY", std::max(0.0, flick->property("contentHeight").toDouble() - flick->property("height").toDouble()));
+        settle(window, 3);
+        saved = saveGrab(window, out.filePath(u"file-types-bottom.png"_s)) && saved;
+        return finish(window, saved);
+    }
+
     // Every page, every tab: the window as tall as the page, so the
     // picture has all of it.
     bool saved = true;
@@ -778,6 +897,10 @@ int runSettings(const QStringList& args)
             if (page == pluginsPage && tab == 0) { // the cards come folded: one unfolded too (翻译: settings, permissions)
                 if (QObject* section = named(window, "pluginsSection"))
                     QMetaObject::invokeMethod(section, "expandAt", Q_ARG(QVariant, QVariant(1)));
+                if (auto* paste = window->findChild<QQuickItem*>(u"pasteFileSettingsCard"_s))
+                    paste->setProperty("expanded", true);
+                else
+                    qWarning("preview: no 粘贴为文件 card on the 插件 page");
             }
             window->setHeight(baseHeight);
             settle(window, 3);
@@ -862,12 +985,18 @@ int runSettings(const QStringList& args)
         int page;
         int tab;
     };
+    const QString quickPasteProbe = args.contains(u"--english"_s)
+        ? QCoreApplication::translate("SettingsWindow", "不打开面板直接粘贴") : u"无需面板"_s;
     const Probe probes[] = {
-        {u"无需面板"_s, window->property("clipboardPage").toInt(), 1},
+        {quickPasteProbe, window->property("clipboardPage").toInt(), 1},
         {u"插件"_s, pluginsPage, 0},
         {u"插件库"_s, pluginsPage, 1},
         {u"消息记录"_s, pluginsPage, 2}, // the 开发者 tab (developer mode is on in the preview)
         {u"API 密钥"_s, pluginsPage, 0}, // a plugin's own setting: its card unfolds (search-API 密钥.png)
+        {u"粘贴为文件"_s, pluginsPage, 0}, // a built-in card
+        // Shown as 内置功能 cards too, the rows of their own page first (open_settings searches them by title).
+        {u"双击空白处弹出文件夹菜单"_s, 0, 2},
+        {u"对话框旁的搜索框"_s, 0, 2},
         {u"AI"_s, aiPage, 0},
         {u"收藏"_s, favoritesPage, 0},
         {u"网络共享"_s, 2, 3},
@@ -914,6 +1043,73 @@ int runSettings(const QStringList& args)
 
 // The production delegates and model, with made-up folders and local Qt key
 // events: no global shortcuts, file opening, or user's profile involved.
+void checkLauncherFilters(QQuickWindow* window)
+{
+    QTemporaryDir temporary;
+    IndexService index(temporary.path(), IndexService::Options{});
+    AppCatalog apps;
+    SystemCatalog places;
+    apps.setApps(std::make_shared<const AppList>());
+    places.setPlaces(std::make_shared<const PlaceList>());
+    History history(temporary.filePath(u"history.tsv"_s));
+    SearchEngine engine(&index, &apps, &places);
+    Launcher launcher(&index, &apps, &places, &engine, &history);
+    launcher.setWindow(window);
+    Settings settings;
+    settings.fileTypes = Settings::defaultFileTypes();
+    launcher.setFileTypes(settings.namedFileTypes());
+    launcher.setContentOptions(false, {u"txt"_s}, ContentSizeLimits{}, false, false);
+    {
+        const auto files = index.index();
+        const auto lock = files->writeLock();
+        const auto root = files->addRoot("T:");
+        files->add(root, "报告资料", EntryFlag::Directory);
+        files->add(root, "报告图片.png", 0);
+        files->add(root, "照片.png", 0);
+        files->add(root, "报告.txt", 0);
+    }
+    const auto check = [](bool condition, const char* reason) {
+        if (!condition)
+            qWarning("launcher regression: %s", reason);
+    };
+    const auto query = [&](const QString& text) {
+        launcher.setQuery(text);
+        QElapsedTimer timeout;
+        timeout.start();
+        while (launcher.searching() && timeout.elapsed() < 2000)
+            pump(10);
+        check(!launcher.searching(), "search did not settle");
+    };
+    query(u":folder 报告"_s);
+    check(launcher.scope() == Launcher::Folders && launcher.results()->count() == 1
+        && launcher.results()->at(0)->isDir, "folder prefix did not reach the search engine");
+    query(u":pictures 报告"_s);
+    check(launcher.scope() == Launcher::Files && launcher.fileType() == 1 && launcher.results()->count() == 1
+        && launcher.results()->at(0)->name.endsWith(u".png"), "type prefix did not filter extensions");
+    check(launcher.query() == u":pictures 报告", "typed prefix disappeared from the field");
+    query(u":pictures"_s);
+    check(launcher.results()->count() == 2, "prefix alone showed history instead of browsing the type");
+    query({});
+    check(launcher.scope() == Launcher::All, "removing a prefix did not restore the original scope");
+    query(u":folder 报告"_s);
+    launcher.chooseFileType(0);
+    check(launcher.query() == u"报告" && launcher.fileType() == 0 && launcher.scope() == Launcher::Files,
+        "a manual type choice did not replace the prefix");
+    struct SortCase { Launcher::Sort sort; SortKey key; bool descending; };
+    const SortCase sorts[]{{Launcher::BestMatch, SortKey::Rank, false}, {Launcher::NewestFirst, SortKey::Modified, true},
+        {Launcher::OldestFirst, SortKey::Modified, false}, {Launcher::ByName, SortKey::Name, false},
+        {Launcher::ByFolder, SortKey::Path, false}, {Launcher::ByType, SortKey::Type, false},
+        {Launcher::LargestFirst, SortKey::Size, true}, {Launcher::SmallestFirst, SortKey::Size, false}};
+    for (const auto& test : sorts) {
+        launcher.setPanel(false);
+        launcher.setSort(test.sort);
+        launcher.setPanel(true);
+        check(launcher.panelSortKey() == int(test.key) && launcher.panelSortDescending() == test.descending,
+            "expanding the panel lost the compact list's sort");
+    }
+    say(u"launcher prefix and panel-sort regressions: real controllers/engine over an isolated in-memory fixture"_s);
+}
+
 int runResults(const QStringList& args)
 {
     const QDir out(valueAfter(args, kResultsFlag));
@@ -928,6 +1124,7 @@ int runResults(const QStringList& args)
     QQmlApplicationEngine engine;
     engine.addImageProvider(u"fileicon"_s, new FileIconProvider);
     ResultModel results;
+    results.setThumbnails(false); // synthetic paths: no thumbnail handler or real file access
     SearchResults rows;
     for (const QString& name : {u"设计"_s, u"图纸"_s, u"照片"_s, u"合同"_s, u"资料"_s, u"归档"_s, u"参考"_s, u"备份"_s}) {
         SearchResult row;
@@ -950,6 +1147,7 @@ int runResults(const QStringList& args)
             color: Theme.background
             property alias hints: hints
             property alias field: field
+            property bool sizeOrder: false
             Binding { target: previewResults; property: "highlightColor"; value: Theme.accent }
             NumberHints { id: hints; key: Qt.Key_Control; listening: true }
             TextInput {
@@ -972,7 +1170,7 @@ int runResults(const QStringList& args)
         }
     )"_s.arg(baseline.isEmpty() ? QString() : u"import \"%1\" as Baseline"_s.arg(QUrl::fromLocalFile(baseline).toString()),
              baseline.isEmpty() ? QString() : u"Baseline."_s,
-             baseline.isEmpty() ? u"hintOpacity: hints.hintOpacity"_s : QString());
+             baseline.isEmpty() ? u"hintOpacity: hints.hintOpacity; showSize: window.sizeOrder"_s : QString());
     QQmlComponent component(&engine);
     component.setData(qml.toUtf8(), QUrl(u"qrc:/results-preview.qml"_s));
     auto* window = qobject_cast<QQuickWindow*>(component.create());
@@ -1035,7 +1233,124 @@ int runResults(const QStringList& args)
     pump(300);
     grab(u"off"_s);
     key(QEvent::KeyRelease);
+    if (args.contains(u"--file-metadata"_s)) {
+        checkLauncherFilters(window);
+        SearchResults files;
+        const QDateTime when(QDate(2024, 3, 5), QTime(14, 32));
+        const QDateTime now(QDate(2026, 10, 25), QTime(15, 0));
+        const auto stamp = static_cast<std::uint32_t>(when.toSecsSinceEpoch());
+        const QString withTime = ResultModel::modifiedText(stamp, now, true);
+        const QString withoutTime = ResultModel::modifiedText(stamp, now, false);
+        if (withTime == withoutTime || !withTime.contains(QLocale().toString(when.time(), QLocale::ShortFormat)))
+            qWarning("preview: older dates lost their modification time");
+        for (int i = 0; i < 8; ++i) {
+            SearchResult file;
+            file.name = u"项目交付与验收报告-%1.pdf"_s.arg(i + 1);
+            file.path = u"F:\\项目资料\\2026\\"_s + file.name;
+            file.modified = stamp;
+            file.size = (8 - i) * 1234567;
+            files.append(file);
+        }
+        results.assign(std::move(files), {});
+        results.setShowModifiedTime(true);
+        field->setProperty("text", u"文件修改时间"_s);
+        settle(window);
+        grab(u"date-time"_s);
+        window->setProperty("sizeOrder", true);
+        field->setProperty("text", u"按大小排序"_s);
+        settle(window);
+        grab(u"size-order"_s);
+    }
     say(u"renderer D3D11, DPR %1; Qt events only, not a global double-Ctrl gesture"_s.arg(window->devicePixelRatio()));
+    return finish(window, saved);
+}
+
+int runCaptureTools(const QStringList& args)
+{
+    using namespace capture;
+    using namespace capture::annot;
+    const QDir out(valueAfter(args, kCaptureToolsFlag));
+    QDir().mkpath(out.path());
+    QImage base(900, 400, QImage::Format_RGB32);
+    base.fill(Qt::white);
+    {
+        QPainter painter(&base);
+        painter.setPen(QColor(35, 40, 45));
+        QFont font = QGuiApplication::font();
+        font.setPixelSize(24);
+        painter.setFont(font);
+        painter.drawText(40, 48, u"截图标注 · 连续折线、贝塞尔曲线与荧光笔"_s);
+        font.setPixelSize(18);
+        painter.setFont(font);
+        painter.drawText(40, 98, u"矩形荧光笔覆盖一行文字，黑色正文仍然清晰可读。"_s);
+    }
+    AnnotationModel model;
+    model.begin(base, 1, StyleMemory{});
+    model.setSelection(base.rect());
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty(u"previewAnnotation"_s, &model);
+    QQmlComponent component(&engine);
+    component.setData(R"(
+        import QtQuick
+        import WinShun
+        Window {
+            id: window
+            width: 940; height: 530
+            color: Theme.background
+            Item {
+                x: 20; y: 20; width: 900; height: 400
+                AnnotationCanvas { anchors.fill: parent; model: previewAnnotation; sparse: false }
+                AnnotateObjects { anchors.fill: parent; annot: previewAnnotation; keyTarget: parent }
+            }
+            AnnotateStylePanel { x: 20; y: 450; annot: previewAnnotation }
+        }
+    )", QUrl(u"qrc:/capture-tools-preview.qml"_s));
+    auto* window = qobject_cast<QQuickWindow*>(component.create());
+    if (!window) {
+        say(component.errorString());
+        return 3;
+    }
+    showOffScreen(window);
+    const auto tool = [&](Kind kind) {
+        for (qsizetype i = 0; i < tools().size(); ++i) {
+            if (tools()[i].kind == kind)
+                model.setTool(int(i));
+        }
+    };
+    const auto press = [&](QPoint point) {
+        if (!model.pressFirst(point, {}))
+            model.pressSecond(point, {});
+    };
+    const auto drag = [&](QPoint from, QPoint to) {
+        press(from);
+        model.move(to, {});
+        model.release(to);
+    };
+    bool saved = true;
+    const auto grab = [&](QStringView name) {
+        settle(window);
+        pump(150);
+        saved = saveGrab(window, out.filePath(name.toString() + u".png"_s)) && saved;
+    };
+    tool(Kind::Arrow);
+    model.setPanel({{u"lineMode"_s, u"bezier"_s}});
+    drag({410, 180}, {760, 180});
+    grab(u"bezier");
+    tool(Kind::Line);
+    model.setPanel({{u"lineMode"_s, u"polyline"_s}});
+    for (QPoint p : {QPoint(60, 200), QPoint(200, 200), QPoint(200, 300), QPoint(300, 300)}) {
+        press(p);
+        model.release(p);
+    }
+    model.finishPath();
+    grab(u"polyline");
+    tool(Kind::Marker);
+    model.setPanel({{u"markerMode"_s, u"rectangle"_s}, {u"color"_s, u"#FFFF00"_s}});
+    drag({36, 75}, {755, 108});
+    grab(u"marker-rectangle");
+    model.setPanel({{u"markerMode"_s, u"line"_s}});
+    drag({410, 330}, {760, 330});
+    grab(u"marker-line");
     return finish(window, saved);
 }
 
@@ -1127,7 +1442,8 @@ int runAiCards(const QStringList& args)
 
 bool wanted(const QStringList& args)
 {
-    return args.contains(kFlag) || args.contains(kSettingsFlag) || args.contains(kResultsFlag) || args.contains(kAiCardsFlag);
+    return args.contains(kFlag) || args.contains(kSettingsFlag) || args.contains(kResultsFlag) || args.contains(kAiCardsFlag)
+        || args.contains(kCaptureToolsFlag);
 }
 
 void note(const QString& line)
@@ -1138,7 +1454,8 @@ void note(const QString& line)
 void prepare(const QStringList& args)
 {
     const bool resultsMode = args.contains(kResultsFlag);
-    const QString folder = valueAfter(args, resultsMode ? kResultsFlag : args.contains(kAiCardsFlag) ? kAiCardsFlag : kSettingsFlag);
+    const QString folder = valueAfter(args, resultsMode ? kResultsFlag : args.contains(kCaptureToolsFlag) ? kCaptureToolsFlag
+        : args.contains(kAiCardsFlag) ? kAiCardsFlag : kSettingsFlag);
     if (!folder.isEmpty()) {
         QDir().mkpath(folder);
         g_logPath = QDir(folder).filePath(u"preview.log"_s);
@@ -1152,7 +1469,8 @@ void prepare(const QStringList& args)
     qputenv("QT_SCALE_FACTOR", valueAfter(args, u"--scale", u"1"_s).toLatin1());
     const bool webForm = args.contains(u"--web-form"_s);
     // --renderer d3d11: the window as the desktop shows it (for counting edge pixels), not the software renderer's.
-    const bool nativeWeb = (webForm || args.contains(QString(kSettingsFlag))) && valueAfter(args, u"--renderer") == u"d3d11";
+    const bool nativeWeb = (webForm || args.contains(QString(kSettingsFlag)) || args.contains(kCaptureToolsFlag))
+        && valueAfter(args, u"--renderer") == u"d3d11";
     if (nativeWeb)
         qputenv("QSG_RHI_BACKEND", "d3d11");
     if (resultsMode || nativeWeb)
@@ -1169,7 +1487,8 @@ int run(const QStringList& args)
     const bool settingsMode = args.contains(kSettingsFlag);
     const bool resultsMode = args.contains(kResultsFlag);
     const bool cardsMode = args.contains(kAiCardsFlag);
-    if (valueAfter(args, resultsMode ? kResultsFlag : cardsMode ? kAiCardsFlag : settingsMode ? kSettingsFlag : kFlag).isEmpty()) {
+    const bool captureMode = args.contains(kCaptureToolsFlag);
+    if (valueAfter(args, resultsMode ? kResultsFlag : captureMode ? kCaptureToolsFlag : cardsMode ? kAiCardsFlag : settingsMode ? kSettingsFlag : kFlag).isEmpty()) {
         std::fprintf(stderr, "usage: WinShun --preview-plugins <file.png> [--dark] [--scale 1.5] [--dialog] [--page ai]\n"
                              "       WinShun --preview-settings <folder> [--dark] [--scale 1.5] [--tree] [--edges] [--renderer d3d11]\n");
         return 2;
@@ -1178,7 +1497,7 @@ int run(const QStringList& args)
     g_edges = args.contains(u"--edges"_s) || args.contains(u"--tree"_s);
     QGuiApplication::styleHints()->setColorScheme(args.contains(u"--dark"_s) ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
     SystemTheme::setBackdropAvailable(false); // plain colours, as a window without Mica
-    return resultsMode ? runResults(args) : cardsMode ? runAiCards(args) : settingsMode ? runSettings(args) : runPlugins(args);
+    return resultsMode ? runResults(args) : captureMode ? runCaptureTools(args) : cardsMode ? runAiCards(args) : settingsMode ? runSettings(args) : runPlugins(args);
 }
 
 } // namespace ws::preview

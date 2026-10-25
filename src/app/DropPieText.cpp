@@ -9,7 +9,7 @@
 #include <QGuiApplication>
 #include <QList>
 
-#include <algorithm>
+#include <utility>
 
 namespace ws {
 
@@ -18,6 +18,9 @@ namespace {
 // GUI thread only.
 int g_folderCount = 0;
 QList<DropPieText*> g_instances;
+
+// About eight Chinese characters at 界面大小 standard.
+constexpr double kNameWidth = 104;
 
 } // namespace
 
@@ -59,17 +62,14 @@ QFont DropPieText::labelFont()
     return font;
 }
 
-double DropPieText::labelWidth(int sectors)
+double DropPieText::nameWidth()
 {
-    const double scale = pie::scaleForStep(uiStep());
-    return pie::labelWidth(sectors, pie::Radii {}.scaled(scale), 96 * scale);
+    return kNameWidth * pie::scaleForStep(uiStep());
 }
 
-QStringList DropPieText::fit(const QString& name) const
+QString DropPieText::label(const QString& name) const
 {
-    const pielabels::Fitted fitted
-        = pielabels::fitTwoLines(name, QFontMetricsF(labelFont()), labelWidth(std::clamp(g_folderCount, 1, kMaxFolders)));
-    return {fitted.line1, fitted.line2};
+    return pielabels::elideMiddle(name.simplified(), QFontMetricsF(labelFont()), nameWidth());
 }
 
 } // namespace ws

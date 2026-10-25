@@ -396,7 +396,7 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
     case SelectedRole:
         return m_selected.contains(r->path);
     case ModifiedRole:
-        return r->isApp() && r->clipId == 0 ? QString() : modifiedText(r->modified, QDateTime::currentDateTime());
+        return r->isApp() && r->clipId == 0 ? QString() : modifiedText(r->modified, QDateTime::currentDateTime(), m_showModifiedTime);
     case ModifiedFullRole:
         return r->isApp() && r->clipId == 0 ? QString() : modifiedFullText(r->modified);
     case ModifiedDateRole:
@@ -658,7 +658,16 @@ void ResultModel::retranslate()
 
 // Briefly, as a mail list dates its mail: the time today and yesterday, the
 // day of the week within the last week, the day this year, else the date.
-QString ResultModel::modifiedText(std::uint32_t modified, const QDateTime& now)
+void ResultModel::setShowModifiedTime(bool on)
+{
+    if (m_showModifiedTime == on)
+        return;
+    m_showModifiedTime = on;
+    if (count() > 0)
+        emit dataChanged(index(0), index(count() - 1), {ModifiedRole});
+}
+
+QString ResultModel::modifiedText(std::uint32_t modified, const QDateTime& now, bool withTime)
 {
     if (knownTime(modified) == 0)
         return {}; // 1970-01-01 and the like: not a time anyone wrote it
@@ -677,9 +686,9 @@ QString ResultModel::modifiedText(std::uint32_t modified, const QDateTime& now)
         return locale.dayName(day.dayOfWeek(), QLocale::ShortFormat) + u' ' + time;
     //: A date this year, as QLocale::toString formats it: "Oct 3"
     if (day.year() == now.date().year())
-        return locale.toString(day, tr("M月d日"));
+        return locale.toString(day, tr("M月d日")) + (withTime ? u' ' + time : QString());
     //: An earlier date, as QLocale::toString formats it: "Mar 5, 2024"
-    return locale.toString(day, tr("yyyy年M月d日"));
+    return locale.toString(day, tr("yyyy年M月d日")) + (withTime ? u' ' + time : QString());
 }
 
 QString ResultModel::modifiedFullText(std::uint32_t modified)

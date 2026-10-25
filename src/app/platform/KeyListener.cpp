@@ -9,6 +9,7 @@
 #include <latch>
 #include <optional>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace ws {
@@ -24,6 +25,32 @@ constexpr USHORT kAnyButtonDown = RI_MOUSE_LEFT_BUTTON_DOWN | RI_MOUSE_RIGHT_BUT
 // Ctrl+wheel zooms. A touchpad pinch is sent as Ctrl+wheel too, by Windows.
 constexpr USHORT kWheel = RI_MOUSE_WHEEL | RI_MOUSE_HWHEEL;
 constexpr UINT_PTR kMouseOffTimer = 1;
+// The key under Esc, left of 1, by where it is: ` and ~ on US and Chinese
+// layouts (· in a Chinese input method), ^ on German ones, ² on French ones.
+constexpr USHORT kDragKeyScan = 0x29;
+// Its hotkeys while a drag is under way: alone, with Shift, Ctrl, both.
+constexpr int kDragKeyHotkey = 0x5750;
+constexpr std::array<UINT, 4> kDragKeyMods {0, MOD_SHIFT, MOD_CONTROL, MOD_CONTROL | MOD_SHIFT};
+constexpr std::uint32_t kDragLookMs = 30;
+// The key pressed on a file before it was dragged: the drag started for it,
+// looked for every 20 ms, for up to 300.
+constexpr UINT_PTR kStartDragTimer = 2;
+constexpr UINT kStartDragTickMs = 20;
+constexpr int kStartDragTicks = 15;
+
+// The windows that list files, where a press may become a drag of them:
+// File Explorer's view and the file dialogs (DirectUIHWND), the desktop and
+// older lists (SysListView32), folder trees, Total Commander's panels (64
+// and 32 bit). Pressed elsewhere, the key is left alone until a drag begins.
+bool listsFiles(HWND window)
+{
+    wchar_t name[32] {};
+    if (!window || !::GetClassNameW(window, name, 32))
+        return false;
+    const std::wstring_view cls(name);
+    return cls == L"DirectUIHWND" || cls == L"SysListView32" || cls == L"SysTreeView32" || cls == L"LCLListBox"
+        || cls == L"TMyListBox";
+}
 
 using Key = DoubleTapDetector::Key;
 
@@ -212,7 +239,7 @@ KeyListener::KeyListener(Callbacks callbacks)
         // only around a press of the key (listenToMouse), or all the time for
         // double clicks.
         bool active = hwnd != nullptr;
-        if (hwnd && m_callbacks.doubleCtrl) {
+        if (hwnd && keyboardWanted()) {
             const RAWINPUTDEVICE keyboard {kGenericDesktop, kKeyboard, RIDEV_INPUTSINK, hwnd};
             active = ::RegisterRawInputDevices(&keyboard, 1, sizeof keyboard);
         }
@@ -280,6 +307,8 @@ LRESULT CALLBACK KeyListener::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             self->onInput(reinterpret_cast<HRAWINPUT>(lParam));
         return ::DefWindowProcW(hwnd, msg, wParam, lParam); // lets Windows free the input
     case WM_TIMER:
+        if (wParam == kStartDragTimer && self)
+            self->onStartDragTimer();
         if (wParam == kMouseOffTimer && self) {
             ::KillTimer(hwnd, kMouseOffTimer);
             if (self->keyHeld()) // still down: wait for its release
@@ -288,14 +317,20 @@ LRESULT CALLBACK KeyListener::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                 self->listenToMouse(false);
         }
         return 0;
+    case WM_HOTKEY: // the drop pie's key during a drag; once a press (MOD_NOREPEAT)
+        if (self && wParam >= WPARAM {kDragKeyHotkey} && wParam < kDragKeyHotkey + kDragKeyMods.size())
+            self->onDragKeyPressed();
+        return 0;
     case WM_CLOSE: {
-        if (self && self->m_callbacks.doubleCtrl) {
+        if (self)
+            self->guardDragKey(false);
+        if (self && self->keyboardWanted()) {
             const RAWINPUTDEVICE keyboard {kGenericDesktop, kKeyboard, RIDEV_REMOVE, nullptr};
             ::RegisterRawInputDevices(&keyboard, 1, sizeof keyboard);
         }
         if (self) {
             self->m_callbacks.doubleClick = nullptr; // so the mouse goes too
-            self->m_callbacks.dragShake = nullptr;
+            self->m_callbacks.dragMenu = nullptr;
             self->m_callbacks.leftButtonUp = nullptr;
             self->listenToMouse(false);
             self->m_active = false;
@@ -317,16 +352,20 @@ void KeyListener::onInput(HRAWINPUT input)
     UINT size = sizeof raw;
     if (::GetRawInputData(input, RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER)) == static_cast<UINT>(-1))
         return;
-    if (raw.header.dwType == RIM_TYPEMOUSE) { // mostly moves, which tell nothing but a shake
-        if (m_callbacks.dragShake)
+    if (raw.header.dwType == RIM_TYPEMOUSE) { // mostly moves, which tell only whether a drag began
+        if (m_callbacks.dragMenu)
             onDrag(raw.data.mouse);
         if (raw.data.mouse.usButtonFlags & (kAnyButtonDown | kWheel))
             onMouse(raw.data.mouse);
         return;
     }
-    if (raw.header.dwType != RIM_TYPEKEYBOARD || !m_callbacks.doubleCtrl)
+    if (raw.header.dwType != RIM_TYPEKEYBOARD)
         return;
     const RAWKEYBOARD& key = raw.data.keyboard;
+    if (m_callbacks.dragMenu)
+        onDragKey(key);
+    if (!m_callbacks.doubleCtrl)
+        return;
     const bool up = key.Flags & RI_KEY_BREAK;
     const std::uint32_t vk = sidedKey(key);
     // A program's has no device. Not Win顺's own: the Alt KeyRouter lets go
@@ -554,8 +593,8 @@ void KeyListener::onMouse(const RAWMOUSE& mouse)
     m_callbacks.doubleClick(window, pt);
 }
 
-// The primary button and the pointer while it is held, for a shake during a
-// drag (the drop pie). Kept apart from onMouse: a move or a release there
+// The primary button and the pointer while it is held: whether a drag has
+// begun, for the drop pie's key. Kept apart from onMouse: a move or a release there
 // would spoil a double tap (mouseUsed) or the double click's pair.
 void KeyListener::onDrag(const RAWMOUSE& mouse)
 {
@@ -574,36 +613,99 @@ void KeyListener::onDrag(const RAWMOUSE& mouse)
             UINT dpiY = 96;
             if (FAILED(::GetDpiForMonitor(::MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST), MDT_EFFECTIVE_DPI, &dpiX, &dpiY)))
                 dpiX = dpiY = 96;
-            m_shake.press(pt.x, pt.y, time, ::GetSystemMetricsForDpi(SM_CXDRAG, dpiX),
-                ::GetSystemMetricsForDpi(SM_CYDRAG, dpiY), dpiX / 96.0);
+            m_dragRect = {::GetSystemMetricsForDpi(SM_CXDRAG, dpiX), ::GetSystemMetricsForDpi(SM_CYDRAG, dpiY)};
+            m_pressed = true;
+            m_dragging = false;
             m_pressedAt = pt;
+            m_dragFound = false;
+            m_dragLooked = time;
+            // Held on a list of files, the key is the pie's from now on: it
+            // may come before the hand moves (startDrag).
+            if (listsFiles(::WindowFromPoint(pt)))
+                guardDragKey(true);
         } else if (flags & (kAnyButtonDown & ~down)) {
-            m_shake.release(); // another button too: not a plain drag
+            m_pressed = false; // another button too: not a plain drag
+            guardDragKey(false);
+            m_starting = false;
         }
         if (flags & up) {
-            const bool dragged = m_shake.pressed() && m_shake.dragging();
-            m_shake.release();
+            const bool dragged = m_pressed && (m_dragging || m_dragFound);
+            m_pressed = false;
+            guardDragKey(false);
+            m_starting = false;
             if (dragged && m_callbacks.leftButtonUp)
                 m_callbacks.leftButtonUp();
         }
         return;
     }
-    if (!m_shake.pressed())
+    if (!m_pressed)
         return;
     POINT pt {};
     ::GetPhysicalCursorPos(&pt);
-    if (!m_shake.move(pt.x, pt.y, time))
+    // Windows starts a drag once the pointer leaves the rectangle centred on
+    // the press (DragDetect): before that it is a click.
+    if (!m_dragging)
+        m_dragging = std::abs(pt.x - m_pressedAt.x) * 2 > m_dragRect.cx || std::abs(pt.y - m_pressedAt.y) * 2 > m_dragRect.cy;
+    // Once a drag has begun, the pie's key is held back from it.
+    if (!m_dragFound && m_dragging && time - m_dragLooked >= kDragLookMs) {
+        m_dragLooked = time;
+        if (oleDrag().capture) {
+            m_dragFound = true;
+            guardDragKey(true);
+        }
+    }
+}
+
+// The drop pie's key pressed: during an OLE drag it brings up the pie (or
+// takes it away again); typed at any other time it is left alone. Once a
+// drag is under way it is a hotkey (guardDragKey), which raw input does not
+// see: WM_HOTKEY tells of it then.
+void KeyListener::onDragKey(const RAWKEYBOARD& key)
+{
+    if (key.MakeCode != kDragKeyScan || (key.Flags & (RI_KEY_E0 | RI_KEY_E1)) || isOwnInput(key.ExtraInformation))
+        return; // replayDragKey's own too
+    if (key.Flags & RI_KEY_BREAK) {
+        m_dragKeyDown = false;
         return;
-    // A drag of files is an OLE drag: while DoDragDrop runs, the source's
-    // thread has captured the mouse with OLE's own window. Its thread is the
-    // one of the window pressed on; else the one in front. A window dragged
-    // by its title bar (Aero Shake), a selection rectangle, a slider: no.
-    // (Safe here: this thread has no window that WindowFromPoint would ask.)
-    // Total Commander drags files inside its own window by itself, its main
-    // window holding the capture, and starts an OLE drag only once the
-    // pointer is over another program's window: such as the pie, which is
-    // shown (unseen until DragEnter) all the same. Its title bar dragged
-    // (Windows' own move, Aero Shake) or a menu open is not that.
+    }
+    if (!m_dragKeyGuarded && !std::exchange(m_dragKeyDown, true)) // held down: its repeats
+        onDragKeyPressed();
+}
+
+void KeyListener::onDragKeyPressed()
+{
+    if (m_starting)
+        return;
+    // Held on a file, not moved yet: no drag to bring the pie into.
+    if (m_dragKeyGuarded && m_pressed && !m_dragging && !m_dragFound) {
+        startDrag();
+        return;
+    }
+    const DragSource source = oleDrag();
+    if (!source.capture) {
+        if (m_dragKeyGuarded)
+            replayDragKey(); // not a drag after all: typed, as it would have been
+        if (m_keyLog)
+            log("Key log: the drop pie's key, but no OLE drag is under way");
+        return;
+    }
+    POINT pt {};
+    ::GetPhysicalCursorPos(&pt);
+    m_callbacks.dragMenu(pt, source.capture, source.pid);
+}
+
+// A drag of files is an OLE drag: while DoDragDrop runs, the source's thread
+// has captured the mouse with OLE's own window. Its thread is the one of the
+// window pressed on; else the one in front. A window dragged by its title
+// bar (Aero Shake), a selection rectangle, a slider: no. (Safe here: this
+// thread has no window that WindowFromPoint would ask.) Total Commander
+// drags files inside its own window by itself, its main window holding the
+// capture, and starts an OLE drag only once the pointer is over another
+// program's window: such as the pie, which is shown (unseen until
+// DragEnter) all the same. Its title bar dragged (Windows' own move, Aero
+// Shake) or a menu open is not that.
+KeyListener::DragSource KeyListener::oleDrag() const
+{
     const auto captureOf = [](DWORD thread, bool totalCommander) -> HWND {
         GUITHREADINFO info {sizeof info};
         if (!::GetGUIThreadInfo(thread, &info) || !info.hwndCapture
@@ -613,21 +715,127 @@ void KeyListener::onDrag(const RAWMOUSE& mouse)
         ::GetClassNameW(info.hwndCapture, name, 32);
         return std::wstring_view(name) == (totalCommander ? L"TTOTAL_CMD" : L"CLIPBRDWNDCLASS") ? info.hwndCapture : nullptr;
     };
-    const HWND pressed = ::WindowFromPoint(m_pressedAt);
+    const HWND pressed = m_pressed ? ::WindowFromPoint(m_pressedAt) : nullptr;
     const DWORD pressedThread = pressed ? ::GetWindowThreadProcessId(pressed, nullptr) : 0;
     HWND capture = pressed ? captureOf(pressedThread, false) : nullptr;
     if (!capture)
         capture = captureOf(0, false); // the foreground thread
     if (!capture && pressed)
         capture = captureOf(pressedThread, true);
-    if (!capture) {
-        if (m_keyLog)
-            log("Key log: shaken while the button was held, but no OLE drag is under way");
+    DWORD pid = 0;
+    if (capture)
+        ::GetWindowThreadProcessId(capture, &pid);
+    return {capture, pid};
+}
+
+// The drop pie's key as a hotkey of this window while a file list is pressed
+// on or a drag is under way:
+// Windows takes a hotkey before the input method and the program in front,
+// so neither types it (OLE's drag loop leaves keys alone, Total Commander's
+// own drag does not: "·" went into its command line). Raw input does not see
+// it then either. By the layout of the program in front, where the key is
+// under Esc. One another program holds already stays its own.
+void KeyListener::guardDragKey(bool on)
+{
+    const HWND window = m_window.load();
+    if (on == m_dragKeyGuarded || !window)
+        return;
+    if (!on) {
+        for (int i = 0; i < static_cast<int>(kDragKeyMods.size()); ++i)
+            ::UnregisterHotKey(window, kDragKeyHotkey + i);
+        m_dragKeyGuarded = false;
         return;
     }
-    DWORD pid = 0;
-    ::GetWindowThreadProcessId(capture, &pid);
-    m_callbacks.dragShake(pt, capture, pid);
+    const HKL layout = ::GetKeyboardLayout(::GetWindowThreadProcessId(::GetForegroundWindow(), nullptr));
+    const UINT vk = ::MapVirtualKeyExW(kDragKeyScan, MAPVK_VSC_TO_VK, layout);
+    std::string held;
+    for (int i = 0; vk && i < static_cast<int>(kDragKeyMods.size()); ++i) {
+        const UINT mods = kDragKeyMods[static_cast<std::size_t>(i)];
+        if (!::RegisterHotKey(window, kDragKeyHotkey + i, mods | MOD_NOREPEAT, vk))
+            continue;
+        m_dragKeyGuarded = true;
+        held += std::format(" {}{}key", (mods & MOD_CONTROL) ? "Ctrl+" : "", (mods & MOD_SHIFT) ? "Shift+" : "");
+    }
+    if (m_keyLog)
+        log(std::format("Key log: a file list pressed or a drag begun: the drop pie's key (vk 0x{:02X}) held back as:{}", vk,
+            held.empty() ? " nothing" : held));
+}
+
+// The key pressed while a file is held but not moved: the program has not
+// begun a drag (it waits for the pointer to leave the drag rectangle), so the
+// pointer is moved just past it, and put back (SetCursorPos, which OLE
+// follows) once the drag has begun.
+void KeyListener::startDrag()
+{
+    ::GetPhysicalCursorPos(&m_startFrom);
+    // Six drag rectangles: Total Commander begins its own past about four.
+    const LONG slop = std::max(m_dragRect.cx, m_dragRect.cy);
+    POINT to {m_startFrom.x + 6 * slop, m_startFrom.y};
+    if (!::MonitorFromPoint(to, MONITOR_DEFAULTTONULL))
+        to.x = m_startFrom.x - 6 * slop; // by the screen's right edge
+    m_starting = true;
+    m_startTicks = 0;
+    // As input, in steps: Total Commander takes no drag from SetCursorPos.
+    const int left = ::GetSystemMetrics(SM_XVIRTUALSCREEN);
+    const int top = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
+    const int width = std::max(2, ::GetSystemMetrics(SM_CXVIRTUALSCREEN));
+    const int height = std::max(2, ::GetSystemMetrics(SM_CYVIRTUALSCREEN));
+    std::array<INPUT, 4> moves {};
+    for (std::size_t i = 0; i < moves.size(); ++i) {
+        const LONG x = m_startFrom.x + (to.x - m_startFrom.x) * static_cast<LONG>(i + 1) / static_cast<LONG>(moves.size());
+        moves[i].type = INPUT_MOUSE;
+        moves[i].mi.dx = MulDiv(x - left, 65535, width - 1);
+        moves[i].mi.dy = MulDiv(to.y - top, 65535, height - 1);
+        moves[i].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        moves[i].mi.dwExtraInfo = kOwnInput;
+    }
+    ::SendInput(static_cast<UINT>(moves.size()), moves.data(), sizeof(INPUT));
+    ::SetTimer(m_window.load(), kStartDragTimer, kStartDragTickMs, nullptr);
+}
+
+void KeyListener::onStartDragTimer()
+{
+    const HWND window = m_window.load();
+    if (!m_starting || !m_pressed) {
+        ::KillTimer(window, kStartDragTimer);
+        m_starting = false;
+        return;
+    }
+    ++m_startTicks;
+    // Total Commander holds its capture from the press on: its own drag
+    // begins at the move, given a moment.
+    const DragSource source = m_startTicks >= 2 ? oleDrag() : DragSource {};
+    if (!source.capture && m_startTicks < kStartDragTicks)
+        return;
+    ::KillTimer(window, kStartDragTimer);
+    m_starting = false;
+    ::SetCursorPos(m_startFrom.x, m_startFrom.y);
+    if (!source.capture) {
+        if (m_keyLog)
+            log("Key log: the drop pie's key on a file held, but no drag began");
+        replayDragKey();
+        return;
+    }
+    m_dragFound = true;
+    if (m_keyLog)
+        log(std::format("Key log: the drop pie's key on a file held: a drag begun for it in {} ms",
+            m_startTicks * kStartDragTickMs));
+    m_callbacks.dragMenu(m_startFrom, source.capture, source.pid);
+}
+
+// The key was held back, but no drag came of it: typed after all, where it
+// would have gone (marked as Win顺's, so not taken for the pie's again).
+void KeyListener::replayDragKey()
+{
+    guardDragKey(false);
+    std::array<INPUT, 2> keys {};
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+        keys[i].type = INPUT_KEYBOARD;
+        keys[i].ki.wScan = kDragKeyScan;
+        keys[i].ki.dwFlags = KEYEVENTF_SCANCODE | (i == 1 ? KEYEVENTF_KEYUP : 0);
+        keys[i].ki.dwExtraInfo = kOwnInput;
+    }
+    ::SendInput(static_cast<UINT>(keys.size()), keys.data(), sizeof(INPUT));
 }
 
 // The mouse only while it can spoil a tap: from a press of the key until a

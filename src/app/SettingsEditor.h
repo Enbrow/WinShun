@@ -4,6 +4,7 @@
 #include "IndexService.h"
 #include "Settings.h"
 #include "Unc.h"
+#include "Wsl.h"
 
 #include <QDir>
 #include <QObject>
@@ -121,6 +122,11 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString captureSmartWords READ captureSmartWords WRITE setCaptureSmartWords NOTIFY changed FINAL)
     // The screenshot history's keyword (jt): set through saveCaptureKeyword.
     Q_PROPERTY(QString captureKeyword READ captureKeyword NOTIFY changed FINAL)
+    // 粘贴为文件's card on the 插件 page ([PasteFile]): its switch, Ctrl+V in
+    // Explorer and on the desktop, the right-click menu's verb.
+    Q_PROPERTY(bool pasteFileEnabled READ pasteFileEnabled WRITE setPasteFileEnabled NOTIFY changed FINAL)
+    Q_PROPERTY(bool pasteFileCtrlV READ pasteFileCtrlV WRITE setPasteFileCtrlV NOTIFY changed FINAL)
+    Q_PROPERTY(bool pasteFileMenu READ pasteFileMenu WRITE setPasteFileMenu NOTIFY changed FINAL)
     Q_PROPERTY(bool includeRemovableDrives READ includeRemovableDrives WRITE setIncludeRemovableDrives NOTIFY changed FINAL)
     Q_PROPERTY(bool rescanOnStartup READ rescanOnStartup WRITE setRescanOnStartup NOTIFY changed FINAL)
     // 索引方式 (Settings::indexAccess, GitHub #21): auto | service | direct |
@@ -147,6 +153,8 @@ class SettingsEditor : public QObject {
     // are indexed now, they could be (not while the disks are read whole, by
     // the index service or 管理员直读), and what that comes to, said.
     Q_PROPERTY(QString indexScope READ indexScope WRITE setIndexScope NOTIFY changed FINAL)
+    Q_PROPERTY(bool allDrives READ allDrives WRITE setAllDrives NOTIFY changed FINAL)
+    Q_PROPERTY(QVariantList drives READ drives NOTIFY drivesChanged FINAL)
     Q_PROPERTY(bool foldersInEffect READ foldersInEffect NOTIFY indexAccessStateChanged FINAL)
     Q_PROPERTY(bool foldersPossible READ foldersPossible NOTIFY indexAccessStateChanged FINAL)
     Q_PROPERTY(QString indexScopeStatus READ indexScopeStatus NOTIFY indexAccessStateChanged FINAL)
@@ -177,6 +185,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString preferredTypes READ preferredTypes WRITE setPreferredTypes NOTIFY changed FINAL)
     Q_PROPERTY(bool preferredTypesDefault READ preferredTypesDefault NOTIFY changed FINAL)
     Q_PROPERTY(bool showModified READ showModified WRITE setShowModified NOTIFY changed FINAL)
+    Q_PROPERTY(bool showModifiedTime READ showModifiedTime WRITE setShowModifiedTime NOTIFY changed FINAL)
     Q_PROPERTY(bool doubleClickToOpen READ doubleClickToOpen WRITE setDoubleClickToOpen NOTIFY changed FINAL)
     Q_PROPERTY(bool thumbnails READ thumbnails WRITE setThumbnails NOTIFY changed FINAL)
     Q_PROPERTY(bool webSuggestions READ webSuggestions WRITE setWebSuggestions NOTIFY changed FINAL)
@@ -237,6 +246,7 @@ class SettingsEditor : public QObject {
     // in the language shown; fileTypesDefault while they are as they came.
     Q_PROPERTY(QVariantList fileTypes READ fileTypes NOTIFY changed FINAL)
     Q_PROPERTY(bool fileTypesDefault READ fileTypesDefault NOTIFY changed FINAL)
+    Q_PROPERTY(QString folderKeyword READ folderKeyword NOTIFY changed FINAL)
     // Counts the sites' icons that arrived: a binding on webIconUrl() reads it
     // to be asked again (without the list made anew, and a form open in it lost).
     Q_PROPERTY(int siteIconsArrived READ siteIconsArrived NOTIFY siteIconArrived FINAL)
@@ -247,6 +257,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QVariantList shares READ shares NOTIFY sharesChanged FINAL)
     // Shares the user opened in File Explorer or mapped, not added yet: [{path, drive}]
     Q_PROPERTY(QVariantList knownShares READ knownShares NOTIFY sharesChanged FINAL)
+    Q_PROPERTY(QVariantList wslFolders READ wslFolders NOTIFY sharesChanged FINAL)
     Q_PROPERTY(QString renderer READ renderer WRITE setRenderer NOTIFY changed FINAL)
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY changed FINAL)
     Q_PROPERTY(QString language READ language WRITE setLanguage NOTIFY changed FINAL)
@@ -419,6 +430,12 @@ public:
     QString captureNote() const { return m_captureNote; }
     void setCaptureNote(const QString& note);
     QString captureKeyword() const { return m_settings.captureKeyword; }
+    bool pasteFileEnabled() const { return m_settings.pasteFileEnabled; }
+    void setPasteFileEnabled(bool on);
+    bool pasteFileCtrlV() const { return m_settings.pasteFileCtrlV; }
+    void setPasteFileCtrlV(bool on);
+    bool pasteFileMenu() const { return m_settings.pasteFileMenu; }
+    void setPasteFileMenu(bool on);
     // Saved if no web search or favorite has it (they keep theirs; a
     // plugin's alike gives way): empty, else what is wrong.
     Q_INVOKABLE QString saveCaptureKeyword(const QString& keyword);
@@ -482,6 +499,11 @@ public:
     Q_INVOKABLE void installIndexService() { emit indexServiceInstallRequested(true); }
     Q_INVOKABLE void uninstallIndexService() { emit indexServiceInstallRequested(false); }
     QString indexScope() const { return m_settings.indexScope; }
+    bool allDrives() const { return !m_settings.selectedDrives; }
+    void setAllDrives(bool all);
+    QVariantList drives() const;
+    Q_INVOKABLE void setDriveSelected(const QString& root, bool selected);
+    Q_INVOKABLE void refreshDrives() { emit drivesChanged(); }
     void setIndexScope(const QString& scope); // "auto", "drives", "folders"
     bool foldersInEffect() const { return m_indexAccessState.foldersInEffect; }
     bool foldersPossible() const { return m_indexAccessState.foldersPossible; }
@@ -613,6 +635,8 @@ public:
     Q_INVOKABLE void resetPreferredTypes();
     bool showModified() const { return m_settings.showModified; }
     void setShowModified(bool on);
+    bool showModifiedTime() const { return m_settings.showModifiedTime; }
+    void setShowModifiedTime(bool on);
     bool doubleClickToOpen() const { return m_settings.doubleClickToOpen; }
     void setDoubleClickToOpen(bool on);
     bool thumbnails() const { return m_settings.thumbnails; }
@@ -667,17 +691,22 @@ public:
 
     QVariantList webShortcuts() const;
     QVariantList fileTypes() const;
-    bool fileTypesDefault() const { return m_settings.fileTypes == Settings::defaultFileTypes(); }
+    bool fileTypesDefault() const { return m_settings.fileTypes == Settings::defaultFileTypes() && m_settings.folderKeyword == u"folder"; }
     // Each returns what is wrong ("已有这个类型"), empty when done.
     Q_INVOKABLE QString addFileType(const QString& name, const QString& extensions);
     Q_INVOKABLE QString renameFileType(int index, const QString& name);
     Q_INVOKABLE QString setFileTypeExtensions(int index, const QString& text); // "jpg, .PNG *.gif"
+    Q_INVOKABLE QString setFileTypeKeyword(int index, const QString& text); // -1: folders
+    QString folderKeyword() const { return m_settings.folderKeyword; }
     Q_INVOKABLE void removeFileType(int index);
     Q_INVOKABLE void moveFileType(int index, int delta); // up (-1) or down (1) the strip
     Q_INVOKABLE void resetFileTypes();
 
     QVariantList shares() const;
     QVariantList knownShares() const;
+    QVariantList wslFolders() const;
+    Q_INVOKABLE bool isWslPath(const QString& text) const;
+    Q_INVOKABLE void startWslShare(int index);
     void setShareStatuses(std::vector<ShareIndexer::Status> statuses); // set by the app
     // "\\host", "\\host\": a server, whose shares can be listed; its name, else empty.
     Q_INVOKABLE QString serverOf(const QString& text) const;
@@ -853,6 +882,7 @@ signals:
     void shareVerifyRequested(const QString& path);
     void shareAcceptRequested(const QString& path);
     void foldersChanged();
+    void drivesChanged();
     void folderVerifyRequested(const QString& path); // as IndexService has it (FolderStatus::path)
     void signInRequested(const QString& path); // a share, or "\\host"
     void signedIn(const QString& path, const QString& problem); // empty problem: connected
@@ -917,6 +947,9 @@ private:
     bool m_diagnosticsBusy = false;
     std::vector<ShareIndexer::Status> m_shareStatuses;
     std::vector<unc::Known> m_knownShares; // read once, with the window
+    std::vector<wsl::Distribution> m_knownWsl;
+    QStringList m_wslStarting;
+    QHash<QString, QString> m_wslStartProblems;
     std::vector<IndexService::FolderStatus> m_folderStatuses;
     std::vector<Settings::KnownFolder> m_knownFolders; // read once, with the window
     QStringList m_foldersAnnounced; // as foldersChanged() last had them

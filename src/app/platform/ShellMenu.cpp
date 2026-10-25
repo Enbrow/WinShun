@@ -1,6 +1,6 @@
 #include "ShellMenu.h"
 
-#include "AutostartRun.h" // runCommandProgram: the program a command line starts
+#include "AutostartRun.h" // runCommandProgram, runCommandStarts: the program a command line starts
 
 #include <QCoreApplication>
 #include <QDir>
@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <shlobj.h>
 
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -15,12 +16,19 @@ namespace ws::shellmenu {
 
 namespace {
 
-// Where the verb goes: a folder, a folder's empty space (%V is the folder
-// shown), a drive's root.
-constexpr const wchar_t* kKeys[] {
+// Where 用 Win顺 搜索此处 goes: a folder, a folder's empty space (%V is the
+// folder shown), a drive's root.
+constexpr const wchar_t* kSearchHereKeys[] {
     L"Software\\Classes\\Directory\\shell\\WinShun.SearchHere",
     L"Software\\Classes\\Directory\\Background\\shell\\WinShun.SearchHere",
     L"Software\\Classes\\Drive\\shell\\WinShun.SearchHere",
+};
+
+// Where 粘贴为文件 goes: a folder's empty space, the desktop's among them (a
+// drive's root shown is a folder too). Not on a folder itself: right there,
+// Explorer's own 粘贴 pastes into the folder selected, not beside it.
+constexpr const wchar_t* kPasteFileKeys[] {
+    L"Software\\Classes\\Directory\\Background\\shell\\WinShun.PasteFile",
 };
 
 std::wstring readString(HKEY root, const std::wstring& key, const wchar_t* name)
@@ -51,17 +59,22 @@ bool deleteValue(const std::wstring& key, const wchar_t* name)
     return ::RegDeleteKeyValueW(HKEY_CURRENT_USER, key.c_str(), name) == ERROR_SUCCESS;
 }
 
-} // namespace
+// The WinShunSearch.exe beside this program, and the folder it is in.
+struct Stub {
+    std::wstring folder = QDir::toNativeSeparators(QCoreApplication::applicationDirPath()).toStdWString();
+    std::wstring path = folder + L"\\WinShunSearch.exe";
+};
 
-void apply(bool on, const QString& title)
+// Sets the verb at `keys` to run `arguments` with the stub (`on`), or takes
+// away the verbs there that start this copy's stub or one that is gone.
+void setVerbs(std::span<const wchar_t* const> keys, bool on, const QString& title, std::wstring_view arguments)
 {
-    const std::wstring folder = QDir::toNativeSeparators(QCoreApplication::applicationDirPath()).toStdWString();
-    const std::wstring stub = folder + L"\\WinShunSearch.exe";
-    const std::wstring command = L"\"" + stub + L"\" --search-here \"%V\"";
-    if (on && ::GetFileAttributesW(stub.c_str()) == INVALID_FILE_ATTRIBUTES)
+    const Stub stub;
+    if (on && ::GetFileAttributesW(stub.path.c_str()) == INVALID_FILE_ATTRIBUTES)
         return; // a build without it (run from the build folder)
+    const std::wstring command = L"\"" + stub.path + L"\" " + std::wstring(arguments);
     bool changed = false;
-    for (const wchar_t* key : kKeys) {
+    for (const wchar_t* key : keys) {
         const std::wstring commandKey = std::wstring(key) + L"\\command";
         if (!on) {
             // Only ours: a portable copy elsewhere may have set them since.
@@ -69,14 +82,14 @@ void apply(bool on, const QString& title)
             // that does nothing: that goes too.
             const std::wstring current = readString(HKEY_CURRENT_USER, commandKey, nullptr);
             const std::wstring program = autostart::runCommandProgram(current);
-            if (!current.empty()
-                && (current == command
-                    || (!program.empty() && ::GetFileAttributesW(program.c_str()) == INVALID_FILE_ATTRIBUTES)))
+            if (!program.empty()
+                && (autostart::runCommandStarts(current, stub.path)
+                    || ::GetFileAttributesW(program.c_str()) == INVALID_FILE_ATTRIBUTES))
                 changed |= ::RegDeleteTreeW(HKEY_CURRENT_USER, key) == ERROR_SUCCESS;
             continue;
         }
         changed |= writeString(key, L"MUIVerb", title.toStdWString());
-        changed |= writeString(key, L"Icon", folder + L"\\WinShun.exe,0");
+        changed |= writeString(key, L"Icon", stub.folder + L"\\WinShun.exe,0");
         // Empty space has nothing selected, so "Single" hides the verb there
         // (0.8.0 wrote it everywhere; take it back off).
         if (std::wstring_view(key).find(L"\\Background\\") == std::wstring_view::npos)
@@ -87,6 +100,18 @@ void apply(bool on, const QString& title)
     }
     if (changed)
         ::SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+}
+
+} // namespace
+
+void apply(bool on, const QString& title)
+{
+    setVerbs(kSearchHereKeys, on, title, L"--search-here \"%V\"");
+}
+
+void applyPasteFile(bool on, const QString& title, bool english)
+{
+    setVerbs(kPasteFileKeys, on, title, english ? L"--paste-file --en \"%V\"" : L"--paste-file \"%V\"");
 }
 
 } // namespace ws::shellmenu

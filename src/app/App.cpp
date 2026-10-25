@@ -187,6 +187,11 @@ IndexService::Options indexOptions(const Settings& settings, bool folders)
     IndexService::Options options;
     options.rules = settings.crawlRules();
     options.includeRemovable = settings.includeRemovableDrives;
+    if (settings.selectedDrives) {
+        options.selectedDrives.emplace();
+        for (const QString& root : *settings.selectedDrives)
+            options.selectedDrives->push_back(root.toStdWString());
+    }
     options.rescanOnStartup = settings.rescanOnStartup;
     options.content.enabled = settings.contentSearch && settings.contentIndex; // off: the index is cleared
     options.content.extensions = settings.contentExtensions;
@@ -196,6 +201,8 @@ IndexService::Options indexOptions(const Settings& settings, bool folders)
     options.shares = settings.shareOptions();
     if (folders)
         options.folders = settings.indexFolderPaths();
+    else
+        options.extraFolders = settings.indexFolderPaths();
     options.folderVerifyEvery = std::chrono::hours(settings.folderVerifyHours);
     return options;
 }
@@ -1438,7 +1445,7 @@ QString App::doubleCtrlName() const
 void App::applySettings(bool initial)
 {
     applyFolderMenu(); // before the listener, which tells it double clicks
-    applyDropPie(); // likewise shakes
+    applyDropPie(); // likewise its key
     // Double clicks: for File Explorer and the desktop; Directory Opus says
     // so itself. Not when the menu is there for its hotkey alone.
     const bool doubleClicks = m_folderMenu && m_settings.folderMenu != u"off"
@@ -1463,7 +1470,7 @@ void App::applySettings(bool initial)
             if (FolderMenu* menu = doubleClicks ? m_folderMenu.get() : nullptr)
                 callbacks.doubleClick = [menu](HWND window, POINT pt) { menu->doubleClicked(window, pt); };
             if (DropPie* pie = m_dropPie.get()) {
-                callbacks.dragShake = [pie](POINT pt, HWND capture, DWORD pid) { pie->shaken(pt, capture, pid); };
+                callbacks.dragMenu = [pie](POINT pt, HWND capture, DWORD pid) { pie->summoned(pt, capture, pid); };
                 callbacks.leftButtonUp = [pie] { pie->buttonReleased(); };
             }
             callbacks.log = [](const std::string& line) { qWarning().noquote() << QString::fromStdString(line); };
@@ -1498,13 +1505,16 @@ void App::applySettings(bool initial)
     if (!initial)
         applyAppearance();
     shellmenu::apply(m_settings.explorerMenu, tr("用 Win顺 搜索此处")); // after the language
+    shellmenu::applyPasteFile(m_settings.pasteFileEnabled && m_settings.pasteFileMenu, tr("粘贴为文件"), m_language == u"en");
     m_updater->setAutomatic(m_settings.autoUpdate);
     m_backup->setFolder(m_settings.backupFolder);
     m_launcher->setRecordHistory(m_settings.recordHistory);
     m_launcher->setResultOptions(m_settings.foldersFirst ? KindOrder::FoldersFirst : KindOrder::FilesFirst,
         m_settings.showModified, m_settings.thumbnails, m_settings.numberKeys);
     m_launcher->setDoubleClickToOpen(m_settings.doubleClickToOpen);
+    m_launcher->results()->setShowModifiedTime(m_settings.showModifiedTime);
     m_launcher->setPreferredTypes(m_settings.preferredTypes);
+    m_launcher->setFolderKeyword(m_settings.folderKeyword);
     m_launcher->setExcludedTypes(m_settings.excludedTypes);
     m_launcher->setSort(static_cast<Launcher::Sort>(sortIndex(m_settings.sort)));
     m_launcher->setStartList(m_settings.startList == u"modified" ? Launcher::RecentlyModified
@@ -2218,12 +2228,13 @@ void App::applyTaskbar()
 
 void App::applyTypeToSearch()
 {
-    const TypeToSearch::Surfaces wanted {m_settings.taskbarStartTyping, m_settings.explorerTyping};
-    if (m_typing && m_typing->surfaces().startMenu == wanted.startMenu
-        && m_typing->surfaces().explorer == wanted.explorer)
+    const TypeToSearch::Surfaces wanted {.startMenu = m_settings.taskbarStartTyping,
+        .explorer = m_settings.explorerTyping,
+        .pasteFile = m_settings.pasteFileEnabled && m_settings.pasteFileCtrlV};
+    if (m_typing && m_typing->surfaces() == wanted)
         return;
     m_typing.reset();
-    if (!wanted.startMenu && !wanted.explorer)
+    if (wanted == TypeToSearch::Surfaces {})
         return;
     // Called on its thread: hop to the GUI thread.
     TypeToSearch::Callbacks callbacks;
@@ -2235,7 +2246,21 @@ void App::applyTypeToSearch()
             explorerTyped(root, tab);
         }, Qt::QueuedConnection);
     };
+    callbacks.pastedInto = [this](HWND view) {
+        QMetaObject::invokeMethod(this, [this, view] { pasteAsFile(view); }, Qt::QueuedConnection);
+    };
     m_typing = std::make_unique<TypeToSearch>(wanted, std::move(callbacks));
+}
+
+void App::pasteAsFile(HWND view)
+{
+    const std::wstring stub =
+        QDir::toNativeSeparators(QCoreApplication::applicationDirPath() + u"/WinShunSearch.exe"_s).toStdWString();
+    // What it says, as Win顺 does; the window as a number (main.cpp's --paste-file-in).
+    const std::wstring args = (m_language == u"en" ? L"--paste-file-in --en " : L"--paste-file-in ")
+        + std::to_wstring(reinterpret_cast<std::uintptr_t>(view));
+    if (!shell::startUnelevated(stub, args).valid())
+        qWarning() << "Paste as file: WinShunSearch.exe did not start, error" << ::GetLastError();
 }
 
 // For the settings page: empty while the box is on the taskbar.
@@ -3343,7 +3368,7 @@ void App::applyDropPie()
     }
     if (!on && m_dropPie) {
         m_serviceKeyListener.reset();
-        m_keyListener.reset(); // it tells the pie shakes: gone first
+        m_keyListener.reset(); // it summons the pie: gone first
         m_keyListenerMode = 0;
         delete m_dropPieWindow;
         m_dropPie.reset();
@@ -3397,6 +3422,7 @@ void App::applyDialogs()
         m_dialogBar->setExcludedApps(m_settings.dialogBarExcludedApps);
         m_dialogBar->setPlace(m_settings.dialogBarPlace);
         m_dialogBar->setResultOptions(m_settings.showModified, m_settings.thumbnails, m_settings.numberKeys);
+        m_dialogBar->results()->setShowModifiedTime(m_settings.showModifiedTime);
         m_dialogBar->setAskAutoJump(!m_settings.dialogAutoJump && !m_settings.dialogAutoJumpAsked);
     }
 

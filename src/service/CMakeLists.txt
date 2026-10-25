@@ -12,7 +12,6 @@ add_executable(WinShunService
     Server.cpp Server.h
     InputListener.cpp InputListener.h
     ${PROJECT_SOURCE_DIR}/src/app/platform/KeyListener.cpp
-    ${PROJECT_SOURCE_DIR}/src/app/platform/ShakeDetector.cpp
     Volumes.cpp
     ${PROJECT_SOURCE_DIR}/src/core/Ntfs.cpp
     ${PROJECT_SOURCE_DIR}/src/core/NtfsBulk.cpp

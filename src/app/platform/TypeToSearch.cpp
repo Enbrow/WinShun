@@ -3,6 +3,7 @@
 #include "FolderViewHit.h"
 #include "Integrity.h"
 #include "KeyRouter.h" // kOwnInput
+#include "PasteOffer.h"
 #include "SearchTyping.h"
 
 #include <cwchar>
@@ -155,11 +156,12 @@ void CALLBACK TypeToSearch::foregroundProc(HWINEVENTHOOK, DWORD, HWND hwnd, LONG
         t_typing->foregroundChanged(::GetForegroundWindow(), hwnd);
 }
 
-// An Explorer folder window typing can count in: told by its classes alone;
-// whether it is elevated is asked here, once, not at every key.
-bool TypeToSearch::typingExplorer(HWND window) const
+// An Explorer folder window typing or pasting can count in: told by its
+// classes alone; whether it is elevated is asked here, once, not at every key.
+bool TypeToSearch::watchedExplorer(HWND window) const
 {
-    return m_surfaces.explorer && window && folderview::classifyWindow(window).surface == folderview::Surface::Explorer
+    return (m_surfaces.explorer || m_surfaces.pasteFile) && window
+        && folderview::classifyWindow(window).surface == folderview::Surface::Explorer
         && !integrity::higherThanOurs(window);
 }
 
@@ -191,17 +193,27 @@ void TypeToSearch::foregroundChanged(HWND window, HWND named)
     const HWND behind = m_explorerBehind;
     m_explorer = nullptr;
     m_explorerBehind = nullptr;
+    m_desktop = nullptr;
+    m_pasteTaken = false; // V's release goes where the front went
     if (!m_startInFront) {
-        if (typingExplorer(window))
+        if (watchedExplorer(window))
             m_explorer = window;
-        if (named != window && typingExplorer(named))
+        if (named != window && watchedExplorer(named))
             m_explorerBehind = named; // behind another window, Explorer's own too
         else if (behind && behind != window && activeBehind(behind))
             m_explorerBehind = behind;
+        if (m_surfaces.pasteFile && folderview::classifyWindow(window).surface == folderview::Surface::Desktop
+            && !integrity::higherThanOurs(window))
+            m_desktop = window;
     }
-    setHooked(m_startInFront || m_explorer || m_explorerBehind || m_holding);
+    setHooked(wantsHook());
     if (m_frontTimer)
         heldPassed(); // keys waiting for Win顺 to come to the front: maybe now
+}
+
+bool TypeToSearch::wantsHook() const
+{
+    return m_startInFront || m_explorer || m_explorerBehind || m_desktop || m_holding;
 }
 
 void TypeToSearch::setHooked(bool hooked)
@@ -234,16 +246,76 @@ bool TypeToSearch::explorerFocused(HWND& tab) const
     return true;
 }
 
+// The same for the desktop's icons (not a name being renamed, no menu open).
+bool TypeToSearch::desktopFocused() const
+{
+    if (!m_desktop || ::GetForegroundWindow() != m_desktop)
+        return false;
+    GUITHREADINFO info {sizeof info};
+    if (!::GetGUIThreadInfo(::GetWindowThreadProcessId(m_desktop, nullptr), &info) || !info.hwndFocus)
+        return false;
+    const folderview::Hit hit = folderview::classify(info.hwndFocus, {});
+    const bool icons = hit.surface == folderview::Surface::Desktop && hit.root == m_desktop;
+    return searchtyping::focusOf(static_cast<unsigned>(info.flags), icons) == searchtyping::Focus::ItemsView;
+}
+
+// Whichever Explorer window seen is really in front, made m_explorer (the
+// one left behind may have come forward with no event).
+bool TypeToSearch::explorerInFront()
+{
+    if (!m_explorer && !m_explorerBehind)
+        return false;
+    const HWND front = searchtyping::typingWindow(::GetForegroundWindow(), m_explorer, m_explorerBehind);
+    if (!front)
+        return false;
+    if (front != m_explorer)
+        std::swap(m_explorer, m_explorerBehind); // the one left behind is in front now, the other may come back
+    return true;
+}
+
+// Ctrl+V on the files of an Explorer folder or the desktop's icons, with words
+// or a picture on the clipboard and no files: made a file there by the stub.
+// The clipboard is asked by its formats alone (no program is asked), only once
+// the focus is right.
+bool TypeToSearch::handlePaste(bool press)
+{
+    if (!press) {
+        const bool taken = std::exchange(m_pasteTaken, false);
+        return taken; // V's release, after its press was taken
+    }
+    if (m_pasteTaken)
+        return true; // held down: one file for one press
+    HWND view = nullptr;
+    HWND tab = nullptr;
+    if (explorerInFront() && explorerFocused(tab))
+        view = tab;
+    else if (desktopFocused())
+        view = m_desktop;
+    if (!view || !pastefile::takesCtrlV(pastefile::clipboardOffer()))
+        return false;
+    m_pasteTaken = true;
+    if (m_callbacks.pastedInto)
+        m_callbacks.pastedInto(view);
+    return true;
+}
+
 bool TypeToSearch::handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event)
 {
+    const UINT vk = event.vkCode;
+    const bool press = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
+    // Ours too: the clipboard panel's paste, an entry picked with a folder in
+    // front, is a paste into it all the same.
+    if (vk == 'V' && m_surfaces.pasteFile && !m_holding && !m_startInFront
+        && (m_pasteTaken
+            || (press && held(VK_CONTROL) && !held(VK_SHIFT) && !held(VK_MENU) && !held(VK_LWIN) && !held(VK_RWIN)))
+        && handlePaste(press))
+        return true;
     // Ours: being typed again, given back, the Esc that closes the Start
     // menu for the launcher (win::bringToFront). Other programs' are typing
     // all the same (keys remapped by AutoHotkey or PowerToys, the on-screen
     // keyboard).
     if (isOwnInput(event.dwExtraInfo))
         return false;
-    const UINT vk = event.vkCode;
-    const bool press = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
     if (searchtyping::isModifier(vk)) {
         if (press && vk == VK_LMENU && !m_holding && m_startInFront)
             m_windowsSearch = true;
@@ -257,17 +329,12 @@ bool TypeToSearch::handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event)
         if (m_startInFront) {
             if (m_windowsSearch || !searchtyping::startsTyping(vk))
                 return false;
-        } else if (m_explorer || m_explorerBehind) {
+        } else if (m_surfaces.explorer && (m_explorer || m_explorerBehind)) {
             // The key alone first; what is in front and what has the focus
             // are asked only for one that would start a search.
             if (!searchtyping::explorerStarts(vk, press, combination, searchtyping::Focus::ItemsView, false))
                 return false;
-            const HWND front = searchtyping::typingWindow(::GetForegroundWindow(), m_explorer, m_explorerBehind);
-            if (!front)
-                return false;
-            if (front != m_explorer)
-                std::swap(m_explorer, m_explorerBehind); // the one left behind is in front now, the other may come back
-            if (!explorerFocused(tab))
+            if (!explorerInFront() || !explorerFocused(tab))
                 return false;
         } else {
             return false;
@@ -455,7 +522,7 @@ void TypeToSearch::endHolding()
     m_timer = 0;
     ::KillTimer(nullptr, m_frontTimer);
     m_frontTimer = 0;
-    setHooked(m_startInFront || m_explorer || m_explorerBehind); // the launcher is in front: gone
+    setHooked(wantsHook()); // the launcher is in front: gone
 }
 
 } // namespace ws

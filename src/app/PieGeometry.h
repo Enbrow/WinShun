@@ -4,51 +4,65 @@
 #include <QRect>
 #include <QRectF>
 
+#include <span>
+#include <vector>
+
 namespace ws::pie {
 
-// The drop pie's shape (DropPie, DropPieWindow.qml): a dead centre, an inner
-// ring split into 移动 (left half) and 复制 (right half), an outer ring of up
-// to eight folders, sector 0 centred at the top and the rest clockwise. Pure
-// geometry in logical pixels, unit-tested (tst_piegeometry); angles in
-// degrees clockwise from the top, as a clock's.
-struct Radii {
-    double dead = 50; // the centre: let go here and nothing happens
-    double innerIn = 58;
-    double innerOut = 112;
-    double outerIn = 120;
-    double outerOut = 226;
-    double gap = 4; // between neighbouring sectors, along the ring
-    double leave = 12; // past outerOut before the pointer has left the ring
+// The drop pie's shape (DropPie, DropPieWindow.qml): a small middle at the
+// pointer and up to eight folder chips round it, chip 0 above it and the
+// rest clockwise. A folder is chosen by the direction the pointer went from
+// the middle, as in a marking menu, long before it reaches the chip, or by
+// being on the chip itself. Pure geometry in logical pixels, unit-tested
+// (tst_piegeometry); angles in degrees clockwise from the top, as a clock's.
+struct Metrics {
+    double hub = 20; // the middle's radius, as drawn
+    double dead = 26; // within it nothing is chosen: let go there and nothing happens
+    double chipHeight = 32;
+    double chipGap = 8; // at least between two chips, and between a chip and the middle
+    double minRadius = 44; // the chips' ring at its smallest
+    double reach = 36; // past the chips before the pointer has left the pie
 
     // All of it times `k` (界面大小: the label type's size over 13 px).
-    Radii scaled(double k) const noexcept;
-    double labelRadius() const noexcept { return (outerIn + outerOut) / 2; }
-    double innerLabelRadius() const noexcept { return (innerIn + innerOut) / 2; }
+    Metrics scaled(double k) const noexcept;
 };
 
 // The scale for a 界面大小 step (Theme.step: 0 compact, 1 standard, 2 roomy):
-// the labels' type is 12, 13 or 14 px, the ring grows with it.
+// the labels' type is 12, 13 or 14 px, the pie grows with it.
 double scaleForStep(int step) noexcept;
 int labelPixelSize(int step) noexcept;
-
-enum class Mode { None, Move, Copy };
-enum class Zone { Dead, Inner, Outer, Outside };
-
-struct Hit {
-    Zone zone = Zone::Outside;
-    Mode half = Mode::None; // Inner: the half the pointer is over
-    int sector = -1; // Outer: which one
-};
-
-// Where `offset` (from the centre) falls on a ring of `sectors` folders.
-// The gaps between the rings belong to the nearer one; the outer ring
-// reaches `leave` beyond its edge before the pointer is Outside.
-Hit hitTest(QPointF offset, int sectors, const Radii& radii) noexcept;
 
 double angleOf(QPointF offset) noexcept; // 0 up, 90 right, in [0, 360)
 int sectorAt(double angle, int sectors) noexcept;
 double sectorCentre(int index, int sectors) noexcept;
 QPointF polar(double radius, double angle) noexcept; // the offset from the centre
+
+// The chips round the centre, one per sector, as the labels of a marking
+// menu: those to a side start (to the right) or end (to the left) on a ring
+// at their direction, centred on it from top to bottom, and go out
+// sideways, so a long name makes the pie wider, not the ring bigger; those
+// straight above and below are centred on their direction with their side
+// nearest the centre on the ring, or further out where a side chip is in
+// the way. The ring is as small as it can be from minRadius on, with no
+// chip within chipGap of another or of the middle.
+struct Layout {
+    double radius = 0;
+    std::vector<QRectF> chips; // from the centre
+    QRectF bounds; // the chips and the middle, from the centre
+    QRectF reach; // bounds widened by Metrics::reach: where the pointer is still on the pie
+};
+Layout layOut(std::span<const double> chipWidths, const Metrics& metrics);
+
+enum class Zone { Dead, Sector, Outside };
+struct Hit {
+    Zone zone = Zone::Outside;
+    int sector = -1; // Sector: which one
+};
+
+// Where `offset` (from the centre) falls: the middle; a chip it is on (or
+// within half the gap round it), else the sector whose direction it is in
+// (anywhere within the layout's reach); or outside the pie.
+Hit hitTest(QPointF offset, const Layout& layout, const Metrics& metrics) noexcept;
 
 // What the drag's source allows (DROPEFFECT_MOVE, DROPEFFECT_COPY), and the
 // keys held.
@@ -60,51 +74,36 @@ struct Keys {
     bool ctrl = false;
     bool shift = false;
 };
-// What the mode is asked for: shown while dragging (None until a half was
-// crossed or a key held), or a drop (falls back to what the source allows).
-enum class Purpose { Show, Drop };
+enum class Mode { None, Move, Copy };
 
-// The inner half the pointer last crossed wins and stays while it slides
-// along the outer ring; a half the drag's source does not allow (no
-// DROPEFFECT_MOVE, say) is passed over. Ctrl (copy) and Shift (move)
-// override it while held, as in File Explorer.
-class Latch {
-public:
-    void reset(Mode start = Mode::None) noexcept { m_latched = start; }
-    void update(const Hit& hit, Allowed allowed) noexcept;
-    Mode latched() const noexcept { return m_latched; }
-    Mode effective(Keys keys, Allowed allowed, Purpose purpose = Purpose::Show) const noexcept;
+// What letting go on a folder does, as in File Explorer: Ctrl copies and
+// Shift moves while held (both: neither key counts, Windows' "make a
+// shortcut"); else moving within one drive and copying to another. One the
+// source does not allow gives way to the other; None when it allows neither.
+Mode modeFor(bool sameDrive, Keys keys, Allowed allowed) noexcept;
 
-private:
-    Mode m_latched = Mode::None;
-};
-
-// Where the ring goes for a pointer at `cursor`: centred on it, moved in
-// just enough for the whole ring of radius `ringRadius` to be inside
-// `workArea` (the middle of one too small for it). Moved more than
-// `safeShift`, the pointer would start on the ring's outer part, beside a
-// folder: `warp` says to move the pointer to the centre then (the middle,
-// where letting go does nothing), as pie menus do by a screen's edge.
+// Where the middle goes for a pointer at `cursor`: on it, moved in just
+// enough for `extent` (around the centre) to be inside `workArea`, or the
+// work area's middle on an axis too small for it. Moved more than
+// `safeShift`, the pointer would start beside a folder: `warp` says to move
+// it to the middle then, as pie menus do by a screen's edge.
 struct Placement {
     QPointF centre;
     bool warp = false;
 };
-Placement placeCentre(QPointF cursor, const QRectF& workArea, double ringRadius, double safeShift) noexcept;
+Placement placeCentre(QPointF cursor, const QRectF& workArea, const QRectF& extent, double safeShift) noexcept;
 
-// Room around the ring in the window: for the tip beside the pointer and
-// the line under the ring.
-struct Margins {
-    double side = 150;
-    double top = 48;
-    double bottom = 84;
-};
+// The whole logical pixel from `v` on, down (`step` -1) or up (+1), that is
+// a whole device pixel too at the scale `dpr`, counted from 0 (a monitor's
+// corner, where both start): every second one at 150 %, every fourth at
+// 125 % and 175 %. One that is not is drawn a fraction off.
+int wholePixel(double v, double dpr, int step) noexcept;
 
-// The window: the ring's box with the margins, within the one monitor it is
-// on (never across two: they may differ in scale). Whole logical pixels.
-QRect windowRect(QPointF centre, double ringRadius, const QRect& monitor, const Margins& margins = {}) noexcept;
-
-// How wide a folder's label may be: the sector's chord at the label's
-// radius less some padding, at most `cap`.
-double labelWidth(int sectors, const Radii& radii, double cap) noexcept;
+// The window: `extent` around `centre`, outwards to whole pixels (as
+// wholePixel, from the monitor's corner: a window whose size is not a whole
+// number of device pixels is drawn stretched a little to fit, all its edges
+// blurred), within the one monitor it is on (never across two: they may
+// differ in scale; its rectangle in whole pixels too).
+QRect windowRect(QPointF centre, const QRectF& extent, const QRect& monitor, double dpr) noexcept;
 
 } // namespace ws::pie

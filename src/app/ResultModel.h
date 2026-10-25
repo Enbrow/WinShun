@@ -116,7 +116,8 @@ public:
     void retranslate(); // the language changed: apps' second line, web searches' title, places of content matches
     static QString location(const SearchResult& r); // LocationRole
     // ModifiedRole, ModifiedFullRole: in the default locale, against `now` (local time).
-    static QString modifiedText(std::uint32_t modified, const QDateTime& now);
+    static QString modifiedText(std::uint32_t modified, const QDateTime& now, bool withTime = false);
+    void setShowModifiedTime(bool on);
     static QString modifiedFullText(std::uint32_t modified);
 
     QColor highlightColor() const { return m_highlightColor; }
@@ -151,6 +152,7 @@ private:
     QStringList m_highlights;
     QColor m_highlightColor {0x00, 0x5F, 0xB8};
     bool m_thumbnails = true;
+    bool m_showModifiedTime = false;
     QSet<QString> m_selected; // paths
     QPointer<Switches> m_switches;
 };

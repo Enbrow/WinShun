@@ -35,20 +35,20 @@ protected:
 
 // The pie window's IDropTarget, registered in place of Qt's (RevokeDragDrop,
 // then RegisterDragDrop: Qt never registers again unless the window is made
-// anew). Every call is passed to the drag-image helper too, without which
-// the dragged items' picture (SysDragImage) vanishes over the pie: only a
-// target that calls IDropTargetHelper gets it drawn.
+// anew). Nothing is passed to the drag-image helper (IDropTargetHelper):
+// over the pie the dragged items' picture is not drawn, as it would sit on
+// the very chip being chosen; the window the drag goes on to draws it again.
 class DropTarget
     : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IDropTarget> {
 public:
-    DropTarget(Handler* handler, HWND window);
+    explicit DropTarget(Handler* handler) : m_handler(handler) { }
 
     // The owner is going: no more calls reach it.
     void detach() noexcept { m_handler = nullptr; }
     // The pie went away while the drag is still over the window (the
-    // pointer left the ring): the picture's helper is told now, and the
-    // DragLeave that OLE sends at its next move is not passed on again.
-    void leaveEarly();
+    // pointer left the chips): the DragLeave that OLE sends at its next move
+    // is not passed on again.
+    void leaveEarly() noexcept { m_inside = false; }
 
     STDMETHODIMP DragEnter(IDataObject* data, DWORD keys, POINTL pt, DWORD* effect) override;
     STDMETHODIMP DragOver(DWORD keys, POINTL pt, DWORD* effect) override;
@@ -57,8 +57,6 @@ public:
 
 private:
     Handler* m_handler;
-    HWND m_window;
-    Microsoft::WRL::ComPtr<IDropTargetHelper> m_helper;
     bool m_inside = false; // between DragEnter and DragLeave or Drop, and not left early
 };
 

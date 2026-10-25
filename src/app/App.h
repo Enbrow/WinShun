@@ -270,8 +270,11 @@ private:
     // launcher over the taskbar, or away again.
     void toggleAtTaskbar(bool clicked);
     void startScreenClip(); // Win+Shift+S, which Explorer gives up with Win+S
-    void applyTypeToSearch(); // typing in the Start menu, in Explorer (TypeToSearch), as the settings say
+    void applyTypeToSearch(); // typing in the Start menu, in Explorer, Ctrl+V there (TypeToSearch), as the settings say
     void startMenuTyped(); // typed in the Start menu (TypeToSearch): the launcher over the taskbar
+    // Ctrl+V taken in the Explorer tab or on the desktop `view` (TypeToSearch):
+    // WinShunSearch.exe pastes the clipboard there as a file.
+    void pasteAsFile(HWND view);
     // Typed in the Explorer window `root` (TypeToSearch): its `tab`'s folder
     // is asked for on a worker, then the launcher opens in that folder, on
     // that window's screen, and the keys follow; with no folder there, the
@@ -311,7 +314,7 @@ private:
     void applyDialogs(); // Ctrl+G, the bar and going by themselves in file dialogs
     void applyFolderMenu(); // the menu on a double click in File Explorer (GitHub #22)
     void applyFolderMenuHotkey(); // ... and on its hotkey, anywhere (GitHub #25)
-    void applyDropPie(); // the favorites' ring on a shake while dragging files
+    void applyDropPie(); // the favorite folders round the pointer, on the key under Esc with a file held
     void folderMenuHotkey(); // the hotkey was pressed: the menu, the launcher out of the way first
     // The screen capture (src/capture): made while it is on in the settings,
     // its hotkey and PrtScn (taken from the Snipping Tool and given back).
@@ -582,7 +585,7 @@ private:
     std::vector<std::wstring> m_sharesBuilding; // being read for the first time: told when done
     std::unique_ptr<KeyListener> m_keyListener; // double Ctrl, double clicks for the folder menu
     std::unique_ptr<ServiceKeyListener> m_serviceKeyListener; // destroyed before its target KeyListener
-    int m_keyListenerMode = 0; // what it listens to: 1 double Ctrl, 2 double clicks, 4 drag shakes
+    int m_keyListenerMode = 0; // what it listens to: 1 double Ctrl, 2 double clicks, 4 the drop pie (its key)
     std::unique_ptr<FolderMenu> m_folderMenu; // before the window: its view-model
     QPointer<QQuickWindow> m_folderMenuWindow;
     std::unique_ptr<DropPie> m_dropPie; // before the window: its view-model

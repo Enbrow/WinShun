@@ -25,6 +25,11 @@ SettingsSection {
         property string problem
 
         title: qsTr("新建插件")
+        FlatButton {
+            text: qsTr("复制 AI 开发提示")
+            glyph: "\uE8C8"
+            onClicked: devSection.plugins.copyDevelopmentPrompt()
+        }
         keywords: qsTr("模板;新建;创建;PowerShell;Python;零代码;template;new").split(";")
         description: qsTr("按模板在插件文件夹里建一个，SDK 文件一起放进去：PowerShell、Python、C++ 的常驻插件，Python 的一次性插件，或只有 plugin.json 的零代码")
         shown: devSection.plugins.developerMode

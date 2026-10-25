@@ -43,7 +43,7 @@ Window {
         qsTr("剪切板;粘贴板;复制;粘贴;clipboard"),
         qsTr("其他;更多;advanced"),
         qsTr("MCP;人工智能;大模型;Claude;Cursor;ai"),
-        qsTr("扩展;脚本;PowerShell;Python;plugin;extension"),
+        qsTr("扩展;脚本;PowerShell;Python;内置功能;模块;plugin;extension;module"),
         ""
     ]
     // The tabs of the pages too long for one screen, each a few sections
@@ -51,7 +51,7 @@ Window {
     readonly property var pageTabs: [
         [qsTr("快捷键", "settings tab"), qsTr("任务栏"), qsTr("对话框"), qsTr("启动与历史")],
         [],
-        [qsTr("文件夹"), qsTr("名称和类型"), qsTr("磁盘"), qsTr("网络共享")],
+        [qsTr("文件夹"), qsTr("名称和类型"), qsTr("磁盘"), qsTr("网络与 WSL")],
         [qsTr("排序"), qsTr("显示与预览"), qsTr("操作习惯"), qsTr("文件类型")],
         window.editor.contentSearch ? [qsTr("常规"), qsTr("大小上限")] : [], // 大小上限: nothing while off
         [],
@@ -370,7 +370,7 @@ Window {
             } else if (window.currentPage === window.pluginsPage) {
                 for (const url of urls)
                     pluginsSection.plugins.install(String(url))
-            } else if (window.currentPage === 2 && window.currentTab === 0 && window.editor.foldersInEffect) {
+            } else if (window.currentPage === 2 && window.currentTab === 0) {
                 let problem = ""
                 let networkPath = ""
                 for (const url of urls) {
@@ -1389,6 +1389,7 @@ Window {
                 }
 
                 SettingRow {
+                    id: explorerTypingRow
                     title: qsTr("在资源管理器里直接打字搜索")
                     keywords: qsTr("打字;输入;直接搜索;当前文件夹;资源管理器;Listary;type to search;explorer").split(";")
                     description: qsTr("文件列表有焦点时直接打字，就在这个窗口显示的文件夹里搜，和 Listary 一样；代替了资源管理器自己的“按首字母跳到文件”")
@@ -1400,6 +1401,7 @@ Window {
                 }
 
                 SettingRow {
+                    id: folderMenuRow
                     title: qsTr("双击空白处弹出文件夹菜单")
                     keywords: qsTr("双击;空白;空白处;收藏;收藏夹;最近;文件夹菜单;资源管理器;桌面;Listary;double-click;folder menu").split(";")
                     description: qsTr("在资源管理器或桌面的空白处双击，列出收藏的、最近的和别的窗口里的文件夹，选一个就在这个窗口里打开；Listary 在运行时由它来弹")
@@ -1642,6 +1644,7 @@ Window {
                 }
 
                 SettingRow {
+                    id: dialogBarRow
                     title: qsTr("对话框旁的搜索框")
                     keywords: qsTr("对话框;另存为;打开文件;保存").split(";")
                     unlocks: [dialogBarPlaceRow]
@@ -1920,6 +1923,7 @@ Window {
                     readonly property var scopes: ["auto", "drives", "folders"]
 
                     title: qsTr("索引哪些地方")
+                    stackControl: width - 52 - indexScopeTabs.implicitWidth < 240
                     keywords: qsTr("索引范围;范围;整个磁盘;选中的文件夹;工作文件夹;普通用户;没有管理员权限;scope").split(";")
                     description: {
                         let what
@@ -1937,6 +1941,7 @@ Window {
                     }
 
                     ScopeTabs {
+                        id: indexScopeTabs
                         labels: [qsTr("自动"), qsTr("整个磁盘"), qsTr("只索引选中的文件夹")]
                         current: Math.max(0, indexScopeRow.scopes.indexOf(window.editor.indexScope))
                         disabled: window.editor.foldersPossible ? [] : [2]
@@ -1972,10 +1977,9 @@ Window {
                     values: window.editor.folders.map(folder => folder.path)
                     description: window.editor.foldersInEffect
                                  ? qsTr("只有这些文件夹里的文件能搜到；也可以从资源管理器把文件夹拖到这里")
-                                 : qsTr("现在索引整个磁盘；改成“只索引选中的文件夹”后用下面这些")
+                                 : qsTr("普通文件夹已包含在整盘索引中；mklink 创建的链接文件夹可在这里额外添加，管理员和索引服务模式也能用。")
 
                     FlatButton {
-                        visible: window.editor.foldersInEffect
                         text: qsTr("添加文件夹…")
                         glyph: "" // Add
                         onClicked: {
@@ -1986,17 +1990,6 @@ Window {
                     }
 
                     body: [
-                        Text { // folded into a line while the disks are indexed whole
-                            visible: !window.editor.foldersInEffect
-                            width: parent.width
-                            text: window.editor.folders.length > 0
-                                  ? window.editor.folders.map(folder => folder.name).join(qsTr("、"))
-                                  : qsTr("还没有选文件夹")
-                            textFormat: Text.PlainText
-                            color: Theme.subtext
-                            font.pixelSize: Theme.fontCaption
-                            wrapMode: Text.Wrap
-                        },
                         Text {
                             visible: window.editor.foldersInEffect && window.editor.folders.length === 0
                             width: parent.width
@@ -2006,7 +1999,7 @@ Window {
                             wrapMode: Text.Wrap
                         },
                         Row {
-                            visible: window.editor.foldersInEffect && foldersRow.problem.length > 0
+                            visible: foldersRow.problem.length > 0
                             width: parent.width
                             spacing: 8
 
@@ -2054,7 +2047,6 @@ Window {
                             }
                         },
                         Column {
-                            visible: window.editor.foldersInEffect
                             width: parent.width
                             spacing: 8
 
@@ -2084,7 +2076,7 @@ Window {
 
                     readonly property var hours: [1, 4, 24, 0]
 
-                    shown: window.editor.foldersInEffect
+                    shown: window.editor.foldersInEffect || window.editor.folders.some(folder => folder.linked)
                     title: qsTr("定时核对")
                     keywords: qsTr("核对;重新扫描;每天;每小时;定时;verify;rescan").split(";")
                     description: qsTr("把选中的文件夹重新走一遍，补上没跟上的改动；到时间后等你离开电脑一会儿再核对")
@@ -2308,6 +2300,66 @@ Window {
                 note: qsTr("修改后在后台重新整理，不影响搜索。")
 
                 SettingRow {
+                    id: drivesRow
+                    title: qsTr("索引哪些磁盘")
+                    stackControl: width - 52 - driveScopeTabs.implicitWidth < 240
+                    keywords: qsTr("磁盘;硬盘;盘符;选择磁盘;索引范围;drive;disk;volume").split(";")
+                    description: window.editor.allDrives
+                                 ? qsTr("自动索引所有符合条件的本机磁盘")
+                                 : qsTr("只索引勾选的磁盘；取消勾选后，该盘的文件会从结果中移除。新接入的磁盘需要手动勾选。")
+                    bodyShown: !window.editor.allDrives
+                    ScopeTabs {
+                        id: driveScopeTabs
+                        labels: [qsTr("全部磁盘"), qsTr("自己选择")]
+                        current: window.editor.allDrives ? 0 : 1
+                        onActivated: index => window.editor.allDrives = index === 0
+                    }
+                    body: [
+                        Column {
+                            width: parent.width
+                            spacing: 6
+                            Repeater {
+                                model: window.editor.drives
+                                delegate: Row {
+                                    id: driveRow
+                                    required property var modelData
+                                    width: parent.width
+                                    spacing: 12
+                                    ToggleSwitch {
+                                        id: driveToggle
+                                        word: false
+                                        checked: driveRow.modelData.selected
+                                        enabled: driveRow.modelData.enabled
+                                        Accessible.name: qsTr("索引 %1 盘").arg(driveRow.modelData.root)
+                                        onToggled: on => window.editor.setDriveSelected(driveRow.modelData.root, on)
+                                    }
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: Math.max(0, driveRow.width - driveToggle.width - driveRow.spacing)
+                                        wrapMode: Text.Wrap
+                                        text: driveRow.modelData.root + (driveRow.modelData.status.length > 0 ? "  ·  " + driveRow.modelData.status : "")
+                                        font.pixelSize: Theme.fontBody
+                                        color: driveRow.modelData.enabled ? Theme.text : Theme.subtext
+                                    }
+                                }
+                            }
+                            Text {
+                                visible: !window.editor.drives.some(drive => drive.selected && drive.enabled)
+                                width: parent.width
+                                text: qsTr("没有选择本机磁盘，只搜索你添加的网络和 WSL 位置")
+                                wrapMode: Text.Wrap
+                                color: Theme.caution
+                                font.pixelSize: Theme.fontCaption
+                            }
+                        },
+                        FlatButton {
+                            text: qsTr("刷新磁盘列表")
+                            onClicked: window.editor.refreshDrives()
+                        }
+                    ]
+                }
+
+                SettingRow {
                     title: qsTr("包括 U 盘和移动硬盘")
                     keywords: qsTr("U盘;移动硬盘;外接;USB;removable").split(";")
                     description: qsTr("默认只搜索电脑自带的硬盘")
@@ -2450,14 +2502,14 @@ Window {
                 page: 2
                 tab: 3
                 width: parent.width
-                note: qsTr("只收录文件名和文件夹名，搜索和本机文件一样快，不读取文件内容。服务器离线时，收录过的照样能搜到。")
+                note: qsTr("只收录文件名和文件夹名，不读取文件内容。服务器离线或 WSL 停止时，收录过的照样能搜到；恢复后自动更新。")
 
                 SettingRow {
                     id: sharesRow
-                    title: qsTr("网络共享文件夹")
-                    keywords: qsTr("网络;共享;局域网;内网;NAS;服务器;SMB;映射;网络驱动器;network;share").split(";")
+                    title: qsTr("网络与 WSL 文件夹")
+                    keywords: qsTr("网络;共享;局域网;内网;NAS;服务器;SMB;映射;网络驱动器;WSL;Linux;Ubuntu;子系统;network;share").split(";")
                     values: window.editor.shares.map(share => share.path + " " + share.name)
-                    description: qsTr("公司或家里的 NAS、别的电脑共享出来的文件夹，和本机文件一起搜索")
+                    description: qsTr("添加 NAS、共享文件夹或 WSL 中的项目、用户目录，和本机文件一起搜索")
 
                     // The shares of the server typed ("\\192.168.1.10"), once asked for.
                     property string listedServer
@@ -2466,6 +2518,7 @@ Window {
                     property bool listSignIn: false
                     property bool listing: false
                     readonly property string typedServer: window.editor.serverOf(shareInput.text)
+                    readonly property bool typedWsl: window.editor.isWslPath(shareInput.text)
 
                     function add(text) {
                         const problem = window.editor.addShare(text)
@@ -2505,14 +2558,14 @@ Window {
                     }
 
                     body: [
-                        Row {
+                        Flow {
+                            width: parent.width
                             spacing: 8
 
                             InputBox {
                                 id: shareInput
-                                width: 340
-                                // The path outside qsTr(): lupdate reads backslashes in QML strings wrongly.
-                                placeholder: qsTr("%1共享名，或映射的 Z:").arg("\\\\192.168.1.10\\")
+                                width: Math.min(340, parent.width)
+                                placeholder: qsTr("粘贴网络或 WSL 文件夹路径")
                                 onAccepted: {
                                     if (sharesRow.typedServer.length > 0)
                                         sharesRow.listShares(sharesRow.typedServer) // a server alone: what it shares
@@ -2529,8 +2582,16 @@ Window {
                             }
                             FlatButton {
                                 visible: sharesRow.typedServer.length > 0
-                                text: qsTr("查看共享的文件夹")
+                                text: sharesRow.typedWsl ? qsTr("查看 WSL 发行版") : qsTr("查看共享的文件夹")
                                 onClicked: sharesRow.listShares(sharesRow.typedServer)
+                            }
+                            FlatButton {
+                                text: qsTr("选择文件夹…")
+                                onClicked: {
+                                    const path = window.editor.pickFolder(qsTr("选择要搜索的网络或 WSL 文件夹"))
+                                    if (path.length > 0)
+                                        sharesRow.add(path)
+                                }
                             }
                         },
                         Text {
@@ -2550,7 +2611,9 @@ Window {
                                 width: parent.width
                                 text: sharesRow.listing ? qsTr("正在连接 %1…").arg(sharesRow.listedServer)
                                     : sharesRow.listProblem.length > 0 ? sharesRow.listProblem
-                                    : qsTr("%1 上共享的文件夹，点一下添加：").arg(sharesRow.listedServer)
+                                    : window.editor.isWslPath("\\\\" + sharesRow.listedServer)
+                                      ? qsTr("已安装的 WSL 发行版，点一下收录 Linux 文件：")
+                                      : qsTr("%1 上共享的文件夹，点一下添加：").arg(sharesRow.listedServer)
                                 color: Theme.subtext
                                 font.pixelSize: Theme.fontCaption
                                 wrapMode: Text.Wrap
@@ -2577,6 +2640,34 @@ Window {
                                         text: modelData
                                         enabled: !added
                                         onClicked: sharesRow.add(path)
+                                    }
+                                }
+                            }
+                        },
+                        Column {
+                            visible: window.editor.wslFolders.length > 0
+                            width: parent.width
+                            spacing: 6
+
+                            Text {
+                                width: parent.width
+                                text: qsTr("检测到 WSL，点一下添加用户目录；也可以选择具体的项目文件夹：")
+                                color: Theme.subtext
+                                font.pixelSize: Theme.fontCaption
+                                wrapMode: Text.Wrap
+                            }
+                            Flow {
+                                width: parent.width
+                                spacing: 6
+
+                                Repeater {
+                                    model: window.editor.wslFolders
+
+                                    delegate: FlatButton {
+                                        required property var modelData
+                                        glyph: "\uE710"
+                                        text: modelData.name
+                                        onClicked: sharesRow.add(modelData.path)
                                     }
                                 }
                             }
@@ -2621,6 +2712,7 @@ Window {
                                     share: window.editor.shares[index] ?? blank // gone, before the card goes
                                     marked: sharesRow.valueFound(share.path)
                                     onVerifyClicked: window.editor.verifyShare(index)
+                                    onStartClicked: window.editor.startWslShare(index)
                                     onSignInClicked: window.editor.signInToShare(index)
                                     onAcceptClicked: window.editor.acceptShareMissing(index)
                                     onRemoveClicked: window.editor.removeShare(index)
@@ -2731,12 +2823,29 @@ Window {
                 SettingRow {
                     title: qsTr("显示修改日期")
                     keywords: qsTr("修改时间;修改日期;日期;时间;date").split(";")
-                    description: qsTr("显示在名字右边，例如“昨天 14:32”")
+                    description: qsTr("显示在名字右边；按大小排序时显示文件大小")
 
                     ToggleSwitch {
                         checked: window.editor.showModified
                         onToggled: (on) => window.editor.showModified = on
                     }
+                    body: [
+                        Row {
+                            spacing: 10
+                            ToggleSwitch {
+                                checked: window.editor.showModifiedTime
+                                enabled: window.editor.showModified
+                                Accessible.name: qsTr("较早的日期也显示时间")
+                                onToggled: (on) => window.editor.showModifiedTime = on
+                            }
+                            Text {
+                                text: qsTr("较早的日期也显示时间")
+                                color: window.editor.showModified ? Theme.text : Theme.faint
+                                font.pixelSize: Theme.fontBody
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                        }
+                    ]
                 }
 
                 SettingRow {
@@ -2820,138 +2929,11 @@ Window {
                 }
             }
 
-            SettingsSection {
+            FileTypesSection {
                 page: 3
                 tab: 3
                 width: parent.width
-
-                SettingRow {
-                    id: fileTypesRow
-
-                    property string problem // what was wrong with the last change
-                    // The rest of a line after the name, then ↑ ↓ and delete (or 添加).
-                    readonly property int extensionsWidth: Math.max(160, typeRows.width - 120 - 3 * 32 - 4 * 6)
-
-                    title: qsTr("文件类型")
-                    keywords: qsTr("类型;扩展名;后缀;筛选;图片;文档;视频;音乐;压缩包;filter;type;extension").split(";")
-                    values: window.editor.fileTypes.map(t => t.name)
-                    description: qsTr("“文件”里搜索框下面的一排，按 Ctrl+Tab 切换；每个类型是一组扩展名，用空格或逗号隔开")
-
-                    FlatButton {
-                        visible: !window.editor.fileTypesDefault
-                        text: qsTr("恢复默认")
-                        onClicked: {
-                            fileTypesRow.problem = ""
-                            window.editor.resetFileTypes()
-                        }
-                    }
-
-                    body: [
-                        Column {
-                            id: typeRows
-                            width: parent.width
-                            spacing: 6
-
-                            Repeater {
-                                model: window.editor.fileTypes
-
-                                delegate: Row { // its name, its extensions, then up, down and remove
-                                    id: typeRow
-
-                                    required property int index
-                                    required property var modelData
-
-                                    spacing: 6
-
-                                    InputBox {
-                                        id: typeName
-                                        width: 120
-                                        text: typeRow.modelData.name
-                                        onEditingFinished: {
-                                            fileTypesRow.problem = window.editor.renameFileType(typeRow.index, text)
-                                            if (fileTypesRow.problem.length > 0)
-                                                text = typeRow.modelData.name
-                                        }
-                                    }
-                                    InputBox {
-                                        id: typeExtensions
-                                        width: fileTypesRow.extensionsWidth
-                                        text: typeRow.modelData.extensions.join(" ")
-                                        onEditingFinished: {
-                                            fileTypesRow.problem = window.editor.setFileTypeExtensions(typeRow.index, text)
-                                            if (fileTypesRow.problem.length > 0)
-                                                text = typeRow.modelData.extensions.join(" ")
-                                        }
-                                    }
-                                    FlatButton {
-                                        flat: true
-                                        glyph: "\uE70E" // ChevronUp
-                                        enabled: typeRow.index > 0
-                                        Accessible.name: qsTr("上移")
-                                        onClicked: {
-                                            fileTypesRow.problem = ""
-                                            window.editor.moveFileType(typeRow.index, -1)
-                                        }
-                                    }
-                                    FlatButton {
-                                        flat: true
-                                        glyph: "\uE70D" // ChevronDown
-                                        enabled: typeRow.index < window.editor.fileTypes.length - 1
-                                        Accessible.name: qsTr("下移")
-                                        onClicked: {
-                                            fileTypesRow.problem = ""
-                                            window.editor.moveFileType(typeRow.index, 1)
-                                        }
-                                    }
-                                    FlatButton {
-                                        flat: true
-                                        glyph: "\uE74D" // Delete
-                                        Accessible.name: qsTr("删除")
-                                        onClicked: {
-                                            fileTypesRow.problem = ""
-                                            window.editor.removeFileType(typeRow.index)
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        Row {
-                            spacing: 6
-
-                            InputBox {
-                                id: newTypeName
-                                width: 120
-                                placeholder: qsTr("新类型")
-                                onAccepted: newTypeExtensions.takeFocus()
-                            }
-                            InputBox {
-                                id: newTypeExtensions
-                                width: fileTypesRow.extensionsWidth
-                                placeholder: qsTr("扩展名，例如 dwg dxf")
-                                onAccepted: addType.clicked()
-                            }
-                            FlatButton {
-                                id: addType
-                                width: 3 * 32 + 2 * 6 // under ↑ ↓ and delete
-                                text: qsTr("添加")
-                                enabled: newTypeName.text.trim().length > 0
-                                onClicked: {
-                                    fileTypesRow.problem = window.editor.addFileType(newTypeName.text, newTypeExtensions.text)
-                                    if (fileTypesRow.problem.length === 0) {
-                                        newTypeName.clear()
-                                        newTypeExtensions.clear()
-                                    }
-                                }
-                            }
-                        },
-                        Text {
-                            visible: fileTypesRow.problem.length > 0
-                            text: fileTypesRow.problem
-                            color: Theme.danger
-                            font.pixelSize: Theme.fontCaption
-                        }
-                    ]
-                }
+                editor: window.editor
             }
 
             SettingsSection {
@@ -4069,8 +4051,8 @@ Window {
 
                 SettingRow {
                     title: qsTr("诊断日志")
-                    keywords: qsTr("诊断;日志;索引慢;排查;反馈;diagnostics;log").split(";")
-                    description: qsTr("导出后会打开文件夹，把 WinShun-diagnostics.zip 发给开发者即可。包含索引耗时和错误，可能含文件路径；不含设置、剪贴板或文档正文。诊断记录最多 3 MB，过期自动清理；诊断包只保留一份")
+                    keywords: qsTr("诊断;日志;索引慢;排查;反馈;显示;字体;错字;乱码;diagnostics;log").split(";")
+                    description: qsTr("导出后会打开文件夹，把 WinShun-diagnostics.zip 发给开发者即可。包含索引耗时和错误、界面显示和字体的状态，可能含文件路径；不含设置、剪贴板或文档正文。界面显示不对时先导出再重启，重启后就查不到了。诊断记录最多 3 MB，过期自动清理；诊断包只保留一份")
                                  + (window.editor.diagnosticsStatus.length > 0 ? "\n" + window.editor.diagnosticsStatus : "")
 
                     FlatButton {
@@ -4141,6 +4123,8 @@ Window {
                 plugins: window.editor.plugins
                 editor: window.editor
                 lockedElsewhere: pluginDevSection.lockedRows
+                onSettingRequested: (which) => window.goTo(which === "folderMenu" ? folderMenuRow
+                                                           : which === "dialogBar" ? dialogBarRow : explorerTypingRow)
             }
 
             PluginGallerySection {
@@ -4149,6 +4133,10 @@ Window {
                 width: parent.width
                 plugins: window.editor.plugins
                 onShowInstalled: (pluginId) => window.showPluginPage(pluginId)
+                onShowDeveloper: {
+                    window.editor.plugins.developerMode = true
+                    window.showTab(2)
+                }
             }
 
             PluginDevSection {

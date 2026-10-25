@@ -232,6 +232,7 @@ public:
     // id. Each is written on its SDK file (src/plugins-sdk, copied in). Why
     // it could not be made, or empty once it is (and its folder is opened).
     Q_INVOKABLE QString createFromTemplate(const QString& kind, const QString& name);
+    Q_INVOKABLE void copyDevelopmentPrompt();
     static QStringList templateKinds()
     {
         return {QStringLiteral("powershell"), QStringLiteral("python"), QStringLiteral("python-resident"), QStringLiteral("cpp"), QStringLiteral("zero")};

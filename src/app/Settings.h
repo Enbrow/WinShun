@@ -88,7 +88,10 @@ struct Settings {
     QString renderer; // software | d3d11; defaults() picks by memory (defaultRenderer)
     bool recordHistory = true; // remember what was opened: listed with nothing typed, first among matches
     bool dialogJump = true; // Ctrl+G in an Open or Save dialog goes to the folder open in a file manager (filemanager::)
-    bool dialogBar = true; // a search bar under Open and Save dialogs (DialogBar)
+    // A search bar under Open and Save dialogs (DialogBar). Off for new
+    // installs, a module turned on where wanted (the 插件 page's 内置功能);
+    // an ini from before without the key keeps it on.
+    bool dialogBar = false;
     QString dialogBarPlace = QStringLiteral("auto"); // auto | below | left | right: where it goes by the dialog
     bool dialogAutoJump = false; // file dialogs go to the folder open in a file manager by themselves
     // open | back: as a dialog comes up, or only when the user comes back to
@@ -115,8 +118,9 @@ struct Settings {
     // auto | on | off: a double click on the blank space of a File Explorer
     // folder or of the desktop brings up a menu of favorite and recent
     // folders (FolderMenu, GitHub #22); auto: not while Listary runs, which
-    // does the same.
-    QString folderMenu = QStringLiteral("auto");
+    // does the same. Off for new installs, like dialogBar; turned on, auto.
+    // An ini from before without the key has auto.
+    QString folderMenu = QStringLiteral("off");
     bool folderMenuExplorer = true; // in File Explorer's folders
     bool folderMenuDesktop = true; // on the desktop
     // Which groups the menu lists (GitHub #51). All on is what it always
@@ -132,9 +136,10 @@ struct Settings {
     // Directory Opus's <event> for a double click on blank space, as it was
     // before Win顺 put its own there (SettingsEditor::setOpusFolderMenu); "": none.
     QString folderMenuOpusBefore;
-    // 拖放圆盘 (DropPie): shaking the mouse while dragging files brings up a
-    // ring of the favorite folders to drop them in. Does nothing while Win顺
-    // runs as administrator (drops cannot reach it then).
+    // 拖放圆盘 (DropPie): the key under Esc, with files held or dragged,
+    // brings up the favorite folders round the pointer to drop
+    // them in. Does nothing while Win顺 runs as administrator (drops cannot
+    // reach it then).
     bool dropPie = true;
 
     // [Results]
@@ -146,6 +151,8 @@ struct Settings {
     QStringList preferredTypes;
     static QStringList defaultPreferredTypes(); // exe, bat, cmd, ps1, msi
     bool showModified = true; // each file and folder found says when it was last written
+    bool showModifiedTime = false; // include the time on older dates too
+    QString folderKeyword = QStringLiteral("folder"); // :folder in the search box
     // A click on a result only selects it; a double click or Enter opens it
     // (GitHub #44: a stray click opened things). Off: a click opens.
     bool doubleClickToOpen = false;
@@ -227,6 +234,7 @@ struct Settings {
     // Not of the index: the files stay in it, so a change needs no rescan.
     QStringList excludedTypes;
     bool includeRemovableDrives = false;
+    std::optional<QStringList> selectedDrives; // unset: all eligible disks; empty: no local disks
     bool rescanOnStartup = true;
     // auto | service | direct | walk: where NTFS volumes are read from
     // (GitHub #21; App::volumeAccessFor). auto: directly when running as
@@ -360,7 +368,7 @@ struct Settings {
     // UI Automation for the controls of WinUI and the like, never Chromium's (ControlsUia);
     // the delayed capture's seconds, 3 | 5 | 10 (DelaySeconds); the colour
     // format the magnifier writes, hex | rgb | hsl (ColorFormat, changed with
-    // Shift+C); the hotkeys that hide / show every pin and that give click-through
+    // Shift alone); the hotkeys that hide / show every pin and that give click-through
     // pins the mouse back (PinsHotkey, PinsRestoreHotkey: recorded, none by default).
     bool captureCursor = false;
     bool captureControlsUia = true;
@@ -371,6 +379,17 @@ struct Settings {
     // What a double click on a pin does: reset (back to 100%) | close |
     // collapse (to a tile) | none (PinDoubleClick).
     QString capturePinDoubleClick = QStringLiteral("reset");
+
+    // [PasteFile]: 粘贴为文件 (the PasteEx request): the words or the
+    // picture on the clipboard made a file in the folder shown, selected for
+    // its name to be typed (src/stub/PasteAsFile, core/PasteFile). A card on
+    // the 插件 page, off until turned on; while off, nothing of it runs.
+    bool pasteFileEnabled = false;
+    // Ctrl+V on the files of an Explorer folder or the desktop, when what is
+    // copied is words or a picture and no files: Explorer pastes nothing then
+    // (TypeToSearch).
+    bool pasteFileCtrlV = true;
+    bool pasteFileMenu = true; // "粘贴为文件" in the right-click menu of a folder's empty space (shellmenu::)
 
     // [WebSearch]: keywords the user gives web pages ("gh" opens GitHub, "gh
     // WinShun" searches it; see WebShortcut). At first just one, "winshun".

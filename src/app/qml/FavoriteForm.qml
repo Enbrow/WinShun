@@ -19,12 +19,13 @@ Item {
     property string error
     property bool ready: false // the fields filled in
     readonly property bool command: favorite.kind === "command"
-    // The drop pie (拖文件时晃一晃) is on: a folder's form shows how the pie
-    // will write its name when that takes two lines or gets shortened.
+    // The drop pie (拖文件时按 ` 键) is on: a folder's form shows how the pie
+    // will write its name when it gets shortened.
     property bool dropPie: false
-    readonly property var pieLines: dropPie && (favorite.kind === "folder" || favorite.kind === "place")
-                                    ? DropPieText.fit(nameField.text.trim().length > 0 ? nameField.text : favorite.ownName)
-                                    : []
+    readonly property string pieName: dropPie && (favorite.kind === "folder" || favorite.kind === "place")
+                                      ? (nameField.text.trim().length > 0 ? nameField.text : favorite.ownName).trim()
+                                      : ""
+    readonly property string pieLabel: pieName.length > 0 ? DropPieText.label(pieName) : ""
 
     signal finished()
     signal edited(string name, string keyword, string commandLine, string directory)
@@ -142,10 +143,10 @@ Item {
         }
 
         Text {
-            visible: form.pieLines.length === 2 && form.pieLines[1].length > 0
+            visible: form.pieLabel.length > 0 && form.pieLabel !== form.pieName.replace(/\s+/g, " ")
             width: parent.width
             topPadding: -6 // with the name's hint above it
-            text: qsTr("圆盘里显示为：%1 / %2。名字太长时可以起个短名").arg(form.pieLines[0] ?? "").arg(form.pieLines[1] ?? "")
+            text: qsTr("圆盘里显示为：%1。名字太长时可以起个短名").arg(form.pieLabel)
             textFormat: Text.PlainText
             color: Theme.subtext
             font.pixelSize: Theme.fontCaption

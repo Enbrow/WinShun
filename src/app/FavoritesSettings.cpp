@@ -1,4 +1,5 @@
 #include "FavoritesSettings.h"
+#include "PathText.h"
 
 #include "AppCatalog.h"
 #include "FileIconProvider.h"
@@ -158,7 +159,7 @@ void FavoritesSettings::refresh()
     for (const Favorite& f : m_store ? m_store->items() : FavoriteList()) {
         QString icon;
         QString shownPath = f.path;
-        bool missing = m_missing.contains(f.path.toCaseFolded());
+        bool missing = m_missing.contains(pathtext::pathKey(f.path));
         if (f.kind == Favorite::Kind::App) {
             const AppInfo* app = apps ? findApp(*apps, f.path) : nullptr;
             const bool packaged = app && (app->kind == AppKind::Store || app->kind == AppKind::System || app->kind == AppKind::Package);
@@ -222,8 +223,8 @@ void FavoritesSettings::lookForMissing()
                     return;
                 if (!final) {
                     for (const QString& path : network) {
-                        if (self->m_missing.contains(path.toCaseFolded()))
-                            missing.insert(path.toCaseFolded());
+                        if (self->m_missing.contains(pathtext::pathKey(path)))
+                            missing.insert(pathtext::pathKey(path));
                     }
                 }
                 self->m_missing = std::move(missing);
@@ -233,17 +234,17 @@ void FavoritesSettings::lookForMissing()
         QSet<QString> missing;
         for (const QString& path : local) {
             if (gone(path))
-                missing.insert(path.toCaseFolded());
+                missing.insert(pathtext::pathKey(path));
         }
         tell(missing, network.isEmpty());
         if (network.isEmpty())
             return;
         for (const QString& path : network) {
             // A server that does not answer would take Windows half a minute to say so.
-            if (path.startsWith(u"\\\\") && !share::reachable(unc::host(path.toStdWString())))
+            if (path.startsWith(u"\\\\") && !share::reachablePath(path.toStdWString()))
                 continue;
             if (gone(path))
-                missing.insert(path.toCaseFolded());
+                missing.insert(pathtext::pathKey(path));
         }
         tell(missing, true);
     }).detach();

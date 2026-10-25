@@ -12,6 +12,8 @@ Item {
 
     property string title
     property string description
+    // Long segmented choices go below the explanation when they would squeeze it.
+    property bool stackControl: false
     default property alias trailing: trailingRow.data
     property alias body: bodyColumn.data
     property bool bodyShown: true // false: no room is kept for a body with nothing to show now
@@ -189,14 +191,16 @@ Item {
         Item {
             id: header
             width: parent.width
-            height: Theme.snapUp(Math.max(texts.implicitHeight, trailingRow.implicitHeight), Screen.devicePixelRatio)
+            height: Theme.snapUp(row.stackControl
+                    ? texts.implicitHeight + (trailingRow.implicitHeight > 0 ? trailingRow.implicitHeight + 12 : 0)
+                    : Math.max(texts.implicitHeight, trailingRow.implicitHeight), Screen.devicePixelRatio)
 
             Column {
                 id: texts
                 anchors.left: parent.left
-                anchors.right: trailingRow.left
-                anchors.rightMargin: 16
-                y: Theme.snap((parent.height - height) / 2, Screen.devicePixelRatio) // on a whole device pixel, not the middle
+                anchors.right: row.stackControl ? parent.right : trailingRow.left
+                anchors.rightMargin: row.stackControl ? 0 : 16
+                y: row.stackControl ? 0 : Theme.snap((parent.height - height) / 2, Screen.devicePixelRatio)
                 spacing: 3
 
                 Text {
@@ -230,8 +234,9 @@ Item {
 
             Row {
                 id: trailingRow
-                anchors.right: parent.right
-                y: Theme.snap((parent.height - height) / 2, Screen.devicePixelRatio)
+                anchors.left: row.stackControl ? parent.left : undefined
+                anchors.right: row.stackControl ? undefined : parent.right
+                y: row.stackControl ? texts.implicitHeight + 12 : Theme.snap((parent.height - height) / 2, Screen.devicePixelRatio)
                 spacing: 8
             }
         }

@@ -10,11 +10,70 @@ namespace {
 
 constexpr double kDegree = std::numbers::pi / 180;
 
+// How far `rect` is from the origin at its nearest point.
+double distanceFromCentre(const QRectF& rect) noexcept
+{
+    const double dx = std::max({rect.left(), -rect.right(), 0.0});
+    const double dy = std::max({rect.top(), -rect.bottom(), 0.0});
+    return std::hypot(dx, dy);
+}
+
+// Straight up or down, or nearly (no number of folders up to eight puts one
+// in between): centred there, not to a side.
+bool upright(double angle) noexcept
+{
+    return std::abs(std::sin(angle * kDegree)) < 0.2;
+}
+
+QRectF chipAt(double radius, double angle, double width, double height) noexcept
+{
+    const QPointF anchor = polar(radius, angle);
+    if (upright(angle))
+        return {anchor.x() - width / 2, anchor.y() < 0 ? anchor.y() - height : anchor.y(), width, height};
+    return {anchor.x() > 0 ? anchor.x() : anchor.x() - width, anchor.y() - height / 2, width, height};
+}
+
+// The chips above and below out past the side chips they would touch: a
+// wide one there moves on its own, the ring stays.
+void clearUpright(std::vector<QRectF>& chips, const std::vector<bool>& up, double gap) noexcept
+{
+    for (std::size_t i = 0; i < chips.size(); ++i) {
+        if (!up[i])
+            continue;
+        QRectF& chip = chips[i];
+        const bool above = chip.center().y() < 0;
+        for (std::size_t j = 0; j < chips.size(); ++j) {
+            const QRectF& side = chips[j];
+            if (up[j] || side.left() >= chip.right() + gap || side.right() <= chip.left() - gap)
+                continue;
+            if (above)
+                chip.moveBottom(std::min(chip.bottom(), side.top() - gap));
+            else
+                chip.moveTop(std::max(chip.top(), side.bottom() + gap));
+        }
+    }
+}
+
+bool clear(const std::vector<QRectF>& chips, const Metrics& m) noexcept
+{
+    const double half = m.chipGap / 2;
+    for (std::size_t i = 0; i < chips.size(); ++i) {
+        if (distanceFromCentre(chips[i]) < m.hub + m.chipGap)
+            return false;
+        const QRectF a = chips[i].adjusted(-half, -half, half, half);
+        for (std::size_t j = i + 1; j < chips.size(); ++j) {
+            if (a.intersects(chips[j].adjusted(-half, -half, half, half)))
+                return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
-Radii Radii::scaled(double k) const noexcept
+Metrics Metrics::scaled(double k) const noexcept
 {
-    return {dead * k, innerIn * k, innerOut * k, outerIn * k, outerOut * k, gap * k, leave * k};
+    return {hub * k, dead * k, chipHeight * k, chipGap * k, minRadius * k, reach * k};
 }
 
 double scaleForStep(int step) noexcept
@@ -54,70 +113,99 @@ QPointF polar(double radius, double angle) noexcept
     return {radius * std::sin(angle * kDegree), -radius * std::cos(angle * kDegree)};
 }
 
-Hit hitTest(QPointF offset, int sectors, const Radii& radii) noexcept
+Layout layOut(std::span<const double> chipWidths, const Metrics& metrics)
 {
-    const double r = std::hypot(offset.x(), offset.y());
-    if (r < (radii.dead + radii.innerIn) / 2)
-        return {Zone::Dead};
-    if (r < (radii.innerOut + radii.outerIn) / 2)
-        return {Zone::Inner, offset.x() < 0 ? Mode::Move : Mode::Copy};
-    if (r <= radii.outerOut + radii.leave && sectors > 0)
-        return {Zone::Outer, Mode::None, sectorAt(angleOf(offset), sectors)};
-    return {Zone::Outside};
-}
-
-void Latch::update(const Hit& hit, Allowed allowed) noexcept
-{
-    if (hit.zone != Zone::Inner)
-        return;
-    if ((hit.half == Mode::Move && allowed.move) || (hit.half == Mode::Copy && allowed.copy))
-        m_latched = hit.half;
-}
-
-Mode Latch::effective(Keys keys, Allowed allowed, Purpose purpose) const noexcept
-{
-    // Both held is Windows' "create a shortcut": neither.
-    if (keys.ctrl && !keys.shift && allowed.copy)
-        return Mode::Copy;
-    if (keys.shift && !keys.ctrl && allowed.move)
-        return Mode::Move;
-    Mode mode = m_latched;
-    if ((mode == Mode::Move && !allowed.move) || (mode == Mode::Copy && !allowed.copy))
-        mode = Mode::None;
-    if (mode == Mode::None && purpose == Purpose::Drop)
-        mode = allowed.move ? Mode::Move : allowed.copy ? Mode::Copy : Mode::None;
-    return mode;
-}
-
-Placement placeCentre(QPointF cursor, const QRectF& workArea, double ringRadius, double safeShift) noexcept
-{
-    // Each axis into the band where the ring fits; a work area too small for
-    // it: its middle.
-    const auto fit = [ringRadius](double v, double low, double high) {
-        return high - low < 2 * ringRadius ? (low + high) / 2 : std::clamp(v, low + ringRadius, high - ringRadius);
+    const int count = static_cast<int>(chipWidths.size());
+    Layout layout;
+    layout.chips.resize(chipWidths.size());
+    std::vector<bool> up(chipWidths.size());
+    for (int i = 0; i < count; ++i)
+        up[static_cast<std::size_t>(i)] = upright(sectorCentre(i, count));
+    const auto place = [&](double radius) {
+        for (int i = 0; i < count; ++i)
+            layout.chips[static_cast<std::size_t>(i)] = chipAt(radius, sectorCentre(i, count),
+                chipWidths[static_cast<std::size_t>(i)], metrics.chipHeight);
+        clearUpright(layout.chips, up, metrics.chipGap);
     };
-    const QPointF centre(fit(cursor.x(), workArea.left(), workArea.right()),
-        fit(cursor.y(), workArea.top(), workArea.bottom()));
+    // A logical pixel at a time: a few dozen steps at most.
+    double radius = metrics.minRadius;
+    for (place(radius); !clear(layout.chips, metrics) && radius < metrics.minRadius + 400; place(radius))
+        radius += 1;
+    layout.radius = radius;
+    layout.bounds = QRectF(-metrics.hub, -metrics.hub, 2 * metrics.hub, 2 * metrics.hub);
+    for (const QRectF& chip : layout.chips)
+        layout.bounds = layout.bounds.united(chip);
+    layout.reach = layout.bounds.adjusted(-metrics.reach, -metrics.reach, metrics.reach, metrics.reach);
+    return layout;
+}
+
+Hit hitTest(QPointF offset, const Layout& layout, const Metrics& metrics) noexcept
+{
+    if (std::hypot(offset.x(), offset.y()) < metrics.dead)
+        return {Zone::Dead};
+    if (!layout.reach.contains(offset) || layout.chips.empty())
+        return {Zone::Outside};
+    // On a chip, or within half the gap round it: that one, whichever
+    // direction its far end is in.
+    const double half = metrics.chipGap / 2;
+    for (std::size_t i = 0; i < layout.chips.size(); ++i) {
+        if (layout.chips[i].adjusted(-half, -half, half, half).contains(offset))
+            return {Zone::Sector, static_cast<int>(i)};
+    }
+    return {Zone::Sector, sectorAt(angleOf(offset), static_cast<int>(layout.chips.size()))};
+}
+
+Mode modeFor(bool sameDrive, Keys keys, Allowed allowed) noexcept
+{
+    Mode wanted = sameDrive ? Mode::Move : Mode::Copy;
+    if (keys.ctrl != keys.shift)
+        wanted = keys.ctrl ? Mode::Copy : Mode::Move;
+    if (wanted == Mode::Move && !allowed.move)
+        wanted = Mode::Copy;
+    else if (wanted == Mode::Copy && !allowed.copy)
+        wanted = Mode::Move;
+    if ((wanted == Mode::Move && !allowed.move) || (wanted == Mode::Copy && !allowed.copy))
+        return Mode::None;
+    return wanted;
+}
+
+Placement placeCentre(QPointF cursor, const QRectF& workArea, const QRectF& extent, double safeShift) noexcept
+{
+    // Each axis into the band where the extent fits; a work area too small
+    // for it: its middle.
+    const auto fit = [](double v, double low, double high, double before, double after) {
+        return high - low < after - before ? (low + high - before - after) / 2
+                                           : std::clamp(v, low - before, high - after);
+    };
+    const QPointF centre(fit(cursor.x(), workArea.left(), workArea.right(), extent.left(), extent.right()),
+        fit(cursor.y(), workArea.top(), workArea.bottom(), extent.top(), extent.bottom()));
     const QPointF shift = centre - cursor;
     return {centre, std::hypot(shift.x(), shift.y()) > safeShift};
 }
 
-QRect windowRect(QPointF centre, double ringRadius, const QRect& monitor, const Margins& margins) noexcept
+int wholePixel(double v, double dpr, int step) noexcept
 {
-    const QRectF box(centre.x() - ringRadius - margins.side, centre.y() - ringRadius - margins.top,
-        2 * (ringRadius + margins.side), 2 * ringRadius + margins.top + margins.bottom);
-    // Outwards to whole pixels, so the ring's box is all inside.
-    const QRect whole(QPoint(static_cast<int>(std::floor(box.left())), static_cast<int>(std::floor(box.top()))),
-        QPoint(static_cast<int>(std::ceil(box.right())) - 1, static_cast<int>(std::ceil(box.bottom())) - 1));
-    return whole.intersected(monitor);
+    const int start = static_cast<int>(step < 0 ? std::floor(v + 1e-9) : std::ceil(v - 1e-9));
+    // A scale of Windows' (a multiple of 1/4, or of 1/8 as set by hand) is
+    // whole within eight; for any other the whole logical pixel does.
+    for (int i = 0; i < 8; ++i) {
+        const int at = start + i * step;
+        const double device = at * dpr;
+        if (std::abs(device - std::round(device)) < 1e-6)
+            return at;
+    }
+    return start;
 }
 
-double labelWidth(int sectors, const Radii& radii, double cap) noexcept
+QRect windowRect(QPointF centre, const QRectF& extent, const QRect& monitor, double dpr) noexcept
 {
-    if (sectors <= 2)
-        return cap;
-    const double chord = 2 * radii.labelRadius() * std::sin(std::numbers::pi / sectors);
-    return std::min(cap, chord - 2 * radii.gap - 24);
+    // Outwards, so all of the extent is inside.
+    const QRectF box = extent.translated(centre - monitor.topLeft());
+    const int left = wholePixel(box.left(), dpr, -1);
+    const int top = wholePixel(box.top(), dpr, -1);
+    const int right = wholePixel(box.right(), dpr, 1);
+    const int bottom = wholePixel(box.bottom(), dpr, 1);
+    return QRect(left, top, right - left, bottom - top).translated(monitor.topLeft()).intersected(monitor);
 }
 
 } // namespace ws::pie

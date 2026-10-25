@@ -87,7 +87,7 @@ Entry base(const Head& head, Type type)
     e.tab = head.tab;
     e.about = QString::fromUtf8(head.about);
     e.type = type;
-    if (e.section == u"capture") // a card of the 插件 page, not a row the search finds
+    if (e.section == u"capture" || e.section == u"paste_file") // a card of the 插件 page, not a row the search finds
         e.rowTitle = "";
     return e;
 }
@@ -275,8 +275,8 @@ std::vector<Entry> buildCatalog()
     add(boolean({"Launcher/FolderMenuWindows", QT_TRANSLATE_NOOP("AiSettings", "菜单里列出别的窗口里的文件夹"), "files_and_dialogs", 2,
                     "The folder menu lists the folders open in other file manager windows. At least one of the three groups stays on."},
         &Settings::folderMenuWindows));
-    add(boolean({"Favorites/DropPie", QT_TRANSLATE_NOOP("AiSettings", "拖文件时晃一晃，弹出收藏圆盘"), "favorites", -1,
-                    "While dragging files or folders (File Explorer, the desktop, file managers), shaking the mouse left and right brings up a ring: its inner ring picks move or copy, its outer ring holds the first eight favorite folders to drop them in. Does nothing while Win顺 runs as administrator."},
+    add(boolean({"Favorites/DropPie", QT_TRANSLATE_NOOP("AiSettings", "拖文件时按 ` 键，弹出收藏圆盘"), "favorites", -1,
+                    "While dragging files or folders (File Explorer, the desktop, file managers), pressing the key under Esc (` and ~, · in a Chinese input method) with them held (no need to move) brings up the first eight favorite folders round the pointer. Moving toward one and letting go drops the files there: moved within a drive, copied to another, Ctrl copies and Shift moves. Does nothing while Win顺 runs as administrator."},
         &Settings::dropPie));
     add(hotkey({"Launcher/FolderMenuHotkey", QT_TRANSLATE_NOOP("AiSettings", "用快捷键弹出文件夹菜单"), "files_and_dialogs", 2,
                    "A shortcut that brings up the folder menu in whatever window is in front, like Ctrl+Alt+D. Empty: none."},
@@ -451,6 +451,9 @@ std::vector<Entry> buildCatalog()
     add(boolean({"Results/ShowModified", QT_TRANSLATE_NOOP("AiSettings", "显示修改日期"), "results", 1,
                     "Each result says when the file was last written."},
         &Settings::showModified));
+    add(boolean({"Results/ShowModifiedTime", QT_TRANSLATE_NOOP("AiSettings", "较早的日期也显示时间"), "results", 1,
+                    "Include the local modification time on older dates in result rows."},
+        &Settings::showModifiedTime));
     add(boolean({"Results/Thumbnails", QT_TRANSLATE_NOOP("AiSettings", "显示图片缩略图"), "results", 1,
                     "A picture, video or PDF shows its thumbnail as its icon."},
         &Settings::thumbnails));
@@ -641,6 +644,29 @@ std::vector<Entry> buildCatalog()
             return {};
         };
         add(std::move(e));
+    }
+
+    // ---- 粘贴为文件 (the 插件 page's card, beside 截图) ----
+    add(boolean({"PasteFile/Enabled", QT_TRANSLATE_NOOP("AiSettings", "粘贴为文件"), "paste_file", 0,
+                    "Pastes the words or the picture on the clipboard into a folder as a new file (.txt, .csv, .json, .html, .png and so on, told from what it holds), named after its first line or the time, ready to be renamed. Off until turned on."},
+        &Settings::pasteFileEnabled));
+    {
+        // One of the two ways to it stays on (SettingsEditor, Settings::load): off is PasteFile/Enabled's.
+        const auto oneStaysOn = [](bool Settings::* other) {
+            return [other](const State& s, const QString& value, const Env&) -> QString {
+                if (value == u"false" && !(s.settings.*other))
+                    return u"Ctrl+V or the menu's verb stays on; to turn 粘贴为文件 off, set PasteFile/Enabled to false."_s;
+                return {};
+            };
+        };
+        Entry& ctrlV = add(boolean({"PasteFile/CtrlV", QT_TRANSLATE_NOOP("AiSettings", "在资源管理器和桌面按 Ctrl+V"), "paste_file", 0,
+                                       "Ctrl+V in a File Explorer folder or on the desktop pastes words or a picture as a file. Copied files are left to Explorer's own paste. This or the menu's verb stays on."},
+            &Settings::pasteFileCtrlV));
+        ctrlV.check = oneStaysOn(&Settings::pasteFileMenu);
+        Entry& menu = add(boolean({"PasteFile/Menu", QT_TRANSLATE_NOOP("AiSettings", "右键菜单里的“粘贴为文件”"), "paste_file", 0,
+                                      "Adds 粘贴为文件 to the right-click menu of a folder's blank space and the desktop's (on Windows 11 under 显示更多选项). This or Ctrl+V stays on."},
+            &Settings::pasteFileMenu));
+        menu.check = oneStaysOn(&Settings::pasteFileCtrlV);
     }
 
     // ---- 高级 ----
@@ -965,6 +991,10 @@ QString applyChange(const Entry& e, State& s, const Change& c, const Env& env)
     case Type::Bool:
         if (!v.isBool())
             return u"Must be true or false."_s;
+        if (e.check) {
+            if (const QString error = e.check(s, v.toBool() ? u"true"_s : u"false"_s, env); !error.isEmpty())
+                return error;
+        }
         e.setFlag(s, v.toBool());
         break;
     case Type::Choice: {
@@ -1315,6 +1345,7 @@ const std::vector<Section>& sections()
         {u"clipboard"_s, QT_TRANSLATE_NOOP("AiSettings", "剪贴板"), 7},
         {u"advanced"_s, QT_TRANSLATE_NOOP("AiSettings", "高级"), 8},
         {u"capture"_s, QT_TRANSLATE_NOOP("AiSettings", "截图"), 10},
+        {u"paste_file"_s, QT_TRANSLATE_NOOP("AiSettings", "粘贴为文件"), 10},
     };
     return all;
 }

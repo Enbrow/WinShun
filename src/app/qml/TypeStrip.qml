@@ -35,12 +35,13 @@ Item {
     readonly property var dotColors: ["#4F9DFF", "#3FBF7F", "#A57CFF", "#FF8A5C", "#C9953A", "#7B8CFF", "#2FBFB4", "#E07BD0"]
     readonly property var fileChips: {
         const list = [{ type: -1, name: qsTr("不限"), tip: qsTr("所有文件和文件夹"), dot: "" },
-                      { type: -2, name: qsTr("文件夹"), tip: qsTr("只找文件夹"), dot: "#E8B84A" }]
+                      { type: -2, name: qsTr("文件夹"), tip: qsTr("只找文件夹") + (launcher.folderKeyword.length > 0 ? " · :" + launcher.folderKeyword : ""), dot: "#E8B84A" }]
         const types = launcher.fileTypes
         for (let i = 0; i < types.length; ++i) {
             const exts = types[i].extensions.split(" ")
             const listed = exts.slice(0, 10).map(e => "." + e).join(" ")
-            list.push({ type: i, name: types[i].name, tip: exts.length > 10 ? listed + " …" : listed,
+            list.push({ type: i, name: types[i].name, tip: (exts.length > 10 ? listed + " …" : listed)
+                        + (types[i].keyword.length > 0 ? " · :" + types[i].keyword : ""),
                         dot: dotColors[i % dotColors.length] })
         }
         return list

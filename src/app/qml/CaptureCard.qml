@@ -17,6 +17,7 @@ Rectangle {
     property bool expanded: false
     property int currentGroup: 0
     property SettingsSearch search: null
+    property real buttonSlot: 0 // as BuiltinCard's: 设置 right-aligned in it, the switches of 内置功能 in one column
     readonly property bool narrow: body.width < 520
     readonly property var groups: [
         { title: qsTr("快捷键"), terms: qsTr("截图快捷键;截图历史关键词;PrtScn;Print Screen").split(";") },
@@ -253,18 +254,27 @@ Rectangle {
                             card.currentGroup = 0
                     }
                 }
-                FlatButton {
-                    objectName: "captureExpandButton"
-                    visible: card.editor.captureEnabled
-                    text: card.expanded ? qsTr("收起设置") : qsTr("设置")
-                    trailingGlyph: String.fromCharCode(card.expanded ? 0xE70E : 0xE70D)
-                    flat: true
-                    Accessible.role: Accessible.Button
-                    Accessible.name: card.expanded ? qsTr("收起截图设置") : qsTr("展开截图设置")
-                    Accessible.onPressAction: clicked()
-                    onClicked: {
-                        forceActiveFocus(Qt.MouseFocusReason)
-                        card.expanded = !card.expanded
+                Item {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Math.max(card.buttonSlot, expandButton.visible ? expandButton.implicitWidth : 0)
+                    height: 36
+                    visible: width > 0
+
+                    FlatButton {
+                        id: expandButton
+                        objectName: "captureExpandButton"
+                        anchors.right: parent.right
+                        visible: card.editor.captureEnabled
+                        text: card.expanded ? qsTr("收起设置") : qsTr("设置")
+                        trailingGlyph: String.fromCharCode(card.expanded ? 0xE70E : 0xE70D)
+                        flat: true
+                        Accessible.role: Accessible.Button
+                        Accessible.name: card.expanded ? qsTr("收起截图设置") : qsTr("展开截图设置")
+                        Accessible.onPressAction: clicked()
+                        onClicked: {
+                            forceActiveFocus(Qt.MouseFocusReason)
+                            card.expanded = !card.expanded
+                        }
                     }
                 }
             }

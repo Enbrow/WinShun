@@ -24,6 +24,12 @@
 // --opus-menu-off is for the uninstaller: that command, when it runs this
 // copy, switched off in Opus's settings file (Opus reads it when it starts).
 //
+// --paste-file [--en] "<folder>" is Explorer's right-click "粘贴为文件" on a
+// folder's empty space (ShellMenu.cpp registers it), --paste-file-in [--en]
+// <window> Ctrl+V there, which Win顺 took (TypeToSearch): the words or the
+// picture on the clipboard made a file in that folder (PasteAsFile.h).
+// --en: in English, as Win顺 shows itself.
+//
 // --pin <shortcut> asks Windows to pin this program to the taskbar; the user
 // says yes in Windows' own dialog (TaskbarManager, open to desktop programs
 // since Windows 11 KB5074105). Win顺 starts it so from its settings, on the
@@ -31,6 +37,8 @@
 // after a click, and in the Start menu as itself (`shortcut`, which Win顺
 // makes sure of, has the AppUserModelID this program sets). Elevated, Win顺
 // could not ask for itself, and it is this program that goes on the taskbar.
+
+#include "PasteAsFile.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -41,6 +49,7 @@
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.UI.Shell.h>
 
+#include <cstdint>
 #include <cwchar>
 #include <string>
 #include <string_view>
@@ -156,15 +165,24 @@ void startWinShun()
 // it ("%V" in quotes, ShellMenu.cpp). Read from the raw line: a drive's root
 // comes as "D:\", whose \" CommandLineToArgvW takes for a quote. Directory
 // Opus is told to leave the backslash off ({sourcepath$|noterm}): "D:".
-std::wstring folderAfter(std::wstring_view option)
+// `english`: whether --en comes before the folder.
+std::wstring folderAfter(std::wstring_view option, bool* english = nullptr)
 {
     std::wstring_view line = ::GetCommandLineW();
     const std::size_t at = line.find(option);
     if (at == std::wstring_view::npos)
         return {};
     line.remove_prefix(at + option.size());
-    while (!line.empty() && (line.front() == L' ' || line.front() == L'\t'))
-        line.remove_prefix(1);
+    const auto skipSpaces = [&line] {
+        while (!line.empty() && (line.front() == L' ' || line.front() == L'\t'))
+            line.remove_prefix(1);
+    };
+    skipSpaces();
+    if (english && line.starts_with(L"--en ")) {
+        *english = true;
+        line.remove_prefix(4);
+        skipSpaces();
+    }
     while (!line.empty() && (line.back() == L' ' || line.back() == L'\t'))
         line.remove_suffix(1);
     if (line.size() >= 2 && line.front() == L'"' && line.back() == L'"')
@@ -437,6 +455,21 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     } else if (option == L"--folder-menu") {
         if (const std::wstring folder = folderAfter(L"--folder-menu"); !folder.empty())
             sendFolder(folder, kFolderMenu);
+    } else if (option == L"--paste-file") {
+        bool english = false;
+        if (std::wstring folder = folderAfter(L"--paste-file", &english); !folder.empty())
+            ws::pasteasfile::paste({.folder = std::move(folder)}, english);
+    } else if (option == L"--paste-file-in") {
+        bool english = false;
+        HWND view = nullptr;
+        for (int i = 2; i < count; ++i) {
+            if (std::wcscmp(args[i], L"--en") == 0)
+                english = true;
+            else
+                view = reinterpret_cast<HWND>(static_cast<std::uintptr_t>(std::wcstoull(args[i], nullptr, 0)));
+        }
+        if (::IsWindow(view))
+            ws::pasteasfile::paste({.view = view}, english);
     } else if (option == L"--opus-menu-off")
         opusMenuOff();
     else if (!signalRunning())

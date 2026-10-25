@@ -2,7 +2,7 @@
 
 #include <QFont>
 #include <QObject>
-#include <QStringList>
+#include <QString>
 #include <QtQml/qqmlregistration.h>
 
 namespace ws {
@@ -26,18 +26,18 @@ public:
     int folderCount() const;
     int maxFolders() const noexcept { return kMaxFolders; }
 
-    // [line1, line2]: line2 empty when it fits on one; a "…" in it when the
-    // name is shortened.
-    Q_INVOKABLE QStringList fit(const QString& name) const;
+    // The name as its chip shows it, on one line: shortened in its middle
+    // ("…", the end kept) when it is too long.
+    Q_INVOKABLE QString label(const QString& name) const;
 
     // From DropPie: the folder favorites (and places that are folders) it
     // could show; every instance is told.
     static void setFolderCount(int count);
 
-    // What the pie's folder labels are drawn in (the application's font, at
-    // the size for 界面大小), and how wide one may be with `sectors` of them.
+    // What the chips' names are drawn in (the application's font, at the
+    // size for 界面大小), and how wide one may be.
     static QFont labelFont();
-    static double labelWidth(int sectors);
+    static double nameWidth();
     static int uiStep(); // 界面大小: 0 compact, 1 standard, 2 roomy (Theme.step)
 
 signals:

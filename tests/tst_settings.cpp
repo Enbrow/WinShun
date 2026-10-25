@@ -1,4 +1,5 @@
 #include "Settings.h"
+#include "Query.h"
 
 #include "ServiceVolumeAccess.h"
 
@@ -21,6 +22,81 @@ class SettingsTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void selectedDrivesRoundTrip()
+    {
+        QTemporaryDir temporary;
+        QVERIFY(temporary.isValid());
+        ws::Settings::useProfile(temporary.path());
+        ws::Settings settings;
+        settings.load();
+        QVERIFY(!settings.selectedDrives);
+        settings.selectedDrives = QStringList{u"c:"_s, u"D:\\"_s, u"C:"_s, u"invalid"_s};
+        settings.save();
+        settings.load();
+        QCOMPARE(*settings.selectedDrives, (QStringList{u"C:"_s, u"D:"_s}));
+        settings.selectedDrives = QStringList{};
+        settings.save();
+        settings.load();
+        QVERIFY(settings.selectedDrives && settings.selectedDrives->isEmpty());
+        settings.selectedDrives.reset();
+        settings.save();
+        settings.load();
+        QVERIFY(!settings.selectedDrives);
+    }
+
+    void wslFolders()
+    {
+        const QString path = u"\\\\wsl.localhost\\Ubuntu\\home\\Dev"_s;
+        QCOMPARE(ws::Settings::sharePath(u"\"\\\\wsl$\\Ubuntu\\home\\Dev\\\""_s), path);
+        QCOMPARE(ws::Settings::sharePath(u"file://wsl.localhost/Ubuntu/home/Dev"_s), path);
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        ws::Settings::useProfile(profile.path());
+        ws::Settings settings;
+        settings.shares = {{path, u"项目"_s}, {u"\\\\wsl.localhost\\Ubuntu\\home\\dev"_s, {}}};
+        settings.save();
+        ws::Settings again;
+        again.load();
+        QCOMPARE(again.shares.size(), 2);
+        QCOMPARE(again.shares[0].path, path);
+        QCOMPARE(again.shareOptions().shares.size(), std::size_t {2});
+    }
+
+    void fileTypePrefixes()
+    {
+        auto types = ws::Settings::defaultFileTypes();
+        QCOMPARE(types[0].keyword, u"documents"_s);
+        const auto folder = ws::splitFileTypeQuery(u"  :FoLdEr 报告 2026 "_s, types, u"folder");
+        QCOMPARE(folder.type, std::optional<int>(-2));
+        QCOMPARE(folder.words, u"报告 2026"_s);
+        const auto pictures = ws::splitFileTypeQuery(u":pictures"_s, types, u"folder");
+        QCOMPARE(pictures.type, std::optional<int>(1));
+        QVERIFY(pictures.words.isEmpty());
+        types.append({u"设计图"_s, {u"dwg"_s, u"dxf"_s}, {}, u"cad"_s});
+        QCOMPARE(ws::splitFileTypeQuery(u":CAD 泵 size:>1mb"_s, types, u"folder").words, u"泵 size:>1mb"_s);
+        for (const QString text : {u":unknown 报告"_s, u"\":folder\" 报告"_s, u"C:\\folder\\报告"_s, u"报告 :folder"_s}) {
+            const auto literal = ws::splitFileTypeQuery(text, types, u"folder");
+            QVERIFY(!literal.type);
+            QCOMPARE(literal.words, text);
+        }
+        QCOMPARE(ws::normalizedTypeKeyword(u" :CAD "), std::optional<QString>(u"cad"_s));
+        QVERIFY(!ws::normalizedTypeKeyword(u"bad prefix"));
+        QVERIFY(!ws::normalizedTypeKeyword(u"a:b"));
+        QTemporaryDir temporary;
+        QVERIFY(temporary.isValid());
+        ws::Settings::useProfile(temporary.path());
+        ws::Settings settings;
+        settings.fileTypes = types;
+        settings.folderKeyword = u"dir"_s;
+        settings.showModifiedTime = true;
+        settings.save();
+        ws::Settings loaded;
+        loaded.load();
+        QCOMPARE(loaded.fileTypes, types);
+        QCOMPARE(loaded.folderKeyword, u"dir"_s);
+        QVERIFY(loaded.showModifiedTime);
+    }
+
     // Limits still at the default of an older version take the new default;
     // ones the user set, and a list of extensions set by hand, stay.
     void contentDefaults_data()
@@ -115,6 +191,51 @@ private slots:
         ws::Settings none;
         none.load();
         QVERIFY(none.folderMenuFavorites && none.folderMenuRecent && none.folderMenuWindows);
+    }
+
+    // What a new install leaves off until wanted: the folder menu, the dialog
+    // bar, 粘贴为文件. A file from before without their keys keeps the first
+    // two on, as they were; a choice written stays.
+    void offUntilWanted()
+    {
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        ws::Settings::useProfile(profile.path());
+        ws::Settings fresh;
+        fresh.load();
+        QVERIFY(!fresh.dialogBar);
+        QCOMPARE(fresh.folderMenu, u"off"_s);
+        QVERIFY(!fresh.pasteFileEnabled);
+        QVERIFY(fresh.pasteFileCtrlV && fresh.pasteFileMenu); // its ways, once it is on
+        fresh.save();
+        ws::Settings again;
+        again.load();
+        QVERIFY(!again.dialogBar);
+        QCOMPARE(again.folderMenu, u"off"_s);
+
+        QTemporaryDir older;
+        QVERIFY(older.isValid());
+        ws::Settings::useProfile(older.path());
+        {
+            QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+            ini.setValue(u"Launcher/Hotkey"_s, u"Alt+Space"_s); // a file from before the keys
+        }
+        ws::Settings upgraded;
+        upgraded.load();
+        QVERIFY(upgraded.dialogBar);
+        QCOMPARE(upgraded.folderMenu, u"auto"_s);
+        QVERIFY(!upgraded.pasteFileEnabled); // new: off, as 截图 is
+
+        {
+            QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+            ini.setValue(u"Launcher/FolderMenu"_s, u"sideways"_s);
+            ini.setValue(u"PasteFile/Enabled"_s, true);
+            ini.setValue(u"PasteFile/CtrlV"_s, false);
+        }
+        ws::Settings written;
+        written.load();
+        QCOMPARE(written.folderMenu, u"auto"_s); // a stranger: as before
+        QVERIFY(written.pasteFileEnabled && !written.pasteFileCtrlV && written.pasteFileMenu);
     }
 
     // GitHub #44: the other sorts and the double-click setting. A click opens

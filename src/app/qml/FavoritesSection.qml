@@ -34,17 +34,19 @@ SettingsSection {
 
     onVisibleChanged: if (!visible) { editing = -1; addingCommand = false; draft = null; favorites.clearMessage() }
 
-    // The drop pie (DropPie): shaking the mouse while dragging files brings
-    // up a ring of 移动 / 复制 and the first eight folders here.
+    // The drop pie (DropPie): the key under Esc, with files held or dragged,
+    // files brings up the first eight folders here round the pointer.
     SettingRow {
         id: dropPieRow
 
-        title: qsTr("拖文件时晃一晃，弹出收藏圆盘")
-        keywords: qsTr("拖放;拖动;拖拽;圆盘;晃动;移动;复制;drag;drop;pie").split(";")
+        readonly property string how: qsTr("在文件上按住左键（不用拖动），再按 Esc 下面那个键（中文输入法下是 ·）。朝文件夹的方向拖，松开就放进去：同一个盘里移动，到别的盘复制，按住 Ctrl 复制、按住 Shift 移动")
+
+        title: qsTr("拖文件时按 ` 键，弹出收藏圆盘")
+        keywords: qsTr("拖放;拖动;拖拽;圆盘;按键;移动;复制;drag;drop;pie;key").split(";")
         description: section.editor.isElevated ? qsTr("Win顺 以管理员身份运行时用不了")
                    : section.editor.dropPie && DropPieText.folderCount > DropPieText.maxFolders
-                     ? qsTr("内圈选移动或复制，外圈是前 8 个文件夹收藏（现有 %1 个，只放得下前 8 个）").arg(DropPieText.folderCount)
-                   : qsTr("内圈选移动或复制，外圈是前 8 个文件夹收藏")
+                     ? qsTr("%1。只放得下前 8 个文件夹收藏（现有 %2 个）").arg(how).arg(DropPieText.folderCount)
+                   : how
 
         ToggleSwitch {
             enabled: !section.editor.isElevated

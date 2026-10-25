@@ -86,31 +86,12 @@ bool transient(const std::wstring& path)
 
 } // namespace
 
-DropTarget::DropTarget(Handler* handler, HWND window)
-    : m_handler(handler)
-    , m_window(window)
-{
-    // Absent (no shell, a stripped-down Windows): the drag goes on without its picture.
-    ::CoCreateInstance(CLSID_DragDropHelper, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&m_helper));
-}
-
-void DropTarget::leaveEarly()
-{
-    if (!std::exchange(m_inside, false))
-        return;
-    if (m_helper)
-        m_helper->DragLeave();
-}
-
 STDMETHODIMP DropTarget::DragEnter(IDataObject* data, DWORD keys, POINTL pt, DWORD* effect)
 {
     if (!effect)
         return E_INVALIDARG;
     m_inside = true;
-    POINT at = pointOf(pt);
-    *effect = m_handler && data ? m_handler->dragEnter(data, keys, at, *effect) : DROPEFFECT_NONE;
-    if (m_helper && data && m_inside) // the handler may have gone at once (a drag of text)
-        m_helper->DragEnter(m_window, data, &at, *effect);
+    *effect = m_handler && data ? m_handler->dragEnter(data, keys, pointOf(pt), *effect) : DROPEFFECT_NONE;
     return S_OK;
 }
 
@@ -118,24 +99,14 @@ STDMETHODIMP DropTarget::DragOver(DWORD keys, POINTL pt, DWORD* effect)
 {
     if (!effect)
         return E_INVALIDARG;
-    POINT at = pointOf(pt);
-    if (!m_inside) { // gone already: OLE moves on at the pointer's next move
-        *effect = DROPEFFECT_NONE;
-        return S_OK;
-    }
-    *effect = m_handler ? m_handler->dragOver(keys, at, *effect) : DROPEFFECT_NONE;
-    if (m_helper && m_inside) // the handler may have left early just now
-        m_helper->DragOver(&at, *effect);
+    // Gone already: OLE moves on at the pointer's next move.
+    *effect = m_inside && m_handler ? m_handler->dragOver(keys, pointOf(pt), *effect) : DROPEFFECT_NONE;
     return S_OK;
 }
 
 STDMETHODIMP DropTarget::DragLeave()
 {
-    if (!std::exchange(m_inside, false))
-        return S_OK;
-    if (m_helper)
-        m_helper->DragLeave();
-    if (m_handler)
+    if (std::exchange(m_inside, false) && m_handler)
         m_handler->dragLeave();
     return S_OK;
 }
@@ -144,14 +115,8 @@ STDMETHODIMP DropTarget::Drop(IDataObject* data, DWORD keys, POINTL pt, DWORD* e
 {
     if (!effect)
         return E_INVALIDARG;
-    POINT at = pointOf(pt);
-    if (!std::exchange(m_inside, false)) {
-        *effect = DROPEFFECT_NONE;
-        return S_OK;
-    }
-    *effect = m_handler && data ? m_handler->drop(data, keys, at, *effect) : DROPEFFECT_NONE;
-    if (m_helper && data)
-        m_helper->Drop(data, &at, *effect);
+    const bool inside = std::exchange(m_inside, false);
+    *effect = inside && m_handler && data ? m_handler->drop(data, keys, pointOf(pt), *effect) : DROPEFFECT_NONE;
     return S_OK;
 }
 

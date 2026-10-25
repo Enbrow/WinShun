@@ -208,25 +208,25 @@ add_dependencies(tst_service WinShunService)
 
 qt_add_executable(tst_keylistener tst_keylistener.cpp
     ${PROJECT_SOURCE_DIR}/src/app/platform/KeyListener.cpp
-    ${PROJECT_SOURCE_DIR}/src/app/platform/ServiceKeyListener.cpp
-    ${PROJECT_SOURCE_DIR}/src/app/platform/ShakeDetector.cpp)
+    ${PROJECT_SOURCE_DIR}/src/app/platform/ServiceKeyListener.cpp)
 target_include_directories(tst_keylistener PRIVATE ${PROJECT_SOURCE_DIR}/src/app/platform)
 target_link_libraries(tst_keylistener PRIVATE wscore Qt6::Test user32 advapi32 shcore)
 target_compile_definitions(tst_keylistener PRIVATE WINSHUN_SERVICE_EXE="$<TARGET_FILE:WinShunService>")
 add_dependencies(tst_keylistener WinShunService)
 
-# The drop pie (DropPie): the shake that brings it up, its rings and
-# sectors, and the folders' names fitted to two lines.
-qt_add_executable(tst_shake tst_shake.cpp ${PROJECT_SOURCE_DIR}/src/app/platform/ShakeDetector.cpp)
-target_include_directories(tst_shake PRIVATE ${PROJECT_SOURCE_DIR}/src/app/platform)
-target_link_libraries(tst_shake PRIVATE winshun_options Qt6::Core Qt6::Test)
+# The drop pie (DropPie): its chips round the middle, the direction that
+# chooses one, and the folders' names shortened to fit.
 qt_add_executable(tst_piegeometry tst_piegeometry.cpp ${PROJECT_SOURCE_DIR}/src/app/PieGeometry.cpp)
 target_include_directories(tst_piegeometry PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(tst_piegeometry PRIVATE winshun_options Qt6::Core Qt6::Test)
 qt_add_executable(tst_pielabels tst_pielabels.cpp ${PROJECT_SOURCE_DIR}/src/app/PieLabels.cpp)
 target_include_directories(tst_pielabels PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(tst_pielabels PRIVATE winshun_options Qt6::Gui Qt6::Test)
-foreach(test IN ITEMS tst_shake tst_piegeometry tst_pielabels)
+# 粘贴为文件 (core/PasteFile): which clipboards Ctrl+V takes, the kind, CSV, names.
+qt_add_executable(tst_pastefile tst_pastefile.cpp ${PROJECT_SOURCE_DIR}/src/core/PasteFile.cpp)
+target_include_directories(tst_pastefile PRIVATE ${PROJECT_SOURCE_DIR}/src/core)
+target_link_libraries(tst_pastefile PRIVATE winshun_options Qt6::Core Qt6::Test)
+foreach(test IN ITEMS tst_piegeometry tst_pielabels tst_pastefile)
     set_target_properties(${test} PROPERTIES WIN32_EXECUTABLE FALSE)
     add_test(NAME ${test} COMMAND ${test})
     set_tests_properties(${test} PROPERTIES

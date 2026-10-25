@@ -13,6 +13,8 @@
 //     [--web-form] [--compact]: exercise adding/editing web shortcuts, focus,
 //     validation and scrolling at 920x720 or the minimum 760x420 window.
 //     Add --renderer d3d11 for the GPU path (default: software).
+//     --wsl-folders checks WSL folder identity and renders stopped/running
+//     cards; --english and --compact cover translation and minimum size.
 //     The whole settings window (the real SettingsWindow.qml over a real
 //     SettingsEditor, WindowFrame and Updater on a temporary profile): every
 //     page and every tab of it as <folder>\pNN-tT.png, the window as tall
@@ -28,6 +30,10 @@
 //   WinShun.exe --preview-ai-cards <folder> [--dark] [--scale 1.5]
 //     The screens for AI changing settings (SettingsConfirm.qml, SettingsNotice.qml)
 //     over made-up changes: confirm.png, confirm-always.png, notice.png, notice-undone.png.
+//
+//   WinShun.exe --preview-capture-tools <folder> [--scale 1.5] [--dark] [--renderer d3d11]
+//     The real annotation model, canvas, handles and style panel over a
+//     synthetic document. --preview-results also accepts --file-metadata.
 //
 // Nothing of the user's is read or written (a temporary profile), and
 // nothing that reaches the running Win顺 is started: no hotkeys, hooks,

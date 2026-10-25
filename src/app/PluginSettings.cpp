@@ -10,6 +10,7 @@
 #include "platform/Shell.h"
 
 #include <QCoreApplication>
+#include <QClipboard>
 #include <QDateTime>
 #include <QDeadlineTimer>
 #include <QDir>
@@ -1190,6 +1191,17 @@ QString sdkFileFor(const QString& kind)
 
 } // namespace
 
+void PluginSettings::copyDevelopmentPrompt()
+{
+    QFile guide(u":/sdk/DEVELOPMENT.md"_s);
+    if (!guide.open(QIODevice::ReadOnly)) {
+        setMessage(tr("读不了插件开发指南"));
+        return;
+    }
+    QGuiApplication::clipboard()->setText(QString::fromUtf8(guide.readAll()));
+    setMessage(tr("已复制开发提示；把它和创建好的模板交给 AI，再补上你想做的功能"));
+}
+
 QString PluginSettings::createFromTemplate(const QString& kind, const QString& givenName)
 {
     if (!templateKinds().contains(kind))
@@ -1215,7 +1227,10 @@ QString PluginSettings::createFromTemplate(const QString& kind, const QString& g
             file.write("\xEF\xBB\xBF");
         file.write(f.text.toUtf8());
     }
-    if (const QString sdk = sdkFileFor(kind); !sdk.isEmpty()) {
+    QStringList supportFiles{u"DEVELOPMENT.md"_s};
+    if (const QString sdk = sdkFileFor(kind); !sdk.isEmpty())
+        supportFiles.append(sdk);
+    for (const QString& sdk : supportFiles) {
         // Byte for byte (the .psm1 keeps its BOM); a copy from the resources is read-only, so not that.
         QFile from(u":/sdk/"_s + sdk);
         QFile to(folder + u'/' + sdk);
