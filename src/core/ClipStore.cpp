@@ -349,8 +349,6 @@ private:
 ClipStore::ClipStore(QString folder)
     : m_folder(std::move(folder))
     , m_connection(u"clipboard-%1"_s.arg(reinterpret_cast<quintptr>(this), 0, 16))
-    , m_context(std::make_unique<QObject>())
-    , m_writer(std::make_unique<Writer>(m_connection))
 {
 }
 
@@ -358,6 +356,12 @@ ClipStore::~ClipStore() = default; // m_writer first (declared last): what is qu
 
 bool ClipStore::open(qint64 now)
 {
+    if (m_open)
+        return true;
+    if (!m_context)
+        m_context = std::make_unique<QObject>();
+    if (!m_writer)
+        m_writer = std::make_unique<Writer>(m_connection);
     QDir().mkpath(m_folder + u"/images"_s);
     QDir().mkpath(m_folder + u"/projects"_s);
     struct Loaded {
@@ -538,8 +542,23 @@ void ClipStore::setLimits(Limits limits, qint64 now)
 
 void ClipStore::flush()
 {
+    if (!m_writer)
+        return;
     m_writer->call([](QSqlDatabase&) {});
     QCoreApplication::sendPostedEvents(m_context.get(), QEvent::MetaCall);
+}
+
+void ClipStore::close()
+{
+    flush();
+    m_open = false;
+    m_writer.reset();
+    m_context.reset(); // queued completions from the old connection cannot reach a reopened history
+    m_clips = std::vector<Clip>{};
+    m_groups = std::vector<ClipGroup>{};
+    m_picturesPending.clear();
+    m_hidden.clear();
+    m_judged = false;
 }
 
 const Clip* ClipStore::clip(qint64 id) const

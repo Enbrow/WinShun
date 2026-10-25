@@ -266,6 +266,7 @@ public:
     ClipStore& operator=(const ClipStore&) = delete;
 
     bool open(qint64 now); // loads the history; false if the database cannot be used
+    void close(); // flushes writes, releases loaded history and the database thread; files stay on disk
     bool isOpen() const { return m_open; }
     void setLimits(Limits limits, qint64 now); // drops what is over them
     void setListener(Listener listener) { m_listener = std::move(listener); }

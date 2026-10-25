@@ -4,7 +4,6 @@
 #include <QString>
 
 #include <atomic>
-#include <condition_variable>
 #include <deque>
 #include <mutex>
 #include <thread>
@@ -32,6 +31,8 @@ public:
     // `done` later; `next`: before what is queued (just copied, the older
     // ones after).
     void read(qint64 id, const QString& imageFile, bool next = false);
+    void cancel(); // forget queued work; the current image finishes, then the worker releases its models and exits
+    bool running() const;
 
     // What reads them ("ppocr-v6-tiny", "windows"): pictures read by another
     // are read again. Can change once, when PaddleOcr does not load.
@@ -50,9 +51,9 @@ private:
     };
     void work(const std::stop_token& stop);
 
-    std::mutex m_mutex;
-    std::condition_variable_any m_wake;
+    mutable std::mutex m_mutex;
     std::deque<Job> m_jobs;
+    bool m_running = false; // guarded by m_mutex; no OCR thread until the first image
     std::atomic<bool> m_paddle; // else Windows'
     std::jthread m_thread; // last: started once the rest is there
 };

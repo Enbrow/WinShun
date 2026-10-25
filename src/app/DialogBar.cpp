@@ -248,12 +248,6 @@ DialogBar::DialogBar(SearchEngine* engine, History* history, Favorites* favorite
         if (m_inFront)
             follow();
     });
-    m_uncloakTimeout.setSingleShot(true);
-    m_uncloakTimeout.setInterval(300ms); // should no frame come
-    connect(&m_uncloakTimeout, &QTimer::timeout, this, [this] {
-        m_uncloakPending = false;
-        uncloak();
-    });
 }
 
 DialogBar::~DialogBar()
@@ -265,6 +259,12 @@ DialogBar::~DialogBar()
 void DialogBar::setWindow(QQuickWindow* window)
 {
     m_window = window;
+    m_visibility.setWindow(window, [this](bool shown) {
+        if (shown)
+            showLogo();
+        else
+            m_logo.hide();
+    });
     // The list opens while the bar has the focus: what is offered, as of now.
     connect(window, &QWindow::activeChanged, this, [this] {
         if (!m_window)
@@ -287,13 +287,6 @@ void DialogBar::setWindow(QQuickWindow* window)
             place();
     });
     window->installEventFilter(this); // the button coming up
-    connect(window, &QQuickWindow::frameSwapped, this, [this] {
-        if (m_uncloakPending.exchange(false))
-            QMetaObject::invokeMethod(&m_uncloakTimeout, [this] {
-                m_uncloakTimeout.stop();
-                uncloak();
-            });
-    }, Qt::DirectConnection); // on the render thread
 }
 
 void DialogBar::setExcludedApps(const QStringList& apps)
@@ -1049,36 +1042,12 @@ void DialogBar::prepareMenuWindow(QWindow* menu) const
 
 void DialogBar::showWindow()
 {
-    if (!m_window || m_window->isVisible())
-        return;
-    // Cloaked until its first frame: Windows would first put up what the
-    // window showed when it was hidden.
-    win::setCloaked(m_window, true);
-    m_uncloakPending = true;
-    m_uncloakTimeout.start();
-    m_window->setProperty("_q_showWithoutActivating", true); // the dialog keeps the focus
-    m_window->show();
-    m_window->setProperty("_q_showWithoutActivating", QVariant());
+    m_visibility.show();
 }
 
 void DialogBar::hideWindow()
 {
-    if (!m_window || !m_window->isVisible())
-        return;
-    m_window->hide();
-    m_logo.hide();
-    m_uncloakPending = false;
-    m_uncloakTimeout.stop();
-    win::setCloaked(m_window, false);
-}
-
-void DialogBar::uncloak()
-{
-    if (!m_window)
-        return;
-    win::setCloaked(m_window, false);
-    if (m_window->isVisible())
-        showLogo();
+    m_visibility.hide();
 }
 
 void DialogBar::showLogo()
@@ -1184,7 +1153,7 @@ void DialogBar::place()
     m_logoScale = scale;
     if (m_window->geometry() != geometry)
         m_window->setGeometry(geometry);
-    if (m_window->isVisible() && !m_uncloakPending)
+    if (m_visibility.isRevealed())
         showLogo(); // else once its first frame is up
 }
 

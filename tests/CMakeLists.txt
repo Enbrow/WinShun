@@ -7,6 +7,19 @@ add_test(NAME tst_wsl COMMAND tst_wsl)
 set_tests_properties(tst_wsl PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
 
+qt_add_executable(tst_displaygeometry tst_displaygeometry.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/Placement.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/SystemTheme.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/WindowEffects.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/Foreground.cpp)
+target_include_directories(tst_displaygeometry PRIVATE ${PROJECT_SOURCE_DIR}/src/app ${PROJECT_SOURCE_DIR}/src/core)
+target_link_libraries(tst_displaygeometry PRIVATE winshun_options Qt6::Gui Qt6::Qml Qt6::Test
+    comctl32 dwmapi ole32 shell32 user32 advapi32)
+set_target_properties(tst_displaygeometry PROPERTIES WIN32_EXECUTABLE FALSE QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+add_test(NAME tst_displaygeometry COMMAND tst_displaygeometry -o -,txt)
+set_tests_properties(tst_displaygeometry PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
 qt_add_executable(tst_filedialog tst_filedialog.cpp
     ${PROJECT_SOURCE_DIR}/src/app/platform/FileDialog.cpp)
 target_include_directories(tst_filedialog PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
@@ -37,6 +50,39 @@ set_target_properties(tst_windowvisibility PROPERTIES WIN32_EXECUTABLE FALSE)
 add_test(NAME tst_windowvisibility COMMAND tst_windowvisibility)
 set_tests_properties(tst_windowvisibility PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
+# The real passive window lifecycle: render/GUI ordering, stale frames,
+# native visibility, and hiding the separate logo when Qt closes the bar.
+qt_add_executable(tst_dialogbarvisibility tst_dialogbarvisibility.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/DialogBarVisibility.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/WindowEffects.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/Foreground.cpp)
+target_include_directories(tst_dialogbarvisibility PRIVATE ${PROJECT_SOURCE_DIR}/src/app ${PROJECT_SOURCE_DIR}/src/core)
+target_link_libraries(tst_dialogbarvisibility PRIVATE winshun_options Qt6::Quick Qt6::Test dwmapi ole32 shell32 user32)
+set_target_properties(tst_dialogbarvisibility PROPERTIES WIN32_EXECUTABLE FALSE QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+foreach(renderer IN ITEMS gpu software)
+    add_test(NAME tst_dialogbarvisibility_${renderer} COMMAND tst_dialogbarvisibility -o -,txt)
+    set_tests_properties(tst_dialogbarvisibility_${renderer} PROPERTIES
+        RUN_SERIAL TRUE
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+endforeach()
+set_tests_properties(tst_dialogbarvisibility_gpu PROPERTIES ENVIRONMENT "QSG_RHI_BACKEND=d3d11;QT_QUICK_BACKEND=")
+set_tests_properties(tst_dialogbarvisibility_software PROPERTIES ENVIRONMENT "QT_QUICK_BACKEND=software")
+
+# Shared by the launcher and clipboard: only a current opening's fresh
+# frame may reveal it, and a stale frame cannot cancel its fallback.
+qt_add_executable(tst_framereveal tst_framereveal.cpp ${PROJECT_SOURCE_DIR}/src/app/FrameReveal.cpp)
+target_include_directories(tst_framereveal PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_link_libraries(tst_framereveal PRIVATE winshun_options Qt6::Quick Qt6::Test)
+set_target_properties(tst_framereveal PROPERTIES WIN32_EXECUTABLE FALSE QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+foreach(renderer IN ITEMS gpu software)
+    add_test(NAME tst_framereveal_${renderer} COMMAND tst_framereveal -o -,txt)
+    set_tests_properties(tst_framereveal_${renderer} PROPERTIES
+        RUN_SERIAL TRUE
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+endforeach()
+set_tests_properties(tst_framereveal_gpu PROPERTIES ENVIRONMENT "QSG_RHI_BACKEND=d3d11;QT_QUICK_BACKEND=")
+set_tests_properties(tst_framereveal_software PROPERTIES ENVIRONMENT "QT_QUICK_BACKEND=software")
 
 qt_add_executable(tst_scrollalignment tst_scrollalignment.cpp)
 target_compile_definitions(tst_scrollalignment PRIVATE WINSHUN_QML_DIR="${PROJECT_SOURCE_DIR}/src/app/qml")
@@ -196,6 +242,20 @@ set_tests_properties(tst_diagnostics PROPERTIES
 
 qt_add_executable(tst_clipboard tst_clipboard.cpp)
 target_link_libraries(tst_clipboard PRIVATE wscore Qt6::Test)
+
+# Native worker lifecycle only: never writes the system clipboard or loads OCR models.
+qt_add_executable(tst_cliplifecycle tst_cliplifecycle.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/ClipboardWatcher.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/TextRecognizer.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/PaddleOcr.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/ClipImage.cpp)
+target_include_directories(tst_cliplifecycle PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_link_libraries(tst_cliplifecycle PRIVATE winshun_options wscore wscapture Qt6::Gui Qt6::Test
+    onnxruntime_headers windowsapp user32 gdi32 shell32 ole32 version)
+set_target_properties(tst_cliplifecycle PROPERTIES WIN32_EXECUTABLE FALSE)
+add_test(NAME tst_cliplifecycle COMMAND tst_cliplifecycle -o -,txt)
+set_tests_properties(tst_cliplifecycle PROPERTIES RUN_SERIAL TRUE
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
 
 # The index service (src/service) through its pipe client (ServiceVolumeAccess),
 # started as `WinShunService.exe --console --pipe <random>` on a real volume

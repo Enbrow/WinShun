@@ -3386,7 +3386,7 @@ Window {
                 SettingRow {
                     title: qsTr("记录剪贴板历史")
                     keywords: qsTr("剪切板;复制;历史;clipboard").split(";")
-                    description: qsTr("密码管理器复制的密码不会被记录")
+                    description: qsTr("关闭后停止监听并释放历史缓存，已有记录保留在本机。密码管理器复制的密码不会被记录")
 
                     ToggleSwitch {
                         checked: window.editor.clipboard
@@ -3797,7 +3797,9 @@ Window {
                     keywords: qsTr("删除;清空").split(";")
                     description: window.editor.clipboardCount > 0
                                  ? qsTr("共 %1 条，“固定”和分组里的会保留").arg(window.editor.clipboardCount)
-                                 : qsTr("没有记录")
+                                 : window.editor.clipboardCount < 0
+                                   ? qsTr("已关闭，历史记录保留在本机；开启后显示条数")
+                                   : qsTr("没有记录")
 
                     FlatButton {
                         id: clearClipboardButton
@@ -3806,7 +3808,7 @@ Window {
 
                         text: confirming ? qsTr("确定清除？再点一次") : qsTr("清除")
                         glyph: confirming ? "" : "" // Delete
-                        enabled: window.editor.clipboardCount > 0
+                        enabled: window.editor.clipboardCount !== 0 && !window.editor.clipboardImporting
                         onClicked: {
                             if (confirming) {
                                 window.editor.clearClipboard()

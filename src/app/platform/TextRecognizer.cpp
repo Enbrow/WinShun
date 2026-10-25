@@ -14,6 +14,7 @@
 
 #include <QCoreApplication>
 #include <QDebug>
+#include <QFileInfo>
 #include <QImage>
 #include <QPainter>
 #include <QStringList>
@@ -135,7 +136,6 @@ SoftwareBitmap loadBitmap(const QString& file, int maxSide)
 TextRecognizer::TextRecognizer(QObject* parent)
     : QObject(parent)
     , m_paddle(PaddleOcr::installed(QCoreApplication::applicationDirPath()) && !japaneseOrKoreanFirst())
-    , m_thread([this](std::stop_token stop) { work(stop); })
 {
 }
 
@@ -153,14 +153,29 @@ TextRecognizer::~TextRecognizer()
 
 void TextRecognizer::read(qint64 id, const QString& imageFile, bool next)
 {
-    {
-        const std::lock_guard lock(m_mutex);
-        if (next)
-            m_jobs.push_front({id, imageFile});
-        else
-            m_jobs.push_back({id, imageFile});
+    const std::lock_guard lock(m_mutex);
+    if (!m_running && m_thread.joinable())
+        m_thread.join(); // its last batch has ended; only model cleanup can remain
+    if (next)
+        m_jobs.push_front({id, imageFile});
+    else
+        m_jobs.push_back({id, imageFile});
+    if (!m_running) {
+        m_running = true;
+        m_thread = std::jthread([this](std::stop_token stop) { work(stop); });
     }
-    m_wake.notify_one();
+}
+
+void TextRecognizer::cancel()
+{
+    const std::lock_guard lock(m_mutex);
+    m_jobs.clear();
+}
+
+bool TextRecognizer::running() const
+{
+    const std::lock_guard lock(m_mutex);
+    return m_running;
 }
 
 QString TextRecognizer::engine() const
@@ -185,15 +200,16 @@ void TextRecognizer::work(const std::stop_token& stop)
             Job job;
             {
                 std::unique_lock lock(m_mutex);
-                if (m_jobs.empty()) { // done for now: let go of the recognizer, look again next time
-                    paddle.reset();
-                    engine = nullptr;
-                    none = false;
-                }
-                if (!m_wake.wait(lock, stop, [this] { return !m_jobs.empty(); }))
+                if (m_jobs.empty() || stop.stop_requested()) {
+                    m_running = false;
                     break;
+                }
                 job = std::move(m_jobs.front());
                 m_jobs.pop_front();
+            }
+            if (!QFileInfo::exists(job.file)) {
+                emit done(job.id, {}, false);
+                continue; // never load an OCR model for a missing history image
             }
             QString words;
             bool ok = true;

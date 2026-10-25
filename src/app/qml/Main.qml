@@ -339,6 +339,13 @@ Window {
         restoreMode: Binding.RestoreNone
     }
     minimumWidth: panel ? 640 : 0
+    Binding {
+        target: window.placement
+        property: "contentSize"
+        value: Qt.size(window.placement.boxWidth > 0 ? window.placement.boxWidth : 760, layout.implicitHeight)
+        when: !window.panel
+        restoreMode: Binding.RestoreNone
+    }
     minimumHeight: panel ? 360 : 0
     // See-through to Mica, as the settings window (see there).
     color: Theme.backdrop && SystemTheme.materials && window.active ? "transparent" : Theme.background

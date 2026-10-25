@@ -35,6 +35,11 @@ Window {
 
     width: listWidth + (page.previewOpen ? 1 + previewWidth : 0)
     height: page.implicitHeight
+    Binding {
+        target: window.placement
+        property: "contentSize"
+        value: Qt.size(window.listWidth + (page.previewOpen ? 1 + window.previewWidth : 0), page.implicitHeight)
+    }
     // See-through to Mica, as the launcher; drawn as active also while the
     // program it pastes into keeps the focus (WindowFrame::setNoActivate),
     // routed or pinned.

@@ -365,17 +365,6 @@ App::App()
         refreshIndexAccess();
         refreshFolderStatuses();
     });
-    m_revealTimeout.setSingleShot(true);
-    // Never waited for longer: the first frame is up by then, and fresh rows
-    // coming in a moment later (while it slides in) beat a launcher that comes late.
-    m_revealTimeout.setInterval(60ms);
-    connect(&m_revealTimeout, &QTimer::timeout, this, &App::revealLauncher);
-    m_clipUncloakTimeout.setSingleShot(true);
-    m_clipUncloakTimeout.setInterval(150ms); // should no frame come
-    connect(&m_clipUncloakTimeout, &QTimer::timeout, this, [this] {
-        m_clipUncloak = false;
-        uncloakClipboard();
-    });
     m_darkFrameGuard.setInterval(10ms);
     connect(&m_darkFrameGuard, &QTimer::timeout, this, [this] {
         if (m_darkFrameWatch.elapsed() < 50) // Qt's own, after some 5 ms, first
@@ -581,7 +570,7 @@ bool App::start(const StartOptions& options)
                 : tr("Windows 没能打开它。请稍后再试，或按 Ctrl+Shift+Enter 以管理员身份运行。"));
     });
     connect(m_launcher.get(), &Launcher::namesShown, this, [this] {
-        if (m_revealing)
+        if (m_launcherReveal.pending())
             armReveal();
     });
     connect(m_launcher.get(), &Launcher::webSettingsRequested, this, &App::showWebSettings);
@@ -630,7 +619,7 @@ bool App::start(const StartOptions& options)
     // The user's limits before open(), which prunes: with the defaults it
     // would drop what a longer limit (or none) keeps, on every start.
     m_clipStore->setLimits({m_settings.clipboardMaxItems, m_settings.clipboardMaxDays}, QDateTime::currentMSecsSinceEpoch());
-    if (!m_clipStore->open(QDateTime::currentMSecsSinceEpoch()))
+    if (m_settings.clipboard && !m_clipStore->open(QDateTime::currentMSecsSinceEpoch()))
         qWarning() << "Clipboard history: cannot be kept";
     ClipboardWatcher::Callbacks clipCallbacks;
     // On the watcher's thread: hop to the GUI thread.
@@ -640,6 +629,8 @@ bool App::start(const StartOptions& options)
     };
     clipCallbacks.reused = [this](qint64 id) { // pasted from the history: it moves up
         QMetaObject::invokeMethod(this, [this, id] {
+            if (!m_settings.clipboard || !m_clipStore->isOpen())
+                return;
             m_clipStore->touch(id, QDateTime::currentMSecsSinceEpoch());
             m_clipboard->historyChanged();
         }, Qt::QueuedConnection);
@@ -680,7 +671,8 @@ bool App::start(const StartOptions& options)
     // Its entries of copied files that are gone since: hidden or cleaned out
     // as set, the disk asked while the window is put away.
     m_missingFiles
-        = std::make_unique<MissingFiles>(m_clipStore.get(), MissingFiles::modeOf(m_settings.clipboardMissingFiles));
+        = std::make_unique<MissingFiles>(m_clipStore.get(), m_settings.clipboard
+                ? MissingFiles::modeOf(m_settings.clipboardMissingFiles) : MissingFiles::Mode::Keep);
     connect(m_clipboard.get(), &Clipboard::activeChanged, m_missingFiles.get(),
         [this] { m_missingFiles->setListShown(m_clipboard->active()); });
     connect(m_missingFiles.get(), &MissingFiles::changed, this, [this] {
@@ -1011,16 +1003,10 @@ bool App::createWindow()
         }
         updateNumberKeys();
     });
-    // Reveal (see showLauncher). Both run on the render thread: a frame
-    // synchronised after arming shows the fresh results, and once it has been
-    // handed to the screen the window can be uncloaked.
-    connect(m_window, &QQuickWindow::afterSynchronizing, this, [this] {
-        if (m_revealArmed.load())
-            m_revealSynced.store(true);
-    }, Qt::DirectConnection);
+    // Fresh rows coming in while it slides in beat a launcher that comes
+    // late: keep the existing 60 ms fallback even if no frame arrives.
+    m_launcherReveal.setWindow(m_window, 60ms, [this] { revealLauncher(); });
     connect(m_window, &QQuickWindow::frameSwapped, this, [this] {
-        if (m_revealSynced.exchange(false))
-            QMetaObject::invokeMethod(this, &App::revealLauncher, Qt::QueuedConnection);
         if (m_prewarming.load())
             QMetaObject::invokeMethod(this, &App::finishPrewarm, Qt::QueuedConnection);
     }, Qt::DirectConnection);
@@ -1067,9 +1053,8 @@ bool App::createClipWindow()
                     hideClipboard();
             }, Qt::QueuedConnection);
     });
+    m_clipReveal.setWindow(window, 150ms, [this] { uncloakClipboard(); });
     connect(window, &QQuickWindow::frameSwapped, this, [this] {
-        if (m_clipUncloak.exchange(false))
-            QMetaObject::invokeMethod(this, &App::uncloakClipboard, Qt::QueuedConnection);
         if (m_clipPrewarming.load())
             QMetaObject::invokeMethod(this, &App::finishClipPrewarm, Qt::QueuedConnection);
     }, Qt::DirectConnection); // on the render thread
@@ -1174,6 +1159,7 @@ void App::showCaptureOcr(const QImage& image, double dpr, const QRect& where, co
         styleWindow(window, SystemTheme::backdropAvailable());
         win::setDarkFrame(window, isDarkMode());
         m_ocrFrame->setWindow(window);
+        window->installEventFilter(this);
         m_ocrWindow = window;
     }
     // Beside the picture, on its monitor (physical pixels there, logical for Qt).
@@ -1287,6 +1273,19 @@ void App::closeCaptureOcr(bool destroy)
 
 bool App::eventFilter(QObject* watched, QEvent* event)
 {
+    if (event->type() == QEvent::Close && (watched == m_window || watched == m_clipWindow || watched == m_ocrWindow)) {
+        // These windows are kept between openings. QWindow::close would
+        // destroy the HWND and detach Placement, WindowFrame and WindowLogo.
+        event->ignore();
+        if (watched == m_window)
+            hideLauncher();
+        else if (watched == m_clipWindow) {
+            m_clipboard->setPinned(false); // a system close also closes a pinned clipboard
+            hideClipboard();
+        } else
+            closeCaptureOcr();
+        return true;
+    }
     // The launcher's field, drawn in the box on the taskbar: the input
     // method's window goes by the caret there.
     if (watched == m_searchField && event->type() == QEvent::InputMethodQuery && m_launcher->inTaskbarBox()) {
@@ -2121,10 +2120,47 @@ void App::applyClipboard()
     if (m_winVApplied ? *m_winVApplied != m_settings.clipboardWinV : m_settings.clipboardWinV)
         m_winVRegistryFailed = !winv::setReleasedByExplorer(L'V', m_settings.clipboardWinV);
     m_winVApplied = m_settings.clipboardWinV;
-    m_clipWatcher->setOptions(clipboardOptions());
     m_clipStore->setLimits({m_settings.clipboardMaxItems, m_settings.clipboardMaxDays}, QDateTime::currentMSecsSinceEpoch());
-    m_missingFiles->setMode(MissingFiles::modeOf(m_settings.clipboardMissingFiles));
+    const bool reopening = m_settings.clipboard && !m_clipStore->isOpen();
+    if (reopening && !m_clipStore->open(QDateTime::currentMSecsSinceEpoch()))
+        qWarning() << "Clipboard history: cannot be kept";
+    m_clipboard->setState(m_settings.clipboard, m_clipboardPaused, m_clipboardShortcut);
+    m_clipWatcher->setOptions(clipboardOptions());
+    m_missingFiles->setMode(m_settings.clipboard
+            ? MissingFiles::modeOf(m_settings.clipboardMissingFiles) : MissingFiles::Mode::Keep);
+    if (reopening && m_clipStore->isOpen())
+        m_clipboard->resumeHistory();
+    if (!m_settings.clipboard) {
+        // A drag can still be inside OLE's nested loop. Retire the view and
+        // history once it returns, without invalidating the drag's source.
+        if (m_clipboard->dragging()) {
+            QTimer::singleShot(100ms, this, [this] {
+                if (!m_settings.clipboard)
+                    applyClipboard();
+            });
+        } else {
+            m_clipboard->setPinned(false);
+            hideClipboard(false);
+            m_clipPrewarming = false;
+            m_clipReveal.cancel();
+            m_clipboard->setWindow(nullptr);
+            delete m_clipWindow.data();
+            m_clipLogo = nullptr;
+            updateCompanions();
+            m_clipFrame.reset();
+            m_clipPlacement.reset();
+            m_textCaret.reset();
+            m_clipboard->suspendHistory();
+            // An explicit import keeps its store until its last batch lands.
+            if (!m_clipImport)
+                m_clipStore->close();
+            m_qml->trimComponentCache();
+            m_idleTrim->poke();
+        }
+    }
     m_clipboard->historyChanged();
+    if (m_settingsEditor)
+        m_settingsEditor->setClipboardCount(m_clipStore->isOpen() ? static_cast<int>(m_clipStore->clips().size()) : -1);
     applyClipboardHotkeys();
 }
 
@@ -2705,9 +2741,13 @@ void App::showSettings()
         connect(editor, &SettingsEditor::explorerRestartRequested, this, &App::restartExplorer);
         connect(editor, &SettingsEditor::autostartRequested, this, &App::setAutostart);
         connect(editor, &SettingsEditor::clipboardClearRequested, this, [this, editor] {
+            if (!m_clipStore->isOpen() && !m_clipStore->open(QDateTime::currentMSecsSinceEpoch()))
+                return;
             m_clipStore->clearHistory();
             m_clipboard->historyChanged();
             editor->setClipboardCount(static_cast<int>(m_clipStore->clips().size()));
+            if (!m_settings.clipboard && !m_clipImport)
+                applyClipboard();
         });
         connect(editor, &SettingsEditor::clipboardImportRequested, this, [this, editor](const QString& path, int split) {
             clipimport::Report none;
@@ -2716,7 +2756,7 @@ void App::showSettings()
                 editor->setClipboardImportDone(none, {});
                 return;
             }
-            if (!m_clipStore || !m_clipStore->isOpen()) {
+            if (!m_clipStore || (!m_clipStore->isOpen() && !m_clipStore->open(QDateTime::currentMSecsSinceEpoch()))) {
                 none.error = clipimport::Error::NoHistory;
                 editor->setClipboardImportDone(none, {});
                 return;
@@ -2739,6 +2779,8 @@ void App::showSettings()
                     guard->setClipboardImportDone(report, group);
                 }
                 m_clipImport.release()->deleteLater();
+                if (!m_settings.clipboard)
+                    applyClipboard();
             });
             job->start(path, split == 0 ? clipimport::Split::Lines : split == 2 ? clipimport::Split::Whole : clipimport::Split::Paragraphs);
         });
@@ -2888,7 +2930,7 @@ void App::showSettings()
     refreshIndexFolder(true);
     readAutostart(); // changed outside WinShun since it was last read?
     m_settingsEditor->setHistoryCount(static_cast<int>(m_history->items().size()));
-    m_settingsEditor->setClipboardCount(static_cast<int>(m_clipStore->clips().size()));
+    m_settingsEditor->setClipboardCount(m_clipStore->isOpen() ? static_cast<int>(m_clipStore->clips().size()) : -1);
     m_contentStatusTimer.start();
     hideLauncher();
     m_settingsWindow->show();
@@ -3679,8 +3721,7 @@ void App::showLauncher(const QString& query, const std::optional<taskbar::Spot>&
         // when it was hidden (old selection, old rows), then our repaint.
         // Revealed once a frame with the refreshed results is drawn.
         win::setCloaked(m_window, true);
-        m_revealing = true;
-        m_revealTimeout.start();
+        m_launcherReveal.begin();
     }
     m_window->show();
     win::bringToFront(m_window);
@@ -3688,7 +3729,7 @@ void App::showLauncher(const QString& query, const std::optional<taskbar::Spot>&
     m_launcher->handleShown(); // selects all that is typed
     if (!query.isEmpty()) // typed for the user (a folder, --query): words go after it
         emit m_launcher->caretRequested(static_cast<int>(query.size()), false);
-    if (m_revealing && !m_launcher->waitingForNames())
+    if (m_launcherReveal.pending() && !m_launcher->waitingForNames())
         armReveal(); // nothing to wait for (内容 refreshes in the background)
 }
 
@@ -3752,8 +3793,8 @@ void App::showClipboard()
         // Cloaked until its first frame: Windows would first put up the
         // window as it looked when it was hidden, then our repaint.
         win::setCloaked(m_clipWindow, true);
-        m_clipUncloak = true;
-        m_clipUncloakTimeout.start();
+        m_clipReveal.begin();
+        m_clipReveal.arm();
     }
     if (keepFocus) {
         m_clipFrame->setNoActivate(true);
@@ -3956,7 +3997,6 @@ void App::clipboardPinnedChanged()
 
 void App::uncloakClipboard()
 {
-    m_clipUncloakTimeout.stop();
     if (!m_clipWindow)
         return;
     win::setCloaked(m_clipWindow, false);
@@ -3982,8 +4022,7 @@ void App::hideClipboard(bool launcherToo)
     const bool underLauncher = clipboardUnderLauncher();
     m_clipWindow->hide();
     stopKeyRouting(); // hidden first: no inactive backdrop on the way out
-    m_clipUncloak = false;
-    m_clipUncloakTimeout.stop();
+    m_clipReveal.cancel();
     win::setCloaked(m_clipWindow, false);
     m_clipboard->setActive(false); // the launcher's rows come back
     m_clipboard->handleHidden();
@@ -4055,18 +4094,11 @@ void App::returnToField(QQuickItem* field)
 
 void App::armReveal()
 {
-    m_revealArmed.store(true);
-    m_window->update(); // a new frame even if the results did not change
+    m_launcherReveal.arm();
 }
 
 void App::revealLauncher()
 {
-    if (!m_revealing)
-        return;
-    m_revealing = false;
-    m_revealArmed.store(false);
-    m_revealSynced.store(false);
-    m_revealTimeout.stop();
     if (!m_window)
         return;
     // In from off its place first, then seen, the logo with it: not if this
@@ -4122,7 +4154,7 @@ void App::hideLauncher()
     if (clipboardUnderLauncher())
         hideClipboard(false);
     // Slid out, unless it was never seen (still waiting for its first frame).
-    if (m_revealing || m_prewarming.load()) {
+    if (m_launcherReveal.pending() || m_prewarming.load()) {
         finishHidingLauncher();
         return;
     }
@@ -4153,7 +4185,8 @@ void App::finishHidingLauncher()
     if (!m_window || !m_window->isVisible())
         return;
     m_window->hide();
-    revealLauncher(); // hidden before its first frame: drop the cloak
+    m_launcherReveal.cancel();
+    win::setCloaked(m_window, false); // hidden before its first frame: drop the cloak
     m_launcher->handleHidden();
     if (m_launcher->panel())
         setPanel(false); // the next opening is the box (hidden: nothing to see of it)
@@ -4187,7 +4220,7 @@ void App::setPanel(bool on)
     if (!m_window || on == m_launcher->panel())
         return;
     if (on) {
-        if (!m_window->isVisible() || m_launcherClosing || m_revealing || m_prewarming.load())
+        if (!m_window->isVisible() || m_launcherClosing || m_launcherReveal.pending() || m_prewarming.load())
             return;
         // Over Win顺's box on the taskbar: the field comes back into the
         // window, the box goes idle (the panel is a window of its own).
@@ -4207,13 +4240,13 @@ void App::setPanel(bool on)
     // it draws the next (pitfalls: the type strip): cloaked meanwhile, and
     // seen again once a frame of the box is on the screen.
     const std::optional<taskbar::Spot> spot = m_placement->taskbarSpot();
-    const bool seen = m_window->isVisible() && !m_launcherClosing && !m_revealing && !m_prewarming.load();
+    const bool seen = m_window->isVisible() && !m_launcherClosing && !m_launcherReveal.pending() && !m_prewarming.load();
     if (seen) {
         win::setCloaked(m_window, true);
         auto connection = std::make_shared<QMetaObject::Connection>();
         const auto uncloak = [this, connection] {
             QObject::disconnect(*connection);
-            if (m_window && !m_revealing && !m_prewarming.load())
+            if (m_window && !m_launcherReveal.pending() && !m_prewarming.load())
                 win::setCloaked(m_window, false);
         };
         *connection = connect(m_frame.get(), &WindowFrame::frameShown, this, uncloak);

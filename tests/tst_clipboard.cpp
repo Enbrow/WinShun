@@ -69,6 +69,53 @@ class ClipboardTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void closedHistoryReleasesMemoryAndKeepsPendingWrites()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString folder = dir.filePath(u"history"_s);
+        ClipStore store(folder);
+        QVERIFY(!store.isOpen());
+        store.flush();
+        store.close();
+        QVERIFY(!QFileInfo::exists(folder)); // disabled startup creates no database or folders
+        QVERIFY(store.open(kStart));
+        const qint64 entry = store.add(text(u"关闭再开启，内容还在"_s), kStart);
+        const qint64 group = store.addGroup(u"保留的分组"_s);
+        store.setGroup(std::span(&entry, 1), group);
+        store.setValue(u"preview"_s, u"open"_s);
+        ClipCapture picture;
+        picture.kind = ClipKind::Image;
+        picture.png = QByteArray("\x89PNG-pending", 12);
+        picture.hash = "screenshot";
+        picture.width = 12;
+        picture.height = 8;
+        picture.screenshot = true;
+        picture.project = "editable-project";
+        const qint64 image = store.add(picture, kStart + 1);
+        QVERIFY(store.imagePending(image));
+        store.close(); // drains the queued PNG and project before the connection is released
+        QVERIFY(!store.isOpen());
+        QVERIFY(store.clips().empty());
+        QVERIFY(store.groups().empty());
+        QVERIFY(!store.imagePending(image));
+        QVERIFY(QFileInfo::exists(store.imagePath(image)));
+        QVERIFY(store.open(kStart + 2));
+        QCOMPARE(store.clips().size(), std::size_t(2));
+        QVERIFY(store.clip(entry));
+        QCOMPARE(store.clip(entry)->group, group);
+        QCOMPARE(store.group(group)->name, u"保留的分组"_s);
+        QCOMPARE(store.value(u"preview"_s), u"open"_s);
+        QCOMPARE(store.project(image), picture.project);
+        QVERIFY(store.clip(image)->screenshot);
+        QFile file(store.imagePath(image));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), picture.png);
+        QVERIFY(store.add(text(u"新记录"_s), kStart + 3) > image);
+        store.close();
+        store.close(); // retiring an already closed history is harmless
+    }
+
     void globalQuickPasteEntries()
     {
         QTemporaryDir dir;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DialogBarVisibility.h"
 #include "Favorites.h"
 #include "History.h"
 #include "PathText.h"
@@ -227,7 +228,6 @@ private:
     static inline DialogBar* s_instance = nullptr; // the one there is, to place again
     void showWindow();
     void hideWindow();
-    void uncloak(); // its first frame is up: shown, and the logo with it
     void showLogo(); // where place() put it
     void follow(); // shown under the dialog, or hidden while it is not to be seen
     void makeRoom(); // by the dialog, as it first shows: for the bar and the list
@@ -301,8 +301,7 @@ private:
     bool m_listHeld = false; // just made active: no list until a click is through
     bool m_clickSeen = false;
     QTimer m_listHold; // no click came
-    std::atomic<bool> m_uncloakPending {false}; // shown cloaked until its first frame
-    QTimer m_uncloakTimeout;
+    DialogBarVisibility m_visibility;
     // Peeking out from behind the bar, off the dialog. Where place() put the
     // bar (physical pixels): its window, its box, the work area, the dialog.
     win::PeekingLogo m_logo;

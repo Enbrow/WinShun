@@ -82,6 +82,8 @@ public:
     ClipboardWatcher& operator=(const ClipboardWatcher&) = delete;
 
     void setOptions(Options options); // any thread
+    bool running() const noexcept { return m_running.load(); }
+    bool listening() const noexcept { return m_listening.load(); }
     // Puts `data` on the clipboard, on the watcher's thread; `done` runs
     // there with whether that worked.
     void write(ClipWrite data, std::function<void(bool)> done);
@@ -92,12 +94,19 @@ private:
     void read();
     bool writeNow(const ClipWrite& data);
     bool openClipboard();
+    void startWorker(bool captureInitial); // m_lifecycleMutex held
+    void configureWatching(HWND window); // on the worker
+    bool recordingEnabled();
     QString programName(const std::wstring& path); // its description, "微信"
 
     Callbacks m_callbacks;
     std::mutex m_mutex;
     Options m_options; // guarded by m_mutex
+    std::mutex m_lifecycleMutex; // starting, posting writes, and retiring an idle writer
     std::atomic<HWND> m_window {nullptr};
+    std::atomic<bool> m_running {false};
+    std::atomic<bool> m_listening {false};
+    std::atomic<unsigned> m_pendingWrites {0};
     std::thread m_thread;
     // Only touched on the watcher's thread:
     DWORD m_lastSequence = 0;

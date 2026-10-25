@@ -69,22 +69,19 @@ Clipboard::Clipboard(ClipStore* store, ClipboardWatcher* watcher, QObject* paren
     , m_dragFolder(store->folder() + u"/dragged"_s)
 {
     QDir(m_dragFolder).removeRecursively();
-    m_separator = m_store->value(u"separator"_s);
-    if (!kSeparators.contains(m_separator))
-        m_separator = kSeparators.constFirst();
-    m_previewOpen = m_store->value(u"preview"_s) == u"open"_s;
-    m_previewWidth = std::max(0, m_store->value(u"previewWidth"_s).toInt());
-    m_pinnedFirst = m_store->value(u"order"_s) == u"pinnedFirst"_s;
+    loadHistoryState();
     m_store->setListener({
         .lost = [this] { historyChanged(); },
         .pictureSaved = [this](qint64 id) {
+            if (!m_recording || m_paused || !m_store->isOpen())
+                return;
             m_model.pictureSaved(id); // the preview follows (dataChanged)
             m_recognizer.read(id, m_store->imagePath(id), true);
         },
     });
     // The words in pictures: kept with them, found by the search.
     connect(&m_recognizer, &TextRecognizer::done, this, [this](qint64 id, const QString& words, bool ok) {
-        if (!ok)
+        if (!m_recording || m_paused || !m_store->isOpen() || !ok)
             return; // no recognizer, or it failed: read when the app starts again
         m_store->setPictureText(id, words);
         m_model.pictureRead(id);
@@ -94,7 +91,11 @@ Clipboard::Clipboard(ClipStore* store, ClipboardWatcher* watcher, QObject* paren
     // Those copied before, or before there was this: a little after the start,
     // out of its way. All of them when they were read by another recognizer
     // (Windows' before 0.7.4), those not read yet first.
-    QTimer::singleShot(20s, this, [this] {
+    m_backlogTimer.setSingleShot(true);
+    m_backlogTimer.setInterval(20s);
+    connect(&m_backlogTimer, &QTimer::timeout, this, [this] {
+        if (!m_recording || m_paused || !m_store->isOpen())
+            return;
         const bool again = m_store->value(u"recognizer"_s) != m_recognizer.engine();
         const std::vector<qint64> ids = m_store->unreadPictures(again);
         if (again && ids.empty())
@@ -105,6 +106,8 @@ Clipboard::Clipboard(ClipStore* store, ClipboardWatcher* watcher, QObject* paren
             m_recognizer.read(id, m_store->imagePath(id));
         }
     });
+    if (m_store->isOpen())
+        m_backlogTimer.start();
     m_flashTimer.setSingleShot(true);
     m_flashTimer.setInterval(3s);
     connect(&m_flashTimer, &QTimer::timeout, this, [this] {
@@ -322,6 +325,13 @@ void Clipboard::setState(bool recording, bool paused, const QString& shortcut)
     m_recording = recording;
     m_paused = paused;
     m_shortcut = shortcut;
+    if (recording && !paused && m_store->isOpen()) {
+        m_backlogTimer.start();
+    } else {
+        m_backlogTimer.stop();
+        m_recognizer.cancel();
+        m_rereading.clear();
+    }
     refreshStatus();
     emit stateChanged();
 }
@@ -433,6 +443,39 @@ void Clipboard::historyChanged()
 {
     refresh();
     emit categoriesChanged(); // the sizes of the groups
+}
+
+void Clipboard::loadHistoryState()
+{
+    m_separator = m_store->value(u"separator"_s);
+    if (!kSeparators.contains(m_separator))
+        m_separator = kSeparators.constFirst();
+    m_previewOpen = m_store->value(u"preview"_s) == u"open"_s;
+    m_previewWidth = std::max(0, m_store->value(u"previewWidth"_s).toInt());
+    m_pinnedFirst = m_store->value(u"order"_s) == u"pinnedFirst"_s;
+}
+
+void Clipboard::resumeHistory()
+{
+    loadHistoryState();
+    emit separatorChanged();
+    emit previewOpenChanged();
+    emit previewWidthChanged();
+    emit pinnedFirstChanged();
+    historyChanged();
+    if (m_recording && !m_paused)
+        m_backlogTimer.start();
+}
+
+void Clipboard::suspendHistory()
+{
+    m_backlogTimer.stop();
+    m_recognizer.cancel();
+    m_rereading.clear();
+    dropUndo();
+    m_model.setRows({}, {});
+    m_model.clearSelection();
+    emit listChanged();
 }
 
 void Clipboard::refreshStatus()

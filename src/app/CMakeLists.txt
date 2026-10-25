@@ -49,6 +49,8 @@ qt_add_executable(WinShun WIN32
     AiSettings.cpp AiSettings.h
     App.cpp App.h
     ColorText.cpp ColorText.h
+    DialogBarVisibility.cpp DialogBarVisibility.h
+    FrameReveal.cpp FrameReveal.h
     Elide.cpp Elide.h
     FileIconProvider.cpp FileIconProvider.h
     McpClients.cpp McpClients.h

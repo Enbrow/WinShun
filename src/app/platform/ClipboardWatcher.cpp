@@ -8,6 +8,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QScopeGuard>
 
 #include <shellapi.h>
 #include <shlobj.h>
@@ -15,6 +16,7 @@
 #include <algorithm>
 #include <cwchar>
 #include <latch>
+#include <memory>
 #include <vector>
 
 using namespace Qt::StringLiterals;
@@ -25,7 +27,10 @@ namespace {
 
 constexpr wchar_t kClassName[] = L"WinShun.ClipboardWatcher";
 constexpr UINT kWriteMessage = WM_APP + 1; // lParam: a WriteJob
+constexpr UINT kOptionsMessage = WM_APP + 2;
 constexpr UINT_PTR kReadTimer = 1;
+constexpr UINT_PTR kIdleTimer = 2;
+constexpr UINT kIdleMs = 1000; // an off module needs a worker only while a copy is being written
 constexpr UINT kSettleMs = 40; // programs often put their formats up one after another
 constexpr qsizetype kMaxText = 2 * 1024 * 1024; // characters: 4 MB, Windows' own limit for its history
 constexpr qsizetype kFormattedUpTo = 1024 * 1024; // characters: longer text keeps no HTML / RTF
@@ -293,12 +298,41 @@ struct ClipboardWatcher::WriteJob {
     std::function<void(bool)> done;
 };
 
+namespace {
+ClipboardWatcher::Options normalizedOptions(ClipboardWatcher::Options options)
+{
+    for (QString& app : options.excludedApps) {
+        app = app.trimmed().toLower();
+        if (app.endsWith(u".exe"))
+            app.chop(4);
+    }
+    return options;
+}
+}
+
 ClipboardWatcher::ClipboardWatcher(Options options, Callbacks callbacks)
     : m_callbacks(std::move(callbacks))
+    , m_options(normalizedOptions(std::move(options)))
 {
-    setOptions(std::move(options)); // before the thread reads what is on the clipboard
+    if (m_options.record) {
+        std::lock_guard lock(m_lifecycleMutex);
+        startWorker(true);
+    }
+}
+
+void ClipboardWatcher::startWorker(bool captureInitial)
+{
+    if (m_window.load())
+        return;
+    if (m_thread.joinable())
+        m_thread.join();
     std::latch ready(1);
-    m_thread = std::thread([this, &ready] {
+    m_running = true;
+    m_thread = std::thread([this, &ready, captureInitial] {
+        const auto ended = qScopeGuard([this] { m_running = false; });
+        m_lastSequence = 0;
+        m_startSequence = 0;
+        m_readRetries = 0;
         const HINSTANCE instance = ::GetModuleHandleW(nullptr);
         WNDCLASSEXW wc {sizeof(WNDCLASSEXW)};
         wc.lpfnWndProc = &ClipboardWatcher::wndProc;
@@ -306,24 +340,31 @@ ClipboardWatcher::ClipboardWatcher(Options options, Callbacks callbacks)
         wc.lpszClassName = kClassName;
         ::RegisterClassExW(&wc);
         const HWND hwnd = ::CreateWindowExW(0, kClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, instance, this);
-        if (hwnd && !::AddClipboardFormatListener(hwnd))
-            qWarning() << "Clipboard history: AddClipboardFormatListener failed:" << ::GetLastError();
         m_window = hwnd;
+        if (hwnd)
+            configureWatching(hwnd);
         ready.count_down();
         if (!hwnd)
             return;
         // What is on the clipboard already (copied before Win顺 started).
-        m_startSequence = ::GetClipboardSequenceNumber();
-        ::PostMessageW(hwnd, WM_CLIPBOARDUPDATE, 0, 0);
+        if (captureInitial && m_listening) {
+            m_lastSequence = 0;
+            m_startSequence = ::GetClipboardSequenceNumber();
+            ::PostMessageW(hwnd, WM_CLIPBOARDUPDATE, 0, 0);
+        }
         MSG msg;
         while (::GetMessageW(&msg, nullptr, 0, 0) > 0)
             ::DispatchMessageW(&msg);
+        if (::IsWindow(hwnd))
+            ::SendMessageW(hwnd, WM_CLOSE, 0, 0);
+        m_programNames = decltype(m_programNames){};
     });
     ready.wait();
 }
 
 ClipboardWatcher::~ClipboardWatcher()
 {
+    std::lock_guard lock(m_lifecycleMutex);
     if (const HWND hwnd = m_window.load())
         ::PostMessageW(hwnd, WM_CLOSE, 0, 0); // the window ends the thread's message loop
     if (m_thread.joinable())
@@ -332,24 +373,57 @@ ClipboardWatcher::~ClipboardWatcher()
 
 void ClipboardWatcher::setOptions(Options options)
 {
-    for (QString& app : options.excludedApps) {
-        app = app.trimmed().toLower();
-        if (app.endsWith(u".exe"))
-            app.chop(4);
+    const bool record = options.record;
+    {
+        const std::lock_guard lock(m_mutex);
+        m_options = normalizedOptions(std::move(options));
     }
-    const std::lock_guard lock(m_mutex);
-    m_options = std::move(options);
+    std::lock_guard lock(m_lifecycleMutex);
+    if (record)
+        startWorker(false);
+    if (const HWND window = m_window.load())
+        ::PostMessageW(window, kOptionsMessage, 0, 0);
+}
+
+bool ClipboardWatcher::recordingEnabled()
+{
+    std::lock_guard lock(m_mutex);
+    return m_options.record;
+}
+
+void ClipboardWatcher::configureWatching(HWND window)
+{
+    if (recordingEnabled()) {
+        ::KillTimer(window, kIdleTimer);
+        if (!m_listening) {
+            m_lastSequence = ::GetClipboardSequenceNumber(); // do not backfill copies made while disabled
+            m_listening = ::AddClipboardFormatListener(window) != FALSE;
+            if (!m_listening)
+                qWarning() << "Clipboard history: AddClipboardFormatListener failed:" << ::GetLastError();
+        }
+    } else {
+        if (m_listening.exchange(false))
+            ::RemoveClipboardFormatListener(window);
+        ::KillTimer(window, kReadTimer);
+        ::SetTimer(window, kIdleTimer, kIdleMs, nullptr);
+    }
 }
 
 void ClipboardWatcher::write(ClipWrite data, std::function<void(bool)> done)
 {
-    const HWND hwnd = m_window.load();
-    auto* job = new WriteJob {std::move(data), std::move(done)};
-    if (!hwnd || !::PostMessageW(hwnd, kWriteMessage, 0, reinterpret_cast<LPARAM>(job))) {
-        if (job->done)
-            job->done(false);
-        delete job;
+    auto job = std::make_unique<WriteJob>(WriteJob{std::move(data), std::move(done)});
+    {
+        std::lock_guard lock(m_lifecycleMutex);
+        startWorker(false);
+        ++m_pendingWrites;
+        if (const HWND hwnd = m_window.load(); hwnd && ::PostMessageW(hwnd, kWriteMessage, 0, reinterpret_cast<LPARAM>(job.get()))) {
+            job.release();
+            return;
+        }
+        --m_pendingWrites;
     }
+    if (job->done)
+        job->done(false);
 }
 
 LRESULT CALLBACK ClipboardWatcher::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -360,14 +434,25 @@ LRESULT CALLBACK ClipboardWatcher::wndProc(HWND hwnd, UINT msg, WPARAM wParam, L
     }
     auto* self = reinterpret_cast<ClipboardWatcher*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     switch (msg) {
+    case kOptionsMessage:
+        if (self)
+            self->configureWatching(hwnd);
+        return 0;
     case WM_CLIPBOARDUPDATE:
-        ::SetTimer(hwnd, kReadTimer, kSettleMs, nullptr); // read once they are done
+        if (self && self->m_listening)
+            ::SetTimer(hwnd, kReadTimer, kSettleMs, nullptr); // read once they are done
         return 0;
     case WM_TIMER:
         if (wParam == kReadTimer) {
             ::KillTimer(hwnd, kReadTimer);
-            if (self)
+            if (self && self->m_listening)
                 self->read();
+        } else if (wParam == kIdleTimer && self) {
+            std::unique_lock lock(self->m_lifecycleMutex, std::try_to_lock);
+            if (lock.owns_lock() && !self->recordingEnabled() && self->m_pendingWrites == 0) {
+                ::KillTimer(hwnd, kIdleTimer);
+                ::SendMessageW(hwnd, WM_CLOSE, 0, 0);
+            }
         }
         return 0;
     case kWriteMessage: {
@@ -376,10 +461,16 @@ LRESULT CALLBACK ClipboardWatcher::wndProc(HWND hwnd, UINT msg, WPARAM wParam, L
         if (job->done)
             job->done(ok);
         delete job;
+        if (self) {
+            --self->m_pendingWrites;
+            if (!self->recordingEnabled())
+                ::SetTimer(hwnd, kIdleTimer, kIdleMs, nullptr);
+        }
         return 0;
     }
     case WM_CLOSE:
-        ::RemoveClipboardFormatListener(hwnd);
+        if (self && self->m_listening.exchange(false))
+            ::RemoveClipboardFormatListener(hwnd);
         if (self)
             self->m_window = nullptr;
         ::DestroyWindow(hwnd);
@@ -619,6 +710,8 @@ void ClipboardWatcher::read()
 
 bool ClipboardWatcher::writeNow(const ClipWrite& data)
 {
+    if (data.empty())
+        return false; // an empty request must never erase the user's clipboard
     const Formats& f = formats();
     std::vector<std::pair<UINT, HANDLE>> items; // memory, a metafile for CF_ENHMETAFILE
     const auto add = [&](UINT format, const void* bytes, std::size_t size) {

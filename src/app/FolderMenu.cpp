@@ -496,23 +496,32 @@ void FolderMenu::show(const folderview::Hit& hit, const Found& found)
 void FolderMenu::startKeys(HWND target)
 {
     stopKeys();
-    KeyRouter::Callbacks callbacks;
-    callbacks.key = [this](const KeyRouter::Key& key) {
-        if (!key.press)
-            return;
-        QMetaObject::invokeMethod(this, [this, key] {
-            if (m_open)
-                emit keyPressed(key.key, key.text);
+    const std::uint64_t run = ++m_routerRun;
+    const auto post = [this, run](auto call) {
+        QMetaObject::invokeMethod(this, [this, run, call = std::move(call)] {
+            if (m_router && m_routerRun == run && m_open)
+                call();
         }, Qt::QueuedConnection);
     };
-    callbacks.clickedAway = [this] { QMetaObject::invokeMethod(this, &FolderMenu::dismiss, Qt::QueuedConnection); };
-    callbacks.foregroundChanged = [this](HWND window) {
-        QMetaObject::invokeMethod(this, [this, window] {
+    KeyRouter::Callbacks callbacks;
+    callbacks.key = [this, post](const KeyRouter::Key& key) {
+        if (key.press)
+            post([this, key] { emit keyPressed(key.key, key.text); });
+    };
+    callbacks.clickedAway = [this, post] { post([this] { dismiss(); }); };
+    callbacks.foregroundChanged = [this, post](HWND window) {
+        post([this, window] {
             // File Explorer's own going to another folder says so too: by
             // what is in front now, not by the event.
             const HWND foreground = ::GetForegroundWindow();
             if (window != m_hit.root && (!foreground || ::GetAncestor(foreground, GA_ROOT) != m_hit.root))
                 dismiss();
+        });
+    };
+    callbacks.drained = [this, run] {
+        QMetaObject::invokeMethod(this, [this, run] {
+            if (m_drainingRun == run)
+                m_draining.reset();
         }, Qt::QueuedConnection);
     };
     auto router = std::make_unique<KeyRouter>(target, reinterpret_cast<HWND>(m_window->winId()), std::move(callbacks),
@@ -532,7 +541,11 @@ void FolderMenu::stopKeys()
     // own, for a moment.
     m_router->drain();
     m_draining = std::move(m_router);
-    QTimer::singleShot(2s, this, [this] { m_draining.reset(); });
+    m_drainingRun = m_routerRun;
+    QTimer::singleShot(2s, this, [this, run = m_drainingRun] {
+        if (m_drainingRun == run)
+            m_draining.reset(); // a key held that long is the program's again
+    });
 }
 
 void FolderMenu::dismiss()

@@ -172,6 +172,7 @@ Item {
                 width: Math.max(1, Math.round((preview.info.width ?? 1) * fit))
                 height: Math.max(1, Math.round((preview.info.height ?? 1) * fit))
                 source: visible ? preview.info.image : ""
+                cache: false // old full-size previews must not stay in the shared image cache
                 // A PNG file: sourceSize is in the image's own pixels.
                 sourceSize.width: Math.round(width * Screen.devicePixelRatio)
                 sourceSize.height: Math.round(height * Screen.devicePixelRatio)

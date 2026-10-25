@@ -4,6 +4,7 @@
 #include "SystemTheme.h"
 
 #include <QEasingCurve>
+#include <QEvent>
 #include <QGuiApplication>
 #include <QScreen>
 #include <QSettings>
@@ -17,6 +18,7 @@
 #include <algorithm>
 #include <cmath>
 #include <vector>
+#include <utility>
 
 using namespace Qt::StringLiterals;
 
@@ -112,6 +114,9 @@ Placement::Placement(QString stateFile, QString group, QObject* parent)
     , m_group(std::move(group))
     , m_anchor(kHome)
 {
+    m_displaySettle.setSingleShot(true);
+    m_displaySettle.setInterval(0);
+    connect(&m_displaySettle, &QTimer::timeout, this, &Placement::restoreDisplayGeometry);
     const QSettings state(m_stateFile, QSettings::IniFormat);
     for (const QString& section : {m_group, u"Launcher"_s}) {
         bool okX = false;
@@ -213,9 +218,26 @@ struct Placement::Hook {
             break;
         case WM_EXITSIZEMOVE:
             self->setMoving(false);
+            // A completed user move/resize owns its final geometry, including
+            // a drag across DPI boundaries. Do not snap it back to the old
+            // anchor through a display change deferred while it was held.
+            self->m_displaySettle.stop();
+            self->m_displayRestorePending = false;
             // Qt updates the window's screen on this message too, after us.
             QMetaObject::invokeMethod(self, self->m_panel ? &Placement::savePanel : &Placement::rememberSpot,
                 Qt::QueuedConnection);
+            break;
+        case WM_DPICHANGED:
+        case WM_DISPLAYCHANGE:
+            self->scheduleDisplayRestore(); // after Qt has processed the native change
+            break;
+        case WM_SETTINGCHANGE:
+            if (wParam == SPI_SETWORKAREA)
+                self->scheduleDisplayRestore();
+            break;
+        case WM_POWERBROADCAST:
+            if (wParam == PBT_APMRESUMEAUTOMATIC || wParam == PBT_APMRESUMESUSPEND)
+                self->scheduleDisplayRestore();
             break;
         case WM_NCDESTROY:
             ::RemoveWindowSubclass(hwnd, &Hook::proc, 0);
@@ -238,6 +260,11 @@ void Placement::setWindow(QWindow* window)
 {
     m_window = window;
     m_hwnd = window->winId();
+    window->installEventFilter(this);
+    connect(window, &QWindow::screenChanged, this, &Placement::watchScreen);
+    connect(qGuiApp, &QGuiApplication::screenAdded, this, [this] { scheduleDisplayRestore(); });
+    connect(qGuiApp, &QGuiApplication::screenRemoved, this, [this] { scheduleDisplayRestore(); });
+    watchScreen(window->screen());
     ::SetWindowSubclass(reinterpret_cast<HWND>(m_hwnd), &Hook::proc, 0, reinterpret_cast<DWORD_PTR>(this));
     // Wider (the clipboard's preview), or taller over a box: kept on the
     // screen, and over a box its bottom stays there.
@@ -246,6 +273,63 @@ void Placement::setWindow(QWindow* window)
         if ((m_box && m_above) || m_taskbar)
             refit();
     });
+}
+
+void Placement::setContentSize(QSize size)
+{
+    if (size == m_contentSize)
+        return;
+    m_contentSize = size;
+    emit contentSizeChanged();
+}
+
+bool Placement::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == m_window && (event->type() == QEvent::DevicePixelRatioChange || event->type() == QEvent::Show))
+        scheduleDisplayRestore();
+    return QObject::eventFilter(watched, event);
+}
+
+void Placement::watchScreen(QScreen* screen)
+{
+    for (const auto& connection : std::as_const(m_screenConnections))
+        disconnect(connection);
+    m_screenConnections.clear();
+    if (screen) {
+        m_screenConnections = {
+            connect(screen, &QScreen::geometryChanged, this, &Placement::scheduleDisplayRestore),
+            connect(screen, &QScreen::availableGeometryChanged, this, &Placement::scheduleDisplayRestore),
+            connect(screen, &QScreen::logicalDotsPerInchChanged, this, &Placement::scheduleDisplayRestore)};
+    }
+    scheduleDisplayRestore();
+}
+
+void Placement::scheduleDisplayRestore()
+{
+    m_displayRestorePending = true;
+    m_displaySettle.start();
+}
+
+void Placement::restoreDisplayGeometry()
+{
+    if (!m_window || m_moving || m_sizing)
+        return;
+    QScreen* screen = m_window->screen();
+    if (!screen)
+        return;
+    m_displayRestorePending = false;
+    m_glide.stop();
+    settleSlide();
+    if (m_panel) {
+        // Only user sizing writes m_panelSize. A smaller temporary work area
+        // during reconnect must never become the next opening's preference.
+        m_window->setGeometry(panelRect(screen));
+        return;
+    }
+    fitWidth(screen);
+    if (!m_contentSize.isEmpty())
+        m_window->resize(m_contentSize);
+    refit();
 }
 
 void Placement::placeOn(QScreen* screen)
@@ -378,7 +462,6 @@ void Placement::leavePanel()
 {
     if (!m_panel)
         return;
-    savePanel();
     m_panel = false;
 }
 
@@ -990,6 +1073,8 @@ void Placement::endSizing(bool cancel)
     } else {
         keepWidth();
     }
+    if (m_displayRestorePending)
+        scheduleDisplayRestore();
     emit sizingChanged();
 }
 

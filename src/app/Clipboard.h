@@ -193,6 +193,8 @@ public:
     void handlePlaced() { emit placed(); } // after handleShown, put where it opens: the preview may widen it now
     void handleHidden();
     void historyChanged(); // the store changed outside this class (copied, limits, cleared)
+    void resumeHistory(); // the store was reopened: restore preferences and schedule unread pictures
+    void suspendHistory(); // stop OCR work and discard transient rows before closing the store
     void retranslate();
 
     // On a row; on all of them, when it is one of several picked.
@@ -343,11 +345,13 @@ private:
     void fillField(); // it has the keyboard again (or waited long enough)
     void dropUndo();
     QString separator() const;
+    void loadHistoryState();
 
     ClipStore* m_store;
     ClipboardWatcher* m_watcher;
     ClipModel m_model;
     TextRecognizer m_recognizer; // the words in pictures, for the search
+    QTimer m_backlogTimer;
     QSet<qint64> m_rereading; // read by another recognizer before: once all are back, it is noted
     QPointer<QWindow> m_window;
     // Pictures dragged out, copied here first (a folder each, by id): kept

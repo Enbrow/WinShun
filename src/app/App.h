@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AiSettings.h"
+#include "FrameReveal.h"
 #include "Settings.h"
 #include "Win32Util.h"
 #include "platform/ClipboardWatcher.h"
@@ -604,16 +605,9 @@ private:
     std::uint64_t m_keyRouterRun = 0; // which routing its posted keys belong to
     std::unique_ptr<KeyRouter> m_drainingRouter; // done, until the keys it took are let go (KeyRouter::drain)
     std::uint64_t m_drainingRun = 0;
-    std::atomic<bool> m_clipUncloak {false}; // shown cloaked until its first frame
-    QTimer m_clipUncloakTimeout;
+    FrameReveal m_clipReveal; // shown cloaked until a frame from this opening
     std::atomic<bool> m_clipPrewarming {false}; // shown cloaked for one frame (see prewarmClipboard)
-    // The launcher is shown cloaked and revealed once it has drawn a frame
-    // with fresh results (see showLauncher). Set on the GUI thread, read on
-    // the render thread.
-    bool m_revealing = false;
-    std::atomic<bool> m_revealArmed {false}; // results are in: the next synchronised frame is the one
-    std::atomic<bool> m_revealSynced {false}; // that frame has been synchronised
-    QTimer m_revealTimeout;
+    FrameReveal m_launcherReveal; // armed once the fresh results are ready (showLauncher)
     std::atomic<bool> m_prewarming {false}; // shown cloaked for one frame (see prewarmLauncher)
     std::unique_ptr<QQmlApplicationEngine> m_qml; // destroyed first: QML references the objects above
     // Its overlay windows are the engine's: reset in ~App, before the engine goes.

@@ -7,6 +7,7 @@
 #include <QPointF>
 #include <QPointer>
 #include <QRect>
+#include <QTimer>
 #include <QVariantAnimation>
 #include <QtGui/qwindowdefs.h>
 #include <QtQml/qqmlregistration.h>
@@ -99,6 +100,8 @@ class Placement : public QObject {
     Q_PROPERTY(int boxWidth READ boxWidth NOTIFY boxWidthChanged FINAL)
     // Its edge held, widening it (beginSizing).
     Q_PROPERTY(bool sizing READ sizing NOTIFY sizingChanged FINAL)
+    // The content's logical size, independent of unsolicited native resizes.
+    Q_PROPERTY(QSize contentSize READ contentSize WRITE setContentSize NOTIFY contentSizeChanged FINAL)
 
 public:
     // `group`: the state file's section with its spot ("Launcher"). A window
@@ -107,6 +110,8 @@ public:
     ~Placement() override;
 
     void setWindow(QWindow* window); // native handle created
+    QSize contentSize() const { return m_contentSize; }
+    void setContentSize(QSize size);
     void placeOn(QScreen* screen); // before showing the window there, at its spot
     // Before showing it, by `box` (logical pixels, on `screen`; none: the
     // screen at the box's centre).
@@ -191,6 +196,10 @@ signals:
     void boxWidthChanged();
     void sizingChanged();
     void widthReset(); // resetWidth() changed it
+    void contentSizeChanged();
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     struct Hook; // the window procedure subclass
@@ -225,6 +234,9 @@ private:
     QPoint settleBy(QScreen* screen); // ... by the box; sets room, and with it the height (QML)
     QPoint settleByTaskbar(QScreen* screen); // ... over the taskbar; likewise
     void refit(); // its size changed: where it goes now
+    void watchScreen(QScreen* screen);
+    void scheduleDisplayRestore();
+    void restoreDisplayGeometry();
     void setTaskbar(std::optional<TaskbarBox> box);
     void setRoom(int room);
     void setAbove(bool above);
@@ -246,6 +258,10 @@ private:
     QString m_stateFile;
     QString m_group;
     QPointer<QWindow> m_window;
+    QSize m_contentSize;
+    QTimer m_displaySettle;
+    QList<QMetaObject::Connection> m_screenConnections;
+    bool m_displayRestorePending = false;
     WId m_hwnd = 0;
     QPointF m_anchor; // centre across, top down; fractions of the work area
     int m_anchorWidth = 0;
