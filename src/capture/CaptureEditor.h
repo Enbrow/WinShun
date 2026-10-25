@@ -238,6 +238,9 @@ signals:
     void cursorChanged();
     void noticeChanged();
 
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
 private:
     using Origin = editview::Origin;
 

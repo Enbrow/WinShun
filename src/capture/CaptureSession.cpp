@@ -44,14 +44,16 @@ void CaptureScreen::setImage(const QImage& image)
     emit imageChanged();
 }
 
-void CaptureScreen::setState(const QRect& hover, const QRect& selection, bool dimmed, bool adjusting)
+void CaptureScreen::setState(const QRect& hover, const QRect& selection, bool dimmed, bool adjusting, bool magnifierShown)
 {
-    if (hover == m_hover && selection == m_selection && dimmed == m_dimmed && adjusting == m_adjusting)
+    if (hover == m_hover && selection == m_selection && dimmed == m_dimmed && adjusting == m_adjusting
+        && magnifierShown == m_magnifierShown)
         return;
     m_hover = hover;
     m_selection = selection;
     m_dimmed = dimmed;
     m_adjusting = adjusting;
+    m_magnifierShown = magnifierShown;
     emit changed();
 }
 
@@ -245,6 +247,8 @@ void CaptureSession::begin(std::vector<CaptureScreen*> screens, Windows windows)
     m_previous = {};
     m_handle = Handle::None;
     m_cursorScreen = -1;
+    m_cursorCovered = false;
+    m_shiftAlone = false;
     m_hoverScreen = -1;
     m_chain.clear();
     m_level = 0;
@@ -313,7 +317,7 @@ void CaptureSession::end()
 {
     m_noticeTimer.stop();
     for (CaptureScreen* s : m_screens) {
-        s->setState({}, {}, false, false);
+        s->setState({}, {}, false, false, false);
         s->setCursor(false, {-1, -1}, Qt::CrossCursor);
         s->setFlash({});
         s->setNotice({});
@@ -448,10 +452,17 @@ void CaptureSession::publish()
     const Pick shown = pressedOverPrevious ? m_previous : m_selection;
     const bool hovering = (m_phase == Phase::Hover || m_phase == Phase::Pressed) && !pressedOverPrevious;
     const bool adjusting = m_phase == Phase::Dragging || m_phase == Phase::Adjusting;
+    // The magnifier while picking, drawing and adjusting; with a selection
+    // made, only over it and its frame (beside it, on the handles outside,
+    // on the toolbar or on another monitor it was only in the way).
+    const CaptureScreen* cursorScreen = screenAt(m_cursorScreen);
+    const int line = std::max(1, static_cast<int>(std::lround(cursorScreen ? cursorScreen->dpr() : 1.0)));
+    const bool overShown = shown.screen == m_cursorScreen && shown.rect.adjusted(-line, -line, line, line).contains(m_cursorAt);
+    const bool magnifier = !m_cursorCovered && (hovering || adjusting || overShown);
     for (CaptureScreen* s : m_screens) {
         const QRect hover = hovering && s->index() == m_hoverScreen ? hoverRect() : QRect();
         const QRect selection = s->index() == shown.screen ? shown.rect : QRect();
-        s->setState(hover, selection, m_active, adjusting);
+        s->setState(hover, selection, m_active, adjusting, magnifier && s->index() == m_cursorScreen);
     }
 }
 
@@ -473,6 +484,7 @@ void CaptureSession::pointerMove(int screen, QPoint p, Qt::KeyboardModifiers mod
     if (m_pendingButton != Qt::NoButton
         && (screen != m_pendingScreen || (p - m_pendingAt).manhattanLength() > dragStart(screen)))
         m_pendingButton = Qt::NoButton; // moved before the release: not a click
+    m_cursorCovered = false;
     switch (m_phase) {
     case Phase::Hover:
         updateHover(screen, clampTo(screen, p));
@@ -509,6 +521,8 @@ void CaptureSession::pointerMove(int screen, QPoint p, Qt::KeyboardModifiers mod
         break;
     }
     case Phase::Selected:
+        if (m_annot.pathActive() && m_annotScreen == screen)
+            m_annot.move(p, modifiers);
         break;
     }
     updateCursor(screen, p);
@@ -520,6 +534,12 @@ void CaptureSession::pointerPress(int screen, QPoint p, Qt::MouseButton button, 
     if (!m_active || !screenAt(screen))
         return;
     m_pendingButton = Qt::NoButton; // another press voids one waiting for its release
+    m_shiftAlone = false; // Shift held for the press (a square, a straight line): not a Shift alone
+    if (button == Qt::RightButton && m_annot.finishPath()) {
+        m_phase = Phase::Selected;
+        publish();
+        return;
+    }
     if (button == Qt::RightButton || button == Qt::MiddleButton || button == Qt::BackButton
         || button == Qt::ForwardButton) {
         mouseButton(button, screen, p);
@@ -640,6 +660,11 @@ void CaptureSession::doubleClick(int screen, QPoint p)
 {
     if (!m_active)
         return;
+    if (m_annotScreen == screen && m_annot.finishPath()) {
+        m_phase = Phase::Selected;
+        publish();
+        return;
+    }
     // A text or a number under it opens for editing; with a tool on, and on
     // any annotation, it never copies (3.6).
     // Qt sends the second press of a double click as a press and then this,
@@ -785,6 +810,7 @@ void CaptureSession::wheelAngle(int screen, QPoint p, int angleDelta, qint64 now
 {
     if (!m_active || angleDelta == 0)
         return;
+    m_shiftAlone = false;
     if (m_annot.active() && m_annotScreen == screen && m_selection.screen == screen
         && (m_phase == Phase::Selected || m_phase == Phase::Annotating) && m_annot.wheel(angleDelta, nowMs)) {
         publish();
@@ -801,6 +827,8 @@ bool CaptureSession::key(int key, Qt::KeyboardModifiers modifiers)
     const bool shift = modifiers & Qt::ShiftModifier;
     const bool busy = m_phase == Phase::Pressed || m_phase == Phase::Dragging || m_phase == Phase::Adjusting
         || m_phase == Phase::Annotating;
+    // Shift with no other modifier may be a Shift alone (keyReleased); any other key ends that.
+    m_shiftAlone = key == Qt::Key_Shift && !(modifiers & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier));
     // The tools, undo, delete and the arrows on a selected annotation come
     // first; what the model leaves is the selection's and the capture's own.
     if (m_annot.active() && (m_phase == Phase::Selected || m_phase == Phase::Annotating) && key != Qt::Key_Escape
@@ -854,23 +882,27 @@ bool CaptureSession::key(int key, Qt::KeyboardModifiers modifiers)
             return true;
         }
         return false;
-    case Qt::Key_C:
+    case Qt::Key_C: {
         if (busy)
             return true;
         if (ctrl) {
             finish(Action::Copy);
-        } else if (shift) {
-            // Shift+C: the next format (HEX, RGB, HSL), kept for the next capture.
-            setColorFormat(nextColorFormat(m_colorFormat));
-            if (CaptureScreen* target = screenAt(m_cursorScreen))
-                target->setFlash(tr("颜色格式：%1").arg(colorFormatName(m_colorFormat).toUpper()));
-        } else if (const CaptureScreen* s = screenAt(m_cursorScreen); s && !s->colorText().isEmpty()) {
+            return true;
+        }
+        if (shift) {
+            // Shift+C: its words to the clipboard, as in PixPin (识别文字并复制).
+            finish(Action::OcrCopy);
+            return true;
+        }
+        // C goes with the magnifier, which shows the colour and that it was copied.
+        CaptureScreen* s = screenAt(m_cursorScreen);
+        if (s && s->magnifierShown() && !s->colorText().isEmpty()) {
             const QString text = s->colorText();
             emit colorCopied(text);
-            if (CaptureScreen* target = screenAt(m_cursorScreen))
-                target->setFlash(tr("已复制 %1").arg(text));
+            s->setFlash(tr("已复制 %1").arg(text));
         }
         return true;
+    }
     case Qt::Key_R:
         // Shift+R before there is a selection: the one of the last capture.
         if (!shift || ctrl || busy || m_selection.screen >= 0 || m_phase != Phase::Hover)
@@ -1029,6 +1061,15 @@ void CaptureSession::mouseDoubleClicked(int screen, qreal x, qreal y)
         doubleClick(screen, QPoint(toPhysical(x, s->dpr()), toPhysical(y, s->dpr())));
 }
 
+void CaptureSession::mouseLeft(int screen)
+{
+    // With a button held the picture keeps the mouse (and its moves) beyond its edges.
+    if (!m_active || screen != m_cursorScreen || (m_phase != Phase::Hover && m_phase != Phase::Selected))
+        return;
+    m_cursorCovered = true;
+    publish();
+}
+
 void CaptureSession::wheeled(int screen, qreal x, qreal y, int angleDeltaY)
 {
     const CaptureScreen* s = screenAt(screen);
@@ -1040,6 +1081,19 @@ void CaptureSession::wheeled(int screen, qreal x, qreal y, int angleDeltaY)
 bool CaptureSession::keyPressed(int key, int modifiers)
 {
     return this->key(key, Qt::KeyboardModifiers(modifiers));
+}
+
+void CaptureSession::keyReleased(int key)
+{
+    // Shift alone, as in PixPin and Snipaste: the colour's next format (HEX,
+    // RGB, HSL), kept for the next capture; only where the magnifier shows it.
+    if (!m_active || key != Qt::Key_Shift || !std::exchange(m_shiftAlone, false))
+        return;
+    CaptureScreen* s = screenAt(m_cursorScreen);
+    if ((m_phase != Phase::Hover && m_phase != Phase::Selected) || !s || !s->magnifierShown())
+        return;
+    setColorFormat(nextColorFormat(m_colorFormat));
+    s->setFlash(tr("颜色格式：%1").arg(colorFormatName(m_colorFormat).toUpper()));
 }
 
 void CaptureSession::act(int action)

@@ -388,17 +388,7 @@ std::shared_ptr<const Recipe> buildRecipe(const Item& item, qreal dpr, int numbe
         if (item.points.size() < 2)
             break;
         const QPoint anchor = pixelAt(item.points[0]);
-        const ArrowShape arrow = arrowShape(translated(item, -anchor), dpr);
-        if (arrow.head.isEmpty())
-            break;
-        QPainterPath path;
-        path.setFillRule(Qt::WindingFill);
-        path.addPolygon(arrow.head);
-        path.closeSubpath();
-        if (!arrow.shaft.isEmpty()) {
-            path.addPolygon(arrow.shaft);
-            path.closeSubpath();
-        }
+        const QPainterPath path = arrowPath(translated(item, -anchor), dpr);
         addFill(*recipe, path, anchor, color);
         break;
     }
@@ -406,12 +396,7 @@ std::shared_ptr<const Recipe> buildRecipe(const Item& item, qreal dpr, int numbe
         if (item.points.size() < 2)
             break;
         const QPoint anchor = pixelAt(item.points[0]);
-        const QList<QPointF> points = alignedPoints(translated(item, -anchor));
-        if (same(points[0], points[1]))
-            break;
-        QPainterPath centre;
-        centre.moveTo(points[0]);
-        centre.lineTo(points[1]);
+        const QPainterPath centre = linePath(translated(item, -anchor));
         addFill(*recipe, strokeOf(centre, w), anchor, color);
         break;
     }
@@ -423,7 +408,11 @@ std::shared_ptr<const Recipe> buildRecipe(const Item& item, qreal dpr, int numbe
         const QList<QPointF> points = alignedPoints(translated(item, -anchor));
         const bool dot = std::all_of(points.cbegin(), points.cend(), [&](QPointF p) { return same(p, points[0]); });
         QPainterPath path;
-        if (dot)
+        if (item.kind == Kind::Marker && item.style.markerMode == MarkerMode::Rectangle)
+            path.addRect(QRectF(itemBox(translated(item, -anchor))));
+        else if (item.kind == Kind::Marker && item.style.markerMode == MarkerMode::Line)
+            path = strokeOf(linePath(translated(item, -anchor)), w);
+        else if (dot)
             path.addEllipse(points[0], w / 2.0, w / 2.0);
         else
             path = strokeOf(strokeCentreline(points), w);

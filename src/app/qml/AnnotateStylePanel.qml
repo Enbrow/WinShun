@@ -110,6 +110,37 @@ Rectangle {
         y: panel.pad
         height: panel.controlHeight
 
+        Row {
+            visible: panel.p.lineMode !== undefined
+            Repeater {
+                model: panel.kind === 3
+                    ? [["straight", qsTr("直线")], ["polyline", qsTr("折线")], ["bezier", qsTr("曲线")]]
+                    : [["straight", qsTr("直线")], ["bezier", qsTr("曲线")]]
+                delegate: WordButton {
+                    required property var modelData
+                    words: modelData[1]
+                    checked: panel.p.lineMode === modelData[0]
+                    tip: modelData[0] === "polyline" ? qsTr("单击加点，点击起点闭合；双击/回车结束，退格撤回节点")
+                        : modelData[0] === "bezier" ? qsTr("拖出曲线，再拖动两个圆形控制点调整弧度") : qsTr("拖动绘制直线，Shift 吸附角度")
+                    onClicked: panel.change({lineMode: modelData[0]})
+                }
+            }
+        }
+        Row {
+            visible: panel.p.markerMode !== undefined
+            Repeater {
+                model: [["freehand", qsTr("涂画")], ["line", qsTr("直线")], ["rectangle", qsTr("矩形")]]
+                delegate: WordButton {
+                    required property var modelData
+                    words: modelData[1]
+                    checked: panel.p.markerMode === modelData[0]
+                    tip: qsTr("新荧光笔标注的绘制方式；叠在文字上仍可读")
+                    onClicked: panel.change({markerMode: modelData[0]})
+                }
+            }
+        }
+        Separator { visible: panel.p.lineMode !== undefined || panel.p.markerMode !== undefined }
+
         // Redaction: its kind first, then the solid colour or the cell size.
         Row {
             visible: panel.redact

@@ -86,7 +86,7 @@ public:
         // 二维码: the texts of the QR codes read in the selection (empty: none was
         // found) and where the selection was (physical, virtual desktop).
         std::function<void(const QStringList&, const QRect& where)> qr;
-        // The colour format C copies in (hex, rgb, hsl), when Shift+C changes it.
+        // The colour format C copies in (hex, rgb, hsl), when Shift alone changes it.
         std::function<void(const QString&)> colorFormatChanged;
         // A fill that carries white words (the countdown's).
         std::function<QColor()> accent;

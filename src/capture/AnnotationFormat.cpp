@@ -65,6 +65,10 @@ QJsonObject styleJson(Kind kind, const Style& s)
     const bool strokes = !redact && !words;
     const bool box = kind == Kind::Rect || kind == Kind::Ellipse;
     QJsonObject o;
+    if (isLine(kind) && s.lineMode != LineMode::Straight)
+        o[u"lineMode"_s] = lineModeName(s.lineMode);
+    if (kind == Kind::Marker && s.markerMode != MarkerMode::Freehand)
+        o[u"markerMode"_s] = markerModeName(s.markerMode);
     if (!redact || s.redact == RedactMode::Solid || s.color != defaults.color)
         o[u"color"_s] = colorHex(s.color);
     if (strokes || s.width != defaults.width)
@@ -90,6 +94,8 @@ QJsonObject styleJson(Kind kind, const Style& s)
 Style styleFrom(const QJsonObject& o)
 {
     Style s;
+    s.lineMode = lineModeFromName(o.value(u"lineMode"_s).toString()).value_or(LineMode::Straight);
+    s.markerMode = markerModeFromName(o.value(u"markerMode"_s).toString()).value_or(MarkerMode::Freehand);
     if (const auto color = parseColor(o.value(u"color"_s).toString()))
         s.color = *color;
     if (const auto width = wholeFrom(o.value(u"width"_s), 1, kMaxStyleValue))
@@ -130,6 +136,8 @@ QJsonObject itemJson(const Item& item)
         points.append(pointJson(p));
     o[u"points"_s] = points;
     o[u"style"_s] = styleJson(item.kind, item.style);
+    if (item.closed)
+        o[u"closed"_s] = true;
     if (item.kind == Kind::Text || !item.text.isEmpty())
         o[u"text"_s] = item.text;
     if (item.kind == Kind::Number || item.series != 0)
@@ -164,6 +172,11 @@ std::optional<Item> itemFrom(const QJsonObject& o)
         item.points.append(QPointF(x, y));
     }
     item.style = styleFrom(o.value(u"style"_s).toObject());
+    item.closed = item.kind == Kind::Line && item.style.lineMode == LineMode::Polyline && o.value(u"closed"_s).toBool();
+    if (isLine(item.kind) && item.style.lineMode == LineMode::Bezier && item.points.size() != 4)
+        return std::nullopt;
+    if (item.kind == Kind::Arrow && item.style.lineMode == LineMode::Polyline)
+        return std::nullopt;
     item.text = o.value(u"text"_s).toString();
     item.series = quint32(wholeFrom(o.value(u"series"_s), 0, 0xFFFFFFFFll).value_or(0));
     if (const auto pinned = wholeFrom(o.value(u"pinned"_s), std::numeric_limits<int>::min(), std::numeric_limits<int>::max()))
@@ -173,7 +186,7 @@ std::optional<Item> itemFrom(const QJsonObject& o)
     if (ok)
         item.seed = seed;
     const bool brush = item.kind == Kind::Redact && item.style.shape == RedactShape::Brush;
-    const qsizetype needed = (isBox(item.kind) && !brush) || isLine(item.kind) ? 2 : 1;
+    const qsizetype needed = (isBox(item.kind) && !brush) || isLineItem(item) || isBoxItem(item) ? 2 : 1;
     if (item.points.size() < needed)
         return std::nullopt;
     return item;
@@ -184,9 +197,11 @@ std::optional<Item> itemFrom(const QJsonObject& o)
 // tests/data/annotate. Version 1 is the first, so there is none yet.
 QJsonObject migrate(const QJsonObject& json, int from)
 {
-    static_assert(Document::kVersion == 1, "a new version needs its step up from the one before here");
-    Q_UNUSED(from);
-    return json;
+    static_assert(Document::kVersion == 2);
+    QJsonObject result = json;
+    if (from == 1)
+        result[u"version"_s] = 2;
+    return result;
 }
 
 std::optional<Document> parse(const QJsonObject& json, QString* error)

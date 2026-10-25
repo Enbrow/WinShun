@@ -18,7 +18,7 @@
 // for asking UI Automation about a control. Physical pixels throughout.
 namespace ws::capture {
 
-// ---- colour formats (the magnifier; C copies, Shift+C changes) ------------------
+// ---- colour formats (the magnifier; C copies, Shift alone changes) --------------
 
 enum class ColorFormat { Hex, Rgb, Hsl };
 // "#1E90FF", "rgb(30, 144, 255)", "hsl(210, 100%, 56%)".

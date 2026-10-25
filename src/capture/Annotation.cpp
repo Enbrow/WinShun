@@ -2,6 +2,7 @@
 
 #include <QFont>
 #include <QFontMetricsF>
+#include <QPainterPathStroker>
 #include <QRawFont>
 #include <QStringList>
 #include <QTextLayout>
@@ -85,16 +86,6 @@ qreal distanceToPolyline(QPointF p, const QList<QPointF>& points)
 // `to` turned around `from` to the nearest multiple of 15 degrees; the offset
 // is rounded to whole pixels so that a pixel centre stays a pixel centre, and
 // 0 and 90 degrees come out exactly level or upright.
-QPointF snapAngle(QPointF from, QPointF to)
-{
-    const QPointF d = to - from;
-    const qreal length = std::hypot(d.x(), d.y());
-    if (length == 0)
-        return from;
-    constexpr qreal step = std::numbers::pi / 12;
-    const qreal angle = std::round(std::atan2(d.y(), d.x()) / step) * step;
-    return from + QPointF(std::round(length * std::cos(angle)), std::round(length * std::sin(angle)));
-}
 
 int startOf(const Document& doc, quint32 series)
 {
@@ -155,6 +146,12 @@ bool hits(const Item& item, QPointF q, qreal tolerance, qreal dpr, int number, N
             return distanceToPolyline(q, item.points) <= w / 2.0 + tolerance;
         return QRectF(itemBox(item)).contains(q);
     case Kind::Arrow: {
+        if (item.style.lineMode == LineMode::Bezier) {
+            const QPainterPath shape = arrowPath(item, dpr);
+            QPainterPathStroker reach;
+            reach.setWidth(std::max<qreal>(0.01, tolerance * 2));
+            return shape.contains(q) || reach.createStroke(shape).contains(q);
+        }
         const ArrowShape shape = arrowShape(item, dpr);
         if (shape.head.isEmpty())
             return false;
@@ -164,8 +161,15 @@ bool hits(const Item& item, QPointF q, qreal tolerance, qreal dpr, int number, N
         return distanceToSegment(q, points[0], points[1]) <= w / 2.0 + tolerance;
     }
     case Kind::Line:
+        for (const QPolygonF& points : linePath(item).toSubpathPolygons()) {
+            if (distanceToPolyline(q, points) <= w / 2.0 + tolerance)
+                return true;
+        }
+        return false;
     case Kind::Pen:
     case Kind::Marker:
+        if (item.kind == Kind::Marker && item.style.markerMode == MarkerMode::Rectangle)
+            return QRectF(itemBox(item)).adjusted(-tolerance, -tolerance, tolerance, tolerance).contains(q);
         return distanceToPolyline(q, alignedPoints(item)) <= w / 2.0 + tolerance;
     case Kind::Text: {
         if (item.text.isEmpty())
@@ -182,6 +186,17 @@ bool hits(const Item& item, QPointF q, qreal tolerance, qreal dpr, int number, N
 
 } // namespace
 
+QPointF snapAngle(QPointF from, QPointF to)
+{
+    const QPointF d = to - from;
+    const qreal length = std::hypot(d.x(), d.y());
+    if (length == 0)
+        return from;
+    constexpr qreal step = std::numbers::pi / 12;
+    const qreal angle = std::round(std::atan2(d.y(), d.x()) / step) * step;
+    return from + QPointF(std::round(length * std::cos(angle)), std::round(length * std::sin(angle)));
+}
+
 bool isBox(Kind kind)
 {
     return kind == Kind::Rect || kind == Kind::Ellipse || kind == Kind::Redact;
@@ -197,6 +212,55 @@ bool isStroke(Kind kind)
     return kind == Kind::Pen || kind == Kind::Marker;
 }
 
+bool isBoxItem(const Item& item)
+{
+    return (isBox(item.kind) && !isBrush(item))
+        || (item.kind == Kind::Marker && item.style.markerMode == MarkerMode::Rectangle);
+}
+
+bool isLineItem(const Item& item)
+{
+    return isLine(item.kind) || (item.kind == Kind::Marker && item.style.markerMode == MarkerMode::Line);
+}
+
+QString lineModeName(LineMode mode)
+{
+    switch (mode) {
+    case LineMode::Straight: return QStringLiteral("straight");
+    case LineMode::Polyline: return QStringLiteral("polyline");
+    case LineMode::Bezier: return QStringLiteral("bezier");
+    }
+    return {};
+}
+
+std::optional<LineMode> lineModeFromName(QStringView name)
+{
+    for (LineMode mode : {LineMode::Straight, LineMode::Polyline, LineMode::Bezier}) {
+        if (name == lineModeName(mode))
+            return mode;
+    }
+    return std::nullopt;
+}
+
+QString markerModeName(MarkerMode mode)
+{
+    switch (mode) {
+    case MarkerMode::Freehand: return QStringLiteral("freehand");
+    case MarkerMode::Line: return QStringLiteral("line");
+    case MarkerMode::Rectangle: return QStringLiteral("rectangle");
+    }
+    return {};
+}
+
+std::optional<MarkerMode> markerModeFromName(QStringView name)
+{
+    for (MarkerMode mode : {MarkerMode::Freehand, MarkerMode::Line, MarkerMode::Rectangle}) {
+        if (name == markerModeName(mode))
+            return mode;
+    }
+    return std::nullopt;
+}
+
 bool isBrush(const Item& item)
 {
     return item.kind == Kind::Redact && item.style.shape == RedactShape::Brush;
@@ -204,7 +268,7 @@ bool isBrush(const Item& item)
 
 bool isStrokeItem(const Item& item)
 {
-    return isStroke(item.kind) || isBrush(item);
+    return item.kind == Kind::Pen || (item.kind == Kind::Marker && item.style.markerMode == MarkerMode::Freehand) || isBrush(item);
 }
 
 QString kindName(Kind kind)
@@ -566,6 +630,76 @@ ArrowShape arrowShape(const Item& item, qreal dpr)
     return shape;
 }
 
+QPainterPath linePath(const Item& item)
+{
+    const QList<QPointF> points = alignedPoints(item);
+    QPainterPath path;
+    if (points.size() < 2)
+        return path;
+    path.moveTo(points[0]);
+    if (isLine(item.kind) && item.style.lineMode == LineMode::Bezier && points.size() == 4) {
+        path.cubicTo(points[2], points[3], points[1]);
+    } else {
+        for (qsizetype i = 1; i < points.size(); ++i)
+            path.lineTo(points[i]);
+        if (item.closed)
+            path.closeSubpath();
+    }
+    return path;
+}
+
+QPainterPath arrowPath(const Item& item, qreal dpr)
+{
+    QPainterPath path;
+    path.setFillRule(Qt::WindingFill);
+    if (item.style.lineMode != LineMode::Bezier || item.points.size() != 4) {
+        const ArrowShape shape = arrowShape(item, dpr);
+        if (!shape.head.isEmpty()) {
+            path.addPolygon(shape.head);
+            path.closeSubpath();
+        }
+        if (!shape.shaft.isEmpty()) {
+            path.addPolygon(shape.shaft);
+            path.closeSubpath();
+        }
+        return path;
+    }
+    const QPainterPath centre = linePath(item);
+    const qreal length = centre.length();
+    if (length <= 0)
+        return path;
+    const QPointF start = item.points[0], end = item.points[1];
+    const QPointF c1 = item.points[2], c2 = item.points[3];
+    QPointF tangent = end - c2;
+    if (qFuzzyIsNull(std::hypot(tangent.x(), tangent.y())))
+        tangent = end - c1;
+    if (qFuzzyIsNull(std::hypot(tangent.x(), tangent.y())))
+        tangent = end - start;
+    const qreal magnitude = std::hypot(tangent.x(), tangent.y());
+    if (magnitude <= 0)
+        return path;
+    const QPointF unit = tangent / magnitude;
+    const QPointF normal(-unit.y(), unit.x());
+    const qreal head = std::min(arrowHeadLength(item.style.width, dpr), length);
+    const QPointF root = end - unit * head;
+    path.addPolygon(QPolygonF{end, root + normal * (head * 0.45), root - normal * (head * 0.45)});
+    path.closeSubpath();
+    if (length > head) {
+        // Split the cubic with de Casteljau; the shaft ends inside the head.
+        const qreal t = centre.percentAtLength(length - head * 0.55);
+        const auto mix = [t](QPointF a, QPointF b) { return a + (b - a) * t; };
+        const QPointF a = mix(start, c1), b = mix(c1, c2), c = mix(c2, end);
+        const QPointF d = mix(a, b), e = mix(b, c);
+        QPainterPath shaft(start);
+        shaft.cubicTo(a, d, mix(d, e));
+        QPainterPathStroker stroker;
+        stroker.setWidth(std::max(1, item.style.width));
+        stroker.setCapStyle(Qt::RoundCap);
+        path = path.united(stroker.createStroke(shaft));
+    }
+    return path;
+}
+
 QPainterPath strokeCentreline(const QList<QPointF>& points)
 {
     QPainterPath path;
@@ -797,13 +931,14 @@ QRectF bounds(const Item& item, qreal dpr, int number, NumberFormat format)
     case Kind::Redact:
         return QRectF(itemBox(item));
     case Kind::Arrow: {
-        const ArrowShape shape = arrowShape(item, dpr);
-        const QRectF r = shape.head.boundingRect() | shape.shaft.boundingRect();
+        const QRectF r = arrowPath(item, dpr).boundingRect();
         return r.isNull() ? QRectF() : r.adjusted(-1, -1, 1, 1);
     }
     case Kind::Line:
     case Kind::Pen:
     case Kind::Marker: {
+        if (item.kind == Kind::Marker && item.style.markerMode == MarkerMode::Rectangle)
+            return QRectF(itemBox(item));
         const QList<QPointF> points = alignedPoints(item);
         if (points.isEmpty())
             return {};
@@ -812,7 +947,8 @@ QRectF bounds(const Item& item, qreal dpr, int number, NumberFormat format)
         // Round caps and joins reach half the width past the points; the
         // smoothed curve stays inside the polyline's hull.
         const qreal m = w / 2.0 + 1;
-        return QPolygonF(points).boundingRect().adjusted(-m, -m, m, m);
+        const QRectF area = item.kind == Kind::Line ? linePath(item).boundingRect() : QPolygonF(points).boundingRect();
+        return area.adjusted(-m, -m, m, m);
     }
     case Kind::Text: {
         if (item.points.isEmpty() || item.text.isEmpty())
@@ -867,7 +1003,7 @@ std::optional<quint32> hitTest(const Document& doc, QPointF p, qreal tolerance)
 
 QList<QPointF> handles(const Item& item)
 {
-    if (isBox(item.kind) && !isBrush(item)) {
+    if (isBoxItem(item)) {
         const QRect box = itemBox(item);
         const qreal x0 = box.x();
         const qreal y0 = box.y();
@@ -877,8 +1013,8 @@ QList<QPointF> handles(const Item& item)
         const qreal ym = (y0 + y1) / 2;
         return {{x0, y0}, {xm, y0}, {x1, y0}, {x1, ym}, {x1, y1}, {xm, y1}, {x0, y1}, {x0, ym}};
     }
-    if (isLine(item.kind) && item.points.size() >= 2)
-        return {item.points[0], item.points[1]};
+    if (isLineItem(item) && item.points.size() >= 2)
+        return item.points;
     return {};
 }
 
@@ -886,7 +1022,7 @@ Item reshaped(const Item& item, int handle, QPointF to, bool constrain)
 {
     Item out = item;
     const QPoint pixel = pixelAt(to);
-    if (isBox(item.kind) && !isBrush(item)) {
+    if (isBoxItem(item)) {
         if (handle < int(BoxHandle::TopLeft) || handle > int(BoxHandle::Left))
             return out;
         const QRect box = itemBox(item);
@@ -922,12 +1058,14 @@ Item reshaped(const Item& item, int handle, QPointF to, bool constrain)
         out.points = boxPoints(QRect(QPoint(x0, y0), QPoint(x1, y1)));
         return out;
     }
-    if (isLine(item.kind)) {
-        if (item.points.size() < 2 || (handle != int(LineHandle::Start) && handle != int(LineHandle::End)))
+    if (isLineItem(item)) {
+        if (item.points.size() < 2 || handle < 0 || handle >= item.points.size())
             return out;
         QPointF p = pixelCentre(to);
         if (constrain)
-            p = snapAngle(item.points[1 - handle], p);
+            p = snapAngle(item.points[handle == 0 ? 1 : handle - 1], p);
+        if (isLine(item.kind) && item.style.lineMode == LineMode::Bezier && item.points.size() == 4 && handle < 2)
+            out.points[handle + 2] += p - out.points[handle];
         out.points[handle] = p;
         return out;
     }

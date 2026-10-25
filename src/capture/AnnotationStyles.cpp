@@ -203,6 +203,13 @@ StyleMemory StyleMemory::fromJson(const QString& json)
         const QJsonObject o = it.value().toObject();
         Tool& t = memory.m_tools[std::size_t(*kind)];
         const Fields f = fieldsOf(*kind);
+        if (isLine(*kind)) {
+            t.lineMode = lineModeFromName(o.value(u"lineMode"_s).toString()).value_or(LineMode::Straight);
+            if (*kind == Kind::Arrow && t.lineMode == LineMode::Polyline)
+                t.lineMode = LineMode::Straight;
+        }
+        if (*kind == Kind::Marker)
+            t.markerMode = markerModeFromName(o.value(u"markerMode"_s).toString()).value_or(MarkerMode::Freehand);
         if (f.color) {
             if (const auto color = parseColor(o.value(u"color"_s).toString()))
                 t.color = *color;
@@ -248,6 +255,10 @@ QString StyleMemory::toJson() const
             continue;
         const Fields f = fieldsOf(kind);
         QJsonObject o;
+        if (isLine(kind) && t.lineMode != LineMode::Straight)
+            o[u"lineMode"_s] = lineModeName(t.lineMode);
+        if (kind == Kind::Marker && t.markerMode != MarkerMode::Freehand)
+            o[u"markerMode"_s] = markerModeName(t.markerMode);
         if (f.color)
             o[u"color"_s] = colorHex(t.color);
         if (f.width)
@@ -278,6 +289,10 @@ Style StyleMemory::forTool(Kind kind, qreal dpr) const
     const Tool& t = m_tools[std::size_t(kind)];
     const Fields f = fieldsOf(kind);
     Style s;
+    if (isLine(kind))
+        s.lineMode = t.lineMode;
+    if (kind == Kind::Marker)
+        s.markerMode = t.markerMode;
     if (f.color)
         s.color = t.color;
     if (f.width)
@@ -303,6 +318,10 @@ void StyleMemory::remember(Kind kind, const Style& style, qreal dpr)
 {
     Tool& t = m_tools[std::size_t(kind)];
     const Fields f = fieldsOf(kind);
+    if (isLine(kind))
+        t.lineMode = style.lineMode;
+    if (kind == Kind::Marker)
+        t.markerMode = style.markerMode;
     if (f.color)
         t.color = style.color | 0xff000000u;
     if (f.width && (kind != Kind::Redact || style.shape == RedactShape::Brush))

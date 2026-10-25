@@ -1,4 +1,5 @@
 #include "AnnotationModel.h"
+#include <QLineF>
 
 #include "Geometry.h"
 
@@ -144,6 +145,16 @@ bool applyPanel(const QVariantMap& change, Kind kind, annot::Style& style, qreal
         } else if (key == u"cell" && kind == Kind::Redact) {
             style.cell = annot::toImagePx(logicalValue(value), scale);
             any = true;
+        } else if (key == u"lineMode" && annot::isLine(kind)) {
+            if (const auto mode = annot::lineModeFromName(value.toString()); mode && (kind == Kind::Line || *mode != annot::LineMode::Polyline)) {
+                style.lineMode = *mode;
+                any = true;
+            }
+        } else if (key == u"markerMode" && kind == Kind::Marker) {
+            if (const auto mode = annot::markerModeFromName(value.toString())) {
+                style.markerMode = *mode;
+                any = true;
+            }
         } else if (key == u"shape" && kind == Kind::Redact) {
             if (const std::optional<annot::RedactShape> shape = annot::redactShapeFromName(value.toString())) {
                 style.shape = *shape;
@@ -158,7 +169,9 @@ bool applyPanel(const QVariantMap& change, Kind kind, annot::Style& style, qreal
 // by the line's direction.
 int handleCursor(const annot::Item& item, int handle)
 {
-    if (annot::isLine(item.kind) && item.points.size() >= 2) {
+    if (annot::isLineItem(item) && item.points.size() > 2)
+        return Qt::SizeAllCursor;
+    if (annot::isLineItem(item) && item.points.size() >= 2) {
         const QPointF v = item.points[1] - item.points[0];
         const qreal angle = std::fmod(std::atan2(v.y(), v.x()) * 180 / std::numbers::pi + 180, 180);
         if (angle < 22.5 || angle >= 157.5)
@@ -191,7 +204,7 @@ int handleCursor(const annot::Item& item, int handle)
 // handle a pixel off its edge does not make the box jump by that pixel.
 QPoint handlePixel(const annot::Item& item, int handle)
 {
-    if (annot::isLine(item.kind))
+    if (annot::isLineItem(item))
         return annot::pixelAt(item.points.value(handle));
     const QRect box = annot::itemBox(item);
     const auto h = annot::BoxHandle(handle);
@@ -301,6 +314,7 @@ struct AnnotationModel::Private {
     std::unique_ptr<annot::Command> command;
     bool applied = false;
     bool dragging = false; // moved past the drag start since the press
+    QList<QPointF> pathNodes; // fixed vertices; the last point in the draft follows the mouse
     QPoint pressAt;
     QPoint last;
     Qt::KeyboardModifiers modifiers;
@@ -460,6 +474,7 @@ void AnnotationModel::reset()
     d->placing.reset();
     d->applied = false;
     d->dragging = false;
+    d->pathNodes.clear();
     d->wheelSum = 0;
     d->notched = false;
     m_gesture = Gesture::None;
@@ -556,6 +571,15 @@ annot::Project AnnotationModel::project() const
 annot::Document AnnotationModel::committed() const
 {
     annot::Document doc = m_document;
+    if (pathActive()) {
+        const int index = annot::indexOf(doc, d->before.id);
+        if (index >= 0) {
+            if (d->pathNodes.size() < 2)
+                doc.items.removeAt(index);
+            else
+                doc.items[index].points = d->pathNodes;
+        }
+    }
     if (m_editing) {
         if (const std::unique_ptr<annot::Command> command = textCommand(doc, m_editing->text))
             command->apply(doc);
@@ -569,6 +593,7 @@ void AnnotationModel::setTool(int tool)
 {
     if (tool < -1 || tool >= int(annot::tools().size()) || tool == m_tool)
         return;
+    finishPath();
     if (m_gesture != Gesture::None)
         cancelGesture();
     commitPending();
@@ -605,7 +630,7 @@ QString AnnotationModel::fontFamily() const
 
 bool AnnotationModel::canUndo() const
 {
-    return m_stack.canUndo();
+    return pathActive() || m_stack.canUndo();
 }
 
 bool AnnotationModel::canRedo() const
@@ -615,7 +640,7 @@ bool AnnotationModel::canRedo() const
 
 QString AnnotationModel::undoLabel() const
 {
-    return m_stack.undoLabel();
+    return pathActive() ? tr("撤回节点") : m_stack.undoLabel();
 }
 
 QString AnnotationModel::redoLabel() const
@@ -674,10 +699,15 @@ QVariantMap AnnotationModel::panel() const
         m[u"canLower"_s] = false;
         return m;
     }
-    if (usesWidth(kind)) {
+    const annot::MarkerMode markerMode = target->ids.isEmpty() ? t.markerMode : targetStyle(*target).markerMode;
+    if (usesWidth(kind) && !(kind == Kind::Marker && markerMode == annot::MarkerMode::Rectangle)) {
         m[u"width"_s] = t.width;
         m[u"widths"_s] = variantList(annot::sizePresets(kind));
     }
+    if (annot::isLine(kind))
+        m[u"lineMode"_s] = annot::lineModeName(t.lineMode);
+    if (kind == Kind::Marker)
+        m[u"markerMode"_s] = annot::markerModeName(t.markerMode);
     if (usesFill(kind))
         m[u"fill"_s] = annot::fillName(t.fill);
     if (usesSize(kind)) {
@@ -732,10 +762,12 @@ QVariantList AnnotationModel::selection() const
         const QList<QPointF> points = one ? annot::handles(*item) : QList<QPointF>();
         QVariantList handles;
         for (qsizetype i = 0; i < points.size(); ++i)
-            handles.append(QVariantMap {{u"x"_s, points[i].x()}, {u"y"_s, points[i].y()}, {u"index"_s, int(i)}});
+            handles.append(QVariantMap {{u"x"_s, points[i].x()}, {u"y"_s, points[i].y()}, {u"index"_s, int(i)},
+                {u"control"_s, annot::isLine(item->kind) && item->style.lineMode == annot::LineMode::Bezier && i >= 2}});
         list.append(QVariantMap {{u"id"_s, int(item->id)}, {u"kind"_s, int(item->kind)}, {u"x"_s, outline.x()},
             {u"y"_s, outline.y()}, {u"width"_s, outline.width()}, {u"height"_s, outline.height()},
-            {u"box"_s, points.size() == 8}, {u"handles"_s, handles}});
+            {u"box"_s, annot::isBoxItem(*item)}, {u"curve"_s, annot::isLine(item->kind) && item->style.lineMode == annot::LineMode::Bezier},
+            {u"handles"_s, handles}});
     }
     return list;
 }
@@ -1180,6 +1212,24 @@ bool AnnotationModel::pressFirst(QPoint p, Qt::KeyboardModifiers modifiers)
 {
     if (!active())
         return false;
+    if (pathActive()) {
+        const QPoint at = clampToSelection(p);
+        if (d->pathNodes.size() >= 3 && QLineF(QPointF(at), d->pathNodes.first()).length() <= reach()) {
+            finishPath(true);
+            return true;
+        }
+        QPointF vertex = annot::pixelCentre(at);
+        if (modifiers & Qt::ShiftModifier)
+            vertex = annot::snapAngle(d->pathNodes.last(), vertex);
+        vertex = annot::pixelCentre(clampToSelection(annot::pixelAt(vertex)));
+        if (vertex != d->pathNodes.last())
+            d->pathNodes.append(vertex);
+        d->last = annot::pixelAt(vertex);
+        d->modifiers = modifiers;
+        updateGesture();
+        sync();
+        return true;
+    }
     if (m_gesture != Gesture::None)
         finishGesture(); // a release that never came
     m_numberEdit.reset();
@@ -1322,7 +1372,12 @@ void AnnotationModel::startDraw(Kind kind, QPoint p, Qt::KeyboardModifiers modif
         break;
     case Kind::Pen:
     case Kind::Marker:
-        item.points = {annot::pixelCentre(QPointF(at))};
+        if (kind == Kind::Marker && item.style.markerMode == annot::MarkerMode::Rectangle)
+            item.points = annot::boxPoints(annot::pixelBox(at, at));
+        else if (kind == Kind::Marker && item.style.markerMode == annot::MarkerMode::Line)
+            item.points = {annot::pixelCentre(at), annot::pixelCentre(at)};
+        else
+            item.points = {annot::pixelCentre(QPointF(at))};
         break;
     case Kind::Number:
         item.points = {annot::pixelCentre(QPointF(at))};
@@ -1339,6 +1394,13 @@ void AnnotationModel::startDraw(Kind kind, QPoint p, Qt::KeyboardModifiers modif
     d->last = at;
     d->modifiers = modifiers;
     m_gesture = Gesture::Draw;
+    if (kind == Kind::Line && item.style.lineMode == annot::LineMode::Polyline) {
+        d->pathNodes = {item.points.first()};
+        touched(d->command->apply(m_document));
+        d->applied = true;
+        m_picked = {item.id};
+        emit notice(tr("单击添加节点 · 点击起点闭合 · 双击/回车结束 · 退格撤回 · Esc 取消"));
+    }
     if (kind == Kind::Number) {
         // One click puts a number down (3.9); a drag then carries it.
         touched(d->command->apply(m_document));
@@ -1420,14 +1482,20 @@ annot::Item AnnotationModel::shapeTo(QPoint p, bool constrain) const
     const QRect room = this->room();
     const QPoint to = clampToSelection(p);
     const annot::Item& start = d->before;
-    if (annot::isBox(start.kind)) {
+    if (annot::isBoxItem(start)) {
         // The press's pixel and the one under the mouse, both inside (3.4):
         // the box as reshaped() spans it from its 1 x 1 start.
         const QPoint target = constrain ? fitSquare(d->pressAt, to, room) : to;
         return annot::reshaped(start, int(annot::BoxHandle::BottomRight), QPointF(target), constrain);
     }
-    if (annot::isLine(start.kind)) {
-        const annot::Item made = annot::reshaped(start, int(annot::LineHandle::End), QPointF(to), constrain);
+    if (annot::isLineItem(start)) {
+        annot::Item made = annot::reshaped(start, int(annot::LineHandle::End), QPointF(to), constrain);
+        if (annot::isLine(start.kind) && start.style.lineMode == annot::LineMode::Bezier) {
+            const QPointF delta = made.points[1] - made.points[0];
+            const QPointF bend(-delta.y() / 4, delta.x() / 4);
+            made.points.append(annot::pixelCentre(clampToSelection(annot::pixelAt(made.points[0] + delta / 3 + bend))));
+            made.points.append(annot::pixelCentre(clampToSelection(annot::pixelAt(made.points[0] + delta * (2.0 / 3) + bend))));
+        }
         return constrain ? fitLine(start, made, room) : made;
     }
     annot::Item made = start; // a Number goes where the mouse is
@@ -1470,11 +1538,18 @@ void AnnotationModel::updateGesture()
         // A stroke keeps every point from the press on; a shape is made
         // again from the press, once the mouse went past the drag start.
         annot::Item next = current;
-        if (annot::isStrokeItem(current))
+        if (pathActive()) {
+            next.points = d->pathNodes;
+            QPointF preview = annot::pixelCentre(clampToSelection(d->last));
+            if (constrain)
+                preview = annot::pixelCentre(clampToSelection(annot::pixelAt(annot::snapAngle(next.points.last(), preview))));
+            if (next.points.size() == 1 || preview != next.points.last())
+                next.points.append(preview);
+        } else if (annot::isStrokeItem(current))
             next = strokeTo(current, d->last, constrain);
         else if (d->dragging)
             next = shapeTo(d->last, constrain);
-        const bool show = d->dragging || current.kind == Kind::Number;
+        const bool show = pathActive() || d->dragging || current.kind == Kind::Number;
         if (next == current && show == d->applied)
             return;
         std::optional<QRectF> grown;
@@ -1556,6 +1631,8 @@ void AnnotationModel::updateGesture()
 
 void AnnotationModel::release(QPoint p)
 {
+    if (pathActive())
+        return;
     if (m_gesture == Gesture::None)
         return;
     if (p != d->last) {
@@ -1568,8 +1645,36 @@ void AnnotationModel::release(QPoint p)
     sync();
 }
 
+bool AnnotationModel::pathActive() const
+{
+    return !d->pathNodes.isEmpty();
+}
+
+bool AnnotationModel::finishPath(bool closed)
+{
+    if (!pathActive())
+        return false;
+    if (d->pathNodes.size() < 2) {
+        cancelGesture();
+        return true;
+    }
+    auto* add = static_cast<annot::AddItems*>(d->command.get());
+    annot::Change change;
+    if (d->applied)
+        change = add->revert(m_document);
+    add->items[0].points = d->pathNodes;
+    add->items[0].closed = closed && d->pathNodes.size() >= 3;
+    change.merge(add->apply(m_document));
+    d->applied = true;
+    touched(change);
+    finishGesture();
+    sync();
+    return true;
+}
+
 void AnnotationModel::finishGesture()
 {
+    d->pathNodes.clear();
     std::unique_ptr<annot::Command> command = std::move(d->command);
     const Gesture gesture = std::exchange(m_gesture, Gesture::None);
     const bool applied = std::exchange(d->applied, false);
@@ -1590,7 +1695,8 @@ void AnnotationModel::finishGesture()
         annot::Item& item = add->items[0];
         // A shape is its press and its release: those closer than a drag
         // are a click, not a shape (a stroke shows its path instead).
-        bool nothing = item.kind != Kind::Number && !annot::isStrokeItem(item) && shortDrag;
+        const bool polyline = item.kind == Kind::Line && item.style.lineMode == annot::LineMode::Polyline;
+        bool nothing = item.kind != Kind::Number && !annot::isStrokeItem(item) && !polyline && shortDrag;
         if (annot::isLine(item.kind))
             nothing = nothing || item.points.value(0) == item.points.value(1);
         if (nothing) {
@@ -1670,6 +1776,7 @@ void AnnotationModel::finishGesture()
 
 void AnnotationModel::cancelGesture()
 {
+    d->pathNodes.clear();
     if (m_gesture == Gesture::None)
         return;
     std::unique_ptr<annot::Command> command = std::move(d->command);
@@ -1727,6 +1834,8 @@ int AnnotationModel::cursorAt(QPoint p) const
 
 bool AnnotationModel::doubleClick(QPoint p)
 {
+    if (finishPath())
+        return true;
     if (!active())
         return false;
     if (m_editing)
@@ -1786,6 +1895,16 @@ bool AnnotationModel::key(int key, Qt::KeyboardModifiers modifiers)
     const bool ctrl = mods & Qt::ControlModifier;
     const bool shift = mods & Qt::ShiftModifier;
     const bool other = mods & (Qt::AltModifier | Qt::MetaModifier);
+    if (pathActive() && !other) {
+        if (!ctrl && (key == Qt::Key_Return || key == Qt::Key_Enter)) {
+            finishPath();
+            return true;
+        }
+        if ((!ctrl && (key == Qt::Key_Backspace || key == Qt::Key_Delete)) || (ctrl && key == Qt::Key_Z && !shift)) {
+            undo();
+            return true;
+        }
+    }
     if (m_gesture != Gesture::None && key == Qt::Key_Shift) {
         // Shift pressed while the mouse holds still: the square or the 15
         // degree step shows at once, not at the next move.
@@ -1975,6 +2094,7 @@ bool AnnotationModel::escape()
 
 void AnnotationModel::commitPending()
 {
+    finishPath();
     if (m_editing)
         commitText(m_editing->text);
 }
@@ -2113,6 +2233,7 @@ void AnnotationModel::commitWords(const QString& typed)
 
 void AnnotationModel::setPanel(const QVariantMap& change)
 {
+    finishPath();
     const std::optional<Target> target = styleTarget();
     if (!target || change.isEmpty())
         return;
@@ -2135,6 +2256,8 @@ void AnnotationModel::setPanel(const QVariantMap& change)
     // the next redaction only: a box does not turn into a stroke.
     QVariantMap forObjects = change;
     forObjects.remove(u"shape"_s);
+    forObjects.remove(u"lineMode"_s);
+    forObjects.remove(u"markerMode"_s);
     QList<Kind> kinds;
     if (!target->ids.isEmpty()) {
         QList<quint32> ids;
@@ -2170,6 +2293,8 @@ void AnnotationModel::setPanel(const QVariantMap& change)
                 m_stylesChanged = true;
         }
     }
+    if (change.contains(u"lineMode"_s) || change.contains(u"markerMode"_s))
+        m_picked.clear();
     sync();
 }
 
@@ -2214,6 +2339,17 @@ void AnnotationModel::undo()
 {
     if (!active())
         return;
+    if (pathActive()) {
+        if (d->pathNodes.size() > 1) {
+            d->pathNodes.removeLast();
+            d->last = annot::pixelAt(d->pathNodes.last());
+            updateGesture();
+            sync();
+        } else {
+            cancelGesture();
+        }
+        return;
+    }
     if (m_gesture != Gesture::None) {
         cancelGesture(); // mid-drag, a step back is that drag
         return;
@@ -2318,7 +2454,9 @@ void AnnotationModel::resetStyle()
                 continue;
             if (!kinds.contains(item->kind))
                 kinds.append(item->kind);
-            const annot::Style style = defaults.forTool(item->kind, dpr());
+            annot::Style style = defaults.forTool(item->kind, dpr());
+            style.lineMode = item->style.lineMode;
+            style.markerMode = item->style.markerMode;
             if (style != item->style) {
                 ids.append(id);
                 styles.append(style);

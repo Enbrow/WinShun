@@ -604,6 +604,38 @@ private slots:
         QVERIFY(!rig.editor.isOpen());
     }
 
+    void systemCloseKeepsWindowForNextPicture()
+    {
+        QQuickWindow window;
+        window.setFlags(Qt::Window | Qt::FramelessWindowHint);
+        window.resize(1000, 700);
+        Rig rig(QSize(200, 120), false);
+        CaptureEditor::Hooks hooks;
+        hooks.picture = [&rig](qint64) { return rig.base; };
+        int closed = 0;
+        hooks.closed = [&closed] { ++closed; };
+        hooks.window.show = [](QQuickWindow* w) { w->show(); };
+        rig.editor.setHooks(std::move(hooks));
+        rig.editor.attach(&window);
+        QVERIFY(rig.editor.openHistory(1));
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        const WId before = window.winId();
+
+        window.close(); // Alt+F4 / the system menu, outside the QML title bar
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isVisible(), 3000);
+        QVERIFY(!rig.editor.isOpen());
+        QVERIFY(rig.editor.model()->base().isNull());
+        QCOMPARE(closed, 1);
+        QCOMPARE(window.winId(), before); // WindowFrame's native binding must survive
+
+        QVERIFY(rig.editor.openHistory(2));
+        QVERIFY(window.isVisible());
+        QCOMPARE(window.winId(), before);
+        rig.editor.close();
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isVisible(), 3000);
+        QCOMPARE(closed, 2);
+    }
+
     void aLongPictureAndTheWindow()
     {
         // The window: an offscreen QQuickWindow, shown and cloaked by stand-ins.

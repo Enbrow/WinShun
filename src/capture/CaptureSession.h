@@ -40,6 +40,8 @@ class CaptureScreen : public QObject {
     Q_PROPERTY(QRect selection READ selection NOTIFY changed FINAL) // null when none here
     Q_PROPERTY(bool dimmed READ dimmed NOTIFY changed FINAL) // dim outside the hover/selection on every monitor
     Q_PROPERTY(bool adjusting READ adjusting NOTIFY changed FINAL) // being drawn, moved or resized: no toolbar
+    // The magnifier by the cursor here: not beside a selection made, nor over the toolbar.
+    Q_PROPERTY(bool magnifierShown READ magnifierShown NOTIFY changed FINAL)
     Q_PROPERTY(bool cursorHere READ cursorHere NOTIFY cursorChanged FINAL)
     Q_PROPERTY(QPoint cursor READ cursor NOTIFY cursorChanged FINAL)
     Q_PROPERTY(QImage loupe READ loupe NOTIFY cursorChanged FINAL) // the pixels around the cursor, kLoupeCells square
@@ -69,6 +71,7 @@ public:
     QRect selection() const { return m_selection; }
     bool dimmed() const { return m_dimmed; }
     bool adjusting() const { return m_adjusting; }
+    bool magnifierShown() const { return m_magnifierShown; }
     bool cursorHere() const { return m_cursorHere; }
     QPoint cursor() const { return m_cursor; }
     QImage loupe() const { return m_loupe; }
@@ -102,7 +105,7 @@ signals:
 
 private:
     friend class CaptureSession;
-    void setState(const QRect& hover, const QRect& selection, bool dimmed, bool adjusting);
+    void setState(const QRect& hover, const QRect& selection, bool dimmed, bool adjusting, bool magnifierShown);
     void setCursor(bool here, QPoint at, int shape);
     void setFlash(const QString& text);
     void setNotice(const QString& text);
@@ -119,6 +122,7 @@ private:
     QRect m_selection;
     bool m_dimmed = false;
     bool m_adjusting = false;
+    bool m_magnifierShown = false;
     bool m_cursorHere = false;
     QPoint m_cursor {-1, -1};
     QImage m_loupe;
@@ -204,7 +208,7 @@ public:
     bool ocrAvailable() const { return m_ocrAvailable; }
     void setSmartHooks(SmartHooks hooks) { m_annot.setSmartHooks(std::move(hooks)); }
     void setOcrAvailable(bool on);
-    // The colour's format (C copies it, Shift+C changes it): kept between captures.
+    // The colour's format (C copies it, Shift alone changes it): kept between captures.
     void setColorFormat(ColorFormat format);
     ColorFormat colorFormat() const { return m_colorFormat; }
     // The last selection a capture ended with (virtual desktop, physical), for
@@ -263,8 +267,11 @@ public:
     Q_INVOKABLE void mousePressed(int screen, qreal x, qreal y, int button);
     Q_INVOKABLE void mouseReleased(int screen, qreal x, qreal y, int button);
     Q_INVOKABLE void mouseDoubleClicked(int screen, qreal x, qreal y);
+    // The picture lost the mouse: the toolbar above it took it, or another monitor.
+    Q_INVOKABLE void mouseLeft(int screen);
     Q_INVOKABLE void wheeled(int screen, qreal x, qreal y, int angleDeltaY);
     Q_INVOKABLE bool keyPressed(int key, int modifiers);
+    Q_INVOKABLE void keyReleased(int key); // a Shift alone, let go of: the colour's next format
     Q_INVOKABLE void act(int action); // the toolbar's buttons: an Action
 
 signals:
@@ -339,6 +346,8 @@ private:
     QRect m_startRect;
     int m_cursorScreen = -1;
     QPoint m_cursorAt;
+    bool m_cursorCovered = false; // over the toolbar, not the picture, since the last move
+    bool m_shiftAlone = false; // Shift pressed, and no other key, button or wheel since
     // The hover: its monitor, the picks under the cursor smallest first
     // (hitChain), and how far out the wheel went.
     int m_hoverScreen = -1;

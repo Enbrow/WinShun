@@ -276,7 +276,7 @@ Window {
         // 1 px edge is 1.5 pixels, and the picture covered half of the right one.
         readonly property real edge: Math.max(1, Math.round(overlay.dpr)) / overlay.dpr
 
-        visible: overlay.screenModel.cursorHere && overlay.screenModel.hasImage
+        visible: overlay.screenModel.magnifierShown && overlay.screenModel.hasImage
         x: Math.round(place.x * overlay.dpr) / overlay.dpr
         y: Math.round(place.y * overlay.dpr) / overlay.dpr
         // As wide as the picture, which fills it to the edges (a wider box left an empty strip at the right); the lines below elide
@@ -358,7 +358,7 @@ Window {
             Text {
                 id: hint
                 width: parent.width
-                text: overlay.screenModel.flash.length > 0 ? overlay.screenModel.flash : qsTr("C 复制 · Shift+C 换格式")
+                text: overlay.screenModel.flash.length > 0 ? overlay.screenModel.flash : qsTr("C 复制 · Shift 换格式")
                 color: Theme.subtext
                 font.pixelSize: Theme.fontCaption
                 elide: Text.ElideRight
@@ -373,6 +373,8 @@ Window {
         acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton | Qt.BackButton | Qt.ForwardButton
         cursorShape: overlay.screenModel.cursorShape
         onPositionChanged: (mouse) => overlay.session.mouseMoved(overlay.screenModel.index, mouse.x, mouse.y)
+        onExited: overlay.session.mouseLeft(overlay.screenModel.index) // onto the toolbar: no magnifier there
+        onEntered: overlay.session.mouseMoved(overlay.screenModel.index, mouseX, mouseY) // the toolbar gone from under it too
         onPressed: (mouse) => overlay.session.mousePressed(overlay.screenModel.index, mouse.x, mouse.y, mouse.button)
         onReleased: (mouse) => overlay.session.mouseReleased(overlay.screenModel.index, mouse.x, mouse.y, mouse.button)
         // Only the left button's: a second middle or side click is two presses of their own
@@ -391,7 +393,15 @@ Window {
                 event.accepted = true
                 return
             }
+            if (event.key === Qt.Key_Shift && event.isAutoRepeat) { // held down: still the one press
+                event.accepted = true
+                return
+            }
             event.accepted = overlay.session.keyPressed(event.key, event.modifiers)
+        }
+        Keys.onReleased: (event) => {
+            if (!event.isAutoRepeat)
+                overlay.session.keyReleased(event.key) // a Shift alone: the colour's next format
         }
     }
 }

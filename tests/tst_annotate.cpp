@@ -627,6 +627,37 @@ class TestAnnotate : public QObject {
     Q_OBJECT
 
 private slots:
+    void pathModesRenderAcrossTileBoundaries()
+    {
+        const QImage base = plainImage(QSize(800, 600), kWhite);
+        Document doc = emptyDoc(base.size());
+        Item curve = lineItem(Kind::Arrow, {80.5, 120.5}, {700.5, 200.5});
+        curve.style.lineMode = LineMode::Bezier;
+        curve.points << QPointF(160.5, 500.5) << QPointF(600.5, 20.5);
+        addItem(doc, curve);
+        curve.kind = Kind::Line;
+        addItem(doc, translated(curve, {0, 35}));
+        Item polygon = lineItem(Kind::Line, {140.5, 250.5}, {400.5, 220.5});
+        polygon.style.lineMode = LineMode::Polyline;
+        polygon.points << QPointF(600.5, 480.5) << QPointF(100.5, 520.5);
+        polygon.closed = true;
+        addItem(doc, polygon);
+        Item marker = boxItem(Kind::Marker, {50, 40, 620, 45});
+        marker.style.markerMode = MarkerMode::Rectangle;
+        marker.style.color = qRgb(255, 255, 0);
+        addItem(doc, marker);
+        Compositor wholeCompositor;
+        const QImage whole = renderArea(wholeCompositor, doc, base, base.rect(), base.rect());
+        for (int tile : {64, 127, 256}) {
+            Compositor tiledCompositor;
+            QCOMPARE(renderTiled(tiledCompositor, doc, base, base.rect(), base.rect(), {17, -23}, tile), whole);
+        }
+        const auto reopened = fromJson(toJson(doc), nullptr);
+        QVERIFY(reopened);
+        Compositor loadedCompositor;
+        QCOMPARE(loadedCompositor.exportImage(*reopened, base, base.rect()), whole);
+    }
+
     // --- geometry -----------------------------------------------------------
 
     void geometryBoxes()
@@ -2098,7 +2129,8 @@ private slots:
         };
         QVERIFY(parse("{'format':'winshun-annotation','version':1,'canvas':[10,10]}"));
         QVERIFY(error.isEmpty());
-        QVERIFY(!parse("{'format':'winshun-annotation','version':2,'canvas':[10,10]}"));
+        QVERIFY(parse("{'format':'winshun-annotation','version':2,'canvas':[10,10]}"));
+        QVERIFY(!parse("{'format':'winshun-annotation','version':3,'canvas':[10,10]}"));
         QCOMPARE(error, u"这张图是新版 Win顺 存的，升级后才能编辑"_s);
         QVERIFY(!parse("{'format':'other','version':1,'canvas':[10,10]}"));
         QCOMPARE(error, u"这不是 Win顺 的标注文件。"_s);

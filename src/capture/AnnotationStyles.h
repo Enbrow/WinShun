@@ -60,6 +60,8 @@ public:
         RedactShape shape = RedactShape::Box; // Redact: along a box or along a stroke
         int cell = 12;
         NumberFormat format = NumberFormat::Arabic; // Number: the last format chosen
+        LineMode lineMode = LineMode::Straight;
+        MarkerMode markerMode = MarkerMode::Freehand;
         bool operator==(const Tool&) const = default;
     };
 

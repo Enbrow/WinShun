@@ -627,6 +627,53 @@ private slots:
         QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Save);
     }
 
+    void magnifierOnlyOverASelectionMade()
+    {
+        Rig rig;
+        rig.begin();
+        rig.session.pointerMove(0, {50, 50});
+        QVERIFY(rig.screen.magnifierShown()); // picking: everywhere
+        rig.session.pointerMove(0, {100, 100});
+        rig.session.pointerPress(0, {100, 100}, Qt::LeftButton);
+        rig.session.pointerMove(0, {300, 300});
+        QVERIFY(rig.screen.magnifierShown()); // drawing: everywhere
+        rig.session.pointerMove(0, {199, 199});
+        rig.session.pointerRelease(0, {199, 199}, Qt::LeftButton);
+        QVERIFY(rig.screen.magnifierShown()); // made: over it
+        rig.session.pointerMove(0, {200, 150});
+        QVERIFY(rig.screen.magnifierShown()); // and on its frame
+        rig.session.pointerMove(0, {204, 150});
+        QVERIFY(!rig.screen.magnifierShown()); // on the handle beyond it: not until it is dragged
+        rig.session.pointerPress(0, {204, 150}, Qt::LeftButton);
+        rig.session.pointerMove(0, {230, 150});
+        QVERIFY(rig.screen.magnifierShown());
+        rig.session.pointerRelease(0, {230, 150}, Qt::LeftButton);
+        rig.session.pointerMove(0, {300, 150});
+        QVERIFY(!rig.screen.magnifierShown()); // beside it: gone
+        QSignalSpy colors(&rig.session, &CaptureSession::colorCopied);
+        QVERIFY(rig.session.key(Qt::Key_C, Qt::NoModifier));
+        QCOMPARE(colors.count(), 0); // no colour copied that is not shown
+        rig.session.pointerMove(0, {150, 150});
+        QVERIFY(rig.screen.magnifierShown());
+        rig.session.mouseLeft(0); // onto the toolbar
+        QVERIFY(!rig.screen.magnifierShown());
+        rig.session.pointerMove(0, {150, 151});
+        QVERIFY(rig.screen.magnifierShown());
+        rig.session.pointerMove(0, {101, 150});
+        for (int i = 0; i < 20; ++i)
+            rig.session.key(Qt::Key_Right, Qt::NoModifier); // the selection moves away from the cursor
+        QCOMPARE(rig.session.selectionRect().left(), 120);
+        QVERIFY(!rig.screen.magnifierShown());
+        rig.session.key(Qt::Key_Escape, Qt::NoModifier); // back to picking, the cursor where it was
+        QVERIFY(rig.screen.magnifierShown());
+        rig.drag({100, 100}, {199, 199});
+        rig.session.pointerMove(0, {300, 300});
+        rig.session.pointerPress(0, {300, 300}, Qt::LeftButton); // beside it: a click keeps it
+        QVERIFY(!rig.screen.magnifierShown());
+        rig.session.pointerMove(0, {400, 400}); // a drag draws a new one
+        QVERIFY(rig.screen.magnifierShown());
+    }
+
     void f3PinsAndTheToolbarReads()
     {
         Rig rig;
@@ -733,6 +780,36 @@ private slots:
     }
 
     // ---- annotating (AnnotationModel under the session) -------------------
+    void polylineSurvivesDoubleClickRouting()
+    {
+        Rig rig;
+        rig.begin();
+        rig.drag({100, 100}, {700, 500});
+        QVERIFY(rig.session.key(Qt::Key_L, {}));
+        auto* model = rig.session.annotation();
+        model->setPanel({{u"lineMode"_s, u"polyline"_s}});
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.click({150, 150});
+        rig.session.pointerMove(0, {350, 170});
+        QVERIFY(model->pathActive());
+        QCOMPARE(model->document().items.first().points.last(), QPointF(350.5, 170.5));
+        rig.click({350, 170});
+        // Qt delivers the second press before doubleClick.
+        rig.session.pointerPress(0, {350, 170}, Qt::LeftButton);
+        rig.session.doubleClick(0, {350, 170});
+        rig.session.pointerRelease(0, {350, 170}, Qt::LeftButton);
+        QVERIFY(!model->pathActive());
+        QCOMPARE(model->itemCount(), 1);
+        QCOMPARE(model->document().items.first().points.size(), 2);
+        QVERIFY(finished.isEmpty());
+        rig.click({450, 250});
+        rig.click({550, 300});
+        rig.session.pointerPress(0, {550, 300}, Qt::RightButton);
+        QVERIFY(!model->pathActive());
+        QCOMPARE(model->itemCount(), 2);
+        QVERIFY(rig.session.hasSelection());
+        QVERIFY(finished.isEmpty());
+    }
 
     // A rectangle drawn with the R key and the mouse, then the tool put away.
     static void drawRect(Rig& rig, QPoint from, QPoint to)
@@ -1099,15 +1176,20 @@ private slots:
         QVERIFY(!session.hasSelection());
     }
 
-    void shiftCChangesTheColourFormatAndCCopiesIt()
+    void shiftChangesTheColourFormatAndCCopiesIt()
     {
         Rig rig;
         rig.begin();
         QSignalSpy colors(&rig.session, &CaptureSession::colorCopied);
         QSignalSpy formats(&rig.session, &CaptureSession::colorFormatChanged);
+        // Shift alone, as in PixPin: pressed and let go of with nothing between.
+        const auto tapShift = [&rig] {
+            rig.session.key(Qt::Key_Shift, Qt::ShiftModifier);
+            rig.session.keyReleased(Qt::Key_Shift);
+        };
         rig.session.pointerMove(0, {10, 10});
         QCOMPARE(rig.screen.colorText(), u"#ABCDEF"_s);
-        QVERIFY(rig.session.key(Qt::Key_C, Qt::ShiftModifier));
+        tapShift();
         QCOMPARE(rig.session.colorFormat(), ColorFormat::Rgb);
         QCOMPARE(rig.screen.colorText(), u"rgb(171, 205, 239)"_s);
         QCOMPARE(rig.screen.color(), u"#ABCDEF"_s); // the swatch keeps its hex
@@ -1115,10 +1197,25 @@ private slots:
         QVERIFY(rig.session.key(Qt::Key_C, Qt::NoModifier));
         QCOMPARE(colors.count(), 1);
         QCOMPARE(colors[0][0].toString(), u"rgb(171, 205, 239)"_s);
-        QVERIFY(rig.session.key(Qt::Key_C, Qt::ShiftModifier));
+        tapShift();
         QCOMPARE(rig.screen.colorText(), u"hsl(210, 68%, 80%)"_s);
-        QVERIFY(rig.session.key(Qt::Key_C, Qt::ShiftModifier));
+        tapShift();
         QCOMPARE(rig.screen.colorText(), u"#ABCDEF"_s);
+        QCOMPARE(formats.count(), 3);
+        // Shift with another key, a click or the wheel between: not alone.
+        rig.session.key(Qt::Key_Shift, Qt::ShiftModifier);
+        rig.session.key(Qt::Key_R, Qt::ShiftModifier);
+        rig.session.keyReleased(Qt::Key_Shift);
+        rig.session.key(Qt::Key_Shift, Qt::ShiftModifier);
+        rig.session.pointerPress(0, {10, 10}, Qt::LeftButton, Qt::ShiftModifier);
+        rig.session.pointerRelease(0, {10, 10}, Qt::LeftButton);
+        rig.session.keyReleased(Qt::Key_Shift);
+        rig.session.key(Qt::Key_Escape, Qt::NoModifier); // the click picked the screen: back to picking
+        rig.session.key(Qt::Key_Shift, Qt::ShiftModifier);
+        rig.session.wheelAngle(0, {10, 10}, 120, 0);
+        rig.session.keyReleased(Qt::Key_Shift);
+        rig.session.key(Qt::Key_Shift, Qt::ShiftModifier | Qt::ControlModifier); // Ctrl+Shift
+        rig.session.keyReleased(Qt::Key_Shift);
         QCOMPARE(formats.count(), 3);
         // The format outlasts the capture (the app keeps it in the settings).
         rig.session.setColorFormat(ColorFormat::Hsl);
@@ -1126,10 +1223,18 @@ private slots:
         rig.begin();
         rig.session.pointerMove(0, {10, 10});
         QCOMPARE(rig.screen.colorText(), u"hsl(210, 68%, 80%)"_s);
-        // Ctrl+C is still the picture's copy, Shift+C's format change does not copy.
+        // Ctrl+C is still the picture's copy; Shift+C copies its words (PixPin's 识别文字并复制).
         QSignalSpy finished(&rig.session, &CaptureSession::finished);
         QVERIFY(rig.session.key(Qt::Key_C, Qt::ControlModifier));
         QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Copy);
+        rig.begin();
+        rig.drag({100, 100}, {299, 199});
+        QVERIFY(rig.session.key(Qt::Key_C, Qt::ShiftModifier));
+        QCOMPARE(finished.count(), 2);
+        QCOMPARE(finished[1][0].value<CaptureSession::Action>(), CaptureSession::Action::OcrCopy);
+        QCOMPARE(finished[1][2].toRect(), QRect(100, 100, 200, 100));
+        QCOMPARE(rig.session.colorFormat(), ColorFormat::Hsl); // and leaves the format alone
     }
 
     void qAndDAsk()

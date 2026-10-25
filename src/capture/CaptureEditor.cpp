@@ -5,6 +5,7 @@
 
 #include <QCursor>
 #include <QDebug>
+#include <QEvent>
 #include <QGuiApplication>
 #include <QPainter>
 #include <QQuickWindow>
@@ -94,6 +95,7 @@ void CaptureEditor::attach(QQuickWindow* window)
     m_window = window;
     if (!window)
         return;
+    window->installEventFilter(this);
     connect(window, &QQuickWindow::frameSwapped, this, &CaptureEditor::frameDrawn);
     // Where a slow frame spends its time (logged by frameDrawn): the stages' times, from whichever thread.
     m_stageClock.start();
@@ -109,7 +111,7 @@ void CaptureEditor::attach(QQuickWindow* window)
     connect(window, &QWindow::heightChanged, this, &CaptureEditor::updateScale);
     connect(window, &QWindow::screenChanged, this, &CaptureEditor::updateScale);
     connect(window, &QQuickWindow::devicePixelRatioChanged, this, &CaptureEditor::updateScale);
-    // Closed by its own title bar or Alt+F4: the picture and the document go as for Esc.
+    // Hidden outside the controller: the picture and the document go as for Esc.
     connect(window, &QWindow::visibleChanged, this, [this](bool visible) {
         if (!visible && m_open)
             close();
@@ -120,6 +122,18 @@ void CaptureEditor::attach(QQuickWindow* window)
             spaceHeld(false);
     });
     updateScale();
+}
+
+bool CaptureEditor::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == m_window && event->type() == QEvent::Close) {
+        // Reused with its native frame: Alt+F4 must empty and hide it like
+        // the title bar, keeping the HWND that WindowFrame is attached to.
+        event->ignore();
+        close();
+        return true;
+    }
+    return QObject::eventFilter(watched, event);
 }
 
 // ---- measures ------------------------------------------------------------------------
@@ -557,7 +571,8 @@ void CaptureEditor::mousePressed(qreal x, qreal y, int button, int modifiers)
         return;
     }
     if (which == Qt::RightButton) {
-        m_model.escape(); // a text, a stroke, the eyedropper: the step back that is the model's
+        if (!m_model.finishPath())
+            m_model.escape();
         return;
     }
     if (which != Qt::LeftButton)
@@ -611,7 +626,7 @@ void CaptureEditor::mouseDoubleClicked(qreal x, qreal y)
     if (!m_open || m_space)
         return;
     // The second press began a gesture that the double click replaces.
-    if (m_model.gestureActive())
+    if (m_model.gestureActive() && !m_model.pathActive())
         m_model.cancelGesture();
     m_pressed = false;
     m_model.doubleClick(imageAt(deviceInViewport(x, y)));

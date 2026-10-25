@@ -368,6 +368,115 @@ class TestAnnotModel : public QObject {
     Q_OBJECT
 
 private slots:
+    void connectedLines()
+    {
+        Rig rig;
+        auto& m = rig.model;
+        m.setTool(toolIndex(Kind::Line));
+        m.setPanel({{u"lineMode"_s, u"polyline"_s}});
+        click(m, {50, 60});
+        QVERIFY(m.pathActive());
+        QVERIFY(m.project().doc.items.isEmpty()); // a lone point is not a saved path
+        m.move({100, 80}, {});
+        click(m, {100, 80});
+        m.move({150, 130}, {});
+        QCOMPARE(m.project().doc.items.first().points.size(), 2); // save only placed vertices
+        QVERIFY(m.pathActive()); // a project snapshot does not end drawing
+        click(m, {160, 120});
+        QVERIFY(m.key(Qt::Key_Backspace, {}));
+        click(m, {160, 90});
+        QVERIFY(m.key(Qt::Key_Return, {}));
+        QVERIFY(!m.pathActive());
+        QCOMPARE(m.itemCount(), 1);
+        const auto item = m.document().items.first();
+        QCOMPARE(item.points.size(), 3);
+        QCOMPARE(item.points.last(), QPointF(160.5, 90.5));
+        QVERIFY(!item.closed);
+        QVERIFY(hitTest(m.document(), {125, 84}, 3));
+        const auto saved = fromJson(toJson(m.document()), nullptr);
+        QVERIFY(saved);
+        QCOMPARE(*saved, m.document());
+        m.undo();
+        QCOMPARE(m.itemCount(), 0);
+        m.redo();
+        QCOMPARE(m.document().items.first(), item);
+        click(m, {200, 140});
+        click(m, {270, 140});
+        click(m, {270, 200});
+        click(m, {200, 140});
+        QVERIFY(!m.pathActive());
+        QVERIFY(m.document().items.last().closed);
+        QCOMPARE(m.document().items.last().points.size(), 3);
+        click(m, {70, 160});
+        click(m, {120, 190});
+        QVERIFY(m.escape());
+        QVERIFY(!m.pathActive());
+        QCOMPARE(m.itemCount(), 2);
+    }
+
+    void editableBezier()
+    {
+        for (Kind kind : {Kind::Line, Kind::Arrow}) {
+            Rig rig;
+            auto& m = rig.model;
+            m.setTool(toolIndex(kind));
+            m.setPanel({{u"lineMode"_s, u"bezier"_s}});
+            drag(m, {50, 60}, {220, 100});
+            QCOMPARE(m.itemCount(), 1);
+            const auto item = m.document().items.first();
+            QCOMPARE(item.points.size(), 4);
+            QCOMPARE(handles(item).size(), 4);
+            const QPainterPath centre = linePath(item);
+            QVERIFY(hitTest(m.document(), centre.pointAtPercent(0.5), 3));
+            QVERIFY(!hitTest(m.document(), {120, 40}, 1));
+            const QPoint control = pixelAt(item.points[2]);
+            drag(m, control, control + QPoint(0, 30));
+            const auto reshaped = m.document().items.first();
+            QVERIFY(reshaped.points[2] != item.points[2]);
+            m.undo();
+            QCOMPARE(m.document().items.first(), item);
+            const auto parsed = fromJson(toJson(m.document()), nullptr);
+            QVERIFY(parsed);
+            QCOMPARE(*parsed, m.document());
+            QVERIFY(!m.composed().isNull());
+        }
+    }
+
+    void markerShapes()
+    {
+        QImage base(320, 220, QImage::Format_RGB32);
+        base.fill(Qt::white);
+        base.setPixel(100, 100, qRgb(0, 0, 0));
+        for (const QString mode : {u"line"_s, u"rectangle"_s}) {
+            AnnotationModel m;
+            m.begin(base, 1, StyleMemory{});
+            m.setSelection(base.rect());
+            m.setTool(toolIndex(Kind::Marker));
+            m.setPanel({{u"markerMode"_s, mode}, {u"color"_s, u"#FFFF00"_s}});
+            drag(m, {60, 80}, {200, 120});
+            QCOMPARE(m.itemCount(), 1);
+            const auto item = m.document().items.first();
+            QCOMPARE(item.points.size(), 2);
+            QCOMPARE(handles(item).size(), mode == u"rectangle" ? 8 : 2);
+            const QImage result = m.composed();
+            QVERIFY(!result.isNull());
+            if (mode == u"rectangle") {
+                QCOMPARE(result.pixel(100, 100), qRgb(0, 0, 0));
+                QCOMPARE(result.pixel(110, 100), qRgb(255, 255, 0));
+                QVERIFY(hitTest(m.document(), {150, 100}, 1));
+            }
+            const auto parsed = fromJson(toJson(m.document()), nullptr);
+            QVERIFY(parsed);
+            QCOMPARE(*parsed, m.document());
+            m.undo();
+            QCOMPARE(m.itemCount(), 0);
+            m.redo();
+            QCOMPARE(m.document().items.first(), item);
+            const StyleMemory remembered = StyleMemory::fromJson(m.styles().toJson());
+            QCOMPARE(remembered, m.styles());
+        }
+    }
+
     void drawEveryTool()
     {
         Rig rig;

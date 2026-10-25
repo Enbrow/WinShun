@@ -88,6 +88,7 @@ class AnnotationModel : public QObject {
     // The crop's edge is being dragged.
     Q_PROPERTY(bool cropping READ cropping NOTIFY gestureChanged FINAL)
     Q_PROPERTY(bool gestureActive READ gestureActive NOTIFY gestureChanged FINAL)
+    Q_PROPERTY(bool pathActive READ pathActive NOTIFY gestureChanged FINAL)
     // What the gesture is changing (image px, set 16 logical px wider): the
     // toolbar steps aside when it reaches it (3.5). Null when no gesture.
     Q_PROPERTY(QRectF gestureBounds READ gestureBounds NOTIFY gestureChanged FINAL)
@@ -164,6 +165,8 @@ public:
 
     int tool() const { return m_tool; }
     void setTool(int tool); // index into annot::tools(); -1: none; ends a text under way
+    bool pathActive() const;
+    Q_INVOKABLE bool finishPath(bool closed = false);
     QVariantList toolList() const;
     QString fontFamily() const;
     bool canUndo() const;

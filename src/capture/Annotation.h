@@ -44,6 +44,12 @@ enum class Fill : quint8 { None, Soft, Solid };
 enum class RedactMode : quint8 { Mosaic, Blur, Solid, Smooth };
 // Brush: the pixels along a stroke (Style::width wide) instead of a box.
 enum class RedactShape : quint8 { Box, Brush };
+enum class LineMode : quint8 { Straight, Polyline, Bezier };
+enum class MarkerMode : quint8 { Freehand, Line, Rectangle };
+QString lineModeName(LineMode mode);
+std::optional<LineMode> lineModeFromName(QStringView name);
+QString markerModeName(MarkerMode mode);
+std::optional<MarkerMode> markerModeFromName(QStringView name);
 
 constexpr int kKindCount = 9;
 
@@ -64,6 +70,8 @@ struct Style {
     RedactMode redact = RedactMode::Mosaic;
     RedactShape shape = RedactShape::Box;
     int cell = 18; // mosaic cell, image px
+    LineMode lineMode = LineMode::Straight;
+    MarkerMode markerMode = MarkerMode::Freehand;
     bool operator==(const Style&) const = default;
 };
 
@@ -77,6 +85,7 @@ struct Item {
     quint32 series = 0; // Number: its group
     std::optional<int> pinned; // Number: a number set by hand; the next ones count on from it
     quint64 seed = 0; // Redact: the noise's seed, drawn at random when made and saved with it
+    bool closed = false; // a polyline joins its last vertex to its first
     bool operator==(const Item&) const = default;
 };
 
@@ -88,7 +97,7 @@ struct Series {
 };
 
 struct Document {
-    static constexpr int kVersion = 1;
+    static constexpr int kVersion = 2;
     QSize canvas; // the base picture's size, image px
     QRect crop; // what is exported; the selection in the overlay
     qreal dpr = 1.0; // the captured screen's scale: logical sizes on the panel and new styles go through it
@@ -108,6 +117,12 @@ bool isStroke(Kind kind);
 bool isBrush(const Item& item);
 // Pen, Marker and a brush redaction: items that keep a polyline of points.
 bool isStrokeItem(const Item& item);
+bool isBoxItem(const Item& item);
+bool isLineItem(const Item& item);
+// Bezier points: start, end, first control, second control. Polyline: vertices.
+QPainterPath linePath(const Item& item);
+QPainterPath arrowPath(const Item& item, qreal dpr);
+QPointF snapAngle(QPointF from, QPointF to); // 15 degree steps, on pixel centres
 
 // The names in doc.json and in the remembered styles.
 QString kindName(Kind kind);

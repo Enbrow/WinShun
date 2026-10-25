@@ -61,7 +61,7 @@ Item {
             readonly property int edgeBottom: Math.ceil(modelData.y + modelData.height)
 
             Rectangle { // a line has only its two end handles
-                visible: picked.modelData.handles.length !== 2
+                visible: picked.modelData.box || picked.modelData.handles.length === 0
                 x: over.px(picked.edgeLeft) - over.unitX
                 y: over.py(picked.edgeTop) - over.unitY
                 width: over.px(picked.edgeRight - picked.edgeLeft) + 2 * over.unitX
@@ -69,6 +69,24 @@ Item {
                 color: "transparent"
                 border.width: over.unitX
                 border.color: Theme.accent
+            }
+
+            Repeater {
+                model: picked.modelData.curve && picked.modelData.handles.length === 4 ? [0, 1] : []
+                delegate: Rectangle {
+                    required property int modelData
+                    readonly property var endpoint: picked.modelData.handles[modelData]
+                    readonly property var control: picked.modelData.handles[modelData + 2]
+                    readonly property real dx: over.px(control.x - endpoint.x)
+                    readonly property real dy: over.py(control.y - endpoint.y)
+                    x: over.px(endpoint.x)
+                    y: over.py(endpoint.y)
+                    width: Math.hypot(dx, dy)
+                    height: over.unitY
+                    rotation: Math.atan2(dy, dx) * 180 / Math.PI
+                    transformOrigin: Item.TopLeft
+                    color: Theme.accent
+                }
             }
 
             Repeater {
@@ -85,9 +103,10 @@ Item {
                     y: over.py(Math.round(modelData.y - over.handle / 2 * over.unitY / over.sy))
                     width: over.handle * over.unitX
                     height: over.handle * over.unitY
-                    color: Theme.accentFill
+                    radius: modelData.control ? width / 2 : 0
+                    color: modelData.control ? Theme.background : Theme.accentFill
                     border.width: over.unitX
-                    border.color: Theme.accentText
+                    border.color: modelData.control ? Theme.accent : Theme.accentText
                 }
             }
         }
