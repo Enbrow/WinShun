@@ -13,6 +13,7 @@
 #include "Clipboard.h"
 #include "DialogBar.h"
 #include "Diagnostics.h"
+#include "DisplayDiagnostics.h"
 #include "Favorites.h"
 #include "FavoritesSettings.h"
 #include "FileIconProvider.h"
@@ -787,6 +788,7 @@ bool App::start(const StartOptions& options)
         if (m_switches)
             m_switches->refresh(); // keep awake whose end time passed while asleep ends now
     };
+    callbacks.drawingMessage = [](UINT message, WPARAM wParam) { diagnostics::noteSystemMessage(message, wParam); };
     m_messages = std::make_unique<MessageWindow>(std::move(callbacks));
 
     // Drives: let go of one being ejected or locked; index new ones, drop gone ones.
@@ -913,6 +915,7 @@ bool App::createWindow()
     prepareBackdrop(m_window);
     m_window->create(); // native handle now, so DWM styling applies before the first show
     m_window->installEventFilter(this);
+    diagnostics::watchWindow(m_window, u"launcher"_s);
     shellcontext::watchKeys(reinterpret_cast<HWND>(m_window->winId())); // which key asks for a context menu (eventFilter)
     m_launcher->setWindow(m_window);
     m_preview->setLauncherWindow(m_window);
@@ -2779,6 +2782,7 @@ void App::showSettings()
                 });
             }
             context[u"chosen_folders"_s] = chosen;
+            context[u"display"_s] = diagnostics::display(m_renderer, SystemTheme::backdropAvailable()); // fonts: this thread's
             const QString dataFolder = Settings::dataDir();
             const QString serviceFolder = QDir(QString::fromStdWString(win32::expandEnvironment(L"%ProgramData%")))
                                               .filePath(u"WinShun"_s);

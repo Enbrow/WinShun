@@ -240,6 +240,24 @@ qt_add_executable(tst_elide tst_elide.cpp ${PROJECT_SOURCE_DIR}/src/app/Elide.cp
 target_include_directories(tst_elide PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(tst_elide PRIVATE Qt6::Gui Qt6::Test)
 
+# The diagnostics' glyph self-check (GitHub #70): clean in the fonts drawn
+# with, a font's glyph numbers drawn with another reported; the display part
+# of an export's summary.
+qt_add_executable(tst_textcheck tst_textcheck.cpp ${PROJECT_SOURCE_DIR}/src/app/TextCheck.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/DisplayDiagnostics.cpp)
+target_include_directories(tst_textcheck PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_compile_definitions(tst_textcheck PRIVATE WINSHUN_FONTS_DIR="${PROJECT_SOURCE_DIR}/resources/fonts")
+target_link_libraries(tst_textcheck PRIVATE wscore Qt6::Quick Qt6::Test)
+set_target_properties(tst_textcheck PROPERTIES WIN32_EXECUTABLE FALSE QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+add_test(NAME tst_textcheck COMMAND tst_textcheck)
+# And in the font engines the app runs with (main.cpp): 显卡加速 FreeType, 省内存 GDI.
+add_test(NAME tst_textcheck_freetype COMMAND tst_textcheck)
+add_test(NAME tst_textcheck_gdi COMMAND tst_textcheck)
+set_tests_properties(tst_textcheck tst_textcheck_freetype tst_textcheck_gdi PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+set_tests_properties(tst_textcheck_freetype PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows:fontengine=freetype")
+set_tests_properties(tst_textcheck_gdi PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows:fontengine=gdi")
+
 # Which side of a box (the text caret, a search box) the clipboard window
 # opens on, as Placement decides it (BoxSide.h, GitHub #38).
 qt_add_executable(tst_placement tst_placement.cpp)

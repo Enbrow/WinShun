@@ -375,9 +375,15 @@ LRESULT MessageWindow::handle(UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_DEVICECHANGE:
         return m_callbacks.deviceChange ? m_callbacks.deviceChange(wParam, lParam) : TRUE;
     case WM_POWERBROADCAST:
+        if (m_callbacks.drawingMessage)
+            m_callbacks.drawingMessage(msg, wParam);
         if (wParam == PBT_APMRESUMEAUTOMATIC && m_callbacks.resumed)
             m_callbacks.resumed(); // whether or not someone is at the keyboard
         return TRUE;
+    case WM_FONTCHANGE:
+        if (m_callbacks.drawingMessage)
+            m_callbacks.drawingMessage(msg, wParam);
+        return 0;
     case WM_HOTKEY:
         if (m_callbacks.hotkeyPressed)
             m_callbacks.hotkeyPressed(static_cast<int>(wParam));

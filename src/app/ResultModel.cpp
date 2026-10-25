@@ -1,6 +1,7 @@
 #include "ResultModel.h"
 
 #include "AppCatalog.h"
+#include "DisplayDiagnostics.h"
 #include "Elide.h"
 #include "FileIndex.h"
 #include "FileIconProvider.h"
@@ -521,6 +522,8 @@ QString ResultModel::elidedHtml(
         if (start >= 0 && length > 0 && start + length <= text.size())
             ranges.append({start, length});
     }
+    if (!ranges.isEmpty())
+        diagnostics::watchHighlightFont(font); // GitHub #70: the highlights drawn as other characters
     return elide::shortenedHtml(text, ranges, width, font, color);
 }
 void ResultModel::assign(SearchResults items, QStringList highlights)

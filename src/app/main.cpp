@@ -1,5 +1,6 @@
 #include "App.h"
 #include "Diagnostics.h"
+#include "DisplayDiagnostics.h"
 #include "Backup.h"
 #include "Migration.h"
 #include "Preview.h"
@@ -17,6 +18,8 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QGuiApplication>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QProcess>
 
 #include <windows.h>
@@ -78,10 +81,12 @@ void logToFile(QtMsgType type, const QMessageLogContext& context, const QString&
 // code page (F:\电脑便捷工具\…, D:\软件\WinShun): the font silently stayed
 // unloaded and the window came up in Microsoft YaHei UI. Such a path is
 // read here and handed over as data (the ~8 MB of each file stay in
-// memory then; by name the face is read from disk as needed).
-void applyUiFont()
+// memory then; by name the face is read from disk as needed). What came of
+// it, for the diagnostics record.
+QJsonObject applyUiFont()
 {
     QString uiFamily;
+    QJsonArray files;
     const QString fontDir = QCoreApplication::applicationDirPath() + u"/fonts/"_s;
     bool ascii = true;
     for (const QChar c : fontDir)
@@ -98,15 +103,20 @@ void applyUiFont()
         const QStringList families = QFontDatabase::applicationFontFamilies(id);
         if (uiFamily.isEmpty() && !families.isEmpty())
             uiFamily = families.first(); // both files share one family, Bold is its bold style
+        files.append(QJsonObject {{u"file"_s, file}, {u"loaded"_s, id >= 0}});
     }
+    QJsonObject loaded {{u"by"_s, ascii ? u"file"_s : u"data"_s}, {u"files"_s, files}};
     if (uiFamily.isEmpty()) {
         qWarning("UI font: nothing loaded from %s, using the system font", qUtf8Printable(QDir::toNativeSeparators(fontDir)));
-        return;
+        loaded[u"family"_s] = QGuiApplication::font().family();
+        return loaded;
     }
     QFont font(uiFamily);
     // Vertical only: full hinting also moves glyphs sideways ("you ng").
     font.setHintingPreference(QFont::PreferVerticalHinting);
     QGuiApplication::setFont(font);
+    loaded[u"family"_s] = uiFamily;
+    return loaded;
 }
 
 // The arguments as one command line (CreateProcess, ShellExecute): quoted
@@ -216,6 +226,7 @@ int main(int argc, char* argv[])
     QCoreApplication::setApplicationName(u"WinShun"_s);
     QCoreApplication::setApplicationVersion(QStringLiteral(WINSHUN_VERSION));
     QGuiApplication app(argc, argv);
+    const QString platform = qEnvironmentVariable("QT_QPA_PLATFORM"); // the font engine, for the record
     if (setPlatform)
         qunsetenv("QT_QPA_PLATFORM"); // programs we launch must not inherit it
     // Started from inside VS Code (its terminal, or a tool run by one of its
@@ -312,7 +323,10 @@ int main(int argc, char* argv[])
     ws::diagnostics::record(u"app-start"_s, ws::diagnostics::environment());
     g_defaultHandler = qInstallMessageHandler(logToFile); // the running copy only
 
-    applyUiFont(); // the UI font (see above)
+    QJsonObject uiFont = applyUiFont(); // the UI font (see above)
+    uiFont[u"platform"_s] = platform;
+    ws::diagnostics::setUiFont(uiFont);
+    ws::diagnostics::watchDisplay();
 
     int code = 1;
     std::optional<QStringList> restart;

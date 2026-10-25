@@ -34,6 +34,9 @@ public:
         std::function<LRESULT(WPARAM, LPARAM)> deviceChange; // WM_DEVICECHANGE (see VolumeNotifier)
         std::function<void()> shellRestarted; // Explorer started again (its taskbar is back)
         std::function<void()> resumed; // from sleep or hibernation
+        // Going to sleep, back from it, fonts added or removed (WM_POWERBROADCAST,
+        // WM_FONTCHANGE): what the diagnostics record notes of how windows draw.
+        std::function<void(UINT message, WPARAM wParam)> drawingMessage;
     };
 
     explicit MessageWindow(Callbacks callbacks);

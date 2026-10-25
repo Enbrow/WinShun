@@ -270,6 +270,8 @@ qt_add_qml_module(WinShun
         ResultModel.cpp ResultModel.h
         SettingsEditor.cpp SettingsEditor.h
         Diagnostics.cpp Diagnostics.h
+        DisplayDiagnostics.cpp DisplayDiagnostics.h # how Win顺 draws, for display problems (GitHub #70)
+        TextCheck.cpp TextCheck.h
         SettingsSearch.cpp SettingsSearch.h
         SoundClip.cpp SoundClip.h
         SystemTheme.cpp SystemTheme.h
