@@ -1,5 +1,7 @@
 #include "KeyRouter.h"
 
+#include <QtLogging>
+
 #include <array>
 #include <latch>
 
@@ -12,6 +14,7 @@ thread_local KeyRouter* t_router = nullptr;
 
 constexpr WORD kMaskKey = 0xE8; // unassigned: no program acts on it
 constexpr UINT kDrainMessage = WM_APP; // to the router's thread (drain)
+constexpr UINT kRefreshMessage = WM_APP + 1; // the search field was clicked
 constexpr UINT kToUnicodeKeepState = 0x4; // ToUnicodeEx: leave the dead key state alone (Windows 10 1607)
 
 bool held(int vk)
@@ -257,7 +260,7 @@ KeyRouter::KeyRouter(HWND target, HWND window, Callbacks callbacks, Qt::Keyboard
         // Every key press and mouse move in the system waits for the hooks' answer.
         ::SetThreadPriority(::GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
         const HINSTANCE instance = ::GetModuleHandleW(nullptr);
-        const HHOOK keyboard = ::SetWindowsHookExW(WH_KEYBOARD_LL, &KeyRouter::keyboardProc, instance, 0);
+        HHOOK keyboard = ::SetWindowsHookExW(WH_KEYBOARD_LL, &KeyRouter::keyboardProc, instance, 0);
         const HHOOK mouse = keyboard ? ::SetWindowsHookExW(WH_MOUSE_LL, &KeyRouter::mouseProc, instance, 0) : nullptr;
         const HWINEVENTHOOK foreground = mouse
             ? ::SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, &KeyRouter::foregroundProc,
@@ -270,6 +273,22 @@ KeyRouter::KeyRouter(HWND target, HWND window, Callbacks callbacks, Qt::Keyboard
             while (::GetMessageW(&msg, nullptr, 0, 0) > 0) {
                 if (msg.hwnd == nullptr && msg.message == kDrainMessage) {
                     checkDrained(); // nothing held now: done at once
+                    continue;
+                }
+                if (msg.hwnd == nullptr && msg.message == kRefreshMessage) {
+                    if (!m_draining) {
+                        // Installing succeeded once, but Windows can remove a
+                        // timed-out hook without notifying us. Keep the old
+                        // one if its replacement cannot be installed.
+                        if (const HHOOK replacement = ::SetWindowsHookExW(
+                                WH_KEYBOARD_LL, &KeyRouter::keyboardProc, instance, 0)) {
+                            if (!::UnhookWindowsHookEx(keyboard))
+                                qWarning("KeyRouter: replaced an unavailable keyboard hook (error %lu)", ::GetLastError());
+                            keyboard = replacement;
+                        } else {
+                            qWarning("KeyRouter: keyboard hook not refreshed (error %lu)", ::GetLastError());
+                        }
+                    }
                     continue;
                 }
                 ::DispatchMessageW(&msg);
@@ -290,6 +309,12 @@ KeyRouter::~KeyRouter()
     ::PostThreadMessageW(m_threadId.load(), WM_QUIT, 0, 0); // ends the message loop
     if (m_thread.joinable())
         m_thread.join();
+}
+
+void KeyRouter::refresh()
+{
+    if (!m_draining && m_active)
+        ::PostThreadMessageW(m_threadId.load(), kRefreshMessage, 0, 0);
 }
 
 void KeyRouter::drain()

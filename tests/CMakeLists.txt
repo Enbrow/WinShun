@@ -303,6 +303,14 @@ target_link_libraries(tst_keylistener PRIVATE wscore Qt6::Test user32 advapi32 s
 target_compile_definitions(tst_keylistener PRIVATE WINSHUN_SERVICE_EXE="$<TARGET_FILE:WinShunService>")
 add_dependencies(tst_keylistener WinShunService)
 
+qt_add_executable(tst_keyrouter tst_keyrouter.cpp ${PROJECT_SOURCE_DIR}/src/app/platform/KeyRouter.cpp)
+target_include_directories(tst_keyrouter PRIVATE ${PROJECT_SOURCE_DIR}/src/app ${PROJECT_SOURCE_DIR}/src/core)
+target_link_libraries(tst_keyrouter PRIVATE winshun_options Qt6::Test user32 imm32)
+set_target_properties(tst_keyrouter PROPERTIES WIN32_EXECUTABLE FALSE QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+add_test(NAME tst_keyrouter COMMAND tst_keyrouter -o -,txt)
+set_tests_properties(tst_keyrouter PROPERTIES RUN_SERIAL TRUE
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
 # The drop pie (DropPie): its chips round the middle, the direction that
 # chooses one, and the folders' names shortened to fit.
 qt_add_executable(tst_piegeometry tst_piegeometry.cpp ${PROJECT_SOURCE_DIR}/src/app/PieGeometry.cpp)

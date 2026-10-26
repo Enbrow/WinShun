@@ -3971,8 +3971,15 @@ void App::releaseClipboard(bool giveFocus)
 
 void App::engageClipboard()
 {
-    if (!m_clipWindow || !m_clipWindow->isVisible() || m_keyRouter)
+    if (!m_clipWindow || !m_clipWindow->isVisible())
         return;
+    if (m_keyRouter) {
+        if (paste::isForeground(m_keyRouterTarget)) {
+            m_keyRouter->refresh(); // a search-field click, still without taking the focus
+            return;
+        }
+        stopKeyRouting(); // a stale foreground notification left it over a different window
+    }
     // As when it opens over a program: that one keeps the focus, the keys
     // come here. Its own window in front (nothing else to paste into): it
     // takes the focus, and pastes where it did last.

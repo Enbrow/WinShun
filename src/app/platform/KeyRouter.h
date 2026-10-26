@@ -102,6 +102,9 @@ public:
     KeyRouter& operator=(const KeyRouter&) = delete;
 
     bool isActive() const noexcept { return m_active.load(); }
+    // A click in the search field can recover a hook Windows silently
+    // removed after a timeout, without activating the clipboard window.
+    void refresh();
     void drain(); // no more keys taken, no more callbacks but `drained`
 
 private:

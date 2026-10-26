@@ -252,7 +252,7 @@ public:
     Q_INVOKABLE void cycleCategory(int delta);
     Q_INVOKABLE void cycleSeparator();
     Q_INVOKABLE void dismiss(); // Esc, Win+V again: back to the field it came from, or closed (pinned: the keys given back)
-    Q_INVOKABLE void wantKeys() { emit keysWanted(); } // pinned: the search field clicked
+    Q_INVOKABLE void wantKeys() { emit keysWanted(); } // the search field clicked: acquire or refresh routing
     Q_INVOKABLE void turnOn(); // the history, from the window's button
 
     // The preview of a row: {kind, text, more, files, thumbnail, image,
@@ -279,7 +279,7 @@ signals:
     void previewOpenChanged();
     void previewWidthChanged();
     void pinnedFirstChanged();
-    void keysWanted(); // pinned, the keys elsewhere: they are wanted here (App)
+    void keysWanted(); // a search-field click: acquire or refresh routing (App)
     void keysReleased(); // pinned, Esc (or the hotkey again): the keys and the focus back to the program (App)
     // The window takes the focus after all (App), from the program that kept
     // it: before handing over to another program (a link opened), which may

@@ -540,6 +540,14 @@ Item {
                     visible: input.text.length === 0 && input.preeditText.length === 0
                 }
 
+                // A passive tap leaves TextInput's caret and selection alone.
+                // Recover routing on an explicit click without taking the
+                // foreground from a field that closes when it loses focus.
+                TapHandler {
+                    enabled: page.clipboard.keysRouted
+                    onTapped: page.clipboard.wantKeys()
+                }
+
                 // Pinned, the keys with the program in front: a click asks
                 // for them (App routes them here, as the hotkey does).
                 MouseArea {
