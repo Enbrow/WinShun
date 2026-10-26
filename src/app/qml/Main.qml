@@ -1193,7 +1193,7 @@ Window {
                     width: boxList.width
                     height: window.rowHeight
                     showModified: window.launcher.showModified
-                    showSize: window.launcher.sort === Launcher.LargestFirst || window.launcher.sort === Launcher.SmallestFirst
+                    showSize: window.launcher.showFileSize || window.launcher.sort === Launcher.LargestFirst || window.launcher.sort === Launcher.SmallestFirst
                     hint: window.numberOf(index)
                     hintOpacity: numberHints.hintOpacity
                     hintModifier: window.numberModifier

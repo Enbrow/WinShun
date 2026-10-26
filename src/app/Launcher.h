@@ -3,6 +3,7 @@
 #include "AppCatalog.h"
 #include "ContentIndex.h"
 #include "Favorites.h"
+#include "LauncherNavigation.h"
 #include "ResultModel.h"
 #include "SearchEngine.h"
 #include "SearchTypes.h"
@@ -95,6 +96,7 @@ class Launcher : public QObject {
     Q_PROPERTY(StartList startList READ startList WRITE setStartList NOTIFY startListChanged FINAL)
     // Rows say when each file or folder was last written.
     Q_PROPERTY(bool showModified READ showModified NOTIFY resultOptionsChanged FINAL)
+    Q_PROPERTY(bool showFileSize READ showFileSize NOTIFY resultOptionsChanged FINAL)
     Q_PROPERTY(QString folderKeyword READ folderKeyword NOTIFY fileTypesChanged FINAL)
     // A click on a row only selects it; a double click (or Enter) opens it
     // (Settings::doubleClickToOpen, GitHub #44).
@@ -232,6 +234,7 @@ public:
         SwitchOn, // a system switch's row, set on / off (the menu's two entries; Enter is the row's own)
         SwitchOff,
         EditPicture, // 编辑: a screenshot's row, in the editing window (Shift+Enter)
+        BrowseFolder, // list a folder in Win顺, then keep typing to search there
         PluginAction = 100
     };
     Q_ENUM(Action)
@@ -258,7 +261,8 @@ public:
     Q_INVOKABLE bool clearToKeyword();
     // Tab: the row's autocomplete into the box, if it has one; outside
     // keyword mode else the hint row offering a keyword, wherever it is
-    // ("uu" → "uuid "; completionRow()). False when there is nothing.
+    // ("uu" → "uuid "; completionRow()). Optionally browses a selected
+    // favorite folder in 全部. False leaves Tab for scope switching.
     Q_INVOKABLE bool autocomplete(int row);
     Q_INVOKABLE void leaveKeyword(); // the chip clicked: the box is emptied
 
@@ -367,7 +371,7 @@ public:
     // Enter on them switches it. `stateFile` (state.ini) remembers what was
     // told once.
     void setSwitches(Switches* switches, const QString& stateFile);
-    void setResultOptions(KindOrder kindOrder, bool showModified, bool thumbnails, const QString& numberKeys);
+    void setResultOptions(KindOrder kindOrder, bool showModified, bool showFileSize, bool thumbnails, const QString& numberKeys);
     // 优先显示的文件类型 (Settings::preferredTypes): searched again in the new order when shown.
     void setPreferredTypes(const QStringList& types);
     // Files with these extensions are left out of every list and search.
@@ -380,8 +384,10 @@ public:
     // (best match, newest, oldest).
     Q_INVOKABLE void switchOrder();
     bool showModified() const { return m_showModified; }
+    bool showFileSize() const { return m_showFileSize; }
     bool doubleClickToOpen() const { return m_doubleClickToOpen; }
     void setDoubleClickToOpen(bool on);
+    void setTabEntersFavoriteFolder(bool on);
     QString numberKeys() const { return m_numberKeys; }
     QString numberHints() const { return m_numberHints; }
     void setNumberHints(const QString& hints);
@@ -700,8 +706,8 @@ private:
     void performWeb(const SearchResult& web, Action action);
     void performFavorite(const SearchResult& result, Action action); // AddFavorite … EditFavorite
     void performMany(const SearchResults& items, Action action);
-    // A favorite folder's row, outside keyword mode: Tab goes into it (or null).
-    const SearchResult* enterableFolder(int row) const;
+    navigation::TabAction tabAction(int row) const;
+    void browseFolder(const SearchResult& folder);
     // Opened: into the history, if it is kept. `query`: the text the list it
     // was opened from is for (m_shownText); none when it was not found by typing.
     void remember(const QString& path, const QString& query = {});
@@ -875,7 +881,9 @@ private:
     Sort m_sort = BestMatch;
     StartList m_startList = RecentlyOpened;
     bool m_showModified = true;
+    bool m_showFileSize = false;
     bool m_doubleClickToOpen = false;
+    bool m_tabEntersFavoriteFolder = false;
     QString m_numberKeys = QStringLiteral("ctrl");
     QString m_numberHints = QStringLiteral("held");
     unsigned m_numberKeysLeft = 0;

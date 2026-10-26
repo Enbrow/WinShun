@@ -18,8 +18,9 @@ import WinShun
 // "系统" tag, a switch at a width of its own whatever the state, and a gear
 // that opens its page; its second line says what there is to know of it, or
 // (in red) why the last try failed. A click on it, or on the row, is Enter.
-// A file or folder says when it was last written, at the end of its name's
-// line (also on the current row, where the buttons take the right end).
+// File metadata stays beside the text, also on the current row where the
+// buttons take the right end. Size and date can be shown independently;
+// together they align with the name and path, sharing one narrow column.
 // A picture, a video, a PDF shows its thumbnail for an icon, once loaded.
 // A file or folder on a network share that cannot be reached now is dimmed
 // and tagged "离线".
@@ -75,6 +76,8 @@ Item {
     required property bool switchReady // draws its switch (else an ordinary place, with its tag)
     property bool showModified: true
     property bool showSize: false
+    readonly property bool sizeShown: showSize && size.length > 0
+    readonly property bool modifiedShown: showModified && modified.length > 0
     property int hint: 0 // its number for the number keys (Ctrl+1…), on its icon; 0 for none
     property string hintModifier: "Ctrl" // ... with this held
     property bool hintTaken: false // another program holds that chord as a global hotkey: shown struck through
@@ -234,12 +237,13 @@ Item {
 
     Column {
         id: textColumn
+        objectName: "resultText"
         opacity: row.offline || row.missing ? 0.6 : 1
         y: row.onPixel((row.height - height) / 2)
         anchors.left: iconSlot.right
         anchors.leftMargin: 12
         anchors.right: parent.right
-        anchors.rightMargin: row.trailingSpace + (date.visible ? date.width + 16 : 0)
+        anchors.rightMargin: row.trailingSpace + (metadata.visible ? metadata.width + 16 : 0)
         spacing: 4
 
         Item {
@@ -294,19 +298,43 @@ Item {
         }
     }
 
-    // When it was last written: centred on the row, and both lines on the left
-    // stop short of it, so the path below the name never runs under it.
-    Text {
-        id: date
-        visible: row.showSize ? row.size.length > 0 : row.showModified && row.modified.length > 0
+    // One value is centred as before; two use the text's baselines. Both
+    // lines on the left stop short of the wider value, including on hover.
+    Item {
+        id: metadata
+        objectName: "resultMetadata"
+        visible: row.sizeShown || row.modifiedShown
         anchors.right: parent.right
         anchors.rightMargin: row.trailingSpace
-        y: row.onPixel((row.height - height) / 2)
-        width: Math.ceil(implicitWidth)
-        text: row.showSize ? row.size : row.modified
-        textFormat: Text.PlainText
-        color: Theme.faint
-        font.pixelSize: Theme.uiCaption
+        height: row.height
+        width: Math.ceil(Math.max(row.sizeShown ? fileSize.implicitWidth : 0,
+                                  row.modifiedShown ? date.implicitWidth : 0))
+
+        Text {
+            id: fileSize
+            objectName: "fileSizeLabel"
+            visible: row.sizeShown
+            anchors.right: parent.right
+            y: row.modifiedShown ? row.onPixel(textColumn.y + title.baselineOffset - baselineOffset)
+                                : row.onPixel((row.height - height) / 2)
+            text: row.size
+            textFormat: Text.PlainText
+            color: Theme.faint
+            font.pixelSize: Theme.uiCaption
+        }
+
+        Text {
+            id: date
+            objectName: "modifiedLabel"
+            visible: row.modifiedShown
+            anchors.right: parent.right
+            y: row.sizeShown ? row.onPixel(textColumn.y + folderLine.y + folderLine.baselineOffset - baselineOffset)
+                            : row.onPixel((row.height - height) / 2)
+            text: row.modified
+            textFormat: Text.PlainText
+            color: Theme.faint
+            font.pixelSize: Theme.uiCaption
+        }
     }
 
     Text {

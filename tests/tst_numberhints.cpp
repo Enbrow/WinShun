@@ -20,6 +20,55 @@ class NumberHintsTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void fileSizeSettings()
+    {
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        ws::Settings::useProfile(profile.path());
+        ws::Settings settings;
+        QCOMPARE(ws::Settings::defaults().showFileSize, false);
+        settings.load();
+        QCOMPARE(settings.showFileSize, false);
+        for (const bool enabled : {true, false}) {
+            settings.showFileSize = enabled;
+            settings.showModified = !enabled; // independent preferences survive a reload
+            settings.save();
+            ws::Settings read;
+            read.load();
+            QCOMPARE(read.showFileSize, enabled);
+            QCOMPARE(read.showModified, !enabled);
+        }
+        QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+        ini.remove(u"Results/ShowFileSize"_s);
+        ini.sync();
+        settings.load();
+        QCOMPARE(settings.showFileSize, false);
+    }
+
+    void favoriteFolderTabSettings()
+    {
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        ws::Settings::useProfile(profile.path());
+        ws::Settings settings;
+        QCOMPARE(ws::Settings::defaults().tabEntersFavoriteFolder, false);
+        settings.load();
+        QCOMPARE(settings.tabEntersFavoriteFolder, false);
+        for (const bool enabled : {true, false}) {
+            settings.tabEntersFavoriteFolder = enabled;
+            settings.save();
+            ws::Settings read;
+            read.load();
+            QCOMPARE(read.tabEntersFavoriteFolder, enabled);
+        }
+        // An upgraded profile without this preference gets the consistent default.
+        QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+        ini.remove(u"Results/TabEntersFavoriteFolder"_s);
+        ini.sync();
+        settings.load();
+        QCOMPARE(settings.tabEntersFavoriteFolder, false);
+    }
+
     void globalQuickPasteSettings()
     {
         QTemporaryDir profile;

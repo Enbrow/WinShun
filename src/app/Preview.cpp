@@ -45,6 +45,7 @@
 #include <QTranslator>
 #include <QUuid>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -925,6 +926,40 @@ int runSettings(const QStringList& args)
             if (tree)
                 writeTree(window, file + u".tree.txt"_s);
             saved = saveGrab(window, file) && saved;
+            if (page == 3 && tab == 1) {
+                QObject* choice = visualNamed(window->contentItem(), u"favoriteFolderTabChoice"_s);
+                if (!choice) {
+                    qWarning("preview: favorite folder Tab choice missing");
+                } else {
+                    for (const bool enabled : {true, false}) {
+                        if (!QMetaObject::invokeMethod(choice, "activated", Q_ARG(int, enabled ? 1 : 0)))
+                            qWarning("preview: favorite folder Tab choice could not be activated");
+                        settle(window, 2);
+                        Settings read;
+                        read.load();
+                        if (editor->tabEntersFavoriteFolder() != enabled || read.tabEntersFavoriteFolder != enabled
+                            || choice->property("current").toInt() != int(enabled))
+                            qWarning("preview: favorite folder Tab choice did not save or update its binding");
+                    }
+                    say(u"favorite folder Tab setting: real QML control, editor and isolated settings round trip checked"_s);
+                }
+                QObject* sizeToggle = visualNamed(window->contentItem(), u"showFileSizeToggle"_s);
+                if (!sizeToggle) {
+                    qWarning("preview: file size toggle missing");
+                } else {
+                    for (const bool enabled : {true, false}) {
+                        if (!QMetaObject::invokeMethod(sizeToggle, "toggled", Q_ARG(bool, enabled)))
+                            qWarning("preview: file size toggle could not be activated");
+                        settle(window, 2);
+                        Settings read;
+                        read.load();
+                        if (editor->showFileSize() != enabled || read.showFileSize != enabled
+                            || sizeToggle->property("checked").toBool() != enabled)
+                            qWarning("preview: file size toggle did not save or update its binding");
+                    }
+                    say(u"file size setting: real QML control, editor and isolated settings round trip checked"_s);
+                }
+            }
         }
     }
 
@@ -999,11 +1034,14 @@ int runSettings(const QStringList& args)
         {u"对话框旁的搜索框"_s, 0, 2},
         {u"AI"_s, aiPage, 0},
         {u"收藏"_s, favoritesPage, 0},
-        {u"网络共享"_s, 2, 3},
-        {u"排序"_s, 3, 0},
-        {u"显示修改日期"_s, 3, 1},
-        {u"每次打开时清空搜索"_s, 3, 2},
-        {u"文件类型"_s, 3, 3},
+        {QCoreApplication::translate("SettingsWindow", "网络与 WSL 文件夹"), 2, 3},
+        {QCoreApplication::translate("SettingsWindow", "排序"), 3, 0},
+        {QCoreApplication::translate("SettingsWindow", "显示修改日期"), 3, 1},
+        {QCoreApplication::translate("SettingsWindow", "显示文件大小"), 3, 1},
+        {QCoreApplication::translate("SettingsWindow", "选中收藏文件夹时按 Tab"), 3, 1},
+        {QCoreApplication::translate("SettingsWindow", "每次打开时清空搜索"), 3, 2},
+        // "File types" also matches preferred types in English; its visible prefix is unambiguous.
+        {args.contains(u"--english"_s) ? u":folder"_s : u"文件类型"_s, 3, 3},
     };
     QMetaObject::invokeMethod(window, "showPage", Q_ARG(QVariant, QVariant(0)), Q_ARG(QVariant, QVariant(0)));
     window->setHeight(baseHeight);
@@ -1064,14 +1102,29 @@ void checkLauncherFilters(QQuickWindow* window)
         const auto lock = files->writeLock();
         const auto root = files->addRoot("T:");
         files->add(root, "报告资料", EntryFlag::Directory);
-        files->add(root, "报告图片.png", 0);
-        files->add(root, "照片.png", 0);
+        const auto report = files->add(root, "报告图片.png", 0);
+        files->setSize(report, packSize(1234567));
+        const auto empty = files->add(root, "照片.png", 0);
+        files->setSize(empty, packSize(0));
         files->add(root, "报告.txt", 0);
     }
     const auto check = [](bool condition, const char* reason) {
         if (!condition)
             qWarning("launcher regression: %s", reason);
     };
+    // #80: applying a preference updates the existing controller immediately,
+    // independently of dates and without resetting the result model.
+    check(!launcher.showFileSize(), "file size should be off by default");
+    int optionChanges = 0;
+    QObject::connect(&launcher, &Launcher::resultOptionsChanged, &launcher, [&] { ++optionChanges; });
+    for (const bool enabled : {true, false}) {
+        launcher.setResultOptions(KindOrder::FilesFirst, true, enabled, true, u"ctrl"_s);
+        check(launcher.showFileSize() == enabled && launcher.showModified(), "file size preference did not apply independently");
+        const int before = optionChanges;
+        launcher.setResultOptions(KindOrder::FilesFirst, true, enabled, true, u"ctrl"_s);
+        check(optionChanges == before, "unchanged preferences signalled again");
+    }
+    check(optionChanges == 2, "file size changes did not notify existing delegates");
     const auto query = [&](const QString& text) {
         launcher.setQuery(text);
         QElapsedTimer timeout;
@@ -1086,9 +1139,16 @@ void checkLauncherFilters(QQuickWindow* window)
     query(u":pictures 报告"_s);
     check(launcher.scope() == Launcher::Files && launcher.fileType() == 1 && launcher.results()->count() == 1
         && launcher.results()->at(0)->name.endsWith(u".png"), "type prefix did not filter extensions");
+    check(launcher.results()->at(0) && launcher.results()->at(0)->size == 1234567
+        && !launcher.results()->data(launcher.results()->index(0), ResultModel::SizeRole).toString().isEmpty(),
+        "ordinary search lost the indexed file size");
     check(launcher.query() == u":pictures 报告", "typed prefix disappeared from the field");
     query(u":pictures"_s);
     check(launcher.results()->count() == 2, "prefix alone showed history instead of browsing the type");
+    const int emptyRow = launcher.results()->indexOf(u"T:\\照片.png"_s);
+    check(emptyRow >= 0 && launcher.results()->at(emptyRow)->size == 0
+        && !launcher.results()->data(launcher.results()->index(emptyRow), ResultModel::SizeRole).toString().isEmpty(),
+        "zero bytes were treated as unknown");
     query({});
     check(launcher.scope() == Launcher::All, "removing a prefix did not restore the original scope");
     query(u":folder 报告"_s);
@@ -1107,7 +1167,72 @@ void checkLauncherFilters(QQuickWindow* window)
         check(launcher.panelSortKey() == int(test.key) && launcher.panelSortDescending() == test.descending,
             "expanding the panel lost the compact list's sort");
     }
-    say(u"launcher prefix and panel-sort regressions: real controllers/engine over an isolated in-memory fixture"_s);
+    // #81: the actual controller, hint, completion and menu paths, without
+    // touching the running user's launcher or opening anything in the shell.
+    launcher.setPanel(false);
+    QDir(temporary.path()).mkpath(u"favorite"_s);
+    QDir(temporary.path()).mkpath(u"ordinary"_s);
+    const QString favoritePath = QDir::toNativeSeparators(temporary.filePath(u"favorite"_s));
+    const QString ordinaryPath = QDir::toNativeSeparators(temporary.filePath(u"ordinary"_s));
+    SearchResult folder {.name = u"Favorite"_s, .path = favoritePath, .isDir = true, .favorite = true};
+    const auto showRow = [&](const SearchResult& row) {
+        launcher.setScope(Launcher::All);
+        query({});
+        launcher.results()->assign({row}, {});
+        launcher.setCurrentRow(-1);
+        launcher.setCurrentRow(0);
+    };
+    const auto tabHint = [&] { return launcher.keyHints().value(u"tab"_s).toString(); };
+    const QString scopeHint = QCoreApplication::translate("ws::Launcher", "切换范围");
+    const QString folderHint = QCoreApplication::translate("ws::Launcher", "进入文件夹");
+    const auto hasBrowseAction = [&] {
+        const QVariantList menu = launcher.menuItems(0);
+        return std::ranges::any_of(menu, [](const QVariant& entry) {
+            const QVariantMap item = entry.toMap();
+            return item.contains(u"action"_s) && item.value(u"action"_s).toInt() == Launcher::BrowseFolder;
+        });
+    };
+    showRow(folder);
+    check(tabHint() == scopeHint && !launcher.autocomplete(0) && launcher.query().isEmpty(),
+        "favorite folder stole Tab with the default setting");
+    launcher.cycleScope(1);
+    check(launcher.scope() == Launcher::Files, "Tab did not advance the scope on a favorite folder");
+    launcher.cycleScope(-1);
+    check(launcher.scope() == Launcher::All, "Shift+Tab did not reverse the scope");
+    showRow(folder);
+    launcher.setTabEntersFavoriteFolder(true);
+    check(tabHint() == folderHint, "changing the Tab setting did not update the footer immediately");
+    check(launcher.autocomplete(0) && launcher.query() == favoritePath + u'\\',
+        "opted-in Tab did not browse the favorite folder");
+    folder.favorite = false;
+    folder.path = ordinaryPath;
+    showRow(folder);
+    check(tabHint() == scopeHint && !launcher.autocomplete(0) && hasBrowseAction(),
+        "an ordinary folder stole Tab or lost its independent browse action");
+    launcher.setScope(Launcher::Folders);
+    query({});
+    launcher.results()->assign({folder}, {});
+    launcher.trigger(0, Launcher::BrowseFolder);
+    check(launcher.scope() == Launcher::All && launcher.query() == ordinaryPath + u'\\',
+        "the folder menu did not browse inside WinShun or retained a folders-only filter");
+    folder.favorite = true;
+    folder.offline = true;
+    showRow(folder);
+    check(!launcher.autocomplete(0) && !hasBrowseAction(), "an offline folder can be browsed");
+    folder.offline = false;
+    folder.missing = true;
+    showRow(folder);
+    check(!launcher.autocomplete(0) && !hasBrowseAction(), "a missing folder can be browsed");
+    folder.missing = false;
+    showRow(folder);
+    launcher.setTabEntersFavoriteFolder(false);
+    check(tabHint() == scopeHint && !launcher.autocomplete(0), "turning the Tab setting off left stale behavior or hints");
+    SearchResult suggestion {.name = u"Search suggestion"_s, .app = AppKind::Web,
+        .keyword = u"example"_s, .words = u"report"_s, .suggestion = true};
+    showRow(suggestion);
+    check(launcher.autocomplete(0) && launcher.query() == u"example report", "web suggestion completion changed");
+    query({}); // let the last search settle before its controller and engine go away
+    say(u"launcher prefix, panel-sort and favorite Tab regressions: real controllers/engine over isolated fixtures"_s);
 }
 
 int runResults(const QStringList& args)
@@ -1147,7 +1272,10 @@ int runResults(const QStringList& args)
             color: Theme.background
             property alias hints: hints
             property alias field: field
+            property alias resultList: resultList
             property bool sizeOrder: false
+            property bool showFileSize: false
+            property bool showDate: true
             Binding { target: previewResults; property: "highlightColor"; value: Theme.accent }
             NumberHints { id: hints; key: Qt.Key_Control; listening: true }
             TextInput {
@@ -1159,10 +1287,12 @@ int runResults(const QStringList& args)
                 Keys.onReleased: event => hints.release(event)
             }
             ListView {
+                id: resultList
                 y: 60; width: parent.width; height: 8 * Theme.rowHeight
                 model: previewResults; currentIndex: -1
                 delegate: %2ResultRow {
-                    width: 800; height: Theme.rowHeight
+                    objectName: "metadataRow-" + index
+                    width: resultList.width; height: Theme.rowHeight
                     hint: index + 1; hintTaken: index < 3
                     %3
                 }
@@ -1170,7 +1300,7 @@ int runResults(const QStringList& args)
         }
     )"_s.arg(baseline.isEmpty() ? QString() : u"import \"%1\" as Baseline"_s.arg(QUrl::fromLocalFile(baseline).toString()),
              baseline.isEmpty() ? QString() : u"Baseline."_s,
-             baseline.isEmpty() ? u"hintOpacity: hints.hintOpacity; showSize: window.sizeOrder"_s : QString());
+             baseline.isEmpty() ? u"hintOpacity: hints.hintOpacity; showSize: window.showFileSize || window.sizeOrder; showModified: window.showDate"_s : QString());
     QQmlComponent component(&engine);
     component.setData(qml.toUtf8(), QUrl(u"qrc:/results-preview.qml"_s));
     auto* window = qobject_cast<QQuickWindow*>(component.create());
@@ -1256,10 +1386,75 @@ int runResults(const QStringList& args)
         field->setProperty("text", u"文件修改时间"_s);
         settle(window);
         grab(u"date-time"_s);
+        window->setProperty("showFileSize", true);
+        field->setProperty("text", u"文件大小与修改时间"_s);
+        settle(window);
+        grab(u"size-and-date"_s);
+        window->setProperty("showDate", false);
+        field->setProperty("text", u"只显示文件大小"_s);
+        settle(window);
+        grab(u"size-only"_s);
+        window->setProperty("showFileSize", false);
         window->setProperty("sizeOrder", true);
         field->setProperty("text", u"按大小排序"_s);
         settle(window);
         grab(u"size-order"_s);
+
+        // Real delegates/model over edge fixtures: unknown is blank, zero is
+        // not, and folders/apps never pretend to have an aggregate size.
+        SearchResults edges;
+        for (int i = 0; i < 8; ++i)
+            edges.append(*results.at(i));
+        edges[1].size = 0;
+        edges[2].size = -1;
+        edges[3].isDir = true;
+        edges[4].app = AppKind::Desktop;
+        edges[5].modified = 0;
+        edges[6].line = 12;
+        edges[6].snippet = u"在文档中找到的内容"_s;
+        edges[7].name = u"名称很长的项目交付与验收报告-最终确认版本-v3.pdf"_s;
+        results.assign(std::move(edges), {});
+        auto* list = window->property("resultList").value<QObject*>();
+        struct MetadataMode { bool size; bool date; bool sort; };
+        const MetadataMode modes[]{{false, true, false}, {true, true, false}, {true, false, false},
+            {false, false, false}, {false, false, true}, {false, true, true}};
+        for (const int width : {640, 760}) {
+            window->setWidth(width);
+            for (const auto mode : modes) {
+                window->setProperty("showFileSize", mode.size);
+                window->setProperty("showDate", mode.date);
+                window->setProperty("sizeOrder", mode.sort);
+                for (const int current : {-1, 0}) {
+                    list->setProperty("currentIndex", current);
+                    settle(window, 2);
+                    for (int i = 0; i < results.count(); ++i) {
+                        QQuickItem* row = visualNamed(window->contentItem(), u"metadataRow-%1"_s.arg(i));
+                        QQuickItem* size = row ? visualNamed(row, u"fileSizeLabel"_s) : nullptr;
+                        QQuickItem* date = row ? visualNamed(row, u"modifiedLabel"_s) : nullptr;
+                        QQuickItem* meta = row ? visualNamed(row, u"resultMetadata"_s) : nullptr;
+                        QQuickItem* text = row ? visualNamed(row, u"resultText"_s) : nullptr;
+                        if (!size || !date || !meta || !text) {
+                            qWarning("preview: missing metadata delegate %d", i);
+                            continue;
+                        }
+                        const QString sizeText = results.data(results.index(i), ResultModel::SizeRole).toString();
+                        const QString dateText = results.data(results.index(i), ResultModel::ModifiedRole).toString();
+                        const bool sizeVisible = (mode.size || mode.sort) && !sizeText.isEmpty();
+                        const bool dateVisible = mode.date && !dateText.isEmpty();
+                        if (size->isVisible() != sizeVisible || date->isVisible() != dateVisible
+                            || size->property("text").toString() != sizeText || date->property("text").toString() != dateText)
+                            qWarning("preview: wrong metadata for row %d", i);
+                        if (meta->isVisible() && (text->width() < 0 || text->x() + text->width() + 15 > meta->x()
+                            || meta->x() + meta->width() > row->width()))
+                            qWarning("preview: metadata overlaps text or leaves row %d", i);
+                        if (sizeVisible && dateVisible && size->y() + size->height() > date->y())
+                            qWarning("preview: size and date overlap in row %d", i);
+                    }
+                }
+            }
+            grab(u"metadata-edges-%1"_s.arg(width));
+        }
+        say(u"file metadata: real delegates/model, six display combinations at 640/760px, selected/idle, zero/unknown/folder/app/content checked"_s);
     }
     say(u"renderer D3D11, DPR %1; Qt events only, not a global double-Ctrl gesture"_s.arg(window->devicePixelRatio()));
     return finish(window, saved);

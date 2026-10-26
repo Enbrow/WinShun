@@ -2821,9 +2821,23 @@ Window {
                 }
 
                 SettingRow {
+                    objectName: "favoriteFolderTab"
+                    title: qsTr("选中收藏文件夹时按 Tab")
+                    keywords: qsTr("Tab;Shift+Tab;收藏;文件夹;范围;键盘;favorite;keyboard").split(";")
+                    description: qsTr("在“全部”范围中，默认切换搜索范围；也可进入选中的收藏文件夹继续搜索。Shift+Tab 仍反向切换范围。")
+
+                    ScopeTabs {
+                        objectName: "favoriteFolderTabChoice"
+                        labels: [qsTr("切换范围"), qsTr("进入文件夹")]
+                        current: window.editor.tabEntersFavoriteFolder ? 1 : 0
+                        onActivated: (index) => window.editor.tabEntersFavoriteFolder = index === 1
+                    }
+                }
+
+                SettingRow {
                     title: qsTr("显示修改日期")
                     keywords: qsTr("修改时间;修改日期;日期;时间;date").split(";")
-                    description: qsTr("显示在名字右边；按大小排序时显示文件大小")
+                    description: qsTr("在搜索结果右侧显示修改日期；可与文件大小同时显示")
 
                     ToggleSwitch {
                         checked: window.editor.showModified
@@ -2846,6 +2860,19 @@ Window {
                             }
                         }
                     ]
+                }
+
+                SettingRow {
+                    title: qsTr("显示文件大小")
+                    keywords: qsTr("文件大小;体积;精简;双击Ctrl;KB;MB;GB;size").split(";")
+                    description: qsTr("无需展开窗口，在搜索结果右侧显示文件大小；按大小排序时始终显示。文件夹不统计大小。")
+
+                    ToggleSwitch {
+                        objectName: "showFileSizeToggle"
+                        checked: window.editor.showFileSize
+                        Accessible.name: qsTr("显示文件大小")
+                        onToggled: (on) => window.editor.showFileSize = on
+                    }
                 }
 
                 SettingRow {

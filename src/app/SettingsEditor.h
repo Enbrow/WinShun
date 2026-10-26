@@ -186,7 +186,9 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(bool preferredTypesDefault READ preferredTypesDefault NOTIFY changed FINAL)
     Q_PROPERTY(bool showModified READ showModified WRITE setShowModified NOTIFY changed FINAL)
     Q_PROPERTY(bool showModifiedTime READ showModifiedTime WRITE setShowModifiedTime NOTIFY changed FINAL)
+    Q_PROPERTY(bool showFileSize READ showFileSize WRITE setShowFileSize NOTIFY changed FINAL)
     Q_PROPERTY(bool doubleClickToOpen READ doubleClickToOpen WRITE setDoubleClickToOpen NOTIFY changed FINAL)
+    Q_PROPERTY(bool tabEntersFavoriteFolder READ tabEntersFavoriteFolder WRITE setTabEntersFavoriteFolder NOTIFY changed FINAL)
     Q_PROPERTY(bool thumbnails READ thumbnails WRITE setThumbnails NOTIFY changed FINAL)
     Q_PROPERTY(bool webSuggestions READ webSuggestions WRITE setWebSuggestions NOTIFY changed FINAL)
     Q_PROPERTY(QString sort READ sort WRITE setSort NOTIFY changed FINAL) // match | newest | oldest | name | folder | type | largest | smallest (kSortNames)
@@ -637,8 +639,12 @@ public:
     void setShowModified(bool on);
     bool showModifiedTime() const { return m_settings.showModifiedTime; }
     void setShowModifiedTime(bool on);
+    bool showFileSize() const { return m_settings.showFileSize; }
+    void setShowFileSize(bool on);
     bool doubleClickToOpen() const { return m_settings.doubleClickToOpen; }
     void setDoubleClickToOpen(bool on);
+    bool tabEntersFavoriteFolder() const { return m_settings.tabEntersFavoriteFolder; }
+    void setTabEntersFavoriteFolder(bool on);
     bool thumbnails() const { return m_settings.thumbnails; }
     void setThumbnails(bool on);
     bool webSuggestions() const { return m_settings.webSuggestions; }

@@ -875,8 +875,10 @@ void Settings::load()
         s.remove(kPreferredTypesKey); // as the first build with it wrote it
     showModified = readOrDefault(s, u"Results/ShowModified"_s, d.showModified);
     showModifiedTime = readOrDefault(s, u"Results/ShowModifiedTime"_s, d.showModifiedTime);
+    showFileSize = readOrDefault(s, u"Results/ShowFileSize"_s, d.showFileSize);
     folderKeyword = normalizedTypeKeyword(readOrDefault(s, u"Results/FolderKeyword"_s, d.folderKeyword)).value_or(d.folderKeyword);
     doubleClickToOpen = readOrDefault(s, u"Results/DoubleClickToOpen"_s, d.doubleClickToOpen);
+    tabEntersFavoriteFolder = readOrDefault(s, u"Results/TabEntersFavoriteFolder"_s, d.tabEntersFavoriteFolder);
     thumbnails = readOrDefault(s, u"Results/Thumbnails"_s, d.thumbnails);
     if (!s.contains(u"Results/Sort"_s) && s.value(u"Results/SortByModified"_s).toBool())
         s.setValue(u"Results/Sort"_s, u"newest"_s); // 0.6.0's switch: newest first, or best match
@@ -1176,8 +1178,10 @@ void Settings::save() const
         s.setValue(kPreferredTypesKey, preferredTypes);
     s.setValue(u"Results/ShowModified"_s, showModified);
     s.setValue(u"Results/ShowModifiedTime"_s, showModifiedTime);
+    s.setValue(u"Results/ShowFileSize"_s, showFileSize);
     s.setValue(u"Results/FolderKeyword"_s, folderKeyword);
     s.setValue(u"Results/DoubleClickToOpen"_s, doubleClickToOpen);
+    s.setValue(u"Results/TabEntersFavoriteFolder"_s, tabEntersFavoriteFolder);
     s.setValue(u"Results/Thumbnails"_s, thumbnails);
     s.setValue(u"Results/Sort"_s, sort);
     s.setValue(u"Results/StartList"_s, startList);

@@ -208,11 +208,27 @@ void SettingsEditor::setShowModifiedTime(bool on)
     commit();
 }
 
+void SettingsEditor::setShowFileSize(bool on)
+{
+    if (m_settings.showFileSize == on)
+        return;
+    m_settings.showFileSize = on;
+    commit();
+}
+
 void SettingsEditor::setDoubleClickToOpen(bool on)
 {
     if (m_settings.doubleClickToOpen == on)
         return;
     m_settings.doubleClickToOpen = on;
+    commit();
+}
+
+void SettingsEditor::setTabEntersFavoriteFolder(bool on)
+{
+    if (m_settings.tabEntersFavoriteFolder == on)
+        return;
+    m_settings.tabEntersFavoriteFolder = on;
     commit();
 }
 

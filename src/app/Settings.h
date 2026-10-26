@@ -152,10 +152,14 @@ struct Settings {
     static QStringList defaultPreferredTypes(); // exe, bat, cmd, ps1, msi
     bool showModified = true; // each file and folder found says when it was last written
     bool showModifiedTime = false; // include the time on older dates too
+    bool showFileSize = false; // compact results too; size sorting always shows it (GitHub #80)
     QString folderKeyword = QStringLiteral("folder"); // :folder in the search box
     // A click on a result only selects it; a double click or Enter opens it
     // (GitHub #44: a stray click opened things). Off: a click opens.
     bool doubleClickToOpen = false;
+    // GitHub #81: Tab switches scopes by default, including on favorites.
+    // Opt in to the former behavior: in 全部, Tab browses a favorite folder.
+    bool tabEntersFavoriteFolder = false;
     bool thumbnails = true; // a picture, video, PDF found shows its thumbnail for an icon
     // match | newest | oldest | name | folder | type | largest | smallest
     // (kSortNames): how 文件 and 文件夹 order what they find, by best match,

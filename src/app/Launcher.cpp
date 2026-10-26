@@ -877,15 +877,16 @@ void Launcher::setSwitches(Switches* switches, const QString& stateFile)
     });
 }
 
-void Launcher::setResultOptions(KindOrder kindOrder, bool showModified, bool thumbnails, const QString& numberKeys)
+void Launcher::setResultOptions(KindOrder kindOrder, bool showModified, bool showFileSize, bool thumbnails, const QString& numberKeys)
 {
     m_results.setThumbnails(thumbnails);
     const QString keys = numberKeys == u"off" ? QString() : numberKeys;
-    if (kindOrder == m_kindOrder && showModified == m_showModified && keys == m_numberKeys)
+    if (kindOrder == m_kindOrder && showModified == m_showModified && showFileSize == m_showFileSize && keys == m_numberKeys)
         return;
     const bool reorder = kindOrder != m_kindOrder;
     m_kindOrder = kindOrder;
     m_showModified = showModified;
+    m_showFileSize = showFileSize;
     m_numberKeys = keys;
     emit resultOptionsChanged();
     if (reorder && m_window && m_window->isVisible() && m_scope != Content)
@@ -898,6 +899,14 @@ void Launcher::setDoubleClickToOpen(bool on)
         return;
     m_doubleClickToOpen = on;
     emit resultOptionsChanged();
+}
+
+void Launcher::setTabEntersFavoriteFolder(bool on)
+{
+    if (on == m_tabEntersFavoriteFolder)
+        return;
+    m_tabEntersFavoriteFolder = on;
+    refreshKeyHints();
 }
 
 void Launcher::setPreferredTypes(const QStringList& types)
@@ -2157,13 +2166,13 @@ void Launcher::refreshKeyHints()
     QString enter;
     QString secondKeys;
     QString second;
-    // Tab: into a favorite folder in 全部, a completion, else the scopes (the
-    // strip under the box is Ctrl+Tab's, GitHub #16, #29).
-    const bool narrowing = (m_scope == Files || m_scope == Folders || m_scope == Content) && !m_keyword;
-    QString tab = enterableFolder(m_currentRow) && !narrowing ? tr("进入文件夹")
-        : completionRow(m_currentRow)                          ? tr("补全")
-        : m_keyword                                            ? QString()
-                                                               : tr("切换范围");
+    QString tab;
+    switch (tabAction(m_currentRow)) {
+    case navigation::TabAction::BrowseFolder: tab = tr("进入文件夹"); break;
+    case navigation::TabAction::Complete: tab = tr("补全"); break;
+    case navigation::TabAction::SwitchScope: tab = tr("切换范围"); break;
+    case navigation::TabAction::None: break;
+    }
     QString tabKeys = u"Tab"_s; // the volume's row: its place is Alt+←→'s (Tab still does the same)
     const SearchResult* r = m_results.at(m_currentRow);
     if (!r) {
@@ -2917,6 +2926,10 @@ void Launcher::perform(const SearchResult& result, Action action, bool fileCheck
     }
     if (action == AddFavorite || action == RemoveFavorite || action == FavoriteFolder || action == EditFavorite) {
         performFavorite(r, action);
+        return;
+    }
+    if (action == BrowseFolder) {
+        browseFolder(r);
         return;
     }
     if (r.clipId > 0) {
@@ -3834,6 +3847,8 @@ QVariantList Launcher::menuItems(int row) const
     }
     items.append(entry(Open, r->isDir ? tr("打开文件夹") : tr("打开"), u"Enter"_s, r->isDir ? u"\uE838"_s : u"\uE8E5"_s));
     items.append(entry(Reveal, tr("打开所在位置"), u"Ctrl+Enter"_s, u"\uE8DA"_s));
+    if (navigation::canBrowseFolder(*r))
+        items.append(entry(BrowseFolder, tr("进入此文件夹搜索"), QString(), u"\uE721"_s));
     if (!r->missing && !r->offline)
         items.append(entry(Preview, tr("预览"), u"Alt+P"_s, u"\uE890"_s)); // View
     if (!r->isDir && !r->missing && !r->offline && pinnablePicture(r->path))
@@ -4071,26 +4086,32 @@ const SearchResult* Launcher::completionRow(int row) const
     return nullptr;
 }
 
-// A favorite folder's row: Tab lists what it holds, as typing its path does
-// ("D:\工作文档\"). Other folders' rows keep Tab for the scopes.
-const SearchResult* Launcher::enterableFolder(int row) const
+navigation::TabAction Launcher::tabAction(int row) const
 {
-    const SearchResult* r = m_results.at(row);
-    return r && !m_keyword && r->favorite && r->isDir && !r->isApp() && !r->offline && !r->missing ? r : nullptr;
+    return navigation::tabAction(static_cast<ws::Scope>(m_scope), bool(m_keyword), m_tabEntersFavoriteFolder,
+        m_results.at(row), completionRow(row) != nullptr);
+}
+
+void Launcher::browseFolder(const SearchResult& folder)
+{
+    if (!navigation::canBrowseFolder(folder))
+        return;
+    const QString query = folder.path.endsWith(u'\\') ? folder.path : folder.path + u'\\';
+    if (m_scope != All)
+        setScope(All);
+    setQuery(query);
 }
 
 bool Launcher::autocomplete(int row)
 {
-    // Not in 文件 and 内容: there a folder is narrowed to by the strip
-    // (Ctrl+Tab), and Tab and Shift+Tab are the scopes'.
-    const bool narrowing = m_scope == Files || m_scope == Folders || m_scope == Content;
-    if (const SearchResult* folder = narrowing ? nullptr : enterableFolder(row)) {
-        setQuery(folder->path.endsWith(u'\\') ? folder->path : folder->path + u'\\');
+    const navigation::TabAction action = tabAction(row);
+    if (action == navigation::TabAction::BrowseFolder) {
+        browseFolder(*m_results.at(row));
         return true;
     }
-    const SearchResult* r = completionRow(row);
-    if (!r)
+    if (action != navigation::TabAction::Complete)
         return false;
+    const SearchResult* r = completionRow(row);
     // A site's suggestion: into the box after its keyword, to type on from.
     setQuery(r->suggestion ? r->keyword + u' ' + r->words : r->plugin->autocomplete);
     return true;

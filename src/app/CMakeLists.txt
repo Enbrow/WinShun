@@ -267,7 +267,7 @@ qt_add_qml_module(WinShun
         GleaningScene.cpp GleaningScene.h
         HotkeyRule.h
         IconBadge.cpp IconBadge.h
-        Launcher.cpp Launcher.h
+        Launcher.cpp Launcher.h LauncherNavigation.h
         Placement.cpp Placement.h
         PluginGallery.cpp PluginGallery.h
         PluginSettings.cpp PluginSettings.h

@@ -448,12 +448,19 @@ std::vector<Entry> buildCatalog()
     add(boolean({"Results/DoubleClickToOpen", QT_TRANSLATE_NOOP("AiSettings", "双击打开结果"), "results", 1,
                     "A click on a result only selects it; a double click (or Enter) opens it. Off: a click opens it."},
         &Settings::doubleClickToOpen));
+    add(boolean({"Results/TabEntersFavoriteFolder", QT_TRANSLATE_NOOP("AiSettings", "Tab 进入收藏文件夹"), "results", 1,
+                    "In All, Tab browses the selected favorite folder. Off by default: Tab switches search scopes. Shift+Tab and plugin/web completion keep their usual behavior."},
+        &Settings::tabEntersFavoriteFolder));
     add(boolean({"Results/ShowModified", QT_TRANSLATE_NOOP("AiSettings", "显示修改日期"), "results", 1,
                     "Each result says when the file was last written."},
         &Settings::showModified));
     add(boolean({"Results/ShowModifiedTime", QT_TRANSLATE_NOOP("AiSettings", "较早的日期也显示时间"), "results", 1,
                     "Include the local modification time on older dates in result rows."},
         &Settings::showModifiedTime));
+    add(boolean({"Results/ShowFileSize", QT_TRANSLATE_NOOP("AiSettings", "显示文件大小"), "results", 1,
+                    "Show file sizes in compact search results alongside the modification date when enabled. "
+                    "Off by default; size sorting always shows sizes. Folders and unknown sizes stay blank."},
+        &Settings::showFileSize));
     add(boolean({"Results/Thumbnails", QT_TRANSLATE_NOOP("AiSettings", "显示图片缩略图"), "results", 1,
                     "A picture, video or PDF shows its thumbnail as its icon."},
         &Settings::thumbnails));
