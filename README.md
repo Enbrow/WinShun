@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <a href="#中文">中文</a> · <a href="#english">English</a> · <a href="#screenshots">截图 Screenshots</a>
+  <a href="#中文">中文</a> · <a href="#english">English</a> · <a href="#screenshots">截图 Screenshots</a> · <a href="https://github.com/LingCore/WinShun-plugins">插件库 Plugin library</a>
 </p>
 
 <p align="center">
@@ -38,7 +38,7 @@
 ## 截图 · Screenshots
 
 <p align="center">
-  <img src="docs/images/search.jpg" width="49%" alt="打拼音首字母秒找文件：ndbg 找到年度报告 / pinyin initials ndbg find 年度报告">
+  <img src="docs/images/search.jpg" width="49%" alt="文件类型前缀与拼音搜索：:documents ndbg 找到年度报告，结果显示日期与大小 / type prefixes and pinyin search with dates and file sizes">
   <img src="docs/images/numbers.jpg" width="49%" alt="图标上的序号，Ctrl+1～9 直接打开 / row numbers on the icons, Ctrl+1–9 opens a row">
   <img src="docs/images/newest.jpg" width="49%" alt="按修改时间排序，找最新的那一版 / sort by date modified, newest first">
   <img src="docs/images/panel.jpg" width="49%" alt="搜索面板：Ctrl+E 展开，左边筛选，右边分列排序 / search panel: Ctrl+E for filters and sortable columns">
@@ -53,10 +53,11 @@
   <img src="docs/images/switches.jpg" width="49%" alt="系统开关：行尾显示现在的状态，回车就地切换；音量 30、保持唤醒 1小时一步到位 / system switches: the live state on the row, Enter flips it; set the volume or keep awake in one step">
   <img src="docs/images/web.jpg" width="49%" alt="网页搜索：zhihu 显卡、bilibili、京东一步到位 / web search keywords">
   <img src="docs/images/favorites.jpg" width="49%" alt="收藏夹：常去的文件夹排在最前，关键词直达 / favorites with keywords">
-  <img src="docs/images/droppie.jpg" width="49%" alt="拖文件时按 ` 键，常用文件夹围在指针周围，朝哪个拖就放进哪个 / press ` while dragging files: favorite folders round the pointer, drag toward one to drop there">
+  <img src="docs/images/droppie.jpg" width="49%" alt="收藏夹与拖放圆盘设置：按住文件，再按 Esc 下方的键呼出圆盘 / favorites and drop ring settings: hold a file and press the key below Esc">
   <img src="docs/images/plugins.jpg" width="49%" alt="插件：计算器、单位换算、颜色 / plugins: calculator, unit conversion, colors">
+  <img src="docs/images/plugin-library.jpg" width="49%" alt="现有 WinShun-plugins 社区插件库：安装、更新与开发入口 / the existing WinShun-plugins library, installation, updates and plugin development">
   <img src="docs/images/dialog.jpg" width="49%" alt="打开、另存为对话框旁的搜索框，Ctrl+G 转到资源管理器的文件夹 / search bar for Open and Save dialogs">
-  <img src="docs/images/clipboard.jpg" width="49%" alt="剪贴板历史，代替 Win+V，拼音搜索、图片预览 / clipboard history replacing Win+V">
+  <img src="docs/images/clipboard.jpg" width="49%" alt="剪贴板图片原格式与 GIF 动图预览，保留 PNG、JPEG、GIF / original PNG, JPEG and GIF clipboard images with animated previews">
   <img src="docs/images/clipocr.jpg" width="49%" alt="剪贴板 OCR：搜图片里的文字 / clipboard OCR: search words in copied pictures">
   <img src="docs/images/edit.jpg" width="49%" alt="截图标完还能再改：方框、箭头、文字，从剪贴板历史打开接着编辑 / edit a screenshot again: boxes, arrows and text, reopened from the clipboard history">
   <img src="docs/images/capture.jpg" width="49%" alt="框选截图：指到哪框到哪，色块按钮也认，放大镜看颜色 / capture overlay: the control under the pointer is framed, the magnifier shows pixels and color">
@@ -67,6 +68,10 @@
   <img src="docs/images/ai.jpg" width="49%" alt="AI 助手 MCP：Claude、Cursor、VS Code 一键连接 / MCP server for Claude, Cursor and VS Code">
   <img src="docs/images/settings.jpg" width="49%" alt="设置可搜索：kjj 找到快捷键 / searchable settings">
   <img src="docs/images/appearance.jpg" width="49%" alt="外观：主题、透明效果、圆角或直角、界面大小、单色任务栏图标 / appearance: theme, transparency, rounded or square corners, UI size, monochrome taskbar icon">
+  <img src="docs/images/backup.jpg" width="49%" alt="导出设置备份，在新电脑校验恢复，当前配置先备份 / export settings and restore on another PC with validation and a backup of the current configuration">
+  <img src="docs/images/file-types.jpg" width="49%" alt="自定义文件类型、扩展名和搜索前缀 / custom file types, extensions and search prefixes">
+  <img src="docs/images/search-scope.jpg" width="49%" alt="选择索引的文件夹及定时核对频率 / choose indexed folders and their verification schedule">
+  <img src="docs/images/wsl.jpg" width="49%" alt="网络与 WSL 文件名搜索：添加 Linux 用户目录或项目文件夹 / network and WSL filename search, add a Linux home or project folder">
   <img src="docs/images/dark.jpg" width="49%" alt="深色模式，Win11 云母效果 / dark theme with Windows 11 Mica">
 </p>
 
@@ -83,6 +88,8 @@
 📖 每个功能怎么用，见 **[使用说明](docs/使用说明.md)**。
 
 ### 功能
+
+**0.14.0 更新**：WSL 文件搜索、自定义搜索范围和类型、剪贴板原格式图片与 GIF 动图预览、设置备份导出与换机恢复，以及按键呼出的拖放圆盘。截图标注新增曲线和可编辑路径；在资源管理器里还可以把复制的文字、图片或文件直接粘贴成文件。详见 [发布说明](docs/release-notes/v0.14.0.md)。社区插件已集中在 [WinShun-plugins](https://github.com/LingCore/WinShun-plugins)，可在设置 › 插件 › 插件库里安装和更新。
 
 #### 🔍 文件搜索
 
@@ -178,8 +185,8 @@
 - **粘进上传框**：在 Windows 的“打开”文件选择框里从剪贴板历史粘贴文件，完整路径直接填进“文件名”，多个文件也行，再点“打开”。
 - **公式和嵌入的对象**：Word 里单独复制的公式、文档里嵌入的对象，记成一条带图的历史（公式的文字也搜得到），粘回 Word 里还是能编辑的公式或对象，只认图片的程序拿到的是图片；`Shift+Enter` 把公式粘贴成一行文字。（用 Word 测过。）
 - **能搜**：拼音搜索，`@wx` 只看微信里复制的；**图片里的字也能搜**（PaddleOCR 文字识别，在本机，不联网，截图里的数字和小字也认得准）。
-- **预览**：全文、大图、颜色值的 HEX / RGB / HSL；点一条旁边的眼睛按钮（或 `Alt+P`）开关预览，预览开着时鼠标停在哪一行就预览哪一行；预览窗口更宽，中间的竖线可以拖着调，下次还记得；图片缩略图可以调大，不打开预览也看得清。
-- **拖出图片**：按住图片拖到文件夹里，就存成 PNG 文件；用 Ctrl 或 Shift 选多张后，从选中的图片起拖，就能一起保存。在资源管理器里打开剪贴板，粘贴一张或多张图片，也会保存为 PNG 文件。
+- **预览**：全文、大图、颜色值的 HEX / RGB / HSL；GIF 动图支持播放和暂停。点一条旁边的眼睛按钮（或 `Alt+P`）开关预览，预览开着时鼠标停在哪一行就预览哪一行；预览窗口更宽，中间的竖线可以拖着调，下次还记得；图片缩略图可以调大，不打开预览也看得清。
+- **图片保留原格式**：复制来源提供 PNG、JPEG 或 GIF 时，保存原始数据；只有位图时转存 PNG。按住图片拖到文件夹，或在资源管理器里从剪贴板历史粘贴图片，都会沿用保存的格式；用 Ctrl 或 Shift 选多张还能一起保存。
 - **整理**：固定、分组、多选按顺序合并粘贴，钉住后可以一条接一条地往表格里填；固定的可以排在最前，顺序可以拖动或用 `Ctrl+↑`/`↓` 自己排。`Ctrl+A` 选中列出来的全部，行菜单里的“删除全部”一次清掉，按 `Ctrl+Z` 能恢复。
 - **复制过的文件被删了**：那一条会标“已不存在”；可以设成自动隐藏或自动清理（固定的和分组里的不动，拔掉的 U 盘不算）。
 - **从别处导入**：设置 › 剪贴板 › 保留 里的“导入剪贴板历史”，可以导入 Ditto 的数据库（装了 Ditto 的话一键导入）、`.txt` 文本和 `.csv` 表格（中文 Excel 存的 GBK 也认）；导入的放进一个新分组，不会被自动删除，已经有的内容会跳过。
@@ -190,7 +197,7 @@
   - **识别文字并复制**：`Shift+C` 把选区里的文字识别出来，直接复制。
   - **延时**：`D` 或工具条的“延时”，倒计时（秒数在设置里选）到点才定住屏幕，用来截菜单、悬停提示。设置里可以让截图带上鼠标指针（默认关）。
   - **二维码**：`Q` 读选区里的二维码，文字显示在小窗口里可以复制；是网址时多一个“打开链接”，点了才打开。
-  - **标注**：矩形、椭圆、箭头、直线、画笔、荧光笔、文字、序号和打码。序号可以选 `1 2 3`、`A B C`、`a b c`、罗马数字、圈里的数字，序号旁边还能直接写字。打码有马赛克、模糊、纯色和抹平（用四周的底色盖住，像擦掉了一样），可以框也可以涂抹，打码的地方还原不出来。
+  - **标注**：矩形、椭圆、箭头、直线、曲线、路径、画笔、荧光笔、文字、序号和打码；曲线和路径的节点可再调整，荧光笔有不同绘制模式。序号可以选 `1 2 3`、`A B C`、`a b c`、罗马数字、圈里的数字，序号旁边还能直接写字。打码有马赛克、模糊、纯色和抹平（用四周的底色盖住，像擦掉了一样），可以框也可以涂抹，打码的地方还原不出来。
   - **智能打码**：选好区域停一会儿，Win顺 在本机找出图里的手机号、身份证号、银行卡号、邮箱、密钥和本机用户名，提示“发现 N 处”，点一下（或 `Shift+B`）全部盖上，一次 `Ctrl+Z` 全撤；自动找的可能有漏，发出去前再看一眼。
   - **长截图**：网页、聊天记录、文档、文件列表比屏幕还长时，选好区域按 `Ctrl+L`（或工具条的“长截图”），Win顺 自己往下滚着截，拼成一张长图，在编辑窗口里打开；也可以关掉“自动滚动”自己滚，滚完按 `Enter`。只能左右滚的、一直在动的画面不适合。
   - **完成**：`Enter` 复制，截图进剪贴板历史，图里的字也能搜；`Ctrl+S` 保存到“图片\屏幕截图”。打开设置里的“复制截图时同时贴图”，复制的同时也贴在屏幕上。标过的图以后还能再打开接着改，从剪贴板历史、搜索框或贴图上都能进，可多选、取色、裁剪。
@@ -315,6 +322,8 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 
 ### Features
 
+**New in 0.14.0**: WSL file search, configurable search scopes and types, original clipboard image formats and animated GIF previews, settings export and migration, and a keyboard-triggered drop ring. Screenshot annotations add curves and editable paths, and Explorer can paste copied content as a file. See the [release notes](docs/release-notes/v0.14.0.md). Community plugins live in [WinShun-plugins](https://github.com/LingCore/WinShun-plugins), accessible from Settings › Plugins › Plugin library.
+
 - **WSL file search**: add a Linux project or home folder under Settings › Search scope › Network & WSL. Installed distributions appear automatically. Search file and folder names alongside local files, including pinyin; indexed results remain available while WSL is stopped and update automatically when it runs again.
 
 - 🔍 **File search**
@@ -371,7 +380,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **What**: text, pictures and files, opened with `Win+V` or your own shortcut, by the text cursor, without taking the focus.
   - **Search**: pinyin, `@app` filters, and **words in copied pictures** (PaddleOCR text recognition, on your PC and offline, good with numbers and small print in screenshots).
   - **Preview**: full text, pictures, HEX / RGB / HSL color values. The eye button (or `Alt+P`) opens and closes it; while it is open, the row under the mouse is shown. It is wider now, and the line beside it can be dragged, the width remembered.
-  - **Drag pictures out**: hold a picture and drop it on a folder to save it as a PNG file; select several with Ctrl or Shift and drag from one of them to save them together. Pasting one or more pictures from the clipboard history into a File Explorer folder saves them as PNG files too.
+  - **Original image formats**: PNG, JPEG and GIF data supplied by the source are kept as received; bitmap-only copies become PNG. Drag pictures into a folder or paste them into File Explorer to save them in their stored format. Select several with Ctrl or Shift to save them together. GIF previews can play and pause.
   - **Paste**: double-click or `Enter`, or one click as in Windows' own history (an option); larger picture thumbnails as another.
   - **Paste without opening it**: Settings › Clipboard › Shortcuts › “Paste without opening the panel” (`Ctrl+1–9` or `Alt+1–9`) pastes the first nine entries straight into any program, format kept. Off by default; when on, those keys no longer do their usual job in other programs (switching browser tabs, say).
   - **Upload boxes**: in a Windows “Open” file box, pasting files from the clipboard history puts their full paths in the File name field, several at once if you like; then click Open.
@@ -386,7 +395,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
     - **Copy the words**: `Shift+C` reads the words in the area and copies them.
     - **Delay**: `D`, or Delay on the toolbar, counts down (the seconds are a setting) and freezes the screen only at the end, for menus and tooltips. “Include the mouse cursor” in the settings puts the pointer in the picture (off by default).
     - **QR codes**: `Q` reads a QR code in the area and shows its text to copy; for a web address there is an Open link button, and nothing opens until you click it.
-    - **Marking up**: rectangle, ellipse, arrow, line, pen, highlighter, text, numbers and redaction. Numbers can be `1 2 3`, `A B C`, `a b c`, Roman numerals or numbers in circles, and a few words can be typed beside one. Redaction is mosaic, blur, solid or Smooth (covered with the surrounding background, as if wiped away), as a box or a stroke; what is under it cannot be worked back out.
+    - **Marking up**: rectangle, ellipse, arrow, line, curve, path, pen, highlighter, text, numbers and redaction. Curve and path nodes remain adjustable, and the highlighter offers different drawing modes. Numbers can be `1 2 3`, `A B C`, `a b c`, Roman numerals or numbers in circles, and a few words can be typed beside one. Redaction is mosaic, blur, solid or Smooth (covered with the surrounding background, as if wiped away), as a box or a stroke; what is under it cannot be worked back out.
     - **Smart redaction**: after you rest on an area, WinShun reads it on your PC and finds phone numbers, ID card and bank card numbers, e-mail addresses, keys and this PC's user name, and offers “N found · click to redact”; one click (or the Smart redact button, or `Shift+B`) covers them all and one `Ctrl+Z` takes it back. It can miss some, so look once more before you send.
     - **Scrolling screenshots**: for a web page, a chat, a document or a file list longer than the screen, choose the area and press `Ctrl+L` (or Long screenshot on the toolbar): WinShun scrolls it by itself while it shoots and stitches one long picture, opened in the editing window. Turn off Auto-scroll to scroll yourself and press `Enter` when done. Content that only scrolls sideways, or keeps moving, does not suit it.
     - **Finishing**: `Enter` copies it, into the clipboard history too, where the words in it can be searched; `Ctrl+S` saves it to Pictures\Screenshots. “Pin screenshots when copying” also pins it on the screen whenever it is copied. A marked-up picture can be opened and changed again later, from the clipboard history, the search box or a pin, with multi-select, a color picker and cropping.

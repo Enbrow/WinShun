@@ -71,7 +71,7 @@ README_WIDTH = 1080
 # for a dark one]. With the cover, the taskbar page and the last page,
 # 18 images: as many as a Xiaohongshu post takes.
 PAGES = (
-    ("01-search", "L-search", "打拼音首字母，[秒找文件]", "ndbg → 年度报告，三百多万个文件几毫秒搜完"),
+    ("01-search", "L-search", "先选类型，[再用拼音搜]", ":documents ndbg → 年度报告 · 日期、大小随行显示"),
     ("02-numbers", "L-numbers", "按住 Ctrl，[数字直达]", "图标上显示序号，Ctrl+1～9 打开第几行"),
     ("03-newest", "X-newest", "找[最新的那一版]", "Ctrl+S 按修改时间排，最新的或最早的在前"),
     ("04-content", "L-content", "搜[文件里的文字]", "Word、Excel、PPT、PDF、代码，一起搜"),
@@ -81,7 +81,7 @@ PAGES = (
     ("08-favorites", "L-fav", "常去的地方，[收藏起来]", "不打字就排在最前；起个关键词，cw 回车就进“财务”"),
     ("09-plugins", "L-plug1+L-plug2+L-plug3", "算、换、查，[打完就有]", "计算、单位换算、颜色……装插件还能更多"),
     ("10-dialog", "L-dialog", "打开、保存时[直接搜]", "对话框下面多一个搜索框，不用一层层点文件夹"),
-    ("11-clipboard", "L-clipboard", "剪贴板历史，[随叫随到]", "代替 Win+V · 拼音搜索 · 图片预览"),
+    ("11-clipboard", "L-clipboard", "剪贴板图片，[保留原格式]", "PNG、JPEG、GIF · 动图可播放和暂停"),
     ("12-clipocr", "L-clipocr", "图片里的字，[也能搜]", "复制过的截图，搜“西南”就找到；在本机识别，不联网"),
     ("14-ai", "X-ai2", "让 AI [帮你找文件]", "Claude、Cursor、VS Code 一键连上，只读、按你的权限"),
     ("15-settings", "L-setsearch", "设置[一搜就到]", "打 kjj 就找到“快捷键”，开关直接点"),
@@ -100,12 +100,17 @@ README_ONLY = (
     ("switches", "L-switch1+L-switch2+L-switch3", "系统开关，[打字就切]", "行尾就是现在的状态，回车就地切换，窗口不关"),
     ("edit", "L-edit", "截图标完，[还能再改]", "箭头、方框、文字：从剪贴板历史打开，随时再编辑"),
     # 0.13.0 (scenes/release013.txt): "screen" = a piece of the screen, not a window with its own transparency
-    ("droppie", "L-droppie", "拖文件时，[晃一晃]", "内圈选移动或复制，外圈是常用文件夹，松手就到"),
+    ("droppie", "L-droppie", "按住文件，[一键呼出圆盘]", "Esc 下方的键 · 收藏文件夹 · Windows 原生复制和移动"),
     ("longshot", "L-longshot", "比屏幕还长，[一键拼成长图]", "Ctrl+L 自动滚动、自动拼接：网页、聊天记录、文档都行"),
     ("redact", "L-redact", "截图里的隐私，[一键打码]", "手机号、身份证、银行卡、邮箱，本机识别可撤销", "screen"),
     ("pins", "L-pins", "截图，[贴在屏幕上]", "F3 贴图：悬在所有窗口上，拖到哪放哪，滚轮缩放", "screen"),
     ("capture", "L-capture", "框选截图，[先认出控件]", "指到哪框到哪，色块按钮也认；放大镜看颜色，C 复制", "screen"),
     ("typing", "L-typing", "资源管理器里，[直接打字就搜]", "在文件夹里随便打字，只搜这个文件夹（设置里打开）"),
+    ("plugin-library", "L-plugin-library", "社区插件，[在这里安装]", "现有 WinShun-plugins · 下载后核对校验 · 安装和更新"),
+    ("backup", "L-backup", "设置和收藏，[带到新电脑]", "导出 ZIP · 校验后恢复 · 恢复前保存当前配置"),
+    ("file-types", "L-file-types", "文件类型，[由你来定义]", "扩展名、搜索前缀、顺序，都能自己改"),
+    ("search-scope", "L-search-scope", "只索引[你需要的文件夹]", "选择收录范围，按时核对，后台更新"),
+    ("wsl", "L-wsl", "Linux 文件，[也能一起搜]", "只搜文件名和文件夹名 · 发行版停止时结果仍可用"),
 )
 PENDING = {"L-droppie", "L-longshot", "L-redact", "L-pins", "L-capture", "L-typing"}  # shot by scenes/release013.txt;
 # render leaves them out while there is no shot yet (so the other pictures can be made again meanwhile)

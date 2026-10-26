@@ -20,6 +20,8 @@ README 里的图（`docs/images/*.jpg`：帖子的方形页面和方形封面，
 
 ## 只重新出图
 
+0.14.0 已补拍搜索结果、剪贴板 GIF 预览、收藏夹与圆盘设置，以及插件库、备份迁移、自定义类型、搜索范围和 WSL 页面。运行的是 `dist/WinShun/WinShun.exe` 0.14.0，用 `work/release014/profile` 独立演示配置；只索引演示文件夹，剪贴板内容直接写入演示数据库，排除实际运行程序的复制记录。使用 Computer Use 捕获真实窗口（搜索框、剪贴板这类弹窗随设置窗口一同返回，再取各自的截图），原图在 `work/release014/raw`；设置页裁掉系统标题栏后加圆角和透明留白，整理到 `work/shots/L-*.png`，再沿用这里的排版。未改界面的功能图保留原有截图。
+
 改了背景、标题、排版，抠图不用重拍：
 
 ```
@@ -45,7 +47,9 @@ README 的图是帖子各页加上 `shots.py` 的 `README_ONLY`（帖子最多 1
 
 只补拍一部分：照 `all.txt` 写一个场景文件（先 `profile start`，拍剪贴板就照它先删掉最上面那一条，最后 `restore`、`profile stop`）。不带参数运行 `agent.ps1` 时，它执行每次写进 `work\cmd.txt` 的一批命令，适合边看边拍；`profile start` 后面可以跟 `shots.py profile` 的参数，比如 `--number-keys off`（图标上就没有序号）；`quit` 关掉 Win顺（原来就没在运行时用它代替 `profile stop`）。README 另有的七张：`agent.ps1 scenes\more.txt`。预览开在启动器旁边，是另一个窗口：`matte <名字> beside` 把贴着前台窗口的 Win顺 窗口也抠进来；演示文件夹里的 `年度报告 封面.png` 是真的图片，预览和结果里的缩略图才有东西可看。按意思找用的是自己设置里的模型服务和密钥（密钥在 Windows 凭据管理器里，不写进配置），演示配置把它指向演示文件夹，拍的时候会把这几个演示文件的文字发给那个服务算向量；拍双击菜单前关掉自己的资源管理器和 Directory Opus 窗口，菜单会列出所有开着的文件夹；`profile start` 启动 Win顺 时带 `WINSHUN_RECENT=own`，最近的文件夹只取演示配置自己的记录，不取 Windows 的。帖子最后一页（`17-follow`）不用截图，由 `art.ending` 画出来。
 
-## 0.13.0 的六张新图（`scenes/release013.txt`）
+## 0.13.0 的六张新图（`scenes/release013.txt`，历史场景）
+
+**0.14.0 起圆盘已改成按 Esc 下方的键呼出，旧场景里的晃动和内外圈操作不再适用。** 不要用下面的旧圆盘步骤拍新版；新版 README 改用真实的收藏夹与圆盘设置页，说明当前的触发方式。
 
 拖放圆盘（`droppie`）、长截图（`longshot`）、智能打码（`redact`）、贴图（`pins`）、框选截图（`capture`）、资源管理器里直接打字（`typing`）。一条命令，在**普通权限**的 PowerShell 里：
 
