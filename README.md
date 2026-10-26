@@ -27,8 +27,8 @@
 
 <p align="center">
   拼音秒搜文件 · 文件内容全文搜索（Word / Excel / PPT / PDF） · 应用和系统设置 · 网页搜索 · 收藏夹 · 插件<br>
-  “打开 / 另存为”对话框搜索 · 剪贴板历史（代替 Win+V，图片文字也能搜） · 截图、长截图和贴图 · 任务栏搜索框 · AI 助手 MCP<br>
-  <sub>Pinyin file search · full-text search in documents · apps and settings · web search · favorites · plugins · file dialog search · clipboard history with OCR · screenshots, scrolling screenshots and pins · taskbar search box · MCP server for AI assistants</sub>
+  “打开 / 另存为”对话框搜索 · 剪贴板历史（代替 Win+V，图片文字也能搜） · 截图、录屏、长截图和贴图 · 任务栏搜索框 · AI 助手 MCP<br>
+  <sub>Pinyin file search · full-text search in documents · apps and settings · web search · favorites · plugins · file dialog search · clipboard history with OCR · screenshots, region recording, scrolling screenshots and pins · taskbar search box · MCP server for AI assistants</sub>
 </p>
 
 ---
@@ -41,7 +41,7 @@
   <img src="docs/images/search.jpg" width="49%" alt="文件类型前缀与拼音搜索：:documents ndbg 找到年度报告，结果显示日期与大小 / type prefixes and pinyin search with dates and file sizes">
   <img src="docs/images/numbers.jpg" width="49%" alt="图标上的序号，Ctrl+1～9 直接打开 / row numbers on the icons, Ctrl+1–9 opens a row">
   <img src="docs/images/newest.jpg" width="49%" alt="按修改时间排序，找最新的那一版 / sort by date modified, newest first">
-  <img src="docs/images/panel.jpg" width="49%" alt="搜索面板：Ctrl+E 展开，左边筛选，右边分列排序 / search panel: Ctrl+E for filters and sortable columns">
+  <img src="docs/images/panel.jpg" width="49%" alt="搜索面板：右键选择列，拖动调整顺序和宽度，布局自动保存 / search panel: choose, reorder and resize columns with saved layouts">
   <img src="docs/images/preview.jpg" width="49%" alt="Alt+P 预览文件，启动器不关 / Alt+P previews a file beside the launcher">
   <img src="docs/images/content.jpg" width="49%" alt="文件内容全文搜索：Word、Excel、PPT、PDF、代码 / full-text search inside documents and code">
   <img src="docs/images/folder.jpg" width="49%" alt="只搜一个文件夹里的字：第三季度销售额 财务/ / content search in one folder: words, then folder/">
@@ -58,16 +58,19 @@
   <img src="docs/images/plugin-library.jpg" width="49%" alt="现有 WinShun-plugins 社区插件库：安装、更新与开发入口 / the existing WinShun-plugins library, installation, updates and plugin development">
   <img src="docs/images/dialog.jpg" width="49%" alt="打开、另存为对话框旁的搜索框，Ctrl+G 转到资源管理器的文件夹 / search bar for Open and Save dialogs">
   <img src="docs/images/clipboard.jpg" width="49%" alt="剪贴板图片原格式与 GIF 动图预览，保留 PNG、JPEG、GIF / original PNG, JPEG and GIF clipboard images with animated previews">
+  <img src="docs/images/clipboard-resize.jpg" width="49%" alt="剪贴板面板：拖动右边缘改变宽度，复制的图片文件显示缩略图 / clipboard panel: resize the right edge and see thumbnails of copied image files">
   <img src="docs/images/clipocr.jpg" width="49%" alt="剪贴板 OCR：搜图片里的文字 / clipboard OCR: search words in copied pictures">
   <img src="docs/images/edit.jpg" width="49%" alt="截图标完还能再改：方框、箭头、文字，从剪贴板历史打开接着编辑 / edit a screenshot again: boxes, arrows and text, reopened from the clipboard history">
-  <img src="docs/images/capture.jpg" width="49%" alt="框选截图：指到哪框到哪，色块按钮也认，放大镜看颜色 / capture overlay: the control under the pointer is framed, the magnifier shows pixels and color">
+  <img src="docs/images/capture.jpg" width="49%" alt="截图工具条：拖动左侧握柄，选区不动，样式面板跟着走 / screenshot toolbar: drag the grip to move the toolbar and style panel without moving the selection">
   <img src="docs/images/redact.jpg" width="49%" alt="截图里的隐私一键打码：手机号、身份证、银行卡、邮箱 / smart redaction: phone numbers, ID, bank card and email covered in one click">
-  <img src="docs/images/longshot.jpg" width="49%" alt="长截图：Ctrl+L 自动滚动、自动拼接 / long screenshot: Ctrl+L scrolls and stitches by itself">
+  <img src="docs/images/recording.jpg" width="49%" alt="区域录屏：MP4、暂停与继续，系统声音和麦克风可选 / region recording: MP4, pause and resume, optional system audio and microphone">
+  <img src="docs/images/recording-gif.jpg" width="49%" alt="GIF 录制：画质、鼠标指针、点击高亮和导出进度 / GIF recording: quality, cursor, click highlights and export progress">
+  <img src="docs/images/longshot.jpg" width="49%" alt="长截图：Ctrl+L 后手动滚动、自动拼接，可选自动滚动 / scrolling capture: manual scrolling with automatic stitching, optional automatic scrolling">
   <img src="docs/images/pins.jpg" width="49%" alt="F3 贴图：截图悬在所有窗口上，拖到哪放哪，滚轮缩放 / pin a screenshot on top of every window, move and zoom it">
   <img src="docs/images/taskbar.jpg" width="49%" alt="Win顺 任务栏搜索框 / WinShun’s search box on the taskbar">
   <img src="docs/images/ai.jpg" width="49%" alt="AI 助手 MCP：Claude、Cursor、VS Code 一键连接 / MCP server for Claude, Cursor and VS Code">
   <img src="docs/images/settings.jpg" width="49%" alt="设置可搜索：kjj 找到快捷键 / searchable settings">
-  <img src="docs/images/appearance.jpg" width="49%" alt="外观：主题、透明效果、圆角或直角、界面大小、单色任务栏图标 / appearance: theme, transparency, rounded or square corners, UI size, monochrome taskbar icon">
+  <img src="docs/images/appearance.jpg" width="49%" alt="外观：主题、透明效果、圆角或直角、界面大小、单色任务栏图标 / appearance: theme, transparency, rounded or square corners, UI size with live preview, monochrome taskbar icon">
   <img src="docs/images/backup.jpg" width="49%" alt="导出设置备份，在新电脑校验恢复，当前配置先备份 / export settings and restore on another PC with validation and a backup of the current configuration">
   <img src="docs/images/file-types.jpg" width="49%" alt="自定义文件类型、扩展名和搜索前缀 / custom file types, extensions and search prefixes">
   <img src="docs/images/search-scope.jpg" width="49%" alt="选择索引的文件夹及定时核对频率 / choose indexed folders and their verification schedule">
@@ -89,7 +92,7 @@
 
 ### 功能
 
-**0.14.0 更新**：WSL 文件搜索、自定义搜索范围和类型、剪贴板原格式图片与 GIF 动图预览、设置备份导出与换机恢复，以及按键呼出的拖放圆盘。截图标注新增曲线和可编辑路径；在资源管理器里还可以把复制的文字、图片或文件直接粘贴成文件。详见 [发布说明](docs/release-notes/v0.14.0.md)。社区插件已集中在 [WinShun-plugins](https://github.com/LingCore/WinShun-plugins)，可在设置 › 插件 › 插件库里安装和更新。
+**0.15.0 更新**：区域录屏与 GIF、自定义搜索面板列、剪贴板宽度调整、Directory Opus 直接打字搜索、OneCommander 对话框跳转，以及截图工具条拖动和保存目录设置。详见 [发布说明](docs/release-notes/v0.15.0.md)。社区插件继续使用 [WinShun-plugins](https://github.com/LingCore/WinShun-plugins)，在设置 › 插件 › 插件库里安装和更新。
 
 #### 🔍 文件搜索
 
@@ -102,7 +105,7 @@
 - **程序优先**：搜 `curl`，`curl.exe` 排在文件夹 `curl` 和 `curl.h` 前面；优先哪些类型可以自己改（默认 exe、bat、cmd、ps1、msi，像 Listary 的“优先显示的文件类型”）。
 - **数字键直达**：`Ctrl+1`～`Ctrl+9` 打开第几行（也可改成 `Alt`）；按住 `Ctrl` 时图标上显示序号，也可以设成一直显示或不显示。
 - **按类型找**：选中 **文件** 后，下面一排是文件夹、文档、图片、视频、压缩包等类型，`Ctrl+Tab` 依次切换；点 `+` 或在设置里自己加类型。
-- **搜索面板**：结果太多时，点搜索框右上角的小按钮或按 `Ctrl+E`，同一个窗口展开成面板（像 Listary）：左边按范围、类型、修改时间、大小、位置筛选，右边名称 / 路径 / 大小 / 修改时间四列，点列头排序；什么都不输入也能按条件浏览整个索引（三百万个文件也是毫秒级）。`size:>10mb`、`dm:7d` 这类写法直接打在搜索框里也行。再按一次就缩回搜索框。
+- **搜索面板**：结果太多时，点搜索框右上角的小按钮或按 `Ctrl+E`，同一个窗口展开成面板（像 Listary）：左边按范围、类型、修改时间、大小、位置筛选，右边按列显示结果，点列头排序；右键列头可选名称、路径、类型、大小、修改时间、创建时间、文件夹和来源，拖动调整顺序和宽度，自动保存布局；什么都不输入也能按条件浏览整个索引（三百万个文件也是毫秒级）。`size:>10mb`、`dm:7d` 这类写法直接打在搜索框里也行。再按一次就缩回搜索框。
 - **长文件名**：名字放不下时在中间缩短，扩展名和结尾留着（“…第二版.xlsx”）；鼠标停在这一行上，显示完整的名字、位置、大小、修改和创建时间。拖动搜索框的左边或右边可以调宽（记住宽度，双击边缘恢复默认）。
 - **钉住**：按 `Ctrl+T` 或点搜索框右上角的图钉，点别处、打开文件后搜索框都不收起，`Esc` 关闭；按住左边的放大镜拖动窗口，单击它打开设置。
 - **预览**：在结果上按 `Alt+P`（或右键“预览”）看一眼文件，启动器不关：图片、文本（自动认 UTF-8 / GBK）、Word / Excel / PowerPoint / PDF（用资源管理器预览窗格的同一套预览程序）、文件夹里有什么；上下键换一行就换一个文件，再按 `Alt+P`（或点预览窗口的叉）关掉；`Esc` 关的是启动器，预览开着时下次打开还在。后台开着 QuickLook 或 Seer 时交给它们。
@@ -181,6 +184,7 @@
 
 - **记什么**：复制过的文字、图片、文件都记下来。
 - **怎么打开**：`Win+V` 或自设的快捷键；开在输入光标旁，不抢焦点。
+- **调整宽度**：预览关闭时拖动面板右边缘，双击边缘恢复默认；文字随设置 › 外观 › 界面大小调整。复制的图片文件也显示缩略图。
 - **怎么粘贴**：双击或 `Enter` 粘贴（也可以设成像 Windows 自带的那样单击就粘贴），`Shift+Enter` 粘贴为纯文本，`Alt+1`～`9` 直接粘贴第几条（按住 `Alt` 时序号显示在图标上）。
 - **不开面板直接粘贴**：设置 › 剪贴板 › 快捷键 里打开“不打开面板直接粘贴”（`Ctrl+1–9` 或 `Alt+1–9`），在别的程序里就能直接粘贴前九条，格式照旧。默认关，打开后这些键在别的程序里原来的用处（比如浏览器切换标签页）就让给它。
 - **粘进上传框**：在 Windows 的“打开”文件选择框里从剪贴板历史粘贴文件，完整路径直接填进“文件名”，多个文件也行，再点“打开”。
@@ -193,6 +197,7 @@
 - **从别处导入**：设置 › 剪贴板 › 保留 里的“导入剪贴板历史”，可以导入 Ditto 的数据库（装了 Ditto 的话一键导入）、`.txt` 文本和 `.csv` 表格（中文 Excel 存的 GBK 也认）；导入的放进一个新分组，不会被自动删除，已经有的内容会跳过。
 - **隐私**：密码管理器复制的密码不记录，历史只存在本机。
 - **截图**（默认关，在设置 › 插件里打开；快捷键自己录，想用 `PrtScn` 也在那里打开）：
+  - **区域录屏和 GIF**：框选后点“录屏”或按 `Ctrl+R`，录 MP4 或 GIF；可以暂停、继续、选择画质、鼠标指针和点击高亮。MP4 可选系统声音和麦克风，默认都关闭；GIF 不含音频，后台生成时显示进度。控制条不录进画面，录完能继续录下一段。
   - **框选**：鼠标移到窗口、按钮上就把它框出来，框外变暗，点一下选中，也可以拖出一块；滚轮扩大或缩小框。设置、计算器这类程序里的侧栏和按钮也能框出来（Chrome、Edge、VS Code、微信这类 Chromium 程序里面不识别，只框整个窗口，需要时手动拖选）。`Shift+R` 回到上一次的那一块。
   - **放大镜和取色**：跟着鼠标放大像素，`C` 复制鼠标下的颜色，单按 `Shift` 在 `#RRGGBB`、`rgb()`、`hsl()` 三种写法之间换。选好区域后放大镜只在选区里出现。
   - **识别文字并复制**：`Shift+C` 把选区里的文字识别出来，直接复制。
@@ -200,7 +205,7 @@
   - **二维码**：`Q` 读选区里的二维码，文字显示在小窗口里可以复制；是网址时多一个“打开链接”，点了才打开。
   - **标注**：矩形、椭圆、箭头、直线、曲线、路径、画笔、荧光笔、文字、序号和打码；曲线和路径的节点可再调整，荧光笔有不同绘制模式。序号可以选 `1 2 3`、`A B C`、`a b c`、罗马数字、圈里的数字，序号旁边还能直接写字。打码有马赛克、模糊、纯色和抹平（用四周的底色盖住，像擦掉了一样），可以框也可以涂抹，打码的地方还原不出来。
   - **智能打码**：选好区域停一会儿，Win顺 在本机找出图里的手机号、身份证号、银行卡号、邮箱、密钥和本机用户名，提示“发现 N 处”，点一下（或 `Shift+B`）全部盖上，一次 `Ctrl+Z` 全撤；自动找的可能有漏，发出去前再看一眼。
-  - **长截图**：网页、聊天记录、文档、文件列表比屏幕还长时，选好区域按 `Ctrl+L`（或工具条的“长截图”），Win顺 自己往下滚着截，拼成一张长图，在编辑窗口里打开；也可以关掉“自动滚动”自己滚，滚完按 `Enter`。只能左右滚的、一直在动的画面不适合。
+  - **长截图**：网页、聊天记录、文档、文件列表比屏幕还长时，选好区域按 `Ctrl+L`（或工具条的“长截图”），默认自己滚动、Win顺 拼接，滚完按 `Enter`，在编辑窗口里打开；需要时可开启“自动滚动”。只能左右滚的、一直在动的画面不适合。
   - **完成**：`Enter` 复制，截图进剪贴板历史，图里的字也能搜；`Ctrl+S` 保存到“图片\屏幕截图”。打开设置里的“复制截图时同时贴图”，复制的同时也贴在屏幕上。标过的图以后还能再打开接着改，从剪贴板历史、搜索框或贴图上都能进，可多选、取色、裁剪。
   - **贴图**：`F3` 把截图贴在屏幕上，一直在最上面，可以缩放、调透明度、转和翻、收成小块、识别文字，或用 `T` 在图上拖选文字直接复制；双击贴图做什么（回到 100%、关闭、收起或不做什么）可以在设置里选。设了“鼠标穿透”的贴图，按住 `Ctrl` 就又能拖动、点右键菜单。
   - **识别文字、查找**：工具条的“识别文字”读出图里的字，可以复制、用它搜索或去网页搜索；搜索框里打 `jt` 加空格，按图里的字找截过的图。
@@ -323,7 +328,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
 
 ### Features
 
-**New in 0.14.0**: WSL file search, configurable search scopes and types, original clipboard image formats and animated GIF previews, settings export and migration, and a keyboard-triggered drop ring. Screenshot annotations add curves and editable paths, and Explorer can paste copied content as a file. See the [release notes](docs/release-notes/v0.14.0.md). Community plugins live in [WinShun-plugins](https://github.com/LingCore/WinShun-plugins), accessible from Settings › Plugins › Plugin library.
+**New in 0.15.0**: region recording as MP4 or GIF, customizable search columns, a resizable clipboard, type-to-search in Directory Opus, OneCommander dialog navigation, and draggable screenshot controls with configurable save folders. See the [release notes](docs/release-notes/v0.15.0.md). Install community plugins from the existing [WinShun-plugins](https://github.com/LingCore/WinShun-plugins) repository in Settings › Plugins › Plugin library.
 
 - **WSL file search**: add a Linux project or home folder under Settings › Search scope › Network & WSL. Installed distributions appear automatically. Search file and folder names alongside local files, including pinyin; indexed results remain available while WSL is stopped and update automatically when it runs again.
 
@@ -334,7 +339,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Order**: your own files first, the date modified on each row, `Ctrl+S` for best match / newest / oldest, and More in the footer sorts by name, folder, type or size. Click a result once to select and twice to open, if you would rather not open one by mistake (a setting). Recent files are listed when the box is empty, or nothing if you like; the search can also start empty each time it opens.
   - **Programs first**: `curl` lists `curl.exe` before the folder `curl` and `curl.h`; which file types go first is yours to change (exe, bat, cmd, ps1 and msi to begin with, like Listary's preferred file types).
   - **Shortcuts**: `Ctrl+1`…`Ctrl+9` opens a row; hold `Ctrl` to see the numbers on the icons (or show them always, or never).
-  - **Search panel**: too many hits? The small button at the box's corner or `Ctrl+E` grows the same window into a panel, as Listary has it: filters down the left (scope, kind, date modified, size, folder), the rows in columns on the right (name, path, size, date modified) with sortable headers; with nothing typed it browses the whole index by those filters (milliseconds over three million files). `size:>10mb` and `dm:7d` work in the box too. Press it again to collapse.
+  - **Search panel**: too many hits? The small button at the box's corner or `Ctrl+E` grows the same window into a panel, as Listary has it: filters down the left (scope, kind, date modified, size, folder), sortable columns on the right; right-click headers to choose name, path, type, size, modification and creation times, folder or source, and drag to reorder or resize them; the layout is saved; with nothing typed it browses the whole index by those filters (milliseconds over three million files). `size:>10mb` and `dm:7d` work in the box too. Press it again to collapse.
   - **Long names**: a name that does not fit is shortened in the middle, keeping its extension and end ("…v3 final.xlsx"); rest the pointer on the row to see the full name, location, size, modified and created times. Drag the left or right edge of the search box to widen it (the width is remembered; double-click an edge for the default).
   - **File sizes**: Settings › Result list › Display & preview can show sizes in the compact results, alongside modification dates or on their own. Off by default; sorting by size always shows sizes. Folders and unknown sizes stay blank.
   - **Pin**: `Ctrl+T` or the pin at the box's corner keeps the search box up through clicks elsewhere and opened files; `Esc` closes it. Drag the window by the magnifier on the left; click it for the settings.
@@ -379,6 +384,8 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **“Search here with WinShun”** on the right-click menu of folders, a folder's blank space and drives (under “Show more options” on Windows 11): the search window opens with that folder typed. It can be turned off.
   - **Type to search**: type anywhere in a File Explorer file list and WinShun searches that window's folder for what you typed, like Listary; a Chinese input method composes as usual, and `Esc` goes back to File Explorer. A folder you pick opens in the same tab, so typing again goes one level deeper; `Ctrl+Enter` on a file or folder also goes, in that tab, to the folder holding it and selects it (when the file manager set in Settings is File Explorer); and the keys of Explorer's `Shift`+right-click menu stay with the menu. Turn it on in the settings (it replaces Explorer's own jump to a file by its first letters, so it is off by default).
 - 📋 **Clipboard history (replaces Win+V)**
+
+  - **Resize**: with the preview closed, drag the right edge of the clipboard panel, or double-click it to reset. Text follows Settings › Appearance › UI size. Copied image files show thumbnails too.
   - **What**: text, pictures and files, opened with `Win+V` or your own shortcut, by the text cursor, without taking the focus.
   - **Search**: pinyin, `@app` filters, and **words in copied pictures** (PaddleOCR text recognition, on your PC and offline, good with numbers and small print in screenshots).
   - **Preview**: full text, pictures, HEX / RGB / HSL color values. The eye button (or `Alt+P`) opens and closes it; while it is open, the row under the mouse is shown. It is wider now, and the line beside it can be dragged, the width remembered.
@@ -392,6 +399,8 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Import**: Settings › Clipboard › Keeping › Import clipboard history takes a Ditto database (one click if Ditto is installed), `.txt` text and `.csv` tables (GBK files saved by Chinese Excel are recognised); what is imported goes into a new group, is never cleaned out automatically, and entries you already have are skipped.
   - **Privacy**: passwords from password managers are not kept, and the history stays on your PC.
   - **Screenshots** (off by default; turn it on in Settings › Plugins, record your own shortcut there, and turn on `PrtScn` too if you want it):
+    - **Region recording**: choose Record or press `Ctrl+R` after selecting an area, for MP4 or GIF. Pause and resume, choose quality, cursor and click highlights. MP4 audio is optional and off by default; GIF is silent. Controls stay out of the recording. Choose a save folder, or record another take without replacing the previous file.
+    - **Toolbar and saving**: drag the toolbar by its left grip together with its style panel. Choose the screenshot save folder and a shortcut to pin the latest screenshot in Settings › Plugins › Screenshot.
     - **Choosing**: rest the pointer on a window or a button and it is outlined, with everything outside it dimmed; click to take it, or drag an area; the wheel makes the outline larger or smaller. Side panels and buttons in apps that draw their own interface, such as Settings and Calculator, are outlined too (not inside Chromium apps such as Chrome, Edge, VS Code and WeChat, where only the whole window is outlined; drag an area there). `Shift+R` goes back to the area of the last screenshot.
     - **Magnifier and color**: the pixels under the pointer, enlarged; `C` copies the color under it and `Shift` alone switches between `#RRGGBB`, `rgb()` and `hsl()`. Once an area is chosen, the magnifier shows only inside it.
     - **Copy the words**: `Shift+C` reads the words in the area and copies them.
@@ -399,7 +408,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
     - **QR codes**: `Q` reads a QR code in the area and shows its text to copy; for a web address there is an Open link button, and nothing opens until you click it.
     - **Marking up**: rectangle, ellipse, arrow, line, curve, path, pen, highlighter, text, numbers and redaction. Curve and path nodes remain adjustable, and the highlighter offers different drawing modes. Numbers can be `1 2 3`, `A B C`, `a b c`, Roman numerals or numbers in circles, and a few words can be typed beside one. Redaction is mosaic, blur, solid or Smooth (covered with the surrounding background, as if wiped away), as a box or a stroke; what is under it cannot be worked back out.
     - **Smart redaction**: after you rest on an area, WinShun reads it on your PC and finds phone numbers, ID card and bank card numbers, e-mail addresses, keys and this PC's user name, and offers “N found · click to redact”; one click (or the Smart redact button, or `Shift+B`) covers them all and one `Ctrl+Z` takes it back. It can miss some, so look once more before you send.
-    - **Scrolling screenshots**: for a web page, a chat, a document or a file list longer than the screen, choose the area and press `Ctrl+L` (or Long screenshot on the toolbar): WinShun scrolls it by itself while it shoots and stitches one long picture, opened in the editing window. Turn off Auto-scroll to scroll yourself and press `Enter` when done. Content that only scrolls sideways, or keeps moving, does not suit it.
+    - **Scrolling screenshots**: for a web page, a chat, a document or a file list longer than the screen, choose the area and press `Ctrl+L` (or Long screenshot on the toolbar): scroll manually while WinShun stitches the frames, then press `Enter` to open the result in the editor. Turn on Auto-scroll when needed. Content that only scrolls sideways, or keeps moving, does not suit it.
     - **Finishing**: `Enter` copies it, into the clipboard history too, where the words in it can be searched; `Ctrl+S` saves it to Pictures\Screenshots. “Pin screenshots when copying” also pins it on the screen whenever it is copied. A marked-up picture can be opened and changed again later, from the clipboard history, the search box or a pin, with multi-select, a color picker and cropping.
     - **Pins**: `F3` pins it on the screen, always on top: zoom, change opacity, rotate and flip, fold it to a small tile, read its text, or drag over the text with `T` to copy it. What “Double-clicking a pin” does (back to 100%, close, fold or nothing) is a setting. A click-through pin can be reached again by holding `Ctrl` over it, to drag it or use its right-click menu.
     - **Text and search**: Recognize text on the toolbar shows the words in a picture to copy, to search with, or to search on the web; `jt` and a space in the search box list past screenshots by the text in them.
@@ -410,7 +419,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Safety**: read-only by default, limited to what the AI client may see, with folders kept from AI and a call log.
   - **Setting up**: tell the AI to “set up WinShun for me”; it asks a few questions and changes several settings in one go. A window asks you first, a notice at the bottom right says what changed and offers Undo for a few seconds; security-related settings always ask.
 - 🎨 **Looks and settings**
-  - **Looks**: light and dark themes following Windows, Windows 11 Mica, rounded or square corners (square as in Windows 10), sharp icons at any scaling; compact, standard or roomy sizes, and a monochrome tray and taskbar icon if you like.
+  - **Looks**: light and dark themes following Windows, Windows 11 Mica, rounded or square corners, including application-drawn rounded corners on Windows 10, sharp icons at any scaling; compact, standard or roomy sizes, and a monochrome tray and taskbar icon if you like.
   - **Settings**: searchable (`Ctrl+F`); changes apply at once.
   - **File manager**: folders and file locations open in File Explorer, Total Commander, Directory Opus, XYplorer or Pulse (those installed are listed), or in any other file manager whose commands you enter under Settings › Open WinShun › Dialogs.
   - **Backup**: choose a folder under Settings → Advanced (a synced folder makes it a cloud backup); settings, favorites, dialog pins, your own web icons and plugins are backed up as they change, the last 10 kept, ready to restore.
