@@ -137,8 +137,8 @@ private:
 
     Status m_status = Status::Waiting;
     int m_height = 0;
-    bool m_autoScroll = true;
-    bool m_autoScrollChosen = true; // the switch as the user left it: the engine's "lost, by hand" is one run's
+    bool m_autoScroll = false;
+    bool m_autoScrollChosen = false; // the switch as the user left it: the engine's "lost, by hand" is one run's
     bool m_canAuto = true;
     Hint m_hint = Hint::None;
     Hint m_hintBefore = Hint::None; // under Copied, for a moment

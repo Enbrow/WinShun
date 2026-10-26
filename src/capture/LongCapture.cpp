@@ -216,7 +216,7 @@ struct LongCapture::Run {
     QSize previewBox; // device px
     QString dump; // WINSHUN_SCROLL_DUMP: every frame stitched and what came of it, there
     std::atomic<int> stop {0}; // 1 finish, 2 cancel
-    std::atomic<bool> autoScroll {true}; // the panel's switch; the engine turns it off when lost
+    std::atomic<bool> autoScroll {false}; // the panel's switch; the engine turns it off when lost
     std::mutex mutex; // the diagnostics
     ScrollDiagnostics diag;
 };

@@ -745,7 +745,7 @@ Win顺 是一个 MCP（Model Context Protocol）服务器：Claude Desktop、Cla
   - **结束。** `wrapUp`：注销热键、藏边框和面板；有图时 `Hooks::done` → App 在编辑窗口里打开（`Enter` 复制、`Ctrl+S` 保存、`F3` 贴图、裁剪）；取消或没有帧时不开。引擎退出前 `stitcher.release()`，帧和 UI Automation 随作用域放掉。
   - **诊断（`ScrollDiagnostics`）。** 只在内存里的 2000 条环形缓冲：每次滚动（办法、格数、结果码）、动了多少、每帧的状态、位移、分数、票数、高度、吸顶吸底栏、耗时；不记像素和窗口标题，只记 exe 名。“复制诊断信息”把它整理成文字（`text()`，进行中时结果一行写“so far”）放进剪贴板；结束时按 3000 字一段写进诊断日志（事件 `long-capture`，`part`/`of`/`text`），所以设置里导出的诊断包带着。开发用：`WINSHUN_SCROLL_DUMP=<文件夹>` 每次一个子文件夹存每帧 PNG 和 `steps.txt`，`wsbench --scroll-replay <文件夹>` 用拼接器重放。
   - **日志。** 开始一行 “Long screenshot: WxH at X,Y, auto-scroll on/off”，提示变化时一行（Auto、Manual、Elevated、Lost……），结束一行 “Long screenshot: at the end / at the limit / finished / cancelled / no frame came, WxH”。
-  - **开关的记忆。** 面板上“自动滚动”开关是用户的选择（`m_autoScrollChosen`，只在内存里）；引擎因为跟丢把这一次转成手动，不影响下一次。
+  - **开关的记忆。** 面板上“自动滚动”默认关闭（2026-10-26 调整），用户可手动开启；开关选择在本次运行中沿用（`m_autoScrollChosen`，只在内存里），重启恢复关闭。引擎因为跟丢把这一次转成手动，不影响下一次。
   - **测试。** `tst_stitch`（23：合成长页面切帧回放，含吸顶吸底栏、浮动按钮、渐显的图、斑马纹、往回滚、到底反弹、相隔很远的相似行，逐像素对原页面；诊断文字），`tst_capture` 和 `tst_settings` 里加了长截图的动作和按钮 id。阶段 6 的探针在 `tools/scroll-probe.cpp`（不进主程序）。
 - **实测（阶段 6，2026-10-22/23，同一台机器 2560×1600、150%、SDR，dist 版真实输入）：** 热键到遮罩 60–77 ms，长截图之前不变。自动滚动（设置用 SendInput 滚轮，其余都用投递滚轮）：Edge 936×25833、Chrome 977×25849（300 行测试页 OCR 001–300 各一次、按顺序，吸顶栏只在最上面、浮动按钮只在最下面）、VS Code 726×23359、记事本 600×22446、资源管理器详细信息 523×12961、设置 566×30000（到上限）、Word 530×30000（到上限）；手动（Enter 或“完成”）七个都成；管理员窗口提示手动、诊断里有 “post wheel … access denied (5)”。截 3 万 px 后 5 秒内 commit 回到开始前 +16.6 MB（13000 px 的两次 +5.4 MB、+6.8 MB）。微信要手机登录，没测。
 - **贴图增强和小功能（阶段 7，设计在 `docs/design-capture-roadmap.md` §2.5）。**
