@@ -944,13 +944,9 @@ def compose(window, preset="readme", bg="sky", title=None, subtitle=None, seed=1
     size = PRESETS[preset]
     titled = bool(title or subtitle) and size is not None
     if size is None:
-        margin = max(16, round(0.025 * body_w))
-        left = max(margin, box[0] + 4)
-        top = max(margin, box[1] + 4)
-        right = max(margin, window.width - box[2] + 4)
-        bottom = max(margin, window.height - box[3] + 4)
-        size = (body_w + left + right, body_h + top + bottom)
-        width, middle, title_top = body_w, (left + body_w / 2, top + body_h / 2), 0
+        margin = round(0.09 * body_w)
+        size = (body_w + 2 * margin, body_h + 2 * margin)
+        width, middle, title_top = body_w, (size[0] / 2, size[1] / 2), 0
     else:
         # The title near the top, under the logo and name, and the window as
         # large as fits under it (a little larger than shot at most), in the
@@ -1198,20 +1194,6 @@ def taskbar_page(window, screen, title, subtitle, preset="xhs", bg="letters", se
     frame, (bar_top, bar_bottom), real_x, box_on_screen = places["frame"], places["bar"], places["real"], places["box"]
     window, box = lifted(window)
     screen = np.asarray(screen.convert("RGB")).astype(np.float32)
-    if preset == "readme":
-        # Keep the real window and taskbar at their captured pixel size. The
-        # post layouts below fit a fixed canvas; README text belongs outside
-        # the image, and must not consume space needed for the actual UI.
-        margin = max(16, round(0.025 * (box[2] - box[0])))
-        left = max(0, min(frame[0] - box[0], real_x[0]) - margin)
-        right = min(screen.shape[1], max(frame[2] + window.width - box[2], real_x[1]) + margin)
-        top = max(0, frame[1] - max(margin, box[1] + 4))
-        size = (right - left, bar_bottom - top)
-        pixels, _ = background(bg, size)
-        piece, _ = flat(window, box, box[2] - box[0])
-        pixels = put(pixels, piece, (frame[0] - left - box[0], frame[1] - top - box[1]))
-        pixels[bar_top - top:] = screen[bar_top:bar_bottom, left:right]
-        return Image.fromarray(np.clip(np.round(pixels), 0, 255).astype(np.uint8))
     size = PRESETS[preset]
     w, h = size
     em = 0.075 * min(w, 1.1 * h)

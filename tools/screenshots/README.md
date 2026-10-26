@@ -1,8 +1,10 @@
 # 截图工具
 
-README 里的图（`docs/images/*.png`）和发帖用的图（小红书 3:4、1:1、X、GitHub 社交预览）都由这里生成：用演示数据启动 Win顺，用真实键鼠输入把窗口摆好，黑白两次背板抠出带真实透明度的窗口，再合成到生成的背景上。图里不会出现自己电脑上的文件。
+README 里的图（`docs/images/*.jpg`）和发帖用的图（小红书 3:4、1:1、X、GitHub 社交预览）都由这里生成：用演示数据启动 Win顺，用真实键鼠输入把窗口摆好，黑白两次背板抠出带真实透明度的窗口，再合成到生成的背景上。图里不会出现自己电脑上的文件。
 
-README 功能截图使用 `readme` 预设：保留屏幕物理像素，不缩放窗口，不压成 JPEG，不套方形海报。只留少量背景，标题和说明写在 Markdown 里，以单列展示并链接原图。封面仍使用单独的方形设计，保存为无损 PNG。发帖的 `pages`、`square`、`covers` 保持各自的尺寸与排版；`F:\Win顺宣传图` 是之前导出的发帖成品目录。旧的 JPEG 保留供历史链接使用，不再用于当前 README。
+README 必须保持原有视觉格式：`square` 方形海报模板，保留 Win顺 Logo、LingCore 署名、彩色标题、副标题、背景及模板自带的底部文字；图片在 README 中以 `width="49%"` 排成两列。`readme` 预设只是工具中的纯窗口合成选项，不用于 README 这套海报。修复清晰度时只更换截图来源和导出质量，不删设计元素，不移动图内文案，不改变双列布局。
+
+海报保持原来的 JPEG 文件格式和路径，使用模板原始的 1440 × 1440 分辨率，不再缩到 1080；导出质量为 96，关闭色度抽样，减少文字边缘的压缩损失，点击可查看原图。发帖的 `pages`、`square`、`covers` 保持各自的尺寸与排版；`F:\Win顺宣传图` 是之前导出的发帖成品目录。
 
 ## 目录
 
@@ -24,7 +26,7 @@ README 功能截图使用 `readme` 预设：保留屏幕物理像素，不缩放
 
 0.14.0 已补拍搜索结果、剪贴板 GIF 预览、收藏夹与圆盘设置，以及插件库、备份迁移、自定义类型、搜索范围和 WSL 页面。运行的是 `dist/WinShun/WinShun.exe` 0.14.0，使用独立演示配置，只索引演示文件夹；剪贴板内容直接写入演示数据库，排除实际运行程序的复制记录。未改界面的功能图保留原有截图。
 
-清晰度修正：最初 `work/release014/raw` 的 Computer Use 截图按逻辑像素返回，再套 1080 宽 JPEG 海报并排展示，导致文字模糊；这条流程已停用。新版原图在 `work/readme-hd/raw`，由这里的 `capture.py` 在每显示器 DPI 感知模式下按物理像素捕获，整理到 `work/shots/L-*.png`。补拍时只给演示进程设置 Qt 缩放，使窗口以 2 倍像素密度真实绘制，不放大已有位图，不改系统缩放。动态 GIF 先用界面按钮暂停，再拍黑、白、黑三次背板，避免合成错帧。`shoot --margin 24` 可以避免大窗口周围的留白碰到任务栏。
+清晰度修正：最初 `work/release014/raw` 的 Computer Use 截图按逻辑像素返回，再缩成 1080 宽 JPEG 海报，新增页面的文字不够清楚。新版原图在 `work/readme-hd/raw`，由这里的 `capture.py` 在每显示器 DPI 感知模式下按物理像素捕获，整理到 `work/shots/L-*.png`，再沿用原有方形海报模板导出。补拍时只给演示进程设置 Qt 缩放，使窗口以 2 倍像素密度真实绘制，不放大已有位图，不改系统缩放。动态 GIF 先用界面按钮暂停，再拍黑、白、黑三次背板，避免合成错帧。`shoot --margin 24` 可以避免大窗口周围的留白碰到任务栏。
 
 普通截图时，工具会临时隐藏 Computer Use 自己的鼠标提示浮层，拍完无焦点恢复；否则即使真实鼠标已移出窗口，箭头和蓝色光晕仍可能被拍进来。`--hold` 保留拖动过程的指针提示。
 
@@ -32,7 +34,7 @@ README 功能截图使用 `readme` 预设：保留屏幕物理像素，不缩放
 
 ```
 python tools/screenshots/shots.py render            # 全部
-python tools/screenshots/shots.py render readme     # README 功能图与封面（写进 docs/images，无损 PNG）
+python tools/screenshots/shots.py render readme     # README 功能图与封面（原方形海报模板，写进 docs/images）
 python tools/screenshots/shots.py render pages square covers   # 帖子用图，写进 work/out
 ```
 

@@ -34,7 +34,7 @@ How it all goes together: README.md next to this.
            with a sparkle, badges between laurel branches, GitHub's mark with
            the name on a pill, keys floating by the window, and the window
            turned in 3D, running off the image.
-  taskbar  launcher.png screen.png -o out.png [--preset readme|xhs|square] [--title] [--subtitle]
+  taskbar  launcher.png screen.png -o out.png [--preset xhs|square] [--title] [--subtitle]
            The post's page on the taskbar box: the launcher over the real
            taskbar from a full-screen shot (where things are on it: TASKBAR
            in art.py).
@@ -42,7 +42,7 @@ How it all goes together: README.md next to this.
            The window on every background side by side, to choose one.
   render   [readme|pages|square|covers ...] [--shots DIR] [--out DIR]
            Every image again from the shots (work/shots): the README's
-           pictures (native-size, lossless PNGs) into docs/images, the
+           pictures (the original square posters, as high-quality JPEGs) into docs/images, the
            pages and covers of a post into work/out. All of them when none
            is named.
 
@@ -61,8 +61,10 @@ from art import BADGES, NAMES, PRESETS
 HERE = pathlib.Path(__file__).resolve().parent
 WORK = HERE / "work"
 
-# README screenshots keep their source pixels. Social posts have their own
-# sized layouts below; they must not shrink the UI in the README.
+# The README uses the original square poster template, including the logo,
+# title, subtitle and creator branding, in a two-column gallery. Keep the
+# full 1440px export with high JPEG quality and no chroma subsampling;
+# fixing sharpness must not change this visual format.
 
 # The pages of a post after the cover: file, shot (several joined with "+":
 # short windows one under another), title, subtitle[, background: "silk"
@@ -87,7 +89,7 @@ PAGES = (
 )
 TASKBAR_PAGE = ("13-taskbar", "L-taskbar", "screen-taskbar", "任务栏上的[搜索框]", "点一下就搜，结果从任务栏上方滑出来")
 # The README's pictures that the post (18 at most) has no room for: file
-# (docs/images/<file>.png), shot, title, subtitle.
+# (docs/images/<file>.jpg), shot, title, subtitle.
 README_ONLY = (
     ("semantic", "L-semantic", "记不得原词，[按意思找]", "? 去年报销的规定 → 差旅费用管理办法，用你选的模型"),
     ("folder", "L-content-folder", "只搜[一个文件夹]里的字", "第三季度销售额 财务/ → 只在“财务”里找"),
@@ -132,17 +134,17 @@ def jobs(sets, shots, out):
     found = []
     if "readme" in sets:
         images = HERE.parent.parent / "docs/images"
-        named = lambda file: images / f"{file.split('-', 1)[1]}.png"
+        named = lambda file: images / f"{file.split('-', 1)[1]}.jpg"
         for file, name, title, subtitle, *bg in PAGES:
-            found.append(("compose", (shot(name), "readme", (bg or ["letters"])[0], None, None), named(file)))
+            found.append(("compose", (shot(name), "square", (bg or ["letters"])[0], title, subtitle), named(file)))
         file, launcher, screen, title, subtitle = TASKBAR_PAGE
-        found.append(("taskbar", (shot(launcher), shot(screen), None, None, "readme"), named(file)))
-        found.append(("cover", (shot("L-search"), "square", "letters"), images / "cover.png"))
+        found.append(("taskbar", (shot(launcher), shot(screen), title, subtitle, "square"), named(file)))
+        found.append(("cover", (shot("L-search"), "square", "letters"), images / "cover.jpg"))
         for file, name, title, subtitle, *how in README_ONLY:
             if not pathlib.Path(shot(name)).is_file() and name in PENDING:
                 print(f"skipped {file}: no shot yet ({name}.png: scenes/release013.txt)")
                 continue
-            found.append(("compose", (shot(name), "readme", "letters", None, None, *how), images / f"{file}.png"))
+            found.append(("compose", (shot(name), "square", "letters", title, subtitle, *how), images / f"{file}.jpg"))
     for kind, preset, folder in (("pages", "xhs", "pages"), ("square", "square", "pages-square")):
         if kind in sets:
             for file, name, title, subtitle, *bg in PAGES:
@@ -180,7 +182,7 @@ def run(job):
     image = make(kind, args)
     if out.suffix.lower() in (".jpg", ".jpeg"):
         image = image.convert("RGB")
-        image.save(out, quality=86, optimize=True, progressive=True)
+        image.save(out, quality=96, subsampling=0, optimize=True, progressive=True)
     else:
         image.save(out, optimize=True)
     return out
@@ -256,7 +258,7 @@ def main() -> None:
     c.add_argument("launcher")
     c.add_argument("screen")
     c.add_argument("-o", "--out", required=True)
-    c.add_argument("--preset", choices=PRESETS, default="xhs")
+    c.add_argument("--preset", choices=[p for p in PRESETS if PRESETS[p]], default="xhs")
     c.add_argument("--bg", default="letters", help=f"{', '.join(NAMES)} or a photo")
     c.add_argument("--title", default=TASKBAR_PAGE[3])
     c.add_argument("--subtitle", default=TASKBAR_PAGE[4])
