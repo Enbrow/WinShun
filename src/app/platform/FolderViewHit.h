@@ -40,6 +40,11 @@ Hit classify(HWND window, POINT pt);
 // for anything else. For the hotkey, which has no point: `pt` is left zero.
 Hit classifyWindow(HWND root);
 
+// Opus typing: exactly its file-display window, never an Edit/FAYT/path
+// field nested under it. Class queries only: safe on the keyboard hook.
+bool isOpusLister(HWND root);
+bool isOpusFileDisplay(HWND root, HWND focus);
+
 // Whether the point is on blank space there: no item or its cells, no group
 // header, column header or scroll bar. Asks the view through Microsoft Active
 // Accessibility (accHitTest; one to a few milliseconds), so it waits on

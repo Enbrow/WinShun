@@ -68,6 +68,7 @@ class Clipboard : public QObject {
     Q_PROPERTY(bool previewOpen READ previewOpen WRITE setPreviewOpen NOTIFY previewOpenChanged FINAL)
     // Its width as the user dragged it (logical pixels); 0: the default.
     Q_PROPERTY(int previewWidth READ previewWidth WRITE setPreviewWidth NOTIFY previewWidthChanged FINAL)
+    Q_PROPERTY(int listWidth READ listWidth WRITE setListWidth NOTIFY listWidthChanged FINAL)
     // The entries in "固定" listed before the rest, in their own order (the
     // switch at the end of the tabs): what is kept at hand stays at the top,
     // on the same Alt+number. Off: newest first, as Windows lists them.
@@ -175,6 +176,8 @@ public:
     void setPreviewOpen(bool open);
     int previewWidth() const { return m_previewWidth; }
     void setPreviewWidth(int width);
+    int listWidth() const { return m_listWidth; }
+    void setListWidth(int width);
     bool pinnedFirst() const { return m_pinnedFirst; }
     void setPinnedFirst(bool on);
 
@@ -278,6 +281,7 @@ signals:
     void pinnedChanged();
     void previewOpenChanged();
     void previewWidthChanged();
+    void listWidthChanged();
     void pinnedFirstChanged();
     void keysWanted(); // a search-field click: acquire or refresh routing (App)
     void keysReleased(); // pinned, Esc (or the hotkey again): the keys and the focus back to the program (App)
@@ -364,6 +368,7 @@ private:
     bool m_pinned = false;
     bool m_previewOpen = false;
     int m_previewWidth = 0;
+    int m_listWidth = 480;
     bool m_pinnedFirst = false;
     bool m_recording = true;
     bool m_paused = false;

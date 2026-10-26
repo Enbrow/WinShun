@@ -93,6 +93,9 @@ private slots:
                 readonly property real radius: Theme.controlRadius
                 readonly property real pill: Theme.pillRadius(26)
                 readonly property color edge: Theme.windowEdge
+                readonly property int header: Theme.headerHeight
+                readonly property int row: Theme.rowHeight
+                readonly property int body: Theme.uiBody
             }
         )", folder);
         std::unique_ptr<QObject> values(probe.create());
@@ -100,12 +103,20 @@ private slots:
         QSignalSpy changed(values.get(), SIGNAL(radiusChanged()));
         for (bool round : {true, false, true, false}) {
             SystemTheme::setRoundedCorners(round);
-            const bool effective = round && QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows11;
-            QCOMPARE(values->property("radius").toDouble(), effective ? 4.0 : 0.0);
-            QCOMPARE(values->property("pill").toDouble(), effective ? 13.0 : 0.0);
+            QCOMPARE(values->property("radius").toDouble(), round ? 4.0 : 0.0);
+            QCOMPARE(values->property("pill").toDouble(), round ? 13.0 : 0.0);
         }
-        if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows11)
-            QVERIFY(changed.count() >= 3);
+        QVERIFY(changed.count() >= 3);
+        QSignalSpy resized(values.get(), SIGNAL(rowChanged()));
+        const QStringList sizes {u"compact"_s, u"standard"_s, u"roomy"_s, u"standard"_s};
+        for (int i = 0; i < sizes.size(); ++i) {
+            SystemTheme::setUiSize(sizes[i]);
+            const int step = i == 3 ? 1 : i;
+            QCOMPARE(values->property("header").toInt(), 56 + 8 * step);
+            QCOMPARE(values->property("row").toInt(), 52 + 8 * step);
+            QCOMPARE(values->property("body").toInt(), 14 + 2 * step);
+        }
+        QCOMPARE(resized.count(), 4);
 
         QQuickWindow window;
         window.setFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);

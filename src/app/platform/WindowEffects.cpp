@@ -8,6 +8,7 @@
 #include <QWindow>
 
 #include <dwmapi.h>
+#include <commctrl.h>
 #include <windows.h>
 #include <msctf.h>
 
@@ -33,6 +34,66 @@ std::atomic<bool> g_round {true};
 std::mutex g_cornerMutex; // preview HWNDs are created on another thread
 constexpr COLORREF kColorNone = 0xFFFFFFFE; // DWMWA_COLOR_NONE
 constexpr int kBackdropMica = 2; // DWMSBT_MAINWINDOW
+constexpr UINT kUpdateCornerRegion = WM_APP + 0x3C4;
+
+struct CornerRegion {
+    int width = 0;
+    int height = 0;
+    int radius = -1;
+};
+
+void updateCornerRegion(HWND window, CornerRegion& region)
+{
+    RECT rect {};
+    if (!::GetWindowRect(window, &rect))
+        return;
+    const int width = rect.right - rect.left, height = rect.bottom - rect.top;
+    const bool smallCorners = reinterpret_cast<INT_PTR>(::GetPropW(window, kCornerStyle)) == kCornerSmall;
+    const int radius = g_round.load() && !::IsZoomed(window)
+        ? ::MulDiv(smallCorners ? 4 : 8, static_cast<int>(::GetDpiForWindow(window)), 96)
+        : 0;
+    if (region.width == width && region.height == height && region.radius == radius)
+        return;
+    region = {width, height, radius}; // SetWindowRgn can reenter the window procedure.
+    const HRGN mask = radius ? ::CreateRoundRectRgn(0, 0, width + 1, height + 1, 2 * radius, 2 * radius) : nullptr;
+    if (!::SetWindowRgn(window, mask, TRUE) && mask)
+        ::DeleteObject(mask); // ownership transfers only on success
+}
+
+LRESULT CALLBACK cornerRegionProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data)
+{
+    auto* region = reinterpret_cast<CornerRegion*>(data);
+    if (message == WM_NCDESTROY) {
+        ::RemoveWindowSubclass(window, cornerRegionProc, id);
+        delete region;
+    } else if (message == WM_SIZE || message == WM_DPICHANGED || message == kUpdateCornerRegion) {
+        updateCornerRegion(window, *region);
+    }
+    return ::DefSubclassProc(window, message, wParam, lParam);
+}
+
+void applyWindowCorners(HWND window, int style)
+{
+    const int value = g_round.load() ? style : kCornerSquare;
+    if (SUCCEEDED(::DwmSetWindowAttribute(window, kCornerPreference, &value, sizeof value)))
+        return;
+    if (::GetWindowThreadProcessId(window, nullptr) != ::GetCurrentThreadId()) {
+        ::PostMessageW(window, kUpdateCornerRegion, 0, 0);
+        return;
+    }
+    // Windows 10 has no DWM corner preference. Keep the same setting useful
+    // there, including after resizing or moving to a monitor with another DPI.
+    DWORD_PTR data = 0;
+    if (!::GetWindowSubclass(window, cornerRegionProc, 0, &data)) {
+        auto* region = new CornerRegion;
+        if (!::SetWindowSubclass(window, cornerRegionProc, 0, reinterpret_cast<DWORD_PTR>(region))) {
+            delete region;
+            return;
+        }
+        data = reinterpret_cast<DWORD_PTR>(region);
+    }
+    updateCornerRegion(window, *reinterpret_cast<CornerRegion*>(data));
+}
 
 HWND handleOf(QWindow* window)
 {
@@ -83,8 +144,8 @@ HWND closeShellFlyout(HWND foreground)
 
 bool isShellFlyout(HWND window)
 {
-    static const QStringList flyouts {u"SearchHost.exe"_s, u"StartMenuExperienceHost.exe"_s,
-        u"ShellExperienceHost.exe"_s, u"ShellHost.exe"_s};
+    static const QStringList flyouts {
+        u"SearchHost.exe"_s, u"StartMenuExperienceHost.exe"_s, u"ShellExperienceHost.exe"_s, u"ShellHost.exe"_s};
     return window && flyouts.contains(programOf(window), Qt::CaseInsensitive);
 }
 
@@ -123,8 +184,7 @@ bool isDarkFrame(QWindow* window)
 
 bool roundedCorners()
 {
-    static const bool rounded = QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows11;
-    return rounded && g_round.load();
+    return g_round.load();
 }
 
 void setWindowCorners(HWND window, bool smallCorners)
@@ -134,8 +194,7 @@ void setWindowCorners(HWND window, bool smallCorners)
     std::lock_guard lock(g_cornerMutex);
     const int style = smallCorners ? kCornerSmall : kCornerRound;
     ::SetPropW(window, kCornerStyle, reinterpret_cast<HANDLE>(static_cast<INT_PTR>(style)));
-    const int value = roundedCorners() ? style : kCornerSquare;
-    ::DwmSetWindowAttribute(window, kCornerPreference, &value, sizeof value);
+    applyWindowCorners(window, style);
 }
 
 bool setRoundedCorners(bool on)
@@ -145,18 +204,19 @@ bool setRoundedCorners(bool on)
         return false;
     // Includes hidden menus and the preview worker's non-Qt popup. Window
     // properties die with the HWND, so destroyed windows cannot stay registered.
-    ::EnumWindows([](HWND window, LPARAM) -> BOOL {
-        DWORD process = 0;
-        ::GetWindowThreadProcessId(window, &process);
-        if (process == ::GetCurrentProcessId()) {
-            const auto style = reinterpret_cast<INT_PTR>(::GetPropW(window, kCornerStyle));
-            if (style == kCornerRound || style == kCornerSmall) {
-                const int value = roundedCorners() ? static_cast<int>(style) : kCornerSquare;
-                ::DwmSetWindowAttribute(window, kCornerPreference, &value, sizeof value);
+    ::EnumWindows(
+        [](HWND window, LPARAM) -> BOOL {
+            DWORD process = 0;
+            ::GetWindowThreadProcessId(window, &process);
+            if (process == ::GetCurrentProcessId()) {
+                const auto style = reinterpret_cast<INT_PTR>(::GetPropW(window, kCornerStyle));
+                if (style == kCornerRound || style == kCornerSmall) {
+                    applyWindowCorners(window, static_cast<int>(style));
+                }
             }
-        }
-        return TRUE;
-    }, 0);
+            return TRUE;
+        },
+        0);
     return true;
 }
 

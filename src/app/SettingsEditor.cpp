@@ -156,7 +156,8 @@ void SettingsEditor::setSettings(const Settings& settings)
         || settings.folderMenuHotkey != m_settings.folderMenuHotkey
         || settings.captureHotkey != m_settings.captureHotkey
         || settings.capturePinsHotkey != m_settings.capturePinsHotkey
-        || settings.capturePinsRestoreHotkey != m_settings.capturePinsRestoreHotkey;
+        || settings.capturePinsRestoreHotkey != m_settings.capturePinsRestoreHotkey
+        || settings.captureLastPinHotkey != m_settings.captureLastPinHotkey;
     const bool shares = settings.shares != m_settings.shares;
     const bool drives = settings.selectedDrives != m_settings.selectedDrives;
     m_settings = settings;
@@ -346,7 +347,8 @@ QString describeNumberKeys(const QString& keys, const Settings& settings)
             || (settings.captureEnabled
                 && (settings.captureHotkey.compare(c, Qt::CaseInsensitive) == 0
                     || settings.capturePinsHotkey.compare(c, Qt::CaseInsensitive) == 0
-                    || settings.capturePinsRestoreHotkey.compare(c, Qt::CaseInsensitive) == 0));
+                    || settings.capturePinsRestoreHotkey.compare(c, Qt::CaseInsensitive) == 0
+                    || settings.captureLastPinHotkey.compare(c, Qt::CaseInsensitive) == 0));
         if (mine)
             own.append(c);
         else if (std::find(held.begin(), held.end(), n) != held.end())
@@ -967,6 +969,14 @@ void SettingsEditor::setExplorerTyping(bool on)
     commit();
 }
 
+void SettingsEditor::setOpusTyping(bool on)
+{
+    if (m_settings.opusTyping == on)
+        return;
+    m_settings.opusTyping = on;
+    commit();
+}
+
 void SettingsEditor::setFolderMenu(bool on)
 {
     if (folderMenu() == on)
@@ -1039,6 +1049,91 @@ void SettingsEditor::setFolderMenuHotkeyError(const QString& error)
     if (m_folderMenuHotkeyError == error)
         return;
     m_folderMenuHotkeyError = error;
+    emit hotkeyErrorChanged();
+}
+
+void SettingsEditor::setCaptureLastPinHotkey(const QString& value)
+{
+    const auto normal = value.trimmed();
+    if (m_settings.captureLastPinHotkey == normal)
+        return;
+    m_settings.captureLastPinHotkey = normal;
+    commit();
+    refreshNumberKeys();
+}
+
+void SettingsEditor::setCaptureSaveFolder(const QString& value)
+{
+    const auto normal = value.trimmed();
+    if (m_settings.captureSaveFolder == normal)
+        return;
+    m_settings.captureSaveFolder = normal;
+    commit();
+}
+
+void SettingsEditor::setCaptureRecordingFolder(const QString& value)
+{
+    const auto normal = value.trimmed();
+    if (m_settings.captureRecordingFolder == normal)
+        return;
+    m_settings.captureRecordingFolder = normal;
+    commit();
+}
+
+void SettingsEditor::setCaptureRecordingSystemAudio(bool value)
+{
+    const auto normal = value;
+    if (m_settings.captureRecordingSystemAudio == normal)
+        return;
+    m_settings.captureRecordingSystemAudio = normal;
+    commit();
+}
+
+void SettingsEditor::setCaptureRecordingMicrophone(bool value)
+{
+    const auto normal = value;
+    if (m_settings.captureRecordingMicrophone == normal)
+        return;
+    m_settings.captureRecordingMicrophone = normal;
+    commit();
+}
+
+void SettingsEditor::setCaptureRecordingQuality(int value)
+{
+    if (value < 0 || value > 2 || m_settings.captureRecordingQuality == value)
+        return;
+    m_settings.captureRecordingQuality = value;
+    commit();
+}
+
+void SettingsEditor::setCaptureRecordingCursor(bool value)
+{
+    if (m_settings.captureRecordingCursor == value)
+        return;
+    m_settings.captureRecordingCursor = value;
+    commit();
+}
+
+void SettingsEditor::setCaptureRecordingCountdown(bool value)
+{
+    if (m_settings.captureRecordingCountdown == value)
+        return;
+    m_settings.captureRecordingCountdown = value;
+    commit();
+}
+
+void SettingsEditor::setCaptureRecordingClicks(bool value)
+{
+    if (m_settings.captureRecordingClicks == value) return;
+    m_settings.captureRecordingClicks = value;
+    commit();
+}
+
+void SettingsEditor::setCaptureLastPinHotkeyError(const QString& error)
+{
+    if (m_captureLastPinHotkeyError == error)
+        return;
+    m_captureLastPinHotkeyError = error;
     emit hotkeyErrorChanged();
 }
 

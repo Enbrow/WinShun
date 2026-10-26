@@ -1,4 +1,5 @@
 #include "App.h"
+#include "RecordingPointer.h"
 
 #include "AiBridge.h"
 #include "AppCatalog.h"
@@ -66,6 +67,7 @@
 #include "platform/SiteIcons.h"
 #include "platform/SystemSwitches.h"
 #include "platform/TypeToSearch.h"
+#include "platform/FolderViewHit.h"
 #include "platform/TaskbarSearch.h"
 #include "platform/TextCaret.h"
 #include "platform/VolumeNotifier.h"
@@ -126,6 +128,7 @@ constexpr int kCaptureHotkeyId = 8; // the screen capture's own hotkey (src/capt
 constexpr int kPrintScreenHotkeyId = 9; // PrtScn, once taken over from the Snipping Tool (printscreen::)
 constexpr int kPinsHotkeyId = 10; // hide / show every pin (stage 7)
 constexpr int kPinsRestoreHotkeyId = 11; // click-through pins take the mouse again (stage 7)
+constexpr int kLastPinHotkeyId = 12; // pin the last screenshot (#83)
 constexpr int kQuickPasteHotkeyId = 20; // + 1…9: paste without opening the clipboard
 // For another program to tell where its text caret is: longer, and the
 // clipboard would open late; it opens by the mouse pointer then.
@@ -392,6 +395,8 @@ App::~App()
     siteicons::shutdown(); // an icon arriving now would be told to no one
     m_keyRouter.reset(); // no keys taken from here on
     m_drainingRouter.reset();
+    m_keyListenerMode = -1; // recorder teardown must not recreate input listeners
+    m_recordingClicks.reset();
     m_serviceKeyListener.reset();
     m_keyListener.reset(); // no double click told to the folder menu
     m_capture.reset(); // its overlays, before the QML engine they were made with
@@ -538,7 +543,7 @@ bool App::start(const StartOptions& options)
     // result opened, whose program is coming to the front instead. Esc hides
     // it, pinned or not (dismissRequested follows, for the rest).
     connect(m_launcher.get(), &Launcher::escaped, this, [this] {
-        const HWND back = std::exchange(m_typingExplorer, {}).root;
+        const HWND back = std::exchange(m_typingOrigin, {}).root;
         if (back && ::IsWindow(back) && m_window && m_window->isActive())
             ::SetForegroundWindow(back);
         hideLauncher();
@@ -729,7 +734,12 @@ bool App::start(const StartOptions& options)
             folderMenuHotkey();
         else if (id == kCaptureHotkeyId || id == kPrintScreenHotkeyId)
             triggerCapture();
-        else if (id == kPinsHotkeyId) {
+        else if (id == kLastPinHotkeyId) {
+            if (m_capture && m_capture->hasLast())
+                m_capture->pinLast();
+            else
+                m_messages->showNotification(tr("贴上最近一次截图"), tr("还没有截图，请先截一张。"));
+        } else if (id == kPinsHotkeyId) {
             if (m_pins)
                 m_pins->setAllHidden(!m_pins->allHidden());
         } else if (id == kPinsRestoreHotkeyId) {
@@ -976,7 +986,7 @@ bool App::createWindow()
                 m_launcher->systemCommandDone();
             }
             if (m_launcher->pinned()) { // stays up, behind nothing (topmost), until Esc
-                m_typingExplorer = {}; // used elsewhere now: a folder opened later is not for that tab
+                m_typingOrigin = {}; // used elsewhere now: a folder opened later is not for that tab
                 m_boxPressGrace.stop();
                 // A press on Win顺's box took the focus: that press hides it
                 // (searchBoxPressed), as double Ctrl would.
@@ -1441,16 +1451,15 @@ QString App::doubleCtrlName() const
     return tr("双击 %1").arg(key);
 }
 
-void App::applySettings(bool initial)
+void App::applyKeyListener(bool force)
 {
-    applyFolderMenu(); // before the listener, which tells it double clicks
-    applyDropPie(); // likewise its key
+    if (m_keyListenerMode < 0) return;
     // Double clicks: for File Explorer and the desktop; Directory Opus says
     // so itself. Not when the menu is there for its hotkey alone.
     const bool doubleClicks = m_folderMenu && m_settings.folderMenu != u"off"
         && (m_settings.folderMenuExplorer || m_settings.folderMenuDesktop);
-    const int listenTo = (m_settings.doubleCtrl ? 1 : 0) | (doubleClicks ? 2 : 0) | (m_dropPie ? 4 : 0);
-    if (listenTo != m_keyListenerMode) {
+    const int listenTo = (m_settings.doubleCtrl ? 1 : 0) | (doubleClicks ? 2 : 0) | (m_dropPie ? 4 : 0) | (m_recordingClicks ? 8 : 0);
+    if (force || listenTo != m_keyListenerMode) {
         m_serviceKeyListener.reset();
         m_keyListener.reset(); // the process's one mouse registration goes with it first
         m_keyListenerMode = listenTo;
@@ -1472,6 +1481,10 @@ void App::applySettings(bool initial)
                 callbacks.dragMenu = [pie](POINT pt, HWND capture, DWORD pid) { pie->summoned(pt, capture, pid); };
                 callbacks.leftButtonUp = [pie] { pie->buttonReleased(); };
             }
+            if (m_recordingClicks)
+                callbacks.mousePress = [input = m_recordingClicks](POINT point, bool secondary, std::uint32_t time) {
+                    input->pushInput(QPoint(point.x, point.y), secondary, time);
+                };
             callbacks.log = [](const std::string& line) { qWarning().noquote() << QString::fromStdString(line); };
             m_keyListener = std::make_unique<KeyListener>(std::move(callbacks));
             if (m_settings.doubleCtrl && m_keyListener->isActive())
@@ -1487,6 +1500,13 @@ void App::applySettings(bool initial)
                 : m_settings.doubleCtrlKey == u"right"            ? DoubleTapDetector::Side::Right
                                                                   : DoubleTapDetector::Side::Both);
     }
+}
+
+void App::applySettings(bool initial)
+{
+    applyFolderMenu(); // before the listener, which tells it double clicks
+    applyDropPie(); // likewise its key
+    applyKeyListener();
     applyDialogs();
     applyClipboard();
     applyTaskbar();
@@ -1644,6 +1664,7 @@ void App::applyCapture()
         callbacks.copyColor = [this](const QString& hex) {
             m_clipboard->copyText(hex, m_settings.clipboard && !m_clipboardPaused);
         };
+        callbacks.saveFolder = [this] { return m_settings.captureSaveFolder; };
         callbacks.saved = [this](const QString& path, const QString& error) {
             if (error.isEmpty())
                 m_messages->showNotification(tr("截图已保存"), QDir::toNativeSeparators(path));
@@ -1679,6 +1700,31 @@ void App::applyCapture()
             m_settings.save();
             if (m_settingsEditor) // its copy must not bring the old format back with its next change
                 m_settingsEditor->setSettings(m_settings);
+        };
+        callbacks.recording.preferences = [this] {
+            return capture::Recorder::Preferences {m_settings.captureRecordingFolder, m_settings.captureRecordingSystemAudio,
+                m_settings.captureRecordingMicrophone, static_cast<capture::Recorder::Quality>(m_settings.captureRecordingQuality),
+                m_settings.captureRecordingCursor, m_settings.captureRecordingCountdown, m_settings.captureRecordingClicks,
+                static_cast<capture::Recorder::Format>(m_settings.captureRecordingFormat)};
+        };
+        callbacks.recording.remember = [this](const capture::Recorder::Preferences& prefs) {
+            m_settings.captureRecordingFolder = prefs.folder;
+            m_settings.captureRecordingSystemAudio = prefs.systemAudio;
+            m_settings.captureRecordingMicrophone = prefs.microphone;
+            m_settings.captureRecordingQuality = prefs.quality;
+            m_settings.captureRecordingCursor = prefs.cursor;
+            m_settings.captureRecordingCountdown = prefs.countdown;
+            m_settings.captureRecordingClicks = prefs.clickHighlights;
+            m_settings.captureRecordingFormat = prefs.format;
+            m_settings.save();
+            if (m_settingsEditor) m_settingsEditor->setSettings(m_settings);
+        };
+        callbacks.recording.starting = [this] { m_messages->hideNotification(); };
+        callbacks.recording.finished = [this] { m_idleTrim->poke(); };
+        callbacks.recording.clicks = [this](std::shared_ptr<capture::recording::ClickStream> input) {
+            m_recordingClicks = std::move(input);
+            applyKeyListener(true);
+            return !m_recordingClicks || (m_keyListener && m_keyListener->isActive());
         };
         callbacks.accent = [] { return SystemTheme::accentColor(); };
         m_capture = std::make_unique<capture::Capture>(m_qml.get(), std::move(callbacks));
@@ -1746,6 +1792,7 @@ void App::applyCaptureHotkeys()
     m_messages->unregisterHotkey(kPrintScreenHotkeyId);
     m_messages->unregisterHotkey(kPinsHotkeyId);
     m_messages->unregisterHotkey(kPinsRestoreHotkeyId);
+    m_messages->unregisterHotkey(kLastPinHotkeyId);
     if (!m_capture)
         return;
     if (m_settingsEditor && m_settingsEditor->recordingHotkey())
@@ -1789,6 +1836,14 @@ void App::applyCaptureHotkeys()
     };
     pinsHotkey(kPinsHotkeyId, m_settings.capturePinsHotkey, u"Capture/PinsHotkey"_s, false);
     pinsHotkey(kPinsRestoreHotkeyId, m_settings.capturePinsRestoreHotkey, u"Capture/PinsRestoreHotkey"_s, true);
+    QString lastError;
+    if (!m_settings.captureLastPinHotkey.isEmpty() && !m_messages->registerHotkey(kLastPinHotkeyId, m_settings.captureLastPinHotkey))
+        lastError = tr("“%1” 已被其他程序或系统占用，请换一个。").arg(m_settings.captureLastPinHotkey);
+    noteApplyProblem(u"Capture/LastPinHotkey"_s, lastError);
+    if (m_settingsEditor)
+        m_settingsEditor->setCaptureLastPinHotkeyError(lastError);
+    else if (!lastError.isEmpty() && !m_aiApplying)
+        m_messages->showNotification(tr("快捷键不可用"), lastError);
 }
 
 void App::triggerCapture()
@@ -1884,7 +1939,7 @@ capture::PinManager& App::pins()
                     m_messages->showNotification(tr("截图已保存"), QDir::toNativeSeparators(saved));
                 else
                     m_messages->showNotification(tr("截图没能保存"), error);
-            });
+            }, m_settings.captureSaveFolder);
         };
         callbacks.ocr = [this](const QImage& image, double dpr, const QRect& where) { showCaptureOcr(image, dpr, where); };
         callbacks.edit = [this](capture::PinWindow* pin) { editPin(pin); };
@@ -1973,7 +2028,7 @@ capture::CaptureEditor* App::editor()
                 m_messages->showNotification(tr("截图已保存"), QDir::toNativeSeparators(saved));
             else
                 m_messages->showNotification(tr("截图没能保存"), error);
-        });
+        }, m_settings.captureSaveFolder);
     };
     hooks.pin = [this](const QImage& image, const QByteArray& project, QPoint origin) {
         pins().pin(image, origin, true, project);
@@ -2268,6 +2323,7 @@ void App::applyTypeToSearch()
 {
     const TypeToSearch::Surfaces wanted {.startMenu = m_settings.taskbarStartTyping,
         .explorer = m_settings.explorerTyping,
+        .opus = m_settings.opusTyping,
         .pasteFile = m_settings.pasteFileEnabled && m_settings.pasteFileCtrlV};
     if (m_typing && m_typing->surfaces() == wanted)
         return;
@@ -2277,12 +2333,27 @@ void App::applyTypeToSearch()
     // Called on its thread: hop to the GUI thread.
     TypeToSearch::Callbacks callbacks;
     callbacks.typed = [this] { QMetaObject::invokeMethod(this, &App::startMenuTyped, Qt::QueuedConnection); };
-    callbacks.typedInExplorer = [this](HWND root, HWND tab, unsigned vk) {
-        QMetaObject::invokeMethod(this, [this, root, tab, vk] {
-            qInfo().noquote() << u"Explorer typing: key 0x%1 in window 0x%2"_s.arg(vk, 2, 16, QLatin1Char('0'))
-                                     .arg(reinterpret_cast<quintptr>(root), 0, 16);
-            explorerTyped(root, tab);
-        }, Qt::QueuedConnection);
+    callbacks.typedInExplorer = [this](HWND root, HWND tab, unsigned vk, TypeToSearch::RequestId request) {
+        QMetaObject::invokeMethod(
+            this,
+            [this, root, tab, vk, request] {
+                qInfo().noquote() << u"Explorer typing: key 0x%1 in window 0x%2"_s.arg(vk, 2, 16, QLatin1Char('0'))
+                                         .arg(reinterpret_cast<quintptr>(root), 0, 16);
+                folderTyped(root, tab, false, request);
+            },
+            Qt::QueuedConnection);
+    };
+    callbacks.typedInOpus = [this](HWND root, HWND tab, unsigned vk, TypeToSearch::RequestId request) {
+        QMetaObject::invokeMethod(
+            this,
+            [this, root, tab, vk, request] {
+                qInfo().noquote() << u"Opus typing: key 0x%1 in window 0x%2, tab 0x%3"_s
+                                         .arg(vk, 2, 16, QLatin1Char('0'))
+                                         .arg(reinterpret_cast<quintptr>(root), 0, 16)
+                                         .arg(reinterpret_cast<quintptr>(tab), 0, 16);
+                folderTyped(root, tab, true, request);
+            },
+            Qt::QueuedConnection);
     };
     callbacks.pastedInto = [this](HWND view) {
         QMetaObject::invokeMethod(this, [this, view] { pasteAsFile(view); }, Qt::QueuedConnection);
@@ -2499,32 +2570,41 @@ void App::deliverTyping()
         m_typing->deliver();
 }
 
-void App::explorerTyped(HWND root, HWND tab)
+void App::folderTyped(HWND root, HWND tab, bool opus, std::uint64_t request)
 {
-    // Asking Explorer waits on it (COM; a few milliseconds, more when it is
-    // busy): on a worker of its own, never the GUI thread. The hook holds the
-    // keys meanwhile.
+    if (!m_typing || !m_typing->pending(request))
+        return;
+    // Explorer's COM and Opus's DOpusRT query can wait on the file manager:
+    // on a worker of its own, never the GUI thread. The hook holds keys meanwhile.
     if (!m_typingWorker)
         m_typingWorker = std::make_unique<ComWorker>();
-    m_typingWorker->post([this, root, tab] {
+    m_typingWorker->post([this, root, tab, opus, request] {
         QElapsedTimer clock;
         clock.start();
-        const QString folder = QString::fromStdWString(filemanager::explorerFolder(tab));
-        qInfo().noquote() << u"Explorer typing: folder \"%1\" %2 ms"_s.arg(folder).arg(clock.elapsed());
-        QMetaObject::invokeMethod(this, [this, root, tab, folder] { explorerFolderKnown(root, tab, folder); },
+        const QString folder
+            = QString::fromStdWString(opus ? filemanager::opusFolder(tab) : filemanager::explorerFolder(tab));
+        qInfo().noquote() << (opus ? u"Opus typing:" : u"Explorer typing:")
+                          << u"folder \"%1\" %2 ms"_s.arg(folder).arg(clock.elapsed());
+        QMetaObject::invokeMethod(
+            this, [this, root, tab, opus, request, folder] { typingFolderKnown(root, tab, opus, request, folder); },
             Qt::QueuedConnection);
     });
 }
 
-void App::explorerFolderKnown(HWND root, HWND tab, const QString& folder)
+void App::typingFolderKnown(HWND root, HWND tab, bool opus, std::uint64_t request, const QString& folder)
 {
-    if (!m_typing)
+    if (!m_typing || !m_typing->pending(request))
         return;
     // No folder on disk there (Home, This PC, the Recycle Bin, a search): the
     // keys were Explorer's after all, which jumps by them as it would have.
-    if (folder.isEmpty() || !m_settings.explorerTyping || !m_window) {
-        qInfo() << "Explorer typing: no folder there, the keys go back to Explorer";
-        m_typing->giveBack();
+    GUITHREADINFO focus {sizeof focus};
+    const bool sameFocus = ::GetForegroundWindow() == root
+        && ::GetGUIThreadInfo(::GetWindowThreadProcessId(root, nullptr), &focus)
+        && searchtyping::focusOf(static_cast<unsigned>(focus.flags), true) == searchtyping::Focus::ItemsView
+        && (opus ? focus.hwndFocus == tab : folderview::classify(focus.hwndFocus, {}).tab == tab);
+    if (folder.isEmpty() || !(opus ? m_settings.opusTyping : m_settings.explorerTyping) || !m_window || !sameFocus) {
+        qInfo() << "Folder typing: no folder or focus changed; give back to the original view only";
+        m_typing->giveBack(request);
         return;
     }
     // The folder typed, the words to come after it (as Explorer's "search
@@ -2533,38 +2613,51 @@ void App::explorerFolderKnown(HWND root, HWND tab, const QString& folder)
     m_deliverTyping = true;
     showLauncher(folder.endsWith(u'\\') ? folder + u' ' : folder + u"\\ "_s, {}, false,
         screenOf(::MonitorFromWindow(root, MONITOR_DEFAULTTONEAREST)));
-    m_typingExplorer = {root, tab}; // after showLauncher, which clears it
+    m_typingOrigin = {root, tab, opus}; // after showLauncher, which clears it
     if (m_window && m_window->isActive())
         deliverTyping();
 }
 
 bool App::revealInTypingTab(const QString& path)
 {
-    // Explorer only (the file manager chosen shows items itself), and not a
-    // drive: nothing above it to select it in.
+    // Opus keeps the originating pane. Explorer follows the chosen manager.
+    // A drive has nothing above it to select it in.
     const QFileInfo info(path);
-    if (shell::fileManager() != filemanager::Kind::Explorer || info.isRoot())
+    if ((!m_typingOrigin.opus && shell::fileManager() != filemanager::Kind::Explorer) || info.isRoot())
         return false;
     return openInTypingTab(QDir::toNativeSeparators(info.absolutePath()), QDir::toNativeSeparators(path));
 }
 
 bool App::openInTypingTab(const QString& folder, const QString& select)
 {
-    const TypingOrigin from = std::exchange(m_typingExplorer, {});
+    const TypingOrigin from = std::exchange(m_typingOrigin, {});
     if (!from.tab)
         return false;
     const HWND root = ::IsWindow(from.tab) ? ::GetAncestor(from.tab, GA_ROOT) : nullptr;
-    if (!root) {
-        qWarning() << "Explorer typing: the tab typed in is gone; the folder opens in a new window";
+    if (!root || root != from.root) {
+        qWarning() << "Folder typing: the tab typed in is gone; the folder opens in a new window";
         return false;
     }
     // Back to the front first (allowed: the launcher is in front), as Esc
-    // does; the tab goes there on the worker that asks Explorer its folder,
+    // does; the tab goes there on the worker that asks the file manager its folder,
     // which waits until it shows it: a key typed at once, asked behind it,
     // searches the new folder.
     ::SetForegroundWindow(root);
     if (!m_typingWorker)
         m_typingWorker = std::make_unique<ComWorker>();
+    if (from.opus) {
+        m_typingWorker->post([from, path = QDir::toNativeSeparators(folder), select] {
+            if (!filemanager::goToInOpusView(from.root, from.tab, path.toStdWString(), select.toStdWString())) {
+                qWarning()
+                    << "Opus typing: cannot navigate the original view; open through the chosen file manager";
+                if (select.isEmpty())
+                    shell::open(path);
+                else
+                    shell::reveal(select);
+            }
+        });
+        return true;
+    }
     m_typingWorker->post([tab = from.tab, path = QDir::toNativeSeparators(folder), select] {
         QElapsedTimer clock;
         clock.start();
@@ -3278,8 +3371,9 @@ void App::dumpLauncher(const QString& file) const
     state[u"panel"_s] = m_launcher->panel();
     state[u"pinned"_s] = m_launcher->pinned();
     state[u"active"_s] = m_window && m_window->isActive();
-    // Up from typing in Explorer: the tab a folder opened goes to (GitHub #39); "0" otherwise.
-    state[u"typingTab"_s] = QString::number(reinterpret_cast<quintptr>(m_typingExplorer.tab), 16);
+    // Up from typing in a file manager: the original file display; "0" otherwise.
+    state[u"typingTab"_s] = QString::number(reinterpret_cast<quintptr>(m_typingOrigin.tab), 16);
+    state[u"typingManager"_s] = m_typingOrigin.tab ? (m_typingOrigin.opus ? u"dopus"_s : u"explorer"_s) : QString();
     state[u"doubleCtrlService"_s] = m_keyListener && m_keyListener->serviceActive();
     if (m_window) {
         const QRect g = m_window->geometry();
@@ -3653,7 +3747,7 @@ void App::showLauncher(const QString& query, const std::optional<taskbar::Spot>&
 {
     if (!m_window)
         return;
-    m_typingExplorer = {}; // opened anew: set again by explorerFolderKnown when that is why
+    m_typingOrigin = {}; // opened anew: set again by typingFolderKnown when that is why
     if (m_idleTrim->takeTrimmed() && m_index->index()) {
         // The index's pages back while the window comes up, before the first
         // search needs them (IdleTrim, FileIndex::warm).
@@ -4161,7 +4255,7 @@ void App::finishPrewarm()
 
 void App::hideLauncher()
 {
-    m_typingExplorer = {}; // whatever opened it, that opening is over
+    m_typingOrigin = {}; // whatever opened it, that opening is over
     if (!m_window || !m_window->isVisible() || m_launcherClosing)
         return;
     if (m_launcher->systemMenuOpen())

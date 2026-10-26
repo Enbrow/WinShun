@@ -46,8 +46,8 @@ namespace ws {
 // takes the focus from the command palette), Shift alone switches a Chinese
 // input method between Chinese and English. So while one is held, a key
 // taken is replaced by one that means nothing (vkE8, as AutoHotkey masks
-// the Start menu), and a Shift or Alt let go goes on to the program only
-// after such a key (kOwnMask). A double Ctrl or Alt stays one.
+// the Start menu). Shift and Alt presses are also masked (kOwnMask); their
+// original releases always pass through. A double Ctrl or Alt stays one.
 //
 // No input method composes the keys taken: they reach the window without
 // one, and its search finds Chinese by the pinyin typed. A Shift pressed
@@ -118,7 +118,7 @@ private:
     static void CALLBACK foregroundProc(HWINEVENTHOOK hook, DWORD event, HWND hwnd, LONG object, LONG child,
                                         DWORD thread, DWORD time);
     LRESULT handleKey(int code, WPARAM message, LPARAM lParam); // the hook's answer: nonzero, taken
-    bool handleModifier(bool press, const KBDLLHOOKSTRUCT& event);
+    void handleModifier(bool press, const KBDLLHOOKSTRUCT& event);
     void handleMouse(WPARAM message, const MSLLHOOKSTRUCT& event);
     enum class Availability { Ready, OtherForeground, Hidden, Hung };
     Availability availability() const;

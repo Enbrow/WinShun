@@ -255,6 +255,12 @@ std::vector<Entry> buildCatalog()
     add(boolean({"Launcher/ExplorerTyping", QT_TRANSLATE_NOOP("AiSettings", "在资源管理器里直接打字搜索"), "files_and_dialogs", 2,
                     "Typing in a File Explorer folder window searches that folder with Win顺, instead of Explorer's jump to a name by its first letters."},
         &Settings::explorerTyping));
+    add(boolean({"Launcher/OpusTyping", QT_TRANSLATE_NOOP("AiSettings", "在 Directory Opus 里直接打字搜索"),
+                    "files_and_dialogs", 2,
+                    "In a Directory Opus file display, letters and digits open Win顺 to search that tab's folder. "
+                    "Off by default and independent of Explorer typing. Punctuation, shortcuts, menus and edit fields "
+                    "stay in Opus."},
+        &Settings::opusTyping));
     add(choice({"Launcher/FolderMenu", QT_TRANSLATE_NOOP("AiSettings", "双击空白处弹出文件夹菜单"), "files_and_dialogs", 2,
                    "A double click on blank space in a File Explorer folder or on the desktop brings up a menu of favorite and recent folders (like Listary's). 'auto' leaves it to Listary while Listary runs."},
         &Settings::folderMenu,

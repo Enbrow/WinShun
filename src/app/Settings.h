@@ -115,6 +115,7 @@ struct Settings {
     // (TypeToSearch), in place of Explorer's own jump to a name by its first
     // letters: off unless asked for, so that an upgrade changes nothing.
     bool explorerTyping = false;
+    bool opusTyping = false; // opt in per manager: typing in an Opus file display (GitHub #82)
     // auto | on | off: a double click on the blank space of a File Explorer
     // folder or of the desktop brings up a menu of favorite and recent
     // folders (FolderMenu, GitHub #22); auto: not while Listary runs, which
@@ -380,6 +381,16 @@ struct Settings {
     QString captureColorFormat = QStringLiteral("hex");
     QString capturePinsHotkey;
     QString capturePinsRestoreHotkey;
+    QString captureLastPinHotkey;
+    QString captureSaveFolder;
+    QString captureRecordingFolder;
+    bool captureRecordingSystemAudio = false;
+    bool captureRecordingMicrophone = false;
+    int captureRecordingQuality = 1; // 0: smaller file, 1: standard, 2: higher quality
+    bool captureRecordingCursor = true;
+    bool captureRecordingCountdown = true;
+    bool captureRecordingClicks = false;
+    int captureRecordingFormat = 0; // 0: MP4, 1: GIF
     // What a double click on a pin does: reset (back to 100%) | close |
     // collapse (to a tile) | none (PinDoubleClick).
     QString capturePinDoubleClick = QStringLiteral("reset");

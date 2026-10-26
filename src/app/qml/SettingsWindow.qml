@@ -1402,6 +1402,20 @@ Window {
                 }
 
                 SettingRow {
+                    id: opusTypingRow
+                    title: qsTr("在 Directory Opus 里直接打字搜索")
+                    keywords: qsTr("Opus;DOpus;直接打字;输入;当前文件夹;双栏;type to search").split(";")
+                    description: qsTr("文件列表有焦点时，从字母或数字开始输入，就用 Win顺 搜索当前标签的文件夹。符号键保留给 Opus，改名和地址栏不受影响。")
+
+                    ToggleSwitch {
+                        objectName: "opusTypingToggle"
+                        checked: window.editor.opusTyping
+                        Accessible.name: qsTr("在 Directory Opus 里直接打字搜索")
+                        onToggled: (on) => window.editor.opusTyping = on
+                    }
+                }
+
+                SettingRow {
                     id: folderMenuRow
                     title: qsTr("双击空白处弹出文件夹菜单")
                     keywords: qsTr("双击;空白;空白处;收藏;收藏夹;最近;文件夹菜单;资源管理器;桌面;Listary;double-click;folder menu").split(";")
@@ -1868,6 +1882,8 @@ Window {
                         current: Math.max(0, sizes.indexOf(window.editor.uiSize))
                         onActivated: (index) => window.editor.uiSize = sizes[index]
                     }
+
+                    body: AppearancePreview { width: parent.width }
                 }
 
                 SettingRow {

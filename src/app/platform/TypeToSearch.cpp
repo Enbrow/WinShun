@@ -16,6 +16,7 @@ namespace {
 
 // Low-level hooks and out-of-context events are called on the thread that set them.
 thread_local TypeToSearch* t_typing = nullptr;
+std::atomic<TypeToSearch::RequestId> g_nextFolderRequest = 0;
 
 constexpr UINT kDeliverMessage = WM_APP + 1; // to the hook's thread (deliver)
 constexpr UINT kGiveBackMessage = WM_APP + 2; // to the hook's thread (giveBack)
@@ -97,9 +98,10 @@ TypeToSearch::TypeToSearch(Surfaces surfaces, Callbacks callbacks)
         while (::GetMessageW(&msg, nullptr, 0, 0) > 0) {
             if (msg.hwnd == nullptr && msg.message == kDeliverMessage)
                 typeHeld();
-            else if (msg.hwnd == nullptr && msg.message == kGiveBackMessage)
-                returnHeld();
-            else if (msg.hwnd == nullptr && msg.message == kPassedMessage)
+            else if (msg.hwnd == nullptr && msg.message == kGiveBackMessage) {
+                if (!msg.wParam || pending(static_cast<RequestId>(msg.wParam)))
+                    returnHeld();
+            } else if (msg.hwnd == nullptr && msg.message == kPassedMessage)
                 heldPassed();
             else if (msg.hwnd == nullptr && msg.message == WM_TIMER && m_frontTimer && msg.wParam == m_frontTimer)
                 heldPassed(); // looks again whether Win顺 is in front
@@ -127,9 +129,9 @@ void TypeToSearch::deliver()
     ::PostThreadMessageW(m_threadId.load(), kDeliverMessage, 0, 0);
 }
 
-void TypeToSearch::giveBack()
+void TypeToSearch::giveBack(RequestId request)
 {
-    ::PostThreadMessageW(m_threadId.load(), kGiveBackMessage, 0, 0);
+    ::PostThreadMessageW(m_threadId.load(), kGiveBackMessage, static_cast<WPARAM>(request), 0);
 }
 
 LRESULT CALLBACK TypeToSearch::keyboardProc(int code, WPARAM wParam, LPARAM lParam)
@@ -193,9 +195,12 @@ void TypeToSearch::foregroundChanged(HWND window, HWND named)
     const HWND behind = m_explorerBehind;
     m_explorer = nullptr;
     m_explorerBehind = nullptr;
+    m_opus = nullptr;
     m_desktop = nullptr;
     m_pasteTaken = false; // V's release goes where the front went
     if (!m_startInFront) {
+        if (m_surfaces.opus && folderview::isOpusLister(window) && !integrity::higherThanOurs(window))
+            m_opus = window;
         if (watchedExplorer(window))
             m_explorer = window;
         if (named != window && watchedExplorer(named))
@@ -213,7 +218,7 @@ void TypeToSearch::foregroundChanged(HWND window, HWND named)
 
 bool TypeToSearch::wantsHook() const
 {
-    return m_startInFront || m_explorer || m_explorerBehind || m_desktop || m_holding;
+    return m_startInFront || m_explorer || m_explorerBehind || m_opus || m_desktop || m_holding;
 }
 
 void TypeToSearch::setHooked(bool hooked)
@@ -246,7 +251,29 @@ bool TypeToSearch::explorerFocused(HWND& tab) const
     return true;
 }
 
-// The same for the desktop's icons (not a name being renamed, no menu open).
+// Only Opus's file display itself, not its child editors or an open menu.
+bool TypeToSearch::opusFocused(HWND& tab) const
+{
+    GUITHREADINFO info {sizeof info};
+    if (!m_opus || ::GetForegroundWindow() != m_opus
+        || !::GetGUIThreadInfo(::GetWindowThreadProcessId(m_opus, nullptr), &info))
+        return false;
+    const bool items = folderview::isOpusFileDisplay(m_opus, info.hwndFocus);
+    if (searchtyping::focusOf(static_cast<unsigned>(info.flags), items) != searchtyping::Focus::ItemsView)
+        return false;
+    tab = info.hwndFocus;
+    return true;
+}
+
+bool TypeToSearch::sourceFocused() const
+{
+    GUITHREADINFO info {sizeof info};
+    return m_sourceWindow && ::GetForegroundWindow() == m_sourceWindow
+        && ::GetGUIThreadInfo(::GetWindowThreadProcessId(m_sourceWindow, nullptr), &info)
+        && info.hwndFocus == m_sourceFocus
+        && searchtyping::focusOf(static_cast<unsigned>(info.flags), true) == searchtyping::Focus::ItemsView;
+}
+
 bool TypeToSearch::desktopFocused() const
 {
     if (!m_desktop || ::GetForegroundWindow() != m_desktop)
@@ -326,9 +353,17 @@ bool TypeToSearch::handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event)
         if (!press || combination)
             return false;
         HWND tab = nullptr;
+        HWND source = nullptr;
+        bool opus = false;
         if (m_startInFront) {
             if (m_windowsSearch || !searchtyping::startsTyping(vk))
                 return false;
+        } else if (m_opus && ::GetForegroundWindow() == m_opus) {
+            if (!searchtyping::opusStarts(vk, press, combination, held(VK_SHIFT), searchtyping::Focus::ItemsView, false)
+                || !opusFocused(tab))
+                return false;
+            source = m_opus;
+            opus = true;
         } else if (m_surfaces.explorer && (m_explorer || m_explorerBehind)) {
             // The key alone first; what is in front and what has the focus
             // are asked only for one that would start a search.
@@ -336,20 +371,29 @@ bool TypeToSearch::handleKey(WPARAM message, const KBDLLHOOKSTRUCT& event)
                 return false;
             if (!explorerInFront() || !explorerFocused(tab))
                 return false;
+            source = m_explorer;
         } else {
             return false;
         }
         m_holding = true;
-        m_holdingForExplorer = m_explorer != nullptr;
+        m_holdingForFolder = source != nullptr;
+        m_sourceWindow = source;
+        GUITHREADINFO focus {sizeof focus};
+        m_sourceFocus = source && ::GetGUIThreadInfo(::GetWindowThreadProcessId(source, nullptr), &focus)
+            ? focus.hwndFocus
+            : nullptr;
         m_held.clear();
         m_toLauncher = false;
         m_askedAt = ::GetTickCount();
         m_asksAgain = 0;
         m_typedAlready = false;
         m_timer = ::SetTimer(nullptr, 0, kHoldTimeoutMs, nullptr);
-        if (m_holdingForExplorer) {
-            if (m_callbacks.typedInExplorer)
-                m_callbacks.typedInExplorer(m_explorer, tab, vk);
+        if (m_holdingForFolder) {
+            const RequestId request = ++g_nextFolderRequest;
+            m_pendingRequest = request;
+            const auto& callback = opus ? m_callbacks.typedInOpus : m_callbacks.typedInExplorer;
+            if (callback)
+                callback(source, tab, vk, request);
         } else if (m_callbacks.typed) {
             m_callbacks.typed();
         }
@@ -396,6 +440,11 @@ std::vector<INPUT> TypeToSearch::takeHeld()
 // (q down, z down, z up, q up) and "qz" came out "zq" (GitHub #39).
 void TypeToSearch::sendHeld()
 {
+    if (!m_toLauncher && m_holdingForFolder && !sourceFocused()) {
+        m_held.clear(); // the user moved on: never type into another window or edit field
+        endHolding();
+        return;
+    }
     if (m_toLauncher && !m_held.empty() && waitForFront())
         return; // held on: not into the window in front, which is not Win顺's
     std::vector<INPUT> inputs = takeHeld();
@@ -431,7 +480,7 @@ bool TypeToSearch::waitForFront()
     DWORD pid = 0;
     ::GetWindowThreadProcessId(front, &pid);
     const DWORD now = ::GetTickCount();
-    switch (searchtyping::delivery(front && pid == ::GetCurrentProcessId(), isStartMenu(front), !m_holdingForExplorer,
+    switch (searchtyping::delivery(front && pid == ::GetCurrentProcessId(), isStartMenu(front), !m_holdingForFolder,
         m_typedAlready, m_asksAgain, now - m_askedAt)) {
     case searchtyping::Delivery::Type:
         ::KillTimer(nullptr, m_frontTimer);
@@ -470,13 +519,13 @@ void TypeToSearch::heldPassed()
         sendHeld(); // typed while those were on their way: after them
 }
 
-// The same keys, to the window they were typed in: Explorer is still in
-// front (the launcher never showed), and jumps by them as it would have.
+// The same keys, to the file display they were typed in, if it is still in
+// front (the launcher never showed).
 void TypeToSearch::returnHeld()
 {
     if (!m_holding)
         return;
-    m_toLauncher = false; // to Explorer, in front
+    m_toLauncher = false; // to the original file display
     if (!m_retyped.pending())
         sendHeld();
 }
@@ -495,10 +544,10 @@ void TypeToSearch::dropHeld()
             ::SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
         return;
     }
-    // Typed in Explorer, the keys are the user's: back to it rather than
+    // Typed in a file display, the keys are the user's: back to it rather than
     // lost. In the Start menu they would go into Windows' search, which was
     // not wanted: dropped.
-    if (m_holdingForExplorer) {
+    if (m_holdingForFolder) {
         returnHeld();
         return;
     }
@@ -515,7 +564,10 @@ void TypeToSearch::restartTimer(UINT ms)
 void TypeToSearch::endHolding()
 {
     m_holding = false;
-    m_holdingForExplorer = false;
+    m_holdingForFolder = false;
+    m_pendingRequest = 0;
+    m_sourceWindow = nullptr;
+    m_sourceFocus = nullptr;
     m_retyped.clear();
     m_toLauncher = false;
     ::KillTimer(nullptr, m_timer);

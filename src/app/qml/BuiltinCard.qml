@@ -67,15 +67,19 @@ Rectangle {
                 spacing: 4
 
                 Row {
+                    width: parent.width
                     spacing: 8
 
                     Text {
+                        width: Math.min(implicitWidth, Math.max(0, parent.width - builtinTag.width - parent.spacing))
                         text: card.title
                         color: Theme.text
                         font.pixelSize: Theme.fontBody
                         font.weight: Font.DemiBold
+                        wrapMode: Text.Wrap
                     }
                     Tag {
+                        id: builtinTag
                         text: qsTr("内置")
                     }
                 }

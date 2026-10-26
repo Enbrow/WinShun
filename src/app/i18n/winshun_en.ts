@@ -225,6 +225,10 @@
 <context>
     <name>AiSettings</name>
     <message>
+        <source>在 Directory Opus 里直接打字搜索</source>
+        <translation>Type to search in Directory Opus</translation>
+    </message>
+    <message>
         <source>Tab 进入收藏文件夹</source>
         <translation>Browse favorite folders with Tab</translation>
     </message>
@@ -1175,6 +1179,18 @@
 <context>
     <name>AnnotateToolbar</name>
     <message>
+        <source>按住拖动工具条</source>
+        <translation>Drag to move the toolbar</translation>
+    </message>
+    <message>
+        <source>移动工具条</source>
+        <translation>Move toolbar</translation>
+    </message>
+    <message>
+        <source>按住拖动；聚焦后可用方向键移动，Shift 加速</source>
+        <translation>Drag to move. When focused, use the arrow keys; hold Shift to move faster.</translation>
+    </message>
+    <message>
         <source>延时：关掉这次截图，倒计时后重新截（秒数在设置里选）</source>
         <translation>Delay: ends this capture and captures again after a countdown (the seconds are set in the settings)</translation>
     </message>
@@ -1413,6 +1429,26 @@
     <message>
         <source>长截图：选区里的内容一边滚动一边截</source>
         <translation>Long screenshot: the selection’s content captured while it scrolls</translation>
+    </message>
+    <message>
+        <source>区域录屏：把选区里的操作录成 MP4</source>
+        <translation>Record the selected area as an MP4 video</translation>
+    </message>
+    <message>
+        <source>录屏</source>
+        <translation>Record screen</translation>
+    </message>
+    <message>
+        <source>区域录屏：录制选区里的操作，保存为 MP4</source>
+        <translation>Record activity in the selected area as MP4</translation>
+    </message>
+    <message>
+        <source>区域录屏：把选区里的操作录成 MP4 或 GIF</source>
+        <translation>Region recording: capture actions as MP4 or GIF</translation>
+    </message>
+    <message>
+        <source>区域录屏：录制选区里的操作，保存为 MP4 或 GIF</source>
+        <translation>Region recording: record actions in the selection as MP4 or GIF</translation>
     </message>
 </context>
 <context>
@@ -1890,6 +1926,46 @@
     <message>
         <source>亮起的按钮会显示，点一下切换。隐藏后快捷键仍可使用；标注工具始终显示。识别文字没有快捷键，隐藏后可在“鼠标”分类设置动作。</source>
         <translation>Highlighted buttons are visible; click to toggle. Shortcuts still work when buttons are hidden. Annotation tools always stay visible. Text recognition has no shortcut; assign a mouse action if you hide its button.</translation>
+    </message>
+    <message>
+        <source>选好就复制;复制截图时同时贴图;鼠标指针;识别控件;Electron;WinUI;延时截图;截图保存文件夹;保存目录;录屏</source>
+        <translation>Copy on selection;Pin when copying;Mouse pointer;Detect controls;Electron;WinUI;Delayed capture;Screenshot folder;Save folder;Screen recording</translation>
+    </message>
+    <message>
+        <source>双击贴图;贴上最近一次截图的快捷键;隐藏 / 显示全部贴图的快捷键;找回穿透贴图的快捷键</source>
+        <translation>Pin double-click;Pin last screenshot shortcut;Hide / show all pins shortcut;Restore click-through pins shortcut</translation>
+    </message>
+    <message>
+        <source>录屏</source>
+        <translation>Record screen</translation>
+    </message>
+    <message>
+        <source>截图保存文件夹</source>
+        <translation>Screenshot folder</translation>
+    </message>
+    <message>
+        <source>系统的“屏幕截图”文件夹</source>
+        <translation>The system Screenshots folder</translation>
+    </message>
+    <message>
+        <source>选择文件夹…</source>
+        <translation>Choose folder…</translation>
+    </message>
+    <message>
+        <source>选择截图保存文件夹</source>
+        <translation>Choose screenshot folder</translation>
+    </message>
+    <message>
+        <source>使用系统默认</source>
+        <translation>Use system default</translation>
+    </message>
+    <message>
+        <source>贴上最近一次截图的快捷键</source>
+        <translation>Pin last screenshot shortcut</translation>
+    </message>
+    <message>
+        <source>把最近截过的图贴回原位置，保留标注；不设时仍可从托盘菜单操作</source>
+        <translation>Pin the last screenshot at its original position, including annotations. Also available from the tray menu.</translation>
     </message>
 </context>
 <context>
@@ -3167,6 +3243,14 @@
         <source>输入名称或拼音，或在左侧加筛选条件</source>
         <translation>Type a name or pinyin, or add filters on the left</translation>
     </message>
+    <message>
+        <source>恢复默认列</source>
+        <translation>Restore default columns</translation>
+    </message>
+    <message>
+        <source>右键选择列；拖动表头调整顺序，拖动分隔线调整宽度</source>
+        <translation>Right-click to choose columns; drag headers to reorder or dividers to resize</translation>
+    </message>
 </context>
 <context>
     <name>PanelRow</name>
@@ -3646,6 +3730,18 @@
 <context>
     <name>PluginsSection</name>
     <message>
+        <source>Directory Opus 里打字搜索</source>
+        <translation>Type to search in Directory Opus</translation>
+    </message>
+    <message>
+        <source>Opus;DOpus;直接打字;双栏;type to search</source>
+        <translation>Opus;DOpus;type to search;dual pane</translation>
+    </message>
+    <message>
+        <source>在文件列表中输入字母或数字，用 Win顺 搜索当前标签的文件夹；保留 Opus 的符号键、改名和地址栏输入</source>
+        <translation>Type letters or digits in the file list to search that tab's folder in WinShun; keep Opus punctuation, renaming and address-field input</translation>
+    </message>
+    <message>
         <source>插件看不到你在资源管理器里登录的网络位置</source>
         <translation>Plugins cannot see the network places you signed in to in File Explorer</translation>
     </message>
@@ -4114,6 +4210,18 @@
 </context>
 <context>
     <name>SettingsWindow</name>
+    <message>
+        <source>在 Directory Opus 里直接打字搜索</source>
+        <translation>Type to search in Directory Opus</translation>
+    </message>
+    <message>
+        <source>Opus;DOpus;直接打字;输入;当前文件夹;双栏;type to search</source>
+        <translation>Opus;DOpus;type to search;typing;current folder;dual pane</translation>
+    </message>
+    <message>
+        <source>文件列表有焦点时，从字母或数字开始输入，就用 Win顺 搜索当前标签的文件夹。符号键保留给 Opus，改名和地址栏不受影响。</source>
+        <translation>With the file list focused, start typing letters or digits to search that tab's folder in WinShun. Punctuation stays in Opus; renaming and address fields keep their input.</translation>
+    </message>
     <message>
         <source>选中收藏文件夹时按 Tab</source>
         <translation>Tab on a selected favorite folder</translation>
@@ -7577,6 +7685,10 @@
         <source>%1 已被其他快捷键占用，这几条无法直接粘贴；其余数字仍可用。可更换组合键，或调整冲突的快捷键。</source>
         <translation>%1 are already assigned to other shortcuts. These slots cannot paste directly; the remaining digits still work. Choose another modifier or change the conflicting shortcuts.</translation>
     </message>
+    <message>
+        <source>还没有截图，请先截一张。</source>
+        <translation>Take a screenshot first.</translation>
+    </message>
 </context>
 <context>
     <name>ws::Backup</name>
@@ -10120,6 +10232,30 @@
         <source>自定义命令 · %1</source>
         <translation>Custom command · %1</translation>
     </message>
+    <message>
+        <source>内容</source>
+        <translation>Content</translation>
+    </message>
+    <message>
+        <source>网页</source>
+        <translation>Web</translation>
+    </message>
+    <message>
+        <source>系统</source>
+        <translation>System</translation>
+    </message>
+    <message>
+        <source>应用</source>
+        <translation>App</translation>
+    </message>
+    <message>
+        <source>文件</source>
+        <translation>File</translation>
+    </message>
+    <message>
+        <source>文件夹</source>
+        <translation>Folder</translation>
+    </message>
 </context>
 <context>
     <name>ws::Settings</name>
@@ -11238,6 +11374,10 @@
         <source>选区太小，不能长截图</source>
         <translation>The selection is too small for a long screenshot</translation>
     </message>
+    <message>
+        <source>选区太小，不能录屏</source>
+        <translation>The selection is too small for recording</translation>
+    </message>
 </context>
 <context>
     <name>ws::capture::CountdownWindow</name>
@@ -11513,6 +11653,374 @@ click here to cancel</translation>
     <message>
         <source>添加</source>
         <translation>Add</translation>
+    </message>
+</context>
+<context>
+    <name>Recording</name>
+    <message>
+        <source>录制屏幕已断开或关闭</source>
+        <translation>The recorded display was disconnected or closed</translation>
+    </message>
+    <message>
+        <source>录屏路径已存在，或录制区域 / 帧率不可用</source>
+        <translation>The output file already exists, or the recording area / frame rate is unavailable</translation>
+    </message>
+    <message>
+        <source>无法写入录屏文件夹：%1</source>
+        <translation>Cannot write to the recording folder: %1</translation>
+    </message>
+    <message>
+        <source>系统声音不可用，请检查播放设备，或关闭“系统声音”</source>
+        <translation>System audio is unavailable. Check the playback device or turn off system audio</translation>
+    </message>
+    <message>
+        <source>麦克风不可用，请检查设备与 Windows 麦克风权限，或关闭“麦克风”</source>
+        <translation>The microphone is unavailable. Check the device and Windows microphone permissions, or turn off the microphone</translation>
+    </message>
+    <message>
+        <source>WinShun  区域录屏 — clear text 0123456789    C++20 / MP4</source>
+        <translation>WinShun  Screen recording — clear text 0123456789    C++20 / MP4</translation>
+    </message>
+    <message>
+        <source>录屏失败：%1（0x%2）</source>
+        <translation>Recording failed: %1 (0x%2)</translation>
+    </message>
+    <message>
+        <source>录屏失败：%1</source>
+        <translation>Recording failed: %1</translation>
+    </message>
+    <message>
+        <source>无法完成保存，录制文件保留在：%1</source>
+        <translation>Could not finish saving. The recording is preserved at: %1</translation>
+    </message>
+</context>
+<context>
+    <name>RecordingPanel</name>
+    <message>
+        <source>点击高亮：%1</source>
+        <translation>Click highlight: %1</translation>
+    </message>
+    <message>
+        <source>在视频中显示鼠标点击圈，暂停期间和控制条上的点击不显示。</source>
+        <translation>Shows click rings in the video. Clicks while paused or on the controls are excluded.</translation>
+    </message>
+    <message>
+        <source>区域录屏</source>
+        <translation>Screen recording</translation>
+    </message>
+    <message>
+        <source>系统声音：%1</source>
+        <translation>System audio: %1</translation>
+    </message>
+    <message>
+        <source>开</source>
+        <translation>On</translation>
+    </message>
+    <message>
+        <source>关</source>
+        <translation>Off</translation>
+    </message>
+    <message>
+        <source>麦克风：%1</source>
+        <translation>Microphone: %1</translation>
+    </message>
+    <message>
+        <source>标准画质</source>
+        <translation>Standard</translation>
+    </message>
+    <message>
+        <source>更清晰</source>
+        <translation>Clearer</translation>
+    </message>
+    <message>
+        <source>更改保存文件夹…</source>
+        <translation>Change save folder…</translation>
+    </message>
+    <message>
+        <source>%1 · %2</source>
+        <translation>%1 · %2</translation>
+    </message>
+    <message>
+        <source>系统声音：%1 · 麦克风：%2</source>
+        <translation>System audio: %1 · Microphone: %2</translation>
+    </message>
+    <message>
+        <source>播放</source>
+        <translation>Play</translation>
+    </message>
+    <message>
+        <source>复制文件</source>
+        <translation>Copy file</translation>
+    </message>
+    <message>
+        <source>打开文件夹</source>
+        <translation>Open folder</translation>
+    </message>
+    <message>
+        <source>重新设置</source>
+        <translation>Change settings</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>继续</source>
+        <translation>Resume</translation>
+    </message>
+    <message>
+        <source>暂停</source>
+        <translation>Pause</translation>
+    </message>
+    <message>
+        <source>开始录制</source>
+        <translation>Start recording</translation>
+    </message>
+    <message>
+        <source>停止并保存</source>
+        <translation>Stop and save</translation>
+    </message>
+    <message>
+        <source>倒计时 3 秒后开始，停止后自动保存。</source>
+        <translation>Starts after a 3-second countdown. Saves automatically when stopped.</translation>
+    </message>
+    <message>
+        <source>文件已保留在本机。</source>
+        <translation>The file is saved on this computer.</translation>
+    </message>
+    <message>
+        <source>可重新设置声音和保存位置后再录。</source>
+        <translation>Adjust audio and the save folder, then try again.</translation>
+    </message>
+    <message>
+        <source>再次按截图快捷键也可停止；控制条不会录入视频。</source>
+        <translation>The screenshot shortcut also stops recording. The controls are excluded from the video.</translation>
+    </message>
+    <message>
+        <source>小体积</source>
+        <translation>Smaller file</translation>
+    </message>
+    <message>
+        <source>15 帧/秒，保留原始尺寸，适合文字和简单操作。</source>
+        <translation>15 fps at the original size, for text and simple actions.</translation>
+    </message>
+    <message>
+        <source>30 帧/秒，优先保留细节，文件可能更大。</source>
+        <translation>30 fps with more detail. Files may be larger.</translation>
+    </message>
+    <message>
+        <source>30 帧/秒，兼顾清晰度和文件大小。</source>
+        <translation>30 fps, balancing clarity and file size.</translation>
+    </message>
+    <message>
+        <source>鼠标指针：%1</source>
+        <translation>Cursor: %1</translation>
+    </message>
+    <message>
+        <source>3 秒倒计时：%1</source>
+        <translation>3-sec countdown: %1</translation>
+    </message>
+    <message>
+        <source>再录一段</source>
+        <translation>Record another</translation>
+    </message>
+    <message>
+        <source>立即开始</source>
+        <translation>Start now</translation>
+    </message>
+    <message>
+        <source>正在保存…</source>
+        <translation>Saving…</translation>
+    </message>
+    <message>
+        <source>停止后自动保存；再次按截图快捷键也可停止。</source>
+        <translation>Saves automatically when stopped. The screenshot shortcut also stops recording.</translation>
+    </message>
+    <message>
+        <source>MP4 视频</source>
+        <translation>MP4 video</translation>
+    </message>
+    <message>
+        <source>GIF 动图</source>
+        <translation>Animated GIF</translation>
+    </message>
+    <message>
+        <source>10 帧/秒，最长边 960 像素，适合简单操作。</source>
+        <translation>10 fps, up to 960 px on the longest edge. For simple actions.</translation>
+    </message>
+    <message>
+        <source>20 帧/秒，最长边 1920 像素，文件可能较大。</source>
+        <translation>20 fps, up to 1920 px on the longest edge. Files may be larger.</translation>
+    </message>
+    <message>
+        <source>15 帧/秒，最长边 1280 像素，兼顾清晰度和体积。</source>
+        <translation>15 fps, up to 1280 px on the longest edge. Balances clarity and size.</translation>
+    </message>
+    <message>
+        <source>GIF 动图 · 无音频</source>
+        <translation>Animated GIF · No audio</translation>
+    </message>
+    <message>
+        <source>GIF 自动循环播放，不含音频；停止后会显示生成进度。</source>
+        <translation>GIFs loop without audio. Export progress appears after recording stops.</translation>
+    </message>
+</context>
+<context>
+    <name>ws::capture::Recorder</name>
+    <message>
+        <source>无法启用点击高亮，请关闭该选项后重试。</source>
+        <translation>Could not enable click highlights. Turn off this option and try again.</translation>
+    </message>
+    <message>
+        <source>准备录屏</source>
+        <translation>Ready to record</translation>
+    </message>
+    <message>
+        <source>%1 秒后开始</source>
+        <translation>Starting in %1 seconds</translation>
+    </message>
+    <message>
+        <source>正在准备录制…</source>
+        <translation>Preparing to record…</translation>
+    </message>
+    <message>
+        <source>正在录制</source>
+        <translation>Recording</translation>
+    </message>
+    <message>
+        <source>已暂停</source>
+        <translation>Paused</translation>
+    </message>
+    <message>
+        <source>正在完成保存…</source>
+        <translation>Finishing the file…</translation>
+    </message>
+    <message>
+        <source>录屏已保存</source>
+        <translation>Recording saved</translation>
+    </message>
+    <message>
+        <source>录屏未完成</source>
+        <translation>Recording incomplete</translation>
+    </message>
+    <message>
+        <source>%1 × %2 · 30 帧/秒 · MP4</source>
+        <translation>%1 × %2 · 30 fps · MP4</translation>
+    </message>
+    <message>
+        <source>请选择完整的录屏保存文件夹路径。</source>
+        <translation>Choose an absolute path for the recording folder.</translation>
+    </message>
+    <message>
+        <source>无法写入 %1，请选择其他保存文件夹。</source>
+        <translation>Cannot write to %1. Choose another save folder.</translation>
+    </message>
+    <message>
+        <source>选择录屏保存文件夹</source>
+        <translation>Choose recording folder</translation>
+    </message>
+    <message>
+        <source>编码中</source>
+        <translation>Encoding</translation>
+    </message>
+    <message>
+        <source>%1 × %2 · %3 帧/秒 · MP4</source>
+        <translation>%1 × %2 · %3 fps · MP4</translation>
+    </message>
+    <message>
+        <source>正在生成 GIF…</source>
+        <translation>Creating GIF…</translation>
+    </message>
+    <message>
+        <source>正在生成 GIF… %1%</source>
+        <translation>Creating GIF… %1%</translation>
+    </message>
+    <message>
+        <source>%1 × %2 · %3 帧/秒 · GIF</source>
+        <translation>%1 × %2 · %3 fps · GIF</translation>
+    </message>
+    <message>
+        <source>%1
+已保留原始视频：%2</source>
+        <translation>%1
+Original video kept at: %2</translation>
+    </message>
+</context>
+<context>
+    <name>AppearancePreview</name>
+    <message>
+        <source>界面大小效果预览</source>
+        <translation>Interface size preview</translation>
+    </message>
+    <message>
+        <source>搜索文件、文件夹…</source>
+        <translation>Search files and folders…</translation>
+    </message>
+    <message>
+        <source>项目资料</source>
+        <translation>Project files</translation>
+    </message>
+    <message>
+        <source>文件夹 · 效果预览</source>
+        <translation>Folder · Preview</translation>
+    </message>
+</context>
+<context>
+    <name>ws::PanelColumns</name>
+    <message>
+        <source>名称</source>
+        <translation>Name</translation>
+    </message>
+    <message>
+        <source>路径</source>
+        <translation>Path</translation>
+    </message>
+    <message>
+        <source>大小</source>
+        <translation>Size</translation>
+    </message>
+    <message>
+        <source>修改时间</source>
+        <translation>Modified</translation>
+    </message>
+    <message>
+        <source>类型</source>
+        <translation>Type</translation>
+    </message>
+    <message>
+        <source>创建时间</source>
+        <translation>Created</translation>
+    </message>
+    <message>
+        <source>所在文件夹</source>
+        <translation>Folder</translation>
+    </message>
+    <message>
+        <source>来源</source>
+        <translation>Source</translation>
+    </message>
+</context>
+<context>
+    <name>GifExport</name>
+    <message>
+        <source>文件已存在，请选择其他保存名称。</source>
+        <translation>The file already exists. Choose another name.</translation>
+    </message>
+    <message>
+        <source>无法创建 GIF 文件，请检查保存位置和剩余空间。</source>
+        <translation>Could not create the GIF. Check the folder and available space.</translation>
+    </message>
+    <message>
+        <source>无法生成 GIF（错误 %1）。</source>
+        <translation>Could not create the GIF (error %1).</translation>
+    </message>
+    <message>
+        <source>无法保存 GIF，请检查文件是否已存在或磁盘是否已满。</source>
+        <translation>Could not save the GIF. Check whether the file exists or the disk is full.</translation>
     </message>
 </context>
 </TS>

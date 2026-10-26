@@ -84,6 +84,7 @@ Item {
         list.contentY = list.restY()
     }
     function windowHidden() {
+        previewClickTimer.stop()
         clearHover()
         list.stopScrolling()
         numberHints.reset()
@@ -146,6 +147,7 @@ Item {
     // with nothing to show), it closes. Opened or closed so, it is so the
     // next time the window opens too (clipboard.previewOpen).
     function togglePreview(index) {
+        previewClickTimer.stop()
         if (previewOpen && (index === list.currentIndex || index < 0 || index >= list.count)) {
             closePreview()
         } else if (index >= 0 && index < list.count) {
@@ -160,9 +162,29 @@ Item {
         previewOpen = true
     }
     function closePreview() {
+        previewClickTimer.stop()
         clearHover()
         previewOpen = false
         clipboard.previewOpen = false
+    }
+
+    function requestRowPreview(index) {
+        previewClickTimer.close = previewOpen && index === list.currentIndex
+        list.currentIndex = index
+        previewClickTimer.restart()
+    }
+    Timer {
+        id: previewClickTimer
+        property bool close: false
+        interval: Application.styleHints.mouseDoubleClickInterval
+        onTriggered: {
+            if (close) {
+                page.closePreview()
+            } else {
+                page.showPreview()
+                page.clipboard.previewOpen = true
+            }
+        }
     }
 
     // An open preview shows the row the mouse rests on for a moment (GitHub
@@ -209,6 +231,7 @@ Item {
     // the menu opens under the current row (flipped: over it, away from the
     // caret, as the window is).
     function openContextMenu(index, globalPos) {
+        previewClickTimer.stop()
         if (index < 0 || index >= list.count)
             return
         if (!clipboard.items.isSelected(index))
@@ -265,6 +288,7 @@ Item {
     }
 
     function handleKey(event) {
+        previewClickTimer.stop()
         // A key typed (not a modifier held for one) puts the key hints back.
         if (![Qt.Key_Shift, Qt.Key_Control, Qt.Key_Alt, Qt.Key_Meta].includes(event.key))
             pinyinHintTimer.stop()
@@ -721,6 +745,7 @@ Item {
 
                     delegate: ClipRow {
                         id: clipRow
+                        objectName: "clipboardRow-" + index
                         width: list.width
                         height: clipRow.picture ? page.pictureRowHeight : page.rowHeight
                         hint: page.numberKey >= 0 && index < 9 ? index + 1 : 0
@@ -749,6 +774,7 @@ Item {
                         }
                         onHoverMoved: (index, globalPos) => page.hoverRow(index, globalPos)
                         onClicked: (index, modifiers) => {
+                            previewClickTimer.stop()
                             page.clearHover()
                             const ctrl = (modifiers & Qt.ControlModifier) !== 0
                             if (modifiers & Qt.ShiftModifier) {
@@ -762,11 +788,12 @@ Item {
                                 list.currentIndex = index
                                 page.clipboard.paste(index, false)
                             } else {
-                                page.togglePreview(index) // the row shown already: closes
+                                page.requestRowPreview(index)
                             }
                         }
                         onPreviewRequested: (index) => page.togglePreview(index)
                         onPasteRequested: (index) => {
+                            previewClickTimer.stop()
                             list.currentIndex = index
                             page.clipboard.paste(index, false) // a picked row pastes all the picked ones
                         }

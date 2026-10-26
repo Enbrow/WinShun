@@ -159,6 +159,7 @@ set(qml_files
     qml/SettingRow.qml
     qml/PageTabs.qml
     qml/ThemeCard.qml
+    qml/AppearancePreview.qml
     qml/UpdateDialog.qml
     qml/ToggleSwitch.qml
     qml/SwitchLevel.qml
@@ -204,6 +205,7 @@ set(qml_files
     qml/PasteFileCard.qml
     qml/OcrPanel.qml
     qml/LongCapturePanel.qml
+    qml/RecordingPanel.qml
     qml/ScreenshotConfirm.qml
     qml/SettingsConfirm.qml
     qml/SettingsNotice.qml
@@ -272,6 +274,7 @@ qt_add_qml_module(WinShun
         PluginGallery.cpp PluginGallery.h
         PluginSettings.cpp PluginSettings.h
         ResultModel.cpp ResultModel.h
+        PanelColumns.cpp PanelColumns.h
         SettingsEditor.cpp SettingsEditor.h
         Diagnostics.cpp Diagnostics.h
         DisplayDiagnostics.cpp DisplayDiagnostics.h # how Win顺 draws, for display problems (GitHub #70)
@@ -292,6 +295,7 @@ qt_add_qml_module(WinShun
         ../capture/CaptureEditor.cpp ../capture/CaptureEditor.h
         ../capture/CaptureOcr.cpp ../capture/CaptureOcr.h
         ../capture/LongCapture.cpp ../capture/LongCapture.h
+        ../capture/Recorder.cpp ../capture/Recorder.h
         ../capture/PinManager.cpp ../capture/PinManager.h
         ../capture/PinWindow.cpp ../capture/PinWindow.h
 )
@@ -307,6 +311,7 @@ qt_add_lupdate(WinShun
             ${PROJECT_SOURCE_DIR}/src/capture/AnnotationFormat.cpp
             ${PROJECT_SOURCE_DIR}/src/capture/AnnotationStyles.cpp
             ${PROJECT_SOURCE_DIR}/src/capture/CountdownWindow.cpp
+            ${PROJECT_SOURCE_DIR}/src/capture/Recording.cpp
     OPTIONS -source-language zh_CN -no-obsolete -locations none)
 # lrelease reads its arguments in the ANSI code page, which mangles a Chinese
 # path (this project's folder) unless Windows uses a Chinese one; so not

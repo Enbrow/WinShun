@@ -82,6 +82,10 @@ std::vector<Folder> openFolders();
 // there, as going there in it would (its Back button comes back). Need COM.
 // False when the tab is not among the shell's windows (they can miss one).
 std::wstring explorerFolder(HWND tab);
+// The exact Opus file-display tab; not whichever pane became active since
+// its first key. Uses the existing bounded, unelevated dopusrt query.
+std::wstring opusFolder(HWND tab);
+bool goToInOpusView(HWND root, HWND tab, const std::wstring& folder, const std::wstring& select = {});
 bool goTo(HWND tab, const std::wstring& folder);
 // goTo, for a tab whose window was just handed the front with the keyboard
 // on its files (the launcher opened by typing there, GitHub #39): first

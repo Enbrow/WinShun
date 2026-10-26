@@ -41,6 +41,84 @@ private slots:
         QCOMPARE(restored.fileManager, u"onecommander"_s);
     }
 
+    void captureIssue83()
+    {
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        ws::Settings::useProfile(profile.path());
+        ws::Settings settings;
+        settings.load();
+        QVERIFY(settings.captureLastPinHotkey.isEmpty());
+        QVERIFY(settings.captureSaveFolder.isEmpty());
+        QVERIFY(settings.captureRecordingFolder.isEmpty());
+        QVERIFY(!settings.captureRecordingSystemAudio && !settings.captureRecordingMicrophone);
+        QCOMPARE(settings.captureRecordingQuality, 1);
+        QVERIFY(settings.captureRecordingCursor && settings.captureRecordingCountdown);
+        QVERIFY(!settings.captureRecordingClicks);
+        QCOMPARE(settings.captureRecordingFormat, 0);
+        settings.captureLastPinHotkey = u"Ctrl+Alt+F8"_s;
+        settings.captureSaveFolder = profile.filePath(u"截图 文件夹"_s);
+        settings.captureRecordingFolder = profile.filePath(u"录屏"_s);
+        settings.captureRecordingSystemAudio = true;
+        settings.captureRecordingMicrophone = true;
+        settings.captureRecordingQuality = 0;
+        settings.captureRecordingCursor = false;
+        settings.captureRecordingCountdown = false;
+        settings.captureRecordingClicks = true;
+        settings.captureRecordingFormat = 1;
+        settings.save();
+        ws::Settings restored;
+        restored.load();
+        QCOMPARE(restored.captureLastPinHotkey, settings.captureLastPinHotkey);
+        QCOMPARE(restored.captureSaveFolder, settings.captureSaveFolder);
+        QCOMPARE(restored.captureRecordingFolder, settings.captureRecordingFolder);
+        QVERIFY(restored.captureRecordingSystemAudio && restored.captureRecordingMicrophone);
+        QCOMPARE(restored.captureRecordingQuality, 0);
+        QVERIFY(!restored.captureRecordingCursor && !restored.captureRecordingCountdown);
+        QVERIFY(restored.captureRecordingClicks);
+        QCOMPARE(restored.captureRecordingFormat, 1);
+
+        QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+        ini.remove(u"Capture/RecordingQuality"_s);
+        ini.setValue(u"Capture/RecordingHighQuality"_s, true); // the first version's preference
+        ini.sync();
+        restored.load();
+        QCOMPARE(restored.captureRecordingQuality, 2);
+        ini.setValue(u"Capture/RecordingQuality"_s, 99);
+        ini.setValue(u"Capture/RecordingFormat"_s, 99);
+        ini.sync();
+        restored.load();
+        QCOMPARE(restored.captureRecordingQuality, 1);
+        QCOMPARE(restored.captureRecordingFormat, 0);
+    }
+
+    void opusTyping()
+    {
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        ws::Settings::useProfile(profile.path());
+        ws::Settings settings;
+        settings.load();
+        QVERIFY(!settings.opusTyping);
+        for (const bool explorer : {false, true}) {
+            for (const bool opus : {true, false}) {
+                settings.explorerTyping = explorer;
+                settings.opusTyping = opus;
+                settings.save();
+                ws::Settings read;
+                read.load();
+                QCOMPARE(read.explorerTyping, explorer);
+                QCOMPARE(read.opusTyping, opus);
+            }
+        }
+        QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+        ini.remove(u"Launcher/OpusTyping"_s); // an older profile keeps Opus's own typing
+        ini.sync();
+        settings.load();
+        QVERIFY(!settings.opusTyping);
+        QVERIFY(settings.explorerTyping);
+    }
+
     void selectedDrivesRoundTrip()
     {
         QTemporaryDir temporary;
@@ -317,7 +395,7 @@ private slots:
         fresh.load();
         QVERIFY(fresh.captureToolbarHidden.isEmpty()); // all shown
         QCOMPARE(ws::Settings::captureToolbarButtonIds(),
-            (QStringList {u"undo"_s, u"redo"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"long"_s, u"qr"_s, u"delay"_s, u"cancel"_s}));
+            (QStringList {u"undo"_s, u"redo"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"long"_s, u"record"_s, u"qr"_s, u"delay"_s, u"cancel"_s}));
 
         ws::Settings s;
         s.load();

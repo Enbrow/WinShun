@@ -22,7 +22,9 @@ Window {
     required property Placement placement
     required property WindowFrame frame
 
-    readonly property int listWidth: 480
+    property int resizingWidth: 0
+    readonly property int listWidth: Math.max(360, Math.min(resizingWidth > 0 ? resizingWidth : clipboard.listWidth,
+                                                          Screen.width - 32))
     readonly property int defaultPreviewWidth: 560
     readonly property int minPreviewWidth: 280
     property int previewWidth: defaultPreviewWidth // set as it opens, and as it is dragged
@@ -98,6 +100,7 @@ Window {
 
     ClipboardPage {
         id: page
+        objectName: "clipboardPage"
         width: window.width
         listWidth: window.listWidth
         clipboard: window.clipboard
@@ -117,4 +120,35 @@ Window {
     }
 
     WindowEdge {}
+
+    MouseArea {
+        id: widthGrip
+        objectName: "clipboardWidthGrip"
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: 6
+        visible: !page.previewOpen
+        cursorShape: Qt.SizeHorCursor
+        hoverEnabled: true
+        property real startX: 0
+        property int startWidth: 0
+        onPressed: (mouse) => {
+            startX = mapToGlobal(mouse.x, mouse.y).x
+            startWidth = window.listWidth
+        }
+        onPositionChanged: (mouse) => {
+            if (pressed)
+                window.resizingWidth = Math.max(360, Math.min(1600, startWidth + mapToGlobal(mouse.x, mouse.y).x - startX))
+        }
+        onReleased: {
+            window.clipboard.listWidth = window.listWidth
+            window.resizingWidth = 0
+        }
+        onCanceled: window.resizingWidth = 0
+        onDoubleClicked: {
+            window.clipboard.listWidth = 480
+            window.resizingWidth = 0
+        }
+    }
 }

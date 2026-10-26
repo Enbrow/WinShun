@@ -1,6 +1,8 @@
 #include "platform/Integrity.h"
 #include "platform/FileManagers.h"
+#include "platform/FolderViewHit.h"
 #include "platform/Shell.h"
+#include "platform/FileDialog.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -12,6 +14,9 @@
 #include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QProcess>
+#include <QTimer>
+#include <QUuid>
 
 #include <objbase.h>
 #include <tlhelp32.h>
@@ -23,6 +28,51 @@
 using namespace Qt::StringLiterals;
 
 namespace {
+int pickerProbe()
+{
+    QTemporaryDir fixture;
+    if (!fixture.isValid())
+        return 1;
+    const QString target = fixture.filePath(u"选择文件夹"_s);
+    if (!QDir().mkpath(target))
+        return 2;
+    const QString native = QDir::toNativeSeparators(target);
+    const QString title = u"WinShun picker probe"_s;
+    const DWORD guiThread = ::GetCurrentThreadId();
+    int ticks = 0;
+    bool navigated = false, separate = false;
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, [&] {
+        ++ticks;
+        struct Find { const QString& title; HWND window = nullptr; } found {title};
+        ::EnumWindows([](HWND window, LPARAM data) -> BOOL {
+            auto& found = *reinterpret_cast<Find*>(data);
+            DWORD process = 0;
+            ::GetWindowThreadProcessId(window, &process);
+            wchar_t text[128] {};
+            ::GetWindowTextW(window, text, 128);
+            if (process == ::GetCurrentProcessId() && found.title == QString::fromWCharArray(text)
+                && ::IsWindowVisible(window)) {
+                found.window = window;
+                return FALSE;
+            }
+            return TRUE;
+        }, reinterpret_cast<LPARAM>(&found));
+        if (!found.window || ws::filedialog::kind(found.window) == ws::filedialog::Kind::None)
+            return;
+        separate = ::GetWindowThreadProcessId(found.window, nullptr) != guiThread;
+        if (!navigated) {
+            navigated = ws::filedialog::goTo(found.window, native.toStdWString());
+            return;
+        }
+        if (ticks >= 4 && ws::filedialog::currentFolder(found.window) == native.toStdWString())
+            ::PostMessageW(found.window, WM_CLOSE, 0, 0);
+    });
+    timer.start(50);
+    const QString selected = ws::shell::pickFolder(nullptr, title);
+    return selected.isEmpty() && separate && navigated && ticks >= 4 ? 0 : 3;
+}
+
 QString parentProgram()
 {
     const ws::win32::UniqueHandle snapshot(::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
@@ -47,6 +97,29 @@ QString parentProgram()
 class TestShellLaunch : public QObject {
     Q_OBJECT
 private slots:
+    void nativePickerNavigation()
+    {
+        std::wstring name = (u"WinShun-picker-"_s + QUuid::createUuid().toString(QUuid::Id128)).toStdWString();
+        const HDESK desktop = ::CreateDesktopW(name.c_str(), nullptr, nullptr, 0, GENERIC_ALL, nullptr);
+        QVERIFY(desktop);
+        const auto close = qScopeGuard([&] { ::CloseDesktop(desktop); });
+        QProcess child;
+        child.setCreateProcessArgumentsModifier([&](QProcess::CreateProcessArguments* args) {
+            args->startupInfo->lpDesktop = name.data();
+            args->startupInfo->dwFlags |= STARTF_USESHOWWINDOW;
+            args->startupInfo->wShowWindow = SW_HIDE;
+        });
+        child.start(QCoreApplication::applicationFilePath(), {u"--picker-probe"_s});
+        QVERIFY(child.waitForStarted());
+        if (!child.waitForFinished(20000)) {
+            child.kill(); // only this test's child, on its isolated desktop
+            child.waitForFinished();
+            QFAIL("Native picker did not navigate and cancel within 20 seconds");
+        }
+        QCOMPARE(child.exitStatus(), QProcess::NormalExit);
+        QCOMPARE(child.exitCode(), 0);
+    }
+
     void oneCommanderLookalike()
     {
         // WPF's window class is shared by unrelated apps. Even a matching
@@ -137,6 +210,43 @@ private slots:
         restore.dismiss();
     }
 
+    // Opt-in live check only: the operator must focus an Opus file display
+    // already showing this isolated fixture folder. Never moves a user folder
+    // or changes Opus's preferences; restores the original location on exit.
+    void opusTypingNavigation()
+    {
+        const QString source = qEnvironmentVariable("WINSHUN_OPUS_TEST_FOLDER");
+        if (source.isEmpty())
+            QSKIP("Set WINSHUN_OPUS_TEST_FOLDER to an isolated folder and focus its Opus file display");
+        const HWND root = ::GetForegroundWindow();
+        GUITHREADINFO focus {sizeof focus};
+        QVERIFY(::GetGUIThreadInfo(::GetWindowThreadProcessId(root, nullptr), &focus));
+        const HWND view = focus.hwndFocus;
+        QVERIFY(ws::folderview::isOpusFileDisplay(root, view));
+        const QString original = QString::fromStdWString(ws::filemanager::opusFolder(view));
+        QCOMPARE(QDir::fromNativeSeparators(original), QDir::fromNativeSeparators(source));
+        QTemporaryDir temporary(QDir(source).filePath(u"WinShun-opus-test-XXXXXX"_s));
+        QVERIFY(temporary.isValid());
+        const QString child = temporary.filePath(u"child"_s);
+        QVERIFY(QDir().mkpath(child));
+        QFile fixture(temporary.filePath(u"probe.txt"_s));
+        QVERIFY(fixture.open(QIODevice::WriteOnly));
+        fixture.write("Opus navigation fixture");
+        fixture.close();
+        const auto go = [&](const QString& folder, const QString& select = {}) {
+            return ws::filemanager::goToInOpusView(root, view, QDir::toNativeSeparators(folder).toStdWString(),
+                QDir::toNativeSeparators(select).toStdWString());
+        };
+        auto restore = qScopeGuard([&] { go(original); });
+        QVERIFY(go(child));
+        QCOMPARE(QDir::fromNativeSeparators(QString::fromStdWString(ws::filemanager::opusFolder(view))), child);
+        QVERIFY(go(temporary.path(), fixture.fileName()));
+        QCOMPARE(
+            QDir::fromNativeSeparators(QString::fromStdWString(ws::filemanager::opusFolder(view))), temporary.path());
+        QVERIFY(go(original));
+        restore.dismiss();
+    }
+
     void customCommandViaExplorer()
     {
         if (!::GetShellWindow())
@@ -180,6 +290,8 @@ int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
     const QStringList args = app.arguments();
+    if (args.contains(u"--picker-probe"_s))
+        return pickerProbe();
     if (args.size() >= 4 && args[1] == u"--probe") {
         const QJsonObject result {
             {u"parent"_s, parentProgram()}, {u"cwd"_s, QDir::currentPath()},

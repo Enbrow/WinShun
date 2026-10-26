@@ -101,6 +101,11 @@ set_target_properties(plugin-probe PROPERTIES AUTOMOC OFF MSVC_RUNTIME_LIBRARY "
 add_executable(capture-probe tools/capture-probe.cpp)
 target_link_libraries(capture-probe PRIVATE winshun_options windowsapp d3d11 dxgi dwmapi windowscodecs user32 gdi32 advapi32 ole32)
 set_target_properties(capture-probe PROPERTIES AUTOMOC OFF MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+qt_add_executable(recording-probe tools/recording-probe.cpp src/app/platform/KeyListener.cpp)
+target_include_directories(recording-probe PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_link_libraries(recording-probe PRIVATE wscapture wscore Qt6::Gui shcore)
+set_target_properties(recording-probe PROPERTIES WIN32_EXECUTABLE OFF QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
 qt_add_executable(capture-probe-qt tools/capture-probe-qt.cpp)
 target_link_libraries(capture-probe-qt PRIVATE winshun_options Qt6::Gui Qt6::Qml Qt6::Quick dwmapi dxgi psapi user32 gdi32)
 # Neither probe loads QML imports: no scan (it would walk the whole source tree).

@@ -11,10 +11,12 @@
 #include <QClipboard>
 #include <QDebug>
 #include <QDir>
+#include <QEventLoop>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QMimeData>
 #include <QSettings>
+#include <QThread>
 #include <QUrl>
 
 #include <ole2.h> // before exdisp.h: WIN32_LEAN_AND_MEAN keeps it out of windows.h
@@ -27,6 +29,7 @@
 #include <shobjidl.h>
 #include <taskschd.h>
 #include <wrl/client.h>
+#include <wrl/implements.h>
 
 #include <algorithm>
 #include <atomic>
@@ -70,6 +73,82 @@ namespace {
 // Where open() takes folders and reveal() shows items (setFileManager).
 std::atomic<filemanager::Kind> g_fileManager {filemanager::Kind::Explorer};
 
+thread_local const std::atomic_bool* t_pickerCancelled = nullptr;
+
+class PickerEvents final
+    : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
+          IFileDialogEvents> {
+public:
+    IFACEMETHODIMP OnFolderChange(IFileDialog* dialog) override
+    {
+        if (t_pickerCancelled && t_pickerCancelled->load())
+            dialog->Close(HRESULT_FROM_WIN32(ERROR_CANCELLED));
+        return S_OK;
+    }
+    IFACEMETHODIMP OnFileOk(IFileDialog*) override { return S_OK; }
+    IFACEMETHODIMP OnFolderChanging(IFileDialog*, IShellItem*) override { return S_OK; }
+    IFACEMETHODIMP OnSelectionChange(IFileDialog*) override { return S_OK; }
+    IFACEMETHODIMP OnShareViolation(IFileDialog*, IShellItem*, FDE_SHAREVIOLATION_RESPONSE* response) override
+    {
+        *response = FDESVR_DEFAULT;
+        return S_OK;
+    }
+    IFACEMETHODIMP OnTypeChange(IFileDialog*) override { return S_OK; }
+    IFACEMETHODIMP OnOverwrite(IFileDialog*, IShellItem*, FDE_OVERWRITE_RESPONSE* response) override
+    {
+        *response = FDEOR_DEFAULT;
+        return S_OK;
+    }
+};
+
+HRESULT showPicker(IFileDialog* dialog, HWND owner)
+{
+    if (t_pickerCancelled && t_pickerCancelled->load())
+        return HRESULT_FROM_WIN32(ERROR_CANCELLED);
+    const auto events = Microsoft::WRL::Make<PickerEvents>();
+    DWORD cookie = 0;
+    const HRESULT advised = dialog->Advise(events.Get(), &cookie);
+    const HRESULT result = dialog->Show(owner);
+    if (SUCCEEDED(advised))
+        dialog->Unadvise(cookie);
+    return result;
+}
+
+template <typename Fn> QString runPicker(Fn&& pick)
+{
+    auto* app = QCoreApplication::instance();
+    if (!app || QThread::currentThread() != app->thread())
+        return pick();
+    // Keep the native dialog's drag loop off Qt's GUI thread. The GUI keeps
+    // processing its search bar and folder menu while the caller waits.
+    QEventLoop loop;
+    QString result;
+    std::atomic_bool cancelled {false};
+    std::atomic<DWORD> threadId {0};
+    const auto closing = QObject::connect(app, &QCoreApplication::aboutToQuit, &loop, [&] {
+        cancelled.store(true);
+        if (const DWORD id = threadId.load())
+            ::EnumThreadWindows(
+                id,
+                [](HWND window, LPARAM) -> BOOL {
+                    ::PostMessageW(window, WM_CLOSE, 0, 0);
+                    return TRUE;
+                },
+                0);
+    });
+    std::jthread worker([&] {
+        threadId.store(::GetCurrentThreadId());
+        t_pickerCancelled = &cancelled;
+        if (!cancelled.load())
+            result = pick();
+        QMetaObject::invokeMethod(&loop, &QEventLoop::quit, Qt::QueuedConnection);
+    });
+    loop.exec();
+    worker.join();
+    QObject::disconnect(closing);
+    return result;
+}
+
 // Runs `fn` on a detached thread with COM initialised (the shell needs an STA).
 template <typename Fn> void runOnShellThread(Fn&& fn)
 {
@@ -95,8 +174,9 @@ ComPtr<IShellDispatch2> applicationOf(IDispatch* window)
     if (FAILED(window->QueryInterface(IID_PPV_ARGS(&services)))
         || FAILED(services->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser)))
         || FAILED(browser->QueryActiveShellView(&view))
-        || FAILED(view->GetItemObject(SVGIO_BACKGROUND, IID_PPV_ARGS(&background))) || FAILED(background.As(&folderView))
-        || FAILED(folderView->get_Application(&application)) || FAILED(application.As(&shell)))
+        || FAILED(view->GetItemObject(SVGIO_BACKGROUND, IID_PPV_ARGS(&background)))
+        || FAILED(background.As(&folderView)) || FAILED(folderView->get_Application(&application))
+        || FAILED(application.As(&shell)))
         return nullptr;
     return shell;
 }
@@ -179,8 +259,8 @@ win32::UniqueHandle startWithShellToken(std::wstring command, const std::wstring
     const win32::UniqueHandle source(shellToken);
     HANDLE primaryToken = nullptr;
     if (!::DuplicateTokenEx(source.get(),
-            TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT | TOKEN_ADJUST_SESSIONID, nullptr,
-            SecurityImpersonation, TokenPrimary, &primaryToken))
+            TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT | TOKEN_ADJUST_SESSIONID,
+            nullptr, SecurityImpersonation, TokenPrimary, &primaryToken))
         return {};
     const win32::UniqueHandle token(primaryToken);
     STARTUPINFOW startup {sizeof(STARTUPINFOW)};
@@ -201,11 +281,10 @@ bool isShellTarget(const std::wstring& file)
         return true;
     const std::size_t colon = file.find(L':');
     if (colon != std::wstring::npos && colon >= 2 // "C:\..." has its colon second
-        && std::all_of(file.begin(), file.begin() + static_cast<std::ptrdiff_t>(colon),
-            [](wchar_t c) {
-                return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || (c >= L'0' && c <= L'9') || c == L'-'
-                    || c == L'.' || c == L'+';
-            }))
+        && std::all_of(file.begin(), file.begin() + static_cast<std::ptrdiff_t>(colon), [](wchar_t c) {
+               return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || (c >= L'0' && c <= L'9') || c == L'-'
+                   || c == L'.' || c == L'+';
+           }))
         return true;
     const DWORD attributes = ::GetFileAttributesW(file.c_str());
     return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY);
@@ -300,14 +379,15 @@ void open(const QString& path, bool asAdministrator, std::function<void(bool)> d
     // takes it if that does not start.
     const filemanager::Kind manager
         = info.isDir() && !asAdministrator ? g_fileManager.load() : filemanager::Kind::Explorer;
-    runOnShellThread([file = native.toStdWString(), dir = workDir.toStdWString(), asAdministrator, manager,
-                         done = std::move(done)] {
-        const bool ok = asAdministrator ? executeAsAdministrator(file, {}, dir)
-            : (manager != filemanager::Kind::Explorer && filemanager::openFolder(manager, file))
-                || executeUnelevated(file, {}, dir);
-        if (done)
-            done(ok);
-    });
+    runOnShellThread(
+        [file = native.toStdWString(), dir = workDir.toStdWString(), asAdministrator, manager, done = std::move(done)] {
+            const bool ok = asAdministrator
+                ? executeAsAdministrator(file, {}, dir)
+                : (manager != filemanager::Kind::Explorer && filemanager::openFolder(manager, file))
+                    || executeUnelevated(file, {}, dir);
+            if (done)
+                done(ok);
+        });
 }
 
 void openUrl(const QString& url)
@@ -369,8 +449,9 @@ void runCustom(const QString& command, const QString& directory, const QString& 
     ::AllowSetForegroundWindow(ASFW_ANY);
     runOnShellThread([command, directory, query, done = std::move(done)] {
         const auto [file, arguments] = splitCommand(command);
-        const bool ok = !file.isEmpty() && executeUnelevated(file.toStdWString(),
-            commandArguments(arguments, query).toStdWString(), win32::expandEnvironment(directory.toStdWString()));
+        const bool ok = !file.isEmpty()
+            && executeUnelevated(file.toStdWString(), commandArguments(arguments, query).toStdWString(),
+                win32::expandEnvironment(directory.toStdWString()));
         if (done)
             done(ok);
     });
@@ -418,7 +499,8 @@ void selectInExplorer(const std::vector<std::wstring>& paths)
             continue;
         }
         const std::wstring key = QDir::toNativeSeparators(info.path()).toStdWString();
-        auto it = std::find_if(folders.begin(), folders.end(), [&](const auto& f) { return _wcsicmp(f.first.c_str(), key.c_str()) == 0; });
+        auto it = std::find_if(
+            folders.begin(), folders.end(), [&](const auto& f) { return _wcsicmp(f.first.c_str(), key.c_str()) == 0; });
         if (it == folders.end())
             it = folders.insert(folders.end(), {key, {}});
         it->second.push_back(path);
@@ -595,7 +677,8 @@ HMENU buildMenu(const std::vector<MenuItem>& items)
             flags |= MF_GRAYED;
         if (!item.children.empty()) {
             if (HMENU sub = buildMenu(item.children)) {
-                ::AppendMenuW(menu, flags | MF_POPUP, reinterpret_cast<UINT_PTR>(sub), reinterpret_cast<LPCWSTR>(item.text.utf16()));
+                ::AppendMenuW(menu, flags | MF_POPUP, reinterpret_cast<UINT_PTR>(sub),
+                    reinterpret_cast<LPCWSTR>(item.text.utf16()));
                 continue;
             }
         }
@@ -654,88 +737,100 @@ void prepareMenuHooks()
 
 QString pickFolder(HWND owner, const QString& title)
 {
-    const HRESULT init = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    QString result;
-    {
-        ComPtr<IFileOpenDialog> dialog;
-        ComPtr<IShellItem> item;
-        PWSTR path = nullptr;
-        DWORD options = 0;
-        if (SUCCEEDED(::CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))
-            && SUCCEEDED(dialog->GetOptions(&options))
-            && SUCCEEDED(dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST))
-            && SUCCEEDED(dialog->SetTitle(reinterpret_cast<LPCWSTR>(title.utf16()))) && SUCCEEDED(dialog->Show(owner))
-            && SUCCEEDED(dialog->GetResult(&item)) && SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
-            result = QString::fromWCharArray(path);
-            ::CoTaskMemFree(path);
-        }
-    } // released before COM is uninitialised
-    if (SUCCEEDED(init))
-        ::CoUninitialize();
-    return result;
+    return runPicker([&] {
+        const HRESULT init = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        QString result;
+        {
+            ComPtr<IFileOpenDialog> dialog;
+            ComPtr<IShellItem> item;
+            PWSTR path = nullptr;
+            DWORD options = 0;
+            if (SUCCEEDED(
+                    ::CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))
+                && SUCCEEDED(dialog->GetOptions(&options))
+                && SUCCEEDED(dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST))
+                && SUCCEEDED(dialog->SetTitle(reinterpret_cast<LPCWSTR>(title.utf16())))
+                && SUCCEEDED(showPicker(dialog.Get(), owner)) && SUCCEEDED(dialog->GetResult(&item))
+                && SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+                result = QString::fromWCharArray(path);
+                ::CoTaskMemFree(path);
+            }
+        } // released before COM is uninitialised
+        if (SUCCEEDED(init))
+            ::CoUninitialize();
+        return result;
+    });
 }
 
 QString pickFile(HWND owner, const QString& title, const std::vector<std::pair<QString, QString>>& filters)
 {
-    const HRESULT init = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    QString result;
-    {
-        std::vector<std::wstring> names;
-        std::vector<std::wstring> patterns;
-        for (const auto& [name, pattern] : filters) {
-            names.push_back(name.toStdWString());
-            patterns.push_back(pattern.toStdWString());
-        }
-        std::vector<COMDLG_FILTERSPEC> specs;
-        for (std::size_t i = 0; i < names.size(); ++i)
-            specs.push_back({names[i].c_str(), patterns[i].c_str()});
-        ComPtr<IFileOpenDialog> dialog;
-        ComPtr<IShellItem> item;
-        PWSTR path = nullptr;
-        DWORD options = 0;
-        if (SUCCEEDED(::CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))
-            && SUCCEEDED(dialog->GetOptions(&options))
-            && SUCCEEDED(dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST))
-            && (specs.empty() || SUCCEEDED(dialog->SetFileTypes(static_cast<UINT>(specs.size()), specs.data())))
-            && SUCCEEDED(dialog->SetTitle(reinterpret_cast<LPCWSTR>(title.utf16()))) && SUCCEEDED(dialog->Show(owner))
-            && SUCCEEDED(dialog->GetResult(&item)) && SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
-            result = QString::fromWCharArray(path);
-            ::CoTaskMemFree(path);
-        }
-    } // released before COM is uninitialised
-    if (SUCCEEDED(init))
-        ::CoUninitialize();
-    return result;
+    return runPicker([&] {
+        const HRESULT init = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        QString result;
+        {
+            std::vector<std::wstring> names;
+            std::vector<std::wstring> patterns;
+            for (const auto& [name, pattern] : filters) {
+                names.push_back(name.toStdWString());
+                patterns.push_back(pattern.toStdWString());
+            }
+            std::vector<COMDLG_FILTERSPEC> specs;
+            for (std::size_t i = 0; i < names.size(); ++i)
+                specs.push_back({names[i].c_str(), patterns[i].c_str()});
+            ComPtr<IFileOpenDialog> dialog;
+            ComPtr<IShellItem> item;
+            PWSTR path = nullptr;
+            DWORD options = 0;
+            if (SUCCEEDED(
+                    ::CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))
+                && SUCCEEDED(dialog->GetOptions(&options))
+                && SUCCEEDED(dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST))
+                && (specs.empty() || SUCCEEDED(dialog->SetFileTypes(static_cast<UINT>(specs.size()), specs.data())))
+                && SUCCEEDED(dialog->SetTitle(reinterpret_cast<LPCWSTR>(title.utf16())))
+                && SUCCEEDED(showPicker(dialog.Get(), owner)) && SUCCEEDED(dialog->GetResult(&item))
+                && SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+                result = QString::fromWCharArray(path);
+                ::CoTaskMemFree(path);
+            }
+        } // released before COM is uninitialised
+        if (SUCCEEDED(init))
+            ::CoUninitialize();
+        return result;
+    });
 }
 
-QString pickSaveFile(HWND owner, const QString& title, const QString& fileName, const QString& filterName,
-    const QString& extension)
+QString pickSaveFile(
+    HWND owner, const QString& title, const QString& fileName, const QString& filterName, const QString& extension)
 {
-    const HRESULT init = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    QString result;
-    {
-        const std::wstring name = filterName.toStdWString();
-        const std::wstring pattern = (u"*."_s + extension).toStdWString();
-        const COMDLG_FILTERSPEC spec {name.c_str(), pattern.c_str()};
-        ComPtr<IFileSaveDialog> dialog;
-        ComPtr<IShellItem> item;
-        PWSTR path = nullptr;
-        DWORD options = 0;
-        if (SUCCEEDED(::CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))
-            && SUCCEEDED(dialog->GetOptions(&options))
-            && SUCCEEDED(dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_OVERWRITEPROMPT))
-            && SUCCEEDED(dialog->SetFileTypes(1, &spec))
-            && SUCCEEDED(dialog->SetDefaultExtension(reinterpret_cast<LPCWSTR>(extension.utf16())))
-            && SUCCEEDED(dialog->SetFileName(reinterpret_cast<LPCWSTR>(fileName.utf16())))
-            && SUCCEEDED(dialog->SetTitle(reinterpret_cast<LPCWSTR>(title.utf16()))) && SUCCEEDED(dialog->Show(owner))
-            && SUCCEEDED(dialog->GetResult(&item)) && SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
-            result = QString::fromWCharArray(path);
-            ::CoTaskMemFree(path);
-        }
-    } // released before COM is uninitialised
-    if (SUCCEEDED(init))
-        ::CoUninitialize();
-    return result;
+    return runPicker([&] {
+        const HRESULT init = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        QString result;
+        {
+            const std::wstring name = filterName.toStdWString();
+            const std::wstring pattern = (u"*."_s + extension).toStdWString();
+            const COMDLG_FILTERSPEC spec {name.c_str(), pattern.c_str()};
+            ComPtr<IFileSaveDialog> dialog;
+            ComPtr<IShellItem> item;
+            PWSTR path = nullptr;
+            DWORD options = 0;
+            if (SUCCEEDED(
+                    ::CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))
+                && SUCCEEDED(dialog->GetOptions(&options))
+                && SUCCEEDED(dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_OVERWRITEPROMPT))
+                && SUCCEEDED(dialog->SetFileTypes(1, &spec))
+                && SUCCEEDED(dialog->SetDefaultExtension(reinterpret_cast<LPCWSTR>(extension.utf16())))
+                && SUCCEEDED(dialog->SetFileName(reinterpret_cast<LPCWSTR>(fileName.utf16())))
+                && SUCCEEDED(dialog->SetTitle(reinterpret_cast<LPCWSTR>(title.utf16())))
+                && SUCCEEDED(showPicker(dialog.Get(), owner)) && SUCCEEDED(dialog->GetResult(&item))
+                && SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+                result = QString::fromWCharArray(path);
+                ::CoTaskMemFree(path);
+            }
+        } // released before COM is uninitialised
+        if (SUCCEEDED(init))
+            ::CoUninitialize();
+        return result;
+    });
 }
 
 } // namespace shell
@@ -844,7 +939,8 @@ std::optional<Task> readTask()
     Bstr path;
     if (!folder || FAILED(folder->GetTask(Bstr(kTaskName), &task)) || FAILED(task->get_Enabled(&enabled)) || !enabled
         || FAILED(task->get_Definition(&definition)) || FAILED(definition->get_Actions(&actions))
-        || FAILED(actions->get_Item(1, &action)) || FAILED(action.As(&exec)) || FAILED(exec->get_Path(path.out())) || !path)
+        || FAILED(actions->get_Item(1, &action)) || FAILED(action.As(&exec)) || FAILED(exec->get_Path(path.out()))
+        || !path)
         return std::nullopt;
     if (SUCCEEDED(definition->get_Principal(&principal)) && principal)
         principal->get_RunLevel(&level);
@@ -1005,8 +1101,8 @@ bool writeTask(bool enabled)
     userId.bstrVal = ::SysAllocString(user.c_str());
     VARIANT none {};
     ComPtr<IRegisteredTask> registered;
-    const HRESULT hr = folder->RegisterTaskDefinition(Bstr(kTaskName), definition.Get(), TASK_CREATE_OR_UPDATE,
-        userId, none, TASK_LOGON_INTERACTIVE_TOKEN, none, &registered);
+    const HRESULT hr = folder->RegisterTaskDefinition(Bstr(kTaskName), definition.Get(), TASK_CREATE_OR_UPDATE, userId,
+        none, TASK_LOGON_INTERACTIVE_TOKEN, none, &registered);
     ::VariantClear(&userId);
     // Refused to a process that is not elevated when it asks for the highest
     // level (E_ACCESSDENIED), and for a task another user registered.
@@ -1041,7 +1137,8 @@ void removeAsAdministrator(std::function<void(bool)> done)
     wchar_t system[MAX_PATH] {};
     ::GetSystemDirectoryW(system, MAX_PATH);
     ++g_changes;
-    shell::runElevated(std::wstring(system) + L"\\schtasks.exe", L"/Delete /TN " + std::wstring(kTaskName) + L" /F",
+    shell::runElevated(
+        std::wstring(system) + L"\\schtasks.exe", L"/Delete /TN " + std::wstring(kTaskName) + L" /F",
         [done = std::move(done)](std::optional<unsigned long> code) {
             queryEnabled(); // what the task says now
             done(code.has_value());

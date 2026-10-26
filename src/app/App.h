@@ -79,6 +79,7 @@ class CaptureOcr;
 struct SmartHooks;
 class PinManager;
 class PinWindow;
+namespace recording { class ClickStream; }
 }
 class VolumeNotifier;
 class WindowFrame;
@@ -260,6 +261,7 @@ private:
     // the front, which digits other programs hold (numberkeys::heldMask).
     void updateNumberKeys();
     void applySettings(bool initial);
+    void applyKeyListener(bool force = false);
     ClipboardWatcher::Options clipboardOptions() const;
     void applyClipboard(); // the [Clipboard] settings
     void applyClipboardHotkeys(); // Win+V and the other shortcut; where Win+V stands, for the settings
@@ -280,8 +282,8 @@ private:
     // is asked for on a worker, then the launcher opens in that folder, on
     // that window's screen, and the keys follow; with no folder there, the
     // keys go back to Explorer.
-    void explorerTyped(HWND root, HWND tab);
-    void explorerFolderKnown(HWND root, HWND tab, const QString& folder);
+    void folderTyped(HWND root, HWND tab, bool opus, std::uint64_t request);
+    void typingFolderKnown(HWND root, HWND tab, bool opus, std::uint64_t request, const QString& folder);
     // A folder opened in the launcher (Launcher::setFolderOpener): up from
     // typing in an Explorer tab, that tab goes there and its window comes
     // back to the front, so typing goes on in the new folder (GitHub #39).
@@ -546,18 +548,18 @@ private:
     QElapsedTimer m_launcherHidden; // since the launcher last went away
     QElapsedTimer m_launcherShown; // since it was last asked for
     bool m_launcherClosing = false; // sliding out (hideLauncher)
-    std::unique_ptr<ComWorker> m_typingWorker; // asks Explorer its folder (explorerTyped); before m_typing
-    std::unique_ptr<TypeToSearch> m_typing; // while [Taskbar] StartMenuTyping or [Launcher] ExplorerTyping is on
-    // The launcher is up from typing in this Explorer window, in this tab
-    // (ShellTabWindowClass; the window itself on Windows 10): Esc goes back
-    // to the window, a folder opened goes to the tab (openInTypingTab).
+    std::unique_ptr<ComWorker> m_typingWorker; // queries a file display's folder (folderTyped); before m_typing
+    std::unique_ptr<TypeToSearch> m_typing; // while StartMenuTyping, ExplorerTyping, OpusTyping or PasteFile is on
+    // The launcher is up from typing in this Explorer or Opus window and tab:
+    // Esc goes back to the window, a folder opened goes to the tab (openInTypingTab).
     // Cleared by any other opening (showLauncher), by hiding the launcher,
     // and when a pinned one loses the focus: never another opening's.
     struct TypingOrigin {
         HWND root = nullptr;
         HWND tab = nullptr;
+        bool opus = false;
     };
-    TypingOrigin m_typingExplorer;
+    TypingOrigin m_typingOrigin;
     std::unique_ptr<taskbar::SearchBox> m_searchBox; // while [Taskbar] SearchBox is on (Windows 11)
     bool m_searchBoxShown = false; // ... and it is on the taskbar
     taskbar::SearchBox::Hidden m_searchBoxHidden = taskbar::SearchBox::Hidden::Pending; // ... or why not
@@ -586,7 +588,8 @@ private:
     std::vector<std::wstring> m_sharesBuilding; // being read for the first time: told when done
     std::unique_ptr<KeyListener> m_keyListener; // double Ctrl, double clicks for the folder menu
     std::unique_ptr<ServiceKeyListener> m_serviceKeyListener; // destroyed before its target KeyListener
-    int m_keyListenerMode = 0; // what it listens to: 1 double Ctrl, 2 double clicks, 4 the drop pie (its key)
+    int m_keyListenerMode = 0; // 1 double Ctrl, 2 double clicks, 4 drop pie, 8 recording clicks; -1 shutting down
+    std::shared_ptr<capture::recording::ClickStream> m_recordingClicks;
     std::unique_ptr<FolderMenu> m_folderMenu; // before the window: its view-model
     QPointer<QQuickWindow> m_folderMenuWindow;
     std::unique_ptr<DropPie> m_dropPie; // before the window: its view-model

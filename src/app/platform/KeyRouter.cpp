@@ -225,19 +225,9 @@ INPUT keyInput(WORD vk, WORD scanCode, DWORD flags, ULONG_PTR mark = kOwnInput)
 
 // A key the program in front sees between a modifier's press and release,
 // so that it does not count the modifier as pressed alone.
-void sendMask()
+void sendMask(ULONG_PTR mark = kOwnInput)
 {
-    std::array keys {keyInput(kMaskKey, 0, 0), keyInput(kMaskKey, 0, KEYEVENTF_KEYUP)};
-    ::SendInput(static_cast<UINT>(keys.size()), keys.data(), sizeof(INPUT));
-}
-
-// The release of a modifier, after a masking key. That one is marked: the
-// double tap listener does not count it as a key in between (KeyListener).
-void sendMaskedRelease(const KBDLLHOOKSTRUCT& event)
-{
-    const DWORD extended = (event.flags & LLKHF_EXTENDED) ? KEYEVENTF_EXTENDEDKEY : 0;
-    std::array keys {keyInput(kMaskKey, 0, 0, kOwnMask), keyInput(kMaskKey, 0, KEYEVENTF_KEYUP, kOwnMask),
-        keyInput(static_cast<WORD>(event.vkCode), static_cast<WORD>(event.scanCode), KEYEVENTF_KEYUP | extended)};
+    std::array keys {keyInput(kMaskKey, 0, 0, mark), keyInput(kMaskKey, 0, KEYEVENTF_KEYUP, mark)};
     ::SendInput(static_cast<UINT>(keys.size()), keys.data(), sizeof(INPUT));
 }
 
@@ -439,8 +429,10 @@ LRESULT KeyRouter::handleKey(int code, WPARAM message, LPARAM lParam)
     }
     if (m_draining)
         return next();
-    if (modifierOf(vk) != Qt::NoModifier)
-        return handleModifier(press, event) ? 1 : next();
+    if (modifierOf(vk) != Qt::NoModifier) {
+        handleModifier(press, event);
+        return next(); // physical transitions must also reach remappers' hooks
+    }
     if (!press)
         return next(); // its press went to the program: so does its release
     // Win combinations are Windows' (Win+V again closes the window). A key
@@ -521,7 +513,7 @@ bool KeyRouter::heldAsHotkey(const Key& key)
     return held;
 }
 
-bool KeyRouter::handleModifier(bool press, const KBDLLHOOKSTRUCT& event)
+void KeyRouter::handleModifier(bool press, const KBDLLHOOKSTRUCT& event)
 {
     const Qt::KeyboardModifier modifier = modifierOf(event.vkCode);
     // Alt held shows the rows' numbers. Windows counts the key as held only
@@ -537,19 +529,15 @@ bool KeyRouter::handleModifier(bool press, const KBDLLHOOKSTRUCT& event)
         tapped = !press && m_lonelyShift == event.vkCode;
         m_lonelyShift = press && alone ? event.vkCode : 0;
     }
-    // Shift or Alt let go with nothing between for the program (taken keys
-    // are not, a click is not): it would switch the input method or open
-    // the menu bar. Ctrl alone does neither, and must stay a tap for the
-    // double Ctrl.
-    if (press || modifier == Qt::ControlModifier || !taking())
-        return false;
-    sendMaskedRelease(event);
-    // The input method it was meant for gets no key here; the clipboard says
-    // what does instead (shiftTapped). Told once the masked release is on its
-    // way to the program.
+    // Mask after the press, while it is held. Replacing the original release
+    // with SendInput left older hooks' physical Shift state pressed (#91).
+    // Ctrl alone must stay a tap for the double-Ctrl shortcut.
+    if (!taking())
+        return;
+    if (press && !key.autoRepeat && modifier != Qt::ControlModifier)
+        sendMask(kOwnMask);
     if (tapped && m_policy == Policy::Clipboard && m_callbacks.shiftTapped)
         m_callbacks.shiftTapped();
-    return true;
 }
 
 void KeyRouter::handleMouse(WPARAM message, const MSLLHOOKSTRUCT& event)

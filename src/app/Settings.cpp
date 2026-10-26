@@ -707,7 +707,7 @@ QString Settings::normalizedHotkey(const QString& shortcut)
 
 QStringList Settings::captureToolbarButtonIds()
 {
-    return {u"undo"_s, u"redo"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"long"_s, u"qr"_s, u"delay"_s, u"cancel"_s};
+    return {u"undo"_s, u"redo"_s, u"copy"_s, u"save"_s, u"pin"_s, u"ocr"_s, u"long"_s, u"record"_s, u"qr"_s, u"delay"_s, u"cancel"_s};
 }
 
 QStringList Settings::normalizedSmartWords(const QString& text)
@@ -848,6 +848,7 @@ void Settings::load()
     fileManagerRevealCommand = readOrDefault(s, u"Launcher/FileManagerRevealCommand"_s, d.fileManagerRevealCommand).trimmed();
     explorerMenu = readOrDefault(s, u"Launcher/ExplorerMenu"_s, d.explorerMenu);
     explorerTyping = readOrDefault(s, u"Launcher/ExplorerTyping"_s, d.explorerTyping);
+    opusTyping = readOrDefault(s, u"Launcher/OpusTyping"_s, d.opusTyping);
     // Off for new installs, auto before (as dialogBar).
     const QString folderMenuBefore = firstRun ? d.folderMenu : u"auto"_s;
     folderMenu = readOrDefault(s, u"Launcher/FolderMenu"_s, folderMenuBefore).trimmed().toLower();
@@ -1092,6 +1093,20 @@ void Settings::load()
     }
     capturePinsHotkey = readOrDefault(s, u"Capture/PinsHotkey"_s, d.capturePinsHotkey).trimmed();
     capturePinsRestoreHotkey = readOrDefault(s, u"Capture/PinsRestoreHotkey"_s, d.capturePinsRestoreHotkey).trimmed();
+    captureLastPinHotkey = readOrDefault(s, u"Capture/LastPinHotkey"_s, d.captureLastPinHotkey).trimmed();
+    captureSaveFolder = readOrDefault(s, u"Capture/SaveFolder"_s, d.captureSaveFolder).trimmed();
+    captureRecordingFolder = readOrDefault(s, u"Capture/RecordingFolder"_s, d.captureRecordingFolder).trimmed();
+    captureRecordingSystemAudio = readOrDefault(s, u"Capture/RecordingSystemAudio"_s, d.captureRecordingSystemAudio);
+    captureRecordingMicrophone = readOrDefault(s, u"Capture/RecordingMicrophone"_s, d.captureRecordingMicrophone);
+    captureRecordingQuality = readOrDefault(s, u"Capture/RecordingQuality"_s,
+        readOrDefault(s, u"Capture/RecordingHighQuality"_s, false) ? 2 : d.captureRecordingQuality);
+    if (captureRecordingQuality < 0 || captureRecordingQuality > 2)
+        captureRecordingQuality = d.captureRecordingQuality;
+    captureRecordingCursor = readOrDefault(s, u"Capture/RecordingCursor"_s, d.captureRecordingCursor);
+    captureRecordingCountdown = readOrDefault(s, u"Capture/RecordingCountdown"_s, d.captureRecordingCountdown);
+    captureRecordingClicks = readOrDefault(s, u"Capture/RecordingClicks"_s, d.captureRecordingClicks);
+    captureRecordingFormat = readOrDefault(s, u"Capture/RecordingFormat"_s, d.captureRecordingFormat);
+    if (captureRecordingFormat < 0 || captureRecordingFormat > 1) captureRecordingFormat = d.captureRecordingFormat;
     {
         const QString action = readOrDefault(s, u"Capture/PinDoubleClick"_s, d.capturePinDoubleClick).trimmed().toLower();
         capturePinDoubleClick = action == u"close" || action == u"collapse" || action == u"none" ? action : u"reset"_s;
@@ -1162,6 +1177,7 @@ void Settings::save() const
     s.setValue(u"Launcher/FileManagerRevealCommand"_s, fileManagerRevealCommand);
     s.setValue(u"Launcher/ExplorerMenu"_s, explorerMenu);
     s.setValue(u"Launcher/ExplorerTyping"_s, explorerTyping);
+    s.setValue(u"Launcher/OpusTyping"_s, opusTyping);
     s.setValue(u"Launcher/FolderMenu"_s, folderMenu);
     s.setValue(u"Launcher/FolderMenuExplorer"_s, folderMenuExplorer);
     s.setValue(u"Launcher/FolderMenuDesktop"_s, folderMenuDesktop);
@@ -1265,6 +1281,16 @@ void Settings::save() const
     s.setValue(u"Capture/ColorFormat"_s, captureColorFormat);
     s.setValue(u"Capture/PinsHotkey"_s, capturePinsHotkey);
     s.setValue(u"Capture/PinsRestoreHotkey"_s, capturePinsRestoreHotkey);
+    s.setValue(u"Capture/LastPinHotkey"_s, captureLastPinHotkey);
+    s.setValue(u"Capture/SaveFolder"_s, captureSaveFolder);
+    s.setValue(u"Capture/RecordingFolder"_s, captureRecordingFolder);
+    s.setValue(u"Capture/RecordingSystemAudio"_s, captureRecordingSystemAudio);
+    s.setValue(u"Capture/RecordingMicrophone"_s, captureRecordingMicrophone);
+    s.setValue(u"Capture/RecordingQuality"_s, captureRecordingQuality);
+    s.setValue(u"Capture/RecordingCursor"_s, captureRecordingCursor);
+    s.setValue(u"Capture/RecordingCountdown"_s, captureRecordingCountdown);
+    s.setValue(u"Capture/RecordingClicks"_s, captureRecordingClicks);
+    s.setValue(u"Capture/RecordingFormat"_s, captureRecordingFormat);
     s.setValue(u"Capture/PinDoubleClick"_s, capturePinDoubleClick);
     s.setValue(u"PasteFile/Enabled"_s, pasteFileEnabled);
     s.setValue(u"PasteFile/CtrlV"_s, pasteFileCtrlV);

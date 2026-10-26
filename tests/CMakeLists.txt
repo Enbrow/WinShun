@@ -1,5 +1,21 @@
 find_package(Qt6 6.8 REQUIRED COMPONENTS Test QuickTest)
 
+qt_add_executable(tst_panelcolumns tst_panelcolumns.cpp ${PROJECT_SOURCE_DIR}/src/app/PanelColumns.cpp)
+target_include_directories(tst_panelcolumns PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_link_libraries(tst_panelcolumns PRIVATE wscore Qt6::Qml Qt6::Test)
+set_target_properties(tst_panelcolumns PROPERTIES WIN32_EXECUTABLE FALSE QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+add_test(NAME tst_panelcolumns COMMAND tst_panelcolumns)
+set_tests_properties(tst_panelcolumns PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
+qt_add_executable(tst_opusfocus tst_opusfocus.cpp ${PROJECT_SOURCE_DIR}/src/app/platform/FolderViewHit.cpp)
+target_include_directories(tst_opusfocus PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_link_libraries(tst_opusfocus PRIVATE winshun_options Qt6::Test oleacc oleaut32 ole32 user32)
+set_target_properties(tst_opusfocus PROPERTIES WIN32_EXECUTABLE FALSE QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+add_test(NAME tst_opusfocus COMMAND tst_opusfocus)
+set_tests_properties(tst_opusfocus PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
 qt_add_executable(tst_launchernavigation tst_launchernavigation.cpp)
 target_include_directories(tst_launchernavigation PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(tst_launchernavigation PRIVATE wscore Qt6::Test)
@@ -39,12 +55,13 @@ set_tests_properties(tst_filedialog PROPERTIES
 # Launch only a short-lived copy of this test, writing into QTemporaryDir.
 qt_add_executable(tst_shelllaunch WIN32 tst_shelllaunch.cpp
     ${PROJECT_SOURCE_DIR}/src/app/platform/Shell.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/FileDialog.cpp
     ${PROJECT_SOURCE_DIR}/src/app/platform/FileManagers.cpp
     ${PROJECT_SOURCE_DIR}/src/app/platform/FolderViewHit.cpp
     ${PROJECT_SOURCE_DIR}/src/app/platform/Integrity.cpp)
 target_include_directories(tst_shelllaunch PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(tst_shelllaunch PRIVATE wscore Qt6::Gui Qt6::Test
-    ole32 oleaut32 oleacc shell32 shlwapi user32 advapi32 taskschd)
+    ole32 oleaut32 oleacc shell32 shlwapi user32 advapi32 taskschd uiautomationcore)
 add_test(NAME tst_shelllaunch COMMAND tst_shelllaunch -o -,txt)
 set_tests_properties(tst_shelllaunch PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
@@ -53,7 +70,7 @@ qt_add_executable(tst_windowvisibility tst_windowvisibility.cpp
     ${PROJECT_SOURCE_DIR}/src/app/platform/WindowEffects.cpp
     ${PROJECT_SOURCE_DIR}/src/app/platform/Foreground.cpp)
 target_include_directories(tst_windowvisibility PRIVATE ${PROJECT_SOURCE_DIR}/src/app ${PROJECT_SOURCE_DIR}/src/core)
-target_link_libraries(tst_windowvisibility PRIVATE winshun_options Qt6::Gui Qt6::Test dwmapi ole32 shell32 user32)
+target_link_libraries(tst_windowvisibility PRIVATE winshun_options Qt6::Gui Qt6::Test comctl32 gdi32 dwmapi ole32 shell32 user32)
 set_target_properties(tst_windowvisibility PROPERTIES WIN32_EXECUTABLE FALSE)
 add_test(NAME tst_windowvisibility COMMAND tst_windowvisibility)
 set_tests_properties(tst_windowvisibility PROPERTIES
@@ -66,7 +83,7 @@ qt_add_executable(tst_dialogbarvisibility tst_dialogbarvisibility.cpp
     ${PROJECT_SOURCE_DIR}/src/app/platform/WindowEffects.cpp
     ${PROJECT_SOURCE_DIR}/src/app/platform/Foreground.cpp)
 target_include_directories(tst_dialogbarvisibility PRIVATE ${PROJECT_SOURCE_DIR}/src/app ${PROJECT_SOURCE_DIR}/src/core)
-target_link_libraries(tst_dialogbarvisibility PRIVATE winshun_options Qt6::Quick Qt6::Test dwmapi ole32 shell32 user32)
+target_link_libraries(tst_dialogbarvisibility PRIVATE winshun_options Qt6::Quick Qt6::Test comctl32 gdi32 dwmapi ole32 shell32 user32)
 set_target_properties(tst_dialogbarvisibility PROPERTIES WIN32_EXECUTABLE FALSE QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
 foreach(renderer IN ITEMS gpu software)
     add_test(NAME tst_dialogbarvisibility_${renderer} COMMAND tst_dialogbarvisibility -o -,txt)
@@ -125,6 +142,14 @@ target_link_libraries(tst_aisettings PRIVATE wscore Qt6::Gui Qt6::Test)
 set_target_properties(tst_aisettings PROPERTIES WIN32_EXECUTABLE FALSE)
 add_test(NAME tst_aisettings COMMAND tst_aisettings)
 set_tests_properties(tst_aisettings PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
+qt_add_executable(tst_recording tst_recording.cpp)
+target_link_libraries(tst_recording PRIVATE wscapture Qt6::Test)
+set_target_properties(tst_recording PROPERTIES WIN32_EXECUTABLE FALSE)
+add_test(NAME tst_recording COMMAND tst_recording)
+set_tests_properties(tst_recording PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
 
 qt_add_executable(tst_settings tst_settings.cpp ${PROJECT_SOURCE_DIR}/src/app/Settings.cpp)
@@ -225,7 +250,7 @@ qt_add_executable(tst_appearance tst_appearance.cpp
     ${PROJECT_SOURCE_DIR}/src/app/platform/Foreground.cpp)
 target_include_directories(tst_appearance PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_compile_definitions(tst_appearance PRIVATE WINSHUN_QML_DIR="${PROJECT_SOURCE_DIR}/src/app/qml")
-target_link_libraries(tst_appearance PRIVATE wscore Qt6::Test Qt6::Quick dwmapi ole32 shell32 user32)
+target_link_libraries(tst_appearance PRIVATE wscore Qt6::Test Qt6::Quick comctl32 gdi32 dwmapi ole32 shell32 user32)
 get_target_property(appearance_qt_type Qt6::Core TYPE)
 if(appearance_qt_type STREQUAL "SHARED_LIBRARY")
     set_target_properties(tst_appearance PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
@@ -265,7 +290,7 @@ target_include_directories(tst_clipimage PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_compile_definitions(tst_clipimage PRIVATE
     WINSHUN_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data"
     WINSHUN_QML_DIR="${PROJECT_SOURCE_DIR}/src/app/qml")
-target_link_libraries(tst_clipimage PRIVATE wscore Qt6::Quick Qt6::Test user32 gdi32 shell32 ole32 version dwmapi)
+target_link_libraries(tst_clipimage PRIVATE wscore Qt6::Quick Qt6::Test user32 gdi32 comctl32 shell32 ole32 version dwmapi)
 set_target_properties(tst_clipimage PROPERTIES WIN32_EXECUTABLE FALSE QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
 add_test(NAME tst_clipimage COMMAND tst_clipimage -o -,txt)
 set_tests_properties(tst_clipimage PROPERTIES

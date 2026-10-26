@@ -675,7 +675,7 @@ std::vector<std::wstring> totalCommanderFolders(HWND window)
 
 // The tabs of Directory Opus's windows; none while it has no window open:
 // asking would start it.
-QList<pathtext::OpusTab> opusTabs()
+QList<pathtext::OpusTab> opusTabs(bool existingOnly = true)
 {
     if (!::FindWindowW(L"dopus.lister", nullptr))
         return {};
@@ -702,7 +702,8 @@ QList<pathtext::OpusTab> opusTabs()
     answer.close();
     answer.remove();
     QList<pathtext::OpusTab> tabs = pathtext::opusTabs(xml);
-    tabs.removeIf([](const pathtext::OpusTab& tab) { return !isFolder(tab.path.toStdWString()); }); // archives
+    if (existingOnly)
+        tabs.removeIf([](const pathtext::OpusTab& tab) { return !isFolder(tab.path.toStdWString()); }); // archives
     return tabs;
 }
 
@@ -1091,6 +1092,46 @@ bool goToInOpus(const std::wstring& folder)
 {
     const std::wstring exe = opusProgram();
     return !exe.empty() && run(exe, L"/acmd Go " + quoted(folder), false);
+}
+
+std::wstring opusFolder(HWND view)
+{
+    const HWND root = ::GetAncestor(view, GA_ROOT);
+    if (!folderview::isOpusFileDisplay(root, view))
+        return {};
+    // DOpusRT's `tab` is the file-display container, while keyboard focus
+    // belongs to its file-display child (measured with Opus 13.25).
+    const quintptr container = reinterpret_cast<quintptr>(::GetParent(view));
+    for (const pathtext::OpusTab& tab : opusTabs(false)) {
+        if (tab.lister == reinterpret_cast<quintptr>(root) && tab.tab == container && isFolder(tab.path.toStdWString()))
+            return tab.path.toStdWString();
+    }
+    return {};
+}
+
+bool goToInOpusView(HWND root, HWND tab, const std::wstring& folder, const std::wstring& select)
+{
+    // /acmd targets the last active lister. Only send it while this same
+    // lister and file display still have the keyboard; never another pane.
+    const auto inFront = [&] {
+        GUITHREADINFO info {sizeof info};
+        return ::GetForegroundWindow() == root && ::GetAncestor(tab, GA_ROOT) == root
+            && kindOf(root) == Kind::DirectoryOpus
+            && ::GetGUIThreadInfo(::GetWindowThreadProcessId(root, nullptr), &info) && info.hwndFocus == tab
+            && !(info.flags & (GUI_INMENUMODE | GUI_POPUPMENUMODE | GUI_SYSTEMMENUMODE));
+    };
+    if (!waitFor(inFront, std::chrono::milliseconds(500)))
+        return false;
+    const std::wstring exe = opusProgram();
+    if (exe.empty()
+        || !run(exe,
+            L"/acmd Go " + quoted(select.empty() ? folder : select) + (select.empty() ? L"" : L" OPENCONTAINER"), true))
+        return false;
+    // Queries queued on the typing worker after this must see the new
+    // folder. Opus can finish its Go after dopusrt has returned.
+    const QString wanted = QString::fromStdWString(folder);
+    return waitFor([&] { return pathtext::sameFolder(QString::fromStdWString(opusFolder(tab)), wanted); },
+        std::chrono::milliseconds(2000));
 }
 
 std::wstring frontFolder(HWND window)

@@ -332,6 +332,7 @@ LRESULT CALLBACK KeyListener::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             self->m_callbacks.doubleClick = nullptr; // so the mouse goes too
             self->m_callbacks.dragMenu = nullptr;
             self->m_callbacks.leftButtonUp = nullptr;
+            self->m_callbacks.mousePress = nullptr;
             self->listenToMouse(false);
             self->m_active = false;
         }
@@ -563,6 +564,15 @@ std::string KeyListener::sentTrace(Key key) const
 
 void KeyListener::onMouse(const RAWMOUSE& mouse)
 {
+    if (m_callbacks.mousePress && (mouse.usButtonFlags & (RI_MOUSE_LEFT_BUTTON_DOWN | RI_MOUSE_RIGHT_BUTTON_DOWN))) {
+        POINT point {};
+        if (::GetPhysicalCursorPos(&point)) {
+            const bool swapped = ::GetSystemMetrics(SM_SWAPBUTTON) != 0;
+            const auto inputTime = static_cast<std::uint32_t>(::GetMessageTime());
+            if (mouse.usButtonFlags & RI_MOUSE_LEFT_BUTTON_DOWN) m_callbacks.mousePress(point, swapped, inputTime);
+            if (mouse.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_DOWN) m_callbacks.mousePress(point, !swapped, inputTime);
+        }
+    }
     for (DoubleTapDetector& d : m_detectors)
         d.mouseUsed();
     if (!m_callbacks.doubleClick)

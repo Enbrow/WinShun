@@ -109,6 +109,17 @@ Hit classifyWindow(HWND root)
     return hit;
 }
 
+bool isOpusLister(HWND root)
+{
+    return root && ::GetAncestor(root, GA_ROOT) == root && hasClass(root, L"dopus.lister");
+}
+
+bool isOpusFileDisplay(HWND root, HWND focus)
+{
+    return isOpusLister(root) && focus && ::GetAncestor(focus, GA_ROOT) == root && hasClass(focus, L"dopus.filedisplay")
+        && hasClass(::GetParent(focus), L"dopus.filedisplaycontainer");
+}
+
 bool isBlank(const Hit& hit)
 {
     if (hit.surface == Surface::None || !::IsWindow(hit.view) || ::IsHungAppWindow(hit.root))

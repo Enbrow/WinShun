@@ -21,6 +21,19 @@ using namespace Qt::StringLiterals;
 
 namespace {
 
+constexpr ULONG_PTR kTestInput = 0x57535445;
+std::array<std::atomic<int>, 256> modifierUps {};
+
+LRESULT CALLBACK modifierWitness(int code, WPARAM message, LPARAM data)
+{
+    if (code == HC_ACTION && (message == WM_KEYUP || message == WM_SYSKEYUP)) {
+        const auto& event = *reinterpret_cast<const KBDLLHOOKSTRUCT*>(data);
+        if (event.dwExtraInfo == kTestInput && event.vkCode < modifierUps.size())
+            ++modifierUps[event.vkCode];
+    }
+    return ::CallNextHookEx(nullptr, code, message, data);
+}
+
 LRESULT CALLBACK receiverProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     if (message == WM_KEYDOWN || message == WM_KEYUP) {
@@ -166,6 +179,9 @@ private slots:
 
         std::array<std::atomic<int>, 256> presses {};
         std::array<std::atomic<int>, 256> releases {};
+        const HHOOK witness = ::SetWindowsHookExW(WH_KEYBOARD_LL, modifierWitness, ::GetModuleHandleW(nullptr), 0);
+        QVERIFY(witness);
+        const auto unhook = qScopeGuard([&] { ::UnhookWindowsHookEx(witness); });
         KeyRouter router(target, passive.hwnd, {.key = [&](const KeyRouter::Key& key) {
             if (key.vk < presses.size())
                 ++(key.press ? presses[key.vk] : releases[key.vk]);
@@ -219,6 +235,32 @@ private slots:
         QVERIFY2(!output.contains("down:68"), output.constData());
         QVERIFY2(!output.contains("up:68"), output.constData());
         QVERIFY2(!output.contains("deactivated"), output.constData());
+
+        // A real modifier release must reach older hooks unchanged. Replacing
+        // it with our own injected release leaves remappers' physical state
+        // pressed (GitHub #91: Shift+click, then Enter and Ctrl+V).
+        for (const WORD vk : {WORD(VK_LSHIFT), WORD(VK_RSHIFT), WORD(VK_LMENU), WORD(VK_RMENU)}) {
+            QCOMPARE(::GetForegroundWindow(), target);
+            for (const int modifier : {VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN})
+                QVERIFY((::GetAsyncKeyState(modifier) & 0x8000) == 0);
+            std::array<INPUT, 2> input {};
+            for (auto& key : input) {
+                key.type = INPUT_KEYBOARD;
+                key.ki.wVk = vk;
+                key.ki.wScan = static_cast<WORD>(::MapVirtualKeyW(vk, MAPVK_VK_TO_VSC));
+                key.ki.dwExtraInfo = kTestInput;
+                if (vk == VK_RMENU)
+                    key.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
+            }
+            input[1].ki.dwFlags |= KEYEVENTF_KEYUP;
+            const auto release = qScopeGuard([&] {
+                input[1].ki.dwExtraInfo = kOwnInput;
+                ::SendInput(1, &input[1], sizeof(INPUT));
+            });
+            QCOMPARE(::SendInput(2, input.data(), sizeof(INPUT)), UINT(2));
+            QTRY_COMPARE_WITH_TIMEOUT(modifierUps[vk].load(), 1, 2000);
+            QTRY_VERIFY_WITH_TIMEOUT((::GetAsyncKeyState(vk) & 0x8000) == 0, 2000);
+        }
 
         router.drain();
         QVERIFY(tap('E'));

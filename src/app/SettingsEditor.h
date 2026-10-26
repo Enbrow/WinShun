@@ -67,6 +67,7 @@ class SettingsEditor : public QObject {
     Q_PROPERTY(QString fileManagerProblem READ fileManagerProblem NOTIFY changed FINAL)
     Q_PROPERTY(bool explorerMenu READ explorerMenu WRITE setExplorerMenu NOTIFY changed FINAL)
     Q_PROPERTY(bool explorerTyping READ explorerTyping WRITE setExplorerTyping NOTIFY changed FINAL)
+    Q_PROPERTY(bool opusTyping READ opusTyping WRITE setOpusTyping NOTIFY changed FINAL)
     // The folder menu on a double click (Settings::folderMenu: on unless "off").
     Q_PROPERTY(bool folderMenu READ folderMenu WRITE setFolderMenu NOTIFY changed FINAL)
     Q_PROPERTY(bool folderMenuExplorer READ folderMenuExplorer WRITE setFolderMenuExplorer NOTIFY changed FINAL)
@@ -93,6 +94,16 @@ class SettingsEditor : public QObject {
     // hotkey and that hotkey's error (as hotkeyError), PrtScn, and whether
     // letting go of a drag copies at once; captureNote says what PrtScn's
     // takeover could not do.
+    Q_PROPERTY(QString captureLastPinHotkey READ captureLastPinHotkey WRITE setCaptureLastPinHotkey NOTIFY changed FINAL)
+    Q_PROPERTY(QString captureSaveFolder READ captureSaveFolder WRITE setCaptureSaveFolder NOTIFY changed FINAL)
+    Q_PROPERTY(QString captureRecordingFolder READ captureRecordingFolder WRITE setCaptureRecordingFolder NOTIFY changed FINAL)
+    Q_PROPERTY(bool captureRecordingSystemAudio READ captureRecordingSystemAudio WRITE setCaptureRecordingSystemAudio NOTIFY changed FINAL)
+    Q_PROPERTY(bool captureRecordingMicrophone READ captureRecordingMicrophone WRITE setCaptureRecordingMicrophone NOTIFY changed FINAL)
+    Q_PROPERTY(int captureRecordingQuality READ captureRecordingQuality WRITE setCaptureRecordingQuality NOTIFY changed FINAL)
+    Q_PROPERTY(bool captureRecordingCursor READ captureRecordingCursor WRITE setCaptureRecordingCursor NOTIFY changed FINAL)
+    Q_PROPERTY(bool captureRecordingCountdown READ captureRecordingCountdown WRITE setCaptureRecordingCountdown NOTIFY changed FINAL)
+    Q_PROPERTY(bool captureRecordingClicks READ captureRecordingClicks WRITE setCaptureRecordingClicks NOTIFY changed FINAL)
+    Q_PROPERTY(QString captureLastPinHotkeyError READ captureLastPinHotkeyError NOTIFY hotkeyErrorChanged FINAL)
     Q_PROPERTY(bool captureEnabled READ captureEnabled WRITE setCaptureEnabled NOTIFY changed FINAL)
     Q_PROPERTY(QString captureHotkey READ captureHotkey WRITE setCaptureHotkey NOTIFY changed FINAL)
     Q_PROPERTY(QString captureHotkeyError READ captureHotkeyError NOTIFY hotkeyErrorChanged FINAL)
@@ -362,6 +373,8 @@ public:
     void setExplorerMenu(bool on);
     bool explorerTyping() const { return m_settings.explorerTyping; }
     void setExplorerTyping(bool on);
+    bool opusTyping() const { return m_settings.opusTyping; }
+    void setOpusTyping(bool on);
     bool folderMenu() const { return m_settings.folderMenu != u"off"; }
     void setFolderMenu(bool on);
     bool folderMenuExplorer() const { return m_settings.folderMenuExplorer; }
@@ -380,6 +393,26 @@ public:
     void setFolderMenuHotkey(const QString& hotkey);
     QString folderMenuHotkeyError() const { return m_folderMenuHotkeyError; }
     void setFolderMenuHotkeyError(const QString& error);
+    QString captureLastPinHotkey() const { return m_settings.captureLastPinHotkey; }
+    void setCaptureLastPinHotkey(const QString& value);
+    QString captureSaveFolder() const { return m_settings.captureSaveFolder; }
+    void setCaptureSaveFolder(const QString& value);
+    QString captureRecordingFolder() const { return m_settings.captureRecordingFolder; }
+    void setCaptureRecordingFolder(const QString& value);
+    bool captureRecordingSystemAudio() const { return m_settings.captureRecordingSystemAudio; }
+    void setCaptureRecordingSystemAudio(bool value);
+    bool captureRecordingMicrophone() const { return m_settings.captureRecordingMicrophone; }
+    void setCaptureRecordingMicrophone(bool value);
+    int captureRecordingQuality() const { return m_settings.captureRecordingQuality; }
+    void setCaptureRecordingQuality(int value);
+    bool captureRecordingCursor() const { return m_settings.captureRecordingCursor; }
+    void setCaptureRecordingCursor(bool value);
+    bool captureRecordingCountdown() const { return m_settings.captureRecordingCountdown; }
+    void setCaptureRecordingCountdown(bool value);
+    bool captureRecordingClicks() const { return m_settings.captureRecordingClicks; }
+    void setCaptureRecordingClicks(bool value);
+    QString captureLastPinHotkeyError() const { return m_captureLastPinHotkeyError; }
+    void setCaptureLastPinHotkeyError(const QString& error);
     bool captureEnabled() const { return m_settings.captureEnabled; }
     void setCaptureEnabled(bool on);
     QString captureHotkey() const { return m_settings.captureHotkey; }
@@ -920,6 +953,7 @@ private:
     QString m_clipboardQuickPasteError;
     QString m_doubleCtrlClash;
     QString m_folderMenuHotkeyError;
+    QString m_captureLastPinHotkeyError;
     QString m_captureHotkeyError;
     QString m_capturePinsHotkeyError;
     QString m_capturePinsRestoreHotkeyError;

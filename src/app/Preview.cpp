@@ -1,10 +1,12 @@
 #include "Preview.h"
 
 #include "Backup.h"
+#include "Clipboard.h"
 #include "AppCatalog.h"
 #include "History.h"
 #include "IndexService.h"
 #include "Launcher.h"
+#include "Placement.h"
 #include "SystemCatalog.h"
 #include "FavoritesSettings.h"
 #include "FileIconProvider.h"
@@ -16,6 +18,11 @@
 #include "Updater.h"
 #include "WindowFrame.h"
 #include "AnnotationModel.h"
+#include "Capture.h"
+#include "Recorder.h"
+#include "RecordingPointer.h"
+#include "Host.h"
+#include "platform/KeyListener.h"
 #include "platform/SiteIcons.h"
 
 #include <QCoreApplication>
@@ -23,6 +30,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFileInfo>
 #include <QFontInfo>
 #include <QFontMetricsF>
 #include <QGuiApplication>
@@ -38,6 +46,7 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QScreen>
 #include <QStyleHints>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -62,6 +71,7 @@ constexpr auto kSettingsFlag = u"--preview-settings";
 constexpr auto kResultsFlag = u"--preview-results";
 constexpr auto kAiCardsFlag = u"--preview-ai-cards";
 constexpr auto kCaptureToolsFlag = u"--preview-capture-tools";
+constexpr auto kRecordingFlag = u"--preview-recording";
 
 int g_warnings = 0;
 bool g_edges = false; // --edges (or --tree): every grab also writes <png>.edges.txt
@@ -631,6 +641,8 @@ int runSettings(const QStringList& args)
     if (corners == u"round" || corners == u"square")
         settings.corners = corners;
     SystemTheme::setRoundedCorners(settings.corners == u"round");
+    settings.uiSize = valueAfter(args, u"--size", settings.uiSize);
+    SystemTheme::setUiSize(settings.uiSize);
     settings.mcp = true;
     settings.mcpPlugins = true;
     settings.taskbarSearchBox = true; // its style row
@@ -653,6 +665,7 @@ int runSettings(const QStringList& args)
     auto* editor = new SettingsEditor(settings, Settings::resolveRenderer(settings.renderer), &engine);
     QObject::connect(editor, &SettingsEditor::changed, editor, [editor] {
         SystemTheme::setRoundedCorners(editor->corners() == u"round");
+        SystemTheme::setUiSize(editor->uiSize());
     });
     auto* frame = new WindowFrame(true, editor);
     auto* updater = new Updater(editor); // never setAutomatic() or check(): no network
@@ -1077,6 +1090,24 @@ int runSettings(const QStringList& args)
             if (tree)
                 writeTree(window, file + u".tree.txt"_s);
             saved = saveGrab(window, file) && saved;
+            if (page == 0 && tab == 2) {
+                QObject* toggle = visualNamed(window->contentItem(), u"opusTypingToggle"_s);
+                const bool explorerBefore = editor->explorerTyping();
+                if (!toggle) {
+                    qWarning("preview: Opus typing toggle missing");
+                } else {
+                    for (const bool enabled : {true, false}) {
+                        QMetaObject::invokeMethod(toggle, "toggled", Q_ARG(bool, enabled));
+                        settle(window, 2);
+                        Settings read;
+                        read.load();
+                        if (editor->opusTyping() != enabled || read.opusTyping != enabled
+                            || toggle->property("checked").toBool() != enabled || read.explorerTyping != explorerBefore)
+                            qWarning("preview: Opus typing did not save independently or update its binding");
+                    }
+                    say(u"Opus typing setting: actual QML toggle, editor and isolated settings checked"_s);
+                }
+            }
             if (page == 3 && tab == 1) {
                 QObject* choice = visualNamed(window->contentItem(), u"favoriteFolderTabChoice"_s);
                 if (!choice) {
@@ -1193,8 +1224,9 @@ int runSettings(const QStringList& args)
         {u"API 密钥"_s, pluginsPage, 0}, // a plugin's own setting: its card unfolds (search-API 密钥.png)
         {u"粘贴为文件"_s, pluginsPage, 0}, // a built-in card
         // Shown as 内置功能 cards too, the rows of their own page first (open_settings searches them by title).
-        {u"双击空白处弹出文件夹菜单"_s, 0, 2},
-        {u"对话框旁的搜索框"_s, 0, 2},
+        {QCoreApplication::translate("SettingsWindow", "双击空白处弹出文件夹菜单"), 0, 2},
+        {QCoreApplication::translate("SettingsWindow", "对话框旁的搜索框"), 0, 2},
+        {QCoreApplication::translate("SettingsWindow", "在 Directory Opus 里直接打字搜索"), 0, 2},
         {u"AI"_s, aiPage, 0},
         {u"收藏"_s, favoritesPage, 0},
         {QCoreApplication::translate("SettingsWindow", "网络与 WSL 文件夹"), 2, 3},
@@ -1244,7 +1276,7 @@ int runSettings(const QStringList& args)
 
 // The production delegates and model, with made-up folders and local Qt key
 // events: no global shortcuts, file opening, or user's profile involved.
-void checkLauncherFilters(QQuickWindow* window)
+void checkLauncherFilters(QQuickWindow* window, QQmlEngine* qmlEngine, const QDir& output)
 {
     QTemporaryDir temporary;
     IndexService index(temporary.path(), IndexService::Options{});
@@ -1396,10 +1428,204 @@ void checkLauncherFilters(QQuickWindow* window)
     check(launcher.autocomplete(0) && launcher.query() == u"example report", "web suggestion completion changed");
     query({}); // let the last search settle before its controller and engine go away
     say(u"launcher prefix, panel-sort and favorite Tab regressions: real controllers/engine over isolated fixtures"_s);
+
+    const QString pluginFolder = temporary.filePath(u"plugins/test.columns"_s);
+    QDir().mkpath(pluginFolder);
+    QFile manifest(QDir(pluginFolder).filePath(u"plugin.json"_s));
+    check(manifest.open(QIODevice::WriteOnly), "could not create the isolated metadata plugin");
+    manifest.write(R"({"manifest":1,"id":"test.columns","name":"Metadata fixture","version":"1.0.0",
+        "commands":[{"id":"rows","keyword":"metadata","title":"Metadata","run":{"items":[
+            {"id":"old","title":"Old.pdf","modified":"2024-01-01T00:00:00Z","size":10},
+            {"id":"new","title":"New.pdf","modified":"2026-10-01T00:00:00Z","size":2097152},
+            {"id":"zero","title":"Zero.pdf","modified":1790812800,"size":0},
+            {"id":"legacy","title":"Legacy.pdf"}]}}]})");
+    manifest.close();
+    plugin::Host host({.userPluginDir = temporary.filePath(u"plugins"_s)});
+    host.catalog().scan();
+    host.setEnabled(u"test.columns"_s, true);
+    launcher.setPluginHost(&host);
+    launcher.setPanel(true);
+    launcher.chooseFileType(-1);
+    query(u"metadata "_s);
+    check(launcher.results()->count() == 4, "metadata plugin did not supply its full list");
+    launcher.setDateRange(u"2026-01-01"_s, u"2026-12-31"_s);
+    pump(50);
+    check(launcher.results()->count() == 3, "plugin date filtering or legacy compatibility failed");
+    launcher.setSizeRange(u"1"_s, {});
+    pump(50);
+    check(launcher.results()->count() == 2, "plugin size filtering or unknown sizes failed");
+    launcher.sortBy(int(SortKey::Size));
+    check(launcher.results()->at(0) && launcher.results()->at(0)->name == u"New.pdf", "plugin size sorting failed");
+    launcher.chooseFileType(0);
+    pump(50);
+    check(launcher.pluginKeyword() == u"metadata" && launcher.results()->count() == 2,
+        "choosing a file type left the active plugin command");
+    launcher.clearFilters();
+    query({});
+    launcher.setPluginHost(nullptr);
+    say(u"plugin date/size/type filters and local sorting: real host, merge and launcher with isolated zero-code plugin"_s);
+
+    // The actual search panel: local mouse events over its headers exercise
+    // resizing, moving and sorting. Its column preferences use only this
+    // temporary profile, never the running user's INI file.
+    launcher.panelColumns()->load(temporary.filePath(u"panel.ini"_s));
+    launcher.panelColumns()->reset();
+    launcher.setPanel(true);
+    query(u"报告"_s);
+    WindowFrame frame(false);
+    Placement placement(temporary.filePath(u"state.ini"_s), u"Launcher"_s);
+    QQmlComponent component(qmlEngine);
+    component.setData(R"(
+        import QtQuick
+        import WinShun
+        Window {
+            id: panelFixture
+            required property Launcher controller
+            required property WindowFrame frame
+            required property Placement placement
+            width: 1200; height: 650; color: Theme.background
+            Panel { anchors.fill: parent; launcher: panelFixture.controller; frame: panelFixture.frame; placement: panelFixture.placement }
+        }
+    )", QUrl(u"qrc:/qt/qml/WinShun/PanelRegression.qml"_s));
+    std::unique_ptr<QObject> object(component.createWithInitialProperties({
+        {u"controller"_s, QVariant::fromValue(&launcher)}, {u"frame"_s, QVariant::fromValue(&frame)},
+        {u"placement"_s, QVariant::fromValue(&placement)}}));
+    auto* panelWindow = qobject_cast<QQuickWindow*>(object.get());
+    if (!panelWindow) { qWarning().noquote() << "panel regression:" << component.errorString(); return; }
+    panelWindow->create();
+    launcher.setWindow(panelWindow);
+    frame.setWindow(panelWindow);
+    placement.setWindow(panelWindow);
+    showOffScreen(panelWindow);
+    pump(250);
+    settle(panelWindow);
+    check(saveGrab(panelWindow, output.filePath(u"panel-default.png"_s)), "could not render default panel");
+    const auto mouse = [&](QEvent::Type type, const QPointF& at, Qt::MouseButton button, Qt::MouseButtons held) {
+        QMouseEvent event(type, at, panelWindow->mapToGlobal(at.toPoint()), button, held, {});
+        QCoreApplication::sendEvent(panelWindow, &event);
+    };
+    const auto drag = [&](const QString& name, QPointF delta) {
+        auto* item = visualNamed(panelWindow->contentItem(), name);
+        if (!item) { check(false, "panel header or divider missing"); return; }
+        const QPointF at = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+        mouse(QEvent::MouseButtonPress, at, Qt::LeftButton, Qt::LeftButton);
+        mouse(QEvent::MouseMove, at + delta, Qt::NoButton, Qt::LeftButton);
+        mouse(QEvent::MouseButtonRelease, at + delta, Qt::LeftButton, {});
+        settle(panelWindow, 2);
+    };
+    drag(u"columnResize-name"_s, QPointF(80, 0));
+    check(launcher.panelColumns()->visibleColumns()[0].toMap().value(u"width"_s).toInt() == 360,
+        "dragging the separator did not resize the column");
+    drag(u"columnHeader-path"_s, QPointF(-400, 0));
+    check(launcher.panelColumns()->visibleColumns()[0].toMap().value(u"id"_s).toString() == u"path",
+        "dragging the header did not move the column");
+    launcher.panelColumns()->toggle(u"created"_s);
+    launcher.panelColumns()->toggle(u"type"_s);
+    launcher.panelColumns()->toggle(u"source"_s);
+    launcher.panelColumns()->toggle(u"folder"_s);
+    launcher.panelColumns()->toggle(u"path"_s);
+    launcher.panelColumns()->resize(u"name"_s, 230);
+    launcher.panelColumns()->resize(u"modified"_s, 170);
+    launcher.panelColumns()->move(3, 1); // put Created next to Name
+    const auto columns = launcher.panelColumns()->visibleColumns();
+    PanelColumns reloaded;
+    reloaded.load(temporary.filePath(u"panel.ini"_s));
+    check(reloaded.visibleColumns() == columns, "panel column preferences did not persist");
+    SearchResult plugin {.name = u"2026 年项目发票.pdf"_s, .path = u"plugin:fixture:invoice"_s,
+        .modified = 1792857600, .created = 1782864000, .size = 245760, .app = AppKind::Plugin};
+    plugin.plugin.row = std::make_shared<PluginRow>(PluginRow {.source = u"发票库"_s, .icon = u"glyph:U+EA86"_s,
+        .openKind = PluginRow::OpenKind::Path, .openTarget = u"C:\\发票\\2026 年项目发票.pdf"_s});
+    SearchResult legacy {.name = u"未提供文件信息的插件条目"_s, .path = u"plugin:fixture:legacy"_s, .app = AppKind::Plugin};
+    legacy.plugin.row = std::make_shared<PluginRow>(PluginRow {.source = u"旧版插件"_s, .icon = u"glyph:U+EA86"_s});
+    launcher.results()->assign({plugin, legacy}, {});
+    settle(panelWindow);
+    check(saveGrab(panelWindow, output.filePath(u"panel-plugin-metadata.png"_s)), "could not render plugin metadata columns");
+    if (auto* header = visualNamed(panelWindow->contentItem(), u"columnHeader-created"_s)) {
+        const QPointF at = header->mapToScene(QPointF(header->width() / 2, header->height() / 2));
+        mouse(QEvent::MouseButtonPress, at, Qt::LeftButton, Qt::LeftButton);
+        mouse(QEvent::MouseButtonRelease, at, Qt::LeftButton, {});
+        check(launcher.panelSortKey() == int(SortKey::Created), "created column did not sort on click");
+        mouse(QEvent::MouseButtonPress, at, Qt::RightButton, Qt::RightButton);
+        mouse(QEvent::MouseButtonRelease, at, Qt::RightButton, {});
+        pump(200);
+        if (auto* menu = panelWindow->findChild<QObject*>(u"panelColumnsMenu"_s)) {
+            check(menu->property("visible").toBool(), "column context menu did not open on right click");
+            QMetaObject::invokeMethod(menu, "close");
+        } else check(false, "column context menu missing");
+    } else check(false, "created column header missing");
+    launcher.setWindow(window);
+    query({});
+    say(u"panel column drag/resize/persistence and plugin metadata: production QML with isolated fixtures"_s);
+}
+
+void checkClipboardInteractions(QQmlEngine* engine, const QDir& output)
+{
+    QTemporaryDir temporary;
+    ClipStore store(temporary.path());
+    const auto check = [](bool condition, const char* reason) {
+        if (!condition) qWarning("clipboard regression: %s", reason);
+    };
+    if (!store.open(QDateTime::currentMSecsSinceEpoch())) { check(false, "temporary history could not open"); return; }
+    // Missing files stop before the native clipboard writer. The double
+    // click still runs the production paste handler, safely on this fixture.
+    store.add(ClipCapture {.kind = ClipKind::Files,
+        .text = QDir::toNativeSeparators(temporary.filePath(u"不存在的演示文件.txt"_s))}, QDateTime::currentMSecsSinceEpoch());
+    ClipboardWatcher watcher({}, {});
+    Clipboard clipboard(&store, &watcher);
+    clipboard.setRowOptions(false, false);
+    clipboard.setPreviewOpen(false);
+    clipboard.setActive(true);
+    clipboard.handleShown();
+    Placement placement(temporary.filePath(u"state.ini"_s), u"Clipboard"_s);
+    WindowFrame frame(false);
+    QQmlComponent component(engine, u"WinShun"_s, u"ClipboardWindow"_s);
+    std::unique_ptr<QObject> object(component.createWithInitialProperties({{u"clipboard"_s, QVariant::fromValue(&clipboard)},
+        {u"placement"_s, QVariant::fromValue(&placement)}, {u"frame"_s, QVariant::fromValue(&frame)}}));
+    auto* window = qobject_cast<QQuickWindow*>(object.get());
+    if (!window) { qWarning().noquote() << "clipboard regression:" << component.errorString(); return; }
+    window->create();
+    frame.setWindow(window);
+    placement.setWindow(window);
+    showOffScreen(window);
+    clipboard.handlePlaced();
+    settle(window);
+    auto* row = visualNamed(window->contentItem(), u"clipboardRow-0"_s);
+    auto* page = visualNamed(window->contentItem(), u"clipboardPage"_s);
+    if (!row || !page) { check(false, "production clipboard row missing"); return; }
+    const auto mouse = [&](QEvent::Type type, QPointF at, Qt::MouseButton button, Qt::MouseButtons held) {
+        QMouseEvent event(type, at, window->mapToGlobal(at.toPoint()), button, held, {});
+        QCoreApplication::sendEvent(window, &event);
+    };
+    const QPointF at = row->mapToScene(QPointF(130, row->height() / 2));
+    mouse(QEvent::MouseButtonPress, at, Qt::LeftButton, Qt::LeftButton);
+    mouse(QEvent::MouseButtonRelease, at, Qt::LeftButton, {});
+    check(!page->property("previewOpen").toBool(), "first click widened the window before a possible double click");
+    mouse(QEvent::MouseButtonPress, at, Qt::LeftButton, Qt::LeftButton);
+    mouse(QEvent::MouseButtonDblClick, at, Qt::LeftButton, Qt::LeftButton);
+    mouse(QEvent::MouseButtonRelease, at, Qt::LeftButton, {});
+    pump(QGuiApplication::styleHints()->mouseDoubleClickInterval() + 80);
+    check(!clipboard.previewOpen() && !page->property("previewOpen").toBool(), "double click opened or remembered a preview");
+    check(clipboard.statusText() == Clipboard::tr("这些文件已经不存在了"), "double click did not reach the file paste handler");
+    if (auto* grip = visualNamed(window->contentItem(), u"clipboardWidthGrip"_s)) {
+        const QPointF edge = grip->mapToScene(QPointF(grip->width() / 2, grip->height() / 2));
+        mouse(QEvent::MouseButtonPress, edge, Qt::LeftButton, Qt::LeftButton);
+        mouse(QEvent::MouseMove, edge + QPointF(100, 0), Qt::NoButton, Qt::LeftButton);
+        mouse(QEvent::MouseButtonRelease, edge + QPointF(100, 0), Qt::LeftButton, {});
+        check(clipboard.listWidth() == 580 && window->width() == 580, "clipboard list edge did not resize and save");
+        check(store.value(u"listWidth"_s) == u"580", "clipboard width preference was not saved");
+    } else check(false, "clipboard width grip missing");
+    settle(window);
+    check(saveGrab(window, output.filePath(u"clipboard-resized.png"_s)), "clipboard window did not render");
+    check(!watcher.running(), "fixture must never start the native clipboard writer");
+    window->hide();
+    say(u"clipboard double-click preview and list resizing: real QML, temporary history; native clipboard untouched"_s);
 }
 
 int runResults(const QStringList& args)
 {
+    QTranslator translator;
+    if (args.contains(u"--english"_s) && translator.load(u":/i18n/winshun_en.qm"_s))
+        QCoreApplication::installTranslator(&translator);
     const QDir out(valueAfter(args, kResultsFlag));
     QDir().mkpath(out.path());
     const QString baseline = valueAfter(args, u"--rows-source");
@@ -1527,7 +1753,8 @@ int runResults(const QStringList& args)
     grab(u"off"_s);
     key(QEvent::KeyRelease);
     if (args.contains(u"--file-metadata"_s)) {
-        checkLauncherFilters(window);
+        checkLauncherFilters(window, &engine, out);
+        checkClipboardInteractions(&engine, out);
         SearchResults files;
         const QDateTime when(QDate(2024, 3, 5), QTime(14, 32));
         const QDateTime now(QDate(2026, 10, 25), QTime(15, 0));
@@ -1623,8 +1850,169 @@ int runResults(const QStringList& args)
     return finish(window, saved);
 }
 
+int runToolbarDrag(const QStringList& args)
+{
+    using namespace capture;
+    const QDir out(valueAfter(args, kCaptureToolsFlag));
+    QDir().mkpath(out.path());
+    QTranslator translator;
+    if (args.contains(u"--english"_s) && translator.load(u":/i18n/winshun_en.qm"_s))
+        QCoreApplication::installTranslator(&translator);
+    const qreal dpr = QGuiApplication::primaryScreen()->devicePixelRatio();
+    const QSize logical(1120, 620);
+    const QSize pixels(qRound(logical.width() * dpr), qRound(logical.height() * dpr));
+    CaptureScreen screen(0);
+    screen.setGeometry(QRect(QPoint(), pixels), dpr, logical);
+    QImage image(pixels, QImage::Format_RGB32);
+    image.fill(QColor(248, 249, 251));
+    {
+        QPainter painter(&image);
+        painter.scale(dpr, dpr);
+        painter.setPen(QColor(35, 40, 45));
+        painter.setFont(QFont(QGuiApplication::font().family(), 14));
+        painter.drawText(40, 55, u"截图工具条 · 按住左侧三个圆点拖动 / Drag the three dots"_s);
+        painter.drawText(180, 190, u"移动工具条不会移动选区，也不会在图片上留下标注。"_s);
+    }
+    screen.setImage(image);
+    CaptureSession session;
+    const auto select = [&](QRect logicalRect) {
+        session.begin({&screen}, {});
+        const QPoint from(qRound(logicalRect.x() * dpr), qRound(logicalRect.y() * dpr));
+        const QPoint to(qRound((logicalRect.x() + logicalRect.width()) * dpr) - 1,
+                        qRound((logicalRect.y() + logicalRect.height()) * dpr) - 1);
+        session.pointerPress(0, from, Qt::LeftButton);
+        session.pointerMove(0, to);
+        session.pointerRelease(0, to, Qt::LeftButton);
+    };
+    select(QRect(160, 130, 760, 230));
+    QQmlApplicationEngine engine;
+    QQmlComponent component(&engine, u"WinShun"_s, u"CaptureOverlay"_s);
+    auto* window = qobject_cast<QQuickWindow*>(component.createWithInitialProperties({
+        {u"session"_s, QVariant::fromValue(&session)}, {u"screenModel"_s, QVariant::fromValue(&screen)}}));
+    if (!window) { say(component.errorString()); return 3; }
+    window->resize(logical);
+    window->setTitle(u"WinShun toolbar drag test"_s);
+    window->setFlags(Qt::Window | Qt::WindowStaysOnTopHint);
+    if (args.contains(u"--interactive"_s)) {
+        window->setPosition(40, 40);
+        window->show();
+    } else {
+        showOffScreen(window);
+    }
+    settle(window);
+    auto* toolbar = window->findChild<QQuickItem*>(u"captureToolbar"_s);
+    auto* bar = window->findChild<QQuickItem*>(u"captureToolbarBar"_s);
+    auto* grip = window->findChild<QQuickItem*>(u"captureToolbarGrip"_s);
+    if (!toolbar || !bar || !grip) return finish(window, false);
+    bool ok = true;
+    const auto check = [&](bool condition, const char* message) {
+        if (!condition) { say(u"FAIL: "_s + QString::fromLatin1(message)); ok = false; }
+    };
+    const auto grab = [&](QStringView name) {
+        settle(window);
+        ok = saveGrab(window, out.filePath(name.toString() + u".png"_s)) && ok;
+    };
+    grab(u"toolbar-before");
+    if (args.contains(u"--interactive"_s)) {
+        struct PointerTrace : QObject {
+            std::function<void(QMouseEvent*)> report;
+            bool eventFilter(QObject*, QEvent* event) override {
+                if (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonRelease
+                    || (event->type() == QEvent::MouseMove && static_cast<QMouseEvent*>(event)->buttons() != Qt::NoButton))
+                    report(static_cast<QMouseEvent*>(event));
+                return false;
+            }
+        } trace;
+        trace.report = [&](QMouseEvent* event) {
+            const QPointF at = grip->mapToScene(QPointF());
+            say(u"native mouse %1: %2,%3; grip %4,%5 %6x%7; toolbar %8,%9"_s.arg(int(event->type()))
+                .arg(event->position().x()).arg(event->position().y()).arg(at.x()).arg(at.y())
+                .arg(grip->width()).arg(grip->height()).arg(toolbar->x()).arg(toolbar->y()));
+        };
+        window->installEventFilter(&trace);
+        QEventLoop loop;
+        QObject::connect(&session, &CaptureSession::finished, &loop, &QEventLoop::quit);
+        QTimer::singleShot(180000, &loop, &QEventLoop::quit);
+        loop.exec();
+        grab(u"toolbar-after");
+        return finish(window, ok);
+    }
+    const auto send = [&](QEvent::Type type, QPointF at, Qt::MouseButton button, Qt::MouseButtons buttons) {
+        const QPointF global = window->mapToGlobal(at.toPoint());
+        QMouseEvent event(type, at, global, button, buttons, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &event);
+        QCoreApplication::processEvents();
+    };
+    const auto drag = [&](QPointF delta, int steps = 12) {
+        const QPointF from = grip->mapToScene(QPointF(grip->width() / 2, grip->height() / 2));
+        send(QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton);
+        for (int i = 1; i <= steps; ++i)
+            send(QEvent::MouseMove, from + delta * (double(i) / steps), Qt::NoButton, Qt::LeftButton);
+        send(QEvent::MouseButtonRelease, from + delta, Qt::LeftButton, Qt::NoButton);
+        settle(window);
+    };
+    const QRect selection = screen.selection();
+    const QPointF original = toolbar->position();
+    const QString side = toolbar->property("side").toString();
+    drag(QPointF(90, -90));
+    check(toolbar->property("manuallyPlaced").toBool(), "grip drag did not move the toolbar");
+    check(toolbar->x() > original.x() + 30 && toolbar->y() < original.y() - 30, "toolbar did not follow both drag axes");
+    check(screen.selection() == selection && !session.annotation()->hasItems(), "drag reached the selection or annotation canvas");
+    check(toolbar->property("side").toString() == side, "drag flipped the toolbar rows");
+    const QPointF beforeFast = toolbar->position();
+    drag(QPointF(-40, 20), 1);
+    check(toolbar->x() < beforeFast.x() - 30 && toolbar->y() > beforeFast.y() + 10,
+        "a drag delivered as one move did not reposition the toolbar");
+    grab(u"toolbar-moved");
+    const QPointF moved = toolbar->position();
+    const QPointF firstTool = bar->mapToScene(QPointF(grip->x() + grip->width() + 4 + 16, bar->height() / 2));
+    send(QEvent::MouseButtonPress, firstTool, Qt::LeftButton, Qt::LeftButton);
+    send(QEvent::MouseButtonRelease, firstTool, Qt::LeftButton, Qt::NoButton);
+    settle(window);
+    check(session.annotation()->tool() == 0 && session.annotation()->panelVisible(), "annotation button stopped working after a drag");
+    check(toolbar->position() == moved, "opening the style panel moved the toolbar");
+    grab(u"toolbar-with-style");
+    grip->forceActiveFocus(Qt::TabFocusReason);
+    const QPointF beforeKey = toolbar->position();
+    QKeyEvent moveKey(QEvent::KeyPress, Qt::Key_Up, Qt::ShiftModifier);
+    QCoreApplication::sendEvent(window, &moveKey);
+    check(std::abs(toolbar->y() - beforeKey.y() + 10) <= 1 / dpr && screen.selection() == selection,
+        "focused grip arrow keys moved the selection instead of the toolbar");
+    QKeyEvent hideKey(QEvent::KeyPress, Qt::Key_H, Qt::NoModifier);
+    QCoreApplication::sendEvent(window, &hideKey);
+    check(session.toolbarHidden(), "focused grip swallowed the toolbar shortcut");
+    QKeyEvent showKey(QEvent::KeyPress, Qt::Key_H, Qt::NoModifier);
+    QCoreApplication::sendEvent(window, &showKey);
+    check(!session.toolbarHidden(), "hiding the focused grip lost keyboard focus");
+    drag(QPointF(-2000, -2000));
+    check(toolbar->x() == 0 && toolbar->y() == 0, "top-left screen bounds failed");
+    drag(QPointF(3000, 2000));
+    check(toolbar->x() >= 0 && toolbar->y() >= 0 && toolbar->x() + toolbar->width() <= logical.width() + 1 / dpr
+        && toolbar->y() + toolbar->height() <= logical.height() + 1 / dpr, "toolbar or style row left the screen");
+    check(screen.selection() == selection && !session.annotation()->hasItems(), "edge drag changed the screenshot");
+    grab(u"toolbar-edge");
+    session.annotation()->setTool(-1);
+    const QPointF kept = toolbar->position();
+    session.keyPressed(Qt::Key_Left, Qt::NoModifier);
+    settle(window);
+    check(toolbar->position() == kept, "adjusting the selection lost manual placement");
+    session.keyPressed(Qt::Key_H, Qt::NoModifier);
+    session.keyPressed(Qt::Key_H, Qt::NoModifier);
+    check(toolbar->position() == kept, "hiding the toolbar lost manual placement");
+    select(QRect(160, 450, 760, 150));
+    settle(window);
+    check(!toolbar->property("manuallyPlaced").toBool(), "new selection did not reset automatic placement");
+    check(toolbar->property("side").toString() == u"above", "bottom selection did not place the toolbar above");
+    drag(QPointF(40, -70));
+    check(toolbar->property("manuallyPlaced").toBool() && toolbar->property("side").toString() == u"above", "dragging above the selection failed");
+    grab(u"toolbar-above");
+    say(u"toolbar drag checks: %1"_s.arg(ok ? u"passed"_s : u"failed"_s));
+    return finish(window, ok);
+}
+
 int runCaptureTools(const QStringList& args)
 {
+    if (args.contains(u"--toolbar-drag"_s)) return runToolbarDrag(args);
     using namespace capture;
     using namespace capture::annot;
     const QDir out(valueAfter(args, kCaptureToolsFlag));
@@ -1710,6 +2098,237 @@ int runCaptureTools(const QStringList& args)
     drag({410, 330}, {760, 330});
     grab(u"marker-line");
     return finish(window, saved);
+}
+
+// A real Capture -> selection -> Recorder -> WGC -> MP4 run, without an
+// App, global hotkeys, index service, clipboard or the user's settings.
+int runRecording(const QStringList& args)
+{
+    using namespace capture;
+    const QDir out(valueAfter(args, kRecordingFlag));
+    QDir().mkpath(out.path());
+    QTranslator translator;
+    if (args.contains(u"--english"_s) && translator.load(u":/i18n/winshun_en.qm"_s))
+        QCoreApplication::installTranslator(&translator);
+    QQmlApplicationEngine engine;
+    QQmlComponent fixtureComponent(&engine);
+    fixtureComponent.setData(R"(
+        import QtQuick
+        import WinShun
+        Window {
+            width: 800; height: 460; x: 80; y: 80
+            title: "WinShun recording test"
+            flags: Qt.Window | Qt.WindowStaysOnTopHint
+            color: "#f8f9fb"
+            Column {
+                x: 24; y: 20; spacing: 14
+                Repeater {
+                    model: 12
+                    Text {
+                        required property int index
+                        text: "区域录屏测试 · 中文小字 ABC 0123456789 · C++20 / MP4"
+                        color: "#1c212a"; font.pixelSize: 15
+                    }
+                }
+            }
+            Rectangle {
+                width: 64; height: 28; y: 220; color: "#286ec8"
+                SequentialAnimation on x {
+                    loops: Animation.Infinite
+                    NumberAnimation { from: 20; to: 710; duration: 2500 }
+                    NumberAnimation { from: 710; to: 20; duration: 2500 }
+                }
+            }
+        }
+    )", QUrl(u"qrc:/recording-fixture.qml"_s));
+    std::unique_ptr<QQuickWindow> fixture(qobject_cast<QQuickWindow*>(fixtureComponent.create()));
+    if (!fixture) { say(fixtureComponent.errorString()); return 3; }
+    fixture->show();
+    settle(fixture.get());
+    const HWND hwnd = reinterpret_cast<HWND>(fixture->winId());
+    RECT client {};
+    ::GetClientRect(hwnd, &client);
+    POINT at {0, 0};
+    ::ClientToScreen(hwnd, &at);
+    const QRect region(at.x, at.y, client.right, client.bottom);
+    const auto quality = args.contains(u"--small-file"_s) ? Recorder::SmallFile
+        : args.contains(u"--high-quality"_s) ? Recorder::HighQuality : Recorder::Standard;
+    Recorder::Preferences preferences {out.absolutePath(), args.contains(u"--system-audio"_s), false, quality,
+        !args.contains(u"--no-cursor"_s), !args.contains(u"--no-countdown"_s), args.contains(u"--clicks"_s)};
+    std::unique_ptr<KeyListener> clicks;
+    Capture::Callbacks callbacks;
+    callbacks.recording.preferences = [&] { return preferences; };
+    callbacks.recording.remember = [&](const Recorder::Preferences& value) { preferences = value; };
+    callbacks.recording.clicks = [&](std::shared_ptr<recording::ClickStream> input) {
+        clicks.reset();
+        if (!input) return true;
+        KeyListener::Callbacks listener;
+        listener.mousePress = [input](POINT point, bool secondary, std::uint32_t time) {
+            input->pushInput(QPoint(point.x, point.y), secondary, time);
+        };
+        clicks = std::make_unique<KeyListener>(std::move(listener));
+        return clicks->isActive();
+    };
+    callbacks.accent = [] { return SystemTheme::accentColor(); };
+    Capture capture(&engine, std::move(callbacks));
+    capture.trigger();
+    pump(500);
+    CaptureSession* session = nullptr;
+    CaptureScreen* screen = nullptr;
+    for (QWindow* window : QGuiApplication::topLevelWindows()) {
+        auto* candidate = window->property("screenModel").value<CaptureScreen*>();
+        if (candidate && candidate->rect().contains(region)) {
+            screen = candidate;
+            session = window->property("session").value<CaptureSession*>();
+            break;
+        }
+    }
+    if (!session || !screen) { say(u"no capture overlay for recording region"_s); return 3; }
+    const QPoint first = region.topLeft() - screen->origin();
+    const QPoint last = region.bottomRight() - screen->origin();
+    session->pointerPress(screen->index(), first, Qt::LeftButton);
+    session->pointerMove(screen->index(), last);
+    session->pointerRelease(screen->index(), last, Qt::LeftButton);
+    session->act(static_cast<int>(CaptureSession::Action::Record));
+    pump(500);
+    auto* recorder = capture.findChild<Recorder*>();
+    QQuickWindow* panel = nullptr;
+    for (QWindow* window : QGuiApplication::topLevelWindows())
+        if (window->property("recorder").value<Recorder*>() == recorder)
+            panel = qobject_cast<QQuickWindow*>(window);
+    if (!recorder || !panel) { say(u"no recording panel"_s); return 3; }
+    settle(panel);
+    bool saved = saveGrab(panel, out.filePath(u"ready.png"_s)) && saveGrab(fixture.get(), out.filePath(u"source.png"_s));
+    if (!args.contains(u"--auto"_s)) {
+        QTimer::singleShot(10 * 60 * 1000, qApp, &QCoreApplication::quit);
+        return QCoreApplication::exec();
+    }
+    RECT panelBounds {};
+    if (::GetWindowRect(reinterpret_cast<HWND>(panel->winId()), &panelBounds)) {
+        const QRect bounds(panelBounds.left, panelBounds.top, panelBounds.right - panelBounds.left, panelBounds.bottom - panelBounds.top);
+        recording::ClickStream ignored(bounds.adjusted(-20, -20, 20, 20), quintptr(panel->winId()));
+        ignored.push(bounds.center(), false, 1);
+        saved = ignored.take().count == 0 && saved;
+        ignored.push(bounds.topLeft() - QPoint(10, 10), false, 2);
+        saved = ignored.take().count == 1 && saved;
+    } else {
+        saved = false;
+    }
+    // Resolve the current QML item each time: this exercises its hit area and
+    // binding, including the pause button's change to Resume, not just slots.
+    const auto click = [&](const char* name) {
+        auto* item = panel->findChild<QQuickItem*>(QString::fromLatin1(name));
+        if (!item || !item->isVisible() || !item->isEnabled()) {
+            say(u"recording button unavailable: %1"_s.arg(QString::fromLatin1(name)));
+            saved = false;
+            return;
+        }
+        const QPointF at = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+        const QPointF global = panel->mapToGlobal(at.toPoint());
+        QMouseEvent press(QEvent::MouseButtonPress, at, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(panel, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, at, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(panel, &release);
+    };
+    const bool originalAudio = recorder->systemAudio();
+    click("recordingSystemAudio");
+    saved = recorder->systemAudio() != originalAudio && saved;
+    click("recordingSystemAudio");
+    saved = recorder->systemAudio() == originalAudio && saved;
+    click("recordingGif");
+    saved = recorder->format() == Recorder::Gif && saved;
+    settle(panel);
+    saved = saveGrab(panel, out.filePath(u"ready-gif.png"_s)) && saved;
+    if (!args.contains(u"--gif"_s)) click("recordingMp4");
+    saved = (recorder->format() == (args.contains(u"--gif"_s) ? Recorder::Gif : Recorder::Mp4)) && saved;
+    const bool originalCursor = recorder->cursor(), originalCountdown = recorder->countdown(), originalClicks = recorder->clickHighlights();
+    click("recordingCursor");
+    saved = recorder->cursor() != originalCursor && saved;
+    click("recordingCursor");
+    click("recordingCountdown");
+    saved = recorder->countdown() != originalCountdown && saved;
+    click("recordingCountdown");
+    click("recordingClicks");
+    saved = recorder->clickHighlights() != originalClicks && saved;
+    click("recordingClicks");
+    click("recordingSmallFile");
+    saved = recorder->quality() == Recorder::SmallFile && saved;
+    click("recordingHighQuality");
+    saved = recorder->quality() == Recorder::HighQuality && saved;
+    click(quality == Recorder::SmallFile ? "recordingSmallFile" : quality == Recorder::HighQuality ? "recordingHighQuality" : "recordingStandard");
+    saved = recorder->quality() == quality && recorder->cursor() == originalCursor && recorder->countdown() == originalCountdown
+        && recorder->clickHighlights() == originalClicks && saved;
+    settle(panel);
+    if (originalCountdown) {
+        click("recordingStart");
+        saved = recorder->stage() == Recorder::Counting && saved;
+        click("recordingClose");
+        saved = !recorder->active() && !panel->isVisible() && saved;
+        recorder->prepare(region, ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), fixture->devicePixelRatio());
+        settle(panel);
+    }
+    QEventLoop loop;
+    bool started = false;
+    bool passed = false;
+    int completed = 0;
+    QString previousClip;
+    qint64 previousBytes = 0;
+    QObject::connect(recorder, &Recorder::changed, &loop, [&] {
+        if (recorder->stage() == Recorder::Recording && !started) {
+            started = true;
+            if (completed) {
+                QTimer::singleShot(700, &loop, [&] { click("recordingStart"); });
+                return;
+            }
+            QTimer::singleShot(300, &loop, [&] { saved = saveGrab(panel, out.filePath(u"recording.png"_s)) && saved; });
+            QTimer::singleShot(1500, &loop, [&] {
+                click("recordingPause");
+                saved = recorder->stage() == Recorder::Paused && saved;
+            });
+            QTimer::singleShot(1800, &loop, [&] { saved = saveGrab(panel, out.filePath(u"paused.png"_s)) && saved; });
+            QTimer::singleShot(2600, &loop, [&] {
+                click("recordingPause");
+                saved = recorder->stage() == Recorder::Recording && saved;
+            });
+            QTimer::singleShot(4200, &loop, [&] { click("recordingStart"); });
+        }
+        if (recorder->stage() == Recorder::Done || recorder->stage() == Recorder::Failed) {
+            QTimer::singleShot(200, &loop, [&] {
+                saved = saveGrab(panel, out.filePath(completed ? u"completed-second.png"_s : u"completed.png"_s)) && saved;
+                say(u"recording: %1; %2; %3; %4"_s.arg(recorder->status(), recorder->timeText(), recorder->sizeText(), recorder->error()));
+                passed = recorder->stage() == Recorder::Done;
+                if (passed && !completed) {
+                    previousClip = out.filePath(recorder->fileName());
+                    previousBytes = QFileInfo(previousClip).size();
+                    ++completed;
+                    started = false;
+                    click("recordingAgain");
+                    saved = recorder->stage() == Recorder::Ready && recorder->quality() == quality
+                        && recorder->cursor() == originalCursor && recorder->countdown() == originalCountdown
+                        && recorder->clickHighlights() == originalClicks && saved;
+                    settle(panel);
+                    saved = saveGrab(panel, out.filePath(u"again.png"_s)) && saved;
+                    if (recorder->countdown()) click("recordingCountdown");
+                    click("recordingStart"); // a second real recording, with immediate start
+                    saved = (recorder->stage() == Recorder::Starting || recorder->stage() == Recorder::Recording) && saved;
+                    return;
+                }
+                saved = passed && QFileInfo(previousClip).size() == previousBytes && previousBytes > 0
+                    && previousClip != out.filePath(recorder->fileName()) && saved;
+                loop.quit();
+            });
+        }
+    });
+    QTimer::singleShot(25000, &loop, &QEventLoop::quit);
+    click("recordingStart");
+    if (args.contains(u"--skip-countdown"_s) && recorder->stage() == Recorder::Counting) {
+        settle(panel);
+        click("recordingStart");
+    }
+    loop.exec();
+    passed = passed && completed == 1 && recorder->stage() == Recorder::Done;
+    recorder->close();
+    return saved && passed ? 0 : 4;
 }
 
 // ---- --preview-ai-cards -----------------------------------------------------------------
@@ -1801,7 +2420,7 @@ int runAiCards(const QStringList& args)
 bool wanted(const QStringList& args)
 {
     return args.contains(kFlag) || args.contains(kSettingsFlag) || args.contains(kResultsFlag) || args.contains(kAiCardsFlag)
-        || args.contains(kCaptureToolsFlag);
+        || args.contains(kCaptureToolsFlag) || args.contains(kRecordingFlag);
 }
 
 void note(const QString& line)
@@ -1812,7 +2431,7 @@ void note(const QString& line)
 void prepare(const QStringList& args)
 {
     const bool resultsMode = args.contains(kResultsFlag);
-    const QString folder = valueAfter(args, resultsMode ? kResultsFlag : args.contains(kCaptureToolsFlag) ? kCaptureToolsFlag
+    const QString folder = valueAfter(args, args.contains(kRecordingFlag) ? kRecordingFlag : resultsMode ? kResultsFlag : args.contains(kCaptureToolsFlag) ? kCaptureToolsFlag
         : args.contains(kAiCardsFlag) ? kAiCardsFlag : kSettingsFlag);
     if (!folder.isEmpty()) {
         QDir().mkpath(folder);
@@ -1827,7 +2446,7 @@ void prepare(const QStringList& args)
     qputenv("QT_SCALE_FACTOR", valueAfter(args, u"--scale", u"1"_s).toLatin1());
     const bool webForm = args.contains(u"--web-form"_s);
     // --renderer d3d11: the window as the desktop shows it (for counting edge pixels), not the software renderer's.
-    const bool nativeWeb = (webForm || args.contains(QString(kSettingsFlag)) || args.contains(kCaptureToolsFlag))
+    const bool nativeWeb = (webForm || args.contains(QString(kSettingsFlag)) || args.contains(kCaptureToolsFlag) || args.contains(kRecordingFlag))
         && valueAfter(args, u"--renderer") == u"d3d11";
     if (nativeWeb)
         qputenv("QSG_RHI_BACKEND", "d3d11");
@@ -1846,7 +2465,8 @@ int run(const QStringList& args)
     const bool resultsMode = args.contains(kResultsFlag);
     const bool cardsMode = args.contains(kAiCardsFlag);
     const bool captureMode = args.contains(kCaptureToolsFlag);
-    if (valueAfter(args, resultsMode ? kResultsFlag : captureMode ? kCaptureToolsFlag : cardsMode ? kAiCardsFlag : settingsMode ? kSettingsFlag : kFlag).isEmpty()) {
+    const bool recordingMode = args.contains(kRecordingFlag);
+    if (valueAfter(args, recordingMode ? kRecordingFlag : resultsMode ? kResultsFlag : captureMode ? kCaptureToolsFlag : cardsMode ? kAiCardsFlag : settingsMode ? kSettingsFlag : kFlag).isEmpty()) {
         std::fprintf(stderr, "usage: WinShun --preview-plugins <file.png> [--dark] [--scale 1.5] [--dialog] [--page ai]\n"
                              "       WinShun --preview-settings <folder> [--dark] [--scale 1.5] [--tree] [--edges] [--renderer d3d11]\n");
         return 2;
@@ -1855,7 +2475,7 @@ int run(const QStringList& args)
     g_edges = args.contains(u"--edges"_s) || args.contains(u"--tree"_s);
     QGuiApplication::styleHints()->setColorScheme(args.contains(u"--dark"_s) ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
     SystemTheme::setBackdropAvailable(false); // plain colours, as a window without Mica
-    return resultsMode ? runResults(args) : captureMode ? runCaptureTools(args) : cardsMode ? runAiCards(args) : settingsMode ? runSettings(args) : runPlugins(args);
+    return recordingMode ? runRecording(args) : resultsMode ? runResults(args) : captureMode ? runCaptureTools(args) : cardsMode ? runAiCards(args) : settingsMode ? runSettings(args) : runPlugins(args);
 }
 
 } // namespace ws::preview

@@ -16,7 +16,7 @@ namespace ws::win {
 // backdropSupported). The dark mode is separate, see setDarkFrame.
 void styleFramelessWindow(QWindow* window, bool backdrop = false);
 
-// Windows 11 and the appearance preference: QML draws its edge to match.
+// The appearance preference: DWM on Windows 11, a window region on Windows 10.
 bool roundedCorners();
 
 // Returns whether the preference changed; also updates existing styled HWNDs.
