@@ -1,11 +1,16 @@
 #include "platform/KeyRouter.h"
+#include "Diagnostics.h"
 
 #include <QCoreApplication>
+#include <QFile>
+#include <QJsonDocument>
 #include <QProcess>
 #include <QScopeGuard>
+#include <QTemporaryDir>
 #include <QTest>
 
 #include <imm.h>
+#include <miniz.h>
 
 #include <array>
 #include <atomic>
@@ -105,6 +110,38 @@ private slots:
         QCOMPARE(keys.load(), 0);
     }
 
+    void sessionSummarySurvivesDiagnosticExport()
+    {
+        PassiveWindow passive;
+        QVERIFY(passive.hwnd);
+        KeyRouter router(nullptr, passive.hwnd, {.key = [](const auto&) {}});
+        QVERIFY(router.isActive());
+        const QJsonObject status = router.diagnosticStatus();
+        // Use the same journal and ZIP exporter as Settings. Session totals
+        // must survive export, without a second diagnostics entry point.
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        diagnostics::initialize(profile.path());
+        const auto disableLog = qScopeGuard([] { diagnostics::initialize({}); });
+        diagnostics::record(u"clipboard-key-routing-stop"_s, {{u"session"_s, 1}, {u"router"_s, status}});
+        const auto exported = diagnostics::exportArchive(*diagnostics::current(), profile.path(), {}, {});
+        QVERIFY2(exported.error.isEmpty(), qPrintable(exported.error));
+        QFile archive(exported.path);
+        QVERIFY(archive.open(QIODevice::ReadOnly));
+        const QByteArray packed = archive.readAll();
+        mz_zip_archive zip {};
+        QVERIFY(mz_zip_reader_init_mem(&zip, packed.constData(), static_cast<size_t>(packed.size()), 0));
+        const auto closeZip = qScopeGuard([&] { mz_zip_reader_end(&zip); });
+        size_t bytes = 0;
+        void* journal = mz_zip_reader_extract_file_to_heap(&zip, "events.jsonl", &bytes, 0);
+        QVERIFY(journal);
+        const auto freeJournal = qScopeGuard([&] { mz_free(journal); });
+        const QJsonObject record = QJsonDocument::fromJson(
+            QByteArray(static_cast<const char*>(journal), static_cast<qsizetype>(bytes)).trimmed()).object();
+        QCOMPARE(record.value(u"event"_s).toString(), u"clipboard-key-routing-stop"_s);
+        QCOMPARE(record.value(u"details"_s).toObject().value(u"router"_s).toObject(), status);
+    }
+
     void liveRoutingRefreshAndDrain()
     {
         if (qEnvironmentVariableIntValue("WINSHUN_KEYROUTER_LIVE") != 1)
@@ -152,6 +189,20 @@ private slots:
         QVERIFY2(!output.contains("down:"), output.constData());
         QVERIFY2(!output.contains("up:"), output.constData());
         QVERIFY2(!output.contains("deactivated"), output.constData());
+
+        // The session summary must distinguish a missing callback from an
+        // intentional pass-through. A hidden panel leaves G in the receiver.
+        ::ShowWindow(passive.hwnd, SW_HIDE);
+        QVERIFY(tap('G'));
+        QTRY_VERIFY_WITH_TIMEOUT((output += child.readAll()).contains("down:71"), 2000);
+        const QJsonObject status = router.diagnosticStatus();
+        QCOMPARE(status.value(u"routed_presses"_s).toInteger(), 3);
+        QCOMPARE(status.value(u"window_hidden"_s).toInteger(), 1);
+        QCOMPARE(status.value(u"non_modifier_presses"_s).toInteger(), 4);
+        QCOMPARE(status.value(u"refreshes"_s).toInteger(), 1);
+        QCOMPARE(status.value(u"refresh_failed"_s).toInteger(), 0);
+        ::ShowWindow(passive.hwnd, SW_SHOWNOACTIVATE);
+        output.clear();
 
         // Explicit recovery still routes subsequent typing and leaves the
         // receiver's input field in front. No IME or clipboard is involved.

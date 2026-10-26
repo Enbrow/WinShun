@@ -3825,8 +3825,10 @@ bool App::startKeyRouting(HWND target)
 {
     // An elevated program while Win顺 is not: Windows keeps the keys typed
     // there from the hook (UIPI). The clipboard takes the focus instead.
-    if (integrity::higherThanOurs(target))
+    if (integrity::higherThanOurs(target)) {
+        diagnostics::record(u"clipboard-key-routing-skipped"_s, {{u"reason"_s, u"higher-integrity"_s}});
         return false;
+    }
     const std::uint64_t run = ++m_keyRouterRun;
     // From the router's thread, in order; a key still on its way when the
     // routing has ended goes nowhere.
@@ -3852,6 +3854,8 @@ bool App::startKeyRouting(HWND target)
                                                                                       : Qt::AltModifier;
     auto router = std::make_unique<KeyRouter>(
         target, reinterpret_cast<HWND>(m_clipWindow->winId()), std::move(callbacks), numberKeys);
+    diagnostics::record(u"clipboard-key-routing-start"_s,
+        {{u"session"_s, static_cast<qint64>(run)}, {u"router"_s, router->diagnosticStatus()}});
     if (!router->isActive()) {
         qWarning() << "Clipboard: no keyboard hook; it takes the focus instead";
         return false;
@@ -3868,6 +3872,8 @@ void App::stopKeyRouting()
         // No key is taken any more; the releases of those it took still are
         // its own, for a moment.
         m_keyRouter->drain();
+        diagnostics::record(u"clipboard-key-routing-stop"_s,
+            {{u"session"_s, static_cast<qint64>(m_keyRouterRun)}, {u"router"_s, m_keyRouter->diagnosticStatus()}});
         m_drainingRouter = std::move(m_keyRouter);
         m_drainingRun = m_keyRouterRun;
         QTimer::singleShot(2s, this, [this, run = m_drainingRun] {
@@ -3975,6 +3981,8 @@ void App::engageClipboard()
         return;
     if (m_keyRouter) {
         if (paste::isForeground(m_keyRouterTarget)) {
+            diagnostics::record(u"clipboard-key-routing-refresh"_s,
+                {{u"session"_s, static_cast<qint64>(m_keyRouterRun)}, {u"router"_s, m_keyRouter->diagnosticStatus()}});
             m_keyRouter->refresh(); // a search-field click, still without taking the focus
             return;
         }

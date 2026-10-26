@@ -2,11 +2,13 @@
 
 #include "OwnInput.h" // kOwnInput: the paste keys, KeyRouter's masking key
 
+#include <QJsonObject>
 #include <QString>
 #include <qnamespace.h>
 
 #include <windows.h>
 
+#include <array>
 #include <atomic>
 #include <bitset>
 #include <functional>
@@ -102,6 +104,9 @@ public:
     KeyRouter& operator=(const KeyRouter&) = delete;
 
     bool isActive() const noexcept { return m_active.load(); }
+    // Approximate session totals, readable from the GUI thread. No keys,
+    // text, window titles or identifiers; never writes logs from a hook.
+    QJsonObject diagnosticStatus() const;
     // A click in the search field can recover a hook Windows silently
     // removed after a timeout, without activating the clipboard window.
     void refresh();
@@ -115,7 +120,14 @@ private:
     LRESULT handleKey(int code, WPARAM message, LPARAM lParam); // the hook's answer: nonzero, taken
     bool handleModifier(bool press, const KBDLLHOOKSTRUCT& event);
     void handleMouse(WPARAM message, const MSLLHOOKSTRUCT& event);
-    bool taking() const; // the target in front, the window up and answering
+    enum class Availability { Ready, OtherForeground, Hidden, Hung };
+    Availability availability() const;
+    bool taking() const { return availability() == Availability::Ready; }
+    enum Counter : std::size_t {
+        Presses, Routed, OtherForeground, Hidden, Hung, WinHeld, AlreadyHeld,
+        NotWanted, GlobalHotkey, OtherHook, Refreshes, RefreshFailed, CounterCount
+    };
+    void count(Counter counter) { m_counts[counter].fetch_add(1, std::memory_order_relaxed); }
     void checkDrained();
     Key translate(const KBDLLHOOKSTRUCT& event, bool press, bool autoRepeat) const;
     bool heldAsHotkey(const Key& key); // router thread
@@ -132,6 +144,11 @@ private:
     std::atomic<bool> m_draining {false}; // takes effect at once, from the GUI thread
     std::atomic<DWORD> m_threadId {0};
     std::atomic<bool> m_active {false};
+    std::array<std::atomic<quint64>, CounterCount> m_counts {};
+    const char* m_setupStep = "ready"; // written before the constructor's ready latch
+    DWORD m_setupError = 0;
+    std::atomic<DWORD> m_refreshError {0};
+    std::atomic<DWORD> m_refreshUnhookError {0};
     std::jthread m_thread;
 };
 

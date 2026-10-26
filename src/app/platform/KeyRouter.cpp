@@ -261,11 +261,23 @@ KeyRouter::KeyRouter(HWND target, HWND window, Callbacks callbacks, Qt::Keyboard
         ::SetThreadPriority(::GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
         const HINSTANCE instance = ::GetModuleHandleW(nullptr);
         HHOOK keyboard = ::SetWindowsHookExW(WH_KEYBOARD_LL, &KeyRouter::keyboardProc, instance, 0);
+        if (!keyboard) {
+            m_setupStep = "keyboard";
+            m_setupError = ::GetLastError();
+        }
         const HHOOK mouse = keyboard ? ::SetWindowsHookExW(WH_MOUSE_LL, &KeyRouter::mouseProc, instance, 0) : nullptr;
+        if (keyboard && !mouse) {
+            m_setupStep = "mouse";
+            m_setupError = ::GetLastError();
+        }
         const HWINEVENTHOOK foreground = mouse
             ? ::SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, &KeyRouter::foregroundProc,
                                 0, 0, WINEVENT_OUTOFCONTEXT)
             : nullptr;
+        if (mouse && !foreground) {
+            m_setupStep = "foreground";
+            m_setupError = ::GetLastError();
+        }
         m_active = foreground != nullptr;
         ready.count_down();
         if (m_active) {
@@ -277,16 +289,23 @@ KeyRouter::KeyRouter(HWND target, HWND window, Callbacks callbacks, Qt::Keyboard
                 }
                 if (msg.hwnd == nullptr && msg.message == kRefreshMessage) {
                     if (!m_draining) {
+                        count(Refreshes);
                         // Installing succeeded once, but Windows can remove a
                         // timed-out hook without notifying us. Keep the old
                         // one if its replacement cannot be installed.
                         if (const HHOOK replacement = ::SetWindowsHookExW(
                                 WH_KEYBOARD_LL, &KeyRouter::keyboardProc, instance, 0)) {
-                            if (!::UnhookWindowsHookEx(keyboard))
-                                qWarning("KeyRouter: replaced an unavailable keyboard hook (error %lu)", ::GetLastError());
+                            m_refreshError = 0;
+                            m_refreshUnhookError = 0;
+                            if (!::UnhookWindowsHookEx(keyboard)) {
+                                m_refreshUnhookError = ::GetLastError();
+                                qWarning("KeyRouter: replaced an unavailable keyboard hook (error %lu)", m_refreshUnhookError.load());
+                            }
                             keyboard = replacement;
                         } else {
-                            qWarning("KeyRouter: keyboard hook not refreshed (error %lu)", ::GetLastError());
+                            m_refreshError = ::GetLastError();
+                            count(RefreshFailed);
+                            qWarning("KeyRouter: keyboard hook not refreshed (error %lu)", m_refreshError.load());
                         }
                     }
                     continue;
@@ -313,8 +332,25 @@ KeyRouter::~KeyRouter()
 
 void KeyRouter::refresh()
 {
-    if (!m_draining && m_active)
-        ::PostThreadMessageW(m_threadId.load(), kRefreshMessage, 0, 0);
+    if (!m_draining && m_active && !::PostThreadMessageW(m_threadId.load(), kRefreshMessage, 0, 0)) {
+        m_refreshError = ::GetLastError();
+        count(RefreshFailed);
+    }
+}
+
+QJsonObject KeyRouter::diagnosticStatus() const
+{
+    QJsonObject status {{QStringLiteral("initialized"), isActive()},
+        {QStringLiteral("setup_step"), QString::fromLatin1(m_setupStep)},
+        {QStringLiteral("setup_error"), static_cast<qint64>(m_setupError)},
+        {QStringLiteral("refresh_error"), static_cast<qint64>(m_refreshError.load())},
+        {QStringLiteral("refresh_unhook_error"), static_cast<qint64>(m_refreshUnhookError.load())}};
+    static constexpr std::array<const char*, CounterCount> names {
+        "non_modifier_presses", "routed_presses", "other_foreground", "window_hidden", "window_hung",
+        "win_held", "already_held", "not_wanted", "global_hotkey", "other_hook", "refreshes", "refresh_failed"};
+    for (std::size_t i = 0; i < names.size(); ++i)
+        status.insert(QString::fromLatin1(names[i]), static_cast<qint64>(m_counts[i].load(std::memory_order_relaxed)));
+    return status;
 }
 
 void KeyRouter::drain()
@@ -349,13 +385,16 @@ void CALLBACK KeyRouter::foregroundProc(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, L
         t_router->m_callbacks.foregroundChanged(::GetAncestor(hwnd, GA_ROOT));
 }
 
-bool KeyRouter::taking() const
+KeyRouter::Availability KeyRouter::availability() const
 {
     // Not while the window is gone or hung (its thread has not answered for
     // five seconds): the keys would be lost.
     const HWND front = ::GetForegroundWindow();
-    return front && ::GetAncestor(front, GA_ROOT) == m_target && ::IsWindowVisible(m_window)
-        && !::IsHungAppWindow(m_window);
+    if (!front || ::GetAncestor(front, GA_ROOT) != m_target)
+        return Availability::OtherForeground;
+    if (!::IsWindowVisible(m_window))
+        return Availability::Hidden;
+    return ::IsHungAppWindow(m_window) ? Availability::Hung : Availability::Ready;
 }
 
 LRESULT KeyRouter::handleKey(int code, WPARAM message, LPARAM lParam)
@@ -376,6 +415,8 @@ LRESULT KeyRouter::handleKey(int code, WPARAM message, LPARAM lParam)
     if (vk >= m_taken.size())
         return next();
     const bool press = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
+    if (!m_draining && press && modifierOf(vk) == Qt::NoModifier)
+        count(Presses);
     if (m_taken.test(vk) && !(press && m_draining)) {
         // The release and auto-repeat of a taken key are taken too, wherever
         // the focus went. The hooks after this one saw its press: they see
@@ -390,6 +431,7 @@ LRESULT KeyRouter::handleKey(int code, WPARAM message, LPARAM lParam)
             return 1;
         }
         const Key key = translate(event, true, true);
+        count(Routed);
         if (key.modifiers & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier))
             sendMask();
         m_callbacks.key(key);
@@ -404,19 +446,47 @@ LRESULT KeyRouter::handleKey(int code, WPARAM message, LPARAM lParam)
     // Win combinations are Windows' (Win+V again closes the window). A key
     // down since before the window came (this is its auto-repeat) goes on to
     // the program up to its release.
-    if (!taking() || held(VK_LWIN) || held(VK_RWIN) || held(static_cast<int>(vk)))
+    switch (availability()) {
+    case Availability::OtherForeground:
+        count(OtherForeground);
         return next();
+    case Availability::Hidden:
+        count(Hidden);
+        return next();
+    case Availability::Hung:
+        count(Hung);
+        return next();
+    case Availability::Ready:
+        break;
+    }
+    if (held(VK_LWIN) || held(VK_RWIN)) {
+        count(WinHeld);
+        return next();
+    }
+    if (held(static_cast<int>(vk))) {
+        count(AlreadyHeld);
+        return next();
+    }
     const Key key = translate(event, true, false);
-    if (!(m_policy == Policy::Menu ? wantedByMenu(key) : wanted(key, m_numberKeys)) || heldAsHotkey(key))
+    if (!(m_policy == Policy::Menu ? wantedByMenu(key) : wanted(key, m_numberKeys))) {
+        count(NotWanted);
         return next();
+    }
+    if (heldAsHotkey(key)) {
+        count(GlobalHotkey);
+        return next();
+    }
     // A key the window wants goes to the hooks after this one first, as if
     // the window were an ordinary one in front: a remapper there (AutoHotkey,
     // PowerToys' Keyboard Manager) turns CapsLock+J into Down. It takes the
     // J (it answers nonzero), and its Down comes here as a key of its own.
     // A key it leaves alone is the window's.
-    if (const LRESULT taken = next(); taken != 0)
+    if (const LRESULT taken = next(); taken != 0) {
+        count(OtherHook);
         return taken;
+    }
     m_taken.set(vk);
+    count(Routed);
     if (key.modifiers & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier))
         sendMask(); // in place of the key: the modifier was not pressed alone (a double Ctrl neither)
     m_callbacks.key(key);
