@@ -28,6 +28,8 @@
 //     The real result model and rows over made-up folders, with D3D11 native
 //     text; hint modes and local Qt modifier events. --rows-source <folder>
 //     compares a saved ResultRow.qml and IconNumber.qml from before an edit.
+//     --file-metadata --gallery-image <demo.png> also exports the production
+//     search panel and resized clipboard with demo entries for screenshots.
 //
 //   WinShun.exe --preview-ai-cards <folder> [--dark] [--scale 1.5]
 //     The screens for AI changing settings (SettingsConfirm.qml, SettingsNotice.qml)

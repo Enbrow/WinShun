@@ -24,6 +24,18 @@ README 必须保持原有视觉格式：`square` 方形海报模板，保留 Win
 
 ## 只重新出图
 
+0.15.0 的补拍入口是 `release015.py`。它启动已构建的真实程序，使用现有的 `--preview-*` 模式和临时配置，导出新版搜索面板、可调宽的剪贴板、外观预览、截图工具条及 MP4 / GIF 控制窗口，再交给同一个 `art.compose(..., "square", ...)` 模板。录屏验证会短暂显示它自己的演示窗口，只录这个窗口的客户区；不退出正在运行的 Win顺，不监听或改写系统剪贴板，不改系统主题和缩放。
+
+```powershell
+python tools/screenshots/release015.py --exe dist/release015/WinShun/WinShun.exe --capture-only
+# 先逐张检查 work/release015 里的原图和 preview.log，再导出：
+python tools/screenshots/release015.py --exe dist/release015/WinShun/WinShun.exe --export-only
+```
+
+原图按 2 倍像素密度真实渲染，来自生产 QML、控制器和渲染器，内容是演示索引及临时剪贴板历史；不是重新画一套界面。搜索列菜单先在原生弹出窗口里验证，再用同一菜单的窗口内模式导出到一张图上。PNG 原图、录屏验证文件、程序 SHA256 和无损海报保存在忽略的 `work/release015/`；成品沿用 `docs/images/*.jpg`。未改界面的功能保留已核验的旧图；长截图海报的说明已改为默认手动滚动。
+
+下面的 `agent.ps1` / `profile start` 流程会切换或退出完整程序。用户正在运行自己的 Win顺 时，优先用上面的独立预览；不要为了拍图直接执行会退出用户程序的历史场景。
+
 0.14.0 已补拍搜索结果、剪贴板 GIF 预览、收藏夹与圆盘设置，以及插件库、备份迁移、自定义类型、搜索范围和 WSL 页面。运行的是 `dist/WinShun/WinShun.exe` 0.14.0，使用独立演示配置，只索引演示文件夹；剪贴板内容直接写入演示数据库，排除实际运行程序的复制记录。未改界面的功能图保留原有截图。
 
 清晰度修正：最初 `work/release014/raw` 的 Computer Use 截图按逻辑像素返回，再缩成 1080 宽 JPEG 海报，新增页面的文字不够清楚。新版原图在 `work/readme-hd/raw`，由这里的 `capture.py` 在每显示器 DPI 感知模式下按物理像素捕获，整理到 `work/shots/L-*.png`，再沿用原有方形海报模板导出。补拍时只给演示进程设置 Qt 缩放，使窗口以 2 倍像素密度真实绘制，不放大已有位图，不改系统缩放。动态 GIF 先用界面按钮暂停，再拍黑、白、黑三次背板，避免合成错帧。`shoot --margin 24` 可以避免大窗口周围的留白碰到任务栏。

@@ -1276,7 +1276,7 @@ int runSettings(const QStringList& args)
 
 // The production delegates and model, with made-up folders and local Qt key
 // events: no global shortcuts, file opening, or user's profile involved.
-void checkLauncherFilters(QQuickWindow* window, QQmlEngine* qmlEngine, const QDir& output)
+void checkLauncherFilters(QQuickWindow* window, QQmlEngine* qmlEngine, const QDir& output, bool gallery)
 {
     QTemporaryDir temporary;
     IndexService index(temporary.path(), IndexService::Options{});
@@ -1553,12 +1553,57 @@ void checkLauncherFilters(QQuickWindow* window, QQmlEngine* qmlEngine, const QDi
             QMetaObject::invokeMethod(menu, "close");
         } else check(false, "column context menu missing");
     } else check(false, "created column header missing");
+    if (gallery) {
+        launcher.clearFilters();
+        launcher.chooseFileType(-1);
+        launcher.setScope(Launcher::All);
+        query({});
+        const QStringList names {u"年度报告 2026.pdf"_s, u"季度销售报告.xlsx"_s,
+            u"项目验收报告.docx"_s, u"财务分析报告.pptx"_s, u"年度报告 封面.png"_s};
+        {
+            const auto files = index.index();
+            const auto lock = files->writeLock();
+            const auto root = files->addRoot("F:");
+            const auto demo = files->add(root, "Win顺演示", EntryFlag::Directory);
+            const auto reports = files->add(demo, "报告", EntryFlag::Directory);
+            for (qsizetype i = 0; i < names.size(); ++i) {
+                const auto id = files->add(reports, names[i].toStdString(), 0);
+                files->setModified(id, static_cast<FileTime>(1792857600 - i * 86400));
+                files->setCreated(id, static_cast<FileTime>(1782864000 + i * 86400));
+                files->setSize(id, packSize((i + 1) * 245760));
+            }
+        }
+        query(u"报告"_s);
+        // The application normally writes programmatic queries into its
+        // current SearchBar. This fixture embeds Panel directly, without App.
+        if (auto* field = visualNamed(panelWindow->contentItem(), u"panelSearchField"_s))
+            field->setProperty("text", u"报告"_s);
+        launcher.panelColumns()->reset();
+        launcher.panelColumns()->toggle(u"path"_s);
+        launcher.panelColumns()->toggle(u"type"_s);
+        launcher.panelColumns()->toggle(u"created"_s);
+        settle(panelWindow);
+        check(saveGrab(panelWindow, output.filePath(u"panel-gallery.png"_s)), "could not render the panel gallery");
+        // Render the same menu inside its parent for a single offscreen grab;
+        // the regression above already exercised its production popup window.
+        if (auto* menu = panelWindow->findChild<QObject*>(u"panelColumnsMenu"_s))
+            menu->setProperty("popupType", 0);
+        if (auto* header = visualNamed(panelWindow->contentItem(), u"columnHeader-created"_s)) {
+            const QPointF at = header->mapToScene(QPointF(header->width() / 2, header->height() / 2));
+            mouse(QEvent::MouseButtonPress, at, Qt::RightButton, Qt::RightButton);
+            mouse(QEvent::MouseButtonRelease, at, Qt::RightButton, {});
+            settle(panelWindow);
+            check(saveGrab(panelWindow, output.filePath(u"panel-gallery-menu.png"_s)), "could not render the columns menu");
+            if (auto* menu = panelWindow->findChild<QObject*>(u"panelColumnsMenu"_s))
+                QMetaObject::invokeMethod(menu, "close");
+        }
+    }
     launcher.setWindow(window);
     query({});
     say(u"panel column drag/resize/persistence and plugin metadata: production QML with isolated fixtures"_s);
 }
 
-void checkClipboardInteractions(QQmlEngine* engine, const QDir& output)
+void checkClipboardInteractions(QQmlEngine* engine, const QDir& output, const QString& galleryImage)
 {
     QTemporaryDir temporary;
     ClipStore store(temporary.path());
@@ -1616,6 +1661,25 @@ void checkClipboardInteractions(QQmlEngine* engine, const QDir& output)
     } else check(false, "clipboard width grip missing");
     settle(window);
     check(saveGrab(window, output.filePath(u"clipboard-resized.png"_s)), "clipboard window did not render");
+    if (!galleryImage.isEmpty()) {
+        std::vector<qint64> ids;
+        for (const auto& clip : store.clips()) ids.push_back(clip.id);
+        store.remove(ids);
+        const auto now = QDateTime::currentMSecsSinceEpoch();
+        store.add(ClipCapture {.kind = ClipKind::Text,
+            .text = u"会议纪要：周五前确认年度报告，补齐销售图表和项目验收记录。"_s, .source = u"记事本"_s}, now - 180000);
+        store.add(ClipCapture {.kind = ClipKind::Link,
+            .text = u"https://github.com/LingCore/WinShun"_s, .source = u"浏览器"_s}, now - 120000);
+        const QString imageFile = temporary.filePath(u"区域销售额.png"_s);
+        check(QFile::copy(galleryImage, imageFile), "could not copy the gallery image into the temporary history");
+        store.add(ClipCapture {.kind = ClipKind::Files,
+            .text = QDir::toNativeSeparators(imageFile), .source = u"资源管理器"_s}, now - 60000);
+        store.add(ClipCapture {.kind = ClipKind::Text,
+            .text = u"第三季度销售额：华东 428 万，华南 395 万，西南 371 万。"_s, .source = u"Excel"_s}, now);
+        clipboard.handleShown();
+        settle(window);
+        check(saveGrab(window, output.filePath(u"clipboard-gallery.png"_s)), "could not render the clipboard gallery");
+    }
     check(!watcher.running(), "fixture must never start the native clipboard writer");
     window->hide();
     say(u"clipboard double-click preview and list resizing: real QML, temporary history; native clipboard untouched"_s);
@@ -1753,8 +1817,9 @@ int runResults(const QStringList& args)
     grab(u"off"_s);
     key(QEvent::KeyRelease);
     if (args.contains(u"--file-metadata"_s)) {
-        checkLauncherFilters(window, &engine, out);
-        checkClipboardInteractions(&engine, out);
+        const QString galleryImage = valueAfter(args, u"--gallery-image");
+        checkLauncherFilters(window, &engine, out, !galleryImage.isEmpty());
+        checkClipboardInteractions(&engine, out, galleryImage);
         SearchResults files;
         const QDateTime when(QDate(2024, 3, 5), QTime(14, 32));
         const QDateTime now(QDate(2026, 10, 25), QTime(15, 0));
