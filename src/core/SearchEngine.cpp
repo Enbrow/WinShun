@@ -880,6 +880,7 @@ SearchResults favoriteRows(const QList<const Favorite*>& favorites, const AppLis
             r.app = AppKind::Tool;
             r.target = f.command;
             r.workingDirectory = f.workingDirectory;
+            r.icon = f.icon;
             r.words = commandWords(f, typed);
         } else if (f.kind == Favorite::Kind::App) {
             if (const AppInfo* app = findApp(apps, f.path))

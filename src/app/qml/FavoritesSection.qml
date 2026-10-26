@@ -60,7 +60,7 @@ SettingsSection {
         id: listRow
 
         title: qsTr("收藏")
-        keywords: qsTr("收藏;常用;书签;固定;关键词;自定义命令;命令;参数;command;favorites;bookmark;pin").split(";")
+        keywords: qsTr("收藏;常用;书签;固定;关键词;自定义命令;命令;参数;命令图标;自定义图标;command;favorites;bookmark;pin;icon").split(";")
         values: {
             const words = []
             for (const f of section.favorites.items)
@@ -391,9 +391,9 @@ SettingsSection {
                                     section.draft = null
                                     section.editing = -1
                                 }
-                                onEdited: (name, keyword, commandLine, directory) => section.draft = {
+                                onEdited: (name, keyword, commandLine, directory, icon) => section.draft = {
                                     path: favRow.modelData.path, name: name, keyword: keyword,
-                                    commandLine: commandLine, directory: directory
+                                    commandLine: commandLine, directory: directory, icon: icon
                                 }
                                 onMoveRequested: (to) => {
                                     const from = favRow.index

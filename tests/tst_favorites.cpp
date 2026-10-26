@@ -43,6 +43,64 @@ class TestFavorites : public QObject {
     Q_OBJECT
 
 private slots:
+    void commandIconsTravelWithFavorites()
+    {
+        const QString icon = u"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="_s;
+        QVERIFY(!favoriteIconPng(icon).isEmpty());
+        Favorite command {Favorite::Kind::Command, u"winshun-command:icon-test"_s, u"编辑器"_s, u"editor"_s,
+            u"notepad.exe {query}"_s, {}, icon};
+        const QByteArray written = writeFavoritesFile({command});
+        QVERIFY(written.contains("\"version\": 3"));
+        const auto loaded = readFavoritesFile(written);
+        QVERIFY(loaded);
+        QCOMPARE(loaded->favorites, FavoriteList {command});
+        QCOMPARE(loaded->badIcons, 0);
+
+        QTemporaryDir dir;
+        Favorites store(dir.filePath(u"favorites.json"_s));
+        Favorite automatic = command;
+        automatic.icon.clear();
+        QVERIFY(store.add(automatic));
+        QCOMPARE(store.merge({command}).completed, 1);
+        QCOMPARE(store.items().first().icon, icon);
+        Favorites reopened(dir.filePath(u"favorites.json"_s));
+        reopened.load();
+        QCOMPARE(reopened.items(), FavoriteList {command});
+        QVERIFY(store.update(0, automatic));
+        reopened.load();
+        QVERIFY(reopened.items().first().icon.isEmpty());
+        QVERIFY(writeFavoritesFile(reopened.items()).contains("\"version\": 2"));
+
+        IndexService service(dir.filePath(u"index"_s), {});
+        SearchEngine engine(&service);
+        QSignalSpy spy(&engine, &SearchEngine::resultsReady);
+        SearchEngine::Request request;
+        request.text = u"editor some text"_s;
+        request.favorites = loaded->favorites;
+        engine.submit(request);
+        QVERIFY(spy.wait(5000));
+        const SearchResults rows = spy.first().at(1).value<SearchResults>();
+        QVERIFY(!rows.isEmpty());
+        QVERIFY(rows.first().isCommand());
+        QCOMPARE(rows.first().icon, icon);
+        QCOMPARE(favoriteOf(rows.first())->icon, icon);
+    }
+
+    void invalidCommandIconsFallBackWithoutLosingCommands()
+    {
+        Favorite command {Favorite::Kind::Command, u"winshun-command:bad-icon"_s, u"编辑器"_s, u"editor"_s,
+            u"notepad.exe"_s, {}, u"data:image/png;base64,broken!"_s};
+        const auto loaded = readFavoritesFile(writeFavoritesFile({command}));
+        QVERIFY(loaded);
+        QCOMPARE(loaded->favorites.size(), 1);
+        QCOMPARE(loaded->badIcons, 1);
+        QCOMPARE(loaded->skipped, 0);
+        QVERIFY(loaded->favorites.first().icon.isEmpty());
+        QCOMPARE(loaded->favorites.first().command, command.command);
+        QVERIFY(favoriteIconPng(u"file:///C:/icon.png").isEmpty());
+        QVERIFY(favoriteIconPng(u"data:image/png;base64,"_s + QString(200000, u'A')).isEmpty());
+    }
+
     void commandRoundTripAndSearch()
     {
         const Favorite command {Favorite::Kind::Command, u"winshun-command:test"_s, u"打开编辑器"_s, u"code"_s,
@@ -147,7 +205,7 @@ private slots:
         QVERIFY(!newer);
         QVERIFY(!readFavoritesFile("{\"format\": \"something\", \"version\": 1, \"favorites\": []}", &newer));
         QVERIFY(!newer);
-        QVERIFY(!readFavoritesFile("{\"format\": \"winshun-favorites\", \"version\": 3, \"favorites\": []}", &newer));
+        QVERIFY(!readFavoritesFile("{\"format\": \"winshun-favorites\", \"version\": 4, \"favorites\": []}", &newer));
         QVERIFY(newer);
     }
 

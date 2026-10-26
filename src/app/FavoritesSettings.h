@@ -23,7 +23,7 @@ class FavoritesSettings : public QObject {
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Provided by the settings editor")
-    // {path, name, keyword, kind ("folder", "file", "app", "place"), icon,
+    // {path, name, keyword, kind ("folder", "file", "app", "place", "command"), icon,
     // shownPath, missing}, in their order.
     Q_PROPERTY(QVariantList items READ items NOTIFY itemsChanged FINAL)
     Q_PROPERTY(QString message READ message NOTIFY messageChanged FINAL) // what came of the last add, import or export
@@ -41,8 +41,11 @@ public:
     // once they are. An empty name: its own (the file's, the app's).
     Q_INVOKABLE QString save(int index, const QString& name, const QString& keyword);
     Q_INVOKABLE QString saveCommand(int index, const QString& name, const QString& keyword,
-        const QString& command, const QString& directory);
+        const QString& command, const QString& directory, const QString& icon = {});
     Q_INVOKABLE QString pickCommand();
+    Q_INVOKABLE QString commandIconUrl(const QString& command, const QString& directory, const QString& icon, bool dark) const;
+    Q_INVOKABLE int pickCommandIcon(); // 0: cancelled; otherwise commandIconReady carries this request
+    int loadCommandIcon(const QString& path); // same worker, after a native picker or in an isolated preview
     Q_INVOKABLE void remove(int index);
     Q_INVOKABLE bool move(int from, int to);
     Q_INVOKABLE void addFolder(); // asks for it
@@ -62,6 +65,7 @@ public:
 signals:
     void itemsChanged();
     void messageChanged();
+    void commandIconReady(int request, const QString& icon, const QString& error);
 
 private:
     QString validateKeyword(int index, const QString& word) const;
@@ -78,6 +82,7 @@ private:
     QVariantList m_items;
     QSet<QString> m_missing; // case-folded paths known not to be there
     int m_looks = 0; // the newest lookForMissing() wins
+    int m_iconRequest = 0;
     QString m_message;
 };
 

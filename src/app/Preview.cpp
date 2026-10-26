@@ -511,6 +511,97 @@ bool previewWebForms(QQuickWindow* window, SettingsEditor* editor, const QDir& o
     return saved;
 }
 
+bool previewCommandIcons(QQuickWindow* window, SettingsEditor* editor, Favorites& favorites, QObject* section, const QDir& out)
+{
+    const auto check = [](bool condition, const char* message) {
+        if (!condition)
+            qWarning("command icons: %s", message);
+        return condition;
+    };
+    const auto form = [&] { return visualNamed(qobject_cast<QQuickItem*>(section), u"favoriteForm"_s); };
+    const auto load = [&](const QString& path) {
+        QPointer<QObject> current = form();
+        if (!current)
+            return false;
+        current->setProperty("iconRequest", editor->favorites()->loadCommandIcon(path));
+        QElapsedTimer wait;
+        wait.start();
+        while (current && current->property("iconLoading").toBool() && wait.elapsed() < 5000)
+            pump(10);
+        return check(current && !current->property("iconLoading").toBool(), "icon worker did not finish");
+    };
+    QTemporaryDir pictures;
+    const QString path = pictures.filePath(u"icon.svg"_s);
+    QFile svg(path);
+    if (!check(svg.open(QIODevice::WriteOnly), "cannot write the SVG fixture"))
+        return false;
+    svg.write("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+              "<rect x='8' y='8' width='48' height='48' rx='10' fill='#1268b9'/>"
+              "<path d='M22 17h20v30H22z' fill='white'/></svg>");
+    svg.close();
+    if (!load(path) || !check(form()->property("error").toString().isEmpty(), "valid SVG was rejected"))
+        return false;
+    const QString icon = form()->property("iconData").toString();
+    check(!favoriteIconPng(icon).isEmpty(), "SVG was not normalized to a bounded PNG");
+    check(favorites.items().size() == 4, "picking an icon saved the draft");
+    QFile::remove(path); // the draft must already own the picture
+    settle(window, 3);
+    if (auto* flick = named(window, "flick"))
+        flick->setProperty("contentY", std::max(0.0, flick->property("contentHeight").toDouble() - flick->property("height").toDouble()));
+    settle(window, 3);
+    auto* preview = form()->findChild<QQuickItem*>(u"favoriteIconPreview"_s);
+    check(preview && preview->property("status").toInt() == 1 && preview->property("implicitWidth").toReal() > 0,
+        "custom preview did not load after its original file was deleted");
+    bool saved = saveGrab(window, out.filePath(u"command-custom-icon.png"_s));
+    QMetaObject::invokeMethod(form(), "save");
+    if (!check(favorites.items().size() == 5 && favorites.items().constLast().icon == icon, "form did not save the icon"))
+        return false;
+    const Favorite command = favorites.items().constLast();
+    const auto exported = readFavoritesFile(writeFavoritesFile(favorites.items()));
+    check(exported && exported->favorites.constLast().icon == icon, "export lost the custom icon");
+
+    SearchResult row;
+    row.path = command.path;
+    row.app = AppKind::Tool;
+    row.target = command.command;
+    row.workingDirectory = command.workingDirectory;
+    row.icon = command.icon;
+    ResultModel results;
+    results.assign({row}, {});
+    check(results.data(results.index(0), ResultModel::IconRole).toString()
+            == editor->favorites()->items().constLast().toMap().value(u"icon"_s).toString(),
+        "search results and settings disagree on the command icon");
+
+    const auto reopen = [&] {
+        QMetaObject::invokeMethod(window, "showFavoritesPage", Q_ARG(QVariant, QVariant(command.path)));
+        settle(window, 3);
+        return check(form() && form()->property("iconData").toString() == icon, "editing did not restore the saved icon");
+    };
+    if (!reopen())
+        return false;
+    // A failed import preserves the previous custom picture and reports why.
+    if (!load(pictures.filePath(u"missing.png"_s)))
+        return false;
+    check(!form()->property("error").toString().isEmpty() && form()->property("iconData").toString() == icon,
+        "failed selection discarded the current icon or hid the error");
+    auto* reset = form()->findChild<QObject*>(u"favoriteResetIcon"_s);
+    if (!check(reset, "reset button is missing"))
+        return false;
+    QMetaObject::invokeMethod(reset, "clicked");
+    check(form()->property("iconData").toString().isEmpty(), "reset did not select automatic extraction");
+    QMetaObject::invokeMethod(form(), "finished");
+    check(favorites.items().constLast().icon == icon, "cancelling reset changed the saved icon");
+    if (!reopen())
+        return false;
+    reset = form()->findChild<QObject*>(u"favoriteResetIcon"_s);
+    QMetaObject::invokeMethod(reset, "clicked");
+    QMetaObject::invokeMethod(form(), "save");
+    check(favorites.items().constLast().icon.isEmpty(), "saving reset kept the custom icon");
+    favorites.remove(command.path);
+    say(u"command icons: real form, asynchronous SVG load, source deletion, search model, export, reopen, cancel and reset checked"_s);
+    return saved;
+}
+
 int runSettings(const QStringList& args)
 {
     const QDir out(valueAfter(args, kSettingsFlag));
@@ -1047,11 +1138,23 @@ int runSettings(const QStringList& args)
                 flick->setProperty("contentY", 0);
                 settle(window, 3);
                 saved = saveGrab(window, out.filePath(u"command-new.png"_s)) && saved;
-                QObject* form = section->findChild<QObject*>(u"favoriteForm"_s);
+                QObject* form = visualNamed(qobject_cast<QQuickItem*>(section), u"favoriteForm"_s);
                 QObject* name = form ? form->findChild<QObject*>(u"favoriteName"_s) : nullptr;
                 QObject* keyword = form ? form->findChild<QObject*>(u"favoriteKeyword"_s) : nullptr;
                 QObject* commandBox = form ? form->findChild<QObject*>(u"favoriteCommand"_s) : nullptr;
                 if (name && keyword && commandBox) {
+                    name->setProperty("text", u"Preview command"_s);
+                    keyword->setProperty("text", u"preview-command"_s);
+                    commandBox->setProperty("text", u"notepad.exe {query}"_s);
+                    saved = previewCommandIcons(window, editor, favorites, section, out) && saved;
+                    section->setProperty("addingCommand", true);
+                    settle(window, 3);
+                    form = visualNamed(qobject_cast<QQuickItem*>(section), u"favoriteForm"_s);
+                    name = form ? form->findChild<QObject*>(u"favoriteName"_s) : nullptr;
+                    keyword = form ? form->findChild<QObject*>(u"favoriteKeyword"_s) : nullptr;
+                    commandBox = form ? form->findChild<QObject*>(u"favoriteCommand"_s) : nullptr;
+                    if (!name || !keyword || !commandBox)
+                        return finish(window, false);
                     name->setProperty("text", u"Preview command"_s);
                     keyword->setProperty("text", u"preview-command"_s);
                     commandBox->setProperty("text", u"notepad.exe {query}"_s);

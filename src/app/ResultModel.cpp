@@ -350,6 +350,8 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
     case IconRole:
         if (r->isWeb() || r->isApp()) {
             const bool dark = QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark;
+            if (r->isCommand())
+                return FileIconProvider::commandIconUrl(r->target, r->workingDirectory, r->icon, dark);
             if (r->isWeb())
                 return FileIconProvider::webIconUrl(r->icon.isEmpty() ? r->target : r->icon, dark);
             if (r->isPlugin())

@@ -3,6 +3,8 @@
 
 #include "AppCatalog.h"
 #include "FileIconProvider.h"
+#include "SiteIconImage.h"
+#include "SvgIcon.h"
 #include "SettingsEditor.h"
 #include "ShareLister.h"
 #include "SystemCatalog.h"
@@ -10,12 +12,14 @@
 #include "platform/Shell.h"
 
 #include <QCoreApplication>
+#include <QBuffer>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QSaveFile>
 #include <QStyleHints>
+#include <QThreadPool>
 #include <QUrl>
 #include <QUuid>
 
@@ -175,7 +179,7 @@ void FavoritesSettings::refresh()
             shownPath = tr("系统");
             missing = places && !places->empty() && !place;
         } else if (f.kind == Favorite::Kind::Command) {
-            icon = FileIconProvider::iconUrl(splitCommand(f.command).first, false);
+            icon = FileIconProvider::commandIconUrl(f.command, f.workingDirectory, f.icon, dark());
             shownPath = f.command;
             missing = false;
         } else {
@@ -192,6 +196,7 @@ void FavoritesSettings::refresh()
             {u"missing"_s, missing},
             {u"command"_s, f.command},
             {u"workingDirectory"_s, f.workingDirectory},
+            {u"commandIcon"_s, f.icon},
         });
     }
     if (items == m_items)
@@ -301,7 +306,7 @@ QString FavoritesSettings::save(int index, const QString& name, const QString& k
 }
 
 QString FavoritesSettings::saveCommand(int index, const QString& name, const QString& keyword,
-    const QString& command, const QString& directory)
+    const QString& command, const QString& directory, const QString& icon)
 {
     if (!m_store || index < -1 || index >= m_store->items().size()
         || (index >= 0 && m_store->items()[index].kind != Favorite::Kind::Command))
@@ -321,6 +326,8 @@ QString FavoritesSettings::saveCommand(int index, const QString& name, const QSt
     if (directory.contains(QChar::Null) || directory.contains(u'\n') || directory.contains(u'\r')
         || directory.contains(u'"'))
         return tr("工作文件夹请填写路径，不要加引号");
+    if (!icon.isEmpty() && favoriteIconPng(icon).isEmpty())
+        return tr("图标读不了，请重新选择或恢复自动提取");
     Favorite f = index >= 0 ? m_store->items()[index] : Favorite();
     f.kind = Favorite::Kind::Command;
     if (index < 0)
@@ -329,6 +336,7 @@ QString FavoritesSettings::saveCommand(int index, const QString& name, const QSt
     f.keyword = word;
     f.command = line;
     f.workingDirectory = QDir::toNativeSeparators(directory.trimmed());
+    f.icon = icon;
     if (index < 0)
         m_store->add(f);
     else
@@ -342,6 +350,62 @@ QString FavoritesSettings::pickCommand()
     const QString path = shell::pickFile(owner, tr("选择程序"),
         {{tr("程序和脚本"), u"*.exe;*.com;*.bat;*.cmd;*.lnk"_s}, {tr("所有文件"), u"*.*"_s}});
     return path.isEmpty() ? QString() : u'"' + QDir::toNativeSeparators(path) + u'"';
+}
+
+QString FavoritesSettings::commandIconUrl(const QString& command, const QString& directory, const QString& icon, bool dark) const
+{
+    return FileIconProvider::commandIconUrl(command, directory, icon, dark);
+}
+
+int FavoritesSettings::pickCommandIcon()
+{
+    const HWND owner = m_editor->m_window ? reinterpret_cast<HWND>(m_editor->m_window->winId()) : nullptr;
+    const QString path = shell::pickFile(owner, tr("选择命令图标"),
+        {{tr("图片或程序（PNG、ICO、SVG、EXE、快捷方式）"), u"*.png;*.ico;*.svg;*.exe;*.lnk"_s}});
+    if (path.isEmpty())
+        return 0;
+    return loadCommandIcon(path);
+}
+
+int FavoritesSettings::loadCommandIcon(const QString& path)
+{
+    const int request = ++m_iconRequest;
+    QThreadPool::globalInstance()->start([self = QPointer(this), path, request] {
+        QImage image;
+        QString error;
+        const QString suffix = QFileInfo(path).suffix();
+        if (suffix.compare(u"exe"_s, Qt::CaseInsensitive) == 0 || suffix.compare(u"lnk"_s, Qt::CaseInsensitive) == 0) {
+            image = FileIconProvider::fileIcon(path, 128);
+        } else {
+            QFile file(path);
+            if (!file.open(QIODevice::ReadOnly)) {
+                error = tr("读不了这个文件");
+            } else if (file.size() > 1 << 20) {
+                error = tr("图片太大了：请选择 1 MB 以内的 PNG、ICO 或 SVG");
+            } else {
+                const QByteArray bytes = file.read(1 << 20);
+                svgicon::Problem problem = svgicon::Problem::None;
+                image = svgicon::looksLikeSvg(bytes) ? svgicon::render(bytes, 128, &problem) : siteicon::decode(bytes);
+                if (problem == svgicon::Problem::External)
+                    error = tr("SVG 引用了外部文件或网址，请选择不含外部引用的图标");
+            }
+        }
+        QString icon;
+        if (!image.isNull()) {
+            QByteArray png;
+            QBuffer buffer(&png);
+            buffer.open(QIODevice::WriteOnly);
+            if (siteicon::normalized(image).save(&buffer, "PNG"))
+                icon = QString::fromLatin1("data:image/png;base64," + png.toBase64());
+        }
+        if (icon.isEmpty() && error.isEmpty())
+            error = tr("无法读取图标，请选择有效的 PNG、ICO、SVG、程序或快捷方式");
+        QMetaObject::invokeMethod(qApp, [self, request, icon, error] {
+            if (self)
+                emit self->commandIconReady(request, icon, error);
+        }, Qt::QueuedConnection);
+    });
+    return request;
 }
 
 void FavoritesSettings::remove(int index)
@@ -497,11 +561,13 @@ void FavoritesSettings::importFile()
     if (const int there = static_cast<int>(favorites.size()) - merged.added; there > 0)
         parts.append(tr("%n 项本来就有", "", there));
     if (merged.completed > 0)
-        parts.append(tr("其中 %n 项补上了名称或关键词", "", merged.completed));
+        parts.append(tr("其中 %n 项补上了名称、关键词或图标", "", merged.completed));
     if (read->skipped > 0)
         parts.append(tr("%n 项用不了，跳过了", "", read->skipped));
     if (keywordsTaken > 0)
         parts.append(tr("%n 个关键词已经给了网页搜索，没有带上", "", keywordsTaken));
+    if (read->badIcons > 0)
+        parts.append(tr("%n 个图标读不了，已恢复自动提取", "", read->badIcons));
     setMessage(tr("已导入：") + parts.join(tr("，")));
 }
 

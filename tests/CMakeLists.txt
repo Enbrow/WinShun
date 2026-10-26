@@ -335,6 +335,30 @@ endforeach()
 qt_add_executable(tst_favorites tst_favorites.cpp)
 target_link_libraries(tst_favorites PRIVATE wscore Qt6::Test)
 
+# The actual shell/image-provider path: resolve commands, decode custom
+# pictures and fall back immediately for offline programs. Never executes a command.
+qt_add_executable(tst_commandicons tst_commandicons.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/FileIconProvider.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/SiteIconImage.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/SvgIcon.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/SystemTheme.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/SiteIcons.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/Http.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/Shell.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/FileDialog.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/FileManagers.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/FolderViewHit.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/Integrity.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/WindowEffects.cpp
+    ${PROJECT_SOURCE_DIR}/src/app/platform/Foreground.cpp)
+target_include_directories(tst_commandicons PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
+target_link_libraries(tst_commandicons PRIVATE wscore wsplugin Qt6::Quick Qt6::Svg Qt6::Test
+    comctl32 gdi32 dwmapi ole32 oleaut32 oleacc shell32 shlwapi user32 advapi32 taskschd uiautomationcore winhttp)
+set_target_properties(tst_commandicons PROPERTIES WIN32_EXECUTABLE FALSE QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+add_test(NAME tst_commandicons COMMAND tst_commandicons)
+set_tests_properties(tst_commandicons PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+
 # Colour values as text: app code that needs nothing but QColor.
 qt_add_executable(tst_color tst_color.cpp ${PROJECT_SOURCE_DIR}/src/app/ColorText.cpp)
 target_include_directories(tst_color PRIVATE ${PROJECT_SOURCE_DIR}/src/app)

@@ -2295,6 +2295,30 @@
 <context>
     <name>FavoriteForm</name>
     <message>
+        <source>图标</source>
+        <translation>Icon</translation>
+    </message>
+    <message>
+        <source>正在读取图标…</source>
+        <translation>Reading icon…</translation>
+    </message>
+    <message>
+        <source>选择图标…</source>
+        <translation>Choose icon…</translation>
+    </message>
+    <message>
+        <source>恢复自动</source>
+        <translation>Use automatic</translation>
+    </message>
+    <message>
+        <source>自定义图标已随收藏保存，移动或删除原文件也不受影响</source>
+        <translation>The custom icon is saved with this favorite, even if the original file is moved or deleted.</translation>
+    </message>
+    <message>
+        <source>自动使用程序图标；也可选择 PNG、ICO、SVG，或从其他程序、快捷方式提取</source>
+        <translation>Uses the program's icon automatically. Choose a PNG, ICO or SVG, or extract an icon from another program or shortcut.</translation>
+    </message>
+    <message>
         <source>名称</source>
         <translation>Name</translation>
     </message>
@@ -2457,8 +2481,8 @@
         <translation>Add command</translation>
     </message>
     <message>
-        <source>收藏;常用;书签;固定;关键词;自定义命令;命令;参数;command;favorites;bookmark;pin</source>
-        <translation>favorites;bookmark;pin;keyword;custom command;command;arguments</translation>
+        <source>收藏;常用;书签;固定;关键词;自定义命令;命令;参数;命令图标;自定义图标;command;favorites;bookmark;pin;icon</source>
+        <translation>favorites;bookmark;pin;keyword;custom command;command;arguments;command icon;custom icon;icon</translation>
     </message>
 </context>
 <context>
@@ -8213,6 +8237,44 @@
 </context>
 <context>
     <name>ws::FavoritesSettings</name>
+    <message>
+        <source>图标读不了，请重新选择或恢复自动提取</source>
+        <translation>Cannot read this icon. Choose another or use automatic extraction.</translation>
+    </message>
+    <message>
+        <source>选择命令图标</source>
+        <translation>Choose command icon</translation>
+    </message>
+    <message>
+        <source>图片或程序（PNG、ICO、SVG、EXE、快捷方式）</source>
+        <translation>Images or programs (PNG, ICO, SVG, EXE, shortcuts)</translation>
+    </message>
+    <message>
+        <source>图片太大了：请选择 1 MB 以内的 PNG、ICO 或 SVG</source>
+        <translation>Image too large. Choose a PNG, ICO or SVG smaller than 1 MB.</translation>
+    </message>
+    <message>
+        <source>SVG 引用了外部文件或网址，请选择不含外部引用的图标</source>
+        <translation>This SVG references an external file or URL. Choose an icon without external references.</translation>
+    </message>
+    <message>
+        <source>无法读取图标，请选择有效的 PNG、ICO、SVG、程序或快捷方式</source>
+        <translation>Cannot read the icon. Choose a valid PNG, ICO, SVG, program or shortcut.</translation>
+    </message>
+    <message numerus="yes">
+        <source>其中 %n 项补上了名称、关键词或图标</source>
+        <translation>
+            <numerusform>%n existing favorite had its name, keyword or icon filled in</numerusform>
+            <numerusform>%n existing favorites had their names, keywords or icons filled in</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n 个图标读不了，已恢复自动提取</source>
+        <translation>
+            <numerusform>%n unreadable icon reverted to automatic extraction</numerusform>
+            <numerusform>%n unreadable icons reverted to automatic extraction</numerusform>
+        </translation>
+    </message>
     <message>
         <source>应用</source>
         <translation>App</translation>

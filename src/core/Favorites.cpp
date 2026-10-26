@@ -13,6 +13,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QtEndian>
 
 #include <algorithm>
 
@@ -23,7 +24,7 @@ namespace ws {
 namespace {
 
 constexpr auto kFileFormat = "winshun-favorites";
-constexpr int kFileVersion = 2;
+constexpr int kFileVersion = 3;
 constexpr qint64 kMaxFile = 16 << 20;
 
 QString kindName(Favorite::Kind kind)
@@ -92,6 +93,7 @@ std::optional<Favorite> favoriteOf(const SearchResult& row)
         f.kind = Favorite::Kind::Command;
         f.command = row.target;
         f.workingDirectory = row.workingDirectory;
+        f.icon = row.icon;
     } else if (row.isPlace())
         f.kind = Favorite::Kind::Place;
     else if (row.isApp())
@@ -192,9 +194,26 @@ qsizetype indexOfFavorite(const FavoriteList& favorites, QStringView path)
     return -1;
 }
 
+QByteArray favoriteIconPng(QStringView icon)
+{
+    constexpr QStringView prefix = u"data:image/png;base64,";
+    constexpr qsizetype maxBytes = 128 * 1024;
+    if (!icon.startsWith(prefix) || icon.size() > prefix.size() + (maxBytes + 2) / 3 * 4)
+        return {};
+    const QByteArray png = QByteArray::fromBase64(icon.sliced(prefix.size()).toLatin1(),
+        QByteArray::AbortOnBase64DecodingErrors);
+    if (png.size() < 33 || png.size() > maxBytes || !png.startsWith(QByteArrayView("\x89PNG\r\n\x1a\n", 8))
+        || qFromBigEndian<quint32>(png.constData() + 8) != 13 || png.sliced(12, 4) != "IHDR")
+        return {};
+    const quint32 width = qFromBigEndian<quint32>(png.constData() + 16);
+    const quint32 height = qFromBigEndian<quint32>(png.constData() + 20);
+    return width > 0 && height > 0 && width <= 128 && height <= 128 ? png : QByteArray();
+}
+
 QByteArray writeFavoritesFile(const FavoriteList& favorites)
 {
     QJsonArray list;
+    int version = 1;
     for (const Favorite& f : favorites) {
         QJsonObject entry {
             {u"kind"_s, kindName(f.kind)},
@@ -204,15 +223,19 @@ QByteArray writeFavoritesFile(const FavoriteList& favorites)
         if (!f.keyword.isEmpty())
             entry.insert(u"keyword"_s, f.keyword);
         if (f.kind == Favorite::Kind::Command) {
+            version = std::max(version, 2);
             entry.insert(u"command"_s, f.command);
             entry.insert(u"workingDirectory"_s, f.workingDirectory);
+            if (!f.icon.isEmpty()) {
+                version = kFileVersion;
+                entry.insert(u"icon"_s, f.icon);
+            }
         }
         list.append(entry);
     }
     const QJsonObject file {
         {u"format"_s, QLatin1StringView(kFileFormat)},
-        {u"version"_s, std::ranges::any_of(favorites,
-            [](const Favorite& f) { return f.kind == Favorite::Kind::Command; }) ? kFileVersion : 1},
+        {u"version"_s, version},
         {u"favorites"_s, list},
     };
     return QJsonDocument(file).toJson(QJsonDocument::Indented);
@@ -246,6 +269,11 @@ std::optional<FavoritesFile> readFavoritesFile(QByteArrayView json, bool* newer)
         if (f.kind == Favorite::Kind::Command) {
             f.command = entry.value(u"command"_s).toString().trimmed();
             f.workingDirectory = entry.value(u"workingDirectory"_s).toString().trimmed();
+            f.icon = entry.value(u"icon"_s).toString();
+            if (!f.icon.isEmpty() && favoriteIconPng(f.icon).isEmpty()) {
+                f.icon.clear();
+                ++result.badIcons;
+            }
             if (f.command.isEmpty() || f.command.contains(QChar::Null) || f.command.contains(u'\n')
                 || f.command.contains(u'\r') || f.workingDirectory.contains(QChar::Null)) {
                 ++result.skipped;
@@ -381,6 +409,11 @@ Favorites::Merged Favorites::merge(const FavoriteList& favorites)
         }
         if (there.isFileOrFolder() && there.name == lastName(there.path) && !f.name.isEmpty() && f.name != there.name) {
             there.name = f.name;
+            completed = true;
+        }
+        if (there.kind == Favorite::Kind::Command && f.kind == there.kind && there.icon.isEmpty()
+            && !favoriteIconPng(f.icon).isEmpty()) {
+            there.icon = f.icon;
             completed = true;
         }
         if (completed)

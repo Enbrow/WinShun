@@ -24,6 +24,12 @@ public:
     QImage requestImage(const QString& id, QSize* size, const QSize& requestedSize) override;
 
     static QString iconUrl(const QString& path, bool isDir);
+    // A custom command's embedded picture, else its program (resolved only
+    // on the image-loader thread); a command glyph if it cannot be found.
+    static QString commandIconUrl(const QString& command, const QString& directory, const QString& icon, bool dark);
+    // The icon from a file explicitly chosen by the user, without fallback.
+    // Called off the GUI thread; null if Windows cannot read it.
+    static QImage fileIcon(const QString& path, int px);
     // What Explorer shows as the file's thumbnail (pictures, videos, PDFs
     // and other documents with a thumbnail handler); no image if it has none.
     static QString thumbnailUrl(const QString& path);

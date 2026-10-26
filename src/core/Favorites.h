@@ -32,6 +32,7 @@ struct Favorite {
     QString keyword; // one word, matched ignoring case; empty: none
     QString command; // Command only: executable and arguments; {query} is one quoted argument
     QString workingDirectory; // Command only, optional
+    QString icon; // Command only: a normalized PNG data URL; empty: the program's icon
 
     bool isFileOrFolder() const noexcept { return kind == Kind::Folder || kind == Kind::File; }
     friend bool operator==(const Favorite&, const Favorite&) = default;
@@ -57,6 +58,8 @@ qsizetype typedFavoriteKeyword(const FavoriteList& favorites, QStringView text);
 qsizetype typedCommandKeyword(const FavoriteList& favorites, QStringView text);
 QString commandWords(const Favorite& favorite, QStringView text);
 QString commandArguments(QStringView arguments, QStringView words);
+// Bounded PNG bytes from a command's saved icon; empty for an invalid icon.
+QByteArray favoriteIconPng(QStringView icon);
 
 // A keyword one can type and that is no path: not empty, no spaces or
 // quotes (as a web shortcut's), no \ / or :.
@@ -66,14 +69,15 @@ qsizetype indexOfFavorite(const FavoriteList& favorites, QStringView path); // i
 
 // ---- the file ------------------------------------------------------------
 // favorites.json in the data folder, also used for export. Version 1 for
-// ordinary favorites; version 2 when commands are present, so older builds
-// keep the file read-only instead of dropping commands when saving it.
+// ordinary favorites, 2 for commands, 3 for commands with embedded icons.
+// Older builds keep newer files read-only rather than dropping their data.
 
 QByteArray writeFavoritesFile(const FavoriteList& favorites);
 
 struct FavoritesFile {
     FavoriteList favorites;
     int skipped = 0; // entries with no path, of no kind known, or there twice
+    int badIcons = 0; // commands kept with automatic icons instead
 };
 // Null for a file that is not one of these (or not JSON), `newer` set when
 // it is one a newer Win顺 wrote. A keyword that cannot be typed is dropped,

@@ -1,16 +1,19 @@
 #include "FileIconProvider.h"
 
 #include "AppLogo.h"
+#include "Favorites.h"
 #include "Items.h"
 #include "Manifest.h"
 #include "SiteIconImage.h"
 #include "SystemTheme.h"
+#include "SystemCatalog.h"
 #include "WebShortcut.h"
 #include "Win32Util.h"
 #include "platform/Shell.h"
 #include "platform/SiteIcons.h"
 
 #include <QColor>
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFileInfo>
@@ -19,6 +22,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QUrl>
 
 #include <windows.h>
@@ -324,6 +328,85 @@ QImage colorIcon(const QString& text, int px, bool dark)
     return image;
 }
 
+bool localIconPath(const QString& path)
+{
+    const QString native = QDir::toNativeSeparators(path);
+    if (native.startsWith(u"\\\\"))
+        return false;
+    if (native.size() >= 2 && native[1] == u':') {
+        const wchar_t root[] {static_cast<wchar_t>(native[0].unicode()), L':', L'\\', L'\0'};
+        return ::GetDriveTypeW(root) != DRIVE_REMOTE;
+    }
+    return true;
+}
+
+// Resolve names the shell can launch without doing any work on the GUI
+// thread. Network locations keep the command glyph instead of holding up
+// every other icon when their server is asleep.
+QString commandProgram(const QString& program, const QString& directory)
+{
+    if (!localIconPath(program))
+        return {};
+    if (QDir::isAbsolutePath(program))
+        return program;
+    const QString base = directory.isEmpty() ? QDir::currentPath()
+        : QString::fromStdWString(win32::expandEnvironment(directory.toStdWString()));
+    if (program.contains(u'\\') || program.contains(u'/'))
+        return localIconPath(base) ? QDir(base).absoluteFilePath(program) : QString();
+
+    QStringList paths {base, QCoreApplication::applicationDirPath(),
+        QString::fromStdWString(win32::expandEnvironment(L"%SystemRoot%\\System32")),
+        QString::fromStdWString(win32::expandEnvironment(L"%SystemRoot%"))};
+    paths.append(qEnvironmentVariable("PATH").split(u';', Qt::SkipEmptyParts));
+    paths.removeIf([](const QString& path) { return !localIconPath(path); });
+    if (const QString found = QStandardPaths::findExecutable(program, paths); !found.isEmpty())
+        return found;
+
+    const QString name = program.endsWith(u".exe", Qt::CaseInsensitive) ? program : program + u".exe"_s;
+    const std::wstring key = (u"Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\"_s + name).toStdWString();
+    for (const HKEY root : {HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE}) {
+        wchar_t registered[32768] {};
+        DWORD bytes = sizeof registered;
+        if (::RegGetValueW(root, key.c_str(), nullptr, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, nullptr,
+                registered, &bytes) == ERROR_SUCCESS) {
+            const QString path = QString::fromWCharArray(registered).trimmed();
+            const QString unquoted = path.startsWith(u'"') && path.endsWith(u'"') ? path.mid(1, path.size() - 2) : path;
+            if (localIconPath(unquoted))
+                return unquoted;
+        }
+    }
+    return {};
+}
+
+QImage commandImage(const QStringList& parts, int px)
+{
+    const bool dark = parts.value(3) == u"dark";
+    const QByteArray png = favoriteIconPng(decode(parts.value(2)));
+    if (!png.isEmpty()) {
+        if (const QImage custom = siteicon::decode(png); !custom.isNull())
+            return siteicon::drawn(custom, px, dark);
+    }
+    const QString line = QString::fromStdWString(win32::expandEnvironment(decode(parts.value(0)).toStdWString())).trimmed();
+    if (!localIconPath(line.startsWith(u'"') ? line.mid(1) : line))
+        return glyphIcon(u"U+E756"_s, px, dark);
+    const auto [program, arguments] = splitCommand(line);
+    if (!program.isEmpty()) {
+        const QString scheme = QUrl(program).scheme();
+        if (scheme.size() > 1) {
+            if (scheme == u"shell") {
+                if (QImage image = shellItemIcon(program.toStdWString(), px); !image.isNull())
+                    return image;
+            } else if (QImage image = schemeIcon(scheme, px); !image.isNull()) {
+                return image;
+            }
+        } else if (const QString path = commandProgram(program, decode(parts.value(1))); !path.isEmpty()) {
+            if (QImage image = FileIconProvider::fileIcon(path, px); !image.isNull())
+                return image;
+        }
+    }
+    return glyphIcon(u"U+E756"_s, px, dark);
+}
+
 } // namespace
 
 QString FileIconProvider::pluginIconUrl(const QString& pluginId, const QString& icon, bool dark)
@@ -431,6 +514,20 @@ QString FileIconProvider::iconUrl(const QString& path, bool isDir)
     return u"image://fileicon/ext/"_s + encode(suffix);
 }
 
+QString FileIconProvider::commandIconUrl(const QString& command, const QString& directory, const QString& icon, bool dark)
+{
+    return u"image://fileicon/command/"_s + encode(command) + u'/' + encode(directory) + u'/' + encode(icon)
+        + (dark ? u"/dark"_s : u"/light"_s);
+}
+
+QImage FileIconProvider::fileIcon(const QString& path, int px)
+{
+    thread_local ComApartment com;
+    const std::wstring native = QDir::toNativeSeparators(path).toStdWString();
+    QImage image = shellItemIcon(native, px);
+    return image.isNull() ? shellIcon(native, 0, false, px) : image;
+}
+
 QImage FileIconProvider::thumbnail(const QString& path, int px, bool cachedOnly)
 {
     thread_local ComApartment com;
@@ -511,7 +608,9 @@ QImage FileIconProvider::requestImage(const QString& id, QSize* size, const QSiz
     }
 
     QImage image;
-    if (id == u"folder") {
+    if (id.startsWith(u"command/")) {
+        image = commandImage(id.mid(8).split(u'/'), px);
+    } else if (id == u"folder") {
         image = shellIcon(L"folder", FILE_ATTRIBUTE_DIRECTORY, true, px);
     } else if (id.startsWith(u"ext/")) {
         const QString suffix = decode(QStringView(id).mid(4));

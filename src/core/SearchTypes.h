@@ -155,7 +155,7 @@ struct SearchResult {
     // empty. A place's command ("ms-settings:display").
     QString target;
     QString workingDirectory; // a custom command's working directory; otherwise empty
-    QString icon; // places: see PlaceInfo::icon; web: the home page, whose site's icon it shows
+    QString icon; // places: PlaceInfo::icon; web: home page; commands: embedded PNG data URL
 
     // Places only: the system switch the row stands for (PlaceInfo::switchId,
     // "bluetooth"), else empty, and what is asked of it: Toggle for a plain
