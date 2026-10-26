@@ -227,6 +227,19 @@ Win顺 → 插件：
 
 effects（动作的回答，按顺序执行）：`hide`（收起窗口，默认）、`keep`（留着）、`setQuery {text}`、`notify {text}`、`copy {text}`、`open {path | url}`（`url` 同样认 `winshun:settings`）、`replace {items}`（原地换成这些结果，做二级列表）。
 
+### 搜索面板的日期、大小与筛选（#88）
+
+item 可选提供 `modified`、`created`（带时区的 ISO 8601 字符串或 Unix 秒）和 `size`（非负整数，字节；`0` 是空文件）。未提供或无效的字段留空；日期和大小未知的旧插件条目仍然显示。面板可显示、排序这些列，未知日期和大小排在最后。类型取标题扩展名，所在文件夹取 `open.path` 的父目录，来源是插件名称。
+
+常驻查询的 `params.filters`、一次性查询的 `WS_FILTERS` JSON 以及三个 SDK 的 `q.filters` 提供当前面板条件：
+
+```json
+{"modifiedFrom":"2026-01-01T00:00:00Z","modifiedTo":"2027-01-01T00:00:00Z",
+ "minSize":1048576,"maxSize":null,"kinds":["documents"],"extensions":["pdf","docx"],"folder":"C:\\Docs"}
+```
+
+时间下界包含、上界不包含，大小上下界都包含；`null`、空数组、空文件夹表示没有该项限制。普通搜索的 filters 是 `{}`。插件可按这些条件查询自己的数据源；Win顺 也会按返回的已知日期、大小、扩展名和本地打开路径筛选。Python 的 `item(..., modified=..., created=..., size=...)`、PowerShell 的 `New-WinShunItem -Modified ... -Created ... -Size ...`、C++ 的 `withModified / withCreated / withSize` 均可输出元数据。
+
 ### 图标
 
 `icon.png`（插件文件夹里的 PNG / JPG / ICO，相对路径；深色主题优先 `icon.dark.png`）、`ext:pdf`（扩展名的图标）、`file:C:\…`（某个文件的图标）、`app:<AUMID>`、`glyph:U+E8E5`（Segoe Fluent Icons 字形）、`color:#ff8800`（色块）、`data:image/png;base64,…`（≤ 64 KB）、`site:https://…`（网站自己的图标，和浏览器地址栏左边那个一样：Win顺 只向该网站首页取一次、存在本地、一个月更新；没取到前显示浏览器图标；网址的路径部分不会发出去）。插件文件夹以外的路径不认，SVG 不认。

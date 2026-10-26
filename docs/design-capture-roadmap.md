@@ -2,6 +2,8 @@
 
 2026-10-20。依据：同目录下 6 份参考报告（snow-shot、snow-draw-engine、sharex、flameshot、ksnip、quickshot）、`docs/design-capture.md`、`src/capture/` 和 `CaptureOverlay.qml`、`OcrPanel.qml` 的现状。本文只是设计，没有改仓库。
 
+2026-10-26 更正：#83 获用户确认，新增短时区域录屏（MP4、30 fps、暂停、可选声音）；原先“不做录屏”的取舍已调整。此文的旧对照表不代表当前录屏范围，实现见 architecture.md。
+
 - 许可：ShareX、Flameshot、ksnip、QuickShot 和 snow_shot 的 GPL 部分只学思路；kImageAnnotator（LGPL）不用；snow_draw_engine_qt（Apache-2.0）不整体引入。实现时照本文和报告写，不打开 GPL 源码对着抄。
 - 不写工期，只排先后、说收益。
 - 单位：“图像 px”= 冻结截图里的一个像素，也就是屏幕的物理像素；“逻辑 px”= Qt 的逻辑单位（图像 px × `CaptureScreen::scaleX`）。
@@ -108,6 +110,7 @@
 | 滚轮改粗细 / 字号，触摸板节流 | Flameshot（触摸板 200 ms 一次） | 不用开面板 | 低 | 下一阶段·4a | 照思路自己写（另加 `[`、`]` 键） |
 | Shift 约束覆盖所有线类 | 反例：ksnip #1165、#1178 | 必备 | 低 | 下一阶段·4a | 照思路自己写 |
 | 工具条绕着选区摆，画到它底下时让开 | Flameshot（ButtonHandler） | 不挡要画的地方 | 低 | 下一阶段·4a（已有 placeToolbar，补两行和让位） | 照思路自己写 |
+| 竖向三点拖动柄，手动移动工具条和样式面板 | 用户反馈 | 把控制面板移出当前要看的地方 | 低 | 已做（2026-10-26） | 自己写；本次选区保留位置，重新框选恢复自动摆放 |
 | 工具条隐藏键 + 边上提示 | ShareX（Ctrl+H，但用户不知道，#8731） | 选区贴边时 | 低 | 下一阶段·4a（H） | 照思路自己写 |
 | 画完保持工具，刚画的对象自动选中 | ksnip（可选：画完切回选择并选中） | 连画几个也能马上调 | 低 | 下一阶段·4a | 照思路自己写 |
 | 吸管：从屏幕取颜色给当前工具 | Flameshot（G）、Snow Shot | 配色跟截图一致 | 低 | 下一阶段·4b（I 键） | 照思路自己写 |
@@ -213,7 +216,7 @@
 | 图像特效（投影、灰度、边框） | ksnip | 并进美化 | 中 | 之后·9 | 照思路自己写 |
 | 保存时缩小（高分屏的图太大） | Snow Shot #1914 在要 | 发给别人时体积小 | 低 | 之后·看反馈 | 照思路自己写 |
 | mac 风格窗口框、壁纸素材 | QuickShot | 不像 Windows；壁纸版权说不清 | — | 不做 | — |
-| 上传图床 / 云、打印、PDF、切图、录屏 / GIF、划词翻译、HDR 原样输出、匿名统计、自带更新器 | ShareX、Flameshot、ksnip、Snow Shot、QuickShot | 不符合本地优先，或原定不做，或 Win顺 整体已有 | — | 不做 | — |
+| 上传图床 / 云、打印、PDF、切图、GIF、划词翻译、HDR 原样输出、匿名统计、自带更新器 | ShareX、Flameshot、ksnip、Snow Shot、QuickShot | 不符合本地优先，或原定不做，或 Win顺 整体已有 | — | 不做 | — |
 
 ### J. 平台、性能、内存
 

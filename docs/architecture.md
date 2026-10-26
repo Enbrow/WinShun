@@ -32,6 +32,7 @@ DialogBar=false          ; “打开”“另存为”对话框下方的搜索�
 DialogAutoJump=false     ; 对话框出现时（以及从文件管理器换了文件夹再切回来时）自动转到文件管理器的文件夹
 DialogBarExcludedApps=   ; 不显示搜索框的程序，如 notepad.exe，逗号分隔；搜索框“更多”菜单里加，设置里删
 ExplorerTyping=false     ; 在资源管理器的文件列表里直接打字，就用 Win顺 在这个窗口的文件夹里搜（和 Listary 一样）；代替资源管理器自己的按首字母跳到文件，所以默认关
+OpusTyping=false         ; 独立开启 Directory Opus 文件列表中的字母／数字触发；符号键和编辑字段仍交给 Opus
 FolderMenu=off           ; auto | on | off：在资源管理器或桌面的空白处双击弹出文件夹菜单（GitHub #22）；auto 时 Listary 在运行就不弹；新装默认 off，以前的设置文件里没有这一项时当 auto（升级不变）
 FolderMenuExplorer=true  ; 资源管理器里
 FolderMenuDesktop=true   ; 桌面上
@@ -549,6 +550,12 @@ tools/plugin-probe.cpp 插件系统阶段 0 的探针（无 Qt，静态 C 运行
 
 设置 → 结果列表 → 显示与预览中的“显示文件大小”（`Results/ShowFileSize=false`）独立于修改日期。`App::applySettings` 经 `Launcher::setResultOptions` 即时通知现有行；`Main.qml` 在开关开启或按大小排序时显示大小。`ResultRow.qml` 将同时可见的大小、日期上下排在同一列，分别对齐名字和路径；只有一项时居中。大小复用 `ResultModel::SizeRole` 和搜索结果已有的索引／后台元数据，不在绘制中查磁盘，也不递归统计目录。未知大小、文件夹和应用不显示大小，已知零字节照常显示。完整搜索面板的大小列不受这个开关影响。
 
+## Directory Opus 直接打字搜索（GitHub #82）
+
+`Launcher/OpusTyping=false` 独立于资源管理器开关，设置页和内置功能卡片共用 `SettingsEditor::opusTyping`。`TypeToSearch` 仍只用原有的短时键盘钩子；前台必须是 `dopus.lister`，键盘焦点必须恰好是 `dopus.filedisplaycontainer` 下的 `dopus.filedisplay`，不把其子 Edit、路径栏、FAYT、目录树和菜单当作文件列表。`searchtyping::opusStarts` 仅允许字母和未按 Shift 的数字／数字小键盘，保留 Opus 的符号查找模式和组合键。中文拼音仍通过原来的暂存、重放和输入法流程进入启动器。
+
+路径在 `ComWorker` 上通过已有的普通权限 `dopusrt /info …,paths` 获取；`OpusTab::tab` 保存 `dopus.filedisplaycontainer` 的 HWND，焦点在其 `dopus.filedisplay` 子窗口；`filemanager::opusFolder` 用父子关系匹配，只校验这个标签的真实目录，不遍历探测其他标签的磁盘／网络路径。每次输入持有独立请求号，超时、开关重建或另一轮输入后的旧结果丢弃；打开搜索前再核对前台、焦点和菜单状态。失败时只允许把暂存按键还给原窗口的原焦点，避免输入落入后来切换的应用或编辑框。Esc 回到来源窗口；目录打开与定位复用来源记录和查询 worker，在同一 Opus 文件显示仍有焦点时才发送 `/acmd Go`，查询队列等它切换后再读路径。
+
 ## 搜索面板（Ctrl+E）
 
 linux.do 上从 Listary 来的用户要的（#209，还有 #73 按大小 / 类型排序、#82 / #89 像 Everything 那样按时间、大小浏览）：搜索框右上角的小按钮或 `Ctrl+E`，同一个窗口、同一次搜索（词、范围、选中的行都在）展开成面板，左边筛选，右边分栏；面板右上角同一个按钮或再按 `Ctrl+E` 收回。
@@ -711,6 +718,7 @@ Win顺 是一个 MCP（Model Context Protocol）服务器：Claude Desktop、Cla
   - **会话怎么分输入（§3.6）。** `CaptureSession` 新增 `Phase::Annotating`（标注手势中，不算 Adjusting，工具条不消失）。选区稳定后的一次按下依次问：文字框外（提交）或选中对象的手柄 → 选区自己的八个手柄 → 工具和对象 → 选区本身（Move）→ 新选区（有标注时不画新选区，边上提示）。键先问模型（工具键、撤销、删除、方向键、`[ ]`），其余是原来的；`H` 切工具条。`Esc` 阶梯：输入法拼音由 TextEdit 自己管，再是提交文字、取消手势，最后选区和标注一起放下（`m_parked`，`Ctrl+Z` 拿回，开始新选区才丢）。Qt 把双击的第二下先当按下再发 `doubleClicked`，所以 `doubleClick` 先 `cancelGesture`，否则双击序号会走到复制。
   - **出口。** `Capture::finish`：有标注时图是 `AnnotationModel::composed()`，项目是 `annot::writeProject(projectFromOverlay(...))`（zip：`doc.json` deflate + `base.png` store），随 `Callbacks.copy(image, project)` 进 `Clipboard::copyImage`；Ctrl+S 和 F3 另走 `Callbacks.record` → `Clipboard::recordImage`（只记历史，不碰系统剪贴板）。`ClipStore` 的 `project` 列和 `projects/<id>.wsedit`：和图片一起删、一起清孤儿；同像素再来不带项目时留着旧项目。热键或 Esc 退出时有标注就把项目留在内存里 10 分钟（`Capture::m_draft`），托盘 `截图 › 找回刚放弃的标注` 用 `Compositor` 导出后 `PinManager::pin(…, project)` 贴回原处。`PinWindow` 带着项目字节，编辑窗口（阶段 4b）用。
   - **日志。** 设了 `WINSHUN_LOG_INFO` 时，每次标注手势（≥ 8 帧）记一行帧间隔 p50 / p95 / max；有草稿时记一行。
+- **截图工具条拖动（2026-10-26）。** `AnnotateToolbar` 在遮罩中显示左侧竖向三点柄；只从这个柄开始拖，普通按钮保留原操作，编辑窗口不显示该柄。`DragHandler` 上报相对位移，`CaptureOverlay` 保存本次选区的手动位置，继续用绑定计算整像素坐标；两行一起限制在当前显示器内，拖动中保持上下顺序，开关样式面板不跳位。调整当前选区、`H` 隐藏 / 显示保留位置，重新框选或显示器几何变化恢复自动摆放；不写入配置或截图内容。柄可 Tab 聚焦后用方向键移动，Shift 每次 10 逻辑像素；隐藏后把焦点交回截图按键项。验证入口：`--preview-capture-tools <目录> --toolbar-drag --scale 1.5 --renderer d3d11`，可加 `--english --dark`；`--interactive` 显示生成画面上的实际遮罩，供真实鼠标拖动验证。
 - **编辑窗口（阶段 4b，设计在 `docs/design-capture-roadmap.md` §2.2、§3.1）。** 同一套模型、画布、工具条和样式面板，装进一个普通 Qt Quick 窗口，给“历史再编辑”和“贴图编辑”用。
   - **谁拥有它。** `App::editor()` 第一次用时建（`EditWindow.qml`，`WindowFrame(true)` 自带标题栏；不是 `Capture` 的，截图关着也能用），之后只隐藏复用，不 `deleteLater`（每个 D3D 窗口约 +37 MB commit 不还）。控制器 `CaptureEditor`（`src/capture`，WinShun 模块）管缩放、摆放、输入和出口；窗口的原生操作（显示到最前、cloak、按物理像素放位置）经 `Hooks::Window` 交给 App，所以单测不要原生窗口。入口：`jt` 行的第三个动作（`Shift+Enter`、右键“编辑”，`Launcher::ScreenshotHooks::edit`）、剪贴板窗口图片的右键“编辑”（`Clipboard::editRequested`）、贴图原生菜单“编辑”（`PinManager::Callbacks::edit`）。两个窗口的入口都先收起自己（把键还回去）再开编辑窗口。
   - **模型的编辑模式。** `AnnotationModel::begin(project, deviceDpr, styles)`：底图是项目的整张图，可以在整张图上画，打码读整张图（`sampleBounds()` 不随裁剪，§3.10），`crop` 是导出范围；`project()` 写整张底图加 `doc.crop`（复用读进来的 `base.png` 字节，`Project::basePng`，长图不用重新编码），所以裁掉的部分重开还能放回来。没有项目的图以这张图为底图、空文档（带透明的先铺白）。“改过没有”= 文档和打开时的 `Document` 不相等（`modified()`），撤销回起点就是没改。选中的对象从一个变成一组（`m_picked`）：`Shift+点击`、空白处拖框（`Gesture::Marquee`）、`Ctrl+A`；多选时拖动、改样式、删除、`Ctrl+D` 都作用于全部，手柄和调层只在单选时；样式面板在混合种类时只剩颜色和删除。裁剪是 `Gesture::Crop` + `SetCrop` 命令（`dragHandle`，限在底图内）；有工具时裁剪手柄只从图外面抓，免得画到边上的东西被当成裁剪。`I` 吸管是一种模式不是工具（`picking`，下一次按下取合成后的像素，不进工具表）。`ReplaceDocument` 命令：Esc 一次放弃全部改动，Ctrl+Z 一步拿回。命中容差、手柄距离、拖动距离是屏幕尺寸，按 `setView(缓冲比例, 缩放)` 换成图像 px。
@@ -874,3 +882,29 @@ build\asan\wsfuzz.exe -max_total_time=300      # 用随机数据测 5 分钟
 - **放进去之后**：普通文件夹直接 `CREATE_NEW` 写（约 75 ms），再 `SHChangeNotify(SHCNE_CREATE, SHCNF_FLUSHNOWAIT)`；没有权限（Program Files）时改用 `IFileOperation`（`FOF_SILENT`），由 Windows 请求管理员确认；没有磁盘路径、但能放文件的存储（手机、库：`SFGAO_STORAGE`）也走 `IFileOperation`（没实测）。压缩包（.zip、.cab 既是文件夹又是文件：带 `SFGAO_STREAM`）和此电脑、主文件夹、搜索结果不放，右键时说“这里放不了文件”（`holdsFiles`）。然后在那个窗口里选中新文件，资源管理器还在前台时进入改名（`IShellView::SelectItem`，等它真的有了焦点再加 `SVSI_EDIT`，见 docs/pitfalls.md），和“新建”一样直接打名字；从按键到改名框出现约 230–260 ms。资源管理器的 `Ctrl+Z` 撤销不了这一步（它只撤销自己进程里的操作）。
 - **说话**：右键时剪贴板是空的、是文件、被占用、这里放不了，弹一个 TaskDialog 说明；`Ctrl+V` 时这些情况本来就该什么都不发生，不弹（失败时仍会说）。文字跟着 Win顺 的界面语言（`--en`）。
 - **测试**：`tst_pastefile`（哪些剪贴板截 `Ctrl+V`、类型判断、JSON、CSV、编码、起名、截短、MAX_PATH、UTF-8）。2026-10-24 真机：19 种内容（文字、表格、JSON、注册表、批处理、网页、SVG、设备名、PNG+DIB、全透明 DIB、24 位 DIB、网址加图片、英文、文件、空白、此电脑、压缩包、Program Files）逐个核对了文件名、大小、头几个字节和图片格式；资源管理器里右键和 `Ctrl+V` 都选中并进入改名，资源管理器在后面时只选中；测试前后 Win+V 历史条数不变，剪贴板换回原来的内容。同日装进 dist 用真实按键：设置卡片开关加上、删掉右键动词；资源管理器里 `Ctrl+V` 文字（约 50–100 ms 出文件，打字改名成功）、图片（.png 160×90）、Excel 样的单元格（.csv）都成；剪贴板是文件时照旧由资源管理器复制；改名框和地址栏里的 `Ctrl+V` 不截；右键 › 显示更多选项 › 粘贴为文件成；桌面（Win+D 后）`Ctrl+V` 文字和图片成并能改名；剪贴板面板选一条回车，54 ms 出文件。腾讯桌面整理（`DesktopMgr64.exe` 的 `TXMiniSkin` 铺满桌面）在时，点桌面后前台和焦点都是它的窗口，`Ctrl+V` 不截（pitfalls）。桌面 7 次里有 1 次没截到（紧接在三次“最小化全部”之后，之后同样的步骤没再重现）；没测：手机、Ctrl+V 在“资源管理器里打字搜索”也开着时。
+
+
+## 搜索面板的列和插件元数据（#88，2026-10-26）
+
+`PanelColumns` 管理八种列的显隐、顺序、宽度，写入 `WinShun.ini` 的 `[Panel] Columns`；名称列不可隐藏，读取时修复重复、未知列与越界宽度。`Panel` 和 `PanelRow` 共用列坐标，表头、结果和横向滚动保持同步。表头支持右键菜单、拖动、调宽以及键盘排序；插件更新和本地排序按路径恢复当前行。
+
+创建时间由目录枚举、NTFS MFT、USN 更新和共享目录枚举进入 `FileIndex` 的独立 4 字节列；表格绑定不逐项访问磁盘。快照版本 9 在大小列后加入创建时间，继续读取版本 2–8，旧快照安排补读。索引服务协议保持 major 1，minor 3 增加创建时间；双方按协商版本传输，minor 1 / 2 仍可读取，旧服务未提供的创建时间留空。新增列按每百万项约增加 4 MB 索引内存，前文历史实测内存尚未包含它。
+
+插件 item 支持可选日期和字节数，经 `Merge` 进入统一结果模型；已知值参与面板筛选和排序，未知值保持兼容并在数值排序时置后。`Host` 给查询携带 `filters`，一次性插件使用 `WS_FILTERS`；Python、PowerShell、C++ SDK 均可读取，协议见 plugins.md。
+
+## 区域录屏（#83、#89，2026-10-26）
+
+截图遮罩的“录屏”按钮 / Ctrl+R 把当前单屏选区交给 `Recorder`，遮罩隐藏后才显示准备面板。标注未完成时不进入录屏，避免把冻结图上的标注误当作实时视频标注。准备面板提供系统声音、麦克风、鼠标指针、画质、倒计时和保存目录。默认三秒倒计时，也可关闭或在倒计时中点“立即开始”；录制中收成紧凑控制条，暂停 / 继续，停止后自动保存 MP4。原截图快捷键在录制中停止并保存，准备或倒计时中取消。保存完成后可播放、复制文件、打开文件夹、“再录一段”；再录沿用选区和偏好，已保存文件不删除。录屏本身不修改剪贴板。
+
+- `src/capture/Recording` 是不依赖 QML 的媒体管线；`Recorder` 只管理面板、倒计时、工作线程和偏好，`RecordingPanel.qml` 使用现有 Theme 和按钮。独立 WGC 会话、D3D11 设备与线程，不占用长截图 `Grabber::stream` 的工作线程。每次录制结束释放捕获对象、音频客户端、编码器、纹理和设备；面板关闭时释放场景图资源。
+- SDR：WGC 只保留最新一帧，选区裁剪、RGB → NV12 在 GPU 上完成，Media Foundation 的样本分配器最多 12 个样本，硬编成功时画面无需读回 CPU。奇数宽高先复制末列 / 末行，补至偶数，避免重新缩放文字。HDR 当前复用截图已有的 scRGB → SDR 映射，只有这条颜色转换路径需要 CPU 读回，未宣称完整 GPU HDR 管线。
+- 可选点击高亮由 `RecordingPointer` 管理。复用 `KeyListener` 的唯一 Raw Input 注册，只在录制期间订阅按钮按下；位置使用物理坐标，按消息时钟换算到媒体时间轴。最多保留 16 次待处理点击、8 个半秒脉冲；选区外及面板上的点击过滤，暂停 / 恢复清掉待处理事件和脉冲。Direct2D 在媒体线程的独立 BGRA 纹理上合成，再交给 NV12 转换；不改写保留的 WGC 画面，没有脉冲时不拷贝或绘制。关闭、失败和完成时先解除订阅，再允许开始下一段。
+- MP4 / H.264 High，保持选区原始尺寸。质量导向 VBR 优先：小体积 15 fps / 70，标准 30 fps / 75，更清晰 30 fps / 88；硬件不接受该参数时协商默认码率模式。输出码率属性只是协商值，不能据此承诺固定文件大小；小体积档面向文字和简单操作，默认仍为标准档。硬件初始化或首帧 GPU 写入失败时尝试系统软件编码；录制中失败保留能完成封装的部分，不能封装的文件保留为带 UUID 的 `.partial.mp4` 并给出位置。
+- GIF 复用捕获与暂停时间轴：停止后 `GifExport` 在媒体线程用 Media Foundation 解码、WIC 量化和写帧，最多保留两帧及局部图块。正确处理负步幅、解码器的填充行和显示孔径；首帧完整，后续只编码变化矩形，静止帧用单像素携带延时。按时间戳累计厘秒，保留暂停后的实际时长，并写无限循环。三个档位分别是 10 / 15 / 20 fps、最长边 960 / 1280 / 1920，小图不放大；GIF 不启动音频采集，但保留 MP4 的声音偏好。显示生成进度，转换成功后移除本次中间 MP4，失败则保留并说明路径。目标文件只在编码完成后提交，不覆盖已有文件；格式偏好保存在 `[Capture] RecordingFormat`（0 MP4，1 GIF）。
+- 没有新 FFmpeg 或 Qt Multimedia 部署依赖。Media Foundation DLL 延迟加载，缺少媒体组件时报告录屏不可用，不影响普通截图与程序启动。
+- 声音用 WASAPI 共享模式：系统回环 / 默认麦克风均转换到 48 kHz 双声道 PCM，按 QPC 时间戳放到视频的时间轴上，混音后编码为 AAC 128 kbps。两项默认都关闭，用户明确开启后才采集。暂停清掉暂停期间的包，暂停前补齐尾部，恢复时扣除暂停时间。设备不可用不静默录成无声视频，会说明原因并允许重新设置。
+- 保存先在目标文件夹创建本次专属的 UUID 临时文件，成功 Finalize 后改为目标名字；已有文件不会被覆盖。录屏默认在系统“视频”下的 WinShun 文件夹，可在准备面板更改。临时文件与输出文件位于同一目录。
+- 首帧前停止按取消处理，不调用空 MP4 的 Finalize，不弹编码错误，并移除本次临时文件。捕获源关闭及帧回调错误转交媒体线程处理，沿用已有内容的封装 / 保留规则。媒体循环按下一帧期限休眠，无声时单次不超过 16 ms，有声时不超过 5 ms，暂停时 25 ms；鼠标事件由 Raw Input 推送，不在媒体循环轮询。
+- `[Capture]` 新增 `LastPinHotkey`（默认空）、`SaveFolder`（空用系统“屏幕截图”）、`RecordingFolder`、`RecordingSystemAudio`、`RecordingMicrophone`、`RecordingQuality`（0 小体积 / 1 标准 / 2 更清晰）、`RecordingCursor`、`RecordingCountdown`（后二者默认开）、`RecordingClicks`（默认关）。第一版的 `RecordingHighQuality` 在没有新画质键时迁移为标准 / 更清晰，非法档位恢复标准。`SaveFolder` 同时用于截图、编辑窗口和贴图的快速保存；“另存为”仍采用用户选的路径。最近截图快捷键复用 `Capture::pinLast`，保留原位置和可编辑标注。
+
+验证入口：`tst_recording` 用生成的画面走真实 GPU 转换、H.264/AAC 编码及系统解码，检查 15 / 30 fps、时长、图像内容、奇数选区、软件路径、点击圈出现与消退、队列边界、取消及既有文件保护；`recording-probe fixture <文件> <毫秒> --clicks` 录制自有测试窗口，`inspect <文件> <图片> --find-click` 解码文件并提取高亮画面；`WinShun --preview-recording <目录> --renderer d3d11 --scale 1.5 --auto` 使用真实 Capture、遮罩会话、Recorder 和媒体管线，点击准备选项、取消倒计时、开始、暂停、恢复、停止，再实际录制第二段，并核对第一段仍在，留下各状态的面板图。可加 `--gif`、`--small-file`、`--clicks`、`--no-cursor`、`--no-countdown`、`--skip-countdown`、`--english` 验证相应路径。该入口不启动索引服务、不读写用户配置、不注册全局快捷键；开启高亮时临时使用自有 Raw Input 监听。QML 内部鼠标事件不等于真实 Raw Input，实际输入另用 computer-use 在自有窗口验证。

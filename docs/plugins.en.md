@@ -223,6 +223,19 @@ Timeouts: one timer per query (`timeoutMs`); a late answer is dropped. A residen
 
 Effects (an action's answer, in order): `hide` (default), `keep`, `setQuery {text}`, `notify {text}`, `copy {text}`, `open {path | url}` (`url` takes `winshun:settings` too), `replace {items}` (a second-level list).
 
+### Search-panel metadata and filters (#88)
+
+Items may include `modified` and `created` (ISO 8601 with a time zone, or Unix seconds) and `size` (a nonnegative integer in bytes; zero means an empty file). Missing or invalid values stay blank. Older items without metadata remain visible. Unknown dates and sizes sort last in either direction. Type comes from the title's extension, Folder from the parent of `open.path`, and Source from the plugin's name.
+
+Resident queries receive `params.filters`; once queries receive JSON in `WS_FILTERS`. All three SDKs expose `q.filters`:
+
+```json
+{"modifiedFrom":"2026-01-01T00:00:00Z","modifiedTo":"2027-01-01T00:00:00Z",
+ "minSize":1048576,"maxSize":null,"kinds":["documents"],"extensions":["pdf","docx"],"folder":"C:\\Docs"}
+```
+
+The date interval includes its lower bound and excludes its upper bound. Both size bounds are inclusive. Null bounds, empty arrays and an empty folder mean no restriction; ordinary searches send `{}`. Plugins can apply these conditions to their data source. WinShun also filters known returned metadata, extensions and local open paths. Output metadata with Python `item(..., modified=..., created=..., size=...)`, PowerShell `New-WinShunItem -Modified ... -Created ... -Size ...`, or C++ `withModified / withCreated / withSize`.
+
 ### Icons
 
 `icon.png` (PNG / JPG / ICO in the plugin folder, relative; `icon.dark.png` preferred in the dark theme), `ext:pdf`, `file:C:\…`, `app:<AUMID>`, `glyph:U+E8E5` (Segoe Fluent Icons), `color:#ff8800` (a swatch), `data:image/png;base64,…` (≤ 64 KB), `site:https://…` (the site's own icon, as a browser shows it: Win顺 asks the site's home page for it once, keeps it and renews it monthly; the browser's icon until then; nothing of the address past the host is sent). Paths outside the plugin folder and SVG are refused.
