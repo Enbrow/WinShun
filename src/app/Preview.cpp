@@ -672,6 +672,66 @@ int runSettings(const QStringList& args)
         return finish(window, previewWebForms(window, editor, out, tree));
     }
 
+    if (args.contains(u"--backup-settings"_s)) {
+        bool ok = true;
+        const auto check = [&](bool condition, const char* message) {
+            if (!condition) {
+                qWarning("backup settings: %s", message);
+                ok = false;
+            }
+        };
+        auto* row = window->findChild<QQuickItem*>(u"backupExportRow"_s);
+        auto* button = window->findChild<QQuickItem*>(u"backupExportButton"_s);
+        auto* status = window->findChild<QQuickItem*>(u"backupOperationStatus"_s);
+        if (!row || !button || !status)
+            return finish(window, false);
+        window->resize(args.contains(u"--compact"_s) ? QSize(760, 420) : QSize(920, 720));
+        QMetaObject::invokeMethod(window, "goTo", Q_ARG(QVariant, QVariant::fromValue(row)));
+        settings.save(); // this preview's isolated profile, never the user's
+        const auto waitForBackup = [&] {
+            QElapsedTimer timeout;
+            timeout.start();
+            while (backup.busy() && timeout.elapsed() < 10000)
+                pump(20);
+            check(!backup.busy(), "operation did not finish");
+            settle(window, 3);
+            QMetaObject::invokeMethod(window, "revealRow", Q_ARG(QVariant, QVariant::fromValue(row)));
+            settle(window, 3);
+            auto* viewport = qobject_cast<QQuickItem*>(flick);
+            const auto inView = [&](QQuickItem* item) {
+                const QPointF top = item->mapToItem(viewport, QPointF());
+                return top.x() >= 0 && top.y() >= 0 && top.x() + item->width() <= viewport->width() + 1
+                    && top.y() + item->height() <= viewport->height() + 1;
+            };
+            check(inView(button) && inView(status), "export or its feedback is outside the viewport");
+        };
+        backup.backUpNow();
+        check(!button->isEnabled(), "export stayed enabled during a backup");
+        waitForBackup();
+        check(backup.problem().isEmpty() && !backup.message().isEmpty(), "success was not reported");
+        check(!QDir(Settings::dataDir() + u"/backups"_s).entryList({u"*.zip"_s}, QDir::Files).isEmpty(),
+            "worker did not write a backup");
+        check(status->property("text").toString() == backup.message(), "success did not reach the view");
+        bool saved = saveGrab(window, out.filePath(u"backup-success.png"_s));
+        const QString blocked = Settings::dataDir() + u"/blocked"_s;
+        QFile file(blocked);
+        check(file.open(QIODevice::WriteOnly), "cannot create the failure fixture");
+        file.close();
+        backup.setFolder(blocked); // a file where a directory is needed
+        backup.backUpNow();
+        waitForBackup();
+        backup.setFolder({});
+        settle(window, 3);
+        check(!backup.problem().isEmpty() && status->property("text").toString().contains(backup.problem()),
+            "failure was hidden with automatic backups off");
+        check(button->isEnabled(), "export did not become available after failure");
+        saved = saveGrab(window, out.filePath(u"backup-failure.png"_s)) && saved;
+        if (tree)
+            writeTree(window, out.filePath(u"backup.tree.txt"_s));
+        say(u"backup worker, success/error feedback and disabled controls checked on an isolated profile"_s);
+        return finish(window, ok && saved);
+    }
+
     if (args.contains(u"--plugin-layout"_s)) {
         if (args.contains(u"--compact"_s))
             window->resize(760, 420);

@@ -3905,6 +3905,32 @@ Window {
                 note: qsTr("备份设置、收藏夹和添加的插件，不含索引和历史记录。选同步盘里的文件夹（OneDrive、坚果云，或用 alist、RaiDrive 挂载的 WebDAV 盘），备份就跟着同步到云上。")
 
                 SettingRow {
+                    objectName: "backupExportRow"
+                    title: qsTr("导出设置")
+                    keywords: qsTr("备份;导出;迁移;换电脑;ZIP;backup;export;transfer").split(";")
+                    description: qsTr("导出一份 ZIP，带到新电脑后从备份恢复；不用开启自动备份。文件夹路径按原样保留，插件密码需重新填写。")
+                    bodyShown: window.backup.busy || window.backup.problem.length > 0 || window.backup.message.length > 0
+
+                    FlatButton {
+                        objectName: "backupExportButton"
+                        enabled: !window.backup.busy
+                        text: qsTr("导出备份…")
+                        onClicked: window.backup.exportBackup(window)
+                    }
+                    body: Text {
+                        objectName: "backupOperationStatus"
+                        width: parent.width
+                        text: window.backup.busy ? qsTr("正在处理备份…")
+                            : window.backup.problem.length > 0 ? qsTr("备份操作失败：%1").arg(window.backup.problem)
+                            : window.backup.message
+                        textFormat: Text.PlainText
+                        color: Theme.subtext
+                        font.pixelSize: Theme.fontCaption
+                        wrapMode: Text.Wrap
+                    }
+                }
+
+                SettingRow {
                     id: backupRow
 
                     readonly property bool on: window.editor.backupFolder.length > 0
@@ -3943,7 +3969,7 @@ Window {
                 SettingRow {
                     title: qsTr("恢复设置")
                     keywords: qsTr("恢复;还原;导入;换电脑;restore;import").split(";")
-                    description: qsTr("从一份备份恢复，Win顺 随后重启；现在的设置会先备份一份，恢复错了还能换回来")
+                    description: qsTr("选择 ZIP 备份，校验通过后恢复并重启；当前设置先存到本机数据文件夹的 backups 中。换机导出的备份保留本机的备份和索引位置。")
 
                     FlatButton {
                         visible: window.editor.backupFolder.length > 0

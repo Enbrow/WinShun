@@ -35,7 +35,9 @@ struct Packed {
     QByteArray zip;
     QString hash;
 };
-Packed pack(const QList<File>& files, const QString& version, const QDateTime& when);
+// A transfer leaves out this computer's backup/index locations and saved
+// Windows integration state. On import, those are kept from the target PC.
+Packed pack(const QList<File>& files, const QString& version, const QDateTime& when, bool forTransfer = false);
 
 struct Found {
     QString path;
@@ -48,10 +50,13 @@ QString hashOf(const QString& path);
 // "WinShun-2026-10-13-194700.zip"
 QString fileName(const QDateTime& when);
 
-// Writes `packed` into `folder` as the backup of `when` (through a ".part"
-// file, so a half-written one is never taken for a backup), then removes
-// all but the newest kKept. Empty on success, else why.
+// Writes `packed` atomically into `folder` as the backup of `when`, using
+// the next free second on a name collision, then removes all but the newest
+// kKept. Empty on success, else why.
 QString write(const QString& folder, const Packed& packed, const QDateTime& when);
+
+// A single, user-named export, saved atomically without pruning its folder.
+QString exportTo(const QString& path, const Packed& packed);
 
 // Unpacks the backup at `path` into `folder` (made here): "WinShun.ini"
 // and "data\…". Only those names are taken; a path that leaves the folder
@@ -60,7 +65,9 @@ QString unpack(const QString& path, const QString& folder);
 
 // Puts an unpacked backup (`staged`, as unpack() left it) in place: its
 // WinShun.ini over `settingsFile`, its data\… into `dataFolder`, file by
-// file (what the backup lacks stays). Then `staged` is removed.
-void apply(const QString& staged, const QString& settingsFile, const QString& dataFolder);
+// file (what the backup lacks stays). A failed replacement rolls back the
+// files already replaced; the staged backup is kept on failure. Empty on
+// success, else why. `staged` is removed only after success.
+QString apply(const QString& staged, const QString& settingsFile, const QString& dataFolder);
 
 } // namespace ws::backupfiles

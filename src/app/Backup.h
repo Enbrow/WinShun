@@ -25,6 +25,7 @@ class Backup : public QObject {
     Q_PROPERTY(bool busy READ busy NOTIFY changed FINAL)
     Q_PROPERTY(QDateTime last READ last NOTIFY changed FINAL) // of the newest backup there; invalid when none
     Q_PROPERTY(QString problem READ problem NOTIFY changed FINAL) // why the last one failed
+    Q_PROPERTY(QString message READ message NOTIFY changed FINAL) // result of an explicit operation
 
 public:
     explicit Backup(QObject* parent = nullptr);
@@ -34,9 +35,11 @@ public:
     bool busy() const { return m_busy; }
     QDateTime last() const { return m_last; }
     QString problem() const { return m_problem; }
+    QString message() const { return m_message; }
 
     void soon(); // the settings changed: a backup in a minute
     Q_INVOKABLE void backUpNow();
+    Q_INVOKABLE void exportBackup(QWindow* window);
     Q_INVOKABLE void openFolder();
     // Asks which backup (a dialog owned by `window`), backs up what there is
     // now, then has Win顺 restart with the one chosen.
@@ -53,13 +56,14 @@ signals:
 private:
     // A backup into the folder (or, with nowhere chosen, the data folder's
     // "backups"), then `restoring`, if given, unpacked to be applied.
-    void run(const QString& restoring = {});
+    void run(const QString& restoring = {}, const QString& exporting = {});
     void readLast();
 
     QString m_folder;
     bool m_busy = false;
     QDateTime m_last;
     QString m_problem;
+    QString m_message;
     QTimer m_timer;
 };
 

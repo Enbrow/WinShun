@@ -1,11 +1,16 @@
 #include "BackupFiles.h"
 
 #include <QDir>
+#include <QCryptographicHash>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
 
 #include <miniz.h>
+#include <windows.h>
 
 using namespace Qt::StringLiterals;
 using namespace ws::backupfiles;
@@ -47,6 +52,20 @@ void writeZip(const QString& path, const QList<std::pair<QByteArray, QByteArray>
     mz_zip_writer_end(&zip);
     writeFile(path, QByteArray(static_cast<const char*>(buffer), static_cast<qsizetype>(size)));
     mz_free(buffer);
+}
+
+QByteArray manifestFor(const QList<std::pair<QByteArray, QByteArray>>& entries, int format = 1)
+{
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    for (const auto& [name, bytes] : entries) {
+        hash.addData(name);
+        hash.addData(QByteArrayView("\0", 1));
+        hash.addData(bytes);
+        hash.addData(QByteArrayView("\0", 1));
+    }
+    return QJsonDocument(QJsonObject {{u"app"_s, u"WinShun"_s}, {u"format"_s, format},
+                             {u"hash"_s, QString::fromLatin1(hash.result().toHex())}})
+        .toJson();
 }
 
 } // namespace
@@ -136,7 +155,7 @@ private slots:
 
         const QString staged = m_data + u"/restore"_s;
         QCOMPARE(unpack(list(folder).first().path, staged), QString());
-        apply(staged, m_ini, m_data);
+        QCOMPARE(apply(staged, m_ini, m_data), QString());
         QCOMPARE(readFile(m_ini), QByteArray("[Launcher]\nHotkey=Alt+Space\n"));
         QCOMPARE(readFile(m_data + u"/favorites.json"_s), QByteArray("{\"favorites\":[]}"));
         QCOMPARE(readFile(m_data + u"/icons/web/custom/mine.png"_s), QByteArray("chosen"));
@@ -157,13 +176,190 @@ private slots:
         writeZip(zip, {{"backup.json", manifest}, {"data/C:/evil.txt", "x"}});
         QVERIFY(!unpack(zip, staged).isEmpty());
         QVERIFY(!QFile::exists(m_tmp.filePath(u"evil.txt"_s)));
-        // Other names are passed over.
+        // Only the payload written by our format is accepted.
         writeZip(zip, {{"backup.json", manifest}, {"data/favorites.json", "f"}, {"other/x.txt", "x"}});
-        QCOMPARE(unpack(zip, staged), QString());
-        QVERIFY(QFile::exists(staged + u"/data/favorites.json"_s));
+        QVERIFY(!unpack(zip, staged).isEmpty());
         QVERIFY(!QFile::exists(staged + u"/other/x.txt"_s));
         writeFile(zip, "not a zip");
         QVERIFY(!unpack(zip, staged).isEmpty());
+    }
+
+    void exportsWithoutPruning()
+    {
+        const QString folder = m_tmp.filePath(u"exports"_s);
+        const QDateTime when(QDate(2026, 10, 25), QTime(22, 5));
+        for (int i = 0; i < kKept + 2; ++i)
+            writeFile(QDir(folder).filePath(fileName(when.addSecs(i))), "user's archive");
+        const QString path = QDir(folder).filePath(u"我的换机设置.zip"_s);
+        const Packed packed = pack(collect(m_ini, m_data), u"0.13.0"_s, when, true);
+        QCOMPARE(exportTo(path, packed), QString());
+        QCOMPARE(list(folder).size(), kKept + 2); // exports do not rotate this folder
+        QCOMPARE(hashOf(path), packed.hash);
+        QCOMPARE(unpack(path, m_tmp.filePath(u"check-export"_s)), QString());
+        const QByteArray before = readFile(path);
+        QVERIFY(!exportTo(path, {}).isEmpty());
+        QCOMPARE(readFile(path), before);
+    }
+
+    void preservesBackupsWrittenInTheSameSecond()
+    {
+        const QString folder = m_tmp.filePath(u"same-second"_s);
+        const QDateTime when(QDate(2026, 10, 25), QTime(22, 5));
+        const Packed first = pack(collect(m_ini, m_data), u"0.13.0"_s, when);
+        QCOMPARE(write(folder, first, when), QString());
+        writeFile(m_ini, "[Launcher]\nHotkey=Ctrl+Space\n");
+        const Packed second = pack(collect(m_ini, m_data), u"0.13.0"_s, when);
+        QCOMPARE(write(folder, second, when), QString());
+        QCOMPARE(list(folder).size(), 2);
+        QCOMPARE(hashOf(QDir(folder).filePath(fileName(when))), first.hash);
+        QCOMPARE(hashOf(list(folder).first().path), second.hash);
+    }
+
+    void readsExistingVersionOneBackups()
+    {
+        const QString archive = m_tmp.filePath(u"old-format.zip"_s);
+        const QByteArray original = readFile(m_ini);
+        const QList<std::pair<QByteArray, QByteArray>> entries {{"WinShun.ini", original}};
+        // Original v1 manifest: no portable flag, and no new fields needed.
+        writeZip(archive, {{"backup.json", manifestFor(entries)}, entries.first()});
+        const QString staged = m_tmp.filePath(u"old-stage"_s);
+        QCOMPARE(unpack(archive, staged), QString());
+        writeFile(m_ini, "[Launcher]\nHotkey=Changed\n");
+        QCOMPARE(apply(staged, m_ini, m_data), QString());
+        QCOMPARE(readFile(m_ini), original);
+    }
+
+    void migratesToAnotherProfile()
+    {
+        {
+            QSettings source(m_ini, QSettings::IniFormat);
+            source.setValue(u"Backup/Folder"_s, u"Z:/old-sync"_s);
+            source.setValue(u"Index/Folder"_s, u"Z:/old-index"_s);
+            source.setValue(u"Index/Drives"_s, QStringList {u"Z:"_s});
+            source.setValue(u"Launcher/FolderMenuOpusBefore"_s, u"old-opus"_s);
+            source.setValue(u"Capture/PrintScreenBefore"_s, u"old-windows"_s);
+            source.setValue(u"Appearance/UiSize"_s, u"roomy"_s);
+            source.setValue(u"Index/Folders"_s, QStringList {u"D:/Projects"_s});
+            source.setValue(u"Plugin/me.notes/Setting.endpoint"_s, u"my-server"_s);
+            source.sync();
+        }
+        const QByteArray sourceBefore = readFile(m_ini);
+        const QString archive = m_tmp.filePath(u"transfer.zip"_s);
+        const Packed packed = pack(collect(m_ini, m_data), u"0.13.0"_s, QDateTime::currentDateTime(), true);
+        QCOMPARE(exportTo(archive, packed), QString());
+        QCOMPARE(readFile(m_ini), sourceBefore); // exporting never edits the source
+        const QString staged = m_tmp.filePath(u"import"_s);
+        QCOMPARE(unpack(archive, staged), QString());
+        {
+            QSettings exported(staged + u"/WinShun.ini"_s, QSettings::IniFormat);
+            QVERIFY(!exported.contains(u"Backup/Folder"_s));
+            QVERIFY(!exported.contains(u"Index/Folder"_s));
+            QVERIFY(!exported.contains(u"Index/Drives"_s));
+            QCOMPARE(exported.value(u"Appearance/UiSize"_s).toString(), u"roomy"_s);
+        }
+        const QString target = m_tmp.filePath(u"new-pc/WinShun.ini"_s);
+        const QString data = m_tmp.filePath(u"new-pc/data"_s);
+        writeFile(target, "[Launcher]\nHotkey=Ctrl+Space\n");
+        {
+            QSettings current(target, QSettings::IniFormat);
+            current.setValue(u"Backup/Folder"_s, u"C:/new-sync"_s);
+            current.setValue(u"Index/Folder"_s, u"C:/new-index"_s);
+            current.setValue(u"Index/Drives"_s, QStringList {u"C:"_s});
+            current.setValue(u"Launcher/FolderMenuOpusBefore"_s, u"new-opus"_s);
+            current.setValue(u"Capture/PrintScreenBefore"_s, u"new-windows"_s);
+            current.sync();
+        }
+        QCOMPARE(apply(staged, target, data), QString());
+        QSettings migrated(target, QSettings::IniFormat);
+        QCOMPARE(migrated.value(u"Launcher/Hotkey"_s).toString(), u"Alt+Space"_s);
+        QCOMPARE(migrated.value(u"Appearance/UiSize"_s).toString(), u"roomy"_s);
+        QCOMPARE(migrated.value(u"Plugin/me.notes/Setting.endpoint"_s).toString(), u"my-server"_s);
+        QCOMPARE(migrated.value(u"Index/Folders"_s).toStringList(), QStringList {u"D:/Projects"_s});
+        QCOMPARE(migrated.value(u"Backup/Folder"_s).toString(), u"C:/new-sync"_s);
+        QCOMPARE(migrated.value(u"Index/Folder"_s).toString(), u"C:/new-index"_s);
+        QCOMPARE(migrated.value(u"Index/Drives"_s).toStringList(), QStringList {u"C:"_s});
+        QCOMPARE(migrated.value(u"Launcher/FolderMenuOpusBefore"_s).toString(), u"new-opus"_s);
+        QCOMPARE(migrated.value(u"Capture/PrintScreenBefore"_s).toString(), u"new-windows"_s);
+        QCOMPARE(readFile(data + u"/favorites.json"_s), QByteArray("{\"favorites\":[]}"));
+        QCOMPARE(readFile(data + u"/icons/web/custom/mine.png"_s), QByteArray("chosen"));
+        QVERIFY(QFile::exists(data + u"/plugins/me.notes/plugin.json"_s));
+        QVERIFY(!QFile::exists(data + u"/clipboard/clipboard.db"_s));
+    }
+
+    void rejectsInvalidPayloads()
+    {
+        const QString archive = m_tmp.filePath(u"invalid.zip"_s);
+        const QString staged = m_tmp.filePath(u"invalid-stage"_s);
+        const QByteArray original = readFile(m_ini);
+        const QList<std::pair<QByteArray, QByteArray>> valid {{"WinShun.ini", original}};
+        writeZip(archive, {{"backup.json", manifestFor(valid, 2)}, valid.first()});
+        QVERIFY(unpack(archive, staged).contains(u"格式"_s));
+        writeZip(archive, {{"backup.json", manifestFor(valid)}, {"WinShun.ini", "[Launcher]\nHotkey=Changed\n"}});
+        QVERIFY(!unpack(archive, staged).isEmpty()); // valid ZIP CRC, wrong manifest hash
+        for (const QByteArray& name : {QByteArray("data/../escape"), QByteArray("data/plugins/CON.txt"),
+                 QByteArray("data/plugins/x/file. "), QByteArray("data/plugins/x/file:stream"),
+                 QByteArray("data/clipboard/clipboard.db"), QByteArray("winshun.ini")}) {
+            auto entries = valid;
+            entries.append({name, "x"});
+            const QByteArray manifest = manifestFor(entries);
+            entries.prepend({"backup.json", manifest});
+            writeZip(archive, entries);
+            QVERIFY2(!unpack(archive, staged).isEmpty(), name.constData());
+        }
+        auto duplicate = valid;
+        duplicate.append(valid.first());
+        duplicate.prepend({"backup.json", manifestFor(duplicate)});
+        writeZip(archive, duplicate);
+        QVERIFY(!unpack(archive, staged).isEmpty());
+        const QList<std::pair<QByteArray, QByteArray>> emptyIni {{"WinShun.ini", "not settings"}};
+        writeZip(archive, {{"backup.json", manifestFor(emptyIni)}, emptyIni.first()});
+        QVERIFY(!unpack(archive, staged).isEmpty());
+        const QList<std::pair<QByteArray, QByteArray>> noIni {{"data/favorites.json", "{}"}};
+        writeZip(archive, {{"backup.json", manifestFor(noIni)}, noIni.first()});
+        QVERIFY(!unpack(archive, staged).isEmpty());
+        QCOMPARE(readFile(m_ini), original);
+        QVERIFY(pack({}, u"0.13.0"_s, QDateTime::currentDateTime()).zip.isEmpty());
+    }
+
+    void rollsBackIfAFileCannotBeReplaced()
+    {
+        const QString archive = m_tmp.filePath(u"restore.zip"_s);
+        QCOMPARE(exportTo(archive, pack(collect(m_ini, m_data), u"0.13.0"_s, QDateTime::currentDateTime())), QString());
+        const QString staged = m_tmp.filePath(u"staged"_s);
+        QCOMPARE(unpack(archive, staged), QString());
+        const QByteArray current = "[Launcher]\nHotkey=Ctrl+Space\n";
+        writeFile(m_ini, current);
+        const QString favorite = m_data + u"/favorites.json"_s;
+        writeFile(favorite, "{\"favorites\":[1]}");
+        QVERIFY(QFile::remove(m_data + u"/dialog-pins.txt"_s));
+        // Readable for the safety copy, but held without FILE_SHARE_DELETE:
+        // the earlier INI and pins are replaced before this commit fails.
+        const HANDLE lock = ::CreateFileW(reinterpret_cast<LPCWSTR>(favorite.utf16()), GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        QVERIFY(lock != INVALID_HANDLE_VALUE);
+        const QString problem = apply(staged, m_ini, m_data);
+        ::CloseHandle(lock);
+        QVERIFY(!problem.isEmpty());
+        QCOMPARE(readFile(m_ini), current);
+        QCOMPARE(readFile(favorite), QByteArray("{\"favorites\":[1]}"));
+        QVERIFY(!QFile::exists(m_data + u"/dialog-pins.txt"_s));
+        QVERIFY(QFileInfo(staged).isDir());
+        QCOMPARE(apply(staged, m_ini, m_data), QString()); // retry succeeds once unlocked
+        QCOMPARE(readFile(m_ini), QByteArray("[Launcher]\nHotkey=Alt+Space\n"));
+    }
+
+    void failedExportKeepsTheExistingFile()
+    {
+        const QString archive = m_tmp.filePath(u"existing.zip"_s);
+        writeFile(archive, "original export");
+        const HANDLE lock = ::CreateFileW(reinterpret_cast<LPCWSTR>(archive.utf16()), GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        QVERIFY(lock != INVALID_HANDLE_VALUE);
+        const QString problem
+            = exportTo(archive, pack(collect(m_ini, m_data), u"0.13.0"_s, QDateTime::currentDateTime()));
+        ::CloseHandle(lock);
+        QVERIFY(!problem.isEmpty());
+        QCOMPARE(readFile(archive), QByteArray("original export"));
     }
 };
 

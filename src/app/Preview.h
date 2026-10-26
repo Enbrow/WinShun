@@ -15,6 +15,8 @@
 //     Add --renderer d3d11 for the GPU path (default: software).
 //     --wsl-folders checks WSL folder identity and renders stopped/running
 //     cards; --english and --compact cover translation and minimum size.
+//     --backup-settings checks the real backup worker and success/failure
+//     feedback with automatic backups off; --compact uses 760x420.
 //     The whole settings window (the real SettingsWindow.qml over a real
 //     SettingsEditor, WindowFrame and Updater on a temporary profile): every
 //     page and every tab of it as <folder>\pNN-tT.png, the window as tall

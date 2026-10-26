@@ -3258,7 +3258,9 @@ void App::handleCommand(const QString& command)
     if (command == u"toggle")
         toggleLauncher();
     else if (command == u"quit")
-        QGuiApplication::quit();
+        // Explicit exit must bypass the retained windows' Close vetoes.
+        // App's destructor saves the index and disposes of those windows.
+        QCoreApplication::exit(0);
     else if (command == u"settings")
         showSettings();
     else if (command.startsWith(u"query:"))
@@ -4457,7 +4459,7 @@ void App::showTrayMenu()
         restart({u"--background"_s});
         break;
     case QuitCommand:
-        QGuiApplication::quit();
+        QCoreApplication::exit(0);
         break;
     default:
         break;
@@ -4475,7 +4477,7 @@ void App::restart(const QStringList& arguments, Elevation elevation)
         if (QMetaObject::invokeMethod(m_settingsWindow, "place", Q_RETURN_ARG(QVariant, place)) && place.isValid())
             *m_restartArguments << u"--settings-at"_s << place.toString();
     }
-    QGuiApplication::quit();
+    QCoreApplication::exit(0);
 }
 
 // ---- 索引方式: how the volumes are read (GitHub #21) --------------------------
