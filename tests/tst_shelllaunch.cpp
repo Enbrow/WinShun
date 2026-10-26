@@ -1,4 +1,5 @@
 #include "platform/Integrity.h"
+#include "platform/FileManagers.h"
 #include "platform/Shell.h"
 
 #include <QCoreApplication>
@@ -8,11 +9,14 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLibraryInfo>
+#include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QTest>
 
+#include <objbase.h>
 #include <tlhelp32.h>
 
+#include <algorithm>
 #include <atomic>
 #include <memory>
 
@@ -43,6 +47,96 @@ QString parentProgram()
 class TestShellLaunch : public QObject {
     Q_OBJECT
 private slots:
+    void oneCommanderLookalike()
+    {
+        // WPF's window class is shared by unrelated apps. Even a matching
+        // assembly name and title must not be enough to identify a manager.
+        constexpr const wchar_t* name = L"HwndWrapper[OneCommander.exe;;WinShunTest]";
+        WNDCLASSW wc {};
+        wc.lpfnWndProc = ::DefWindowProcW;
+        wc.hInstance = ::GetModuleHandleW(nullptr);
+        wc.lpszClassName = name;
+        QVERIFY(::RegisterClassW(&wc));
+        auto unregister = qScopeGuard([&] { ::UnregisterClassW(name, wc.hInstance); });
+        const HWND window = ::CreateWindowExW(
+            0, name, L"OneCommander", WS_OVERLAPPED, 0, 0, 100, 100, nullptr, nullptr, wc.hInstance, nullptr);
+        QVERIFY(window);
+        auto destroy = qScopeGuard([&] { ::DestroyWindow(window); });
+        QVERIFY(!ws::filemanager::kindOf(window));
+        QVERIFY(!ws::filemanager::kindOf(nullptr));
+    }
+
+    void oneCommanderNavigation_data()
+    {
+        QTest::addColumn<int>("model");
+        QTest::newRow("production-STA") << int(COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        QTest::newRow("MTA") << int(COINIT_MULTITHREADED);
+    }
+
+    // Opt-in: the HWND must belong to an isolated OneCommander copy. Uses
+    // the same live active-pane query as Ctrl+G and the dialog suggestions.
+    void oneCommanderNavigation()
+    {
+        bool valid = false;
+        const qulonglong handle = qEnvironmentVariable("WINSHUN_ONECOMMANDER_TEST_WINDOW").toULongLong(&valid);
+        if (!valid || !handle)
+            QSKIP("Set WINSHUN_ONECOMMANDER_TEST_WINDOW to an isolated OneCommander main window");
+        const HWND window = reinterpret_cast<HWND>(static_cast<quintptr>(handle));
+        QVERIFY(ws::filemanager::kindOf(window) == ws::filemanager::Kind::OneCommander);
+        QFETCH(int, model);
+        const HRESULT com = ::CoInitializeEx(nullptr, static_cast<DWORD>(model));
+        QVERIFY(SUCCEEDED(com));
+        auto uninitialize = qScopeGuard([] { ::CoUninitialize(); });
+        const std::wstring original = ws::filemanager::frontFolder(window);
+        QVERIFY(!original.empty());
+        QTemporaryDir temporary(QDir::tempPath() + u"/WinShun OneCommander-XXXXXX"_s);
+        QVERIFY(temporary.isValid());
+        const QString child = temporary.filePath(u"中文 空格 John's 文件夹"_s);
+        QVERIFY(QDir().mkpath(child));
+        const auto native = [](const QString& path) { return QDir::toNativeSeparators(path).toStdWString(); };
+        const auto shows = [&](const std::wstring& path) {
+            return QDir::fromNativeSeparators(QString::fromStdWString(ws::filemanager::frontFolder(window)))
+                == QDir::fromNativeSeparators(QString::fromStdWString(path));
+        };
+        auto restore
+            = qScopeGuard([&] { ws::filemanager::goToInFront(ws::filemanager::Kind::OneCommander, original); });
+        QVERIFY(ws::filemanager::installed(ws::filemanager::Kind::OneCommander));
+        QVERIFY(ws::filemanager::goToInFront(ws::filemanager::Kind::OneCommander, native(child)));
+        QTRY_VERIFY_WITH_TIMEOUT(shows(native(child)), 5000);
+        const DWORD clipboard = ::GetClipboardSequenceNumber();
+        const auto folders = ws::filemanager::openFolders();
+        QCOMPARE(::GetClipboardSequenceNumber(), clipboard);
+        const auto found = std::ranges::find_if(folders, [&](const ws::filemanager::Folder& folder) {
+            return folder.shownIn == ws::filemanager::Kind::OneCommander && folder.path == native(child);
+        });
+        QVERIFY(found != folders.end());
+        QCOMPARE(folders.front().path, native(child));
+        QCOMPARE(std::ranges::count_if(
+                     folders, [&](const ws::filemanager::Folder& folder) { return folder.path == found->path; }),
+            1);
+
+        QFile file(temporary.filePath(u"选中 中文.txt"_s));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.close();
+        QVERIFY(ws::filemanager::reveal(ws::filemanager::Kind::OneCommander, {native(file.fileName())}));
+        QTRY_VERIFY_WITH_TIMEOUT(shows(native(temporary.path())), 5000);
+        QVERIFY(ws::filemanager::reveal(ws::filemanager::Kind::OneCommander, {native(child)}));
+        QTRY_VERIFY_WITH_TIMEOUT(shows(native(temporary.path())), 5000);
+        QFile nested(child + u"/另一个.txt"_s);
+        QVERIFY(nested.open(QIODevice::WriteOnly));
+        nested.close();
+        QVERIFY(ws::filemanager::reveal(
+            ws::filemanager::Kind::OneCommander, {native(file.fileName()), native(nested.fileName())}));
+        QTRY_VERIFY_WITH_TIMEOUT(shows(native(child)), 5000);
+        QVERIFY(ws::filemanager::openFolder(ws::filemanager::Kind::OneCommander, native(child)));
+        QTRY_VERIFY_WITH_TIMEOUT(shows(native(child)), 5000);
+        QVERIFY(ws::filemanager::goToInFront(ws::filemanager::Kind::OneCommander, L"C:\\"));
+        QTRY_VERIFY_WITH_TIMEOUT(shows(L"C:\\"), 5000);
+        QVERIFY(ws::filemanager::goToInFront(ws::filemanager::Kind::OneCommander, original));
+        QTRY_VERIFY_WITH_TIMEOUT(shows(original), 5000);
+        restore.dismiss();
+    }
+
     void customCommandViaExplorer()
     {
         if (!::GetShellWindow())

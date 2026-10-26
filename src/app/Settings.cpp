@@ -842,7 +842,7 @@ void Settings::load()
     dialogBarExcludedApps = readOrDefault(s, u"Launcher/DialogBarExcludedApps"_s, d.dialogBarExcludedApps);
     fileManager = readOrDefault(s, u"Launcher/FileManager"_s, d.fileManager).trimmed().toLower();
     if (fileManager != u"totalcmd" && fileManager != u"dopus" && fileManager != u"xyplorer" && fileManager != u"pulse"
-        && fileManager != u"custom")
+        && fileManager != u"onecommander" && fileManager != u"custom")
         fileManager = d.fileManager;
     fileManagerOpenCommand = readOrDefault(s, u"Launcher/FileManagerOpenCommand"_s, d.fileManagerOpenCommand).trimmed();
     fileManagerRevealCommand = readOrDefault(s, u"Launcher/FileManagerRevealCommand"_s, d.fileManagerRevealCommand).trimmed();

@@ -699,6 +699,10 @@ private slots:
         QVERIFY(problemText(makePlan(state, one(u"Launcher/FileManager"_s, u"custom"_s), env)).contains(u"only the user can set"));
         QVERIFY(problemText(makePlan(state, one(u"Launcher/FileManager"_s, u"xyplorer"_s), env)).contains(u"not installed"));
         QVERIFY(makePlan(state, one(u"Launcher/FileManager"_s, u"totalcmd"_s), env).problems.isEmpty());
+        QVERIFY(makePlan(state, one(u"Launcher/FileManager"_s, u"onecommander"_s), env).problems.isEmpty());
+        env.fileManagerAvailable = [](const QString&) { return false; };
+        QVERIFY(problemText(makePlan(state, one(u"Launcher/FileManager"_s, u"onecommander"_s), env)).contains(u"not installed"));
+        env.fileManagerAvailable = [](const QString&) { return true; };
         state.settings.fileManagerOpenCommand = u"fm.exe {path}"_s;
         QVERIFY(makePlan(state, one(u"Launcher/FileManager"_s, u"custom"_s), env).problems.isEmpty());
     }

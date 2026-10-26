@@ -22,6 +22,25 @@ class SettingsTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void oneCommander()
+    {
+        QTemporaryDir profile;
+        QVERIFY(profile.isValid());
+        ws::Settings::useProfile(profile.path());
+        ws::Settings settings;
+        settings.fileManager = u"onecommander"_s;
+        settings.save();
+        ws::Settings restored;
+        restored.load();
+        QCOMPARE(restored.fileManager, settings.fileManager);
+
+        QSettings ini(ws::Settings::filePath(), QSettings::IniFormat);
+        ini.setValue(u"Launcher/FileManager"_s, u" OneCommander "_s);
+        ini.sync();
+        restored.load();
+        QCOMPARE(restored.fileManager, u"onecommander"_s);
+    }
+
     void selectedDrivesRoundTrip()
     {
         QTemporaryDir temporary;

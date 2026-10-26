@@ -100,10 +100,10 @@ struct Settings {
     // The user was asked under the dialog bar whether to go by itself (or set it in Settings): asked once.
     bool dialogAutoJumpAsked = false;
     QStringList dialogBarExcludedApps; // program files ("notepad.exe") whose file dialogs go without the bar
-    // explorer | totalcmd | dopus | xyplorer | pulse | custom: where folders
+    // explorer | totalcmd | dopus | xyplorer | pulse | onecommander | custom: where folders
     // open and items are shown (shell::setFileManager); Explorer while the one
     // chosen is not installed. custom: by the command lines below (GitHub #23).
-    // pulse: GitHub #41.
+    // pulse: GitHub #41. onecommander: its public UI Automation interface.
     QString fileManager = QStringLiteral("explorer");
     // For custom: the command line that opens a folder, and the one that
     // shows an item selected (none: the item's folder is opened), {path}

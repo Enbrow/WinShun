@@ -20,6 +20,7 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <tlhelp32.h>
+#include <uiautomation.h>
 #include <wrl/client.h>
 
 #include <algorithm>
@@ -28,6 +29,7 @@
 #include <concepts>
 #include <cstdint>
 #include <initializer_list>
+#include <memory>
 #include <mutex>
 #include <string_view>
 #include <thread>
@@ -340,6 +342,124 @@ void bringToFront(HWND window)
         ::ShowWindowAsync(window, SW_RESTORE);
     if (::GetForegroundWindow() != window)
         ::SetForegroundWindow(window);
+}
+
+// OneCommander's public integration points, supplied by its author:
+// github.com/m1l/AutomationTest/blob/main/OCInteractionTest/OCInteractionTest/MainWindow.xaml.cs
+// Read the active pane live, including after focus has moved to a dialog.
+// Never focus a control, simulate typing or use the clipboard to ask it.
+class OneCommanderAutomation {
+public:
+    explicit OneCommanderAutomation(HWND window)
+    {
+        if (kindOf(window) != Kind::OneCommander
+            || FAILED(
+                ::CoCreateInstance(__uuidof(CUIAutomation8), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&m_uia))))
+            return;
+        ComPtr<IUIAutomation2> timed;
+        if (FAILED(m_uia.As(&timed)) || FAILED(timed->put_ConnectionTimeout(1000))
+            || FAILED(timed->put_TransactionTimeout(1000)))
+            return;
+        m_uia->ElementFromHandle(window, &m_root);
+    }
+
+    std::wstring folder() const
+    {
+        const auto pattern = value(L"CurrentPathGet");
+        BSTR text = nullptr;
+        const HRESULT result = pattern ? pattern->get_CurrentValue(&text) : E_FAIL;
+        const Text owned(text, ::SysFreeString);
+        if (FAILED(result) || !owned)
+            return {};
+        std::wstring path(owned.get(), ::SysStringLen(owned.get()));
+        return isFolder(path) ? path : std::wstring();
+    }
+
+    // A file path selects that item in its folder; a folder navigates there.
+    bool goTo(const std::wstring& path) const
+    {
+        const auto pattern = value(L"CurrentPathSet");
+        const Text text(::SysAllocStringLen(path.data(), static_cast<UINT>(path.size())), ::SysFreeString);
+        return pattern && text && SUCCEEDED(pattern->SetValue(text.get()));
+    }
+
+private:
+    using Text = std::unique_ptr<OLECHAR, decltype(&::SysFreeString)>;
+
+    ComPtr<IUIAutomationValuePattern> value(const wchar_t* id) const
+    {
+        if (!m_root)
+            return nullptr;
+        const Text text(::SysAllocString(id), ::SysFreeString);
+        if (!text)
+            return nullptr;
+        VARIANT property {};
+        property.vt = VT_BSTR;
+        property.bstrVal = text.get();
+        ComPtr<IUIAutomationCondition> condition;
+        ComPtr<IUIAutomationElement> element;
+        ComPtr<IUIAutomationValuePattern> pattern;
+        if (SUCCEEDED(m_uia->CreatePropertyCondition(UIA_AutomationIdPropertyId, property, &condition))
+            && SUCCEEDED(m_root->FindFirst(TreeScope_Descendants, condition.Get(), &element)) && element)
+            element->GetCurrentPatternAs(UIA_ValuePatternId, IID_PPV_ARGS(&pattern));
+        return pattern;
+    }
+
+    ComPtr<IUIAutomation> m_uia;
+    ComPtr<IUIAutomationElement> m_root;
+};
+
+// Main windows only, in Z order. Settings and other owned WPF dialogs are
+// excluded by kindOf; a portable copy need not leave registry entries.
+HWND oneCommanderWindow(bool visibleOnly = true)
+{
+    struct Search {
+        bool visibleOnly;
+        HWND found = nullptr;
+    } search {visibleOnly};
+    ::EnumWindows(
+        [](HWND hwnd, LPARAM param) -> BOOL {
+            auto& search = *reinterpret_cast<Search*>(param);
+            if ((!search.visibleOnly || ::IsWindowVisible(hwnd)) && kindOf(hwnd) == Kind::OneCommander) {
+                search.found = hwnd;
+                return FALSE;
+            }
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&search));
+    return search.found;
+}
+
+std::wstring oneCommanderProgram()
+{
+    if (const std::wstring running = programOf(oneCommanderWindow(false)); !running.empty())
+        return running;
+    constexpr const wchar_t* kKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\OneCommander.exe";
+    for (const HKEY root : {HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE}) {
+        for (const DWORD view : {RRF_SUBKEY_WOW6464KEY, RRF_SUBKEY_WOW6432KEY}) {
+            std::wstring exe = registryText(root, kKey, nullptr, view);
+            if (exe.size() >= 2 && exe.front() == L'"' && exe.back() == L'"')
+                exe = exe.substr(1, exe.size() - 2);
+            if (!exe.empty() && isFile(exe))
+                return exe;
+        }
+    }
+    // MSI's default install and the Store's execution alias. No process is
+    // started merely to detect it or to collect folders for Ctrl+G.
+    for (const KNOWNFOLDERID& id : {FOLDERID_ProgramFiles, FOLDERID_LocalAppData}) {
+        PWSTR folder = nullptr;
+        const HRESULT result = ::SHGetKnownFolderPath(id, 0, nullptr, &folder);
+        const std::wstring base = SUCCEEDED(result) ? folder : L"";
+        ::CoTaskMemFree(folder);
+        if (base.empty())
+            continue;
+        for (const wchar_t* suffix :
+            {L"\\OneCommander\\OneCommander.exe", L"\\Microsoft\\WindowsApps\\OneCommander.exe"}) {
+            if (isFile(base + suffix))
+                return base + suffix;
+        }
+    }
+    return {};
 }
 
 // Pulse (GitHub #41), an open-source file manager that draws its windows
@@ -735,7 +855,7 @@ std::vector<PulseShown> pulseShown()
 
 std::optional<Kind> kindOf(HWND window)
 {
-    wchar_t name[32] {};
+    wchar_t name[512] {}; // WPF includes the assembly name and a GUID
     if (!window || ::GetClassNameW(window, name, static_cast<int>(std::size(name))) == 0)
         return std::nullopt;
     if (::wcscmp(name, L"CabinetWClass") == 0)
@@ -748,6 +868,9 @@ std::optional<Kind> kindOf(HWND window)
         return Kind::XYplorer;
     if (::wcscmp(name, kPulseClass) == 0 && isPulseProgram(programOf(window)))
         return Kind::Pulse;
+    if (std::wstring_view(name).starts_with(L"HwndWrapper[") && !::GetWindow(window, GW_OWNER)
+        && win32::equalsIgnoreCase(baseName(programOf(window)), L"OneCommander.exe"))
+        return Kind::OneCommander;
     return std::nullopt;
 }
 
@@ -808,6 +931,9 @@ std::vector<Folder> openFolders()
                     for (const pathtext::XYplorerTab& folder : shown.folders)
                         (folder.state == 1 ? search.onTop : search.behind).push_back({folder.path.toStdWString(), *kind});
                 }
+            } else if (kind == Kind::OneCommander && ::IsWindowVisible(hwnd)) {
+                if (std::wstring folder = OneCommanderAutomation(hwnd).folder(); !folder.empty())
+                    search.onTop.push_back({std::move(folder), *kind});
             }
             return TRUE;
         },
@@ -893,6 +1019,8 @@ std::wstring program(Kind kind)
         return xyplorerProgram();
     case Kind::Pulse:
         return pulseProgram();
+    case Kind::OneCommander:
+        return oneCommanderProgram();
     case Kind::Custom: {
         const std::lock_guard lock(g_customMutex);
         return QDir::toNativeSeparators(customProgram(g_customOpen)).toStdWString();
@@ -945,6 +1073,13 @@ bool openFolder(Kind kind, const std::wstring& folder)
         // window when that one is busy or was used in the last 8 s.
         letPulseToFront();
         return run(exe, pathtext::commandArgument(QString::fromStdWString(folder)).toStdWString(), false);
+    case Kind::OneCommander: {
+        DWORD pid = 0;
+        if (const HWND window = oneCommanderWindow(false); window && ::GetWindowThreadProcessId(window, &pid))
+            ::AllowSetForegroundWindow(pid);
+        return run(exe, L"-o " + pathtext::commandArgument(QString::fromStdWString(folder)).toStdWString() + L" -newtab",
+            true, folderOf(exe)); // hand-over finishes before another pane command is sent
+    }
     case Kind::Custom:
     case Kind::Explorer:
         break;
@@ -994,6 +1129,8 @@ std::wstring frontFolder(HWND window)
             }
         }
         return {};
+    case Kind::OneCommander:
+        return OneCommanderAutomation(window).folder();
     case Kind::Custom:
         break;
     }
@@ -1014,6 +1151,12 @@ bool goToInFront(Kind kind, const std::wstring& folder)
     case Kind::XYplorer:
     case Kind::Pulse:
         return openFolder(kind, folder);
+    case Kind::OneCommander:
+        if (const HWND window = oneCommanderWindow(); window && OneCommanderAutomation(window).goTo(folder)) {
+            bringToFront(window);
+            return true;
+        }
+        return false;
     case Kind::Explorer:
     case Kind::Custom:
         break;
@@ -1179,6 +1322,49 @@ bool revealInPulse(const std::wstring& exe, const std::vector<std::wstring>& pat
     return shown;
 }
 
+// The public setter selects a file, but treats a directory as navigation.
+// Show a directory's parent instead; for multiple parents keep a tab for
+// each, selecting the first file per parent as the single-item API allows.
+bool revealInOneCommander(const std::vector<std::wstring>& paths)
+{
+    struct Group {
+        QString folder;
+        std::wstring file;
+    };
+    std::vector<Group> groups;
+    for (const std::wstring& path : paths) {
+        const QFileInfo info(QString::fromStdWString(path));
+        const QString folder = QDir::toNativeSeparators(info.isRoot() ? info.filePath() : info.path());
+        auto group
+            = std::ranges::find_if(groups, [&](const Group& g) { return pathtext::sameFolder(g.folder, folder); });
+        if (group == groups.end())
+            group = groups.insert(groups.end(), {folder, {}});
+        if (group->file.empty() && info.isFile())
+            group->file = path;
+    }
+    bool shown = false;
+    for (const Group& group : groups) {
+        HWND window = oneCommanderWindow();
+        if (!window || groups.size() > 1) {
+            if (!openFolder(Kind::OneCommander, group.folder.toStdWString())
+                || !waitFor(
+                    [&] {
+                        window = oneCommanderWindow();
+                        return window
+                            && pathtext::sameFolder(
+                                QString::fromStdWString(OneCommanderAutomation(window).folder()), group.folder);
+                    },
+                    std::chrono::milliseconds(3000)))
+                return shown;
+        }
+        if (!OneCommanderAutomation(window).goTo(group.file.empty() ? group.folder.toStdWString() : group.file))
+            return shown;
+        bringToFront(window);
+        shown = true;
+    }
+    return shown;
+}
+
 // Each item's folder opened by the custom open command (no reveal command).
 bool openFoldersOf(const QString& openCommand, const std::vector<std::wstring>& paths)
 {
@@ -1222,6 +1408,8 @@ bool reveal(Kind kind, const std::vector<std::wstring>& paths)
         }
         return shown;
     }
+    if (kind == Kind::OneCommander)
+        return revealInOneCommander(paths);
     const std::wstring exe = program(kind);
     if (exe.empty() || kind == Kind::Explorer)
         return false;

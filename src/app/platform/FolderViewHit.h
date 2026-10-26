@@ -16,6 +16,7 @@ enum class Surface {
     TotalCommander, // its window in front: the panel with the focus
     XYplorer, // its window in front: the tab with the focus
     Pulse, // its window in front: the pane with the focus in the tab on top (GitHub #41)
+    OneCommander, // its public CurrentPathGet/CurrentPathSet automation elements
     Dialog, // an Open or Save dialog in front: chosen, it goes there
     Other, // any other window: chosen, the file manager opens it
 };

@@ -110,6 +110,8 @@ std::optional<filemanager::Kind> managerOf(folderview::Surface surface)
         return filemanager::Kind::XYplorer;
     case folderview::Surface::Pulse:
         return filemanager::Kind::Pulse;
+    case folderview::Surface::OneCommander:
+        return filemanager::Kind::OneCommander;
     default:
         return std::nullopt;
     }
@@ -130,6 +132,8 @@ const char* nameOf(folderview::Surface surface)
         return "XYplorer";
     case folderview::Surface::Pulse:
         return "Pulse";
+    case folderview::Surface::OneCommander:
+        return "OneCommander";
     case folderview::Surface::Dialog:
         return "a file dialog";
     case folderview::Surface::Other:
@@ -295,6 +299,8 @@ void FolderMenu::hotkeyPressed()
             hit.surface = folderview::Surface::XYplorer;
         else if (manager == filemanager::Kind::Pulse)
             hit.surface = folderview::Surface::Pulse;
+        else if (manager == filemanager::Kind::OneCommander)
+            hit.surface = folderview::Surface::OneCommander;
         else if (filedialog::kind(root) != filedialog::Kind::None)
             hit.surface = folderview::Surface::Dialog;
         else
@@ -322,6 +328,7 @@ void FolderMenu::hotkeyPressed()
         case folderview::Surface::TotalCommander:
         case folderview::Surface::XYplorer:
         case folderview::Surface::Pulse: // may wait for it to save what it shows (filemanager::openFolders)
+        case folderview::Surface::OneCommander:
             folder = QString::fromStdWString(filemanager::frontFolder(hit.root));
             break;
         case folderview::Surface::Dialog:
