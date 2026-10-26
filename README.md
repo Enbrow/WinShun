@@ -91,7 +91,7 @@
 - **双击 Ctrl** 打开（也可以改成双击 Alt 或 Shift），再按一次或 `Esc` 关闭；三百多万个文件里搜一次只要几毫秒。
 - **拼音和首字母**：`ndbg` → 年度报告，`baog` → 报告；多音字按常用读音。打错了同音字（年度报高）找不到时，自动按读音再找一遍。
 - **搜整台电脑**：所有本地磁盘，U 盘可选（没收录的 U 盘插着时，列表末尾会提示你顺手搜一下它）；**NAS、内网共享文件夹（SMB）** 也能加进来一起搜，服务器关机时收录过的照样能搜到。没有管理员权限的电脑也能用：只索引你选的文件夹（见下面“管理员权限”）。
-- **排序懂你**：自己的文件在前，系统目录、`node_modules` 在后，名字完全一样的最前。每行显示修改日期，`Ctrl+S` 在最匹配、最新、最早之间切换；底栏的“更多”里还能按名称、所在文件夹、类型、大小排。不输入时列出最近打开或最近修改的文件，也可以不列；还可以设成每次打开时清空搜索。结果怕点错的话，设置里可以改成双击才打开。
+- **排序懂你**：自己的文件在前，系统目录、`node_modules` 在后，名字完全一样的最前。每行显示修改日期，也可在设置中开启文件大小，无需展开窗口；两项可分别开关。`Ctrl+S` 在最匹配、最新、最早之间切换；底栏的“更多”里还能按名称、所在文件夹、类型、大小排。不输入时列出最近打开或最近修改的文件，也可以不列；还可以设成每次打开时清空搜索。结果怕点错的话，设置里可以改成双击才打开。
 - **程序优先**：搜 `curl`，`curl.exe` 排在文件夹 `curl` 和 `curl.h` 前面；优先哪些类型可以自己改（默认 exe、bat、cmd、ps1、msi，像 Listary 的“优先显示的文件类型”）。
 - **数字键直达**：`Ctrl+1`～`Ctrl+9` 打开第几行（也可改成 `Alt`）；按住 `Ctrl` 时图标上显示序号，也可以设成一直显示或不显示。
 - **按类型找**：选中 **文件** 后，下面一排是文件夹、文档、图片、视频、压缩包等类型，`Ctrl+Tab` 依次切换；点 `+` 或在设置里自己加类型。
@@ -142,7 +142,7 @@
 - **收藏夹**：
   - 右键“加入收藏夹”，不打字时排在最前；
   - 起个关键词，一打就开；
-  - 收藏的文件夹按 `Tab` 进去接着搜；
+  - 文件夹结果右键“进入此文件夹搜索”可在 Win顺 内接着搜；也可在设置里选择用 `Tab` 进入收藏文件夹，默认仍切换范围；
   - **自定义命令**：设置 › 收藏夹 › 添加命令，起个关键词，命令里写 `{query}`，关键词后面打的字就替换到那里。比如关键词 `code`、命令 `"C:\Tools\Code.exe" {query}`，输入 `code D:\我的项目` 回车，就把这个文件夹交给编辑器；不经命令提示符，搜索和导入都不会自己运行命令；
   - **拖文件时按 `` ` `` 键**：在文件或文件夹上按住左键（不用先拖动；资源管理器、桌面、Total Commander 等别的程序都行），按一下 `Esc` 下面那个键（中文输入法下是 `·`，拖动时不会打出字），指针周围弹出前 8 个文件夹收藏；朝哪个文件夹的方向拖就选中哪个，松开就放进去：和资源管理器一样，同一个盘里移动、到别的盘复制，按住 `Ctrl` 复制、`Shift` 移动，进度和重名提示都是 Windows 自己的，在资源管理器里按 `Ctrl+Z` 能撤销。在中间松开或按 `Esc` 什么也不做，再按一次那个键或拖远一点它就收起，接着拖到别处照常放。默认开，在设置 › 收藏夹 里关；Win顺 以管理员身份运行时用不了。
 - **插件**：
@@ -221,6 +221,7 @@
 - **设置**：可以搜索（`Ctrl+F`，`kjj` 找到“快捷键”），改了立即生效。
 - **文件管理器**：打开文件夹、打开所在位置时用资源管理器、Total Commander、Directory Opus、XYplorer 或 Pulse（装了的才列出）；别的文件管理器也行，在设置 › 打开 Win顺 › 对话框里填它的命令。
 - **备份**：设置 → 高级里选一个文件夹（放在同步盘里就是云备份），设置、收藏、对话框的固定项、自己加的网页图标和插件会自动备份，保留最近 10 份，随时恢复。
+- **换电脑迁移设置**：设置 → 高级 → 备份，点“导出备份…”保存 ZIP；新电脑安装后点“从备份恢复…”，校验通过后自动重启。不用开启自动备份，当前配置会先备份到本机；插件密码需重新填写，收藏和自定义路径请检查是否还有效。
 - **更新**：有新版本时在托盘提醒，Win顺 不会自己下载、替换程序文件。
 
 | 按键 | 作用 |
@@ -229,7 +230,7 @@
 | `Enter` / `Ctrl+Enter` / `Ctrl+Shift+Enter` | 打开 / 打开所在文件夹 / 以管理员身份运行 |
 | `Ctrl+C` / `Ctrl+Shift+C` | 复制文件 / 复制路径 |
 | `Ctrl+1`～`Ctrl+9` | 打开第几行（按住 `Ctrl` 时图标上显示序号） |
-| `Tab` / `Shift+Tab` | 切换范围：全部 / 文件 / 内容（往后 / 往前） |
+| `Tab` / `Shift+Tab` | 切换范围：全部 / 文件 / 内容（往后 / 往前）；设置里可改为 Tab 进入选中的收藏文件夹 |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | 在 **文件** 里切换类型，在 **内容** 里切换文件夹 |
 | `Ctrl+S` | 最匹配 → 最新在前 → 最早在前（名称、类型、大小在底栏的“更多”里） |
 | `Ctrl+E` / `Ctrl+T` | 展开为搜索面板 / 钉住搜索框（点别处不收起） |
@@ -325,6 +326,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Shortcuts**: `Ctrl+1`…`Ctrl+9` opens a row; hold `Ctrl` to see the numbers on the icons (or show them always, or never).
   - **Search panel**: too many hits? The small button at the box's corner or `Ctrl+E` grows the same window into a panel, as Listary has it: filters down the left (scope, kind, date modified, size, folder), the rows in columns on the right (name, path, size, date modified) with sortable headers; with nothing typed it browses the whole index by those filters (milliseconds over three million files). `size:>10mb` and `dm:7d` work in the box too. Press it again to collapse.
   - **Long names**: a name that does not fit is shortened in the middle, keeping its extension and end ("…v3 final.xlsx"); rest the pointer on the row to see the full name, location, size, modified and created times. Drag the left or right edge of the search box to widen it (the width is remembered; double-click an edge for the default).
+  - **File sizes**: Settings › Result list › Display & preview can show sizes in the compact results, alongside modification dates or on their own. Off by default; sorting by size always shows sizes. Folders and unknown sizes stay blank.
   - **Pin**: `Ctrl+T` or the pin at the box's corner keeps the search box up through clicks elsewhere and opened files; `Esc` closes it. Drag the window by the magnifier on the left; click it for the settings.
   - **Preview**: `Alt+P` on a result (or Preview in its menu) shows the file without leaving the launcher: pictures, text (UTF-8 or GBK, detected), Word, Excel, PowerPoint and PDF (through the same preview handlers as File Explorer's preview pane), what a folder holds; the arrows move it to the next row, `Alt+P` again (or the × on the preview) closes it; `Esc` closes the launcher and leaves the preview as it is, so it is back the next time the launcher opens. QuickLook or Seer, when running in the background, shows it instead.
   - **Thumbnails**: pictures, videos, PDFs and the like show their thumbnail instead of their type's icon, in the results and in the search bar beside Open / Save dialogs; Settings › Result list can turn them off.
@@ -345,7 +347,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Switches**: dark mode, hidden files, file extensions, Bluetooth, WLAN, volume and mute, keep awake, each with its live state at the end of its row; `Enter` flips it in place and the box stays open, `Ctrl+Enter` opens its settings page. `bluetooth off`, `mute` and `volume 30` act in one step; `awake 1h` keeps the PC awake for an hour.
 - 🌐 **Web search**: `zhihu 显卡`, `baidu 天气`: a keyword and a space search that site. Ten Chinese sites are built in; add your own with `%s` in the URL, and import or export the list and icons. The site's search suggestions show below as you type (Enter searches one, Tab puts it in the box), and a site's icon can be an SVG file or pasted SVG code.
 - ⭐ **Favorites**
-  - Right-click → Add to favorites. They come first when the box is empty; give one a keyword to open it, and `Tab` searches inside a favorite folder.
+  - Right-click → Add to favorites. They come first when the box is empty; give one a keyword to open it. Right-click a folder → Search in this folder to browse it in WinShun. Tab switches scopes by default; optionally choose to browse favorite folders with Tab in Settings → Result list → Display and preview.
   - **Your own commands**: Settings › Favorites › Add command. Give it a keyword and put `{query}` in the command; what you type after the keyword goes there. With the keyword `code` and the command `"C:\Tools\Code.exe" {query}`, typing `code D:\my-project` and Enter hands that folder to the editor. No command prompt is involved, and searching or importing never runs a command.
   - **Press `` ` `` while dragging**: hold the left button on files or folders (no need to drag yet; File Explorer, the desktop, Total Commander or another program) and press the key below `Esc` (it types nothing during the drag): your first 8 favorite folders appear round the pointer. Drag toward a folder to pick it, as in a marking menu, and let go to drop there: as in File Explorer, within a drive it moves and to another drive it copies, `Ctrl` copies and `Shift` moves. The progress and name-conflict windows are Windows' own, and `Ctrl+Z` in File Explorer undoes it. Let go in the middle or press `Esc` and nothing happens; press the key again or drag further away and it closes, and the drag goes on as usual. On by default; turn it off in Settings › Favorites (“Press ` while dragging files to bring up the favorites pie”). It does not work while WinShun itself runs as administrator.
 - 🧩 **Plugins**
@@ -401,6 +403,7 @@ It reads the NTFS master file table (MFT) directly, indexing three million files
   - **Settings**: searchable (`Ctrl+F`); changes apply at once.
   - **File manager**: folders and file locations open in File Explorer, Total Commander, Directory Opus, XYplorer or Pulse (those installed are listed), or in any other file manager whose commands you enter under Settings › Open WinShun › Dialogs.
   - **Backup**: choose a folder under Settings → Advanced (a synced folder makes it a cloud backup); settings, favorites, dialog pins, your own web icons and plugins are backed up as they change, the last 10 kept, ready to restore.
+  - **Move to another PC**: under Settings → Advanced → Backup, choose “Export backup…” to save a ZIP, then “Restore from backup…” on the new PC. Automatic backups need not be enabled. The current configuration is saved locally first; enter plugin passwords again and check custom paths on the new PC.
   - **Updates**: announced in the tray; WinShun never replaces its own files.
 
 | Key | Action |

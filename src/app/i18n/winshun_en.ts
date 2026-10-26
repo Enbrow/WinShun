@@ -225,6 +225,10 @@
 <context>
     <name>AiSettings</name>
     <message>
+        <source>Tab 进入收藏文件夹</source>
+        <translation>Browse favorite folders with Tab</translation>
+    </message>
+    <message>
         <source>左右都行</source>
         <translation>Either</translation>
     </message>
@@ -583,6 +587,10 @@
     <message>
         <source>显示修改日期</source>
         <translation>Show the date modified</translation>
+    </message>
+    <message>
+        <source>显示文件大小</source>
+        <translation>Show file sizes</translation>
     </message>
     <message>
         <source>显示图片缩略图</source>
@@ -1921,6 +1929,26 @@
 <context>
     <name>ClipPreview</name>
     <message>
+        <source>播放动图</source>
+        <translation>Play animation</translation>
+    </message>
+    <message>
+        <source>暂停动图</source>
+        <translation>Pause animation</translation>
+    </message>
+    <message>
+        <source>图片加载失败，请重新复制</source>
+        <translation>Couldn't load the image. Copy it again.</translation>
+    </message>
+    <message>
+        <source>正在保存图片…</source>
+        <translation>Saving image…</translation>
+    </message>
+    <message>
+        <source>正在加载图片…</source>
+        <translation>Loading image…</translation>
+    </message>
+    <message>
         <source>没有可预览的内容</source>
         <translation>Nothing to preview</translation>
     </message>
@@ -2346,8 +2374,8 @@
 <context>
     <name>FavoritesSection</name>
     <message>
-        <source>什么都不输入时，收藏排在最前；只输入关键词再按 Enter 就打开，收藏的文件夹按 Tab 可以进去接着搜。在搜索结果上右键可以加入收藏，也可以把文件或文件夹拖到这里。</source>
-        <translation>With nothing typed, favorites come first; type just a keyword and press Enter to open it, and Tab on a favorite folder goes into it to search on there. Right-click a search result to add it, or drop files and folders here.</translation>
+        <source>什么都不输入时，收藏排在最前；只输入关键词再按 Enter 就打开。在搜索结果上右键可以加入收藏，也可以把文件或文件夹拖到这里。Tab 默认切换范围；在“结果列表”的“显示与预览”中可改为进入选中的收藏文件夹。</source>
+        <translation>Favorites come first when nothing is typed. Type a keyword and press Enter to open it. Right-click a search result to add it, or drop files and folders here. Tab switches scopes by default; to browse a selected favorite folder instead, change its behavior in Result list &gt; Display and preview.</translation>
     </message>
     <message>
         <source>收藏</source>
@@ -4063,6 +4091,26 @@
 <context>
     <name>SettingsWindow</name>
     <message>
+        <source>选中收藏文件夹时按 Tab</source>
+        <translation>Tab on a selected favorite folder</translation>
+    </message>
+    <message>
+        <source>Tab;Shift+Tab;收藏;文件夹;范围;键盘;favorite;keyboard</source>
+        <translation>Tab;Shift+Tab;favorite;folder;scope;keyboard</translation>
+    </message>
+    <message>
+        <source>在“全部”范围中，默认切换搜索范围；也可进入选中的收藏文件夹继续搜索。Shift+Tab 仍反向切换范围。</source>
+        <translation>In All, Tab switches search scopes by default. You can choose to browse the selected favorite folder instead. Shift+Tab still switches scopes backward.</translation>
+    </message>
+    <message>
+        <source>切换范围</source>
+        <translation>Switch scope</translation>
+    </message>
+    <message>
+        <source>进入文件夹</source>
+        <translation>Browse folder</translation>
+    </message>
+    <message>
         <source>显示与预览</source>
         <translation>Display and preview</translation>
     </message>
@@ -4907,6 +4955,18 @@
         <translation>date modified;modified;date;time</translation>
     </message>
     <message>
+        <source>显示文件大小</source>
+        <translation>Show file sizes</translation>
+    </message>
+    <message>
+        <source>文件大小;体积;精简;双击Ctrl;KB;MB;GB;size</source>
+        <translation>file size;size;compact;double Ctrl;KB;MB;GB</translation>
+    </message>
+    <message>
+        <source>无需展开窗口，在搜索结果右侧显示文件大小；按大小排序时始终显示。文件夹不统计大小。</source>
+        <translation>Show file sizes in search results without expanding the window; always shown when sorting by size. Folder sizes are not calculated.</translation>
+    </message>
+    <message>
         <source>显示图片缩略图</source>
         <translation>Show thumbnails</translation>
     </message>
@@ -5678,12 +5738,36 @@
         <translation>Restore settings</translation>
     </message>
     <message>
+        <source>导出设置</source>
+        <translation>Export settings</translation>
+    </message>
+    <message>
+        <source>备份;导出;迁移;换电脑;ZIP;backup;export;transfer</source>
+        <translation>backup;export;migrate;new computer;ZIP;transfer</translation>
+    </message>
+    <message>
+        <source>导出一份 ZIP，带到新电脑后从备份恢复；不用开启自动备份。文件夹路径按原样保留，插件密码需重新填写。</source>
+        <translation>Export a ZIP to restore on another PC, without enabling automatic backups. Folder paths are kept as entered; enter plugin passwords again.</translation>
+    </message>
+    <message>
+        <source>导出备份…</source>
+        <translation>Export backup…</translation>
+    </message>
+    <message>
+        <source>正在处理备份…</source>
+        <translation>Processing backup…</translation>
+    </message>
+    <message>
+        <source>备份操作失败：%1</source>
+        <translation>Backup operation failed: %1</translation>
+    </message>
+    <message>
         <source>恢复;还原;导入;换电脑;restore;import</source>
         <translation>restore;import;new computer;move settings</translation>
     </message>
     <message>
-        <source>从一份备份恢复，Win顺 随后重启；现在的设置会先备份一份，恢复错了还能换回来</source>
-        <translation>Restore from a backup, then WinShun restarts. The current settings are backed up first, so a wrong restore can be undone</translation>
+        <source>选择 ZIP 备份，校验通过后恢复并重启；当前设置先存到本机数据文件夹的 backups 中。换机导出的备份保留本机的备份和索引位置。</source>
+        <translation>Choose a ZIP to check and restore, then restart. Current settings are saved in backups in the local data folder first. Transfer backups keep this PC's backup and index locations.</translation>
     </message>
     <message>
         <source>立即备份</source>
@@ -6397,8 +6481,8 @@
         <translation>WSL detected. Add a home folder below, or choose a specific project folder:</translation>
     </message>
     <message>
-        <source>显示在名字右边；按大小排序时显示文件大小</source>
-        <translation>Shown beside the name; shows file size when sorting by size</translation>
+        <source>在搜索结果右侧显示修改日期；可与文件大小同时显示</source>
+        <translation>Show the date modified on the right of search results; file sizes can be shown alongside it</translation>
     </message>
     <message>
         <source>较早的日期也显示时间</source>
@@ -7473,6 +7557,18 @@
 <context>
     <name>ws::Backup</name>
     <message>
+        <source>导出设置备份</source>
+        <translation>Export settings backup</translation>
+    </message>
+    <message>
+        <source>备份已导出：%1</source>
+        <translation>Backup exported: %1</translation>
+    </message>
+    <message>
+        <source>备份已保存到：%1</source>
+        <translation>Backup saved to: %1</translation>
+    </message>
+    <message>
         <source>选择要恢复的备份</source>
         <translation>Choose a backup to restore</translation>
     </message>
@@ -7495,6 +7591,10 @@
 </context>
 <context>
     <name>ws::ClipModel</name>
+    <message>
+        <source>%1 动图</source>
+        <translation>%1 animation</translation>
+    </message>
     <message>
         <source>图片 %1 × %2</source>
         <translation>Picture %1 × %2</translation>
@@ -7558,6 +7658,14 @@
 </context>
 <context>
     <name>ws::Clipboard</name>
+    <message>
+        <source>贴首帧到屏幕</source>
+        <translation>Pin first frame to screen</translation>
+    </message>
+    <message>
+        <source>编辑首帧</source>
+        <translation>Edit first frame</translation>
+    </message>
     <message>
         <source>剪贴板图片</source>
         <translation>Clipboard image</translation>
@@ -8400,6 +8508,10 @@
 </context>
 <context>
     <name>ws::Launcher</name>
+    <message>
+        <source>进入此文件夹搜索</source>
+        <translation>Search in this folder</translation>
+    </message>
     <message>
         <source>全部切到深色</source>
         <translation>Switch all to dark</translation>
@@ -10901,6 +11013,18 @@
 </context>
 <context>
     <name>ws::backupfiles</name>
+    <message>
+        <source>不支持这个备份格式，请更新 Win顺 后再试</source>
+        <translation>Unsupported backup format. Update WinShun and try again.</translation>
+    </message>
+    <message>
+        <source>恢复失败，已保留原来的设置：%1</source>
+        <translation>Restore failed; the original settings were kept: %1</translation>
+    </message>
+    <message>
+        <source>恢复未完成，原配置副本保留在 %1</source>
+        <translation>Restore did not finish. Copies of the original files are in %1</translation>
+    </message>
     <message>
         <source>有文件读不出来</source>
         <translation>A file could not be read</translation>
