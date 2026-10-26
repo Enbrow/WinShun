@@ -14,14 +14,18 @@
 .EXAMPLE
     ./scripts/release.ps1             # setup.exe and SHA256SUMS.txt in dist\
     ./scripts/release.ps1 -Publish    # and the GitHub release
+    ./scripts/release.ps1 -OutputDir F:\wsstage\release # leave other deployed copies running
 #>
 param(
     [switch] $Publish,
     [string] $QtDir = $env:QTDIR,
-    [string] $Iscc = $env:ISCC # Inno Setup's compiler; found under the usual places otherwise
+    [string] $Iscc = $env:ISCC, # Inno Setup's compiler; found under the usual places otherwise
+    [string] $OutputDir # optional isolated deployment and package directory
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+$dist = if ($OutputDir) { [IO.Path]::GetFullPath($OutputDir) } else { Join-Path $root 'dist' }
+$deployment = Join-Path $dist 'WinShun'
 
 $cmake = Get-Content (Join-Path $root 'CMakeLists.txt') -Raw
 if ($cmake -notmatch 'project\(WinShun\s+VERSION\s+(\d+\.\d+\.\d+)') { throw 'No project(VERSION) in CMakeLists.txt' }
@@ -32,8 +36,11 @@ if ($Publish -and -not (Test-Path $notes)) { throw "Write the release notes firs
 Write-Host "WinShun $version"
 
 # build.ps1 -Deploy replaces dist\WinShun, which a running copy holds on to.
-$running = Get-Process WinShun -ErrorAction SilentlyContinue
-if ($running) { throw 'Quit WinShun first (tray menu > 退出): dist\WinShun is about to be replaced.' }
+$running = Get-Process WinShun -ErrorAction SilentlyContinue | Where-Object {
+    $_.Path -and [IO.Path]::GetFullPath($_.Path).StartsWith($deployment + '\', [StringComparison]::OrdinalIgnoreCase)
+}
+if ($running) { throw "The copy in $deployment is running; leave it untouched and choose another -OutputDir." }
+if (Test-Path -LiteralPath (Join-Path $deployment 'data')) { throw "User data exists in $deployment; choose a fresh -OutputDir." }
 
 # Inno Setup: a per-user install of a recent version first (the one under
 # Program Files may be too old for the Windows 11 wizard style).
@@ -45,11 +52,10 @@ if (-not $Iscc) {
 }
 if (-not $Iscc -or -not (Test-Path $Iscc)) { throw 'Inno Setup 6.5 or later is needed (winget install JRSoftware.InnoSetup), or pass -Iscc' }
 
-$buildArgs = @{ Deploy = $true }
+$buildArgs = @{ DeployDir = $deployment }
 if ($PSBoundParameters.ContainsKey('QtDir')) { $buildArgs.QtDir = $QtDir } # else build.ps1 looks at QTDIR itself
 & (Join-Path $PSScriptRoot 'build.ps1') @buildArgs
 
-$dist = Join-Path $root 'dist'
 Copy-Item (Join-Path $root 'LICENSE') (Join-Path $dist 'WinShun\LICENSE.txt')
 
 $setup = Join-Path $dist "WinShun-$version-x64-setup.exe"
@@ -63,8 +69,9 @@ Write-Host "Packaged $setup"
 # %LOCALAPPDATA%. Staged, so the deployed folder stays an installed one.
 $portable = Join-Path $dist "WinShun-$version-x64-portable.zip"
 Remove-Item $portable -ErrorAction SilentlyContinue
-$stage = Join-Path ([IO.Path]::GetTempPath()) "WinShun-portable-$version"
-if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+$stageRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+$stage = [IO.Path]::GetFullPath((Join-Path $stageRoot ("WinShun-portable-$version-" + [guid]::NewGuid().ToString('N'))))
+if (-not $stage.StartsWith($stageRoot + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Portable staging path escaped the temporary directory.' }
 New-Item -ItemType Directory $stage | Out-Null
 Copy-Item (Join-Path $dist 'WinShun') $stage -Recurse
 New-Item -ItemType Directory (Join-Path $stage 'WinShun\data') | Out-Null
