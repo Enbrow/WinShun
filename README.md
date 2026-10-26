@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/cover.jpg" width="640" alt="Win顺 WinShun：让你的电脑更好用，13 合 1，双击 Ctrl 全搞定，免费开源 / a free Windows search launcher, thirteen tools in one, press Ctrl twice">
+  <img src="docs/images/cover.png" width="640" alt="Win顺 WinShun：让你的电脑更好用，13 合 1，双击 Ctrl 全搞定，免费开源 / a free Windows search launcher, thirteen tools in one, press Ctrl twice">
 </p>
 
 <p align="center">
@@ -37,42 +37,217 @@
 
 ## 截图 · Screenshots
 
+点击图片查看原图。 / Click an image to view it at full resolution.
+
+
 <p align="center">
-  <img src="docs/images/search.jpg" width="49%" alt="文件类型前缀与拼音搜索：:documents ndbg 找到年度报告，结果显示日期与大小 / type prefixes and pinyin search with dates and file sizes">
-  <img src="docs/images/numbers.jpg" width="49%" alt="图标上的序号，Ctrl+1～9 直接打开 / row numbers on the icons, Ctrl+1–9 opens a row">
-  <img src="docs/images/newest.jpg" width="49%" alt="按修改时间排序，找最新的那一版 / sort by date modified, newest first">
-  <img src="docs/images/panel.jpg" width="49%" alt="搜索面板：Ctrl+E 展开，左边筛选，右边分列排序 / search panel: Ctrl+E for filters and sortable columns">
-  <img src="docs/images/preview.jpg" width="49%" alt="Alt+P 预览文件，启动器不关 / Alt+P previews a file beside the launcher">
-  <img src="docs/images/content.jpg" width="49%" alt="文件内容全文搜索：Word、Excel、PPT、PDF、代码 / full-text search inside documents and code">
-  <img src="docs/images/folder.jpg" width="49%" alt="只搜一个文件夹里的字：第三季度销售额 财务/ / content search in one folder: words, then folder/">
-  <img src="docs/images/semantic.jpg" width="49%" alt="按意思找：? 去年报销的规定 找到差旅费用管理办法 / search by meaning: find documents by what they are about">
-  <img src="docs/images/foldermenu.jpg" width="49%" alt="资源管理器里双击空白处：收藏、最近、开着的文件夹 / double-click empty space in Explorer for favorite, recent and open folders">
-  <img src="docs/images/typing.jpg" width="49%" alt="资源管理器里直接打字就搜：只搜这个文件夹 / type in an Explorer folder and Win顺 searches just that folder">
-  <img src="docs/images/apps.jpg" width="49%" alt="拼音搜应用：guanliqi 找到任务管理器 / launch apps by pinyin">
-  <img src="docs/images/places.jpg" width="49%" alt="直达 Windows 设置：shipeiqi 找到网络连接 / open Windows settings and Control Panel items">
-  <img src="docs/images/switches.jpg" width="49%" alt="系统开关：行尾显示现在的状态，回车就地切换；音量 30、保持唤醒 1小时一步到位 / system switches: the live state on the row, Enter flips it; set the volume or keep awake in one step">
-  <img src="docs/images/web.jpg" width="49%" alt="网页搜索：zhihu 显卡、bilibili、京东一步到位 / web search keywords">
-  <img src="docs/images/favorites.jpg" width="49%" alt="收藏夹：常去的文件夹排在最前，关键词直达 / favorites with keywords">
-  <img src="docs/images/droppie.jpg" width="49%" alt="收藏夹与拖放圆盘设置：按住文件，再按 Esc 下方的键呼出圆盘 / favorites and drop ring settings: hold a file and press the key below Esc">
-  <img src="docs/images/plugins.jpg" width="49%" alt="插件：计算器、单位换算、颜色 / plugins: calculator, unit conversion, colors">
-  <img src="docs/images/plugin-library.jpg" width="49%" alt="现有 WinShun-plugins 社区插件库：安装、更新与开发入口 / the existing WinShun-plugins library, installation, updates and plugin development">
-  <img src="docs/images/dialog.jpg" width="49%" alt="打开、另存为对话框旁的搜索框，Ctrl+G 转到资源管理器的文件夹 / search bar for Open and Save dialogs">
-  <img src="docs/images/clipboard.jpg" width="49%" alt="剪贴板图片原格式与 GIF 动图预览，保留 PNG、JPEG、GIF / original PNG, JPEG and GIF clipboard images with animated previews">
-  <img src="docs/images/clipocr.jpg" width="49%" alt="剪贴板 OCR：搜图片里的文字 / clipboard OCR: search words in copied pictures">
-  <img src="docs/images/edit.jpg" width="49%" alt="截图标完还能再改：方框、箭头、文字，从剪贴板历史打开接着编辑 / edit a screenshot again: boxes, arrows and text, reopened from the clipboard history">
-  <img src="docs/images/capture.jpg" width="49%" alt="框选截图：指到哪框到哪，色块按钮也认，放大镜看颜色 / capture overlay: the control under the pointer is framed, the magnifier shows pixels and color">
-  <img src="docs/images/redact.jpg" width="49%" alt="截图里的隐私一键打码：手机号、身份证、银行卡、邮箱 / smart redaction: phone numbers, ID, bank card and email covered in one click">
-  <img src="docs/images/longshot.jpg" width="49%" alt="长截图：Ctrl+L 自动滚动、自动拼接 / long screenshot: Ctrl+L scrolls and stitches by itself">
-  <img src="docs/images/pins.jpg" width="49%" alt="F3 贴图：截图悬在所有窗口上，拖到哪放哪，滚轮缩放 / pin a screenshot on top of every window, move and zoom it">
-  <img src="docs/images/taskbar.jpg" width="49%" alt="Win顺 任务栏搜索框 / WinShun’s search box on the taskbar">
-  <img src="docs/images/ai.jpg" width="49%" alt="AI 助手 MCP：Claude、Cursor、VS Code 一键连接 / MCP server for Claude, Cursor and VS Code">
-  <img src="docs/images/settings.jpg" width="49%" alt="设置可搜索：kjj 找到快捷键 / searchable settings">
-  <img src="docs/images/appearance.jpg" width="49%" alt="外观：主题、透明效果、圆角或直角、界面大小、单色任务栏图标 / appearance: theme, transparency, rounded or square corners, UI size, monochrome taskbar icon">
-  <img src="docs/images/backup.jpg" width="49%" alt="导出设置备份，在新电脑校验恢复，当前配置先备份 / export settings and restore on another PC with validation and a backup of the current configuration">
-  <img src="docs/images/file-types.jpg" width="49%" alt="自定义文件类型、扩展名和搜索前缀 / custom file types, extensions and search prefixes">
-  <img src="docs/images/search-scope.jpg" width="49%" alt="选择索引的文件夹及定时核对频率 / choose indexed folders and their verification schedule">
-  <img src="docs/images/wsl.jpg" width="49%" alt="网络与 WSL 文件名搜索：添加 Linux 用户目录或项目文件夹 / network and WSL filename search, add a Linux home or project folder">
-  <img src="docs/images/dark.jpg" width="49%" alt="深色模式，Win11 云母效果 / dark theme with Windows 11 Mica">
+  <a href="docs/images/search.png"><img src="docs/images/search.png" width="960" alt="文件类型前缀与拼音搜索：:documents ndbg 找到年度报告，结果显示日期与大小 / type prefixes and pinyin search with dates and file sizes"></a><br>
+  文件类型前缀与拼音搜索：:documents ndbg 找到年度报告，结果显示日期与大小<br>
+  <sub>type prefixes and pinyin search with dates and file sizes</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/numbers.png"><img src="docs/images/numbers.png" width="960" alt="图标上的序号，Ctrl+1～9 直接打开 / row numbers on the icons, Ctrl+1–9 opens a row"></a><br>
+  图标上的序号，Ctrl+1～9 直接打开<br>
+  <sub>row numbers on the icons, Ctrl+1–9 opens a row</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/newest.png"><img src="docs/images/newest.png" width="960" alt="按修改时间排序，找最新的那一版 / sort by date modified, newest first"></a><br>
+  按修改时间排序，找最新的那一版<br>
+  <sub>sort by date modified, newest first</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/panel.png"><img src="docs/images/panel.png" width="960" alt="搜索面板：Ctrl+E 展开，左边筛选，右边分列排序 / search panel: Ctrl+E for filters and sortable columns"></a><br>
+  搜索面板：Ctrl+E 展开，左边筛选，右边分列排序<br>
+  <sub>search panel: Ctrl+E for filters and sortable columns</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/preview.png"><img src="docs/images/preview.png" width="960" alt="Alt+P 预览文件，启动器不关 / Alt+P previews a file beside the launcher"></a><br>
+  Alt+P 预览文件，启动器不关<br>
+  <sub>Alt+P previews a file beside the launcher</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/content.png"><img src="docs/images/content.png" width="960" alt="文件内容全文搜索：Word、Excel、PPT、PDF、代码 / full-text search inside documents and code"></a><br>
+  文件内容全文搜索：Word、Excel、PPT、PDF、代码<br>
+  <sub>full-text search inside documents and code</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/folder.png"><img src="docs/images/folder.png" width="960" alt="只搜一个文件夹里的字：第三季度销售额 财务/ / content search in one folder: words, then folder/"></a><br>
+  只搜一个文件夹里的字：第三季度销售额 财务/<br>
+  <sub>content search in one folder: words, then folder/</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/semantic.png"><img src="docs/images/semantic.png" width="960" alt="按意思找：? 去年报销的规定 找到差旅费用管理办法 / search by meaning: find documents by what they are about"></a><br>
+  按意思找：? 去年报销的规定 找到差旅费用管理办法<br>
+  <sub>search by meaning: find documents by what they are about</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/foldermenu.png"><img src="docs/images/foldermenu.png" width="960" alt="资源管理器里双击空白处：收藏、最近、开着的文件夹 / double-click empty space in Explorer for favorite, recent and open folders"></a><br>
+  资源管理器里双击空白处：收藏、最近、开着的文件夹<br>
+  <sub>double-click empty space in Explorer for favorite, recent and open folders</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/typing.png"><img src="docs/images/typing.png" width="960" alt="资源管理器里直接打字就搜：只搜这个文件夹 / type in an Explorer folder and Win顺 searches just that folder"></a><br>
+  资源管理器里直接打字就搜：只搜这个文件夹<br>
+  <sub>type in an Explorer folder and Win顺 searches just that folder</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/apps.png"><img src="docs/images/apps.png" width="960" alt="拼音搜应用：guanliqi 找到任务管理器 / launch apps by pinyin"></a><br>
+  拼音搜应用：guanliqi 找到任务管理器<br>
+  <sub>launch apps by pinyin</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/places.png"><img src="docs/images/places.png" width="960" alt="直达 Windows 设置：shipeiqi 找到网络连接 / open Windows settings and Control Panel items"></a><br>
+  直达 Windows 设置：shipeiqi 找到网络连接<br>
+  <sub>open Windows settings and Control Panel items</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/switches.png"><img src="docs/images/switches.png" width="960" alt="系统开关：行尾显示现在的状态，回车就地切换；音量 30、保持唤醒 1小时一步到位 / system switches: the live state on the row, Enter flips it; set the volume or keep awake in one step"></a><br>
+  系统开关：行尾显示现在的状态，回车就地切换；音量 30、保持唤醒 1小时一步到位<br>
+  <sub>system switches: the live state on the row, Enter flips it; set the volume or keep awake in one step</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/web.png"><img src="docs/images/web.png" width="960" alt="网页搜索：zhihu 显卡、bilibili、京东一步到位 / web search keywords"></a><br>
+  网页搜索：zhihu 显卡、bilibili、京东一步到位<br>
+  <sub>web search keywords</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/favorites.png"><img src="docs/images/favorites.png" width="960" alt="收藏夹：常去的文件夹排在最前，关键词直达 / favorites with keywords"></a><br>
+  收藏夹：常去的文件夹排在最前，关键词直达<br>
+  <sub>favorites with keywords</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/droppie.png"><img src="docs/images/droppie.png" width="960" alt="收藏夹与拖放圆盘设置：按住文件，再按 Esc 下方的键呼出圆盘 / favorites and drop ring settings: hold a file and press the key below Esc"></a><br>
+  收藏夹与拖放圆盘设置：按住文件，再按 Esc 下方的键呼出圆盘<br>
+  <sub>favorites and drop ring settings: hold a file and press the key below Esc</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/plugins.png"><img src="docs/images/plugins.png" width="960" alt="插件：计算器、单位换算、颜色 / plugins: calculator, unit conversion, colors"></a><br>
+  插件：计算器、单位换算、颜色<br>
+  <sub>plugins: calculator, unit conversion, colors</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/plugin-library.png"><img src="docs/images/plugin-library.png" width="960" alt="现有 WinShun-plugins 社区插件库：安装、更新与开发入口 / the existing WinShun-plugins library, installation, updates and plugin development"></a><br>
+  现有 WinShun-plugins 社区插件库：安装、更新与开发入口<br>
+  <sub>the existing WinShun-plugins library, installation, updates and plugin development</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/dialog.png"><img src="docs/images/dialog.png" width="960" alt="打开、另存为对话框旁的搜索框，Ctrl+G 转到资源管理器的文件夹 / search bar for Open and Save dialogs"></a><br>
+  打开、另存为对话框旁的搜索框，Ctrl+G 转到资源管理器的文件夹<br>
+  <sub>search bar for Open and Save dialogs</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/clipboard.png"><img src="docs/images/clipboard.png" width="960" alt="剪贴板图片原格式与 GIF 动图预览，保留 PNG、JPEG、GIF / original PNG, JPEG and GIF clipboard images with animated previews"></a><br>
+  剪贴板图片原格式与 GIF 动图预览，保留 PNG、JPEG、GIF<br>
+  <sub>original PNG, JPEG and GIF clipboard images with animated previews</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/clipocr.png"><img src="docs/images/clipocr.png" width="960" alt="剪贴板 OCR：搜图片里的文字 / clipboard OCR: search words in copied pictures"></a><br>
+  剪贴板 OCR：搜图片里的文字<br>
+  <sub>clipboard OCR: search words in copied pictures</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/edit.png"><img src="docs/images/edit.png" width="960" alt="截图标完还能再改：方框、箭头、文字，从剪贴板历史打开接着编辑 / edit a screenshot again: boxes, arrows and text, reopened from the clipboard history"></a><br>
+  截图标完还能再改：方框、箭头、文字，从剪贴板历史打开接着编辑<br>
+  <sub>edit a screenshot again: boxes, arrows and text, reopened from the clipboard history</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/capture.png"><img src="docs/images/capture.png" width="960" alt="框选截图：指到哪框到哪，色块按钮也认，放大镜看颜色 / capture overlay: the control under the pointer is framed, the magnifier shows pixels and color"></a><br>
+  框选截图：指到哪框到哪，色块按钮也认，放大镜看颜色<br>
+  <sub>capture overlay: the control under the pointer is framed, the magnifier shows pixels and color</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/redact.png"><img src="docs/images/redact.png" width="960" alt="截图里的隐私一键打码：手机号、身份证、银行卡、邮箱 / smart redaction: phone numbers, ID, bank card and email covered in one click"></a><br>
+  截图里的隐私一键打码：手机号、身份证、银行卡、邮箱<br>
+  <sub>smart redaction: phone numbers, ID, bank card and email covered in one click</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/longshot.png"><img src="docs/images/longshot.png" width="960" alt="长截图：Ctrl+L 自动滚动、自动拼接 / long screenshot: Ctrl+L scrolls and stitches by itself"></a><br>
+  长截图：Ctrl+L 自动滚动、自动拼接<br>
+  <sub>long screenshot: Ctrl+L scrolls and stitches by itself</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/pins.png"><img src="docs/images/pins.png" width="960" alt="F3 贴图：截图悬在所有窗口上，拖到哪放哪，滚轮缩放 / pin a screenshot on top of every window, move and zoom it"></a><br>
+  F3 贴图：截图悬在所有窗口上，拖到哪放哪，滚轮缩放<br>
+  <sub>pin a screenshot on top of every window, move and zoom it</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/taskbar.png"><img src="docs/images/taskbar.png" width="960" alt="Win顺 任务栏搜索框 / WinShun’s search box on the taskbar"></a><br>
+  Win顺 任务栏搜索框<br>
+  <sub>WinShun’s search box on the taskbar</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/ai.png"><img src="docs/images/ai.png" width="960" alt="AI 助手 MCP：Claude、Cursor、VS Code 一键连接 / MCP server for Claude, Cursor and VS Code"></a><br>
+  AI 助手 MCP：Claude、Cursor、VS Code 一键连接<br>
+  <sub>MCP server for Claude, Cursor and VS Code</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/settings.png"><img src="docs/images/settings.png" width="960" alt="设置可搜索：kjj 找到快捷键 / searchable settings"></a><br>
+  设置可搜索：kjj 找到快捷键<br>
+  <sub>searchable settings</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/appearance.png"><img src="docs/images/appearance.png" width="960" alt="外观：主题、透明效果、圆角或直角、界面大小、单色任务栏图标 / appearance: theme, transparency, rounded or square corners, UI size, monochrome taskbar icon"></a><br>
+  外观：主题、透明效果、圆角或直角、界面大小、单色任务栏图标<br>
+  <sub>appearance: theme, transparency, rounded or square corners, UI size, monochrome taskbar icon</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/backup.png"><img src="docs/images/backup.png" width="960" alt="导出设置备份，在新电脑校验恢复，当前配置先备份 / export settings and restore on another PC with validation and a backup of the current configuration"></a><br>
+  导出设置备份，在新电脑校验恢复，当前配置先备份<br>
+  <sub>export settings and restore on another PC with validation and a backup of the current configuration</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/file-types.png"><img src="docs/images/file-types.png" width="960" alt="自定义文件类型、扩展名和搜索前缀 / custom file types, extensions and search prefixes"></a><br>
+  自定义文件类型、扩展名和搜索前缀<br>
+  <sub>custom file types, extensions and search prefixes</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/search-scope.png"><img src="docs/images/search-scope.png" width="960" alt="选择索引的文件夹及定时核对频率 / choose indexed folders and their verification schedule"></a><br>
+  选择索引的文件夹及定时核对频率<br>
+  <sub>choose indexed folders and their verification schedule</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/wsl.png"><img src="docs/images/wsl.png" width="960" alt="网络与 WSL 文件名搜索：添加 Linux 用户目录或项目文件夹 / network and WSL filename search, add a Linux home or project folder"></a><br>
+  网络与 WSL 文件名搜索：添加 Linux 用户目录或项目文件夹<br>
+  <sub>network and WSL filename search, add a Linux home or project folder</sub>
+</p>
+
+<p align="center">
+  <a href="docs/images/dark.png"><img src="docs/images/dark.png" width="960" alt="深色模式，Win11 云母效果 / dark theme with Windows 11 Mica"></a><br>
+  深色模式，Win11 云母效果<br>
+  <sub>dark theme with Windows 11 Mica</sub>
 </p>
 
 ---

@@ -62,6 +62,7 @@ class Desktop:
         u.GetWindowLongPtrW.argtypes = [wt.HWND, ctypes.c_int]
         u.GetWindowThreadProcessId.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD)]
         u.IsWindowVisible.argtypes = [wt.HWND]
+        u.ShowWindow.argtypes = [wt.HWND, ctypes.c_int]
         u.GetClassNameW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
         u.GetWindowTextW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
         u.EnumWindows.argtypes = [self.ENUMPROC, wt.LPARAM]
@@ -268,8 +269,16 @@ def shoot(delay=0.0, winshun=False, margin=64, tries=12, beside=False, hold=Fals
         time.sleep(0.4)
 
     targets.sort(key=lambda h: order.index(h) if h in order else len(order))
-    backdrop = Backdrop(d, region, targets)
+    # Computer-use pointer hints are separate topmost windows; moving the
+    # physical pointer doesn't move those hints. Keep them out of clean shots,
+    # then restore them without taking focus. Held drag shots retain pointers.
+    overlays = [h for h in order if d.class_name(h) == "CodexComputerUseCursorOverlay"] if not hold else []
+    backdrop = None
     try:
+        for h in overlays:
+            d.user32.ShowWindow(h, 0)  # SW_HIDE
+        d.pump()
+        backdrop = Backdrop(d, region, targets)
         for _ in range(tries):
             shots = []
             for colour in (0x000000, 0xFFFFFF, 0x000000):
@@ -283,5 +292,8 @@ def shoot(delay=0.0, winshun=False, margin=64, tries=12, beside=False, hold=Fals
         else:
             sys.exit("the window kept changing")
     finally:
-        backdrop.close()
+        if backdrop is not None:
+            backdrop.close()
+        for h in overlays:
+            d.user32.ShowWindow(h, 8)  # SW_SHOWNA: don't activate
     return matte(shots[0], shots[1])

@@ -16,7 +16,7 @@ How it all goes together: README.md next to this.
            excluded; F:/Win顺演示 by default, copied from demo/ if missing),
            these recent items and a clipboard history of its own, so no shot
            shows a file of one's own. Quit the running WinShun first.
-  shoot    -o window.png [--delay SECONDS] [--winshun]
+  shoot    -o window.png [--delay SECONDS] [--winshun] [--margin PIXELS]
            The window in front (with WinShun's windows right by it, such as
            the bar under an Open dialog) cut out with its real transparency
            (see capture.py). Run it elevated when WinShun is (the backdrop has
@@ -34,7 +34,7 @@ How it all goes together: README.md next to this.
            with a sparkle, badges between laurel branches, GitHub's mark with
            the name on a pill, keys floating by the window, and the window
            turned in 3D, running off the image.
-  taskbar  launcher.png screen.png -o out.png [--preset xhs|square] [--title] [--subtitle]
+  taskbar  launcher.png screen.png -o out.png [--preset readme|xhs|square] [--title] [--subtitle]
            The post's page on the taskbar box: the launcher over the real
            taskbar from a full-screen shot (where things are on it: TASKBAR
            in art.py).
@@ -42,7 +42,7 @@ How it all goes together: README.md next to this.
            The window on every background side by side, to choose one.
   render   [readme|pages|square|covers ...] [--shots DIR] [--out DIR]
            Every image again from the shots (work/shots): the README's
-           pictures (the square pages, as JPEGs) into docs/images, the
+           pictures (native-size, lossless PNGs) into docs/images, the
            pages and covers of a post into work/out. All of them when none
            is named.
 
@@ -61,10 +61,8 @@ from art import BADGES, NAMES, PRESETS
 HERE = pathlib.Path(__file__).resolve().parent
 WORK = HERE / "work"
 
-# The README's pictures: the post's square pages (all but the last) and its
-# square cover, as JPEGs README_WIDTH wide, named as the pages are without
-# their numbers (docs/images/search.jpg ...).
-README_WIDTH = 1080
+# README screenshots keep their source pixels. Social posts have their own
+# sized layouts below; they must not shrink the UI in the README.
 
 # The pages of a post after the cover: file, shot (several joined with "+":
 # short windows one under another), title, subtitle[, background: "silk"
@@ -89,7 +87,7 @@ PAGES = (
 )
 TASKBAR_PAGE = ("13-taskbar", "L-taskbar", "screen-taskbar", "任务栏上的[搜索框]", "点一下就搜，结果从任务栏上方滑出来")
 # The README's pictures that the post (18 at most) has no room for: file
-# (docs/images/<file>.jpg), shot, title, subtitle.
+# (docs/images/<file>.png), shot, title, subtitle.
 README_ONLY = (
     ("semantic", "L-semantic", "记不得原词，[按意思找]", "? 去年报销的规定 → 差旅费用管理办法，用你选的模型"),
     ("folder", "L-content-folder", "只搜[一个文件夹]里的字", "第三季度销售额 财务/ → 只在“财务”里找"),
@@ -100,7 +98,7 @@ README_ONLY = (
     ("switches", "L-switch1+L-switch2+L-switch3", "系统开关，[打字就切]", "行尾就是现在的状态，回车就地切换，窗口不关"),
     ("edit", "L-edit", "截图标完，[还能再改]", "箭头、方框、文字：从剪贴板历史打开，随时再编辑"),
     # 0.13.0 (scenes/release013.txt): "screen" = a piece of the screen, not a window with its own transparency
-    ("droppie", "L-droppie", "按住文件，[一键呼出圆盘]", "Esc 下方的键 · 收藏文件夹 · Windows 原生复制和移动"),
+    ("droppie", "L-droppie", "收藏夹与[拖放圆盘设置]", "按住文件，再按 Esc 下方的键呼出圆盘"),
     ("longshot", "L-longshot", "比屏幕还长，[一键拼成长图]", "Ctrl+L 自动滚动、自动拼接：网页、聊天记录、文档都行"),
     ("redact", "L-redact", "截图里的隐私，[一键打码]", "手机号、身份证、银行卡、邮箱，本机识别可撤销", "screen"),
     ("pins", "L-pins", "截图，[贴在屏幕上]", "F3 贴图：悬在所有窗口上，拖到哪放哪，滚轮缩放", "screen"),
@@ -134,17 +132,17 @@ def jobs(sets, shots, out):
     found = []
     if "readme" in sets:
         images = HERE.parent.parent / "docs/images"
-        named = lambda file: images / f"{file.split('-', 1)[1]}.jpg"
+        named = lambda file: images / f"{file.split('-', 1)[1]}.png"
         for file, name, title, subtitle, *bg in PAGES:
-            found.append(("compose", (shot(name), "square", (bg or ["letters"])[0], title, subtitle), named(file)))
+            found.append(("compose", (shot(name), "readme", (bg or ["letters"])[0], None, None), named(file)))
         file, launcher, screen, title, subtitle = TASKBAR_PAGE
-        found.append(("taskbar", (shot(launcher), shot(screen), title, subtitle, "square"), named(file)))
-        found.append(("cover", (shot("L-search"), "square", "letters"), images / "cover.jpg"))
+        found.append(("taskbar", (shot(launcher), shot(screen), None, None, "readme"), named(file)))
+        found.append(("cover", (shot("L-search"), "square", "letters"), images / "cover.png"))
         for file, name, title, subtitle, *how in README_ONLY:
             if not pathlib.Path(shot(name)).is_file() and name in PENDING:
                 print(f"skipped {file}: no shot yet ({name}.png: scenes/release013.txt)")
                 continue
-            found.append(("compose", (shot(name), "square", "letters", title, subtitle, *how), images / f"{file}.jpg"))
+            found.append(("compose", (shot(name), "readme", "letters", None, None, *how), images / f"{file}.png"))
     for kind, preset, folder in (("pages", "xhs", "pages"), ("square", "square", "pages-square")):
         if kind in sets:
             for file, name, title, subtitle, *bg in PAGES:
@@ -180,8 +178,8 @@ def run(job):
     kind, args, out = job
     out.parent.mkdir(parents=True, exist_ok=True)
     image = make(kind, args)
-    if out.suffix == ".jpg":  # the README's: smaller
-        image = image.convert("RGB").resize((README_WIDTH, round(image.height * README_WIDTH / image.width)), Image.LANCZOS)
+    if out.suffix.lower() in (".jpg", ".jpeg"):
+        image = image.convert("RGB")
         image.save(out, quality=86, optimize=True, progressive=True)
     else:
         image.save(out, optimize=True)
@@ -225,6 +223,7 @@ def main() -> None:
     c = commands.add_parser("shoot")
     c.add_argument("-o", "--out", required=True)
     c.add_argument("--delay", type=float, default=0.0, help="seconds to wait first, to bring the window up")
+    c.add_argument("--margin", type=int, default=64, help="physical pixels around the captured windows (default: 64)")
     c.add_argument("--winshun", action="store_true", help="WinShun's frontmost window, not the one in front")
     c.add_argument("--beside", action="store_true", help="and WinShun's windows against it (the preview)")
     c.add_argument("--hold", action="store_true", help="the pointer stays where it is (a drag going on)")
@@ -257,7 +256,7 @@ def main() -> None:
     c.add_argument("launcher")
     c.add_argument("screen")
     c.add_argument("-o", "--out", required=True)
-    c.add_argument("--preset", choices=[p for p in PRESETS if PRESETS[p]], default="xhs")
+    c.add_argument("--preset", choices=PRESETS, default="xhs")
     c.add_argument("--bg", default="letters", help=f"{', '.join(NAMES)} or a photo")
     c.add_argument("--title", default=TASKBAR_PAGE[3])
     c.add_argument("--subtitle", default=TASKBAR_PAGE[4])
@@ -286,7 +285,7 @@ def main() -> None:
         return render(args.sets, args.shots, args.out)
     if args.command == "shoot":
         import capture
-        image = capture.shoot(args.delay, args.winshun, beside=args.beside, hold=args.hold, with_class=args.with_class)
+        image = capture.shoot(args.delay, args.winshun, margin=args.margin, beside=args.beside, hold=args.hold, with_class=args.with_class)
     elif args.command == "matte":
         import capture
         black, white = Image.open(args.black), Image.open(args.white)
