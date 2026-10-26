@@ -35,6 +35,8 @@ Item {
     property bool clickToPaste: false // a click pastes (Clipboard::clickToPaste)
     property bool largePictures: false // a picture's thumbnail larger (Clipboard::largePictures)
 
+    // Thumbnail layout is independent of the clipboard kind (and its paste/drag actions).
+    readonly property bool picture: kind === 4 || image.length > 0
     readonly property bool current: ListView.isCurrentItem
     readonly property int selectedCount: ListView.view ? ListView.view.model.selectedCount : 0
     readonly property bool showActions: current || area.containsMouse || moveAction.held
@@ -99,8 +101,8 @@ Item {
         // Pictures larger, on a taller row (ClipboardPage.pictureRowHeight):
         // what is in them shows (GitHub #9); 108 x 68 holds a 16:10 screen whole,
         // 208 x 130 (largePictures) its details too (forum #137).
-        width: row.kind !== 4 ? 32 : row.largePictures ? 208 : 108
-        height: row.kind !== 4 ? 32 : row.largePictures ? 130 : 68
+        width: !row.picture ? 32 : row.largePictures ? 208 : 108
+        height: !row.picture ? 32 : row.largePictures ? 130 : 68
 
         Rectangle { // text and links: a sign on a soft tile
             anchors.fill: parent
@@ -129,13 +131,14 @@ Item {
 
         Image { // files and paths: the icon Explorer shows
             id: fileIcon
+            objectName: "clipboardFileIcon"
 
             readonly property real dpr: Screen.devicePixelRatio
-            readonly property int pixels: Math.round(iconSlot.width * dpr)
+            readonly property int pixels: Math.round(32 * dpr)
 
-            visible: row.kind === 2 || row.kind === 3
-            x: 1 / 64
-            y: 1 / 64
+            visible: (row.kind === 2 || row.kind === 3) && !thumbnail.ready
+            x: Math.round((parent.width - width) / 2 * dpr) / dpr + 1 / 64
+            y: Math.round((parent.height - height) / 2 * dpr) / dpr + 1 / 64
             width: pixels / dpr
             height: pixels / dpr
             source: visible ? row.icon : ""
@@ -148,17 +151,18 @@ Item {
 
         Item { // pictures: a thumbnail, all of it, as large as the slot holds
             anchors.fill: parent
-            visible: row.kind === 4
+            visible: row.picture
 
             Rectangle { // while it loads
                 anchors.fill: parent
-                visible: !thumbnail.ready
+                visible: row.kind === 4 && !thumbnail.ready
                 radius: Theme.controlRadius
                 color: Theme.track
             }
 
             Image {
                 id: thumbnail
+                objectName: "clipboardThumbnail"
 
                 readonly property real dpr: Screen.devicePixelRatio
                 readonly property bool ready: status === Image.Ready && implicitWidth > 0
@@ -170,7 +174,8 @@ Item {
                 y: Math.round((parent.height - height) / 2 * dpr) / dpr
                 width: ready ? implicitWidth / dpr : parent.width
                 height: ready ? implicitHeight / dpr : parent.height
-                source: row.kind === 4 ? row.image : ""
+                visible: ready
+                source: row.image
                 cache: false // keep pixels only while this delegate needs them
                 // An image file: sourceSize is in the image's own pixels.
                 sourceSize.width: Math.round(parent.width * dpr)
@@ -274,11 +279,11 @@ Item {
         opacity: row.hintOpacity
         // From the top left corner of the icon, or of the picture as drawn
         // (narrower or flatter than its slot), rightwards, as in the launcher.
-        readonly property bool picture: row.kind === 4 && thumbnail.ready
+        readonly property bool picture: row.picture && thumbnail.ready
         keys: row.hint > 0 ? row.hintModifier + "+" + row.hint : ""
         taken: row.hintTaken
-        x: row.onPixel(iconSlot.x + (picture ? thumbnail.x : 0) - 5)
-        y: row.onPixel(iconSlot.y + (picture ? thumbnail.y : 0) - 4)
+        x: row.onPixel(iconSlot.x + (picture ? thumbnail.x : fileIcon.visible ? fileIcon.x : 0) - 5)
+        y: row.onPixel(iconSlot.y + (picture ? thumbnail.y : fileIcon.visible ? fileIcon.y : 0) - 4)
     }
 
     MouseArea {

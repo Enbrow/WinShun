@@ -30,7 +30,7 @@ public:
         TitleRole, // the first line (or where the query matched), highlighted: StyledText
         DetailRole, // "微信 · 3 分钟前 · 128 字"
         IconRole, // files and paths: the file's icon
-        ImageRole, // pictures: their file
+        ImageRole, // pictures and single local image files: their thumbnail source
         ColorRole, // text that is a colour ("#3B82F6"): that colour; else empty
         OrderRole, // picked: 1, 2, ... in the order picked; 0 if not
         GroupRole, // the group's name, "" if none

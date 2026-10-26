@@ -6,6 +6,7 @@
 #include <QDateTime>
 #include <QFileInfo>
 #include <QLocale>
+#include <QMimeDatabase>
 #include <QSet>
 #include <QUrl>
 
@@ -144,10 +145,23 @@ QVariant ClipModel::data(const QModelIndex& index, int role) const
         const bool dir = isLocal(first) && !fileMissing(*c) && QFileInfo(first).isDir();
         return FileIconProvider::iconUrl(first, dir);
     }
-    case ImageRole: // none until its file is written (pictureSaved)
-        return c->kind == ClipKind::Image && !m_store->imagePending(c->id)
-            ? QUrl::fromLocalFile(m_store->imagePath(c->id)).toString()
-            : QString();
+    case ImageRole: {
+        if (c->kind == ClipKind::Image) // none until its file is written (pictureSaved)
+            return m_store->imagePending(c->id) ? QString() : QUrl::fromLocalFile(m_store->imagePath(c->id)).toString();
+        if (c->kind != ClipKind::Files && c->kind != ClipKind::Path)
+            return QString();
+        const QStringList files = c->files();
+        if (files.size() != 1 || !isLocal(files.constFirst()))
+            return QString();
+        const QString& path = files.constFirst();
+        // Presentation only: WeChat can copy a picture as a file. Keep its
+        // original kind and paste formats; Qt decodes the thumbnail asynchronously.
+        // MatchExtension never reads the file's contents on the GUI thread.
+        if (!QMimeDatabase().mimeTypeForFile(path, QMimeDatabase::MatchExtension).name().startsWith(u"image/")
+            || fileMissing(*c) || !QFileInfo(path).isFile())
+            return QString();
+        return QUrl::fromLocalFile(path).toString();
+    }
     case ColorRole:
         return colorOf(*c);
     case OrderRole:
@@ -423,7 +437,7 @@ void ClipModel::refreshTimes()
     m_now = QDateTime::currentMSecsSinceEpoch();
     m_missing.clear();
     if (count() > 0)
-        emit dataChanged(index(0), index(count() - 1), {TitleRole, DetailRole, MissingRole, IconRole, GroupRole, PinnedRole});
+        emit dataChanged(index(0), index(count() - 1), {TitleRole, DetailRole, MissingRole, IconRole, ImageRole, GroupRole, PinnedRole});
 }
 
 void ClipModel::pictureSaved(qint64 id)

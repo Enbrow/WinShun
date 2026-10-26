@@ -2,9 +2,12 @@
 #include "FileIconProvider.h"
 
 #include <QElapsedTimer>
+#include <QDir>
+#include <QFile>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QUrl>
 
 using namespace ws;
 using namespace Qt::StringLiterals;
@@ -69,6 +72,63 @@ class ClipSelectTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void imageFilePresentationKeepsItsOriginalKind_data()
+    {
+        QTest::addColumn<ClipKind>("kind");
+        QTest::addColumn<QString>("name");
+        QTest::addColumn<bool>("thumbnail");
+        QTest::newRow("wechat-jpeg") << ClipKind::Files << u"手机截图 #+ 100%.JPG"_s << true;
+        QTest::newRow("png") << ClipKind::Files << u"picture.png"_s << true;
+        QTest::newRow("gif") << ClipKind::Files << u"animation.gif"_s << true;
+        QTest::newRow("image-path") << ClipKind::Path << u"picture.jpeg"_s << true;
+        QTest::newRow("document") << ClipKind::Files << u"document.pdf"_s << false;
+        QTest::newRow("text") << ClipKind::Text << u"picture.jpg"_s << false;
+        QTest::newRow("folder-with-image-suffix") << ClipKind::Files << u"folder.jpg"_s << false;
+        QTest::newRow("missing") << ClipKind::Files << u"missing.jpg"_s << false;
+        QTest::newRow("multiple") << ClipKind::Files << u"first.jpg\nsecond.png"_s << false;
+        QTest::newRow("network") << ClipKind::Files << u"\\\\unavailable\\share\\picture.jpg"_s << false;
+    }
+
+    void imageFilePresentationKeepsItsOriginalKind()
+    {
+        QFETCH(ClipKind, kind);
+        QFETCH(QString, name);
+        QFETCH(bool, thumbnail);
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = name.startsWith(u"\\\\") ? name : dir.filePath(name);
+        if (name == u"folder.jpg") {
+            QVERIFY(QDir().mkpath(path));
+        } else if (!name.startsWith(u"\\\\") && !name.contains(u'\n') && name != u"missing.jpg") {
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write("metadata-only fixture: the model must not decode images");
+        }
+        ClipStore store(dir.filePath(u"history"_s));
+        QVERIFY(store.open(kStart));
+        ClipCapture capture;
+        capture.kind = kind;
+        capture.text = path;
+        capture.source = u"Weixin"_s;
+        const qint64 id = store.add(capture, kStart);
+        QVERIFY(id > 0);
+        ClipModel model(&store);
+        model.setRows(store.find({}), {});
+        const QModelIndex index = model.index(0);
+        const QString image = model.data(index, ClipModel::ImageRole).toString();
+        QCOMPARE(image, thumbnail ? QUrl::fromLocalFile(path).toString() : QString());
+        QCOMPARE(model.data(index, ClipModel::KindRole).toInt(), static_cast<int>(kind));
+        QCOMPARE(store.payload(id).text, path);
+        if (thumbnail) {
+            QSignalSpy changes(&model, &ClipModel::dataChanged);
+            QVERIFY(QFile::remove(path));
+            model.refreshTimes();
+            QCOMPARE(changes.size(), 1);
+            QVERIFY(changes.front().at(2).value<QList<int>>().contains(ClipModel::ImageRole));
+            QVERIFY(model.data(index, ClipModel::ImageRole).toString().isEmpty());
+        }
+    }
+
     // Ctrl+A in 全部: what is in no group, in the order listed.
     void allTabSkipsPinnedAndGrouped()
     {

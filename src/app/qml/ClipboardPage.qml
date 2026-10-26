@@ -722,7 +722,7 @@ Item {
                     delegate: ClipRow {
                         id: clipRow
                         width: list.width
-                        height: clipRow.kind === 4 ? page.pictureRowHeight : page.rowHeight
+                        height: clipRow.picture ? page.pictureRowHeight : page.rowHeight
                         hint: page.numberKey >= 0 && index < 9 ? index + 1 : 0
                         hintOpacity: numberHints.hintOpacity
                         hintModifier: page.numberKey === Qt.Key_Control ? "Ctrl" : "Alt"

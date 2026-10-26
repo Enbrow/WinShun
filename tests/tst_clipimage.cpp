@@ -73,6 +73,15 @@ public:
     }
 
 private slots:
+    void initTestCase()
+    {
+        const QUrl folder = QUrl::fromLocalFile(QStringLiteral(WINSHUN_QML_DIR "/"));
+        qmlRegisterSingletonType<SystemTheme>(
+            "WinShun", 1, 0, "SystemTheme", [](QQmlEngine*, QJSEngine*) -> QObject* { return new SystemTheme; });
+        qmlRegisterSingletonType(folder.resolved(QUrl(u"Theme.qml"_s)), "WinShun", 1, 0, "Theme");
+        qmlRegisterType<ColorSwatch>("WinShun", 1, 0, "ColorSwatch");
+    }
+
     void codecsAndOriginals_data()
     {
         QTest::addColumn<QByteArray>("encoded");
@@ -247,14 +256,89 @@ private slots:
         QVERIFY(!decodeClipImage(clipboardBytes(L"image/png")).firstFrame.isNull());
     }
 
+    void imageFileRowLoadsAtBothSizesAndReusesItsDelegate()
+    {
+        QTest::failOnWarning(QRegularExpression(u"TypeError|ReferenceError|Cannot assign|Binding loop"_s));
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(u"手机截图 #+ 100%.JPG"_s);
+        QImage phone(900, 1600, QImage::Format_RGB32);
+        phone.fill(QColor(35, 120, 210));
+        QVERIFY(phone.save(path, "JPEG"));
+        const QUrl folder = QUrl::fromLocalFile(QStringLiteral(WINSHUN_QML_DIR "/"));
+        QQmlEngine engine;
+        QQmlComponent component(&engine, folder.resolved(QUrl(u"ClipRow.qml"_s)));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> object(component.createWithInitialProperties({
+            {u"index"_s, 0}, {u"clipId"_s, 1}, {u"kind"_s, 3},
+            {u"title"_s, u"手机截图 #+ 100%.JPG"_s}, {u"detail"_s, u"Weixin · 刚刚"_s},
+            {u"icon"_s, QUrl::fromLocalFile(path).toString()},
+            {u"image"_s, QUrl::fromLocalFile(path).toString()}, {u"swatch"_s, QString()},
+            {u"order"_s, 0}, {u"groupName"_s, QString()}, {u"pinned"_s, false},
+            {u"missing"_s, false}, {u"movable"_s, false}, {u"afterPinned"_s, false}, {u"screenshot"_s, false},
+        }));
+        QVERIFY2(object, qPrintable(component.errorString()));
+        auto* row = qobject_cast<QQuickItem*>(object.get());
+        QVERIFY(row);
+        QQuickWindow window;
+        window.setFlags(Qt::Tool | Qt::WindowDoesNotAcceptFocus | Qt::WindowTransparentForInput);
+        window.setProperty("_q_showWithoutActivating", true);
+        const int themeType = qmlTypeId("WinShun", 1, 0, "Theme");
+        window.setColor(engine.singletonInstance<QObject*>(themeType)->property("background").value<QColor>());
+        window.resize(760, 142);
+        row->setParentItem(window.contentItem());
+        row->setSize(QSizeF(760, 142));
+        window.show();
+        auto* thumbnail = row->findChild<QQuickItem*>(u"clipboardThumbnail"_s);
+        auto* icon = row->findChild<QQuickItem*>(u"clipboardFileIcon"_s);
+        QVERIFY(thumbnail);
+        QVERIFY(icon);
+        QVERIFY(row->property("picture").toBool());
+        for (bool large : {false, true}) {
+            row->setProperty("largePictures", large);
+            QTRY_COMPARE(thumbnail->property("status").toInt(), 1); // Image.Ready
+            QVERIFY(thumbnail->isVisible());
+            QVERIFY(!icon->isVisible());
+            const qreal height = large ? 130 : 68;
+            QVERIFY(qAbs(thumbnail->height() - height) <= 1);
+            QVERIFY(qAbs(thumbnail->width() / thumbnail->height() - 900.0 / 1600) < 0.02);
+        }
+        const QImage rendered = window.grabWindow();
+        QVERIFY(!rendered.isNull());
+        const QPointF center = thumbnail->mapToScene(QPointF(thumbnail->width() / 2, thumbnail->height() / 2));
+        const QColor pixel = rendered.pixelColor(qRound(center.x() * window.devicePixelRatio()),
+            qRound(center.y() * window.devicePixelRatio()));
+        QVERIFY(qAbs(pixel.red() - 35) <= 2 && qAbs(pixel.green() - 120) <= 2 && qAbs(pixel.blue() - 210) <= 2);
+        const QString screenshot = qEnvironmentVariable("WINSHUN_CLIP_ROW_SCREENSHOT");
+        if (!screenshot.isEmpty())
+            QVERIFY(rendered.save(screenshot));
+        // A broken image keeps its file icon; changing the reused row clears the old picture.
+        const QString broken = dir.filePath(u"broken.jpg"_s);
+        QFile file(broken);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("not an image");
+        file.close();
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(u".*Error decoding:.*"_s));
+        row->setProperty("image", QUrl::fromLocalFile(broken).toString());
+        QTRY_COMPARE(thumbnail->property("status").toInt(), 3); // Image.Error
+        QTRY_COMPARE(icon->property("status").toInt(), 1);
+        QVERIFY(icon->isVisible());
+        QVERIFY(!thumbnail->isVisible());
+        QCOMPARE(icon->size(), QSizeF(32, 32));
+        row->setProperty("image", QString());
+        QVERIFY(!row->property("picture").toBool());
+        QCOMPARE(thumbnail->property("status").toInt(), 0); // Image.Null
+        QVERIFY(icon->isVisible());
+        row->setProperty("kind", 0);
+        QVERIFY(!icon->isVisible());
+        row->setProperty("kind", 4);
+        QVERIFY(row->property("picture").toBool()); // an owned image being written still reserves its row
+    }
+
     void animatedPreviewCanPauseAndReleasesHiddenImages()
     {
         QTest::failOnWarning(QRegularExpression(u"TypeError|ReferenceError|Cannot assign|Binding loop"_s));
         const QUrl folder = QUrl::fromLocalFile(QStringLiteral(WINSHUN_QML_DIR "/"));
-        qmlRegisterSingletonType<SystemTheme>(
-            "WinShun", 1, 0, "SystemTheme", [](QQmlEngine*, QJSEngine*) -> QObject* { return new SystemTheme; });
-        qmlRegisterSingletonType(folder.resolved(QUrl(u"Theme.qml"_s)), "WinShun", 1, 0, "Theme");
-        qmlRegisterType<ColorSwatch>("WinShun", 1, 0, "ColorSwatch");
         QQmlEngine engine;
         QQmlComponent component(&engine, folder.resolved(QUrl(u"ClipPreview.qml"_s)));
         QVERIFY2(component.isReady(), qPrintable(component.errorString()));
