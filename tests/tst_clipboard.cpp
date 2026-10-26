@@ -86,7 +86,7 @@ private slots:
         store.setValue(u"preview"_s, u"open"_s);
         ClipCapture picture;
         picture.kind = ClipKind::Image;
-        picture.png = QByteArray("\x89PNG-pending", 12);
+        picture.imageData = QByteArray("\x89PNG-pending", 12);
         picture.hash = "screenshot";
         picture.width = 12;
         picture.height = 8;
@@ -110,7 +110,7 @@ private slots:
         QVERIFY(store.clip(image)->screenshot);
         QFile file(store.imagePath(image));
         QVERIFY(file.open(QIODevice::ReadOnly));
-        QCOMPARE(file.readAll(), picture.png);
+        QCOMPARE(file.readAll(), picture.imageData);
         QVERIFY(store.add(text(u"新记录"_s), kStart + 3) > image);
         store.close();
         store.close(); // retiring an already closed history is harmless
@@ -278,7 +278,7 @@ private slots:
         store.add(text(u"C:\\报告\\年度报告.docx"_s), kStart + 2);
         ClipCapture image;
         image.kind = ClipKind::Image;
-        image.png = QByteArray("\x89PNG", 4);
+        image.imageData = QByteArray("\x89PNG", 4);
         image.hash = "pixels";
         image.width = 10;
         image.height = 20;
@@ -492,7 +492,7 @@ private slots:
             QVERIFY(store.open(kStart));
             ClipCapture image;
             image.kind = ClipKind::Image;
-            image.png = "png";
+            image.imageData = "png";
             image.hash = "a";
             id = store.add(image, kStart);
             const std::vector<ClipRecord> removed = store.remove(std::span(&id, 1));
@@ -535,7 +535,7 @@ private slots:
             QCOMPARE(store.unreadPictures(), std::vector<qint64> {5});
             ClipCapture image;
             image.kind = ClipKind::Image;
-            image.png = "png";
+            image.imageData = "png";
             image.hash = "a";
             id = store.add(image, kStart);
             QCOMPARE(store.unreadPictures(), std::vector<qint64> {5}); // its file is still being written
@@ -634,7 +634,7 @@ private slots:
 
             ClipCapture image;
             image.kind = ClipKind::Image;
-            image.png = "png";
+            image.imageData = "png";
             image.hash = "new";
             image.screenshot = true;
             taken = store.add(image, kStart + 1);
@@ -683,7 +683,7 @@ private slots:
             const qint64 a = store.add(text(u"甲"_s), kStart);
             ClipCapture image;
             image.kind = ClipKind::Image;
-            image.png = "png";
+            image.imageData = "png";
             image.hash = "b";
             const qint64 picture = store.add(image, kStart + 1);
             const qint64 members[] {a, picture};
@@ -723,7 +723,7 @@ private slots:
             store.setLimits({2, 0}, kStart);
             ClipCapture image;
             image.kind = ClipKind::Image;
-            image.png = "png";
+            image.imageData = "png";
             image.hash = "c";
             picture = store.add(image, kStart);
             ClipCapture capture = text(big);
@@ -764,7 +764,7 @@ private slots:
         store.add(text(u"甲"_s), kStart);
         ClipCapture image;
         image.kind = ClipKind::Image;
-        image.png = "png";
+        image.imageData = "png";
         image.hash = "d";
         const qint64 good = store.add(image, kStart + 1);
         // A folder where the next picture's file would go: it cannot be written.
@@ -788,7 +788,7 @@ private slots:
         const auto picture = [](const QByteArray& hash, const QByteArray& project) {
             ClipCapture image;
             image.kind = ClipKind::Image;
-            image.png = "png";
+            image.imageData = "png";
             image.hash = hash;
             image.screenshot = true;
             image.project = project;
@@ -937,7 +937,7 @@ private slots:
         QVERIFY(store.open(kStart));
         ClipCapture first;
         first.kind = ClipKind::Image;
-        first.png = "first-png-bytes";
+        first.imageData = "first-png-bytes";
         first.hash = "same";
         first.screenshot = true;
         first.project = "the-project";
@@ -951,7 +951,7 @@ private slots:
         store.add(other, kStart + 1);
         ClipCapture again;
         again.kind = ClipKind::Image;
-        again.png = "re-encoded-differently";
+        again.imageData = "re-encoded-differently";
         again.hash = "same";
         const qint64 back = store.add(again, kStart + 2);
         store.flush();
@@ -996,7 +996,7 @@ private slots:
         const auto equation = [&linear](const QByteArray& kept) {
             ClipCapture c;
             c.kind = ClipKind::Image;
-            c.png = "png";
+            c.imageData = "png";
             c.hash = "equation";
             c.formats = kept;
             if (!kept.isEmpty())
@@ -1086,7 +1086,7 @@ private slots:
             QVERIFY(!store.clip(3)->formats);
             ClipCapture image;
             image.kind = ClipKind::Image;
-            image.png = "png";
+            image.imageData = "png";
             image.hash = "p";
             image.project = "proj";
             image.formats = packClipFormats({{u"Embedded Object"_s, QByteArray("storage")}});

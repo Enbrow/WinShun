@@ -2,7 +2,6 @@
 
 #include "ClipImage.h"
 
-#include <QBuffer>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
@@ -33,7 +32,6 @@ constexpr qsizetype kMaxText = 2 * 1024 * 1024; // characters
 constexpr qsizetype kFormattedUpTo = 1024 * 1024; // longer text keeps no HTML / RTF
 constexpr qint64 kMaxFormatBytes = 16 * 1024 * 1024;
 constexpr qint64 kMaxImageBytes = 256ll * 1024 * 1024;
-constexpr qint64 kMaxPixels = 100'000'000;
 constexpr qint64 kMaxFile = 1024ll * 1024 * 1024; // text and CSV, read whole
 constexpr int kBatchItems = 200;
 constexpr qint64 kBatchBytes = 32ll * 1024 * 1024;
@@ -99,7 +97,7 @@ public:
 
     void add(ClipImportItem item)
     {
-        m_pending.bytes += item.text.size() * 2 + item.html.size() + item.rtf.size() + item.png.size();
+        m_pending.bytes += item.text.size() * 2 + item.html.size() + item.rtf.size() + item.imageData.size();
         m_pending.items.push_back(std::move(item));
         if (m_pending.items.size() >= kBatchItems || m_pending.bytes >= kBatchBytes)
             flush();
@@ -460,20 +458,21 @@ Report importDitto(const QString& path, const Hooks& hooks)
                             }
                         }
                         if (text.trimmed().isEmpty()) {
-                            // A picture (Ditto: PNG, else the DIB).
-                            QImage image;
-                            QByteArray png = read("PNG", kMaxImageBytes);
-                            if (!png.isEmpty())
-                                image = QImage::fromData(png, "PNG");
-                            if (image.isNull()) {
-                                png.clear();
+                            DecodedClipImage picture;
+                            for (const ClipImageOffer& offer : clipImageOffers()) {
+                                const QByteArray name = offer.name.toString().toLatin1();
+                                picture = decodeClipImage(read(name.constData(), kMaxImageBytes));
+                                if (!picture.firstFrame.isNull())
+                                    break;
+                            }
+                            if (picture.firstFrame.isNull()) {
                                 QByteArray dib = read("CF_DIBV5", kMaxImageBytes);
                                 if (dib.isEmpty())
                                     dib = read("CF_DIB", kMaxImageBytes);
                                 if (!dib.isEmpty())
-                                    image = imageFromDib(dib);
+                                    picture = encodeClipImage(imageFromDib(dib));
                             }
-                            if (image.isNull() || static_cast<qint64>(image.width()) * image.height() > kMaxPixels) {
+                            if (picture.firstFrame.isNull()) {
                                 // Only HTML or RTF, or nothing usable: Ditto's own description is the text.
                                 if (!description.trimmed().isEmpty() && (have.contains(u"html format"_s) || have.contains(u"rich text format"_s))) {
                                     text = description;
@@ -485,16 +484,13 @@ Report importDitto(const QString& path, const Hooks& hooks)
                                     continue;
                                 }
                             } else {
-                                if (png.isEmpty()) {
-                                    QBuffer buffer(&png);
-                                    buffer.open(QIODevice::WriteOnly);
-                                    image.save(&buffer, "PNG");
-                                }
                                 item.kind = ClipKind::Image;
-                                item.png = std::move(png);
-                                item.width = image.width();
-                                item.height = image.height();
-                                item.hash = imagePixelHash(image);
+                                item.imageData = std::move(picture.data);
+                                item.imageFormat = picture.format;
+                                item.animated = picture.animated;
+                                item.width = picture.firstFrame.width();
+                                item.height = picture.firstFrame.height();
+                                item.hash = std::move(picture.hash);
                                 feeder.add(std::move(item));
                                 continue;
                             }

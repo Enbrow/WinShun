@@ -1121,6 +1121,24 @@ private slots:
         // The log never has the words read in the pictures.
         for (const QString& line : f.log)
             QVERIFY2(!line.contains(u"季度报表"), qPrintable(line));
+
+        // A screenshot may deduplicate with an earlier JPEG containing the
+        // same pixels. Its exported bytes and suffix still agree.
+        const QString jpeg = f.root + u"/history-6.jpg"_s;
+        {
+            QFile file(jpeg);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write("original JPEG bytes");
+        }
+        f.shots = {{6, 1'700'000'003'000, 4, 3, QString(), jpeg}};
+        reply = s.exchange(callLine(6, u"screenshot_history"_s));
+        QVERIFY(reply);
+        const QString jpegCopy = outcomeOf(*reply).structured.value(u"items"_s).toArray().at(0).toObject()
+                                     .value(u"image_path"_s).toString();
+        QVERIFY(jpegCopy.endsWith(u"/6.jpg") || jpegCopy.endsWith(u"\\6.jpg"));
+        QFile original(jpegCopy);
+        QVERIFY(original.open(QIODevice::ReadOnly));
+        QCOMPARE(original.readAll(), QByteArray("original JPEG bytes"));
     }
 
     // take_screenshot: off unless switched on; then only what the user

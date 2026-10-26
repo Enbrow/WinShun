@@ -1,14 +1,99 @@
 #include "ClipImage.h"
 
+#include <QBuffer>
 #include <QCryptographicHash>
+#include <QImageReader>
 
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <cstring>
 
 namespace ws {
+
+std::span<const ClipImageOffer> clipImageOffers()
+{
+    static constexpr std::array offers {
+        ClipImageOffer {u"GIF", ClipImageFormat::Gif},
+        ClipImageOffer {u"image/gif", ClipImageFormat::Gif},
+        ClipImageOffer {u"JFIF", ClipImageFormat::Jpeg},
+        ClipImageOffer {u"JPEG", ClipImageFormat::Jpeg},
+        ClipImageOffer {u"image/jpeg", ClipImageFormat::Jpeg},
+        ClipImageOffer {u"PNG", ClipImageFormat::Png},
+        ClipImageOffer {u"image/png", ClipImageFormat::Png},
+        ClipImageOffer {u"BMP", ClipImageFormat::Png},
+        ClipImageOffer {u"image/bmp", ClipImageFormat::Png},
+    };
+    return offers;
+}
+
+DecodedClipImage encodeClipImage(const QImage& image)
+{
+    DecodedClipImage result;
+    if (image.isNull())
+        return result;
+    if (static_cast<qint64>(image.width()) * image.height() > kClipMaxPixels) {
+        result.tooBig = true;
+        return result;
+    }
+    QBuffer buffer(&result.data);
+    if (!buffer.open(QIODevice::WriteOnly) || !image.save(&buffer, "PNG"))
+        return {};
+    if (result.data.size() > kClipMaxImageBytes) {
+        result.data.clear();
+        result.tooBig = true;
+        return result;
+    }
+    result.firstFrame = image;
+    result.hash = imagePixelHash(image);
+    return result;
+}
+
+DecodedClipImage decodeClipImage(QByteArray data)
+{
+    DecodedClipImage result;
+    if (data.size() > kClipMaxImageBytes) {
+        result.tooBig = true;
+        return result;
+    }
+    if (data.isEmpty())
+        return result;
+    QBuffer buffer(&data);
+    buffer.open(QIODevice::ReadOnly);
+    QImageReader reader(&buffer);
+    reader.setDecideFormatFromContent(true);
+    reader.setAutoTransform(true);
+    const QByteArray format = reader.format();
+    if (format == "gif")
+        result.format = ClipImageFormat::Gif;
+    else if (format == "jpeg" || format == "jpg")
+        result.format = ClipImageFormat::Jpeg;
+    else if (format != "png" && format != "bmp")
+        return result;
+    const QSize size = reader.size();
+    if (static_cast<qint64>(size.width()) * size.height() > kClipMaxPixels) {
+        result.tooBig = true;
+        return result;
+    }
+    result.animated = reader.supportsAnimation() && reader.imageCount() != 1;
+    result.firstFrame = reader.read();
+    if (result.firstFrame.isNull())
+        return {};
+    if (format == "bmp")
+        return encodeClipImage(result.firstFrame);
+    if (result.animated) {
+        QCryptographicHash hash(QCryptographicHash::Sha1);
+        hash.addData(QByteArrayView("WinShun.animated-image"));
+        hash.addData(data);
+        result.hash = hash.result();
+    } else {
+        result.hash = imagePixelHash(result.firstFrame);
+    }
+    result.data = std::move(data);
+    return result;
+}
 
 QByteArray imagePixelHash(const QImage& image)
 {
@@ -31,6 +116,8 @@ QImage imageFromDib(const QByteArray& dib)
     std::memcpy(&info, dib.constData(), sizeof info);
     if (info.biSize < sizeof(BITMAPINFOHEADER) || info.biWidth <= 0 || info.biHeight == 0)
         return {};
+    if (static_cast<qint64>(info.biWidth) * std::abs(static_cast<qint64>(info.biHeight)) > kClipMaxPixels)
+        return {};
     qint64 colors = info.biClrUsed;
     if (colors == 0 && info.biBitCount <= 8)
         colors = 1ll << info.biBitCount;
@@ -39,7 +126,8 @@ QImage imageFromDib(const QByteArray& dib)
     // after a V5 header too, where they are already inside it.
     const qint64 stride = ((static_cast<qint64>(info.biWidth) * info.biBitCount + 31) / 32) * 4;
     const qint64 pixels = stride * std::abs(static_cast<qint64>(info.biHeight));
-    if (info.biCompression == BI_BITFIELDS && (info.biSize == sizeof(BITMAPINFOHEADER) || dib.size() - offset == pixels + 12))
+    if (info.biCompression == BI_BITFIELDS
+        && (info.biSize == sizeof(BITMAPINFOHEADER) || dib.size() - offset == pixels + 12))
         offset += 12;
     BITMAPFILEHEADER file {};
     file.bfType = 0x4D42; // "BM"
@@ -119,8 +207,8 @@ QImage imageFromEmf(const QByteArray& bits)
     }
     if (right < 0)
         return {}; // nothing drawn
-    return image.copy(QRect(QPoint(left, top), QPoint(right, bottom)).adjusted(-kMargin, -kMargin, kMargin, kMargin)
-        & image.rect());
+    return image.copy(
+        QRect(QPoint(left, top), QPoint(right, bottom)).adjusted(-kMargin, -kMargin, kMargin, kMargin) & image.rect());
 }
 
 } // namespace ws

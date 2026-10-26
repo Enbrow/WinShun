@@ -16,6 +16,7 @@
 #include <QDebug>
 #include <QFileInfo>
 #include <QImage>
+#include <QImageReader>
 #include <QPainter>
 #include <QStringList>
 
@@ -224,7 +225,9 @@ void TextRecognizer::work(const std::stop_token& stop)
             if (paddle) {
                 QStringList lines;
                 QString error;
-                if (paddle->read(QImage(job.file), &lines, &error)) {
+                QImageReader reader(job.file);
+                reader.setAutoTransform(true);
+                if (paddle->read(reader.read(), &lines, &error)) {
                     words = lines.join(u'\n');
                 } else {
                     qWarning().noquote() << "Text recognition failed:" << error;

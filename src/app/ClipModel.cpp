@@ -244,6 +244,8 @@ QString ClipModel::detail(const Clip& clip) const
         parts.append(tr("%Ln 字", nullptr, static_cast<int>(std::min<qint64>(clip.textLength, INT_MAX))));
         break;
     case ClipKind::Image:
+        parts.append(clip.animated ? tr("%1 动图").arg(clipImageExtension(clip.imageFormat).toUpper())
+                                   : clipImageExtension(clip.imageFormat).toUpper());
         parts.append(QLocale().formattedDataSize(clip.bytes, 1, QLocale::DataSizeTraditionalFormat));
         break;
     case ClipKind::Files: {

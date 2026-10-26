@@ -322,6 +322,46 @@ private slots:
 
     // Ditto running: its database has a transaction open, and the file is read
     // all the same; what is not committed is not in the history.
+    void dittoPreservesAnimations()
+    {
+        QTemporaryDir dir;
+        const auto load = [](const QString& name) {
+            QFile file(QStringLiteral(WINSHUN_TEST_DATA "/") + name);
+            return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+        };
+        const QByteArray first = load(u"clipboard-animated.gif"_s);
+        const QByteArray other = load(u"clipboard-other-animation.gif"_s);
+        QVERIFY(!first.isEmpty() && !other.isEmpty());
+        QByteArray flattened;
+        QBuffer buffer(&flattened);
+        buffer.open(QIODevice::WriteOnly);
+        QVERIFY(QImage::fromData(first).save(&buffer, "PNG"));
+        const QString source = dir.filePath(u"source.db"_s);
+        {
+            DittoDb ditto(source);
+            ditto.clip(u"动图一"_s, kStart / 1000, -1, 10, DittoDb::kNotSticky,
+                {{u"GIF"_s, first}, {u"PNG"_s, flattened}});
+            ditto.clip(u"动图二"_s, kStart / 1000, -1, 20, DittoDb::kNotSticky,
+                {{u"image/gif"_s, other}, {u"PNG"_s, flattened}});
+        }
+        ClipStore store(dir.filePath(u"history"_s));
+        QVERIFY(store.open(kStart));
+        const auto report = runImport(store, source);
+        QCOMPARE(report.added, 2);
+        QCOMPARE(report.duplicates, 0);
+        QCOMPARE(report.skipped, 0);
+        store.close();
+        QVERIFY(store.open(kStart));
+        for (const Clip& clip : store.clips()) {
+            QCOMPARE(clip.imageFormat, ClipImageFormat::Gif);
+            QVERIFY(clip.animated);
+            QFile saved(store.payload(clip.id).imagePath);
+            QVERIFY(saved.open(QIODevice::ReadOnly));
+            const QByteArray bytes = saved.readAll();
+            QVERIFY(bytes == first || bytes == other);
+        }
+    }
+
     void dittoRunning()
     {
         QTemporaryDir dir;

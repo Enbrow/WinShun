@@ -1660,9 +1660,9 @@ void ToolHost::screenshotHistory(const std::shared_ptr<Call>& call)
         QJsonObject item {{u"id"_s, shot.id}, {u"taken"_s, isoTimeMs(shot.created)}, {u"width"_s, shot.width},
             {u"height"_s, shot.height}, {u"text"_s, shot.ocr}};
         if (!shot.imagePath.isEmpty()) {
-            const QString copy = folder + u'/' + QString::number(shot.id) + u".png"_s;
-            const QFileInfo there(copy);
             const QFileInfo source(shot.imagePath);
+            const QString copy = folder + u'/' + QString::number(shot.id) + u'.' + source.suffix();
+            const QFileInfo there(copy);
             if (there.exists() && there.size() != source.size())
                 QFile::remove(copy);
             if (QFileInfo::exists(copy) || QFile::copy(shot.imagePath, copy))

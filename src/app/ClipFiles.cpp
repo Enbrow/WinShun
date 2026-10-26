@@ -17,13 +17,13 @@ Export images(const ClipStore& store, const std::vector<const Clip*>& clips, con
         return {{}, Error::NotImages};
     QStringList paths;
     for (const Clip* clip : clips) {
-        const QString original = store.payload(clip->id).imagePath; // waits for a just-captured PNG
+        const QString original = store.payload(clip->id).imagePath; // waits for a just-captured image
         // IDs also distinguish pictures copied in the same second when Explorer
         // flattens all the source folders into the destination.
         const QString directory = folder + u'/' + QString::number(clip->id);
         const QString path = directory + u'/' + name + u' '
             + QDateTime::fromMSecsSinceEpoch(clip->created).toString(u"yyyy-MM-dd HH.mm.ss"_s) + u' '
-            + QString::number(clip->id) + u".png"_s;
+            + QString::number(clip->id) + u'.' + clipImageExtension(clip->imageFormat);
         if (!QFile::exists(path) && (!QDir().mkpath(directory) || !QFile::copy(original, path)))
             return {{}, Error::WriteFailed};
         paths.append(QDir::toNativeSeparators(path));

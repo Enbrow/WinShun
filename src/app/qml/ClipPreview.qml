@@ -14,6 +14,7 @@ Item {
     property bool completed: false
     Component.onCompleted: completed = true
     onEntryIdChanged: {
+        picture.animationPaused = !SystemTheme.animations
         if (completed) {
             wheelScroll.cancel()
             flick.cancelFlick()
@@ -162,23 +163,75 @@ Item {
                 font.pixelSize: Theme.uiCaption
             }
 
-            Image { // a picture, as large as fits
+            Item { // only the selected preview decodes animation frames
                 id: picture
 
                 readonly property real fit: Math.min(1, parent.width / Math.max(1, preview.info.width ?? 1),
                                                      (flick.height - 4) / Math.max(1, preview.info.height ?? 1))
+                readonly property bool animated: preview.info.animated ?? false
+                readonly property string imageSource: preview.info.image ?? ""
+                readonly property Image loadedImage: viewer.status === Loader.Ready ? viewer.item as Image : null
+                readonly property bool ready: loadedImage !== null && loadedImage.status === Image.Ready
+                readonly property bool failed: loadedImage !== null && loadedImage.status === Image.Error
+                readonly property bool inViewport: y + height > flick.contentY && y < flick.contentY + flick.height
+                property bool animationPaused: !SystemTheme.animations
 
                 visible: preview.kind === 4
                 width: Math.max(1, Math.round((preview.info.width ?? 1) * fit))
                 height: Math.max(1, Math.round((preview.info.height ?? 1) * fit))
-                source: visible ? preview.info.image : ""
-                cache: false // old full-size previews must not stay in the shared image cache
-                // A PNG file: sourceSize is in the image's own pixels.
-                sourceSize.width: Math.round(width * Screen.devicePixelRatio)
-                sourceSize.height: Math.round(height * Screen.devicePixelRatio)
-                fillMode: Image.PreserveAspectFit
-                asynchronous: true
-                smooth: true
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: Theme.track
+                }
+
+                Loader {
+                    id: viewer
+                    anchors.fill: parent
+                    active: picture.visible && preview.visible && (preview.Window.window?.visible ?? false)
+                            && picture.imageSource.length > 0
+                    sourceComponent: picture.animated ? animation : still
+                }
+
+                Component {
+                    id: still
+                    Image {
+                        source: picture.imageSource
+                        sourceSize.width: Math.max(1, Math.round(picture.width * Screen.devicePixelRatio))
+                        sourceSize.height: Math.max(1, Math.round(picture.height * Screen.devicePixelRatio))
+                        fillMode: Image.PreserveAspectFit
+                        autoTransform: true
+                        asynchronous: true
+                        cache: false
+                    }
+                }
+
+                Component {
+                    id: animation
+                    AnimatedImage {
+                        objectName: "clipboardAnimation"
+                        source: picture.imageSource
+                        sourceSize.width: Math.max(1, Math.round(picture.width * Screen.devicePixelRatio))
+                        sourceSize.height: Math.max(1, Math.round(picture.height * Screen.devicePixelRatio))
+                        fillMode: Image.PreserveAspectFit
+                        playing: true
+                        paused: picture.animationPaused || !picture.inViewport
+                        asynchronous: true
+                        cache: false // keep current frames, not the whole animation
+                    }
+                }
+
+                Text {
+                    anchors.centerIn: parent
+                    width: parent.width
+                    visible: !picture.ready
+                    text: picture.failed ? qsTr("图片加载失败，请重新复制")
+                          : picture.imageSource.length === 0 ? qsTr("正在保存图片…") : qsTr("正在加载图片…")
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
+                    color: picture.failed ? Theme.danger : Theme.faint
+                    font.pixelSize: Theme.uiCaption
+                }
 
                 Rectangle {
                     anchors.fill: parent
@@ -186,6 +239,21 @@ Item {
                     border.width: 1
                     border.color: Theme.divider
                 }
+            }
+
+            FlatButton {
+                objectName: "clipboardAnimationToggle"
+                visible: preview.kind === 4 && picture.animated
+                enabled: picture.ready
+                text: picture.animationPaused ? qsTr("播放动图") : qsTr("暂停动图")
+                glyph: picture.animationPaused ? "\uE768" : "\uE769"
+                height: 32
+                flat: true
+                keyboardActivation: false // the clipboard panel routes keys to its list
+                Accessible.role: Accessible.Button
+                Accessible.name: text
+                Accessible.onPressAction: clicked()
+                onClicked: picture.animationPaused = !picture.animationPaused
             }
 
             Column { // a picture's words, read by Windows: what the search finds it by

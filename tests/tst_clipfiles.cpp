@@ -24,7 +24,7 @@ qint64 addImage(ClipStore& store, QRgb color)
     capture.kind = ClipKind::Image;
     capture.width = image.width();
     capture.height = image.height();
-    QBuffer buffer(&capture.png);
+    QBuffer buffer(&capture.imageData);
     buffer.open(QIODevice::WriteOnly);
     image.save(&buffer, "PNG");
     capture.hash = QByteArray::number(color);

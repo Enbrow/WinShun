@@ -26,6 +26,9 @@ namespace ws {
 // files. Files are files themselves (copied in Explorer); Image is a picture.
 enum class ClipKind : std::uint8_t { Text = 0, Link = 1, Path = 2, Files = 3, Image = 4 };
 
+enum class ClipImageFormat : std::uint8_t { Png = 0, Gif, Jpeg };
+QString clipImageExtension(ClipImageFormat format);
+
 // The kind of copied text, from what it looks like.
 ClipKind kindOfText(const QString& text);
 
@@ -71,7 +74,9 @@ struct Clip {
     qint64 rank = 0;
     int width = 0; // Image, in pixels
     int height = 0;
-    qint64 bytes = 0; // Image: of its PNG file
+    qint64 bytes = 0; // Image: of its original encoded file
+    ClipImageFormat imageFormat = ClipImageFormat::Png;
+    bool animated = false;
     bool html = false; // it has formatted versions to paste
     bool rtf = false;
     // Image: the words in it (Windows' text recognition), for searching;
@@ -109,8 +114,10 @@ struct ClipCapture {
     QString text; // Files: one path per line; Image: an equation's or an object's (with `formats`)
     QByteArray html; // "HTML Format" as it was on the clipboard (UTF-8, with its header)
     QByteArray rtf;
-    QByteArray png; // Image
-    QByteArray hash; // Image: of its pixels; else clipHash(), worked out by add() if empty
+    QByteArray imageData; // Image: original encoded bytes, including all animation frames
+    ClipImageFormat imageFormat = ClipImageFormat::Png;
+    bool animated = false;
+    QByteArray hash; // Image: pixels for stills, original bytes for animations
     int width = 0;
     int height = 0;
     QString source;
@@ -136,7 +143,9 @@ struct ClipImportItem {
     QString text; // Files: one path per line
     QByteArray html;
     QByteArray rtf;
-    QByteArray png; // Image
+    QByteArray imageData; // Image: original encoded bytes
+    ClipImageFormat imageFormat = ClipImageFormat::Png;
+    bool animated = false;
     QByteArray hash; // as for ClipCapture; worked out if empty
     int width = 0;
     int height = 0;
@@ -160,7 +169,7 @@ struct ClipPayload {
     QString text; // whole
     QByteArray html;
     QByteArray rtf;
-    QString imagePath; // Image: its PNG file
+    QString imagePath; // Image: its original encoded file
     QByteArray formats; // Image: packClipFormats(), if it has them
 };
 
@@ -233,7 +242,7 @@ ClipBundle bundle(std::span<const Clip* const> clips, const std::function<QStrin
     QStringView separator);
 
 // The clipboard history: entries and groups in an SQLite database, pictures
-// as PNG files next to it. Everything but the formats for pasting is kept in
+// as image files next to it. Everything but the formats for pasting is kept in
 // memory, newest first. Used on one thread (the GUI's, or whichever made it).
 //
 // The disk is written on a thread of its own, in the order things happen:
@@ -362,6 +371,8 @@ private:
     void dropRows(const std::vector<qint64>& ids); // and their pictures and projects
     void moveToFront(std::size_t index);
     void saved(qint64 id, bool ok); // from the writer
+    QString imagePath(qint64 id, ClipImageFormat format) const;
+    void removeImageFiles(qint64 id) const; // also after an entry left memory
     bool writeProject(qint64 id, const QByteArray& bytes) const; // on the writer's thread
 
     QString m_folder;

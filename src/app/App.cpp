@@ -1934,10 +1934,11 @@ void moveClientTo(QQuickWindow* window, QPoint topLeft)
         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
-// A history picture, from its PNG file: a long capture is far above Qt's default limit of 256 MB.
+// A history picture: a long capture is far above Qt's default limit of 256 MB.
 QImage readPicture(const QString& path)
 {
     QImageReader reader(path);
+    reader.setAutoTransform(true);
     reader.setAllocationLimit(2048);
     return reader.read();
 }

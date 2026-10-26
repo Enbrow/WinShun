@@ -172,10 +172,11 @@ Item {
                 height: ready ? implicitHeight / dpr : parent.height
                 source: row.kind === 4 ? row.image : ""
                 cache: false // keep pixels only while this delegate needs them
-                // A PNG file: sourceSize is in the image's own pixels.
+                // An image file: sourceSize is in the image's own pixels.
                 sourceSize.width: Math.round(parent.width * dpr)
                 sourceSize.height: Math.round(parent.height * dpr)
                 asynchronous: true
+                autoTransform: true
                 smooth: false
             }
         }

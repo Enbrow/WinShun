@@ -106,6 +106,13 @@ try {
             --exclude-plugins qsqlibase,qsqlmimer,qsqloci,qsqlodbc,qsqlpsql `
             "--$preset" "$dist\WinShun.exe"
         if ($LASTEXITCODE) { throw 'windeployqt failed' }
+        # Only the clipboard's selected codecs; PNG and BMP are built into QtGui.
+        $imageFormats = Join-Path $dist 'imageformats'
+        New-Item -ItemType Directory -Force $imageFormats | Out-Null
+        $codecSuffix = if ($Config -eq 'Debug') { 'd' } else { '' }
+        foreach ($codec in @('qgif', 'qjpeg')) {
+            Copy-Item -LiteralPath "$QtDir\plugins\imageformats\$codec$codecSuffix.dll" -Destination $imageFormats
+        }
         # App-local C++ runtime, so users need no VC++ redistributable installed
         # (msvcp140_1: onnxruntime.dll).
         $crt = Join-Path $env:VCToolsRedistDir 'x64\Microsoft.VC143.CRT'

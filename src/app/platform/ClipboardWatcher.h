@@ -23,10 +23,10 @@ struct ClipWrite {
     QByteArray html; // "HTML Format", as it was copied
     QByteArray rtf; // "Rich Text Format"
     QStringList files; // CF_HDROP, always as a copy (never moving files that were cut)
-    QString imagePath; // a PNG file: as "PNG", CF_DIB and CF_DIBV5
-    // ... or the PNG itself, for a picture with no file yet (a screen capture:
+    QString imagePath; // original encoded image, plus PNG/DIB compatibility formats
+    // ... or the image itself, for a picture with no file yet (a screen capture:
     // the history writes its file later).
-    QByteArray png;
+    QByteArray imageData;
     // An equation's or an embedded object's own formats (packClipFormats()),
     // put first, in the order the program that copied it put them: Word and
     // WPS paste from these what was copied, the picture is for the rest.
@@ -38,7 +38,7 @@ struct ClipWrite {
 
     bool empty() const
     {
-        return text.isEmpty() && files.isEmpty() && imagePath.isEmpty() && png.isEmpty() && formats.isEmpty();
+        return text.isEmpty() && files.isEmpty() && imagePath.isEmpty() && imageData.isEmpty() && formats.isEmpty();
     }
 };
 

@@ -617,6 +617,15 @@ ClipWrite Clipboard::writeFor(
             if (!plainText) {
                 write.imagePath = std::move(payload.imagePath);
                 write.formats = std::move(payload.formats); // an equation: pasted from these
+                // Chat and upload targets commonly accept animations as files.
+                if (c.animated) {
+                    const auto exported = clipfiles::images(*m_store, clips, m_dragFolder, tr("剪贴板图片"));
+                    if (exported.error != clipfiles::Error::None) {
+                        *problem = tr("无法准备要粘贴的图片文件");
+                        return {};
+                    }
+                    write.files = exported.paths;
+                }
                 break;
             }
             // An equation has its text (Word's linear form); a picture none.
@@ -980,11 +989,11 @@ void Clipboard::storeImage(const QByteArray& png, const QByteArray& hash, QSize 
         return;
     }
     ClipWrite write;
-    write.png = png;
+    write.imageData = png;
     if (remember && m_recording && !m_paused) { // a copy like any other: in the history, on top
         ClipCapture capture;
         capture.kind = ClipKind::Image;
-        capture.png = png;
+        capture.imageData = png;
         capture.hash = hash;
         capture.width = size.width();
         capture.height = size.height();
@@ -1250,8 +1259,9 @@ QVariantMap Clipboard::preview(int row) const
                                                             : QUrl::fromLocalFile(m_store->imagePath(c->id)).toString());
         map.insert(u"width"_s, c->width);
         map.insert(u"height"_s, c->height);
+        map.insert(u"animated"_s, c->animated);
         map.insert(u"words"_s, c->searchText()); // what the search finds it by (an equation: its text)
-        size = u"%1 × %2 · %3"_s.arg(c->width).arg(c->height).arg(
+        size = u"%1 · %2 × %3 · %4"_s.arg(clipImageExtension(c->imageFormat).toUpper()).arg(c->width).arg(c->height).arg(
             QLocale().formattedDataSize(c->bytes, 1, QLocale::DataSizeTraditionalFormat));
         break;
     case ClipKind::Files:
@@ -1335,9 +1345,9 @@ QVariantList Clipboard::menuItems(int row) const
         else if (c.kind == ClipKind::Files || c.kind == ClipKind::Path)
             items.append(entry(Reveal, tr("打开所在位置"), QString(), u""_s));
         else if (c.kind == ClipKind::Image)
-            items.append(entry(PinImage, tr("贴到屏幕"), QString(), u"\uE718"_s));
+            items.append(entry(PinImage, c.animated ? tr("贴首帧到屏幕") : tr("贴到屏幕"), QString(), u"\uE718"_s));
         if (c.kind == ClipKind::Image)
-            items.append(entry(EditImage, tr("编辑"), QString(), u"\uE70F"_s));
+            items.append(entry(EditImage, c.animated ? tr("编辑首帧") : tr("编辑"), QString(), u"\uE70F"_s));
         if (c.kind == ClipKind::Image)
             items.append(entry(OpenImage, tr("打开图片"), QString(), u""_s));
     }

@@ -9,6 +9,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
@@ -30,6 +31,15 @@
 using namespace Qt::StringLiterals;
 
 namespace ws {
+
+QString clipImageExtension(ClipImageFormat format)
+{
+    switch (format) {
+    case ClipImageFormat::Gif: return u"gif"_s;
+    case ClipImageFormat::Jpeg: return u"jpg"_s;
+    default: return u"png"_s;
+    }
+}
 
 namespace {
 
@@ -409,6 +419,8 @@ bool ClipStore::open(qint64 now)
         bool hasScreenshot = false;
         bool hasProject = false;
         bool hasFormats = false;
+        bool hasImageFormat = false;
+        bool hasAnimated = false;
         QSqlQuery columns(db);
         columns.prepare(u"PRAGMA table_info(clips)"_s);
         if (!run(columns, "Reading the columns"))
@@ -419,6 +431,8 @@ bool ClipStore::open(qint64 now)
             hasScreenshot = hasScreenshot || columns.value(1).toString() == u"screenshot"_s;
             hasProject = hasProject || columns.value(1).toString() == u"project"_s;
             hasFormats = hasFormats || columns.value(1).toString() == u"formats"_s;
+            hasImageFormat = hasImageFormat || columns.value(1).toString() == u"imageFormat"_s;
+            hasAnimated = hasAnimated || columns.value(1).toString() == u"animated"_s;
         }
         columns.finish();
         if (!hasOcr && !run(db, u"ALTER TABLE clips ADD COLUMN ocr TEXT"_s))
@@ -447,6 +461,11 @@ bool ClipStore::open(qint64 now)
         // NULL: none), since GitHub #58.
         if (!hasFormats && !run(db, u"ALTER TABLE clips ADD COLUMN formats BLOB"_s))
             return loaded;
+        // Old histories contain PNGs only; no files need to be rewritten.
+        if (!hasImageFormat && !run(db, u"ALTER TABLE clips ADD COLUMN imageFormat INTEGER NOT NULL DEFAULT 0"_s))
+            return loaded;
+        if (!hasAnimated && !run(db, u"ALTER TABLE clips ADD COLUMN animated INTEGER NOT NULL DEFAULT 0"_s))
+            return loaded;
 
         QSqlQuery groups(db);
         groups.prepare(u"SELECT id, name FROM groups ORDER BY position, id"_s);
@@ -459,7 +478,7 @@ bool ClipStore::open(qint64 now)
         clips.setForwardOnly(true);
         clips.prepare(u"SELECT id, kind, substr(text, 1, %1), length, hash, created, used, source, sourcePath, groupId, "
                       u"width, height, bytes, html IS NOT NULL, rtf IS NOT NULL, ocr, rank, screenshot, project, "
-                      u"formats IS NOT NULL FROM clips ORDER BY used DESC, id DESC"_s
+                      u"formats IS NOT NULL, imageFormat, animated FROM clips ORDER BY used DESC, id DESC"_s
                 .arg(kTextInMemory));
         if (!run(clips, "Reading the history"))
             return loaded;
@@ -486,6 +505,8 @@ bool ClipStore::open(qint64 now)
             clip.screenshot = clip.kind == ClipKind::Image && clips.value(17).toInt() != 0;
             clip.project = clip.kind == ClipKind::Image && clips.value(18).toInt() != 0;
             clip.formats = clip.kind == ClipKind::Image && clips.value(19).toBool();
+            clip.imageFormat = static_cast<ClipImageFormat>(std::clamp(clips.value(20).toInt(), 0, 2));
+            clip.animated = clip.kind == ClipKind::Image && clips.value(21).toBool();
             loaded.clips.push_back(std::move(clip));
         }
         QSqlQuery last(db);
@@ -513,9 +534,9 @@ bool ClipStore::open(qint64 now)
     // they were discarded).
     m_writer->post([this, ids](QSqlDatabase& db) {
         const QDir images(m_folder + u"/images"_s);
-        for (const QString& name : images.entryList({u"*.png"_s}, QDir::Files)) {
+        for (const QString& name : images.entryList({u"*.png"_s, u"*.gif"_s, u"*.jpg"_s}, QDir::Files)) {
             bool ok = false;
-            const qint64 id = QStringView(name).chopped(4).toLongLong(&ok);
+            const qint64 id = QFileInfo(name).completeBaseName().toLongLong(&ok);
             if (!ok || !ids.contains(id))
                 QFile::remove(images.filePath(name));
         }
@@ -580,7 +601,19 @@ int ClipStore::groupSize(qint64 id) const
 
 QString ClipStore::imagePath(qint64 id) const
 {
-    return QDir::toNativeSeparators(m_folder + u"/images/%1.png"_s.arg(id));
+    const Clip* c = clip(id);
+    return imagePath(id, c ? c->imageFormat : ClipImageFormat::Png);
+}
+
+QString ClipStore::imagePath(qint64 id, ClipImageFormat format) const
+{
+    return QDir::toNativeSeparators(m_folder + u"/images/%1.%2"_s.arg(id).arg(clipImageExtension(format)));
+}
+
+void ClipStore::removeImageFiles(qint64 id) const
+{
+    for (const auto format : {ClipImageFormat::Png, ClipImageFormat::Gif, ClipImageFormat::Jpeg})
+        QFile::remove(imagePath(id, format));
 }
 
 QString ClipStore::projectPath(qint64 id) const
@@ -711,7 +744,9 @@ qint64 ClipStore::add(const ClipCapture& capture, qint64 now)
     clip.sourcePath = capture.sourcePath;
     clip.width = capture.width;
     clip.height = capture.height;
-    clip.bytes = capture.png.size();
+    clip.bytes = capture.imageData.size();
+    clip.imageFormat = capture.imageFormat;
+    clip.animated = capture.animated;
     clip.html = !capture.html.isEmpty();
     clip.rtf = !capture.rtf.isEmpty();
     clip.screenshot = capture.kind == ClipKind::Image && capture.screenshot;
@@ -725,8 +760,8 @@ qint64 ClipStore::add(const ClipCapture& capture, qint64 now)
     m_writer->post([this, context = m_context.get(), id, hash, now, capture](QSqlDatabase& db) {
         QSqlQuery query(db);
         query.prepare(u"INSERT INTO clips (id, kind, text, length, html, rtf, hash, created, used, source, sourcePath, "
-                      u"width, height, bytes, screenshot, project, formats) "
-                      u"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"_s);
+                      u"width, height, bytes, screenshot, project, formats, imageFormat, animated) "
+                      u"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"_s);
         query.addBindValue(id);
         query.addBindValue(static_cast<int>(capture.kind));
         query.addBindValue(text(capture.text));
@@ -740,14 +775,16 @@ qint64 ClipStore::add(const ClipCapture& capture, qint64 now)
         query.addBindValue(text(capture.sourcePath));
         query.addBindValue(capture.width);
         query.addBindValue(capture.height);
-        query.addBindValue(static_cast<qint64>(capture.png.size()));
+        query.addBindValue(static_cast<qint64>(capture.imageData.size()));
         query.addBindValue(capture.kind == ClipKind::Image && capture.screenshot ? 1 : 0);
         query.addBindValue(capture.kind == ClipKind::Image && !capture.project.isEmpty() ? 1 : 0);
         query.addBindValue(blob(capture.kind == ClipKind::Image ? capture.formats : QByteArray()));
+        query.addBindValue(static_cast<int>(capture.imageFormat));
+        query.addBindValue(capture.animated ? 1 : 0);
         bool ok = run(query, "Saving an entry");
         if (ok && capture.kind == ClipKind::Image) {
-            QSaveFile file(imagePath(id));
-            if (!file.open(QIODevice::WriteOnly) || file.write(capture.png) != capture.png.size() || !file.commit()) {
+            QSaveFile file(imagePath(id, capture.imageFormat));
+            if (!file.open(QIODevice::WriteOnly) || file.write(capture.imageData) != capture.imageData.size() || !file.commit()) {
                 qWarning().noquote() << "Clipboard history: cannot save a picture:" << file.errorString();
                 QSqlQuery drop(db);
                 drop.prepare(u"DELETE FROM clips WHERE id = ?"_s);
@@ -864,8 +901,8 @@ void ClipStore::restore(std::vector<ClipRecord> records)
         db.transaction();
         QSqlQuery query(db);
         query.prepare(u"INSERT OR REPLACE INTO clips (id, kind, text, length, html, rtf, hash, created, used, source, "
-                      u"sourcePath, groupId, width, height, bytes, ocr, rank, screenshot, project, formats) "
-                      u"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"_s);
+                      u"sourcePath, groupId, width, height, bytes, ocr, rank, screenshot, project, formats, imageFormat, animated) "
+                      u"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"_s);
         for (const ClipRecord& record : records) {
             const Clip& c = record.clip;
             query.addBindValue(c.id);
@@ -888,6 +925,8 @@ void ClipStore::restore(std::vector<ClipRecord> records)
             query.addBindValue(c.screenshot ? 1 : 0);
             query.addBindValue(c.project ? 1 : 0);
             query.addBindValue(blob(record.formats));
+            query.addBindValue(static_cast<int>(c.imageFormat));
+            query.addBindValue(c.animated ? 1 : 0);
             written.push_back(run(query, "Restoring an entry"));
         }
         db.commit();
@@ -915,7 +954,7 @@ void ClipStore::discardImages(std::span<const qint64> ids)
         return;
     m_writer->post([this, gone](QSqlDatabase&) {
         for (const qint64 id : gone) {
-            QFile::remove(imagePath(id));
+            removeImageFiles(id);
             QFile::remove(projectPath(id));
         }
     });
@@ -939,7 +978,7 @@ void ClipStore::dropRows(const std::vector<qint64>& ids)
         }
         db.commit();
         for (const qint64 id : ids) {
-            QFile::remove(imagePath(id));
+            removeImageFiles(id);
             QFile::remove(projectPath(id));
         }
     });
@@ -1088,7 +1127,7 @@ ClipImportResult ClipStore::importClips(std::vector<ClipImportItem> items, const
         QString text; // whole
         QByteArray html;
         QByteArray rtf;
-        QByteArray png;
+        QByteArray imageData;
     };
     std::vector<Prepared> fresh;
     fresh.reserve(items.size());
@@ -1139,13 +1178,15 @@ ClipImportResult ClipStore::importClips(std::vector<ClipImportItem> items, const
         clip.rank = nextRank[groupId]++;
         clip.width = item.width;
         clip.height = item.height;
-        clip.bytes = item.png.size();
+        clip.bytes = item.imageData.size();
+        clip.imageFormat = item.imageFormat;
+        clip.animated = item.animated;
         clip.html = !item.html.isEmpty();
         clip.rtf = !item.rtf.isEmpty();
         p.text = std::move(item.text);
         p.html = std::move(item.html);
         p.rtf = std::move(item.rtf);
-        p.png = std::move(item.png);
+        p.imageData = std::move(item.imageData);
         fresh.push_back(std::move(p));
     }
     items.clear();
@@ -1175,7 +1216,8 @@ ClipImportResult ClipStore::importClips(std::vector<ClipImportItem> items, const
         db.transaction();
         QSqlQuery query(db);
         query.prepare(u"INSERT INTO clips (id, kind, text, length, html, rtf, hash, created, used, source, sourcePath, "
-                      u"groupId, rank, width, height, bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?)"_s);
+                      u"groupId, rank, width, height, bytes, imageFormat, animated) "
+                      u"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?)"_s);
         for (const Prepared& p : fresh) {
             const Clip& c = p.clip;
             query.addBindValue(c.id);
@@ -1193,10 +1235,12 @@ ClipImportResult ClipStore::importClips(std::vector<ClipImportItem> items, const
             query.addBindValue(c.width);
             query.addBindValue(c.height);
             query.addBindValue(c.bytes);
+            query.addBindValue(static_cast<int>(c.imageFormat));
+            query.addBindValue(c.animated ? 1 : 0);
             bool ok = run(query, "Importing an entry");
             if (c.kind == ClipKind::Image) {
-                QSaveFile file(imagePath(c.id));
-                if (ok && (!file.open(QIODevice::WriteOnly) || file.write(p.png) != p.png.size() || !file.commit())) {
+                QSaveFile file(imagePath(c.id, c.imageFormat));
+                if (ok && (!file.open(QIODevice::WriteOnly) || file.write(p.imageData) != p.imageData.size() || !file.commit())) {
                     qWarning().noquote() << "Clipboard history: cannot save a picture:" << file.errorString();
                     QSqlQuery drop(db);
                     drop.prepare(u"DELETE FROM clips WHERE id = ?"_s);

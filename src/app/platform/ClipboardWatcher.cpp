@@ -2,8 +2,6 @@
 
 #include "ClipImage.h"
 
-#include <QBuffer>
-#include <QCryptographicHash>
 #include <QDebug>
 #include <QFile>
 #include <QFileInfo>
@@ -37,7 +35,6 @@ constexpr qsizetype kFormattedUpTo = 1024 * 1024; // characters: longer text kee
 constexpr SIZE_T kMaxFormatBytes = 16 * 1024 * 1024;
 constexpr qsizetype kMaxObjectBytes = 32 * 1024 * 1024; // an equation's or an object's formats all together
 constexpr SIZE_T kMaxImageBytes = 256 * 1024 * 1024;
-constexpr qint64 kMaxPixels = 100'000'000;
 
 struct Formats {
     UINT html = ::RegisterClipboardFormatW(L"HTML Format");
@@ -596,7 +593,7 @@ void ClipboardWatcher::read()
     }
 
     ClipCapture capture;
-    QByteArray png;
+    QList<QByteArray> encodedImages;
     QByteArray dib;
     qint64 tooBig = 0;
     if (::IsClipboardFormatAvailable(CF_HDROP)) {
@@ -629,33 +626,45 @@ void ClipboardWatcher::read()
     // when asked for it.
     bool imageTooBig = false;
     if ((capture.text.isEmpty() || !object.isEmpty()) && tooBig == 0 && options.images) {
-        if (::IsClipboardFormatAvailable(f.png))
-            png = readBytes(f.png, kMaxImageBytes, &imageTooBig);
-        else if (::IsClipboardFormatAvailable(f.pngMime))
-            png = readBytes(f.pngMime, kMaxImageBytes, &imageTooBig);
-        if (png.isEmpty() && !imageTooBig) {
-            if (::IsClipboardFormatAvailable(CF_DIBV5))
-                dib = readBytes(CF_DIBV5, kMaxImageBytes, &imageTooBig);
-            else if (::IsClipboardFormatAvailable(CF_DIB))
-                dib = readBytes(CF_DIB, kMaxImageBytes, &imageTooBig);
+        SIZE_T remaining = kMaxImageBytes;
+        for (const ClipImageOffer& offer : clipImageOffers()) {
+            const QString name = offer.name.toString();
+            const UINT format = ::RegisterClipboardFormatW(qUtf16Printable(name));
+            if (!::IsClipboardFormatAvailable(format))
+                continue;
+            QByteArray bytes = readBytes(format, remaining, &imageTooBig);
+            remaining -= static_cast<SIZE_T>(bytes.size());
+            if (!bytes.isEmpty())
+                encodedImages.append(std::move(bytes));
         }
+        if (::IsClipboardFormatAvailable(CF_DIBV5))
+            dib = readBytes(CF_DIBV5, remaining, &imageTooBig);
+        if (dib.isEmpty() && ::IsClipboardFormatAvailable(CF_DIB))
+            dib = readBytes(CF_DIB, remaining, &imageTooBig);
     }
     lock.close(); // the slow part (pictures) without holding the clipboard
 
-    QImage image;
+    DecodedClipImage picture;
+    for (QByteArray& bytes : encodedImages) {
+        auto candidate = decodeClipImage(std::move(bytes));
+        imageTooBig = imageTooBig || candidate.tooBig;
+        if (!candidate.firstFrame.isNull()) {
+            picture = std::move(candidate);
+            break;
+        }
+    }
+    if (picture.firstFrame.isNull() && !dib.isEmpty())
+        picture = encodeClipImage(imageFromDib(dib));
     if (!object.isEmpty()) {
         // Listed by the picture it came with, else by its metafile drawn
         // (Word gives an equation no other); pasted from its formats. With
         // no picture to show, it is kept as it would be without them.
-        if (!imageTooBig && (!png.isEmpty() || !dib.isEmpty()))
-            image = png.isEmpty() ? imageFromDib(dib) : QImage::fromData(png, "PNG");
-        if (image.isNull()) {
-            png.clear();
+        if (picture.firstFrame.isNull()) {
             const auto metafile = std::ranges::find(object, u"CF_ENHMETAFILE"_s, &ClipFormat::name);
             if (metafile != object.cend())
-                image = imageFromEmf(metafile->data);
+                picture = encodeClipImage(imageFromEmf(metafile->data));
         }
-        if (!image.isNull() && static_cast<qint64>(image.width()) * image.height() <= kMaxPixels) {
+        if (!picture.firstFrame.isNull()) {
             imageTooBig = false;
             // Its text stays (Word's linear form of an equation): the search
             // finds it by that, Shift+Enter pastes it. HTML and RTF are
@@ -664,40 +673,24 @@ void ClipboardWatcher::read()
             capture.rtf.clear();
             capture.formats = packClipFormats(object);
         } else {
-            image = {};
-            png.clear();
-            dib.clear();
             imageTooBig = imageTooBig && capture.text.isEmpty(); // else its text, as before
         }
     }
-    if (tooBig > 0 || imageTooBig) {
+    if (tooBig > 0 || (picture.firstFrame.isNull() && (imageTooBig || picture.tooBig))) {
         if (m_callbacks.skippedTooBig)
             m_callbacks.skippedTooBig(tooBig);
         return;
     }
-    if (image.isNull() && (!png.isEmpty() || !dib.isEmpty())) {
-        image = png.isEmpty() ? imageFromDib(dib) : QImage::fromData(png, "PNG");
-        if (image.isNull())
-            return;
-        if (static_cast<qint64>(image.width()) * image.height() > kMaxPixels) {
-            if (m_callbacks.skippedTooBig)
-                m_callbacks.skippedTooBig(static_cast<qint64>(image.width()) * image.height() * 4);
-            return;
-        }
-    }
-    if (!image.isNull()) {
+    if (!picture.firstFrame.isNull()) {
         capture.kind = ClipKind::Image;
-        capture.width = image.width();
-        capture.height = image.height();
-        capture.hash = imagePixelHash(image);
-        if (png.isEmpty()) {
-            QBuffer buffer(&png);
-            buffer.open(QIODevice::WriteOnly);
-            image.save(&buffer, "PNG");
-        }
-        capture.png = std::move(png);
+        capture.width = picture.firstFrame.width();
+        capture.height = picture.firstFrame.height();
+        capture.hash = std::move(picture.hash);
+        capture.imageFormat = picture.format;
+        capture.animated = picture.animated;
+        capture.imageData = std::move(picture.data);
     }
-    if (capture.text.isEmpty() && capture.png.isEmpty())
+    if (capture.text.isEmpty() && capture.imageData.isEmpty())
         return;
     if (capture.hash.isEmpty()) // here, not on the GUI thread: megabytes of text take a while
         capture.hash = clipHash(capture.kind, capture.text);
@@ -767,18 +760,34 @@ bool ClipboardWatcher::writeNow(const ClipWrite& data)
         const DWORD effect = DROPEFFECT_COPY; // pasting from the history never moves files
         add(f.dropEffect, &effect, sizeof effect);
     }
-    if (!data.imagePath.isEmpty() || !data.png.isEmpty()) {
-        QByteArray png = data.png;
-        if (png.isEmpty()) {
+    if (!data.imagePath.isEmpty() || !data.imageData.isEmpty()) {
+        QByteArray encoded = data.imageData;
+        if (encoded.isEmpty()) {
             QFile file(data.imagePath);
-            if (!file.open(QIODevice::ReadOnly))
+            if (!file.open(QIODevice::ReadOnly) || file.size() > kClipMaxImageBytes)
                 return fail();
-            png = file.readAll();
+            encoded = file.readAll();
         }
-        const QImage image = QImage::fromData(png, "PNG").convertToFormat(QImage::Format_ARGB32);
-        if (image.isNull())
+        const auto picture = decodeClipImage(std::move(encoded));
+        if (picture.firstFrame.isNull())
+            return fail();
+        // Original formats precede the still fallback so capable targets
+        // receive all frames. Simpler editors can still paste the first frame.
+        if (picture.format != ClipImageFormat::Png) {
+            for (const ClipImageOffer& offer : clipImageOffers()) {
+                if (offer.format != picture.format)
+                    continue;
+                const QString name = offer.name.toString();
+                add(::RegisterClipboardFormatW(qUtf16Printable(name)), picture.data.constData(),
+                    static_cast<std::size_t>(picture.data.size()));
+            }
+        }
+        const QByteArray png = picture.format == ClipImageFormat::Png ? picture.data : encodeClipImage(picture.firstFrame).data;
+        if (png.isEmpty())
             return fail();
         add(f.png, png.constData(), static_cast<std::size_t>(png.size()));
+        add(f.pngMime, png.constData(), static_cast<std::size_t>(png.size()));
+        const QImage image = picture.firstFrame.convertToFormat(QImage::Format_ARGB32);
         const QByteArray pixels = dibPixels(image);
         // CF_DIB, 32 bits a pixel (most programs ignore the fourth byte) ...
         BITMAPINFOHEADER info {sizeof(BITMAPINFOHEADER)};
