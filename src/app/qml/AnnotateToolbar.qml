@@ -17,13 +17,16 @@ Rectangle {
     property CaptureSession session: null
     required property AnnotationModel annot
     property bool editor: false
+    property bool movable: false
+    property Item keyTarget: null
+    readonly property bool dragging: toolbarDrag.active
     property bool ocrAvailable: session ? session.ocrAvailable : false
     // The action buttons the settings leave off (CaptureSession.hiddenButtons; the
     // editing window shows them all): their keys work all the same.
     readonly property var hidden: session ? session.hiddenButtons : []
     readonly property bool historyShown: shows("undo") || shows("redo")
     // The groups after the tools: undo and redo; long, delay, QR, OCR; pin and save; cancel and copy.
-    readonly property bool toolsShown: shows("ocr") || (!editor && (shows("long") || shows("qr") || shows("delay")))
+    readonly property bool toolsShown: shows("ocr") || (!editor && (shows("long") || shows("record") || shows("qr") || shows("delay")))
     readonly property bool outputShown: shows("save") || (pinnable && shows("pin"))
     readonly property bool finishShown: shows("copy") || shows("cancel")
     // What the last button, the check mark, says in its tip (the editing
@@ -64,6 +67,7 @@ Rectangle {
         "Q", qsTr("识别选区里的二维码"),
         "D", qsTr("延时截图：关掉这次，倒计时后再截"),
         "Ctrl+L", qsTr("长截图：选区里的内容一边滚动一边截"),
+        "Ctrl+R", qsTr("区域录屏：把选区里的操作录成 MP4 或 GIF"),
         qsTr("Esc、右键"), qsTr("退一步：写完文字、放弃标注、关闭截图")
     ]
     readonly property var editorRows: [
@@ -112,6 +116,8 @@ Rectangle {
 
     // A CaptureSession.Action asked for.
     signal action(int which)
+    signal moveStarted()
+    signal moveBy(real dx, real dy)
 
     function act(which) {
         if (session)
@@ -121,8 +127,7 @@ Rectangle {
     }
 
     // The tool or button the mouse is on, for the one HoverTip.
-    property var tipItem: null
-    property int tipTool: -1
+    property var tip: null // item and tool change together, including when a drag crosses buttons
     property bool keysOpen: false
 
     function shows(id) { return hidden.indexOf(id) < 0 }
@@ -137,11 +142,9 @@ Rectangle {
     }
     function hover(item, hovered, tool) {
         if (hovered) {
-            tipItem = item
-            tipTool = tool
-        } else if (tipItem === item) {
-            tipItem = null
-            tipTool = -1
+            tip = {item: item, tool: tool}
+        } else if (tip && tip.item === item) {
+            tip = null
         }
     }
 
@@ -166,6 +169,85 @@ Rectangle {
         x: bar.pad
         y: bar.pad
         spacing: bar.spacing
+
+        Rectangle {
+            id: grip
+            objectName: "captureToolbarGrip"
+            property string tipText: qsTr("按住拖动工具条")
+            property string tipKeys: ""
+            visible: bar.movable
+            width: bar.helpWidth
+            height: bar.buttonHeight
+            radius: Theme.controlRadius
+            color: toolbarDrag.active ? Theme.controlPressed : gripHover.hovered ? Theme.controlHover : "transparent"
+            activeFocusOnTab: true
+            onVisibleChanged: if (!visible && activeFocus && bar.keyTarget) bar.keyTarget.forceActiveFocus()
+            Accessible.role: Accessible.Button
+            Accessible.name: qsTr("移动工具条")
+            Accessible.description: qsTr("按住拖动；聚焦后可用方向键移动，Shift 加速")
+            Accessible.onPressAction: forceActiveFocus()
+            border.width: activeFocus ? 1 : 0
+            border.color: Theme.text
+
+            Column {
+                anchors.centerIn: parent
+                spacing: 3
+                Repeater {
+                    model: 3
+                    Rectangle {
+                        width: 3
+                        height: 3
+                        radius: 1.5
+                        color: gripHover.hovered || toolbarDrag.active ? Theme.text : Theme.subtext
+                    }
+                }
+            }
+            HoverHandler {
+                id: gripHover
+                cursorShape: Qt.OpenHandCursor
+                onHoveredChanged: bar.hover(grip, hovered, -1)
+            }
+            DragHandler {
+                id: toolbarDrag
+                target: null
+                acceptedButtons: Qt.LeftButton
+                cursorShape: Qt.ClosedHandCursor
+                onActiveChanged: if (active) {
+                    bar.keysOpen = false
+                    bar.moveStarted()
+                    bar.moveBy(centroid.scenePosition.x - centroid.scenePressPosition.x,
+                               centroid.scenePosition.y - centroid.scenePressPosition.y)
+                }
+                onActiveTranslationChanged: if (active) {
+                    bar.moveBy(centroid.scenePosition.x - centroid.scenePressPosition.x,
+                               centroid.scenePosition.y - centroid.scenePressPosition.y)
+                }
+            }
+            Keys.onPressed: (event) => {
+                const dx = event.key === Qt.Key_Left ? -1 : event.key === Qt.Key_Right ? 1 : 0
+                const dy = event.key === Qt.Key_Up ? -1 : event.key === Qt.Key_Down ? 1 : 0
+                if (!dx && !dy) {
+                    if (event.key === Qt.Key_Shift && event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    if (event.key === Qt.Key_Escape && bar.closeKeys()) {
+                        event.accepted = true
+                        return
+                    }
+                    event.accepted = bar.session ? bar.session.keyPressed(event.key, event.modifiers) : false
+                    return
+                }
+                const step = event.modifiers & Qt.ShiftModifier ? 10 : 1
+                bar.moveStarted()
+                bar.moveBy(dx * step, dy * step)
+                event.accepted = true
+            }
+            Keys.onReleased: (event) => {
+                if (bar.session && !event.isAutoRepeat)
+                    bar.session.keyReleased(event.key)
+            }
+        }
 
         Repeater {
             model: bar.annot ? bar.annot.tools : []
@@ -205,6 +287,15 @@ Rectangle {
             tipText: qsTr("长截图：滚动着截下选区里更长的内容")
             tipKeys: "Ctrl+L"
             onClicked: bar.act(CaptureSession.Long)
+        }
+        ActionButton {
+            id: recordButton
+            visible: !bar.editor && bar.shows("record")
+            glyph: String.fromCharCode(0xE714)
+            name: qsTr("录屏")
+            tipText: qsTr("区域录屏：录制选区里的操作，保存为 MP4 或 GIF")
+            tipKeys: "Ctrl+R"
+            onClicked: bar.act(CaptureSession.Record)
         }
         ActionButton {
             id: delayButton
@@ -309,20 +400,22 @@ Rectangle {
     }
 
     HoverTip {
-        target: bar.visible && !bar.keysOpen ? bar.tipItem : null
+        target: bar.visible && !bar.keysOpen && !bar.dragging && bar.tip ? bar.tip.item : null
         text: {
             const a = bar.annot
-            if (bar.tipTool >= 0 && a)
-                return a.tools[bar.tipTool].name
-            return bar.tipItem ? bar.tipItem.tipText : ""
+            const t = bar.tip
+            if (t && t.tool >= 0 && a)
+                return a.tools[t.tool].name
+            return t ? t.item.tipText : ""
         }
         shortcut: {
             const a = bar.annot
-            if (bar.tipTool >= 0 && a) {
-                const t = a.tools[bar.tipTool]
+            const tip = bar.tip
+            if (tip && tip.tool >= 0 && a) {
+                const t = a.tools[tip.tool]
                 return t.letter + " / " + t.digit
             }
-            return bar.tipItem ? bar.tipItem.tipKeys : ""
+            return tip ? tip.item.tipKeys : ""
         }
     }
 

@@ -64,6 +64,25 @@ class TestCapture : public QObject {
     Q_OBJECT
 
 private slots:
+    void regionRecordingAction()
+    {
+        Rig rig;
+        rig.begin();
+        QSignalSpy finished(&rig.session, &CaptureSession::finished);
+        rig.drag({100, 100}, {499, 399});
+        QVERIFY(rig.session.key(Qt::Key_R, Qt::ControlModifier));
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished[0][0].value<CaptureSession::Action>(), CaptureSession::Action::Record);
+
+        Rig tiny;
+        tiny.begin();
+        QSignalSpy none(&tiny.session, &CaptureSession::finished);
+        tiny.drag({100, 100}, {119, 119});
+        tiny.session.act(static_cast<int>(CaptureSession::Action::Record));
+        QCOMPARE(none.count(), 0);
+        QVERIFY(tiny.session.active());
+    }
+
     void initTestCase()
     {
         qRegisterMetaType<CaptureSession::Action>();

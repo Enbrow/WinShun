@@ -904,6 +904,10 @@ bool CaptureSession::key(int key, Qt::KeyboardModifiers modifiers)
         return true;
     }
     case Qt::Key_R:
+        if (ctrl && !shift && !busy) {
+            act(static_cast<int>(Action::Record));
+            return true;
+        }
         // Shift+R before there is a selection: the one of the last capture.
         if (!shift || ctrl || busy || m_selection.screen >= 0 || m_phase != Phase::Hover)
             return false;
@@ -1098,9 +1102,9 @@ void CaptureSession::keyReleased(int key)
 
 void CaptureSession::act(int action)
 {
-    if (!m_active || action < static_cast<int>(Action::Copy) || action > static_cast<int>(Action::CopyPin))
+    if (!m_active || action < static_cast<int>(Action::Copy) || action > static_cast<int>(Action::Record))
         return;
-    if (action == static_cast<int>(Action::Long)) {
+    if (action == static_cast<int>(Action::Long) || action == static_cast<int>(Action::Record)) {
         // Its picture is the screen's, scrolled: annotations would be lost.
         if (hasAnnotations()) {
             showNotice(tr("先完成或放弃标注"));
@@ -1108,7 +1112,7 @@ void CaptureSession::act(int action)
         }
         const Pick pick = m_selection.screen >= 0 ? m_selection : hovered();
         if (pick.screen >= 0 && (pick.rect.width() < kLongMinimum || pick.rect.height() < kLongMinimum)) {
-            showNotice(tr("选区太小，不能长截图"));
+            showNotice(action == static_cast<int>(Action::Record) ? tr("选区太小，不能录屏") : tr("选区太小，不能长截图"));
             return;
         }
     }

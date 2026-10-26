@@ -134,6 +134,8 @@ Capture::Capture(QQmlEngine* engine, Callbacks callbacks, QObject* parent)
     connect(&m_rebuild, &QTimer::timeout, this, [this] {
         if (m_state == State::Showing || m_state == State::Waiting)
             m_session.act(static_cast<int>(CaptureSession::Action::Cancel));
+        if (m_recorder && m_recorder->active())
+            m_recorder->finish();
         if (m_long && m_long->running())
             m_long->finish(); // its region may be gone; the grabber waits for its frames to stop
         if (busy()) {
@@ -217,6 +219,10 @@ void Capture::destroyOverlays()
 
 void Capture::trigger()
 {
+    if (m_recorder && m_recorder->active()) {
+        m_recorder->finish();
+        return;
+    }
     if (m_countdown) { // the hotkey again: the wait is over, nothing is taken
         cancelCountdown();
         return;
@@ -448,13 +454,16 @@ void Capture::finish(CaptureSession::Action action, int screen, const QRect& rec
     QPoint origin; // the picture's top left on the screen, physical
     double dpr = 1.0;
     AnnotationModel* annotation = m_session.annotation();
-    if (action == CaptureSession::Action::Long) {
+    if (action == CaptureSession::Action::Long || action == CaptureSession::Action::Record) {
         // The selection scrolls once the overlays are gone (hideAll); no picture now.
         for (const Overlay& overlay : m_overlays) {
             if (overlay.model->index() != screen)
                 continue;
             const QRect region(overlay.model->rect().topLeft() + rect.topLeft(), rect.size());
-            m_longRegion = LongRegion {region, overlay.monitor, overlay.model->dpr()};
+            if (action == CaptureSession::Action::Record)
+                m_recordRegion = LongRegion {region, overlay.monitor, overlay.model->dpr()};
+            else
+                m_longRegion = LongRegion {region, overlay.monitor, overlay.model->dpr()};
             m_session.setLastSelection(region);
             // The window the region shows goes in front now, while the overlay has the
             // foreground: when the overlay goes, Windows gives it to the window before it,
@@ -580,6 +589,7 @@ void Capture::finish(CaptureSession::Action action, int screen, const QRect& rec
     case CaptureSession::Action::Cancel:
     case CaptureSession::Action::Delay:
     case CaptureSession::Action::Long:
+    case CaptureSession::Action::Record:
         break;
     }
 }
@@ -673,11 +683,20 @@ void Capture::hideAll()
         m_callbacks.ended();
     if (std::exchange(m_delayAfter, false))
         startDelayed(); // D in the overlay: the wait begins now it is gone
+    if (const auto region = std::exchange(m_recordRegion, std::nullopt))
+        recorder().prepare(region->rect, region->monitor, region->dpr);
     if (const std::optional<LongRegion> region = std::exchange(m_longRegion, std::nullopt)) {
         if (m_callbacks.longStarting)
             m_callbacks.longStarting();
         longCapture().start(region->rect, region->monitor, region->dpr);
     }
+}
+
+Recorder& Capture::recorder()
+{
+    if (!m_recorder)
+        m_recorder = std::make_unique<Recorder>(m_engine, m_callbacks.recording, this);
+    return *m_recorder;
 }
 
 LongCapture& Capture::longCapture()
@@ -821,15 +840,15 @@ void Capture::cancelCountdown()
 
 void Capture::save(const QImage& image, const QString& path)
 {
-    saveImage(m_saver, this, image, path, m_callbacks.saved);
+    saveImage(m_saver, this, image, path, m_callbacks.saved, m_callbacks.saveFolder ? m_callbacks.saveFolder() : QString());
 }
 
 void saveImage(std::jthread& thread, QObject* context, const QImage& image, const QString& path,
-    std::function<void(const QString& path, const QString& error)> done)
+    std::function<void(const QString& path, const QString& error)> done, const QString& preferredFolder)
 {
     if (thread.joinable())
         thread.join(); // the last one, done by now
-    const QString folder = path.isEmpty() ? screenshotsFolder() : QString();
+    const QString folder = path.isEmpty() ? (preferredFolder.isEmpty() ? screenshotsFolder() : preferredFolder) : QString();
     // PNG encoding of a whole screen takes a moment: not on the GUI thread.
     thread = std::jthread([context, done = std::move(done), image, folder, chosen = path] {
         QString path = chosen;

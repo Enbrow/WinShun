@@ -30,6 +30,7 @@ Window {
     readonly property rect shown: selectedHere ? selection : hover
     // The annotations (one model for all monitors; drawn where the selection is).
     readonly property AnnotationModel annotation: session.annotation
+    onSelectedHereChanged: if (!selectedHere) toolbar.manuallyPlaced = false
 
     function px(v) { return v * sx }
     function py(v) { return v * sy }
@@ -195,13 +196,19 @@ Window {
 
     Item { // the toolbar (AnnotateToolbar) and the style panel on its side away from the selection
         id: toolbar
+        objectName: "captureToolbar"
 
         readonly property int gap: 4 // logical px between the two rows
         readonly property int panelHeight: 40 // AnnotateStylePanel's one row, logical px
+        property bool manuallyPlaced: false
+        property point manualPosition: Qt.point(0, 0)
+        property point dragOrigin: Qt.point(0, 0)
+        property string manualSide: "below"
         // Placed as two rows always, so the toolbar stays put when the panel comes and goes.
         readonly property point place: overlay.screenModel.placeToolbar(overlay.selection, bar.width, bar.height + gap + panelHeight)
         // Where placeToolbar put it: below the selection, above it, or inside at its bottom.
-        readonly property string side: place.y >= overlay.py(overlay.selection.y + overlay.selection.height) ? "below"
+        readonly property string side: manuallyPlaced ? manualSide
+                                      : place.y >= overlay.py(overlay.selection.y + overlay.selection.height) ? "below"
                                       : place.y + height <= overlay.py(overlay.selection.y) ? "above" : "inside"
         readonly property bool panelShown: overlay.annotation !== null && overlay.annotation.panelVisible
         // A drawing, moving or reshaping gesture reaching the rows in view
@@ -224,10 +231,28 @@ Window {
         function meets(a, b) {
             return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
         }
+        function bounded(value, available, extent) {
+            return Math.round(Math.max(0, Math.min(value, available - extent)) * overlay.dpr) / overlay.dpr
+        }
+        function beginMove() {
+            dragOrigin = Qt.point(x, y)
+            manualPosition = dragOrigin
+            manualSide = side
+            manuallyPlaced = true
+        }
+        function moveBy(dx, dy) {
+            manualPosition = Qt.point(bounded(dragOrigin.x + dx, overlay.width, width),
+                                      bounded(dragOrigin.y + dy, overlay.height, height))
+        }
+
+        Connections {
+            target: overlay.screenModel
+            function onGeometryChanged() { toolbar.manuallyPlaced = false }
+        }
 
         visible: overlay.selectedHere && !overlay.screenModel.adjusting && !overlay.session.toolbarHidden
-        x: Math.round(place.x * overlay.dpr) / overlay.dpr
-        y: Math.round(place.y * overlay.dpr) / overlay.dpr
+        x: manuallyPlaced ? bounded(manualPosition.x, overlay.width, width) : Math.round(place.x * overlay.dpr) / overlay.dpr
+        y: manuallyPlaced ? bounded(manualPosition.y, overlay.height, height) : Math.round(place.y * overlay.dpr) / overlay.dpr
         width: bar.width
         height: bar.height + gap + panelHeight
         opacity: stepAside ? 0 : 1
@@ -237,12 +262,20 @@ Window {
 
         AnnotateToolbar {
             id: bar
+            objectName: "captureToolbarBar"
             y: toolbar.side === "below" ? 0 : toolbar.panelHeight + toolbar.gap
+            movable: true
+            keyTarget: keys
             session: overlay.session
             annot: overlay.annotation
             dpr: overlay.dpr
             blockRect: toolbar.visibleRows
             opensDown: toolbar.side === "below"
+            onMoveStarted: {
+                overlay.session.mouseLeft(overlay.screenModel.index)
+                toolbar.beginMove()
+            }
+            onMoveBy: (dx, dy) => toolbar.moveBy(dx, dy)
         }
 
         AnnotateSmartHint { // 智能打码's offer, in the style panel's place while no tool is on

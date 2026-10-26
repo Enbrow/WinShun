@@ -6,6 +6,14 @@
 
 namespace ws::capture {
 
+struct DisplayColorMode {
+    bool hdr = false;
+    double sdrWhiteNits = 80;
+};
+
+// GDI display device name, as returned by MONITORINFOEX.
+DisplayColorMode displayColorMode(const wchar_t* device);
+
 // An HDR monitor's frame as Windows.Graphics.Capture gives it in
 // R16G16B16A16Float (scRGB: linear, sRGB primaries, 1.0 = 80 nits) turned
 // into an 8-bit sRGB picture, the way an SDR screen would show it.

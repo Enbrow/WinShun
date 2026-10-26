@@ -35,6 +35,9 @@ set_target_properties(ZXing PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF DISAB
 add_library(wscapture STATIC
     Geometry.cpp Geometry.h
     Hdr.cpp Hdr.h
+    Recording.cpp Recording.h
+    GifExport.cpp GifExport.h
+    RecordingPointer.cpp RecordingPointer.h
     PrintScreen.cpp PrintScreen.h
     WindowSnapshot.cpp WindowSnapshot.h
     Grabber.cpp Grabber.h
@@ -58,4 +61,8 @@ add_library(wscapture STATIC
 target_include_directories(wscapture PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # miniz: the projects' zip (AnnotationFormat). ole32: UI Automation (ScrollInput).
 target_link_libraries(wscapture PUBLIC winshun_options Qt6::Gui
-    PRIVATE miniz ZXing::ZXing windowsapp d3d11 dxgi dwmapi user32 gdi32 advapi32 ole32)
+    PRIVATE miniz ZXing::ZXing windowsapp windowscodecs d3d11 d2d1 dxgi mfplat mfreadwrite mfuuid oleaut32 dwmapi user32 gdi32 advapi32 ole32)
+
+# Optional media components: Windows N still starts and takes screenshots.
+target_link_options(wscapture INTERFACE /DELAYLOAD:mfplat.dll /DELAYLOAD:mfreadwrite.dll)
+target_link_libraries(wscapture PRIVATE delayimp)

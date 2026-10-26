@@ -7,6 +7,7 @@
 #include "Grabber.h"
 #include "LongCapture.h"
 #include "PinManager.h"
+#include "Recorder.h"
 #include "UiaProbe.h"
 #include "WindowSnapshot.h"
 
@@ -37,7 +38,7 @@ namespace ws::capture {
 // now (WinShun_yyyyMMdd_HHmmss.png); `done(path, error)` back on `context`'s
 // thread. The capture's Ctrl+S and the pins' 保存 / 另存为… alike.
 void saveImage(std::jthread& thread, QObject* context, const QImage& image, const QString& path,
-    std::function<void(const QString& path, const QString& error)> done);
+    std::function<void(const QString& path, const QString& error)> done, const QString& folder = {});
 
 // The screen capture (docs/design-capture.md; docs/architecture.md, 截图):
 // exists while it is turned on in the settings, and holds everything it
@@ -64,6 +65,7 @@ public:
         std::function<QString()> annotateStyles;
         std::function<void(const QString&)> annotateStylesChanged;
         std::function<void(const QString&)> copyColor; // C: "#RRGGBB"
+        std::function<QString()> saveFolder;
         std::function<void(const QString& path, const QString& error)> saved; // Ctrl+S
         std::function<void()> ended; // the overlays are gone and the memory let go of
         // 识别文字: the picture, the scale of the monitor it was on, where it
@@ -74,6 +76,7 @@ public:
         std::function<void(const QImage&, double dpr, const QRect& where, CaptureSession::Action then)> ocrThen;
         // How the annotation reads the selection's text and what it hides
         // (SmartRedact.h): 智能打码 and its pre-scan.
+        Recorder::Hooks recording;
         SmartHooks smart;
         // The pins (the app's: they outlive the capture's pictures, and a
         // file can be pinned with the capture off). Made when first asked for.
@@ -116,7 +119,7 @@ public:
     // under way (what a key opened, the same key closes; a long screenshot
     // is finished).
     void trigger();
-    bool busy() const { return m_state != State::Idle || m_countdown || (m_long && m_long->running()); }
+    bool busy() const { return m_state != State::Idle || m_countdown || (m_long && m_long->running()) || (m_recorder && m_recorder->active()); }
 
     // 贴上最近一次截图 (the tray menu).
     bool hasLast() const { return !m_last.isNull(); }
@@ -152,6 +155,7 @@ private:
     void finish(CaptureSession::Action action, int screen, const QRect& rect);
     void hideAll(); // once the frames without the pictures are drawn
     void findFlyout(); // the Start menu closed: where it was in the picture
+    Recorder& recorder();
     LongCapture& longCapture(); // made the first time
     void tickCountdown();
     void fireCountdown();
@@ -169,6 +173,8 @@ private:
         HMONITOR monitor = nullptr;
         double dpr = 1;
     };
+    std::unique_ptr<Recorder> m_recorder;
+    std::optional<LongRegion> m_recordRegion;
     std::optional<LongRegion> m_longRegion; // chosen; starts once the overlays are hidden
     CaptureSession m_session;
     std::vector<Overlay> m_overlays;

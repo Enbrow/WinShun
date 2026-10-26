@@ -1,11 +1,68 @@
 #include "Hdr.h"
 
+#include <windows.h>
+
+#include <vector>
+#include <cwchar>
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
 
 namespace ws::capture {
+
+// Whether the monitor (by its GDI name, "\\.\DISPLAY1") shows HDR, and at
+// which SDR white level Windows composes SDR content there.
+DisplayColorMode displayColorMode(const wchar_t* device)
+{
+    DisplayColorMode mode;
+    UINT32 pathCount = 0;
+    UINT32 modeCount = 0;
+    if (::GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &pathCount, &modeCount) != ERROR_SUCCESS)
+        return mode;
+    std::vector<DISPLAYCONFIG_PATH_INFO> paths(pathCount);
+    std::vector<DISPLAYCONFIG_MODE_INFO> modes(modeCount);
+    if (::QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pathCount, paths.data(), &modeCount, modes.data(), nullptr) != ERROR_SUCCESS)
+        return mode;
+    for (UINT32 i = 0; i < pathCount; ++i) {
+        const DISPLAYCONFIG_PATH_INFO& path = paths[i];
+        DISPLAYCONFIG_SOURCE_DEVICE_NAME source {};
+        source.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+        source.header.size = sizeof source;
+        source.header.adapterId = path.sourceInfo.adapterId;
+        source.header.id = path.sourceInfo.id;
+        if (::DisplayConfigGetDeviceInfo(&source.header) != ERROR_SUCCESS || std::wcscmp(source.viewGdiDeviceName, device) != 0)
+            continue;
+        // Windows 11 24H2 tells HDR from wide colour gamut; before it, the
+        // older call's "advanced colour" on a non-WCG monitor means HDR.
+        DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2 info2 {};
+        info2.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO_2;
+        info2.header.size = sizeof info2;
+        info2.header.adapterId = path.targetInfo.adapterId;
+        info2.header.id = path.targetInfo.id;
+        if (::DisplayConfigGetDeviceInfo(&info2.header) == ERROR_SUCCESS) {
+            mode.hdr = info2.activeColorMode == DISPLAYCONFIG_ADVANCED_COLOR_MODE_HDR;
+        } else {
+            DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO info {};
+            info.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO;
+            info.header.size = sizeof info;
+            info.header.adapterId = path.targetInfo.adapterId;
+            info.header.id = path.targetInfo.id;
+            if (::DisplayConfigGetDeviceInfo(&info.header) == ERROR_SUCCESS)
+                mode.hdr = info.advancedColorEnabled && !info.wideColorEnforced;
+        }
+        // In thousandths of 80 nits (scRGB 1.0).
+        DISPLAYCONFIG_SDR_WHITE_LEVEL white {};
+        white.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL;
+        white.header.size = sizeof white;
+        white.header.adapterId = path.targetInfo.adapterId;
+        white.header.id = path.targetInfo.id;
+        if (::DisplayConfigGetDeviceInfo(&white.header) == ERROR_SUCCESS && white.SDRWhiteLevel > 0)
+            mode.sdrWhiteNits = white.SDRWhiteLevel / 1000.0 * 80.0;
+        break;
+    }
+    return mode;
+}
 
 float halfToFloat(std::uint16_t h)
 {

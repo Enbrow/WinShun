@@ -21,9 +21,9 @@ Rectangle {
     readonly property bool narrow: body.width < 520
     readonly property var groups: [
         { title: qsTr("快捷键"), terms: qsTr("截图快捷键;截图历史关键词;PrtScn;Print Screen").split(";") },
-        { title: qsTr("截图"), terms: qsTr("选好就复制;复制截图时同时贴图;鼠标指针;识别控件;Electron;WinUI;延时截图").split(";") },
+        { title: qsTr("截图"), terms: qsTr("选好就复制;复制截图时同时贴图;鼠标指针;识别控件;Electron;WinUI;延时截图;截图保存文件夹;保存目录;录屏").split(";") },
         { title: qsTr("鼠标"), terms: qsTr("框选后的鼠标操作;双击左键;右键;中键;侧键;复制并贴图;识别文字并复制;识别文字并搜索;识别文字并网页搜索").split(";") },
-        { title: qsTr("贴图"), terms: qsTr("双击贴图;隐藏 / 显示全部贴图的快捷键;找回穿透贴图的快捷键").split(";") },
+        { title: qsTr("贴图"), terms: qsTr("双击贴图;贴上最近一次截图的快捷键;隐藏 / 显示全部贴图的快捷键;找回穿透贴图的快捷键").split(";") },
         { title: qsTr("打码"), terms: qsTr("智能打码;框选后自动识别;IP;MAC;把所有文字都打码;我自己的词").split(";") },
         { title: qsTr("工具条"), terms: qsTr("工具条上的按钮;撤销;重做;长截图;二维码;显示按钮;隐藏按钮").split(";") }
     ]
@@ -56,7 +56,7 @@ Rectangle {
     onMatchedGroupChanged: if (matchedGroup >= 0) revealGroup(matchedGroup)
     property bool marked: false // what the settings search found
     // The hotkey box records: SettingsWindow's binding stops the app's hotkeys meanwhile.
-    readonly property bool recordingHotkey: hotkeyRecorder.recording || pinsHotkeyRow.recording || restoreHotkeyRow.recording
+    readonly property bool recordingHotkey: hotkeyRecorder.recording || pinsHotkeyRow.recording || restoreHotkeyRow.recording || lastPinHotkeyRow.recording
 
     // The mouse buttons' choices (Settings::captureMouse*), the right button's with 后退 besides.
     readonly property var mouseChoices: [
@@ -87,6 +87,7 @@ Rectangle {
         { id: "undo", text: qsTr("撤销") },
         { id: "redo", text: qsTr("重做") },
         { id: "long", text: qsTr("长截图") },
+        { id: "record", text: qsTr("录屏") },
         { id: "delay", text: qsTr("延时") },
         { id: "qr", text: qsTr("二维码") },
         { id: "ocr", text: qsTr("识别文字") },
@@ -486,6 +487,40 @@ Rectangle {
                 width: parent.width
                 spacing: 16
 
+                Column {
+                    width: parent.width
+                    spacing: 8
+                    Text {
+                        width: parent.width
+                        text: qsTr("截图保存文件夹")
+                        color: Theme.text
+                        font.pixelSize: Theme.fontBody
+                    }
+                    Text {
+                        width: parent.width
+                        text: card.editor.captureSaveFolder.length > 0 ? card.editor.captureSaveFolder : qsTr("系统的“屏幕截图”文件夹")
+                        color: Theme.subtext
+                        font.pixelSize: Theme.fontCaption
+                        wrapMode: Text.WrapAnywhere
+                    }
+                    Row {
+                        spacing: 8
+                        FlatButton {
+                            text: qsTr("选择文件夹…")
+                            onClicked: {
+                                const chosen = card.editor.pickFolder(qsTr("选择截图保存文件夹"))
+                                if (chosen.length > 0) card.editor.captureSaveFolder = chosen
+                            }
+                        }
+                        FlatButton {
+                            text: qsTr("使用系统默认")
+                            enabled: card.editor.captureSaveFolder.length > 0
+                            onClicked: card.editor.captureSaveFolder = ""
+                        }
+                    }
+                }
+
+
                 Item {
                     width: parent.width
                     height: Math.max(copyTexts.implicitHeight, copyToggle.implicitHeight)
@@ -760,6 +795,15 @@ Rectangle {
                             }
                         }
                     }
+                }
+
+                HotkeyRow {
+                    id: lastPinHotkeyRow
+                    title: qsTr("贴上最近一次截图的快捷键")
+                    words: qsTr("把最近截过的图贴回原位置，保留标注；不设时仍可从托盘菜单操作")
+                    hotkey: card.editor.captureLastPinHotkey
+                    error: card.editor.captureLastPinHotkeyError
+                    onRecorded: (hotkey) => card.editor.captureLastPinHotkey = hotkey
                 }
 
                 HotkeyRow {

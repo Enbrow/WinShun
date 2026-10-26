@@ -176,7 +176,7 @@ public:
     // Long: the selection scrolls into a long screenshot (Ctrl+L; LongCapture),
     // one at least kLongMinimum px each way. Qr: the QR codes in it are read
     // (Q); Delay: this capture ends and the next begins after the countdown (D).
-    enum class Action { Copy, Save, Cancel, Pin, Ocr, OcrCopy, OcrSearch, OcrWeb, Long, Qr, Delay, CopyPin };
+    enum class Action { Copy, Save, Cancel, Pin, Ocr, OcrCopy, OcrSearch, OcrWeb, Long, Qr, Delay, CopyPin, Record };
     Q_ENUM(Action)
     static constexpr int kLongMinimum = 48;
 
