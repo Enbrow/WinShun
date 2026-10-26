@@ -38,8 +38,10 @@ constexpr std::uint16_t kMajor = 1; // different on the two ends: they cannot ta
 // Only ever adds fields at the end of a payload; 1: bulk reads; 2: each
 // in-use record of an MftBlock ends with the file's size (both ends at 2 or
 // more: the writer is told the other end's minor, see BlockWriter::begin).
-constexpr std::uint16_t kMinor = 2;
+// Minor 3 appends the creation time after the size, on both ends at 3+.
+constexpr std::uint16_t kMinor = 3;
 constexpr std::uint16_t kMinorSizes = 2;
+constexpr std::uint16_t kMinorCreated = 3;
 constexpr std::uint32_t kCapabilityBulkRead = 1; // HelloOk::capabilities
 constexpr std::uint32_t kCapabilityKeyListener = 2; // UIAccess listener, on the caller's desktop
 constexpr std::size_t kMaxBulkWants = 4u << 20; // files one bulk session may ask about
@@ -302,7 +304,8 @@ class BlockWriter {
 public:
     // `withSizes`: the reader speaks minor 2 or more (its Hello said so):
     // every in-use record carries the file's size.
-    void begin(std::uint32_t firstRecord, bool withSizes = true);
+    // `withCreated`: both ends speak minor 3 or more; creation follows size.
+    void begin(std::uint32_t firstRecord, bool withSizes = true, bool withCreated = true);
     // The next record in order: parsed, or not one (`parsed` false).
     void add(const ntfs::FileRecord& record, bool parsed);
     std::uint32_t count() const noexcept { return m_count; }
@@ -313,6 +316,7 @@ private:
     Writer m_writer;
     std::uint32_t m_count = 0;
     bool m_withSizes = true;
+    bool m_withCreated = true;
 };
 
 // Reads an MftBlock: checked whole on load(), then any record by number.
@@ -320,7 +324,8 @@ class BlockReader {
 public:
     // Takes the payload; false when it is malformed (nothing is kept then).
     // `withSizes`: the writer speaks minor 2 or more (its HelloOk said so).
-    bool load(std::vector<std::byte>&& payload, bool withSizes = true);
+    // `withCreated`: the writer speaks minor 3 or more.
+    bool load(std::vector<std::byte>&& payload, bool withSizes = true, bool withCreated = true);
     std::uint32_t firstRecord() const noexcept { return m_firstRecord; }
     std::uint32_t count() const noexcept { return static_cast<std::uint32_t>(m_offsets.size()); }
     std::uint64_t bytesDone() const noexcept { return m_bytesDone; }
@@ -334,6 +339,7 @@ private:
     std::uint32_t m_firstRecord = 0;
     std::uint64_t m_bytesDone = 0;
     bool m_withSizes = true;
+    bool m_withCreated = true;
 };
 
 // ---- the pipe -------------------------------------------------------------------

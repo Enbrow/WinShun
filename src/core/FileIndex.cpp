@@ -126,7 +126,7 @@ FileIndex::MemoryUse FileIndex::memoryUse() const noexcept
 {
     MemoryUse use;
     use.entries = m_chunks.size() * kChunkSize * sizeof(Entry);
-    use.times = m_times.size() * kChunkSize * sizeof(FileTime);
+    use.times = (m_times.size() + m_created.size()) * kChunkSize * sizeof(FileTime);
     use.sizes = m_sizes.size() * kChunkSize * sizeof(FileSize);
     use.names = m_names.size() * (kNameChunkSize + text::kReadPastEnd);
     use.nameBytes = m_names.empty() ? 0 : (m_names.size() - 1) * kNameChunkSize + m_nameUsed; // roughly: chunks end early
@@ -145,6 +145,8 @@ void FileIndex::warm() const noexcept
     for (const auto& chunk : m_chunks)
         ranges.push_back({chunk.get(), kChunkSize * sizeof(Entry)});
     for (const auto& chunk : m_times)
+        ranges.push_back({chunk.get(), kChunkSize * sizeof(FileTime)});
+    for (const auto& chunk : m_created)
         ranges.push_back({chunk.get(), kChunkSize * sizeof(FileTime)});
     for (const auto& chunk : m_sizes)
         ranges.push_back({chunk.get(), kChunkSize * sizeof(FileSize)});
@@ -167,6 +169,7 @@ EntryId FileIndex::allocate()
     if ((m_count >> kChunkBits) == m_chunks.size()) {
         m_chunks.push_back(std::make_unique<Entry[]>(kChunkSize));
         m_times.push_back(std::make_unique<FileTime[]>(kChunkSize));
+        m_created.push_back(std::make_unique<FileTime[]>(kChunkSize));
         auto sizes = std::make_unique_for_overwrite<FileSize[]>(kChunkSize);
         std::fill_n(sizes.get(), kChunkSize, kUnknownSize); // not read yet
         m_sizes.push_back(std::move(sizes));
@@ -321,6 +324,7 @@ std::size_t FileIndex::compact(bool always, const std::function<void(const Renum
         const EntryId to = renumber(id);
         mut(to) = e;
         setModified(to, modified(id));
+        setCreated(to, created(id));
         setSize(to, size(id));
     }
     for (EntryId& r : m_roots)
@@ -336,6 +340,8 @@ std::size_t FileIndex::compact(bool always, const std::function<void(const Renum
     m_chunks.shrink_to_fit();
     m_times.resize(m_chunks.size());
     m_times.shrink_to_fit();
+    m_created.resize(m_chunks.size());
+    m_created.shrink_to_fit();
     m_sizes.resize(m_chunks.size());
     m_sizes.shrink_to_fit();
     m_childTables = decltype(m_childTables)(); // by old ids; rebuilt on demand
@@ -493,6 +499,7 @@ EntryId FileIndex::addStored(EntryId parent, std::uint32_t nameOffset, std::uint
     Entry& e = mut(id);
     e = Entry {};
     setModified(id, 0); // a slot freed by compact() may be used again
+    setCreated(id, 0);
     e.nameOffset = nameOffset;
     if (parent == kNoEntry) {
         e.flags = static_cast<std::uint8_t>(EntryFlag::Directory | EntryFlag::Root | hanFlag(*this, nameOffset));

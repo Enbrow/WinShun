@@ -570,6 +570,21 @@ private slots:
         QCOMPARE(back.value(u"open"_s).toObject().value(u"path"_s).toString(), u"C:\\x.txt"_s);
     }
 
+    void itemMetadata()
+    {
+        const Item item = parseItem(parseObject(R"({"title":"report.xlsx","modified":"2026-01-15T08:00:00Z","created":1700000000,"size":0})"));
+        QCOMPARE(item.modified, std::uint32_t(QDateTime::fromString(u"2026-01-15T08:00:00Z"_s, Qt::ISODate).toSecsSinceEpoch()));
+        QCOMPARE(item.created, std::uint32_t(1700000000));
+        QCOMPARE(item.size, qint64(0));
+        QCOMPARE(parseItem(itemToJson(item)), item);
+        const Item invalid = parseItem(parseObject(R"({"title":"bad","modified":"invalid","created":-1,"size":-1})"));
+        QCOMPARE(invalid.modified, std::uint32_t(0));
+        QCOMPARE(invalid.created, std::uint32_t(0));
+        QCOMPARE(invalid.size, qint64(-1));
+        for (const auto* json : {R"({"title":"fraction","size":1.5})", R"({"title":"string","size":"100"})", R"({"title":"huge","size":1e30})"})
+            QCOMPARE(parseItem(parseObject(json)).size, qint64(-1));
+    }
+
     void itemsIcons()
     {
         QCOMPARE(parseIcon(u"ext:pdf"_s).kind, IconSpec::Kind::Ext);
@@ -1800,6 +1815,17 @@ private slots:
         QCOMPARE(f.actions[0].effects[0].text, u"did open on 目标"_s);
     }
 
+    void residentQueryFilters()
+    {
+        Fixture f;
+        QVERIFY(!f.install(Spec {}).isEmpty());
+        const QJsonObject filters {{u"modifiedFrom"_s, u"2026-01-01T00:00:00Z"_s}, {u"minSize"_s, 4096},
+            {u"extensions"_s, QJsonArray {u"pdf"_s}}, {u"folder"_s, u"C:\\Docs"_s}};
+        QVERIFY(f.host->query(u"fk invoice"_s, Scope::All, 1, filters));
+        QVERIFY2(f.waitFinal(1), qPrintable(f.logs.join(u'\n')));
+        QCOMPARE(f.finalFor(1)->items[0].data.toObject().value(u"filters"_s).toObject(), filters);
+    }
+
     void onceArgvAndEnvironment()
     {
         Fixture f;
@@ -1812,7 +1838,8 @@ private slots:
         const QString folder = f.install(spec);
         QVERIFY(!folder.isEmpty());
         ::SetEnvironmentVariableW(L"PLUGIN_TEST_PARENT_MARK", L"1");
-        QVERIFY(f.host->query(u"fk 查询 words"_s, Scope::All, 1));
+        const QJsonObject filters {{u"minSize"_s, 0}, {u"maxSize"_s, 8192}};
+        QVERIFY(f.host->query(u"fk 查询 words"_s, Scope::All, 1, filters));
         QVERIFY2(f.waitFinal(1), qPrintable(f.logs.join(u'\n')));
         QJsonObject data = f.finalFor(1)->items[0].data.toObject();
         const QJsonArray argv = data.value(u"argv"_s).toArray();
@@ -1835,6 +1862,7 @@ private slots:
         QCOMPARE(data.value(u"WS_LOCALE"_s).toString(), u"zh"_s);
         QCOMPARE(data.value(u"WS_VERSION"_s).toString(), u"0.0-test"_s);
         QCOMPARE(data.value(u"WS_SETTINGS"_s).toString(), u"{}"_s);
+        QCOMPARE(QJsonDocument::fromJson(data.value(u"WS_FILTERS"_s).toString().toUtf8()).object(), filters);
         QCOMPARE(data.value(u"FAKE_EXTRA"_s).toString(), u"额外"_s);
         QVERIFY(data.value(u"PYTHONIOENCODING"_s).toString().isEmpty()); // an exe, not python
         // The regex trigger: the whole text, and the groups.

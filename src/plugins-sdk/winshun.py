@@ -117,7 +117,7 @@ class Query:
     trigger's groups, `command` the command's id, `trigger` keyword |
     regex | push, `query_id` the number Win顺 gave it."""
 
-    def __init__(self, text="", raw="", command="", trigger="keyword", keyword="", match=None, query_id=0, limit=200):
+    def __init__(self, text="", raw="", command="", trigger="keyword", keyword="", match=None, query_id=0, limit=200, filters=None):
         self.text = text
         self.raw = raw
         self.command = command
@@ -126,6 +126,7 @@ class Query:
         self.match = list(match or [])
         self.query_id = query_id
         self.limit = limit
+        self.filters = dict(filters or {})
 
     def __repr__(self):
         return "Query(%r, command=%r, trigger=%r)" % (self.text, self.command, self.trigger)
@@ -155,8 +156,12 @@ def query():
         match = json.loads(_env("WS_MATCH", "[]") or "[]")
     except ValueError:
         match = []
+    try:
+        filters = json.loads(_env("WS_FILTERS", "{}") or "{}")
+    except ValueError:
+        filters = {}
     return Query(text=_env("WS_QUERY"), raw=_env("WS_TEXT"), command=_env("WS_COMMAND"),
-                 trigger=_env("WS_TRIGGER", "keyword"), keyword=_env("WS_KEYWORD"), match=match)
+                 trigger=_env("WS_TRIGGER", "keyword"), keyword=_env("WS_KEYWORD"), match=match, filters=filters)
 
 
 def settings():
@@ -311,7 +316,8 @@ class Plugin:
         elif method == "query":
             q = Query(text=params.get("text", ""), raw=params.get("raw", ""), command=params.get("command", ""),
                       trigger=params.get("trigger", "keyword"), keyword=params.get("keyword", ""),
-                      match=params.get("match") or [], query_id=params.get("queryId", 0), limit=params.get("limit", 200))
+                      match=params.get("match") or [], query_id=params.get("queryId", 0), limit=params.get("limit", 200),
+                      filters=params.get("filters") or {})
             try:
                 result = self._on_query(q, self)
             except Exception as e:  # the row says what went wrong; the process lives on

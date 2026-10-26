@@ -297,6 +297,33 @@ private:
     }
 };
 
+struct CreatedOrder {
+    const FileIndex& index;
+    bool descending;
+    bool operator()(const NameHit& a, const NameHit& b) const noexcept
+    {
+        const FileTime x = knownTime(index.created(a.id)), y = knownTime(index.created(b.id));
+        if (x != y) {
+            if (x == 0 || y == 0)
+                return y == 0;
+            return descending ? x > y : x < y;
+        }
+        return better<RankBy::Match>(a, b);
+    }
+};
+
+struct FolderOrder {
+    const FileIndex& index;
+    bool descending;
+    bool operator()(const NameHit& a, const NameHit& b) const noexcept
+    {
+        const EntryId x = index.entry(a.id).parent, y = index.entry(b.id).parent;
+        const auto name = [&](EntryId id) { return id == kNoEntry ? std::string_view() : index.name(id); };
+        const int compared = compareNames(name(x), name(y));
+        return compared != 0 ? (descending ? compared > 0 : compared < 0) : NameOrder {index, descending}(a, b);
+    }
+};
+
 // The folders in the order of their paths: each folder's place in a walk
 // of the tree, roots and children by name (ASCII case aside), parents
 // before what is in them. One number a slot (folders alone mean anything):
@@ -582,6 +609,12 @@ NameSearchOutput searchNames(const FileIndex& index, const NameMatcher& matcher,
     }
     case SortKey::Type:
         return search(index, matcher, options, pool, isCancelled, [down](const FileIndex& i) { return TypeOrder {i, down}; });
+    case SortKey::Created:
+        return search(index, matcher, options, pool, isCancelled, [down](const FileIndex& i) { return CreatedOrder {i, down}; });
+    case SortKey::Folder:
+        return search(index, matcher, options, pool, isCancelled, [down](const FileIndex& i) { return FolderOrder {i, down}; });
+    case SortKey::Source:
+        return search(index, matcher, options, pool, isCancelled, [down](const FileIndex& i) { return NameOrder {i, down}; });
     case SortKey::Size:
         return search(index, matcher, options, pool, isCancelled, [down](const FileIndex&) { return SizeOrder {down}; });
     case SortKey::Modified:

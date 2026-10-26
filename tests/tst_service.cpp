@@ -112,6 +112,7 @@ Digest digest(ntfs::RecordSource& source)
                 mix(h, record.baseRecord);
                 mix(h, record.attributes);
                 mix(h, record.modified);
+                mix(h, record.created);
                 mix(h, record.directory);
                 mix(h, record.hasAttributeList);
                 for (const auto& n : record.names) {

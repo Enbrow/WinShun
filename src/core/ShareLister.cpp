@@ -376,7 +376,8 @@ bool Lister::listWslDirectory(const Crawler::Root& dir, DirListing& out)
             m_crawler.addToListing(out, dir, {}, name, Crawler::attributeFlags(data.dwFileAttributes),
                 !systemMount && Crawler::shouldDescend(data.dwFileAttributes, data.dwReserved0), 0,
                 fileTimeOf(win32::ticks(data.ftLastWriteTime)),
-                packSize((std::uint64_t {data.nFileSizeHigh} << 32) | data.nFileSizeLow));
+                packSize((std::uint64_t {data.nFileSizeHigh} << 32) | data.nFileSizeLow),
+                fileTimeOf(win32::ticks(data.ftCreationTime)));
         }
     } while (::FindNextFileW(find.get(), &data));
     if (const auto error = ::GetLastError(); error != ERROR_NO_MORE_FILES)
@@ -433,7 +434,8 @@ bool Lister::operator()(const Crawler::Root& dir, DirListing& out)
                 // For reparse points, EaSize holds the reparse tag.
                 m_crawler.addToListing(out, dir, {}, name, Crawler::attributeFlags(info->FileAttributes),
                     Crawler::shouldDescend(info->FileAttributes, info->EaSize), 0,
-                    fileTimeOf(info->LastWriteTime.QuadPart), packSize(static_cast<std::uint64_t>(info->EndOfFile.QuadPart)));
+                    fileTimeOf(info->LastWriteTime.QuadPart), packSize(static_cast<std::uint64_t>(info->EndOfFile.QuadPart)),
+                    fileTimeOf(info->CreationTime.QuadPart));
             }
             if (info->NextEntryOffset == 0)
                 break;

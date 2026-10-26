@@ -44,6 +44,7 @@ struct FileRecord {
     std::uint32_t baseRecord = 0; // non-zero: an extension of that record
     std::uint32_t attributes = 0; // FILE_ATTRIBUTE_*, from $STANDARD_INFORMATION (base records only)
     std::int64_t modified = 0; // FILETIME of the last write, from there too
+    std::int64_t created = 0;
     bool hasAttributeList = false; // some attributes live in extension records
     // The file's size (its unnamed $DATA stream: what GetFileSizeEx says),
     // when this record holds that stream's start: a resident one, or the

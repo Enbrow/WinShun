@@ -1,4 +1,6 @@
 #include "Launcher.h"
+#include "ResultColumns.h"
+#include "Settings.h"
 #include "Wsl.h"
 
 #include "AppCatalog.h"
@@ -26,6 +28,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QJsonArray>
 #include <QLocale>
 #include <QPointer>
 #include <QRegularExpression>
@@ -33,6 +36,7 @@
 #include <QSet>
 #include <QSettings>
 #include <QStyleHints>
+#include <QTimeZone>
 
 #include <windows.h>
 
@@ -217,6 +221,7 @@ Launcher::Launcher(IndexService* index, AppCatalog* apps, SystemCatalog* places,
     , m_history(history)
     , m_sink(std::make_unique<ModelSink>(*this))
 {
+    m_columns.load(Settings::filePath());
     m_pluginWait.setSingleShot(true);
     m_pluginWait.setInterval(150ms); // a plugin that answers within it shows nothing of the wait
     connect(&m_pluginWait, &QTimer::timeout, this, [this] {
@@ -1166,6 +1171,7 @@ void Launcher::openFrequentApp(int index)
 
 void Launcher::retranslate()
 {
+    m_columns.retranslate();
     m_results.retranslate();
     if (m_merge) {
         m_merge->setLocale(uiLocale());
@@ -1401,11 +1407,14 @@ void Launcher::showRows(SearchResults rows, QStringList highlights)
     }
     if (!m_keyword)
         placeScreenshotHint();
+    sortShownPanel();
 }
 
 // Keyword mode: the command's answer is the list (ModelSink::assign).
 void Launcher::showPluginRows(SearchResults rows)
 {
+    if (m_panel && m_panelSort.key != SortKey::Rank)
+        std::stable_sort(rows.begin(), rows.end(), [&](const auto& a, const auto& b) { return resultColumnLess(a, b, m_panelSort); });
     showRows(std::move(rows), m_keyword ? ws::parseQuery(m_keyword->words).highlights : QStringList());
     refreshStatus();
 }
@@ -1969,6 +1978,46 @@ QString Launcher::panelKey() const
     return key;
 }
 
+QJsonObject Launcher::pluginFilters() const
+{
+    if (!m_panel)
+        return {};
+    const EntryFilter filter = panelFilter();
+    const auto time = [](FileTime value) -> QJsonValue {
+        return value == 0 ? QJsonValue(QJsonValue::Null)
+            : QJsonValue(QDateTime::fromSecsSinceEpoch(value, QTimeZone::UTC).toString(Qt::ISODate));
+    };
+    QJsonArray kinds;
+    if (m_fileType >= 0 && m_fileType < m_fileTypes.size())
+        kinds.append(m_fileTypes[m_fileType].id.isEmpty() ? m_fileTypes[m_fileType].name : m_fileTypes[m_fileType].id);
+    else if (m_scope == Folders)
+        kinds.append(u"folders"_s);
+    else if (m_scope == Files)
+        kinds.append(u"files"_s);
+    else if (m_scope == Content)
+        kinds.append(u"content"_s);
+    return {{u"modifiedFrom"_s, time(filter.after)}, {u"modifiedTo"_s, time(filter.before)},
+        {u"minSize"_s, filter.minSize == 0 ? QJsonValue(QJsonValue::Null) : QJsonValue(qint64(unpackSize(filter.minSize)))},
+        {u"maxSize"_s, filter.maxSize == kUnknownSize ? QJsonValue(QJsonValue::Null) : QJsonValue(qint64(unpackSize(filter.maxSize)))},
+        {u"kinds"_s, kinds}, {u"extensions"_s, QJsonArray::fromStringList(fileExtensions())},
+        {u"folder"_s, m_folderFilter}};
+}
+
+void Launcher::sortShownPanel(const QString& currentPath)
+{
+    if (!m_panel || m_panelSort.key == SortKey::Rank || m_results.count() < 2)
+        return;
+    const SearchResult* current = m_results.at(m_currentRow);
+    const QString kept = currentPath.isEmpty() && current ? current->path : currentPath;
+    SearchResults rows;
+    for (int i = 0; i < m_results.count(); ++i)
+        rows.push_back(*m_results.at(i));
+    std::stable_sort(rows.begin(), rows.end(), [&](const auto& a, const auto& b) { return resultColumnLess(a, b, m_panelSort); });
+    m_results.assign(std::move(rows), ws::parseQuery(searchText()).highlights);
+    if (!kept.isEmpty())
+        emit panelRowRestored(m_results.indexOf(kept));
+}
+
 void Launcher::setDateChoice(int choice)
 {
     choice = std::clamp(choice, 0, 5);
@@ -2060,18 +2109,20 @@ void Launcher::clearFilters()
 
 void Launcher::sortBy(int key)
 {
-    const auto sortKey = static_cast<SortKey>(std::clamp(key, 0, 4));
+    const auto sortKey = static_cast<SortKey>(std::clamp(key, 0, 8));
     SortOrder order;
     if (sortKey == m_panelSort.key && sortKey != SortKey::Rank) {
         order = {sortKey, !m_panelSort.descending};
     } else {
         // Names and paths up (a to z); sizes and times down (the largest, the newest first).
-        order = {sortKey, sortKey == SortKey::Size || sortKey == SortKey::Modified};
+        order = {sortKey, sortKey == SortKey::Size || sortKey == SortKey::Modified || sortKey == SortKey::Created};
     }
     if (order == m_panelSort)
         return;
     m_panelSort = order;
     emit panelSortChanged();
+    if (m_keyword)
+        sortShownPanel();
     if (m_panel && m_window && m_window->isVisible() && !m_keyword)
         search();
 }
@@ -4291,7 +4342,7 @@ std::optional<Launcher::KeywordMode> Launcher::matchKeyword(const QString& text)
 {
     if (std::optional<KeywordMode> shots = matchScreenshotKeyword(text))
         return shots;
-    if (!m_plugins || !m_merge || m_scope != All || text.trimmed().isEmpty())
+    if (!m_plugins || !m_merge || (m_scope != All && !m_panel) || text.trimmed().isEmpty())
         return std::nullopt;
     for (const plugin::Match& m : m_plugins->catalog().match(text)) {
         if (m.kind != plugin::Match::Kind::Keyword)
@@ -4333,12 +4384,12 @@ void Launcher::startPluginQuery(const QString& text, std::optional<KeywordMode> 
             emit pluginChanged();
         return;
     }
-    const auto scope = static_cast<ws::Scope>(m_scope);
+    const auto scope = keyword && m_panel ? ws::Scope::All : static_cast<ws::Scope>(m_scope);
     const std::uint64_t id = ++m_pluginQueryId;
     m_keyword = std::move(keyword);
     m_merge->begin(id, text, m_keyword ? m_keyword->pluginId : QString(), m_keyword ? m_keyword->commandId : QString());
     m_pluginTimer.start();
-    m_plugins->query(text, scope, id); // queryTaken() for each plugin asked; zero-code ones answer within
+    m_plugins->query(text, scope, id, pluginFilters()); // zero-code ones answer within
     if (!m_pluginPending.isEmpty())
         m_pluginWait.start();
     if (was || m_keyword)
@@ -4356,9 +4407,40 @@ void Launcher::onPluginResults(std::uint64_t queryId, const QString& pluginId, c
 {
     if (queryId != m_pluginQueryId || !m_merge)
         return;
-    m_merge->results(queryId, pluginId, commandId, items, partial, replace);
+    const SearchResult* current = m_results.at(m_currentRow);
+    const QString currentPath = current ? current->path : QString();
+    plugin::Items filtered = items;
+    if (m_panel) {
+        const EntryFilter filter = panelFilter();
+        filtered.removeIf([&](const plugin::Item& item) {
+            if (item.modified != 0 && filter.byTime()) {
+                EntryFilter time = filter;
+                time.minSize = 0;
+                time.maxSize = kUnknownSize;
+                if (!time.fits(item.modified, kUnknownSize, false))
+                    return true;
+            }
+            if (item.size >= 0 && filter.bySize()) {
+                const FileSize size = packSize(item.size);
+                if (size < filter.minSize || size > filter.maxSize)
+                    return true;
+            }
+            if (!m_folderFilter.isEmpty() && item.open.kind == plugin::Open::Kind::Path) {
+                const QString folder = QDir::toNativeSeparators(m_folderFilter);
+                const QString path = QDir::toNativeSeparators(item.open.target);
+                if (path.compare(folder, Qt::CaseInsensitive) != 0
+                    && !path.startsWith(folder.endsWith(u'\\') ? folder : folder + u'\\', Qt::CaseInsensitive))
+                    return true;
+            }
+            const QStringList extensions = fileExtensions();
+            const QString extension = QFileInfo(item.title).suffix().toLower();
+            return !extensions.isEmpty() && !extension.isEmpty() && !extensions.contains(extension, Qt::CaseInsensitive);
+        });
+    }
+    m_merge->results(queryId, pluginId, commandId, filtered, partial, replace);
     if (m_merge->takeBetterFirstRow())
         emit betterFirstRow();
+    sortShownPanel(currentPath);
     refreshStatus();
 }
 

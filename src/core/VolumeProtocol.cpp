@@ -492,7 +492,7 @@ bool decode(std::span<const std::byte> payload, BulkDataHeader& m, std::span<con
 
 // ---- MftBlock ----------------------------------------------------------------
 
-void BlockWriter::begin(std::uint32_t firstRecord, bool withSizes)
+void BlockWriter::begin(std::uint32_t firstRecord, bool withSizes, bool withCreated)
 {
     m_writer.reset();
     m_writer.u32(firstRecord);
@@ -500,6 +500,7 @@ void BlockWriter::begin(std::uint32_t firstRecord, bool withSizes)
     m_writer.u64(0); // bytesDone, patched
     m_count = 0;
     m_withSizes = withSizes;
+    m_withCreated = withSizes && withCreated;
 }
 
 void BlockWriter::add(const ntfs::FileRecord& record, bool parsed)
@@ -528,6 +529,8 @@ void BlockWriter::add(const ntfs::FileRecord& record, bool parsed)
     }
     if (m_withSizes)
         m_writer.u64(record.sizeKnown ? record.size : 0);
+    if (m_withCreated)
+        m_writer.i64(record.created);
 }
 
 std::span<const std::byte> BlockWriter::finish(std::uint64_t bytesDone)
@@ -537,11 +540,12 @@ std::span<const std::byte> BlockWriter::finish(std::uint64_t bytesDone)
     return m_writer.finish(Type::MftBlock);
 }
 
-bool BlockReader::load(std::vector<std::byte>&& payload, bool withSizes)
+bool BlockReader::load(std::vector<std::byte>&& payload, bool withSizes, bool withCreated)
 {
     m_offsets.clear();
     m_payload.clear();
     m_withSizes = withSizes;
+    m_withCreated = withSizes && withCreated;
     Reader r(payload);
     std::uint32_t first = 0;
     std::uint32_t count = 0;
@@ -572,6 +576,8 @@ bool BlockReader::load(std::vector<std::byte>&& payload, bool withSizes)
         std::uint64_t size = 0;
         if (withSizes && !r.u64(size))
             return false;
+        if (m_withCreated && !r.i64(t))
+            return false;
     }
     if (!r.done())
         return false; // bytes after the last record: not ours
@@ -589,6 +595,7 @@ bool BlockReader::record(std::size_t i, ntfs::FileRecord& out) const
     out.baseRecord = 0;
     out.attributes = 0;
     out.modified = 0;
+    out.created = 0;
     out.hasAttributeList = false;
     out.size = 0;
     out.sizeKnown = false;
@@ -624,6 +631,8 @@ bool BlockReader::record(std::size_t i, ntfs::FileRecord& out) const
         r.u64(out.size);
         out.sizeKnown = flags & kRecordSizeKnown;
     }
+    if (m_withCreated)
+        r.i64(out.created);
     return true;
 }
 

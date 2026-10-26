@@ -86,6 +86,7 @@ struct DirListing {
         std::uint32_t record; // NTFS file record number, 0 when unknown
         FileTime modified;
         FileSize size; // packed; kUnknownSize for a folder, or when not read
+        FileTime created = 0;
     };
     std::string names;
     std::wstring wideNames;
@@ -147,7 +148,8 @@ public:
     // excluded ones are left out, the others get their priority flags.
     // `wideName` is only needed for folders.
     void addToListing(DirListing& out, const Root& dir, std::string_view name, std::wstring_view wideName,
-        std::uint8_t flags, bool descend, std::uint32_t record, FileTime modified, FileSize size = kUnknownSize) const;
+        std::uint8_t flags, bool descend, std::uint32_t record, FileTime modified, FileSize size = kUnknownSize,
+        FileTime created = 0) const;
 
     bool isExcludedDir(std::wstring_view fullPath, std::wstring_view name) const;
     bool isExcludedPath(std::wstring_view fullPath) const; // the path or one of its ancestors
@@ -168,6 +170,7 @@ struct PathProbe {
     unsigned long reparseTag = 0;
     FileTime modified = 0;
     FileSize size = kUnknownSize; // a file's, packed
+    FileTime created = 0;
 };
 PathProbe probePath(const std::wstring& path);
 

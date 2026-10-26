@@ -1,4 +1,5 @@
 #include "ResultModel.h"
+#include "ResultColumns.h"
 
 #include "AppCatalog.h"
 #include "DisplayDiagnostics.h"
@@ -398,21 +399,28 @@ QVariant ResultModel::data(const QModelIndex& index, int role) const
     case SelectedRole:
         return m_selected.contains(r->path);
     case ModifiedRole:
-        return r->isApp() && r->clipId == 0 ? QString() : modifiedText(r->modified, QDateTime::currentDateTime(), m_showModifiedTime);
+        return r->isApp() && !r->isPlugin() && r->clipId == 0 ? QString() : modifiedText(r->modified, QDateTime::currentDateTime(), m_showModifiedTime);
     case ModifiedFullRole:
-        return r->isApp() && r->clipId == 0 ? QString() : modifiedFullText(r->modified);
+        return r->isApp() && !r->isPlugin() && r->clipId == 0 ? QString() : modifiedFullText(r->modified);
     case ModifiedDateRole:
-        if ((r->isApp() && r->clipId == 0) || knownTime(r->modified) == 0)
+        if ((r->isApp() && !r->isPlugin() && r->clipId == 0) || knownTime(r->modified) == 0)
             return QString();
         return QDateTime::fromSecsSinceEpoch(r->modified).toLocalTime().toString(u"yyyy-MM-dd HH:mm"_s);
     case SizeRole:
-        return r->isApp() || r->isDir || r->size < 0 ? QString() : sizeText(static_cast<std::uint64_t>(r->size));
+        return (r->isApp() && !r->isPlugin()) || r->isDir || r->size < 0 ? QString() : sizeText(static_cast<std::uint64_t>(r->size));
     case OfflineRole:
         return r->offline;
     case PluginRole:
         return r->isPlugin();
     case SourceRole:
-        return r->isPlugin() ? r->plugin->source : QString();
+        return resultSource(*r);
+    case CreatedDateRole:
+        return knownTime(r->created) == 0 ? QString()
+            : QDateTime::fromSecsSinceEpoch(r->created).toLocalTime().toString(u"yyyy-MM-dd HH:mm"_s);
+    case TypeNameRole:
+        return resultType(*r);
+    case FolderNameRole:
+        return resultFolderName(*r);
     case FavoriteRole:
         return r->favorite;
     case FavoriteKeywordRole:
@@ -489,6 +497,9 @@ QHash<int, QByteArray> ResultModel::roleNames() const
         {ModifiedFullRole, "modifiedFull"},
         {ModifiedDateRole, "modifiedDate"},
         {SizeRole, "size"},
+        {CreatedDateRole, "createdDate"},
+        {TypeNameRole, "typeName"},
+        {FolderNameRole, "folderName"},
         {OfflineRole, "offline"},
         {PluginRole, "plugin"},
         {SourceRole, "source"},

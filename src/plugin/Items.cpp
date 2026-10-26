@@ -1,4 +1,6 @@
 #include "Items.h"
+#include <QDateTime>
+#include <cmath>
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -135,6 +137,21 @@ Item parseItem(const QJsonObject& o)
     item.id = o.value(u"id"_s).toString();
     item.title = o.value(u"title"_s).toString();
     item.subtitle = o.value(u"subtitle"_s).toString();
+    const auto time = [](const QJsonValue& value) -> std::uint32_t {
+        const double seconds = value.isString()
+            ? static_cast<double>(QDateTime::fromString(value.toString(), Qt::ISODateWithMs).toSecsSinceEpoch())
+            : value.isDouble() ? value.toDouble() : 0;
+        return std::isfinite(seconds) && seconds > 0 && seconds <= 0xFFFF'FFFF && std::floor(seconds) == seconds
+            ? static_cast<std::uint32_t>(seconds) : 0;
+    };
+    item.modified = time(o.value(u"modified"_s));
+    item.created = time(o.value(u"created"_s));
+    const QJsonValue size = o.value(u"size"_s);
+    if (size.isDouble()) {
+        const double bytes = size.toDouble();
+        if (std::isfinite(bytes) && bytes >= 0 && bytes <= 9'007'199'254'740'991.0 && std::floor(bytes) == bytes)
+            item.size = static_cast<qint64>(bytes);
+    }
     item.icon = parseIcon(o.value(u"icon"_s).toString());
     if (o.value(u"score"_s).isDouble()) {
         item.hasScore = true;
@@ -272,6 +289,12 @@ QJsonObject itemToJson(const Item& item)
     o.insert(u"title"_s, item.title);
     if (!item.subtitle.isEmpty())
         o.insert(u"subtitle"_s, item.subtitle);
+    if (item.modified != 0)
+        o.insert(u"modified"_s, static_cast<qint64>(item.modified));
+    if (item.created != 0)
+        o.insert(u"created"_s, static_cast<qint64>(item.created));
+    if (item.size >= 0)
+        o.insert(u"size"_s, item.size);
     if (item.hasScore)
         o.insert(u"score"_s, item.score);
     if (!item.match.isEmpty())

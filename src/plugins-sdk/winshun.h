@@ -555,6 +555,9 @@ struct Item {
     std::vector<Action> actions;
     bool valid = true;
     Json data;
+    Json modified; // ISO 8601 with time zone or Unix seconds; optional
+    Json created;
+    long long size = -1; // bytes; -1 means unknown
 
     Item() = default;
     Item(std::string itemId, std::string itemTitle, std::string itemSubtitle = {})
@@ -569,6 +572,9 @@ struct Item {
     Item& withPath(std::string path) { open = Json::Object {{"path", std::move(path)}}; return *this; }
     Item& withUrl(std::string url) { open = Json::Object {{"url", std::move(url)}}; return *this; }
     Item& withData(Json d) { data = std::move(d); return *this; }
+    Item& withModified(Json value) { modified = std::move(value); return *this; }
+    Item& withCreated(Json value) { created = std::move(value); return *this; }
+    Item& withSize(long long bytes) { size = bytes; return *this; }
     Item& withActions(std::vector<Action> a) { actions = std::move(a); return *this; }
     Item& invalid() { valid = false; return *this; }
 
@@ -577,6 +583,9 @@ struct Item {
         Json::Object o {{"id", id}, {"title", title}};
         if (!subtitle.empty())
             o["subtitle"] = subtitle;
+        if (!modified.isNull()) o["modified"] = modified;
+        if (!created.isNull()) o["created"] = created;
+        if (size >= 0) o["size"] = size;
         if (!icon.empty())
             o["icon"] = icon;
         if (score >= 0)
@@ -637,6 +646,7 @@ struct Query {
     std::string raw; // the whole input
     std::vector<std::string> match; // a regex trigger's groups
     int limit = 200;
+    Json filters = Json::Object {}; // search-panel bounds; absent fields mean no restriction
 };
 
 // An action as Win顺 sends it.
@@ -714,6 +724,8 @@ inline Query onceQuery()
     q.keyword = env("WS_KEYWORD");
     q.text = env("WS_QUERY");
     q.raw = env("WS_TEXT");
+    if (const auto filters = Json::parse(env("WS_FILTERS")); filters && filters->isObject())
+        q.filters = *filters;
     if (const auto match = Json::parse(env("WS_MATCH"))) {
         for (const Json& group : match->toArray())
             q.match.push_back(group.toString());
@@ -875,6 +887,7 @@ private:
             q.keyword = params["keyword"].toString();
             q.text = params["text"].toString();
             q.raw = params["raw"].toString();
+            if (params["filters"].isObject()) q.filters = params["filters"];
             q.limit = static_cast<int>(params["limit"].toInt(200));
             for (const Json& group : params["match"].toArray())
                 q.match.push_back(group.toString());

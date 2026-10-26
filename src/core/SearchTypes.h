@@ -37,7 +37,7 @@ enum class StartList : std::uint8_t { Opened, Modified };
 // name). A size or a time not known comes last either way. By type, the
 // extension, then the name (#44: the launcher's own menu sorts by it; the
 // panel has no column for it).
-enum class SortKey : std::uint8_t { Rank, Name, Path, Size, Modified, Type };
+enum class SortKey : std::uint8_t { Rank, Name, Path, Size, Modified, Type, Created, Folder, Source };
 struct SortOrder {
     SortKey key = SortKey::Rank;
     bool descending = false;
@@ -131,6 +131,7 @@ struct SearchResult {
     // Files and folders: when last written, in seconds since 1970 (UTC);
     // 0 when not known.
     std::uint32_t modified = 0;
+    std::uint32_t created = 0;
     // A file's size in bytes (as the index has it: within a hundred-thousandth
     // past 16 MB, FileSize); -1 for a folder, or when not known.
     std::int64_t size = -1;

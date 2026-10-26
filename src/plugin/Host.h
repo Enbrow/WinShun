@@ -92,7 +92,7 @@ public:
     // A query: true when some plugin took it (queryTaken() for each, then
     // results() and the rest follow for `queryId`). Every earlier query is
     // cancelled. Plugins only answer in 全部.
-    bool query(const QString& text, Scope scope, std::uint64_t queryId);
+    bool query(const QString& text, Scope scope, std::uint64_t queryId, const QJsonObject& filters = {});
     void cancel(std::uint64_t queryId);
     void cancelAll();
     // An action on an item (one with no declarative open/copy, or any

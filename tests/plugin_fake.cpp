@@ -128,7 +128,7 @@ int onceMain()
         json::Value::Object data;
         data["argv"] = std::move(argv);
         for (const wchar_t* name : {L"WS_QUERY", L"WS_TEXT", L"WS_COMMAND", L"WS_TRIGGER", L"WS_KEYWORD", L"WS_MATCH", L"WS_PLUGIN_DIR",
-                 L"WS_DATA_DIR", L"WS_SETTINGS", L"WS_LOCALE", L"WS_THEME", L"WS_VERSION", L"PYTHONIOENCODING", L"FAKE_EXTRA"})
+                 L"WS_DATA_DIR", L"WS_SETTINGS", L"WS_FILTERS", L"WS_LOCALE", L"WS_THEME", L"WS_VERSION", L"PYTHONIOENCODING", L"FAKE_EXTRA"})
             data[lite::utf8(name)] = env(name);
         json::Value::Object one = item("env", "env", "");
         one["data"] = json::Value(std::move(data));
@@ -270,7 +270,8 @@ struct Server {
                 one["open"] = json::Value::Object {{"url", "https://example.com/?q=" + text}};
                 if (!text.empty() && text[0] == '#') // a colour (a regex trigger's push): shown as a swatch
                     one["icon"] = "color:" + text;
-                one["data"] = json::Value::Object {{"cancelled", cancelled}, {"settings", settings}, {"pid", static_cast<unsigned long>(::GetCurrentProcessId())}};
+                one["data"] = json::Value::Object {{"cancelled", cancelled}, {"settings", settings}, {"filters", params["filters"]},
+                    {"pid", static_cast<unsigned long>(::GetCurrentProcessId())}};
                 respond(id, json::Value::Object {{"items", json::Value::Array {json::Value(std::move(one))}}});
             } else if (method == "cancel") {
                 ++cancelled;

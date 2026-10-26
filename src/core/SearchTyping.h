@@ -101,6 +101,17 @@ inline constexpr bool explorerStarts(unsigned vk, bool press, bool combination, 
     return press && !combination && !elevated && focus == Focus::ItemsView && !isModifier(vk) && startsTyping(vk);
 }
 
+// Opus uses punctuation (>, /, *, +, -, ...), Space and shifted digits for
+// its own FAYT modes. Only letters and unshifted digits start our search;
+// once it opens, all normal typing goes to the launcher's input method.
+inline constexpr bool opusStarts(
+    unsigned vk, bool press, bool combination, bool shift, Focus focus, bool elevated) noexcept
+{
+    const bool text = (vk >= 'A' && vk <= 'Z')
+        || (!shift && ((vk >= '0' && vk <= '9') || (vk >= kVkNumpad0 && vk < kVkNumpad0 + 10)));
+    return press && !combination && !elevated && focus == Focus::ItemsView && text;
+}
+
 // The File Explorer window a key typed now counts in, or none: `front` is the
 // window really in front at the key (GetForegroundWindow), `seen` the Explorer
 // folder window that was in front at the last foreground event, `behind` one

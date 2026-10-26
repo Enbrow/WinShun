@@ -263,6 +263,7 @@ public:
     // Kept apart from the entries, which name searches go through: only the
     // matches have theirs looked at.
     FileTime modified(EntryId id) const noexcept { return m_times[id >> kChunkBits][id & (kChunkSize - 1)]; }
+    FileTime created(EntryId id) const noexcept { return m_created[id >> kChunkBits][id & (kChunkSize - 1)]; }
     // A file's size, packed (packSize); kUnknownSize for a folder, or a file
     // whose size was never read. Kept apart as the times are.
     FileSize size(EntryId id) const noexcept { return m_sizes[id >> kChunkBits][id & (kChunkSize - 1)]; }
@@ -316,6 +317,7 @@ public:
     bool move(EntryId id, EntryId newParent, std::string_view newName);
     void setFlags(EntryId id, std::uint8_t flags);
     void setModified(EntryId id, FileTime time) noexcept { m_times[id >> kChunkBits][id & (kChunkSize - 1)] = time; }
+    void setCreated(EntryId id, FileTime time) noexcept { m_created[id >> kChunkBits][id & (kChunkSize - 1)] = time; }
     void setSize(EntryId id, FileSize size) noexcept { m_sizes[id >> kChunkBits][id & (kChunkSize - 1)] = size; }
 
     // While interning is on, identical names share one copy (only a third of
@@ -458,6 +460,7 @@ private:
     mutable std::shared_mutex m_writerGate; // see longReadLock()
     std::vector<std::unique_ptr<Entry[]>> m_chunks;
     std::vector<std::unique_ptr<FileTime[]>> m_times; // parallel to m_chunks
+    std::vector<std::unique_ptr<FileTime[]>> m_created;
     std::vector<std::unique_ptr<FileSize[]>> m_sizes; // likewise; kUnknownSize until set
     std::vector<std::unique_ptr<char[]>> m_names;
     std::size_t m_count = 0;

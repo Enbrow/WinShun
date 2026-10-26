@@ -175,6 +175,7 @@ struct Host::Pending {
     QString keyword;
     QString text;
     QString raw;
+    QJsonObject filters;
     QStringList captures;
     int limit = kMaxItems;
     // Actions (once plugins start a process for them too).
@@ -640,7 +641,7 @@ void Host::onRunnerExited()
 
 // ---- queries ------------------------------------------------------------------
 
-bool Host::query(const QString& text, Scope scope, std::uint64_t queryId)
+bool Host::query(const QString& text, Scope scope, std::uint64_t queryId, const QJsonObject& filters)
 {
     cancelAll();
     if (scope != Scope::All)
@@ -667,6 +668,7 @@ bool Host::query(const QString& text, Scope scope, std::uint64_t queryId)
         q.keyword = m.keyword;
         q.text = m.text;
         q.raw = text;
+        q.filters = filters;
         q.captures = m.captures;
         q.limit = m.kind == Match::Kind::Push ? m.maxItems : kMaxItems;
         any = true;
@@ -765,6 +767,7 @@ Runner::Spec Host::specFor(Plugin& p, const Entry& e, RunKind kind, const Pendin
         spec.env.push_back({u"WS_COMMAND"_s, q->commandId});
         spec.env.push_back({u"WS_TEXT"_s, q->raw});
         spec.env.push_back({u"WS_QUERY"_s, q->text});
+        spec.env.push_back({u"WS_FILTERS"_s, QString::fromUtf8(QJsonDocument(q->filters).toJson(QJsonDocument::Compact))});
         spec.env.push_back({u"WS_TRIGGER"_s, QString::fromLatin1(kindName(q->kind))});
         if (!q->keyword.isEmpty())
             spec.env.push_back({u"WS_KEYWORD"_s, q->keyword});
@@ -938,6 +941,7 @@ void Host::sendQuery(Plugin& p, const Pending& q)
         params.insert(u"keyword"_s, q.keyword);
     if (!q.captures.isEmpty())
         params.insert(u"match"_s, QJsonArray::fromStringList(q.captures));
+    params.insert(u"filters"_s, q.filters);
     const QString id = p.id;
     const std::uint64_t queryId = q.queryId;
     const std::uint64_t requestId = p.session->request(u"query"_s, params, [this, id, queryId](const jsonrpc::Message& response) {

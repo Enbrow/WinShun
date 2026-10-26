@@ -1,4 +1,5 @@
 #include "SearchEngine.h"
+#include "ResultColumns.h"
 #include "Wsl.h"
 
 #include "AppCatalog.h"
@@ -58,6 +59,7 @@ public:
         bool isDir = false;
         std::uint32_t modified = 0; // seconds since 1970, UTC
         std::int64_t size = -1; // a file's bytes; -1 for a folder
+        FileTime created = 0;
     };
 
     RecentOnDisk() = default;
@@ -203,7 +205,8 @@ private:
                 const bool isDir = data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
                 item = Item {isDir,
                     static_cast<std::uint32_t>(std::clamp<qint64>(seconds, 0, std::numeric_limits<std::uint32_t>::max())),
-                    isDir ? -1 : static_cast<std::int64_t>((static_cast<std::uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow)};
+                    isDir ? -1 : static_cast<std::int64_t>((static_cast<std::uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow),
+                    knownTime(fileTimeOf(win32::ticks(data.ftCreationTime)))};
             } else if (canRead) {
                 // Not "the server is not there" (ERROR_BAD_NETPATH and the like), "access denied", "no disk".
                 const DWORD error = ::GetLastError();
@@ -401,6 +404,7 @@ SearchResult fromIndex(const FileIndex& index, EntryId id)
 {
     const Entry& e = index.entry(id);
     SearchResult r;
+    r.created = knownTime(index.created(id));
     r.name = wtf8::toQString(index.name(e));
     r.path = index.path(id);
     r.isDir = e.isDir();
@@ -421,6 +425,7 @@ SearchResult fromDisk(const QString& path, const RecentOnDisk::Item& item)
     r.isDir = item.isDir;
     r.recent = true;
     r.modified = item.modified;
+    r.created = item.created;
     r.size = item.size;
     return r;
 }
@@ -795,6 +800,10 @@ public:
         if (m_apart && a.isDir != b.isDir)
             return a.isDir == m_foldersFirst;
         switch (m_key) {
+        case SortKey::Created:
+        case SortKey::Folder:
+        case SortKey::Source:
+            return resultColumnLess(a, b, {m_key, m_descending});
         case SortKey::Modified: // a time not known last either way
             if (a.modified != b.modified && (a.modified == 0 || b.modified == 0))
                 return b.modified == 0;
@@ -1716,6 +1725,7 @@ void SearchEngine::runDriveWalk(const Job& job)
                 score += PreferredTypes::kBonus; // as a name search ranks the types listed first
             r.isDir = isDir;
             r.modified = knownTime(fileTimeOf(win32::ticks(fd.ftLastWriteTime)));
+            r.created = knownTime(fileTimeOf(win32::ticks(fd.ftCreationTime)));
             batch.push_back({std::move(r), score});
             if (++found >= request.limit)
                 break;
@@ -2021,12 +2031,16 @@ void SearchEngine::runContentSearch(const Job& job)
                     const Candidate& candidate = candidates[i];
                     bool gone = false;
                     FileTime modified = 0;
+                    FileTime created = 0;
+                    FileSize size = kUnknownSize;
                     {
                         const auto lock = index->readLock();
                         gone = index->entry(candidate.id).isDeleted();
                         if (!gone) {
                             path = index->wpath(candidate.id); // as it is now: it may have moved
                             modified = index->modified(candidate.id);
+                            created = index->created(candidate.id);
+                            size = index->size(candidate.id);
                         }
                     }
                     if (gone) {
@@ -2091,6 +2105,8 @@ void SearchEngine::runContentSearch(const Job& job)
                     r.path = QString::fromStdWString(path);
                     r.name = r.path.mid(r.path.lastIndexOf(u'\\') + 1);
                     r.modified = modified;
+                    r.created = knownTime(created);
+                    if (size != kUnknownSize) r.size = static_cast<std::int64_t>(unpackSize(size));
                     r.line = match->line;
                     if (document) {
                         switch (location.kind) {

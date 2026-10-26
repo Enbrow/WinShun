@@ -321,6 +321,7 @@ QList<OpusTab> opusTabs(const QByteArray& xml)
         OpusTab tab;
         const QXmlStreamAttributes attributes = reader.attributes();
         tab.lister = attributes.value(u"lister").toULongLong(nullptr, 16); // "0x6185e"
+        tab.tab = attributes.value(u"tab").toULongLong(nullptr, 16);
         tab.state = attributes.value(u"tab_state").toInt();
         tab.path = normalized(reader.readElementText().trimmed()); // not display_path: "C:\用户" for C:\Users
         if (!tab.path.isEmpty())

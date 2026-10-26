@@ -5,6 +5,7 @@
 #include "Favorites.h"
 #include "LauncherNavigation.h"
 #include "ResultModel.h"
+#include "PanelColumns.h"
 #include "SearchEngine.h"
 #include "SearchTypes.h"
 #include "WebShortcut.h"
@@ -50,6 +51,7 @@ class Launcher : public QObject {
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged FINAL)
     Q_PROPERTY(Scope scope READ scope WRITE setScope NOTIFY scopeChanged FINAL)
     Q_PROPERTY(ws::ResultModel* results READ results CONSTANT FINAL)
+    Q_PROPERTY(ws::PanelColumns* panelColumns READ panelColumns CONSTANT FINAL)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusChanged FINAL)
     Q_PROPERTY(bool busy READ busy NOTIFY statusChanged FINAL)
     // Scrolled to the end, there is more to list (loadMore()): names beyond
@@ -533,6 +535,7 @@ public:
 
     // The search panel (see the properties above).
     bool panel() const { return m_panel; }
+    PanelColumns* panelColumns() { return &m_columns; }
     void setPanel(bool on); // by the app, the window sized for it (App::setPanel)
     Q_INVOKABLE void togglePanel(); // panelToggleRequested: the app does it
     bool pinned() const { return m_pinned; }
@@ -624,6 +627,7 @@ signals:
     void folderNoteDismissed(); // 不再提示
     void filtersChanged();
     void panelSortChanged();
+    void panelRowRestored(int index);
 
 private:
     class ModelSink; // the result model as plugin::Merge sees it
@@ -671,6 +675,8 @@ private:
     // and what of the panel the rows are for (as m_shownText is): the
     // filters, the order, and whether nothing typed lists everything.
     EntryFilter panelFilter() const;
+    QJsonObject pluginFilters() const;
+    void sortShownPanel(const QString& currentPath = {});
     QString panelKey() const;
     bool showsStartList() const; // nothing typed, and a list for it
     QString contentNeedle() const;
@@ -864,6 +870,7 @@ private:
 
     // The search panel (see the properties).
     bool m_panel = false;
+    PanelColumns m_columns;
     bool m_pinned = false;
     int m_dateChoice = 0;
     QString m_dateFrom;

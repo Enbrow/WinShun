@@ -104,6 +104,7 @@ struct OpusTab {
     // 1: the tab in front on the side with the focus; 2: the one in front
     // on the other side (two file displays); 0: a tab behind.
     int state = 0;
+    quintptr tab = 0; // the file-display container HWND, parent of the focused file display in a dual lister
 };
 QList<OpusTab> opusTabs(const QByteArray& xml);
 

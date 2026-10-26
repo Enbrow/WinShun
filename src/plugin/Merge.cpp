@@ -119,6 +119,9 @@ SearchResult toRow(const Entry& entry, const Command& command, const Item& item,
 
     SearchResult r;
     r.name = item.title;
+    r.modified = item.modified;
+    r.created = item.created;
+    r.size = item.size;
     r.path = pluginPath(entry.id, command.id, p->itemId);
     r.app = AppKind::Plugin;
     r.score = item.score;

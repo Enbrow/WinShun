@@ -195,6 +195,7 @@ OnDisk onDisk(const std::wstring& path)
         d.probe.attributes = fd.dwFileAttributes;
         d.probe.reparseTag = fd.dwReserved0;
         d.probe.modified = fileTimeOf(win32::ticks(fd.ftLastWriteTime));
+        d.probe.created = fileTimeOf(win32::ticks(fd.ftCreationTime));
         d.name = fd.cFileName;
     }
     if (d.name.empty())
@@ -1183,7 +1184,7 @@ void IndexService::run(std::stop_token stop, Pass pass)
                 loaded.compact(false, [&](const FileIndex::Renumber& renumber) { m_content->remap(renumber); });
             m_index.store(std::shared_ptr<FileIndex>(std::move(contents->index)));
             snapshotRules = std::move(contents->rules);
-            timesMissing = !contents->times;
+            timesMissing = !contents->times || !contents->created;
             fromSnapshot = true;
             // GitHub #52: what of it the chosen folders are, and how each stood.
             // Not known (none, or written with another snapshot): all of them
@@ -1708,6 +1709,7 @@ std::vector<std::wstring> IndexService::prepareScope(
                             | (index->entry(parent).flags & EntryFlag::Inherited) | crawler.dirPriorityFlags(folder, d.name));
                         e = index->add(parent, utf8, flags);
                         index->setModified(e, d.probe.modified);
+                        index->setCreated(e, d.probe.created);
                     }
                     if (k + 1 < c.steps.size())
                         through.push_back(e);

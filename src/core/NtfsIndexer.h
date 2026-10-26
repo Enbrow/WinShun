@@ -41,6 +41,7 @@ private:
         std::uint8_t flags; // EntryFlag: Directory, Hidden, Offline
         FileTime modified;
         FileSize size; // files: packed; kUnknownSize when the record did not say
+        FileTime created = 0;
     };
     struct Folder {
         Name name;

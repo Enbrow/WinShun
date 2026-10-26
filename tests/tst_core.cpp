@@ -996,6 +996,7 @@ private slots:
         QCOMPARE(tabs[0].state, 0);
         QCOMPARE(tabs[1].path, u"C:\\Users\\me\\A & B"_s); // the real path, not the display one
         QCOMPARE(tabs[1].state, 1);
+        QCOMPARE(tabs[1].tab, quintptr(0x518c0)); // the actual pane, not just the active lister
         QCOMPARE(tabs[2].state, 2);
         QCOMPARE(tabs[3].lister, quintptr(0x7f00a));
         QVERIFY(pathtext::opusTabs("<results command=\"paths\" result=\"0\"/>").isEmpty());
@@ -1975,6 +1976,14 @@ private slots:
         };
         const NameMatcher everything(ws::parseQuery(u""_s)); // the panel with nothing typed (browse)
         const NameMatcher txt(ws::parseQuery(u"ext:txt"_s));
+
+        index.setCreated(ids[0], t0 + 2 * day);
+        index.setCreated(ids[1], t0 + 3 * day);
+        index.setCreated(ids[2], t0 + day);
+        const auto created = searchNames(index, txt, {.limit = 2, .order = {SortKey::Created, true}}, pool, {});
+        QCOMPARE(names(created), (QStringList {u"b.txt"_s, u"a.txt"_s}));
+        const auto oldestCreated = searchNames(index, txt, {.limit = 3, .order = {SortKey::Created, false}}, pool, {});
+        QCOMPARE(names(oldestCreated), (QStringList {u"c.txt"_s, u"a.txt"_s, u"b.txt"_s}));
 
         NameSearchOptions o;
         o.limit = 100;
@@ -3834,6 +3843,7 @@ private slots:
         t.index.remove(gone);
         // Up and down from one entry to the next (zigzag), and the largest.
         t.index.setModified(t.report, 1'700'000'123);
+        t.index.setCreated(t.report, 1'600'000'456);
         t.index.setModified(t.windows, 0xFFFF'FFFF);
         t.index.setModified(t.docs, 5);
         t.index.setSize(t.report, packSize(123'456));
@@ -3854,6 +3864,8 @@ private slots:
         QCOMPARE(loaded->path(report), u"C:\\Users\\me\\Documents\\Report.docx"_s);
         QVERIFY(contents->times);
         QCOMPARE(loaded->modified(report), FileTime {1'700'000'123});
+        QVERIFY(contents->created);
+        QCOMPARE(loaded->created(report), FileTime {1'600'000'456});
         QCOMPARE(loaded->modified(loaded->findPath(L"C:\\Windows")), FileTime {0xFFFF'FFFF});
         QCOMPARE(loaded->modified(loaded->findPath(L"C:\\Users\\me\\Documents")), FileTime {5});
         QCOMPARE(loaded->modified(loaded->findPath(L"C:\\Users")), FileTime {0});
@@ -4738,6 +4750,7 @@ private slots:
         std::vector<std::byte> folderBytes = b.finish();
         ntfs::FileRecord folder;
         QVERIFY(ntfs::parseFileRecord(folderBytes.data(), folderBytes.size(), folder));
+        folder.created = 0x01DC'0000'1234'5678ll;
         RecordBuilder unused(0x0000);
         unused.fileName(5, u"deleted.txt", 1);
         std::vector<std::byte> freeBytes = unused.finish();
@@ -4784,12 +4797,14 @@ private slots:
         QCOMPARE(out.baseRecord, 0u);
         QCOMPARE(out.attributes, std::uint32_t {FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_ARCHIVE});
         QCOMPARE(out.modified, folder.modified);
+        QCOMPARE(out.created, folder.created);
         QCOMPARE(out.names.size(), std::size_t {2});
         QCOMPARE(out.names[0].parent, 0x0002'0000'0000'04D2ull);
         QCOMPARE(std::u16string(out.names[0].name), std::u16string(u"Long name 中文"));
         QCOMPARE(std::u16string(out.names[1].name), longName);
         QVERIFY(br.record(1, out));
         QVERIFY(!out.inUse && out.names.empty());
+        QCOMPARE(out.created, std::int64_t {0});
         QVERIFY(!br.record(2, out));
         QVERIFY(br.record(3, out));
         QVERIFY(out.inUse);
@@ -4814,6 +4829,18 @@ private slots:
         QVERIFY(oldReader.record(0, out));
         QVERIFY(out.inUse && !out.sizeKnown && out.size == 0);
         QCOMPARE(std::u16string(out.names[0].name), std::u16string(u"data.bin"));
+
+        // Minor 2 keeps file sizes, without the new creation-time column.
+        BlockWriter versionTwo;
+        versionTwo.begin(1000, true, false);
+        versionTwo.add(folder, true);
+        const auto versionTwoFrame = versionTwo.finish(1);
+        std::vector<std::byte> versionTwoPayload(versionTwoFrame.begin() + Writer::kHeaderBytes, versionTwoFrame.end());
+        BlockReader versionTwoReader;
+        QVERIFY(versionTwoReader.load(std::move(versionTwoPayload), true, false));
+        QVERIFY(versionTwoReader.record(0, out));
+        QCOMPARE(out.created, std::int64_t {0});
+        QCOMPARE(out.modified, folder.modified);
 
         // Mangled: each refused whole, and the reader keeps nothing.
         const auto refused = [&](std::vector<std::byte> bad, const char* what) {
@@ -9447,6 +9474,25 @@ private slots:
             d.leftDown(0xFFFFFF00u, 100, 100, view, false);
             QVERIFY(d.leftDown(0x00000010u, 100, 100, view, false));
         }
+    }
+
+    // Opus keeps its punctuation-led FAYT modes and all editor input.
+    void opusSearchTyping()
+    {
+        using namespace searchtyping;
+        for (const unsigned key : {'A', 'Z', '0', '9'})
+            QVERIFY(opusStarts(key, true, false, false, Focus::ItemsView, false));
+        QVERIFY(opusStarts('A', true, false, true, Focus::ItemsView, false)); // uppercase/pinyin
+        QVERIFY(opusStarts(kVkNumpad0, true, false, false, Focus::ItemsView, false));
+        for (const unsigned key : {kVkSpace, kVkBack, kVkReturn, kVkEscape, kVkTab, kVkLeft, kVkDelete, kVkF1,
+                 kVkF1 + 1, kVkOem1, kVkOem3, kVkOem4, kVkDivide, kVkNumpad0 + 10})
+            QVERIFY(!opusStarts(key, true, false, false, Focus::ItemsView, false));
+        QVERIFY(!opusStarts('3', true, false, true, Focus::ItemsView, false)); // # is Opus's range mode
+        QVERIFY(!opusStarts('A', false, false, false, Focus::ItemsView, false));
+        QVERIFY(!opusStarts('A', true, true, false, Focus::ItemsView, false)); // Ctrl/Alt/Win shortcuts
+        QVERIFY(!opusStarts('A', true, false, false, Focus::Menu, false));
+        QVERIFY(!opusStarts('A', true, false, false, Focus::Other, false)); // rename/path/FAYT field
+        QVERIFY(!opusStarts('A', true, false, false, Focus::ItemsView, true));
     }
 
     // Typing in a File Explorer folder window: which keys, where the focus

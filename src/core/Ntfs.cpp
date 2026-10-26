@@ -172,6 +172,7 @@ bool parseFileRecord(std::byte* data, std::size_t size, FileRecord& out)
     out.baseRecord = 0;
     out.attributes = 0;
     out.modified = 0;
+    out.created = 0;
     out.hasAttributeList = false;
     out.size = 0;
     out.sizeKnown = false;
@@ -208,6 +209,7 @@ bool parseFileRecord(std::byte* data, std::size_t size, FileRecord& out)
         if (type == kStandardInformation && value.size() >= 0x24) {
             out.attributes = load<std::uint32_t>(value.data() + 0x20);
             out.modified = load<std::int64_t>(value.data() + 0x08);
+            out.created = load<std::int64_t>(value.data());
         } else if (type == kFileName && value.size() >= 0x42) {
             const auto nameLength = static_cast<std::uint8_t>(value[0x40]);
             const auto nameSpace = static_cast<std::uint8_t>(value[0x41]);

@@ -32,17 +32,22 @@ Item {
     required property bool selected
     required property string size // "1.2 MB"; empty for a folder, an app, or not known
     required property string modifiedDate // "2026-10-14 14:32"; empty when not known
+    required property string createdDate
+    required property string typeName
+    required property string folderName
     required property bool offline
     required property bool missing
     required property bool favorite
     required property bool recent
     // Where the columns start and how wide they are (Panel.qml's header).
-    property real nameX: 12
-    property real pathX: 300
-    property real sizeX: 600
-    property real dateX: 700
-    property real sizeWidth: 90
-    property real dateWidth: 140
+    property var columns: []
+    property var columnLayout: ({})
+    function columnX(id) { return columnLayout[id] ? columnLayout[id].x + 12 : 0 }
+    function columnWidth(id) { return columnLayout[id] ? columnLayout[id].width - 24 : 0 }
+    readonly property real nameX: columnX("name")
+    readonly property real pathX: columnX("path")
+    readonly property real nameWidth: columnWidth("name")
+    readonly property real pathWidth: columnWidth("path")
     property NameTip nameTip: null // the window's tip for a name or folder cut short
 
     readonly property bool contentMode: line > 0
@@ -63,10 +68,11 @@ Item {
         return shown.split("…").length > whole.split("…").length
     }
     readonly property bool nameCut: title.truncated || cut(title.text, name)
-    readonly property bool folderCut: contentMode ? folder.length > 0
-                                    : folderText.truncated || (folderText.marked && cut(folderText.text, folder))
+    readonly property bool folderCut: pathWidth > 0 && (contentMode ? folder.length > 0
+                                    : folderText.truncated || (folderText.marked && cut(folderText.text, folder)))
     readonly property bool wantsTip: nameTip !== null && (nameCut || folderCut) && area.containsMouse && !area.pressed
-                                     && area.mouseX < sizeX
+                                     && ((area.mouseX >= nameX && area.mouseX < nameX + nameWidth)
+                                         || (area.mouseX >= pathX && area.mouseX < pathX + pathWidth))
     onWantsTipChanged: offerTip()
     function offerTip() {
         if (!nameTip)
@@ -129,7 +135,7 @@ Item {
     Text { // the name, shortened around its matches
         id: title
         x: row.nameX + 28
-        width: Math.max(0, row.pathX - 12 - x)
+        width: Math.max(0, row.nameWidth - 28)
         y: row.onPixel((row.height - height) / 2)
         opacity: row.offline || row.missing ? 0.6 : 1
         text: row.results && !row.isApp // the end kept, matches or none (see ResultRow)
@@ -145,8 +151,9 @@ Item {
     Text { // the folder (or the matching line; an app's origin), its matches in sight
         id: folderText
         readonly property bool marked: !row.contentMode && row.folderMatches.length > 0 && row.results !== null
+        visible: row.pathWidth > 0
         x: row.pathX
-        width: Math.max(0, row.sizeX - 12 - x)
+        width: Math.max(0, row.pathWidth)
         y: row.onPixel((row.height - height) / 2)
         text: row.contentMode ? row.snippetHtml
             : marked ? row.results.elidedHtml(row.folder, row.folderMatches, width, font, row.results.highlightColor)
@@ -158,29 +165,35 @@ Item {
         font.pixelSize: Theme.uiBody
     }
 
-    Text { // the size, right-aligned under its header; a tag instead for an app, a place, a plugin's row
-        x: row.sizeX
-        width: row.sizeWidth
-        y: row.onPixel((row.height - height) / 2)
-        horizontalAlignment: Text.AlignRight
-        text: row.contentMode ? row.location
-            : row.isApp ? (row.plugin ? row.source : row.web ? qsTr("网页") : row.place ? qsTr("系统") : qsTr("应用"))
-            : row.offline ? qsTr("离线") : row.missing ? qsTr("已不存在") : row.size
-        textFormat: Text.PlainText
-        elide: Text.ElideRight
-        color: row.isApp && !row.contentMode ? Theme.accent : Theme.subtext
-        font.pixelSize: Theme.uiBody
-    }
-
-    Text { // when last written
-        x: row.dateX
-        width: row.dateWidth
-        y: row.onPixel((row.height - height) / 2)
-        text: row.modifiedDate
-        textFormat: Text.PlainText
-        elide: Text.ElideRight
-        color: Theme.subtext
-        font.pixelSize: Theme.uiBody
+    Repeater {
+        model: row.columns
+        delegate: Text {
+            required property var modelData
+            readonly property string columnId: modelData.id
+            visible: columnId !== "name" && columnId !== "path"
+            x: row.columnX(columnId)
+            width: Math.max(0, row.columnWidth(columnId))
+            y: row.onPixel((row.height - height) / 2)
+            horizontalAlignment: columnId === "size" ? Text.AlignRight : Text.AlignLeft
+            text: {
+                switch (columnId) {
+                case "size":
+                    return row.plugin ? row.size
+                        : row.contentMode ? row.location : row.isApp ? ""
+                        : row.offline ? qsTr("离线") : row.missing ? qsTr("已不存在") : row.size
+                case "modified": return row.modifiedDate
+                case "created": return row.createdDate
+                case "type": return row.typeName
+                case "folder": return row.folderName
+                case "source": return row.source
+                default: return ""
+                }
+            }
+            textFormat: Text.PlainText
+            elide: Text.ElideRight
+            color: Theme.subtext
+            font.pixelSize: Theme.uiBody
+        }
     }
 
     MouseArea {

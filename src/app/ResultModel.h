@@ -60,6 +60,9 @@ public:
         ModifiedFullRole, // the same in full, for its tip
         ModifiedDateRole, // the panel's column: "2026-10-14 14:32"; empty when not known
         SizeRole, // a file's size, briefly: "1.2 MB"; empty for a folder, an app, or when not known
+        CreatedDateRole,
+        TypeNameRole,
+        FolderNameRole,
         OfflineRole, // on a network share that cannot be reached now
         PluginRole, // a plugin's row (SearchResult::plugin)
         SourceRole, // ... the plugin's name, for its badge; empty otherwise

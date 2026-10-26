@@ -1,6 +1,8 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls.Basic
+import QtQml.Models
 import WinShun
 
 // The launcher grown into the search panel (Launcher.panel; the forum's
@@ -31,14 +33,55 @@ Item {
     signal rowDragRequested(int index)
 
     readonly property int sidebarWidth: 290
-    // The columns, from the list's left: the name has half of what the size
-    // and the time leave, the path the other half.
-    readonly property real nameX: 12
-    readonly property real sizeWidth: 100
-    readonly property real dateWidth: 152
-    readonly property real dateX: list.width - 12 - dateWidth
-    readonly property real sizeX: dateX - 10 - sizeWidth
-    readonly property real pathX: nameX + 28 + Math.round((sizeX - 12 - nameX - 28) * 0.5)
+    readonly property var columnSpecs: launcher.panelColumns.visibleColumns
+    property string resizingColumn: ""
+    property real resizingWidth: 0
+    readonly property var columnLayout: {
+        const layout = {}
+        let x = 0
+        for (const column of columnSpecs) {
+            const width = column.id === resizingColumn ? resizingWidth : column.width
+            layout[column.id] = { x: x, width: width }
+            x += width
+        }
+        return layout
+    }
+    readonly property real columnsWidth: {
+        let width = 0
+        for (const column of columnSpecs)
+            width += columnLayout[column.id] ? columnLayout[column.id].width : column.width
+        return width
+    }
+    function columnX(id) { return columnLayout[id] ? columnLayout[id].x : 0 }
+    function columnWidth(id) { return columnLayout[id] ? columnLayout[id].width : 0 }
+    function openColumns(globalPos) { columnMenu.popup(panel, panel.mapFromGlobal(globalPos)) }
+
+    Menu {
+        id: columnMenu
+        objectName: "panelColumnsMenu"
+        popupType: Popup.Window
+        font.pixelSize: Theme.uiBody
+        palette.windowText: Theme.text
+        palette.text: Theme.text
+        palette.highlight: Theme.selection
+        palette.highlightedText: Theme.text
+        background: Rectangle { color: Theme.menuBackground; radius: Theme.controlRadius; border.color: Theme.divider }
+        Instantiator {
+            model: panel.launcher.panelColumns.availableColumns
+            delegate: MenuItem {
+                required property var modelData
+                text: modelData.title
+                checkable: true
+                checked: modelData.visible
+                enabled: modelData.id !== "name"
+                onTriggered: panel.launcher.panelColumns.toggle(modelData.id)
+            }
+            onObjectAdded: (index, object) => columnMenu.insertItem(index, object)
+            onObjectRemoved: (index, object) => columnMenu.removeItem(object)
+        }
+        MenuSeparator {}
+        MenuItem { text: qsTr("恢复默认列"); onTriggered: panel.launcher.panelColumns.reset() }
+    }
 
     function onPixel(v) { return Math.round(v * Screen.devicePixelRatio) / Screen.devicePixelRatio }
 
@@ -451,12 +494,25 @@ Item {
 
         property string text
         property int key // ws::SortKey
+        property string columnId
+        property int columnIndex
+        property int minimumWidth: 72
         property bool alignRight: false
         readonly property bool active: panel.launcher.panelSortKey === key
 
         height: parent.height
         Accessible.role: Accessible.Button
         Accessible.name: text
+        activeFocusOnTab: true
+        Keys.onSpacePressed: panel.launcher.sortBy(key)
+        Keys.onReturnPressed: panel.launcher.sortBy(key)
+        Keys.onMenuPressed: panel.openColumns(mapToGlobal(0, height))
+        Keys.onPressed: (event) => {
+            if (event.key === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier)) {
+                panel.openColumns(mapToGlobal(0, height))
+                event.accepted = true
+            }
+        }
 
         Rectangle {
             anchors.fill: parent
@@ -465,7 +521,9 @@ Item {
             anchors.leftMargin: -4 // the text sits on the column line, as the rows' text; the hover reaches past it
             anchors.rightMargin: -4
             radius: Theme.controlRadius
-            color: headerArea.containsMouse ? Theme.hover : "transparent"
+            color: headerArea.dragging ? Theme.selection : headerArea.containsMouse ? Theme.hover : "transparent"
+            border.width: header.activeFocus ? 1 : 0
+            border.color: Theme.accent
         }
         Text {
             id: headerText
@@ -492,7 +550,71 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: panel.launcher.sortBy(header.key)
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            property real pressedX: 0
+            property bool dragging: false
+            property int moveTo: -1
+            onPressed: (mouse) => {
+                pressedX = mapToGlobal(mouse.x, mouse.y).x
+                dragging = false
+                moveTo = header.columnIndex
+            }
+            onPositionChanged: (mouse) => {
+                if (!pressed || !(mouse.buttons & Qt.LeftButton))
+                    return
+                if (Math.abs(mapToGlobal(mouse.x, mouse.y).x - pressedX) > Application.styleHints.startDragDistance)
+                    dragging = true
+                if (dragging) {
+                    const at = mapToItem(columns, mouse.x, mouse.y).x + list.contentX
+                    let target = 0
+                    for (let i = 0; i < panel.columnSpecs.length; ++i) {
+                        const column = panel.columnSpecs[i]
+                        if (at >= panel.columnX(column.id) + panel.columnWidth(column.id) / 2)
+                            target = i
+                    }
+                    moveTo = target
+                }
+            }
+            onReleased: {
+                if (dragging)
+                    panel.launcher.panelColumns.move(header.columnIndex, moveTo)
+            }
+            onClicked: (mouse) => {
+                if (mouse.button === Qt.RightButton)
+                    panel.openColumns(mapToGlobal(mouse.x, mouse.y))
+                else if (!dragging)
+                    panel.launcher.sortBy(header.key)
+            }
+        }
+        HoverTip {
+            target: headerArea.containsMouse && !headerArea.pressed ? header : null
+            delay: 900
+            text: qsTr("右键选择列；拖动表头调整顺序，拖动分隔线调整宽度")
+        }
+        MouseArea {
+            objectName: "columnResize-" + header.columnId
+            x: parent.width + 8
+            width: 8
+            height: parent.height
+            cursorShape: Qt.SizeHorCursor
+            property real startX: 0
+            property real startWidth: 0
+            onPressed: (mouse) => {
+                startX = mapToGlobal(mouse.x, mouse.y).x
+                startWidth = panel.columnWidth(header.columnId)
+                panel.resizingWidth = startWidth
+                panel.resizingColumn = header.columnId
+            }
+            onPositionChanged: (mouse) => {
+                if (pressed)
+                    panel.resizingWidth = Math.max(header.minimumWidth, Math.min(2000, startWidth + mapToGlobal(mouse.x, mouse.y).x - startX))
+            }
+            onReleased: {
+                const width = panel.resizingWidth
+                panel.resizingColumn = ""
+                panel.launcher.panelColumns.resize(header.columnId, width)
+            }
+            onCanceled: panel.resizingColumn = ""
         }
     }
 
@@ -503,11 +625,24 @@ Item {
         anchors.right: parent.right
         anchors.top: topDivider.bottom
         height: Theme.labelRowHeight + 8
+        clip: true
 
-        Header { x: panel.nameX; width: panel.pathX - 12 - x; text: qsTr("名称"); key: 1 }
-        Header { x: panel.pathX; width: panel.sizeX - 12 - x; text: qsTr("路径"); key: 2 }
-        Header { x: panel.sizeX; width: panel.sizeWidth; text: qsTr("大小"); key: 3; alignRight: true }
-        Header { x: panel.dateX; width: panel.dateWidth; text: qsTr("修改时间"); key: 4 }
+        Repeater {
+            model: panel.columnSpecs
+            delegate: Header {
+                required property var modelData
+                required property int index
+                objectName: "columnHeader-" + modelData.id
+                x: panel.columnX(modelData.id) + 12 - list.contentX
+                width: panel.columnWidth(modelData.id) - 24
+                text: modelData.title
+                key: modelData.sort
+                columnId: modelData.id
+                columnIndex: index
+                minimumWidth: modelData.minimum
+                alignRight: modelData.id === "size"
+            }
+        }
 
         Rectangle {
             anchors.bottom: parent.bottom
@@ -520,13 +655,14 @@ Item {
 
     ListView {
         id: list
+        objectName: "panelResultList"
         anchors.left: sidebar.right
         anchors.leftMargin: 1
         anchors.right: parent.right
         anchors.top: columns.bottom
         anchors.bottom: footer.top
         topMargin: 4
-        bottomMargin: 4
+        bottomMargin: horizontalScroll.visible ? 14 : 4
         clip: true
         opacity: panel.dimmed ? 0.45 : 1
         Behavior on opacity { NumberAnimation { duration: 150 } }
@@ -534,6 +670,14 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         highlightMoveDuration: 0
         reuseItems: true
+        contentWidth: Math.max(width, panel.columnsWidth)
+        flickableDirection: Flickable.AutoFlickIfNeeded
+        ScrollBar.horizontal: ScrollBar {
+            id: horizontalScroll
+            policy: ScrollBar.AsNeeded
+            height: 8
+            contentItem: Rectangle { implicitHeight: 6; radius: Theme.pillRadius(height); color: Theme.faint }
+        }
         function stopScrolling() {
             wheelScroll.cancel()
             cancelFlick()
@@ -559,18 +703,15 @@ Item {
         Connections {
             target: panel.launcher
             function onStatusChanged() { Qt.callLater(list.loadMoreAtEnd) }
+            function onPanelRowRestored(index) { if (index >= 0) list.currentIndex = index }
         }
 
         delegate: PanelRow {
             id: panelRow
-            width: list.width
+            width: list.contentWidth
             height: panel.rowHeight
-            nameX: panel.nameX
-            pathX: panel.pathX
-            sizeX: panel.sizeX
-            dateX: panel.dateX
-            sizeWidth: panel.sizeWidth
-            dateWidth: panel.dateWidth
+            columns: panel.columnSpecs
+            columnLayout: panel.columnLayout
             nameTip: panel.nameTip
             // On whole device pixels, as the box's rows (see Main.qml).
             transform: ScrollPixelAlignment {

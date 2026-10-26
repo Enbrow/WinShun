@@ -137,10 +137,11 @@ bool ask(Channel& channel, std::span<const std::byte> request, Type wanted, std:
 
 class PipeRecordSource final : public RecordSource {
 public:
-    PipeRecordSource(Channel&& channel, const MftInfo& info, bool withSizes)
+    PipeRecordSource(Channel&& channel, const MftInfo& info, bool withSizes, bool withCreated)
         : m_channel(std::move(channel))
         , m_info(info)
         , m_withSizes(withSizes)
+        , m_withCreated(withCreated)
     {
     }
     explicit PipeRecordSource(std::wstring error)
@@ -166,7 +167,7 @@ public:
         }
         switch (type) {
         case Type::MftBlock:
-            if (!m_block.load(std::move(payload), m_withSizes)) {
+            if (!m_block.load(std::move(payload), m_withSizes, m_withCreated)) {
                 m_error = L"the index service sent a malformed block";
                 return false;
             }
@@ -203,6 +204,7 @@ private:
     std::wstring m_error;
     bool m_done = false;
     bool m_withSizes = false; // the service speaks minor 2: its records carry sizes
+    bool m_withCreated = false;
 };
 
 // ---- a journal followed -------------------------------------------------------------
@@ -719,7 +721,7 @@ std::unique_ptr<RecordSource> ServiceVolumeAccess::openMft(std::wstring_view roo
             error = L"the index service sent a malformed MftInfo";
         return std::make_unique<PipeRecordSource>(std::move(error));
     }
-    return std::make_unique<PipeRecordSource>(std::move(*channel), info, minor >= kMinorSizes);
+    return std::make_unique<PipeRecordSource>(std::move(*channel), info, minor >= kMinorSizes, minor >= kMinorCreated);
 }
 
 std::optional<JournalInfo> ServiceVolumeAccess::queryJournal(std::wstring_view root, std::uint32_t serial)

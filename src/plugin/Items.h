@@ -12,6 +12,7 @@
 #include <QJsonValue>
 #include <QList>
 #include <QString>
+#include <cstdint>
 
 namespace ws::plugin {
 
@@ -41,6 +42,9 @@ struct Item {
     QString id;
     QString title;
     QString subtitle;
+    std::uint32_t modified = 0; // Unix seconds (0: not supplied)
+    std::uint32_t created = 0;
+    qint64 size = -1; // bytes (-1: not supplied)
     IconSpec icon;
     int score = 50; // 0–100
     bool hasScore = false;

@@ -249,7 +249,7 @@ std::uint32_t recordNumber(LARGE_INTEGER fileId) noexcept
 } // namespace
 
 void Crawler::addToListing(DirListing& out, const Root& dir, std::string_view name, std::wstring_view wideName,
-    std::uint8_t flags, bool descend, std::uint32_t record, FileTime modified, FileSize size) const
+    std::uint8_t flags, bool descend, std::uint32_t record, FileTime modified, FileSize size, FileTime created) const
 {
     flags |= dir.inheritedFlags;
     if (flags & EntryFlag::Directory) {
@@ -271,7 +271,7 @@ void Crawler::addToListing(DirListing& out, const Root& dir, std::string_view na
         out.wideNames.append(wideName);
     out.items.push_back({offset, length, flags, descend, wideOffset,
         static_cast<std::uint32_t>(out.wideNames.size() - wideOffset), record, modified,
-        flags & EntryFlag::Directory ? kUnknownSize : size});
+        flags & EntryFlag::Directory ? kUnknownSize : size, created});
 }
 
 // Returns false when the directory could not be read (access denied, gone):
@@ -303,7 +303,8 @@ bool Crawler::listDirectory(const Root& dir, DirListing& out) const
                 // For reparse points, EaSize holds the reparse tag.
                 addToListing(out, dir, {}, name, attributeFlags(info->FileAttributes),
                     shouldDescend(info->FileAttributes, info->EaSize), recordNumber(info->FileId),
-                    fileTimeOf(info->LastWriteTime.QuadPart), packSize(static_cast<std::uint64_t>(info->EndOfFile.QuadPart)));
+                    fileTimeOf(info->LastWriteTime.QuadPart), packSize(static_cast<std::uint64_t>(info->EndOfFile.QuadPart)),
+                    fileTimeOf(info->CreationTime.QuadPart));
             }
             if (info->NextEntryOffset == 0)
                 break;
@@ -432,6 +433,7 @@ void reconcile(FileIndex& index, const Crawler::Root& dir, const DirListing& lis
         if (id == kNoEntry)
             id = index.add(dir.id, name, item.flags);
         index.setModified(id, item.modified);
+        index.setCreated(id, item.created);
         if (!isDir && item.size != kUnknownSize)
             index.setSize(id, item.size); // not known here (an old service): what the index has stays
         if (isDir && dir.volume != kNoEntry && item.record != 0)
@@ -532,6 +534,7 @@ PathProbe probePath(const std::wstring& path)
         p.attributes = fd.dwFileAttributes;
         p.reparseTag = fd.dwReserved0;
         p.modified = fileTimeOf(win32::ticks(fd.ftLastWriteTime));
+        p.created = fileTimeOf(win32::ticks(fd.ftCreationTime));
         if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
             p.size = packSize((static_cast<std::uint64_t>(fd.nFileSizeHigh) << 32) | fd.nFileSizeLow);
     }
@@ -605,6 +608,7 @@ void applyChanges(FileIndex& index, const std::vector<FsChange>& changes, const 
                     flags |= crawler.dirPriorityFlags(path, name);
                 const EntryId id = index.add(parent, utf8, flags);
                 index.setModified(id, p.modified);
+                index.setCreated(id, p.created);
                 index.setSize(id, p.size);
                 if (Crawler::shouldDescend(p.attributes, p.reparseTag))
                     newDirs.push_back({id, path, static_cast<std::uint8_t>(flags & EntryFlag::Inherited)});

@@ -68,7 +68,10 @@ function New-WinShunItem {
         $Data,
         [array] $Actions,
         [switch] $Invalid,
-        [string] $Match
+        [string] $Match,
+        $Modified,
+        $Created,
+        [long] $Size = -1
     )
     $row = [ordered]@{ id = $Id; title = $Title }
     if ($Subtitle) { $row.subtitle = $Subtitle }
@@ -82,6 +85,9 @@ function New-WinShunItem {
     if ($Actions) { $row.actions = @($Actions) }
     if ($Invalid) { $row.valid = $false }
     if ($Match) { $row.match = $Match }
+    if ($null -ne $Modified) { $row.modified = $Modified }
+    if ($null -ne $Created) { $row.created = $Created }
+    if ($Size -ge 0) { $row.size = $Size }
     $row
 }
 
@@ -116,10 +122,13 @@ function Get-WinShunQuery {
     <# The query a once plugin was started for (the WS_* environment): text, raw, command, trigger, keyword, match. #>
     $match = @()
     if ($env:WS_MATCH) { try { $match = @(ConvertFrom-Json $env:WS_MATCH) } catch { } }
+    $filters = [pscustomobject]@{}
+    if ($env:WS_FILTERS) { try { $filters = ConvertFrom-Json $env:WS_FILTERS } catch { } }
     [pscustomobject]@{
         text = [string]$env:WS_QUERY; raw = [string]$env:WS_TEXT; command = [string]$env:WS_COMMAND
         trigger = if ($env:WS_TRIGGER) { $env:WS_TRIGGER } else { 'keyword' }
         keyword = [string]$env:WS_KEYWORD; match = $match
+        filters = $filters
     }
 }
 
@@ -264,6 +273,7 @@ function Start-WinShunPlugin {
                     text = [string]$params.text; raw = [string]$params.raw; command = [string]$params.command
                     trigger = [string]$params.trigger; keyword = [string]$params.keyword
                     match = @($params.match); queryId = $params.queryId; limit = if ($params.limit) { $params.limit } else { 200 }
+                    filters = if ($params.filters) { $params.filters } else { [pscustomobject]@{} }
                 }
                 try {
                     $result = & $OnQuery $q $plugin
